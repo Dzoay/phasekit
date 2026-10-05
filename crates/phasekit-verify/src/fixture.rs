@@ -118,7 +118,8 @@ pub enum CheckError {
         /// Column asked for.
         column: String,
     },
-    /// The column's class has no bound yet: the class table lands at M1.5.
+    /// The column's class is not compared numerically yet: that lands with the first fixture kind compared under it
+    /// (PLAN.md M3 on); `ToleranceClass::table` states every bound.
     NoBound {
         /// The class.
         class: ToleranceClass,
