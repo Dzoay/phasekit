@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c98e28b7ec56056fed9bbf7de3cbb2a679f06e4f9f157e1f537eb602a87752f0 # shrinks to x = 0.0, y = 0.0, (pair, basis) = (DQ, Molar)
+cc b3d05555b70fc35f92149ddef14ce54815b4d9d6334075aba9f166bcc260b1ff # shrinks to shape = Shape { n: 1, m: 1, y_len: 1, cells: 1 }, values = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
