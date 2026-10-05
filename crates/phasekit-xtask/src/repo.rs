@@ -11,6 +11,14 @@ pub struct Member {
     pub manifest: String,
 }
 
+/// One `cargo mutants` run: its exit status, the contents of `caught.txt`, `missed.txt`, `timeout.txt` and
+/// `unviable.txt`, and where its output stays when it failed.
+pub struct MutantsRun {
+    pub success: bool,
+    pub outcomes: [String; 4],
+    pub output: String,
+}
+
 /// The checkout this xtask binary was built from.
 pub struct Repo {
     root: PathBuf,
@@ -101,6 +109,48 @@ impl Repo {
         let text = std::fs::read_to_string(&log).map_err(|e| format!("cannot read {}: {e}", log.display()));
         let _ = std::fs::remove_file(&log);
         Ok((status?.success(), text?))
+    }
+
+    /// Runs `git <args>` in the root; returns stdout.
+    pub fn git(&self, args: &[&str]) -> Result<String, String> {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(&self.root)
+            .output()
+            .map_err(|e| format!("cannot run git {}: {e}", args.join(" ")))?;
+        if !output.status.success() {
+            return Err(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim()));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
+    /// Runs `cargo mutants --in-diff` on `diff` (configured by `.cargo/mutants.toml`), its progress on the terminal.
+    /// Builds happen in cargo-mutants' own copy of the tree outside the repository, so an inherited
+    /// `CARGO_TARGET_DIR` is dropped. The output is removed after a successful run and kept after a failed one.
+    pub fn cargo_mutants(&self, diff: &str) -> Result<MutantsRun, String> {
+        let dir = std::env::temp_dir().join(format!("phasekit-mutants-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+        let diff_file = dir.join("changes.diff");
+        std::fs::write(&diff_file, diff).map_err(|e| format!("cannot write {}: {e}", diff_file.display()))?;
+        // A quarter of the hardware threads, 1 to 4: each job runs its own parallel build and test binaries.
+        let jobs = std::thread::available_parallelism().map_or(1, |n| (n.get() / 4).clamp(1, 4));
+        let status = Command::new(env!("CARGO"))
+            .args(["mutants", "--jobs", &jobs.to_string(), "--in-diff"])
+            .arg(&diff_file)
+            .arg("--output")
+            .arg(&dir)
+            .current_dir(&self.root)
+            .env_remove("CARGO_TARGET_DIR")
+            .status()
+            .map_err(|e| format!("cannot run cargo mutants (scripts/check-toolchain.sh): {e}"))?;
+        let out = dir.join("mutants.out");
+        let outcomes = ["caught.txt", "missed.txt", "timeout.txt", "unviable.txt"]
+            .map(|name| std::fs::read_to_string(out.join(name)).unwrap_or_default());
+        if status.success() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+        Ok(MutantsRun { success: status.success(), outcomes, output: out.display().to_string() })
     }
 
     /// The host target triple, from `rustc -vV`.

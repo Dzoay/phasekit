@@ -2,11 +2,13 @@
 //! is a pure check over text, tested in its module, plus a `run` that gathers that text from the repository. Every
 //! gate fails closed: no input to check is a failure, never a pass (ROT-127).
 
+mod assertions;
 mod counts;
 mod deps;
 mod doc_excerpts;
 mod ignores;
 mod lints;
+mod mutants;
 mod rot;
 
 use std::process::ExitCode;
@@ -20,13 +22,15 @@ type Verdict = Result<String, Vec<String>>;
 type Gate = fn(&Repo, &[String]) -> Verdict;
 
 /// The gates in force, in the order `gates all` runs them (VERIFICATION.md §11.2).
-const GATES: [(&str, Gate); 6] = [
+const GATES: [(&str, Gate); 8] = [
     ("deps", deps::run),
     ("lints", lints::run),
     ("counts", counts::run),
     ("ignores", ignores::run),
     ("doc-excerpts", doc_excerpts::run),
     ("rot", rot::run),
+    ("assertions", assertions::run),
+    ("mutants", mutants::run),
 ];
 
 pub fn main(args: &[String]) -> ExitCode {
@@ -42,7 +46,11 @@ pub fn main(args: &[String]) -> ExitCode {
     let mut failed = false;
     for (name, gate, rest) in selected {
         match gate(&repo, rest) {
-            Ok(summary) => println!("gates {name}: ok ({summary})"),
+            Ok(summary) => {
+                let mut lines = summary.lines();
+                println!("gates {name}: ok ({})", lines.next().unwrap_or_default());
+                lines.for_each(|line| println!("{line}"));
+            }
             Err(violations) => {
                 failed = true;
                 eprintln!("gates {name}: FAILED");

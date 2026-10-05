@@ -48,22 +48,22 @@
 
 ## 2. Summary
 
-- **455 source items → 293 register rows.** Two extractors listed one row per item from all 15 maps (maps 01-07: 238; maps 08-15: 214); the 2026-10-05 review added map 12 COO-15, COO-26 and COO-27 (C18). 90 rows merge two or more items that describe one underlying problem; the Source column keeps every ID.
+- **455 source items → 294 register rows.** Two extractors listed one row per item from all 15 maps (maps 01-07: 238; maps 08-15: 214); the 2026-10-05 review added map 12 COO-15, COO-26 and COO-27 (C18). ROT-294 (tests that cannot fail) was added at M0.4a at the user's request; it is a defect class, and the map items it relates to are cited under "also". 90 rows merge two or more items that describe one underlying problem; the Source column keeps every ID.
 - Items per map: 01: 29 · 02: 26 · 03: 35 · 04: 38 · 05: 21 · 06: 38 · 07: 51 · 08: 31 · 09: 21 · 10: 30 · 11: 37 · 12: 56 · 13: 8 · 14: 21 · 15: 13.
-- 163 rows carry a proof inside v0.1 (M0-M10). The rest are Deferred to a later family, Not-ported, or proved only when a post-0.1 family lands. No row is GAP: PLAN.md schedules a mechanism for each of the 14 former gaps (section 3).
+- 164 rows carry a proof inside v0.1 (M0-M10). The rest are Deferred to a later family, Not-ported, or proved only when a post-0.1 family lands. No row is GAP: PLAN.md schedules a mechanism for each of the 14 former gaps (section 3).
 
 **By status.**
 
 | Status | Rows | Share |
 |---|---|---|
-| Designed-out | 63 | 22 % |
+| Designed-out | 63 | 21 % |
 | Test-guarded | 78 | 27 % |
-| Lint-guarded | 17 | 6 % |
+| Lint-guarded | 18 | 6 % |
 | Not-ported | 34 | 12 % |
 | Deferred | 96 | 33 % |
 | Accepted | 5 | 2 % |
 | GAP | 0 | 0 % |
-| **Total** | **293** | |
+| **Total** | **294** | |
 
 **By theme** (section 4 subsection; columns are statuses).
 
@@ -78,7 +78,7 @@
 | 4.7 Saturation and critical points | 13 | 18 | 4 | 8 | · | 1 | · | · | · |
 | 4.8 Reference states and gauges | 11 | 15 | 5 | 2 | · | · | 4 | · | · |
 | 4.9 Transport | 19 | 27 | 2 | 12 | · | 3 | 2 | · | · |
-| 4.10 Verification, tests and code hygiene | 14 | 25 | 3 | 4 | 6 | 1 | · | · | · |
+| 4.10 Verification, tests and code hygiene | 15 | 25 | 3 | 4 | 7 | 1 | · | · | · |
 | 4.11 Licensing and provenance | 5 | 6 | 1 | 2 | 1 | · | 1 | · | · |
 | 4.12 C ABI, WASM and platforms | 17 | 24 | 2 | 4 | 4 | 4 | · | 3 | · |
 | 4.13 Compat strings and Python | 18 | 21 | 1 | 7 | · | 4 | 5 | 1 | · |
@@ -86,13 +86,13 @@
 | 4.15 Cubic, PC-SAFT and activity models | 28 | 33 | 4 | · | · | 2 | 22 | · | · |
 | 4.16 IAPWS, INCOMP, humid air and REFPROP | 37 | 45 | 3 | · | · | 4 | 30 | · | · |
 | 4.17 Tabular and surrogates | 15 | 16 | · | · | · | 10 | 5 | · | · |
-| **Total** | **293** | **455** | 63 | 78 | 17 | 34 | 96 | 5 | 0 |
+| **Total** | **294** | **455** | 63 | 78 | 18 | 34 | 96 | 5 | 0 |
 
 **v0.1 proofs by milestone** (first milestone in the row; Deferred rows excluded). PLAN.md's **ROT rows** lines assign the same rows to steps.
 
 | M0 | M1 | M2 | M3 | M4 | M5 | M6 | M7 | M8 | M9 | M10 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 14 | 8 | 23 | 3 | 5 | 27 | 17 | 15 | 22 | 3 | 26 |
+| 15 | 8 | 23 | 3 | 5 | 27 | 17 | 15 | 22 | 3 | 26 |
 
 ## 3. Former gaps and open details
 
@@ -320,6 +320,7 @@ Rows within a theme run roughly from the broadest design defect to the narrowest
 | ROT-138 | map 01 R27; map 14 R13 | AbstractState.h:103,371-376,821-834; DataStructures.cpp:61-64; CoolProp-Tests.cpp:603-624; State.pyx:16-17; CoolProp.pyx:645-667 | Doc rot: wrong units in comments, swapped docs, misleading advice, docstrings that contradict behaviour; the 'all input pairs' test runs only DmolarT | Units in newtypes (D5); `missing_docs`; doctests run (the sketch doctest executes); executed-count gate; every `#[ignore]` carries a DIV or issue id (§10, D17) | rustdoc doctests in CI; `missing_docs` under `-D warnings`; M7 19 × 2 capability matrix | M0 | Lint-guarded |
 | ROT-139 | map 01 R19 | options spec:97-104,299-301,391-393; FactoryOptions.cpp:25-35; AbstractState.h:271 | Spec drift: design documents disagree with the code | PLAN.md M0.4: `cargo xtask gates doc-excerpts`: every Rust block in `docs/*.md` is found verbatim in the workspace or the sketch, or is marked illustrative (the 03-decision-log probe, made permanent); doctests counted by the executed-count gate | `phasekit_xtask::gates::doc_excerpts::tests::a_doc_excerpt_not_in_the_sources_is_rejected`; `gates doc-excerpts` in G8 [M0.4] | M0 | Lint-guarded |
 | ROT-140 | map 02 section 6 row 21; map 03 section 6 row 23; map 04 #28; map 12 R14 (also map 03 section 3.4 row 11, map 01 section 5c row 6) | Helmholtz.h:504-546,869-874; Helmholtz.cpp:14-137,1271; FlashRoutines.cpp:2712-2801,4239-4297; superancillary.h:566,1419-1645; VLERoutines.cpp:15-78,336-338,1270-1349,3189-3192; PhaseEnvelopeRoutines.cpp:1-315; UNIFAC.cpp:135-140 | Dead, unreachable and debug code in core paths: dead fields, SoA arrays and `kahanSum`; `throw()` getters calling a throwing virtual end in `std::terminate`; unreachable `iP` branches; uninstantiated `solve_for_Tq_DX` (`swap(y2, y2)`); unused ODE/Romberg; `saturation_critical`, `check_Jacobian`, empty try/catch, 33 `std::cout` lines; 54 `TEST_CASE`s inside production files | Only reachable behaviour is ported (map 12 §9 drop list); no reachable panic (D12); tests live in `tests/` and `#[cfg(test)]` | rustc `dead_code` under clippy `-D warnings`; D12 panic lints | n/a | Not-ported |
+| ROT-294 | found M0.4a (user, 2026-10-05) (also map 10 R3, map 07 I11, map 08 R21) | CoolProp-Tests.cpp:796-806, 1694-1721; IncompressibleBackend.cpp:882-885; CoolProp-Tests-SVDSBTLFailMap.cpp:159-171 | Tests that cannot fail: they assert nothing (or only that nothing threw), compare a value with itself (expected and actual from one call), or assert something no change to the code would break | `gates assertions`: every `#[test]` asserts or is `#[should_panic]`, and no `assert_eq!`/`assert_ne!` has identical sides; clippy `assertions_on_constants`, `eq_op` and `bool_assert_comparison` under `-D warnings`; `gates mutants`: `cargo mutants --in-diff` on every PR, where a surviving mutant fails unless `.cargo/mutants.toml` excludes it with a reason (user decisions TQ1, TQ2) | `phasekit_xtask::gates::assertions::tests::an_assertion_free_test_is_rejected`, `phasekit_xtask::gates::assertions::tests::an_assert_with_identical_sides_is_rejected`, `phasekit_xtask::gates::mutants::tests::a_surviving_mutant_fails_the_gate`, `phasekit_xtask::tests::clippy_bans_fire` (tautology probes) [M0.4a] | M0 | Lint-guarded |
 
 ### 4.11 Licensing and provenance
 

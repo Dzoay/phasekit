@@ -7,6 +7,9 @@
 # Nightly full oracle fixture set, regenerated and never committed (docs/VERIFICATION.md §3.6)
 /crates/phasekit-verify/fixtures-full/
 
+# cargo-mutants output of a manual run (`gates mutants` writes outside the repository)
+/mutants.out*/
+
 # Local scratch
 *.swp
 .DS_Store

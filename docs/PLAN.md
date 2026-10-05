@@ -149,7 +149,7 @@ that keeps it.
 | "parallel requests on the same and different fluids" | seed `Send + Sync` asserts; M9.1-M9.2 | `one_to_n_threads_bitwise`, thread-scaling record (M9.2) |
 | "Rusts immutability should help us here" | seed: immutable `Arc` models, `Copy` `State`; M0.3 bans on locks, cells, atomics, `thread_local!` | M0.3 `clippy_bans_fire` |
 | "coolprop as varification but with source material when we find bugs" | M1 kit, oracle and paper corpus; M2.7 Parity/Corrected; divergence register | `tests/divergences.rs`; `gates register` |
-| "We will TDD this step by step" | §0.1 step loop | red evidence in every PR; `gates counts` |
+| "We will TDD this step by step" | §0.1 step loop; M0.4a test-quality gates (user decisions TQ1, TQ2) | red evidence in every PR; `gates counts`; `gates assertions`; `gates mutants` |
 | "extend it to be a *material* properties library" / "all states of matter" | M5.10 Gibbs seam; M14 ice and IF97 | `gibbs_seam.rs`; `gates core-frozen` (M14) |
 | "coolprop fluids are first" | M2-M8 for all 136 fluids | exit gates M3-M8 |
 | "only loading what is needed" | M2.6 lazy slots; M8.8 ECS references on first need | `lazy_load.rs`; `thermo_only_workloads_never_load_references` |
@@ -260,7 +260,7 @@ use the gitignored `target/`.
 | G5 | `cargo check --workspace --target wasm32-unknown-unknown` | local; CI wasm-browser | M0.2 |
 | G6 | `cargo check --workspace --all-targets --target x86_64-pc-windows-msvc` | local (check only: no MSVC linker); CI windows runs G3 | M0.2 |
 | G7 | `cargo clippy -p phasekit-core --no-default-features --all-targets -- -D warnings` (+ `-p phasekit-compat` from M5.9) | local; CI linux | M0.2 |
-| G8 | `cargo xtask gates all`: `deps`, `lints`, `counts`, `ignores`, `doc-excerpts`, `rot` (M0); `fixtures`, `register` (M1); `datagen` (M2); `features` (M5); `perf` (M9); `abi` (M10); `core-frozen` (M11, M14). Rules: VERIFICATION.md §11.2 | local; CI linux (needs `reference/CoolProp`, fetched and cached by the job) | M0.4 |
+| G8 | `cargo xtask gates all`: `deps`, `lints`, `counts`, `ignores`, `doc-excerpts`, `rot` (M0.4); `assertions`, `mutants` (M0.4a); `fixtures`, `register` (M1); `datagen` (M2); `features` (M5); `perf` (M9); `abi` (M10); `core-frozen` (M11, M14). Rules: VERIFICATION.md §11.2 | local; CI linux (needs `reference/CoolProp`, fetched and cached by the job) | M0.4 |
 
 CI-only work (M0.6): Windows MSVC and aarch64 test runs, MSRV (`cargo +1.85 check --lib` for core, data and compat),
 the nightly oracle sweep, the weekly latest-dependency test, gungraun benches (from M9). `cargo deny check`, `reuse
@@ -290,7 +290,7 @@ lint` and `cargo shear` run locally and in CI.
 
 | M | Deliverable (D15, refined) | Steps | Key exit criterion |
 |---|---|---|---|
-| M0 | Toolchain, workspace seeded from the sketch, lints, xtask gates, CI (user checkpoint), licences | 7 | G1-G8 green; 43 seed tests; zero third-party deps |
+| M0 | Toolchain, workspace seeded from the sketch, lints, xtask gates, test-quality gates, CI (user checkpoint), licences | 8 | G1-G8 green; 43 seed tests; zero third-party deps |
 | M1 | Verification kit, oracle generator and lock, register and arbiter machinery, paper corpus, proptest, C++ baseline, mp check points | 17 | Fixture round trip bit-exact; `from_printed("21.17909")` rejects the oracle; 14/14 register facts |
 | M2 | Datagen, blob v1, index, features, Parity/Corrected, hash gate, citations on real data | 10 | 130 FNV stamps; 556 keys, 0 collisions; Parity vs Corrected = 3 patches |
 | M3 | Separable residual kinds on real data, `Jet4` with num-dual oracle | 8 | Jets = AD (class `Term`); oracle block isolation; α^r totals of 134 fluids |
@@ -351,6 +351,22 @@ wasm32-wasip2, x86_64-pc-windows-msvc, clippy and rustfmt (installed); `uv`; `re
   seed run (43 on Linux) with `# pending M5.9:` lines naming the four held-back tests; add `pub const MILESTONE: u8 =
   0;` to `phasekit-verify` (section 0.2). xtask stays std-only until M2.1. *Done when:* G8 passes and fails on each
   injected fault (shown in the PR).
+- **M0.4a Test-quality gates** (user decisions TQ1, TQ2, 2026-10-05; ROT-294). Tests that cannot fail are caught
+  before the test-driven steps begin. *Failing tests:* `an_assertion_free_test_is_rejected` and
+  `an_assert_with_identical_sides_is_rejected` (`gates assertions`), `a_surviving_mutant_fails_the_gate` and
+  `untracked_files_join_the_diff` (`gates mutants`), and `clippy_bans_fire` requiring probes for the tautology lints
+  `clippy::assertions_on_constants`, `clippy::eq_op` and `clippy::bool_assert_comparison`; `scripts/check-toolchain.sh`
+  fails without `cargo-mutants`. *Do:* `cargo xtask gates assertions` (std-only; comments and string literals are
+  not code): every `#[test]` function contains an `assert!`, `assert_eq!` or `assert_ne!` or is `#[should_panic]`
+  (map 10 R3), and no `assert_eq!`/`assert_ne!` has identical sides, the call form `eq_op` lets through (map 07 I11).
+  `cargo xtask gates mutants`: `cargo mutants --in-diff` over the Rust changes since the merge base with
+  `origin/main`, untracked files included; a missed mutant fails the gate unless `.cargo/mutants.toml` excludes it with
+  a reason (process glue in `repo.rs`, `main.rs` and each gate's `run` is excluded: G8 exercises it), and a timeout
+  (the tests hang, so they did not pass) counts as caught and is listed.
+  Install `cargo-mutants` (`cargo install --locked --root ~/.local cargo-mutants`; a T4 tool) and check it in
+  `scripts/check-toolchain.sh`. Both gates join `gates all`. M0.6 adds the weekly full run as a report and gives the
+  linux job `origin/main` and cargo-mutants. *Done when:* G8 passes, including `gates mutants` over this step's own
+  code, and each gate fails on an injected fault.
 - **M0.5 wasip2 tests under wasmtime.** *Failing command:* G4 (no runner for wasm32-wasip2; the seed's three thread
   tests are already gated off `target_family = "wasm"`). *Do:* `[target.wasm32-wasip2] runner = "wasmtime"` in
   `.cargo/config.toml`. *Done when:* G4 passes and its executed count (40 expected: 43 minus the three thread tests)
@@ -379,7 +395,7 @@ wasm32-wasip2, x86_64-pc-windows-msvc, clippy and rustfmt (installed); `uv`; `re
 wasip2 executed; `cargo xtask gates deps` shows only workspace crates; every `clippy.toml` entry fires or is removed
 with a reason.
 **ROT rows.** M0.2: ROT-032, ROT-037, ROT-136. M0.3: ROT-015, ROT-016, ROT-018, ROT-024, ROT-153. M0.4: ROT-127,
-ROT-139, ROT-156. M0.6: ROT-138, ROT-152. M0.7: ROT-141.
+ROT-139, ROT-156. M0.4a: ROT-294. M0.6: ROT-138, ROT-152. M0.7: ROT-141.
 **User decisions implemented.** 1 (name, `pk_`), D14 (licence). Decision 12: the `libm` feature lands opt-in at M9.3,
 just before the M9.5 decision; until then core has no `libm` feature (core is std-only until M9, ARCHITECTURE.md §2) and
 every transcendental already goes through the one `math` choke point (recorded deviation, section 6).

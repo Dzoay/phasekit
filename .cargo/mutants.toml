@@ -1,0 +1,24 @@
+# cargo-mutants configuration for `cargo xtask gates mutants` (PLAN.md M0.4a; user decisions TQ1, TQ2). A mutant of
+# changed code that no test catches fails the gate unless it is excluded here, and every exclusion says why no test
+# can catch it.
+
+# Never copy gitignored files (reference/, the CoolProp checkout) into cargo-mutants' scratch tree.
+gitignore = true
+# A mutant in phasekit-core must be caught by any workspace test, phasekit-verify's corpus included.
+test_workspace = true
+
+exclude_globs = [
+    # Process glue (runs cargo, git and rustc; reads and writes files): G8 itself exercises it, unit tests cannot.
+    "crates/phasekit-xtask/src/repo.rs",
+    "crates/phasekit-xtask/src/main.rs",
+]
+
+exclude_re = [
+    # Each gate's `run` gathers its input through `repo` and is exercised by G8, not by unit tests; the rules it
+    # applies live in the module's pure functions, which are mutated.
+    "replace run -> Verdict",
+    "in run$",
+    # `gates::main` and `usage` dispatch the subcommands and print the verdicts: G8 runs them on every PR.
+    "replace (main|usage) -> ExitCode",
+    "in (main|usage)$",
+]

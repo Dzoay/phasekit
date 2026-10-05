@@ -360,6 +360,20 @@ pub fn lint_dbg(x: u8) -> u8 {
     dbg!(x) // fires: clippy::dbg_macro
 }
 
+// Tautological assertions (ROT-294): `clippy::all` lints, errors under `-D warnings`. `assert_eq!(f(), f())` gets
+// past `eq_op` (a call may have side effects); `gates assertions` rejects it.
+pub fn taut_constant() {
+    assert!(true); // fires: clippy::assertions_on_constants
+}
+
+pub fn taut_same_operands(x: u8) {
+    assert_eq!(x, x); // fires: clippy::eq_op
+}
+
+pub fn taut_bool_comparison(x: bool) {
+    assert_eq!(x, true); // fires: clippy::bool_assert_comparison
+}
+
 // rustc `dead_code` (ROT-018): an option field nobody reads is a warning, an error under `-D warnings`
 
 pub struct Options {
