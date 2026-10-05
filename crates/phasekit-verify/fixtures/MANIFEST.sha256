@@ -1,6 +1,6 @@
 # MANIFEST.sha256 (docs/VERIFICATION.md section 3.4): "<sha256> <bytes> <rows> <path>" for every committed fixture.
-cc07f3fa80591222ed44449f494e30df0985b6eb7fba2fbf8b2127a7d77cf20c 8030 59 coolprop-8.0.0/facts/register.csv
-a3b5cd3c62d379e06febb15e65a01bd8f4ddddc3ab4633bdd95918f271989f28 2068 3 coolprop-8.0.0/facts/smoke.csv
+f8d9a8258e33a60cfa4e34b25bb142ef7dfbe7fe8fa6fa66f33ac13967c7f0b5 8030 59 coolprop-8.0.0/facts/register.csv
+5780d532a88c4b4e072f5a51c01ac988118ca8ad4a992019cc7bfe24a0c471ff 2068 3 coolprop-8.0.0/facts/smoke.csv
 f21c4ebf7ef549dcb3f70a9a7b97761ee6673c65c180496de21a335c67c42330 738 6 paper/Helium/OrtizVega-JPCRD-2019.3.check.csv
 f21c4ebf7ef549dcb3f70a9a7b97761ee6673c65c180496de21a335c67c42330 738 6 paper/Helium/OrtizVega-JPCRD-2019.3.csv
 48ddb0c8372f3b689a76ff4719c5da61e01591222643a80372db577a80881141 1275 17 paper/Helium/OrtizVega-JPCRD-2019.4.check.csv

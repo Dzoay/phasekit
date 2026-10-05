@@ -135,7 +135,7 @@ locale           LC_ALL=C
 config_json      {"ENABLE_SUPERANCILLARIES":true,"NORMALIZE_GAS_CONSTANTS":true, ... all 38 keys ...}
 ```
 
-`git`, the `so_*` values, 38 keys and 136 fluids were re-measured 2026-10-05 (uv chose Python 3.12.14); the committed lock (M1.3) records them, and `runner_image` stays `unpinned until PLAN.md M1.16`. gen.py checks `fluids_sha256` against the fluid directory as part of assertion 4. The lock pins
+`git`, the `so_*` values, 38 keys and 136 fluids were re-measured 2026-10-05 (uv chose Python 3.12.14); the committed lock (M1.3) records them. Since M1.16 `runner_image` is astral's uv 0.12.23 image with Python 3.12 on Debian 13, pinned by digest; `nightly.yml` reads it from the lock and runs the generator in it, and a run dispatched with `regenerate` writes the committed fixtures there and uploads them for commit (K18: fixtures come from this image only; a local `cargo xtask oracle` run is for development and differs in its `# generator:` line). gen.py checks `fluids_sha256` against the fluid directory as part of assertion 4. The lock pins
 the oracle's environment only *(decision)*: gen.py's sha256 goes into each fixture header (`# generator:`), so adding
 or changing a kind regenerates the affected fixtures but never edits the lock, and the fastchebpure pin (the release
 `2026.06.02-v2` that CoolProp's v8.0.0 docs pin, map 10 §8.1) lives with its per-file sha256 lines in

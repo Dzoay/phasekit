@@ -1,12 +1,20 @@
-# Nightly (VERIFICATION.md §11.3). Filled at M1.16 with the oracle drift and determinism checks and the full-set
-# sweep; until then it runs the corpus in release mode, ignored tests included (the L5 step). Also the daily RustSec
-# advisory check (PLAN.md §5.3): a new advisory against a locked dependency shows up without waiting for a PR.
+# Nightly (VERIFICATION.md §11.3, PLAN.md M1.16), in the pinned runner image of oracle.lock (`runner_image`, an OCI
+# digest): every committed oracle fixture is regenerated twice and compared byte for byte (environment drift or
+# non-determinism fails), the full set is generated into fixtures-full/, the ignored sweeps run against it (L5), and
+# the report goes to the run summary. Fixtures are generated only here (K18): a run dispatched with `regenerate`
+# writes them instead and uploads them as the `fixtures` artifact, to be committed. Also the daily RustSec advisory
+# check (PLAN.md §5.3): a new advisory against a locked dependency shows up without waiting for a PR.
 name: nightly
 
 on:
   schedule:
     - cron: "23 3 * * *" # daily 03:23 UTC
   workflow_dispatch:
+    inputs:
+      regenerate:
+        description: Regenerate the committed oracle fixtures in the pinned image and upload them
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,14 +28,94 @@ defaults:
     shell: bash
 
 jobs:
-  corpus:
-    name: corpus (release)
+  lock:
+    name: runner image
     runs-on: ubuntu-24.04
+    outputs:
+      image: ${{ steps.lock.outputs.image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: runner_image from oracle.lock
+        id: lock
+        run: |
+          image=$(awk '$1 == "runner_image" { print $2 }' crates/phasekit-verify/fixtures/oracle.lock)
+          [[ "$image" =~ @sha256:[0-9a-f]{64}$ ]] || { echo "oracle.lock: runner_image is not pinned by digest: $image"; exit 1; }
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+  oracle:
+    name: oracle (pinned image)
+    needs: lock
+    runs-on: ubuntu-24.04
+    container:
+      image: ${{ needs.lock.outputs.image }}
+    env:
+      FIXTURES: crates/phasekit-verify/fixtures
+    steps:
+      - name: Build tools (git, a C linker; none of them touch the oracle's numbers)
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git curl ca-certificates gcc libc6-dev
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/rust
-      - name: cargo test -p phasekit-verify --release -- --include-ignored
-        run: cargo test -p phasekit-verify --release -- --include-ignored
+      - name: CoolProp checkout cache
+        id: coolprop
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reference/CoolProp
+          key: coolprop-${{ hashFiles('scripts/fetch-coolprop.sh') }} # the script pins the commit
+      - name: Fetch CoolProp
+        if: steps.coolprop.outputs.cache-hit != 'true'
+        run: |
+          git config --global --add safe.directory '*'
+          scripts/fetch-coolprop.sh
+      - name: The committed oracle fixtures (from MANIFEST.sha256)
+        id: sets
+        run: echo "facts=$(grep -oE 'coolprop-8\.0\.0/facts/[a-z0-9_]+\.csv' "$FIXTURES/MANIFEST.sha256" | sed -E 's|.*/||; s|\.csv$||' | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+      - name: Regenerate the committed fixtures
+        if: inputs.regenerate
+        run: |
+          for set in ${{ steps.sets.outputs.facts }}; do
+            cargo xtask oracle --kind facts --set "$set" --out "$FIXTURES/coolprop-8.0.0" --write-manifest
+          done
+      - name: Upload the regenerated fixtures
+        if: inputs.regenerate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixtures
+          path: crates/phasekit-verify/fixtures
+      - name: Drift and determinism (two regenerations, byte for byte)
+        if: ${{ !inputs.regenerate }}
+        run: |
+          for pass in 1 2; do
+            for set in ${{ steps.sets.outputs.facts }}; do
+              cargo xtask oracle --kind facts --set "$set" --out "$FIXTURES/coolprop-8.0.0" --check
+              echo "pass $pass: facts/$set.csv identical"
+            done
+          done
+      - name: The full set into fixtures-full/
+        run: |
+          for set in ${{ steps.sets.outputs.facts }}; do
+            cargo xtask oracle --kind facts --set "$set" --out crates/phasekit-verify/fixtures-full/coolprop-8.0.0
+          done
+      - name: cargo test -p phasekit-verify --release -- --ignored (L5)
+        run: cargo test -p phasekit-verify --release -- --ignored 2>&1 | tee sweep.log
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "## Nightly oracle report"
+            echo
+            echo "Image: \`${{ needs.lock.outputs.image }}\`"
+            echo
+            echo "| Fixture | Rows | Failed calls |"
+            echo "|---|---|---|"
+            for f in "$FIXTURES"/coolprop-8.0.0/facts/*.csv; do
+              rows=$(grep -vc '^#' "$f"); failed=$(grep -v '^#' "$f" | grep -c ',err:' || true)
+              echo "| ${f#$FIXTURES/} | $rows | $failed |"
+            done
+            echo
+            echo "Generator: $(grep -m1 '^# generator:' "$FIXTURES/coolprop-8.0.0/facts/smoke.csv" | cut -c3-)"
+            echo
+            echo "Sweep: $(grep -E '^test result' sweep.log 2>/dev/null | tr '\n' ' ' || echo 'not run')"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   advisories:
     name: advisories

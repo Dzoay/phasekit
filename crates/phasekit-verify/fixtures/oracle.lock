@@ -8,7 +8,7 @@ so_size          9050856
 so_sha256        05d85591871524e83bb23170e22ee149e1167fb3ef5deaf81b9d248283089be5
 python           3.12
 platform         x86_64-linux-gnu
-runner_image     unpinned until PLAN.md M1.16
+runner_image     ghcr.io/astral-sh/uv:0.12.23-python3.12-trixie-slim@sha256:28d570c06d150303b39adfa731ada20956c63fc86b1277d7ff2ad63185974092
 uv_command       uv run --no-project --python 3.12 --with CoolProp==8.0.0
 fluids_sha256    0c266df8b54a7bc98ab09413a037c7d54612988446b450e253406b7f001c1877
 sampler          splitmix64-v1
