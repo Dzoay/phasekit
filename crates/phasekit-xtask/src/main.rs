@@ -7,6 +7,8 @@
 //!   blob per fluid (EOS section written by `phasekit_core::internal::EosRecord::encode`, the same encoder the
 //!   runtime hash gate uses, E14), the name/alias/CAS index with declared references, and the per-fluid
 //!   features (with ECS implications) in `phasekit-data`.
+//! - `baseline`: builds and runs the C++ CoolProp v8.0.0 baseline of scripts/baseline/ in a scratch directory; with
+//!   `--check`, checks the committed result files (M1.15).
 //! - `oracle`: runs scripts/oracle/gen.py through `uv run --no-project --python 3.12 --with CoolProp==8.0.0` (M1.3),
 //!   scrubbed `COOLPROP_*`/`PXFLASH_*`, all 38 config keys recorded and `oracle.lock` checked.
 //! - `gates`: gate G8 (VERIFICATION.md §11.2). From M0.4 the zero-dependency guard, workspace lints, executed-test
@@ -18,6 +20,7 @@
     reason = "a command-line tool; the library denies printing (ROT-024)"
 )]
 
+mod baseline;
 mod gates;
 mod oracle;
 mod repo;
@@ -29,6 +32,7 @@ fn main() -> ExitCode {
     match args.split_first() {
         Some((task, rest)) if task == "gates" => gates::main(rest),
         Some((task, rest)) if task == "oracle" => oracle::main(rest),
+        Some((task, rest)) if task == "baseline" => baseline::main(rest),
         Some((task, _)) if task == "datagen" => {
             println!(
                 "phasekit-xtask {task}: lands at M1/M2 (core {})",
@@ -37,7 +41,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         _ => {
-            eprintln!("usage: cargo xtask <datagen|oracle|gates>");
+            eprintln!("usage: cargo xtask <baseline|datagen|oracle|gates>");
             ExitCode::FAILURE
         }
     }

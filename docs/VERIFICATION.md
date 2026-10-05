@@ -862,30 +862,37 @@ the steps that record each row.
   `cfg(target_os = "linux")` dev-dependency whose bench file compiles to an empty `main` elsewhere, so G6
   `--all-targets` still builds *(inference)*; a counting `#[global_allocator]` for allocations (dependencies §2.12,
   R18). `cargo test` never builds the benches.
-- **Bench fluids:** Water (56 terms), Methane (40), R134a (21), n-Propane (18) and a 12-term fluid chosen at M1.15
-  from the JSON term counts (kernel-performance §3.3), on SplitMix64 grids shared with the C++ baseline.
+- **Bench fluids:** Water (56 terms), Methane (40), R134a (21), n-Propane (18) and n-Heptane (12 power terms, chosen at
+  M1.15 from the JSON term counts: one of 28 twelve-term fluids, with a superancillary and in the core subset;
+  kernel-performance §3.3), on SplitMix64 grids shared with the C++ baseline.
 - **Workloads (7):** (1) the order-2 α^r bundle at (T, ρ); (2) properties at (T, ρ): update `DmolarT` + h + c_p; (3) QT
   and (4) PQ through the superancillary; (5) PT and (6) PH single phase; (7) a by-name `PropsSI` call (name lookup).
 - **C++ baseline (M1.15):** CoolProp v8.0.0 built Release, no `-march`, like the wheels (kernel-performance §2.9), from
   a throwaway clone of `reference/CoolProp` in a scratch directory, because CoolProp's configure writes generated
   headers and data into its own source tree (`CMakeLists.txt:557-559`, `dev/generate_headers.py`). The harness
   `scripts/baseline/{build.sh,CMakeLists.txt,coolprop_baseline.cpp}` links the static library target and runs the 7
-  workloads × 5 fluids, writing `crates/phasekit-verify/benches/baseline/coolprop-8.0.0-<machine>.csv`. The xtask test
-  `reference_checkout_is_untouched` compares `git -C reference/CoolProp status --porcelain --ignored` with a recorded
-  baseline (`scripts/baseline/reference-status.txt`). Python-level oracle timings are not comparable
-  (kernel-performance §3.3).
+  workloads × 5 fluids, writing `crates/phasekit-verify/benches/baseline/coolprop-8.0.0-<machine>.csv` (`cargo xtask
+  baseline` builds and runs it in `$SCRATCH`; `--check` checks every committed file). The file's header names the pin,
+  CPU, OS, governor, compiler and date; each row is `workload,fluid,states,median_ns,min_ns,max_ns,grid`, the median,
+  min and max over 7 passes of the mean ns per state, and `grid` the SplitMix64 bounds (seed 1) it drew from. Grids need
+  no rejection: (T, ρ) states lie in [1.05·T_c, min(1.5·T_c, T_max)] × [0.1, 2]·ρ_c (PT, PH and by-name use their p and
+  h); saturation in [T_t + 0.05 (T_c − T_t), 0.98 T_c] with Q in [0, 1]. The α^r row sets the state with
+  `update_DmolarT_direct` and reads the 6 order-2 derivatives (CoolProp evaluates its whole derivative cache). The xtask
+  test `reference_checkout_is_untouched` checks that `git -C reference/CoolProp status --porcelain --ignored` lists
+  nothing beyond a recorded baseline (`scripts/baseline/reference-status.txt`; a fresh checkout lists less).
+  Python-level oracle timings are not comparable (kernel-performance §3.3).
 - **Recording:** `cargo xtask bench --record` writes `crates/phasekit-verify/benches/results/<milestone>-<machine>.csv`
   (date, commit, step, bench, fluid, median, unit, CPU, OS, rustc, governor). At each milestone close the results are
   compared with the ARCHITECTURE.md §7 table.
 
 | Bench (one x86-64 core) | Target (ARCHITECTURE.md §7) | Recorded | Enforced | CoolProp 8.0.0 |
 |---|---|---|---|---|
-| Hot lookup by name | ≤ 50 ns *(inference)* | M2 | M9 | `PropsSI` rebuilds a backend: 76.5 µs |
-| α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs | M3 | M9 | C++ baseline (M1) |
-| Properties at (T, ρ) | ≤ 0.5 µs | M5 | M9 | update(D,T) + h + c_p: 1.5-10.7 µs |
+| Hot lookup by name | ≤ 50 ns *(inference)* | M2 | M9 | `PropsSI` rebuilds a backend: 76.5 µs; C++ 63-91 µs (M1.15) |
+| α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs | M3 | M9 | C++ (M1.15): 0.38 µs (12 terms), 0.56-0.61 µs (18-21), 1.2 µs (40), 2.7 µs (56) |
+| Properties at (T, ρ) | ≤ 0.5 µs | M5 | M9 | update(D,T) + h + c_p: 1.5-10.7 µs; C++ 0.78-3.2 µs (M1.15) |
 | Heap allocations per flash or batch point | 0 | M5 | M5 (test) | n/a |
-| QT / PQ via superancillary | ≤ 0.1 µs | M6 | M9 | 0.45 / 0.64 µs |
-| PT / PH single phase | ≤ 3 / ≤ 15 µs | M7 | M9 | 19-27 / 119-376 µs |
+| QT / PQ via superancillary | ≤ 0.1 µs | M6 | M9 | 0.45 / 0.64 µs; C++ 0.21-0.22 / 0.22-0.23 µs (M1.15) |
+| PT / PH single phase | ≤ 3 / ≤ 15 µs | M7 | M9 | 19-27 / 119-376 µs; C++ 3.5-26 / 38-262 µs (M1.15) |
 | Thread scaling, same and different fluids (N = physical cores) | ≥ 0.9·N | M9 | recorded, a miss is re-planned | GIL-bound 0.97× on 4 threads |
 | Memory: EOS ≤ 25 KiB + SA ≤ 25 KiB per fluid; all 136 ≤ 8 MiB RSS | as stated | M3 | M9 | 100-300 KiB per state; +67 MiB on first use |
 | α^r on AVX2 lanes | ≤ 0.1 µs/state and ≥ 2.5×, or stop | M12 | M12 | n/a |

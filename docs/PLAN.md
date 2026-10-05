@@ -504,7 +504,7 @@ C++ compiler for M1.15 (present on the dev box, 2026-10-05).
   ${COOLPROP_LIBRARY_NAME} ${CMAKE_DL_LIBS})` (the static library target, `CMakeLists.txt:607-656`), which also carries
   CoolProp's PUBLIC include directories (`:830`).
   Test `reference_checkout_is_untouched` (xtask) asserts `git -C reference/CoolProp status --porcelain --ignored`
-  equals `scripts/baseline/reference-status.txt` (recorded before the first build; on 2026-10-05 it lists only
+  lists nothing beyond `scripts/baseline/reference-status.txt` (recorded before the first build; on 2026-10-05 it lists only
   `dev/__pycache__/` and `dev/scripts/__pycache__/`). *Done when:* the CSV holds the 7 workloads × 5 fluids of
   VERIFICATION.md §12 with the CPU model, and the reference test passes after a build. If the build cannot be made to
   work in one step, commit the wheel's Python-level timings (map 10 §8.2) marked provisional and open a re-plan
