@@ -1,0 +1,153 @@
+# CI (PLAN.md M0.6; the jobs of VERIFICATION.md §11.3). Every job is a required check on `main`. The stable toolchain
+# is pinned once, in .github/actions/rust; tools are built from crates.io at pinned versions and cached.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  WASMTIME_VERSION: "49.0.2"
+  CARGO_MUTANTS_VERSION: "27.1.0"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/rust
+        with:
+          components: rustfmt
+      - name: G1 cargo fmt --all --check
+        run: cargo fmt --all --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/rust
+        with:
+          components: clippy
+      - name: G2 cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: G7 cargo clippy -p phasekit-core --no-default-features --all-targets -- -D warnings
+        run: cargo clippy -p phasekit-core --no-default-features --all-targets -- -D warnings
+
+  linux:
+    name: linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # `gates mutants` diffs against origin/main
+      - uses: ./.github/actions/rust
+        with:
+          components: clippy # clippy_bans_fire runs clippy on the lint probe
+          targets: wasm32-wasip2 # `gates counts` also measures the G4 run
+      - name: Tool cache
+        id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-wasmtime-${{ env.WASMTIME_VERSION }}-mutants-${{ env.CARGO_MUTANTS_VERSION }}
+      - name: Install wasmtime and cargo-mutants
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: cargo install --locked --root ~/.tools "wasmtime-cli@$WASMTIME_VERSION" "cargo-mutants@$CARGO_MUTANTS_VERSION"
+      - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
+      - name: CoolProp checkout cache
+        id: coolprop
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reference/CoolProp
+          key: coolprop-${{ hashFiles('scripts/fetch-coolprop.sh') }} # the script pins the commit
+      - name: Fetch CoolProp (anonymous clone of the pinned commit)
+        if: steps.coolprop.outputs.cache-hit != 'true'
+        run: scripts/fetch-coolprop.sh
+      - name: G3 cargo test --workspace
+        run: cargo test --workspace
+      - name: G8 cargo xtask gates all
+        run: cargo xtask gates all
+
+  msrv:
+    name: msrv
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/rust
+        with:
+          toolchain: "1.85.0" # the workspace rust-version (D17); tests need newer dev-dependencies, so check only
+      - name: cargo check --lib -p phasekit-core -p phasekit-data
+        run: cargo check --lib -p phasekit-core -p phasekit-data
+
+  windows:
+    name: windows
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/rust
+      - name: G3 cargo test --workspace --exclude phasekit-xtask
+        run: cargo test --workspace --exclude phasekit-xtask
+
+  aarch64:
+    name: aarch64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/rust
+      - name: G3 cargo test --workspace --exclude phasekit-xtask
+        run: cargo test --workspace --exclude phasekit-xtask
+
+  wasip2:
+    name: wasip2
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/rust
+        with:
+          targets: wasm32-wasip2
+      - name: Tool cache
+        id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-wasmtime-${{ env.WASMTIME_VERSION }}
+      - name: Install wasmtime
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: cargo install --locked --root ~/.tools "wasmtime-cli@$WASMTIME_VERSION"
+      - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
+      - name: G4 cargo test --workspace --exclude phasekit-xtask --target wasm32-wasip2
+        run: cargo test --workspace --exclude phasekit-xtask --target wasm32-wasip2
+
+  wasm-browser:
+    name: wasm-browser
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/rust
+        with:
+          targets: wasm32-unknown-unknown
+      - name: G5 cargo check --workspace --target wasm32-unknown-unknown
+        run: cargo check --workspace --target wasm32-unknown-unknown
+      - name: Browser build of the core (fluids-core)
+        run: cargo build -p phasekit-core --no-default-features --features fluids-core --target wasm32-unknown-unknown
+      - name: Browser build of the core with simd128 (K15)
+        run: cargo build -p phasekit-core --no-default-features --features fluids-core --target wasm32-unknown-unknown
+        env:
+          RUSTFLAGS: -C target-feature=+simd128

@@ -201,9 +201,9 @@ CONTRIBUTING.md is the one definition of these rules; this is the summary agents
 - Generated files (`phasekit-data` blobs and index, fixtures and their manifest lines, cbindgen header) are committed in
   the step that changes their generator; CI regenerates and diffs them.
 - No `rust-toolchain.toml` (D17). Develop on the latest stable (1.99.0 today); the workspace MSRV is 1.85. CI installs
-  the stable version named once in `.github/workflows/ci.yml`. A new stable that turns any gate red (for example a new
-  clippy lint under `-D warnings`) is handled in a dedicated `chore: rust 1.NN` PR that fixes the code and bumps the
-  version in the workflow; a blanket `allow` is never the fix (section 0.4). Agents use the version CI names.
+  the stable version named once, as the default of `.github/actions/rust/action.yml`. A new stable that turns any gate
+  red (for example a new clippy lint under `-D warnings`) is handled in a dedicated `chore: rust 1.NN` PR that fixes the
+  code and bumps that version; a blanket `allow` is never the fix (section 0.4). Agents use the version CI names.
 - `Cargo.lock` is committed (dependencies §3.4 item 8).
 
 ### 2.3 Names and paths (shared table)
@@ -238,7 +238,7 @@ Every artefact has one path and one defining section. VERIFICATION.md uses the s
 | Data corrections | `data/corrections.csv` (DIV id, fluid, field, v8.0.0 value, corrected value, citation) | VERIFICATION.md §6.4 |
 | Generated data | `crates/phasekit-data/blobs/*.bin`, `crates/phasekit-data/src/generated.rs`, its `Cargo.toml` features | ARCHITECTURE.md §8; M2.4-M2.5 |
 | Executed-test minimums | `ci/test-counts.txt` (`<target> <package>::<binary> <min>`; `# lowered: <reason>` and `# pending M5.9: <test>` comments) | VERIFICATION.md §11.2 `counts` |
-| CI workflows | `.github/workflows/{ci,nightly,weekly}.yml`; `pr-title.yml` (exists since 2026-10-05, CONTRIBUTING.md) | VERIFICATION.md §11.3; M0.6 |
+| CI workflows | `.github/workflows/{ci,nightly,weekly}.yml`, toolchain action `.github/actions/rust`; `pr-title.yml` (exists since 2026-10-05, CONTRIBUTING.md) | VERIFICATION.md §11.3; M0.6 |
 | C header (M10) | `crates/phasekit-capi/include/phasekit.h` (cbindgen CLI output, committed; R15) | M10.4 |
 
 Committed fixtures are read with `include_str!`, so the corpus runs on wasip2 without filesystem access. Their sizes:

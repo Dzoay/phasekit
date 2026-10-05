@@ -1,0 +1,65 @@
+# Weekly (VERIFICATION.md §11.3): the tests against the latest compatible dependencies (dependencies §3.4 item 4), and
+# a full mutation run as a report (user decision TQ2). PRs gate only their own changes; this finds what slipped by.
+name: weekly
+
+on:
+  schedule:
+    - cron: "17 4 * * 1" # Mondays 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_MUTANTS_VERSION: "27.1.0"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  latest-deps:
+    name: latest-deps
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/rust
+        with:
+          components: clippy
+      - name: cargo update
+        run: cargo update
+      - name: G3 cargo test --workspace
+        run: cargo test --workspace
+
+  mutants:
+    name: mutants (report)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/rust
+        with:
+          components: clippy
+      - name: Tool cache
+        id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-mutants-${{ env.CARGO_MUTANTS_VERSION }}
+      - name: Install cargo-mutants
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: cargo install --locked --root ~/.tools "cargo-mutants@$CARGO_MUTANTS_VERSION"
+      - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
+      - name: cargo mutants --workspace (report only)
+        run: |
+          cargo mutants --workspace --output "$RUNNER_TEMP" || true
+          out="$RUNNER_TEMP/mutants.out"
+          {
+            echo "## Surviving mutants"
+            echo
+            if [ -s "$out/missed.txt" ]; then echo '```'; cat "$out/missed.txt"; echo '```'; else echo "None."; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutants.out
+          path: ${{ runner.temp }}/mutants.out
