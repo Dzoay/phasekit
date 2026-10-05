@@ -157,6 +157,24 @@ impl Repo {
         Ok(MutantsRun { success: status.success(), outcomes, output: out.display().to_string() })
     }
 
+    /// What the oracle generator inherits from this environment: PATH, HOME and UV_CACHE_DIR if set.
+    pub fn oracle_environment(&self) -> (String, String, Option<String>) {
+        let var = |name: &str| std::env::var_os(name).map(|v| v.to_string_lossy().into_owned());
+        (var("PATH").unwrap_or_default(), var("HOME").unwrap_or_default(), var("UV_CACHE_DIR"))
+    }
+
+    /// Runs `invocation` in the root with exactly its environment (nothing inherited); returns whether it succeeded.
+    pub fn run(&self, invocation: &crate::oracle::Invocation) -> Result<bool, String> {
+        Command::new(&invocation.program)
+            .args(&invocation.args)
+            .env_clear()
+            .envs(invocation.env.iter().map(|(k, v)| (k, v)))
+            .current_dir(&self.root)
+            .status()
+            .map(|status| status.success())
+            .map_err(|e| format!("cannot run {}: {e}", invocation.program))
+    }
+
     /// The host target triple, from `rustc -vV`.
     pub fn host(&self) -> Result<String, String> {
         let output = Command::new("rustc").arg("-vV").output().map_err(|e| format!("cannot run rustc -vV: {e}"))?;

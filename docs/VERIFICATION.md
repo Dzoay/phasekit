@@ -105,7 +105,7 @@ land in that step's PR. Files are written to a temp name and renamed; nothing is
 map 10 §4, map 15 §8), one child process per reference state. `term` isolates blocks with `add_fluids_as_JSON` on a
 renamed one-block clone (map 10 §8.2), only in generator children. A `fork` process pool (children inherit the loaded
 library; 5.9× on 6 cores, map 10 §7) computes rows by index and writes them sorted, so bytes do not depend on `--jobs`.
-An exception becomes `status = err:<class>`, the class from a fixed message table: `notimpl` (not available or not
+An exception becomes `status = err:<class>`, and so does a call that reports failure only through CoolProp's process-wide `errstring` (`Props1SI` returns `inf` and sets it; gen.py clears it before each call and reads it after, M1.3); the class comes from a fixed message table: `notimpl` (not available or not
 implemented), `solver` (iterations, no solution, solver failed), `domain` (out of range, "must be", outside), `other`.
 Messages are not stored *(decision)*: they differ between scalar and vector paths (map 14 §10) and contain commas. NaN
 is canonicalised and written `nan`; ±∞ as `inf`, `-inf`.
@@ -128,14 +128,14 @@ python           3.12
 platform         x86_64-linux-gnu
 runner_image     <OCI digest of the pinned nightly runner image>
 uv_command       uv run --no-project --python 3.12 --with CoolProp==8.0.0
-fluids_sha256    <sha256 of the sorted "name sha256" lines of reference/CoolProp/dev/fluids/*.json>
+fluids_sha256    <sha256 of the sorted "<file name> <sha256>\n" lines of reference/CoolProp/dev/fluids/*.json>
 sampler          splitmix64-v1
 env_scrubbed     COOLPROP_* PXFLASH_*
 locale           LC_ALL=C
 config_json      {"ENABLE_SUPERANCILLARIES":true,"NORMALIZE_GAS_CONSTANTS":true, ... all 38 keys ...}
 ```
 
-`git`, the `so_*` values, 38 keys and 136 fluids were re-measured 2026-10-05 (uv chose Python 3.12.14). The lock pins
+`git`, the `so_*` values, 38 keys and 136 fluids were re-measured 2026-10-05 (uv chose Python 3.12.14); the committed lock (M1.3) records them, and `runner_image` stays `unpinned until PLAN.md M1.16`. gen.py checks `fluids_sha256` against the fluid directory as part of assertion 4. The lock pins
 the oracle's environment only *(decision)*: gen.py's sha256 goes into each fixture header (`# generator:`), so adding
 or changing a kind regenerates the affected fixtures but never edits the lock, and the fastchebpure pin (the release
 `2026.06.02-v2` that CoolProp's v8.0.0 docs pin, map 10 §8.1) lives with its per-file sha256 lines in
@@ -213,7 +213,7 @@ never skips them.
 
 | Kind | Columns after the inputs | Grid: core / all-fluid tier / nightly | First (PLAN.md step) | Compared with |
 |---|---|---|---|---|
-| `facts` | `name, call, status, value`: one named oracle fact per row (`set` = `smoke`: the R134a QT enthalpy, Water `Tcrit` and `T_reducing`; `set` = `register`: every value a register entry cites) | one file per set | M1.3, M1.13 | `Exact` (bit-exact parse of what the oracle printed) |
+| `facts` | `name, call, status, value`: one named oracle fact per row, `call` written as `PropsSI(H;T;300;Q;1;R134a)` because cells hold no commas (`set` = `smoke`: the R134a QT enthalpy, Water `Tcrit` and `T_reducing`; `set` = `register`: every value a register entry cites) | one file per set | M1.3, M1.13 | `Exact` (bit-exact parse of what the oracle printed) |
 | `checkpoints` | `T, p, rhoL, rhoV` from `EOS[0].SUPERANCILLARY.check_points`, source `mp:coolprop-json` (written to `mp/check-points.csv`) | 390 rows (all SA fluids) | M1.17 | `SaFit` (SA), `SatMp` (VLE) |
 | `term` | `block_idx` (a block index, `all` for the α^r total, `ideal` for the α⁰ total), `block_type, tau, delta`, `a` + 14 α^r derivatives to order 4 (α⁰ to order 3: the oracle exposes no 4th, map 10 §8.2) | δ log-spaced to 1e-8, τ ∈ [Tc/Tmax, Tc/Tmin], τ = δ = 1 neighbourhoods for NonAnalytic (map 10 §8.5): 100 per block / 4 total rows per fluid / 300 per block + 64 total rows per fluid | M3.1 (blocks), M3.6 (totals), M4.3 (α⁰) | `Term`; the test forms A_ij = τ^i δ^j ∂^(i+j)α from the oracle's unscaled derivatives |
 | `eos` | `region, status, p, h, s, u, cv, cp, w, Z, dpdrho_T, dpdT_rho, Bvirial, Cvirial, dBvirial_dT, dCvirial_dT` and the partial, `cp0molar` and residual columns (molar SI) | T ~ U[T_low, Tmax], ρ ~ logU[1e-6·ρL(T_low), ρL(T_low)], phase imposed, T_low = max(Tmin, Ttriple) (map 09 R8): 500 / 8 / 10,000 | M5.1, M5.5 | `Prop` |
