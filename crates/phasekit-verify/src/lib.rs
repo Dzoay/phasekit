@@ -2,10 +2,12 @@
 //! `tests/`. Zero dependencies beyond `phasekit-core`. The full design is docs/VERIFICATION.md (forthcoming).
 
 pub mod conformance;
+pub mod fixture;
 pub mod register;
 pub mod tolerance;
 
 pub use conformance::{Mismatch, fd_first_order, gauge_invariance, policy_equivalence};
+pub use fixture::{Cell, CheckError, ColumnRole, Fixture, FixtureError, FixtureMismatch, Row};
 pub use register::{DIVERGENCES, Divergence, Policy, RegisterError, check_register};
 pub use tolerance::{Provenance, Tolerance, ToleranceClass, from_printed};
 

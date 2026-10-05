@@ -2,3 +2,5 @@
 *.bin binary
 *.png binary
 *.pdf binary
+# Fixtures are hashed byte for byte (VERIFICATION.md §3.3): no line-ending conversion on any platform.
+crates/phasekit-verify/fixtures/** -text

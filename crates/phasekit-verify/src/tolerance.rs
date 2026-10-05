@@ -70,6 +70,32 @@ pub enum ToleranceClass {
     Smoke,
 }
 
+impl ToleranceClass {
+    /// Every class with its name in fixture `tol:` lines (VERIFICATION.md §3.3, §5).
+    const NAMES: [(ToleranceClass, &'static str); 10] = [
+        (ToleranceClass::Exact, "exact"),
+        (ToleranceClass::Term, "term"),
+        (ToleranceClass::Prop, "prop"),
+        (ToleranceClass::SaCoeff, "sa_coeff"),
+        (ToleranceClass::SatMp, "sat_mp"),
+        (ToleranceClass::Flash, "flash"),
+        (ToleranceClass::TransportDirect, "transport_direct"),
+        (ToleranceClass::TransportEcs, "transport_ecs"),
+        (ToleranceClass::Paper, "paper"),
+        (ToleranceClass::Smoke, "smoke"),
+    ];
+
+    /// The class's name in fixture `tol:` lines.
+    pub fn name(self) -> &'static str {
+        Self::NAMES.iter().find(|(class, _)| *class == self).map_or("", |(_, name)| name)
+    }
+
+    /// The class a `tol:` name stands for.
+    pub fn from_name(name: &str) -> Option<ToleranceClass> {
+        Self::NAMES.iter().find(|(_, n)| *n == name).map(|(class, _)| *class)
+    }
+}
+
 /// Half a unit in the last printed digit: the tolerance a printed check value supports.
 /// `"21.17909"` → `Absolute(5e-6)`; exponents are honoured (`"1.5e-3"` → `Absolute(5e-5)`).
 pub fn from_printed(printed: &str) -> Option<Tolerance> {
