@@ -1,5 +1,6 @@
 # Nightly (VERIFICATION.md §11.3). Filled at M1.16 with the oracle drift and determinism checks and the full-set
-# sweep; until then it runs the corpus in release mode, ignored tests included (the L5 step).
+# sweep; until then it runs the corpus in release mode, ignored tests included (the L5 step). Also the daily RustSec
+# advisory check (PLAN.md §5.3): a new advisory against a locked dependency shows up without waiting for a PR.
 name: nightly
 
 on:
@@ -12,6 +13,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_DENY_VERSION: "0.20.2"
 
 defaults:
   run:
@@ -26,3 +28,22 @@ jobs:
       - uses: ./.github/actions/rust
       - name: cargo test -p phasekit-verify --release -- --include-ignored
         run: cargo test -p phasekit-verify --release -- --include-ignored
+
+  advisories:
+    name: advisories
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/rust
+      - name: Tool cache
+        id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-deny-${{ env.CARGO_DENY_VERSION }}
+      - name: Install cargo-deny
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: cargo install --locked --root ~/.tools "cargo-deny@$CARGO_DENY_VERSION"
+      - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
+      - name: cargo deny check advisories
+        run: cargo deny check advisories

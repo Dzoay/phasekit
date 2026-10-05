@@ -1,0 +1,48 @@
+# cargo-deny (PLAN.md M0.7; dependencies §3.1, §3.4 item 5; R7, R19): licences, bans, sources and advisories of
+# everything in Cargo.lock. `cargo deny check` runs in CI.
+
+[graph]
+# Optional features count: a dependency behind a feature must pass too.
+all-features = true
+
+[advisories]
+# RustSec advisories; vulnerable, unsound and yanked crates fail.
+yanked = "deny"
+ignore = []
+
+[licenses]
+# The allow-list of dependencies §3.1. MPL-2.0 only by a per-crate exception, in facades (T2) and tools (T4).
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "ISC",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.93
+# The list is policy for dependencies to come: an entry no current dependency uses is not a finding.
+unused-allowed-license = "allow"
+exceptions = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# The workspace's own path dependencies have no version; that is fine for crates that are never published.
+allow-wildcard-paths = true
+deny = [
+    { crate = "bincode", reason = "RUSTSEC-2025-0141 (dependencies §3.1)" },
+    { crate = "serde_cbor", reason = "unmaintained, RUSTSEC-2021-0127 (dependencies §3.1)" },
+    # std has OnceLock and LazyLock. A facade whose own dependency needs one of these (wasm-bindgen and pyo3 use
+    # once_cell) lists that dependency in `wrappers` when it lands.
+    { crate = "once_cell", reason = "use std::sync::OnceLock / LazyLock (dependencies §3.1)" },
+    { crate = "lazy_static", reason = "use std::sync::LazyLock (dependencies §3.1)" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
