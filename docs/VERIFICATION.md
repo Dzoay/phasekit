@@ -297,13 +297,18 @@ values (fastchebpure, the 390 check points) are exact for the EOS: they arbitrat
 
 1. Download the paper anonymously into the gitignored `reference/papers/` (the fetch list is PLAN.md M1.8 and M8.2).
    Read the rendered page (PDF view or print), never PDF text extraction alone (map 12 §6.4). Confirm table numbers:
-   map 13 §3 notes the IAPWS-95 table numbers 6 and 7 were from memory.
+   map 13 §3 notes the IAPWS-95 table numbers 6 and 7 were from memory. A green-OA copy that is a PMC author
+   manuscript is read from its JATS XML, fetched anonymously from the PMC Article Datasets
+   (`https://pmc-oa-opendata.s3.amazonaws.com/<pmcid>.<ver>/<pmcid>.<ver>.xml`; the PMC PDF sits behind a browser
+   proof-of-work). Each `<td>` holds one printed string, so this is no PDF text extraction; the XML has no pages, so
+   the citation gives `manuscript=<pmcid>.<ver>` and `xml_sha256=` in place of `page=` and `pdf_sha256=` (PLAN.md M1.9).
 2. Write `fixtures/paper/<Fluid>/<bibkey>.<table>.csv`:
 
 ```text
 # fixture: paper/v1
 # source: paper:Thol-IJT-2016-R1234zeE/Table3
 # citation: doi=<doi> table=3 page=<page> erratum-checked=<date> pdf_sha256=<sha256 of the file read>
+#   (a PMC author manuscript: doi=<doi> table=<n> manuscript=<pmcid>.<ver> erratum-checked=<date> xml_sha256=<sha256>)
 # kind: K2
 # constants: R=8.3144621 M=<as printed> Tc=<...> rhoc=<...> Tr=<...> rhor=<...>   (as printed, with units)
 # transcribed: <who>; checked: <who>

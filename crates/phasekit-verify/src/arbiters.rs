@@ -85,6 +85,16 @@ pub struct Constants {
 const IAPWS_95: Constants =
     Constants { r: "0.46151805 kJ/(kg K)", molar_mass: None, t_reducing: "647.096 K", rho_reducing: "322 kg/m3" };
 
+/// The constants Lemmon et al. (J. Chem. Eng. Data 60:3745, 2015) print for each fluid (§2.4, Appendix A; δ = ρ/ρ_c,
+/// τ = T_c/T, so T_r = T_c and ρ_r = ρ_c). R is stated once for the paper (Eq. 5) and again in the R-115 block.
+const fn lemmon_2015(molar_mass: &'static str, t_reducing: &'static str, rho_reducing: &'static str) -> Constants {
+    Constants { r: "8.3144621 J/(mol K)", molar_mass: Some(molar_mass), t_reducing, rho_reducing }
+}
+const LEMMON_R227EA: Constants = lemmon_2015("170.02886 g/mol", "374.9 K", "3.495 mol/dm3");
+const LEMMON_R365MFC: Constants = lemmon_2015("148.07452 g/mol", "460.0 K", "3.2 mol/dm3");
+const LEMMON_R115: Constants = lemmon_2015("154.466416 g/mol", "353.1 K", "3.98 mol/dm3");
+const LEMMON_R13I1: Constants = lemmon_2015("195.9104 g/mol", "396.44 K", "4.4306 mol/dm3");
+
 /// Where an arbiter stands (VERIFICATION.md §4.3).
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
@@ -227,9 +237,9 @@ pub static ARBITERS: &[Arbiter] = &[
             doi_or_report: Some("10.1021/acs.jced.5b00684"),
             role: Role::EosPaper,
         },
-        tables: &[Table { file: "paper/R227EA/Lemmon-JCED-2016-365227.7.csv", kind: TableKind::K2, rows: None }],
-        constants: None,
-        status: ArbiterStatus::Expected,
+        tables: &[Table { file: "paper/R227EA/Lemmon-JCED-2016-365227.7.csv", kind: TableKind::K2, rows: Some(3) }],
+        constants: Some(LEMMON_R227EA),
+        status: ArbiterStatus::Transcribed,
     },
     Arbiter {
         fluid: "R365MFC",
@@ -239,9 +249,9 @@ pub static ARBITERS: &[Arbiter] = &[
             doi_or_report: Some("10.1021/acs.jced.5b00684"),
             role: Role::EosPaper,
         },
-        tables: &[Table { file: "paper/R365MFC/Lemmon-JCED-2016-365227.7.csv", kind: TableKind::K2, rows: None }],
-        constants: None,
-        status: ArbiterStatus::Expected,
+        tables: &[Table { file: "paper/R365MFC/Lemmon-JCED-2016-365227.7.csv", kind: TableKind::K2, rows: Some(3) }],
+        constants: Some(LEMMON_R365MFC),
+        status: ArbiterStatus::Transcribed,
     },
     Arbiter {
         fluid: "R115",
@@ -251,9 +261,9 @@ pub static ARBITERS: &[Arbiter] = &[
             doi_or_report: Some("10.1021/acs.jced.5b00684"),
             role: Role::EosPaper,
         },
-        tables: &[Table { file: "paper/R115/Lemmon-JCED-2016-365227.7.csv", kind: TableKind::K2, rows: None }],
-        constants: None,
-        status: ArbiterStatus::Expected,
+        tables: &[Table { file: "paper/R115/Lemmon-JCED-2016-365227.7.csv", kind: TableKind::K2, rows: Some(3) }],
+        constants: Some(LEMMON_R115),
+        status: ArbiterStatus::Transcribed,
     },
     Arbiter {
         fluid: "R13I1",
@@ -263,9 +273,9 @@ pub static ARBITERS: &[Arbiter] = &[
             doi_or_report: Some("10.1021/acs.jced.5b00684"),
             role: Role::EosPaper,
         },
-        tables: &[Table { file: "paper/R13I1/Lemmon-JCED-2016-365227.7.csv", kind: TableKind::K2, rows: None }],
-        constants: None,
-        status: ArbiterStatus::Expected,
+        tables: &[Table { file: "paper/R13I1/Lemmon-JCED-2016-365227.7.csv", kind: TableKind::K2, rows: Some(3) }],
+        constants: Some(LEMMON_R13I1),
+        status: ArbiterStatus::Transcribed,
     },
     Arbiter {
         fluid: "R1234ze(E)",

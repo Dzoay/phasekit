@@ -11,6 +11,19 @@ const PAPERS: &[(Text, Text)] = &[
     (fixture!("paper/Water/IAPWS-R6-95-2018.6.csv"), fixture!("paper/Water/IAPWS-R6-95-2018.6.check.csv")),
     (fixture!("paper/Water/IAPWS-R6-95-2018.7.csv"), fixture!("paper/Water/IAPWS-R6-95-2018.7.check.csv")),
     (fixture!("paper/Water/IAPWS-R6-95-2018.8.csv"), fixture!("paper/Water/IAPWS-R6-95-2018.8.check.csv")),
+    (
+        fixture!("paper/R227EA/Lemmon-JCED-2016-365227.7.csv"),
+        fixture!("paper/R227EA/Lemmon-JCED-2016-365227.7.check.csv"),
+    ),
+    (
+        fixture!("paper/R365MFC/Lemmon-JCED-2016-365227.7.csv"),
+        fixture!("paper/R365MFC/Lemmon-JCED-2016-365227.7.check.csv"),
+    ),
+    (fixture!("paper/R115/Lemmon-JCED-2016-365227.7.csv"), fixture!("paper/R115/Lemmon-JCED-2016-365227.7.check.csv")),
+    (
+        fixture!("paper/R13I1/Lemmon-JCED-2016-365227.7.csv"),
+        fixture!("paper/R13I1/Lemmon-JCED-2016-365227.7.check.csv"),
+    ),
 ];
 
 const REUSE: &str = include_str!("../../../REUSE.toml");
@@ -53,8 +66,9 @@ fn printed_strings_parse() {
     }
 }
 
-/// VERIFICATION.md §4.2 steps 1, 4 and §3.7: the header cites the table, the page, the erratum check and the
-/// sha256 of the file read, names both transcribers, and the file has the paper annotation in REUSE.toml.
+/// VERIFICATION.md §4.2 steps 1, 4 and §3.7: the header cites the table, the page (or, for a PMC author manuscript
+/// read from its JATS XML, the PMC id and version), the erratum check and the sha256 of the file read, names both
+/// transcribers, and the file has the paper annotation in REUSE.toml.
 #[test]
 fn every_paper_file_has_a_citation_and_reuse_annotation() {
     assert!(REUSE.contains(r#"path = "crates/phasekit-verify/fixtures/paper/**""#));
@@ -63,14 +77,22 @@ fn every_paper_file_has_a_citation_and_reuse_annotation() {
         let citation = table.header("citation").unwrap_or_default();
         let field = |key: &str| citation.split(' ').find_map(|f| f.strip_prefix(key));
         assert!(field("doi=").or(field("report=")).is_some_and(|s| !s.is_empty()), "{path}: doi= or report=");
-        assert!(field("table=").is_some() && field("page=").is_some_and(|p| p.parse::<u32>().is_ok()), "{path}");
+        let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+        let (located, sha) = match field("manuscript=") {
+            Some(id) => {
+                let pmc = id.strip_prefix("PMC").and_then(|v| v.split_once('.'));
+                (pmc.is_some_and(|(n, version)| digits(n) && digits(version)), field("xml_sha256="))
+            }
+            None => (field("page=").is_some_and(digits), field("pdf_sha256=")),
+        };
+        assert!(field("table=").is_some() && located, "{path}: table= and page= or manuscript=PMC<n>.<version>");
         let date = field("erratum-checked=").unwrap_or_default();
         assert!(
             date.len() == 10 && date.as_bytes()[4] == b'-' && date.as_bytes()[7] == b'-',
             "{path}: erratum-checked"
         );
-        let sha = field("pdf_sha256=").unwrap_or_default();
-        assert!(sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_hexdigit()), "{path}: pdf_sha256");
+        let sha = sha.unwrap_or_default();
+        assert!(sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_hexdigit()), "{path}: sha256 of the file read");
         assert!(table.header("transcribed").is_some_and(|t| t.contains("; checked: ")), "{path}: both transcribers");
     }
 }
