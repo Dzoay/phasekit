@@ -157,6 +157,19 @@ impl Repo {
         Ok(MutantsRun { success: status.success(), outcomes, output: out.display().to_string() })
     }
 
+    /// An environment variable, if set.
+    pub fn var(&self, name: &str) -> Option<String> {
+        std::env::var_os(name).map(|v| v.to_string_lossy().into_owned())
+    }
+
+    /// `git -C reference/CoolProp status --porcelain --ignored`, or `None` when the checkout is absent (as on CI).
+    pub fn reference_status(&self) -> Option<Result<String, String>> {
+        self.root
+            .join("reference/CoolProp")
+            .is_dir()
+            .then(|| self.git(&["-C", "reference/CoolProp", "status", "--porcelain", "--ignored"]))
+    }
+
     /// What the oracle generator inherits from this environment: PATH, HOME and UV_CACHE_DIR if set.
     pub fn oracle_environment(&self) -> (String, String, Option<String>) {
         let var = |name: &str| std::env::var_os(name).map(|v| v.to_string_lossy().into_owned());

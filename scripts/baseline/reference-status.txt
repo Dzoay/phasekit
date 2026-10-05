@@ -1,0 +1,2 @@
+!! dev/__pycache__/
+!! dev/scripts/__pycache__/
