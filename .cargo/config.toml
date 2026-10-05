@@ -3,3 +3,7 @@
 [alias]
 # `cargo xtask <task>`: developer tasks and the gates (crates/phasekit-xtask).
 xtask = "run --quiet -p phasekit-xtask --"
+
+[target.wasm32-wasip2]
+# G4: wasip2 test binaries run under wasmtime (scripts/check-toolchain.sh checks that it is installed).
+runner = "wasmtime"

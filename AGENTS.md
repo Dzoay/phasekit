@@ -4,9 +4,9 @@ phasekit is a from-scratch, idiomatic Rust successor to CoolProp (thermophysical
 materials). It is **not** a binding. Work proceeds test-first, one plan step per pull request.
 
 **Current state:** milestone M0 is under way. M0.1 (toolchain check), M0.2 (workspace seeded from the sketch), M0.3
-(lint probes), M0.4 (xtask gates) and M0.4a (test-quality gates) are done; the next step is **M0.5** in
-[docs/PLAN.md](docs/PLAN.md). `docs/design/sketch/` is the compiled type sketch (its own Cargo workspace) that seeded
-the workspace; it is never edited, and later steps copy from it only when they say so.
+(lint probes), M0.4 (xtask gates), M0.4a (test-quality gates) and M0.5 (wasip2 tests under wasmtime) are done; the next
+step is **M0.6** in [docs/PLAN.md](docs/PLAN.md). `docs/design/sketch/` is the compiled type sketch (its own Cargo
+workspace) that seeded the workspace; it is never edited, and later steps copy from it only when they say so.
 
 ## Sources of truth, in order
 
