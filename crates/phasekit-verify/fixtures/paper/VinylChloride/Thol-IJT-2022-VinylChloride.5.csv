@@ -1,0 +1,9 @@
+# fixture: paper/v1
+# source: paper:Thol-IJT-2022-VinylChloride/Table5
+# citation: doi=10.1007/s10765-021-02961-3 table=5 tests=src/Tests/CoolProp-Tests.cpp:4804@ae81610e erratum-checked=2026-10-05 cpp_sha256=da633f3da9ea90507094960ae93103dd46735760eda20bb6e6522847406434fb
+# kind: K2
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,rho,p,cv,cp,w,note
+# units: K,mol/m3,Pa,J/(mol K),J/(mol K),m/s,-
+# tol: in,in,paper,paper,paper,paper,label
+300.0,15000.0,23.0374719e6,,91.4066946,1008.04450,row 4

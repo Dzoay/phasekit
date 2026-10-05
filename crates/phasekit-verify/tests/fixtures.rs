@@ -7,7 +7,7 @@ fn fact<'a>(fixture: &Fixture<'a>, name: &str) -> Option<(&'a str, f64)> {
     let row = fixture.rows().iter().position(|row| row.cells.first() == Some(&Cell::Text(name)))?;
     match fixture.rows()[row].cells.get(2)? {
         Cell::Text(status) => Some((status, fixture.value(row, "value")?)),
-        Cell::Num(_) => None,
+        Cell::Num(_) | Cell::Blank => None,
     }
 }
 

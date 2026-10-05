@@ -1,0 +1,10 @@
+# fixture: paper/v1
+# source: paper:Huber-IJT-2025-R1130E/Table4
+# citation: doi=10.1007/s10765-025-03535-3 table=4 tests=src/Tests/CoolProp-Tests.cpp:4812@ae81610e page=6 erratum-checked=2026-10-05 cpp_sha256=da633f3da9ea90507094960ae93103dd46735760eda20bb6e6522847406434fb pdf_sha256=ad046017b6032ebad59a5bf19f4956c22e4af3a767134f60053a18532a79f173
+# kind: K2
+# constants: R=8.314462618 J/(mol K) M=96.94328 g/mol Tc=515.69 K rhoc=4.54 mol/dm3 (Table 1, page 2; Tr=Tc rhor=rhoc)
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,rho,p,cv,cp,w,note
+# units: K,mol/m3,Pa,J/(mol K),J/(mol K),m/s,-
+# tol: in,in,paper,paper,paper,paper,label
+320.0,12500.0,3.39671e6,76.665,115.586,946.434,row 3

@@ -1,0 +1,10 @@
+# fixture: paper/v1
+# source: paper:Fiedler-IJT-2023-THF/Table11
+# citation: doi=10.1007/s10765-023-03258-3 table=11 tests=src/Tests/CoolProp-Tests.cpp:4800@ae81610e page=35 erratum-checked=2026-10-05 cpp_sha256=da633f3da9ea90507094960ae93103dd46735760eda20bb6e6522847406434fb pdf_sha256=e2fdf8c92ca679cfd91daff1d2826b5eb83229c043943a530b05159535bf4d93
+# kind: K2
+# constants: R=8.314462618 J/(mol K) M=72.1057 g/mol Tc=540.2 K rhoc=4.4 mol/dm3 (Table 1, page 3; Tr=Tc rhor=rhoc)
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,rho,p,cv,cp,w,note
+# units: K,mol/m3,Pa,J/(mol K),J/(mol K),m/s,-
+# tol: in,in,paper,paper,paper,paper,label
+450.0,10000.0,12.357974600e6,,167.23826646,739.195761440,row 3

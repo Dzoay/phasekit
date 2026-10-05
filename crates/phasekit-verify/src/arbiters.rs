@@ -113,6 +113,23 @@ const NIST_IR_8474: Constants = Constants {
     rho_reducing: "17.3837 mol/dm3",
 };
 
+/// The constants Fiedler et al. (Int. J. Thermophys. 44:153, 2023) print for tetrahydrofuran (Table 1; δ = ρ/ρ_c,
+/// τ = T_c/T).
+const FIEDLER_THF: Constants = Constants {
+    r: "8.314462618 J/(mol K)",
+    molar_mass: Some("72.1057 g/mol"),
+    t_reducing: "540.2 K",
+    rho_reducing: "4.4 mol/dm3",
+};
+
+/// The constants Huber et al. (Int. J. Thermophys. 46:76, 2025) print for R-1130(E) (Table 1; δ = ρ/ρ_c, τ = T_c/T).
+const HUBER_R1130E: Constants = Constants {
+    r: "8.314462618 J/(mol K)",
+    molar_mass: Some("96.94328 g/mol"),
+    t_reducing: "515.69 K",
+    rho_reducing: "4.54 mol/dm3",
+};
+
 /// Where an arbiter stands (VERIFICATION.md §4.3).
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
@@ -193,7 +210,7 @@ pub fn violations(arbiters: &[Arbiter], committed: &dyn Fn(&str) -> bool, milest
     errors
 }
 
-/// Every arbiter record of VERIFICATION.md §4.4's core set; the 12 one-row CoolProp-test fluids join at M1.12, the
+/// Every arbiter record of VERIFICATION.md §4.4's core set, the 13 CoolProp-test fluids among them (M1.12); the
 /// n-Heptane and D6 c_p⁰ equation checks with M4, the mp check points and transport rows with their files.
 pub static ARBITERS: &[Arbiter] = &[
     Arbiter {
@@ -333,7 +350,7 @@ pub static ARBITERS: &[Arbiter] = &[
         },
         tables: &[Table { file: "paper/R1234yf/Lemmon-IJT-2022.7.csv", kind: TableKind::K2, rows: Some(6) }],
         constants: None,
-        status: ArbiterStatus::Expected,
+        status: ArbiterStatus::Transcribed,
     },
     Arbiter {
         fluid: "R1130(E)",
@@ -343,9 +360,9 @@ pub static ARBITERS: &[Arbiter] = &[
             doi_or_report: Some("10.1007/s10765-025-03535-3"),
             role: Role::CoolPropTests,
         },
-        tables: &[Table { file: "paper/R1130(E)/Huber-IJT-2025-R1130E.4.csv", kind: TableKind::K2, rows: None }],
-        constants: None,
-        status: ArbiterStatus::Expected,
+        tables: &[Table { file: "paper/R1130(E)/Huber-IJT-2025-R1130E.4.csv", kind: TableKind::K2, rows: Some(1) }],
+        constants: Some(HUBER_R1130E),
+        status: ArbiterStatus::Transcribed,
     },
     Arbiter {
         fluid: "R1224YDZ",
@@ -355,9 +372,145 @@ pub static ARBITERS: &[Arbiter] = &[
             doi_or_report: Some("10.1007/s10765-023-03266-3"),
             role: Role::CoolPropTests,
         },
-        tables: &[Table { file: "paper/R1224YDZ/Akasaka-IJT-2023-R1224ydZ.7.csv", kind: TableKind::K2, rows: None }],
+        tables: &[Table { file: "paper/R1224YDZ/Akasaka-IJT-2023-R1224ydZ.7.csv", kind: TableKind::K2, rows: Some(1) }],
         constants: None,
-        status: ArbiterStatus::Expected,
+        status: ArbiterStatus::Transcribed,
+    },
+    Arbiter {
+        fluid: "R1132(E)",
+        part: ArbiterPart::AlphaR,
+        citation: Citation {
+            key: "Akasaka-IJT-2024-R1132E",
+            doi_or_report: Some("10.1007/s10765-024-03447-8"),
+            role: Role::CoolPropTests,
+        },
+        tables: &[Table { file: "paper/R1132(E)/Akasaka-IJT-2024-R1132E.6.csv", kind: TableKind::K2, rows: Some(1) }],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
+    },
+    Arbiter {
+        fluid: "Tetrahydrofuran",
+        part: ArbiterPart::AlphaR,
+        citation: Citation {
+            key: "Fiedler-IJT-2023-THF",
+            doi_or_report: Some("10.1007/s10765-023-03258-3"),
+            role: Role::CoolPropTests,
+        },
+        tables: &[Table {
+            file: "paper/Tetrahydrofuran/Fiedler-IJT-2023-THF.11.csv",
+            kind: TableKind::K2,
+            rows: Some(1),
+        }],
+        constants: Some(FIEDLER_THF),
+        status: ArbiterStatus::Transcribed,
+    },
+    Arbiter {
+        fluid: "PropyleneGlycol",
+        part: ArbiterPart::AlphaR,
+        citation: Citation {
+            key: "Eisenbach-JPCRD-2021",
+            doi_or_report: Some("10.1063/5.0050021"),
+            role: Role::CoolPropTests,
+        },
+        tables: &[Table {
+            file: "paper/PropyleneGlycol/Eisenbach-JPCRD-2021.8.csv",
+            kind: TableKind::K2,
+            rows: Some(1),
+        }],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
+    },
+    Arbiter {
+        fluid: "VinylChloride",
+        part: ArbiterPart::AlphaR,
+        citation: Citation {
+            key: "Thol-IJT-2022-VinylChloride",
+            doi_or_report: Some("10.1007/s10765-021-02961-3"),
+            role: Role::CoolPropTests,
+        },
+        tables: &[Table {
+            file: "paper/VinylChloride/Thol-IJT-2022-VinylChloride.5.csv",
+            kind: TableKind::K2,
+            rows: Some(1),
+        }],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
+    },
+    Arbiter {
+        fluid: "R1123",
+        part: ArbiterPart::AlphaR,
+        citation: Citation {
+            key: "Akasaka-IJR-2020-R1123",
+            doi_or_report: Some("10.1016/j.ijrefrig.2020.07.011"),
+            role: Role::CoolPropTests,
+        },
+        tables: &[Table { file: "paper/R1123/Akasaka-IJR-2020-R1123.8.csv", kind: TableKind::K2, rows: Some(1) }],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
+    },
+    Arbiter {
+        fluid: "n-Perfluorobutane",
+        part: ArbiterPart::AlphaR,
+        citation: Citation {
+            key: "Gao-2022-CxFy",
+            doi_or_report: Some("10.1021/acs.iecr.1c02969"),
+            role: Role::CoolPropTests,
+        },
+        tables: &[Table { file: "paper/n-Perfluorobutane/Gao-2022-CxFy.14.csv", kind: TableKind::K2, rows: Some(1) }],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
+    },
+    Arbiter {
+        fluid: "n-Perfluoropentane",
+        part: ArbiterPart::AlphaR,
+        citation: Citation {
+            key: "Gao-2022-CxFy",
+            doi_or_report: Some("10.1021/acs.iecr.1c02969"),
+            role: Role::CoolPropTests,
+        },
+        tables: &[Table { file: "paper/n-Perfluoropentane/Gao-2022-CxFy.14.csv", kind: TableKind::K2, rows: Some(1) }],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
+    },
+    Arbiter {
+        fluid: "n-Perfluorohexane",
+        part: ArbiterPart::AlphaR,
+        citation: Citation {
+            key: "Gao-2022-CxFy",
+            doi_or_report: Some("10.1021/acs.iecr.1c02969"),
+            role: Role::CoolPropTests,
+        },
+        tables: &[Table { file: "paper/n-Perfluorohexane/Gao-2022-CxFy.14.csv", kind: TableKind::K2, rows: Some(1) }],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
+    },
+    Arbiter {
+        fluid: "R1233zd(E)",
+        part: ArbiterPart::AlphaR,
+        citation: Citation {
+            key: "Akasaka-JPCRD-2022-R1233zdE",
+            doi_or_report: Some("10.1063/5.0083026"),
+            role: Role::CoolPropTests,
+        },
+        tables: &[Table {
+            file: "paper/R1233zd(E)/Akasaka-JPCRD-2022-R1233zdE.IX.csv",
+            kind: TableKind::K2,
+            rows: Some(1),
+        }],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
+    },
+    Arbiter {
+        fluid: "R1243zf",
+        part: ArbiterPart::AlphaR,
+        citation: Citation {
+            key: "Akasaka-IJT-2025-R1243zf",
+            doi_or_report: Some("10.1007/s10765-024-03481-6"),
+            role: Role::CoolPropTests,
+        },
+        tables: &[Table { file: "paper/R1243zf/Akasaka-IJT-2025-R1243zf.6.csv", kind: TableKind::K2, rows: Some(1) }],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
     },
     Arbiter {
         fluid: "HeavyWater",
