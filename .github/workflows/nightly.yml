@@ -75,6 +75,7 @@ jobs:
           for set in ${{ steps.sets.outputs.facts }}; do
             cargo xtask oracle --kind facts --set "$set" --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           done
+          cargo xtask oracle --kind checkpoints --out "$FIXTURES" --write-manifest
       - name: Upload the regenerated fixtures
         if: inputs.regenerate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -89,12 +90,15 @@ jobs:
               cargo xtask oracle --kind facts --set "$set" --out "$FIXTURES/coolprop-8.0.0" --check
               echo "pass $pass: facts/$set.csv identical"
             done
+            cargo xtask oracle --kind checkpoints --out "$FIXTURES" --check
+            echo "pass $pass: mp/check-points.csv identical"
           done
       - name: The full set into fixtures-full/
         run: |
           for set in ${{ steps.sets.outputs.facts }}; do
             cargo xtask oracle --kind facts --set "$set" --out crates/phasekit-verify/fixtures-full/coolprop-8.0.0
           done
+          cargo xtask oracle --kind checkpoints --out crates/phasekit-verify/fixtures-full
       - name: cargo test -p phasekit-verify --release -- --ignored (L5)
         run: cargo test -p phasekit-verify --release -- --ignored 2>&1 | tee sweep.log
       - name: Report
@@ -107,7 +111,7 @@ jobs:
             echo
             echo "| Fixture | Rows | Failed calls |"
             echo "|---|---|---|"
-            for f in "$FIXTURES"/coolprop-8.0.0/facts/*.csv; do
+            for f in "$FIXTURES"/coolprop-8.0.0/facts/*.csv "$FIXTURES"/mp/check-points.csv; do
               rows=$(grep -vc '^#' "$f"); failed=$(grep -v '^#' "$f" | grep -c ',err:' || true)
               echo "| ${f#$FIXTURES/} | $rows | $failed |"
             done

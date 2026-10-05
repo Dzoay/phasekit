@@ -73,9 +73,11 @@ fn number(text: &str) -> Option<u8> {
     text.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
 }
 
-/// Whether `word` occurs in `text` as a whole word (`new`, not `new_family`).
+/// Whether `word` occurs in the prose of `text` as a whole word (`new`, not `new_family`, and not inside a code span
+/// such as `` `Input::new` ``).
 fn has_word(text: &str, word: &str) -> bool {
-    text.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|w| w == word)
+    let prose = text.split('`').step_by(2);
+    prose.flat_map(|part| part.split(|c: char| !(c.is_alphanumeric() || c == '_'))).any(|w| w == word)
 }
 
 #[cfg(test)]
@@ -103,6 +105,9 @@ mod tests {
         assert_eq!(check(&later, 7), Ok(1));
         assert!(check(&later, 8).is_err());
         assert!(check(&register("exported-symbol list test (new)", "M10", "Test-guarded"), 11).is_err());
+        // A code span is not prose: `Input::new` names a function, not a planned proof.
+        assert_eq!(check(&register("M1 proptest over `Input::new` [M1.14]", "M1", "Test-guarded"), 2), Ok(1));
+        assert!(check(&register("new proptest over `Input::new`", "M1", "Test-guarded"), 2).is_err());
         // GAP fails once its milestone closes; a row without a milestone number never comes due.
         assert!(check(&register("`a`", "M2", "GAP"), 3).is_err());
         assert_eq!(check(&register("new `a`", "post-0.1", "Deferred: M19"), 99), Ok(1));

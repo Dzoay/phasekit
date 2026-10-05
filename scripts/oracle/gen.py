@@ -256,7 +256,8 @@ def fnv1a64(values):
     return f"{h:016x}"
 
 
-def header(kind, lock, config, fluids, columns, tol, floats):
+def header(kind, lock, config, fluids, columns, tol, floats, source="coolprop", units=None):
+    """The `<kind>/v1` header (section 3.3); `fluids` is (name, json sha256) pairs or one line naming them."""
     generator = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     libc = "-".join(part for part in platform.libc_ver() if part) or "unknown"
     lines = [
@@ -265,9 +266,10 @@ def header(kind, lock, config, fluids, columns, tol, floats):
         f"generator: gen.py sha256={generator} python={platform.python_version()} libc={libc}",
         f"config: {config}",
         "env: scrubbed COOLPROP_* PXFLASH_*; LC_ALL=C",
-        "fluid: " + " ".join(f"{name} json_sha256={sha}" for name, sha in fluids),
-        "source: coolprop",
+        "fluid: " + (fluids if isinstance(fluids, str) else " ".join(f"{n} json_sha256={sha}" for n, sha in fluids)),
+        f"source: {source}",
         "columns: " + ",".join(columns),
+        *(["units: " + ",".join(units)] if units else []),
         "tol: " + ",".join(tol),
         f"bits: fnv1a64={fnv1a64(floats)}",
     ]
@@ -296,7 +298,42 @@ def facts(CP, lock, config, files, args):
     return {f"facts/{args.set}.csv": text + "".join(lines)}
 
 
-GENERATORS = {"facts": facts}
+# `EOS[0].SUPERANCILLARY.check_points` keys: T, the multiprecision p, rho', rho'' and the SA/mp ratios.
+CHECK_POINT_KEYS = [
+    "T / K",
+    "p(mp) / Pa",
+    "rho'(mp) / mol/m^3",
+    "rho''(mp) / mol/m^3",
+    "p(SA)/p(mp)",
+    "rho'(SA)/rho'(mp)",
+    "rho''(SA)/rho''(mp)",
+]
+
+
+def checkpoints(CP, lock, config, files, args):
+    """The superancillary check points of every fluid file that has a superancillary, sorted by name (section 3.5):
+    3 per fluid, picked from fastchebpure's dense grid at Theta = (Tc - T)/Tc = 0.5, 0.3, 0.1 against the
+    superancillary's numerical Tc (written beside them; a point below the triple point moves up to it), with the SA/mp
+    ratios that set each point's `sa_fit` bound (section 5). Assertion 4 holds for every fluid copied."""
+    lines, floats = [], []
+    names = sorted(n for n, path in files.items() if "SUPERANCILLARY" in json.loads(path.read_text())["EOS"][0])
+    for name in names:
+        assert_fluid(CP, files, name)
+        superancillary = json.loads(files[name].read_text(encoding="utf-8"))["EOS"][0]["SUPERANCILLARY"]
+        tc = float(superancillary["meta"]["Tcrittrue / K"])
+        for point in superancillary["check_points"]:
+            values = [tc, *(float(point[key]) for key in CHECK_POINT_KEYS)]
+            floats.extend(values)
+            lines.append(",".join([name, *map(cell, values)]) + "\n")
+    columns = ["fluid", "Tc", "T", "p", "rhoL", "rhoV", "p_sa_mp", "rhoL_sa_mp", "rhoV_sa_mp"]
+    tol = ["label", "in", "in", "sa_fit", "sa_fit", "sa_fit", "in", "in", "in"]
+    units = ["-", "K", "K", "Pa", "mol/m3", "mol/m3", "-", "-", "-"]
+    fluids = f"{len(names)} with a superancillary, fluids_sha256={lock['fluids_sha256']}"
+    text = header("checkpoints", lock, config, fluids, columns, tol, floats, "mp:coolprop-json", units)
+    return {"mp/check-points.csv": text + "".join(lines)}
+
+
+GENERATORS = {"facts": facts, "checkpoints": checkpoints}
 
 
 def write(out, files):
