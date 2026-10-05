@@ -881,20 +881,29 @@ the steps that record each row.
   test `reference_checkout_is_untouched` checks that `git -C reference/CoolProp status --porcelain --ignored` lists
   nothing beyond a recorded baseline (`scripts/baseline/reference-status.txt`; a fresh checkout lists less).
   Python-level oracle timings are not comparable (kernel-performance §3.3).
+- **C++ memory and thread scaling (M1.15a, user decision BG1):** beside the timing file the harness writes
+  `<…>.memory.csv` (`measure,fluid,heap_bytes,rss_bytes`; heap = glibc `mallinfo2` arena + mmapped bytes, rss =
+  `/proc/self/statm`): the library's first use, the mean bytes per `AbstractState` over 100 states of each bench fluid
+  after construction and after a QT update at 0.7 T_c, and one state of every fluid. The per-state RSS column shows page
+  reuse more than the states, so heap is the per-state figure. And `<…>.scaling.csv`
+  (`mode,threads,states_per_thread,median_ns_per_state,speedup`): DT + h + c_p on the (T, ρ) grid, 2000 states per
+  thread, one state per thread and fluid built before the clock, threads unpinned, at 1, 2, 4, 6 (the physical cores)
+  and 12 threads, for each bench fluid alone and `mixed` (every thread takes the five fluids in turn); speedup = N × the
+  one-thread time over the N-thread time.
 - **Recording:** `cargo xtask bench --record` writes `crates/phasekit-verify/benches/results/<milestone>-<machine>.csv`
   (date, commit, step, bench, fluid, median, unit, CPU, OS, rustc, governor). At each milestone close the results are
   compared with the ARCHITECTURE.md §7 table.
 
 | Bench (one x86-64 core) | Target (ARCHITECTURE.md §7) | Recorded | Enforced | CoolProp 8.0.0 |
 |---|---|---|---|---|
-| Hot lookup by name | ≤ 50 ns *(inference)* | M2 | M9 | `PropsSI` rebuilds a backend: 76.5 µs; C++ 63-91 µs (M1.15) |
-| α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs | M3 | M9 | C++ (M1.15): 0.38 µs (12 terms), 0.56-0.61 µs (18-21), 1.2 µs (40), 2.7 µs (56) |
-| Properties at (T, ρ) | ≤ 0.5 µs | M5 | M9 | update(D,T) + h + c_p: 1.5-10.7 µs; C++ 0.78-3.2 µs (M1.15) |
+| Hot lookup by name | ≤ 50 ns *(inference)* | M2 | M9 | `PropsSI` rebuilds a backend: 76.5 µs; C++ 62-88 µs (M1.15a run) |
+| α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs | M3 | M9 | C++ (M1.15a run): 0.37 µs (12 terms), 0.55-0.60 µs (18-21), 1.2 µs (40), 2.7 µs (56) |
+| Properties at (T, ρ) | ≤ 0.5 µs | M5 | M9 | update(D,T) + h + c_p: 1.5-10.7 µs; C++ 0.76-3.2 µs (M1.15a run) |
 | Heap allocations per flash or batch point | 0 | M5 | M5 (test) | n/a |
-| QT / PQ via superancillary | ≤ 0.1 µs | M6 | M9 | 0.45 / 0.64 µs; C++ 0.21-0.22 / 0.22-0.23 µs (M1.15) |
-| PT / PH single phase | ≤ 3 / ≤ 15 µs | M7 | M9 | 19-27 / 119-376 µs; C++ 3.5-26 / 38-262 µs (M1.15) |
-| Thread scaling, same and different fluids (N = physical cores) | ≥ 0.9·N | M9 | recorded, a miss is re-planned | GIL-bound 0.97× on 4 threads |
-| Memory: EOS ≤ 25 KiB + SA ≤ 25 KiB per fluid; all 136 ≤ 8 MiB RSS | as stated | M3 | M9 | 100-300 KiB per state; +67 MiB on first use |
+| QT / PQ via superancillary | ≤ 0.1 µs | M6 | M9 | 0.45 / 0.64 µs; C++ 0.21 / 0.22-0.23 µs (M1.15a run) |
+| PT / PH single phase | ≤ 3 / ≤ 15 µs | M7 | M9 | 19-27 / 119-376 µs; C++ 3.4-25 / 37-255 µs (M1.15a run) |
+| Thread scaling, same and different fluids (N = physical cores) | ≥ 0.9·N | M9 | recorded, a miss is re-planned | GIL-bound 0.97× on 4 threads; C++ (M1.15a) 3.0-3.8× at 4, 3.1-5.4× at 6 (mixed 4.2×), 3.4-6.5× at 12 threads |
+| Memory: EOS ≤ 25 KiB + SA ≤ 25 KiB per fluid; all 136 ≤ 8 MiB RSS | as stated | M3 | M9 | 100-300 KiB per state; +67 MiB on first use; C++ (M1.15a): 0.49-0.56 MB heap per state, first use 33 MB heap / 58 MB RSS, one state of each of 136 fluids 100 MB heap / 105 MB RSS |
 | α^r on AVX2 lanes | ≤ 0.1 µs/state and ≥ 2.5×, or stop | M12 | M12 | n/a |
 
 **Enforcement from M9 (E9):** (1) on Linux PRs, gungraun instruction counts of the tracked benches may not regress by

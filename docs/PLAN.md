@@ -291,7 +291,7 @@ lint` and `cargo shear` run locally and in CI.
 | M | Deliverable (D15, refined) | Steps | Key exit criterion |
 |---|---|---|---|
 | M0 | Toolchain, workspace seeded from the sketch, lints, xtask gates, test-quality gates, CI (user checkpoint), licences | 8 | G1-G8 green; 43 seed tests; zero third-party deps |
-| M1 | Verification kit, oracle generator and lock, register and arbiter machinery, paper corpus, proptest, C++ baseline, mp check points | 17 | Fixture round trip bit-exact; `from_printed("21.17909")` rejects the oracle; 14/14 register facts |
+| M1 | Verification kit, oracle generator and lock, register and arbiter machinery, paper corpus, proptest, C++ baseline (time, memory, threads), mp check points | 18 | Fixture round trip bit-exact; `from_printed("21.17909")` rejects the oracle; 14/14 register facts |
 | M2 | Datagen, blob v1, index, features, Parity/Corrected, hash gate, citations on real data | 10 | 130 FNV stamps; 556 keys, 0 collisions; Parity vs Corrected = 3 patches |
 | M3 | Separable residual kinds on real data, `Jet4` with num-dual oracle | 8 | Jets = AD (class `Term`); oracle block isolation; α^r totals of 134 fluids |
 | M4 | NonAnalytic, all ideal kinds, all 136 compile | 7 | IAPWS-95 Table 6; Water/CO₂ critical `Undefined` |
@@ -509,6 +509,13 @@ C++ compiler for M1.15 (present on the dev box, 2026-10-05).
   VERIFICATION.md §12 with the CPU model, and the reference test passes after a build. If the build cannot be made to
   work in one step, commit the wheel's Python-level timings (map 10 §8.2) marked provisional and open a re-plan
   issue: perf gates stay non-blocking until M9.
+- **M1.15a C++ baseline: memory and thread scaling** (user decision BG1, 2026-10-05). *Failing command:* `cargo xtask
+  baseline --check` (a machine without `coolprop-8.0.0-<machine>.memory.csv` and `.scaling.csv`). *Do:* the harness
+  also writes the memory file (heap via glibc `mallinfo2` and resident bytes: the library's first use, bytes per
+  `AbstractState` of each bench fluid after construction and after a QT update, one state of every fluid) and the scaling
+  file (DT + h + c_p at 1, 2, 4, 6 and 12 threads, one state per thread and fluid, each bench fluid and a mixed mode; speedup
+  against one thread); the single-thread timing pins itself to one CPU and unpins before the threads start. *Done when:*
+  `--check` passes with all three files of the reference machine.
 - **M1.16 Nightly sweep.** *Failing command:* `nightly.yml` absent. *Do:* the nightly job of VERIFICATION.md §11.3:
   in the pinned runner image, regenerate the committed fixtures twice (`cargo xtask oracle --check`: environment
   drift or non-determinism fails), then generate the full set into `fixtures-full/` and run `cargo test -p
@@ -523,7 +530,8 @@ C++ compiler for M1.15 (present on the dev box, 2026-10-05).
 **Exit gate.** G1-G8 incl. `fixtures` and `register`; `cargo test -p phasekit-verify` green on Linux, Windows and
 wasip2; `cargo xtask oracle --check` byte-identical; 14/14 register facts reproduced; `from_printed("21.17909")`
 rejects 21.1790735 MPa; proptest 4096 cases × 2 properties without a panic; IAPWS-95, Lemmon 2016, Thol 2016, NIST IR
-8474 and the 18 CoolProp rows double-entered; baseline CSV committed; nightly green once *(nightly)*.
+8474 and the 18 CoolProp rows double-entered; baseline timing, memory and scaling files committed; nightly green once
+*(nightly)*.
 **ROT rows.** M1.4: ROT-134. M1.5: ROT-130, ROT-131. M1.6: ROT-133. M1.14: ROT-006, ROT-012, ROT-022. M1.16:
 ROT-128.
 **User decisions implemented.** 3b (fixtures committed with provenance), 5 (DIV-0005 `KeepOracle`, seeded; facts
@@ -1166,6 +1174,7 @@ cubic code; VERIFICATION.md §6.6 carries the same row.
 | From | Bench (criterion; gungraun from M9.6) | Target (ARCHITECTURE.md §7) |
 |---|---|---|
 | M1.15 | C++ CoolProp baseline, 7 workloads × 5 fluids | reference only |
+| M1.15a | C++ CoolProp memory (first use, per state, all fluids) and thread scaling (1-12 threads) | reference only |
 | M2.9 | hot lookup by name | ≤ 50 ns *(inference)* |
 | M3.8 | α^r bundle order 2; EOS bytes; dispatch share | ≤ 0.3 µs; ≤ 25 KiB; ≤ 2 % |
 | M5.8, M5.11 | properties at (T, ρ); allocations per flash and batch point | ≤ 0.5 µs; 0 |

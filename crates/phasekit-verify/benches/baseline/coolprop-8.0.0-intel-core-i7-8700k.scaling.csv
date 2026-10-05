@@ -1,0 +1,39 @@
+# fixture: coolprop-baseline-scaling/v1
+# coolprop: 8.0.0 git=ae81610e7d23efc57f9d051c8e70a4d66e87537f
+# cpu: Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz
+# os: Linux 7.2.9-1-cachyos
+# governor: powersave
+# date: 2026-10-05
+# compiler: 16.2.1 20260810 (CMAKE_BUILD_TYPE=Release, no -march)
+# method: DT + h + c_p on the (T, rho) grid; 2000 states per thread, one AbstractState per thread and fluid, threads unpinned; median wall time over 5 passes
+# columns: mode,threads,states_per_thread,median_ns_per_state,speedup
+Water,1,2000,3168,1
+Water,2,2000,3337,1.899
+Water,4,2000,3411,3.715
+Water,6,2000,3534,5.379
+Water,12,2000,5817,6.536
+Methane,1,2000,1722,1
+Methane,2,2000,1767,1.949
+Methane,4,2000,1833,3.758
+Methane,6,2000,2769,3.73
+Methane,12,2000,4699,4.397
+R134a,1,2000,1176,1
+R134a,2,2000,1256,1.872
+R134a,4,2000,1378,3.413
+R134a,6,2000,1761,4.005
+R134a,12,2000,3542,3.983
+n-Propane,1,2000,1006,1
+n-Propane,2,2000,1091,1.845
+n-Propane,4,2000,1212,3.32
+n-Propane,6,2000,1676,3.6
+n-Propane,12,2000,3362,3.59
+n-Heptane,1,2000,828.4,1
+n-Heptane,2,2000,915.1,1.81
+n-Heptane,4,2000,1105,3
+n-Heptane,6,2000,1606,3.094
+n-Heptane,12,2000,2925,3.398
+mixed,1,2000,1650,1
+mixed,2,2000,1727,1.911
+mixed,4,2000,1763,3.743
+mixed,6,2000,2369,4.178
+mixed,12,2000,4290,4.615

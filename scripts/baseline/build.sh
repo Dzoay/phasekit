@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The C++ CoolProp baseline (VERIFICATION.md §12, PLAN.md M1.15): builds CoolProp v8.0.0 Release (no -march, like the
 # wheels) and the harness from a throwaway clone of reference/CoolProp, then runs the 7 workloads x 5 fluids on one
-# core and writes crates/phasekit-verify/benches/baseline/coolprop-8.0.0-<machine>.csv.
+# core, the memory measures and the thread scaling, and writes crates/phasekit-verify/benches/baseline/
+# coolprop-8.0.0-<machine>.csv, .memory.csv and .scaling.csv.
 #
 # Usage: SCRATCH=<directory outside the repository> scripts/baseline/build.sh   (cargo xtask baseline sets SCRATCH)
 #
@@ -36,7 +37,6 @@ machine=$(printf '%s' "$cpu" | sed -E 's/\((R|TM)\)//g; s/ CPU.*//; s/ +/-/g' | 
 governor=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo unknown)
 out="$ROOT/crates/phasekit-verify/benches/baseline/coolprop-8.0.0-$machine.csv"
 mkdir -p "$(dirname "$out")"
-pin=()
-command -v taskset >/dev/null && pin=(taskset -c 2)
-"${pin[@]}" "$BUILD/coolprop_baseline" "$out" "$cpu" "$(uname -sr)" "$governor" "$(date -u +%Y-%m-%d)"
-echo "build.sh: wrote $out"
+# The harness pins its single-thread timing to one CPU itself and unpins before the scaling threads start.
+"$BUILD/coolprop_baseline" "$out" "$cpu" "$(uname -sr)" "$governor" "$(date -u +%Y-%m-%d)"
+echo "build.sh: wrote $out and its .memory.csv and .scaling.csv"
