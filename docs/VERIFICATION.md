@@ -407,29 +407,76 @@ its headroom (max error / bound), because map 10 R5 found 7 of 318 transport row
 
 ### 6.1 Schema
 
-<!-- excerpt: illustrative -->
 ```rust
+/// One register entry (VERIFICATION.md §6.1).
 pub struct Divergence {
-    pub id: &'static str,               // "DIV-0001"; never reused or renumbered
-    pub fluids: &'static [&'static str],// canonical names, "A&B" for a mixture, ["*"] for every fluid
-    pub part: Part,                     // GasConstant | Reducing | Melting | Transport | Algorithm (non_exhaustive)
-    pub arbiter: Option<&'static str>,  // "<bibkey> <table>"; required for UsePaper
-    pub policy: Policy,                 // UsePaper | SkipOracle | KeepOracle | Investigate
-    pub fix: Fix,                       // Data (a corrections.csv patch) | Code(path) | None
-    pub evidence: &'static str,         // map section, measurement (value, date), upstream commit
-    pub exempt: Option<Exempt>,         // SkipOracle only: oracle cells not asserted on Parity
-    pub tolerance: Option<Tolerance>,   // the Measured bound: literature rows (KeepOracle, Investigate) or
-                                        // oracle columns that stay asserted beside an exemption (DIV-0011 B)
-    pub proof: &'static [u8],           // milestones whose PRs add the proof's parts, e.g. &[5, 6]
-    pub status: DivStatus,              // Open | ResolvedUpstream { commit }
+    /// "DIV-0001"; never reused or renumbered.
+    pub id: &'static str,
+    /// Canonical names, "A&B" for a mixture, `["*"]` for every fluid.
+    pub fluids: &'static [&'static str],
+    /// GasConstant | Reducing | Melting | Transport | Algorithm.
+    pub part: Part,
+    /// "<bibkey> <table>"; required for UsePaper.
+    pub arbiter: Option<&'static str>,
+    /// UsePaper | SkipOracle | KeepOracle | Investigate.
+    pub policy: Policy,
+    /// Data (a corrections.csv patch) | Code(module) | None.
+    pub fix: Fix,
+    /// Map section, measurement (value, date), upstream commit.
+    pub evidence: &'static str,
+    /// SkipOracle only: oracle cells not asserted on Parity.
+    pub exempt: Option<Exempt>,
+    /// The Measured bound: literature rows (KeepOracle, Investigate) or oracle columns that stay asserted beside an
+    /// exemption.
+    pub tolerance: Option<Tolerance>,
+    /// Milestones whose PRs add the proof's parts, e.g. `&[5, 6]`.
+    pub proof: &'static [u8],
+    /// Open | ResolvedUpstream { commit }.
+    pub status: DivStatus,
 }
-pub struct Exempt { pub kinds: &'static [Kind], pub columns: &'static [&'static str], pub rows: Rows }
-#[non_exhaustive] pub enum Rows { All, TwoPhase, BelowDomain, TBand { lo: f64, hi: f64 } }
-#[non_exhaustive] pub enum Fix { Data, Code(&'static str), None }
+
+/// The oracle cells a `SkipOracle` entry does not assert on Parity; the tests count them.
+pub struct Exempt {
+    /// Fixture kinds.
+    pub kinds: &'static [Kind],
+    /// Columns (`props` outputs for the long format); `"*"` for every column.
+    pub columns: &'static [&'static str],
+    /// Rows.
+    pub rows: Rows,
+}
+
+/// Which rows of an exempt kind are not asserted against the oracle.
+#[non_exhaustive]
+pub enum Rows {
+    /// Every row.
+    All,
+    /// Two-phase rows (0 < Q < 1).
+    TwoPhase,
+    /// Rows outside the model's domain (the `.edge` files).
+    BelowDomain,
+    /// Rows with lo ≤ T ≤ hi.
+    TBand {
+        /// Lower temperature (K).
+        lo: f64,
+        /// Upper temperature (K).
+        hi: f64,
+    },
+}
+
+/// How the divergence is implemented.
+#[non_exhaustive]
+pub enum Fix {
+    /// A `data/corrections.csv` patch on the Corrected dataset; every patch cites its entry.
+    Data,
+    /// A code path, named by its module (`phasekit_core::state`), that must exist once the proof is due.
+    Code(&'static str),
+    /// Nothing changes: `KeepOracle` and `Investigate`.
+    None,
+}
 ```
 
-The sketch (`register.rs`) has a single `fluid` and none of `fix`, `exempt`, `tolerance` and `proof`; PLAN.md M1.6
-adds them *(decision)*. `fluids` is a list so that one entry covers one defect in several fluids (the q_D and ECS-LJ
+The sketch (`register.rs`) had a single `fluid` and none of `fix`, `exempt`, `tolerance` and `proof`; PLAN.md M1.6
+added them *(decision)*, and `gates doc-excerpts` checks this block against `register.rs`. `fluids` is a list so that one entry covers one defect in several fluids (the q_D and ECS-LJ
 entries, 6.6); `proof` is a list because several entries are proved in parts at different milestones. The register is
 a compiled `static DIVERGENCES`, not TOML (no parser dependency; proposal D rejected TOML overrides).
 

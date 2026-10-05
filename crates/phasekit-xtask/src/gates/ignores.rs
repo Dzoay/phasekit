@@ -2,13 +2,15 @@
 //! fixed). The reason starts with `DIV-NNNN: `, `issue #N: ` or `nightly: ` (the last only in `tests/sweeps.rs`), and
 //! a bare `#[ignore]` fails. Each run lists the ignored tests. From M1.6 the DIV ids are checked against the register.
 
+use phasekit_verify::{DivStatus, Divergence};
+
 use super::{Verdict, no_args};
 use crate::repo::Repo;
 
 pub fn run(repo: &Repo, args: &[String]) -> Verdict {
     no_args(args)?;
     let files = repo.files("crates", ".rs", true).map_err(|e| vec![e])?;
-    let ignored = check(&files)?;
+    let ignored = check(&files, phasekit_verify::DIVERGENCES)?;
     let mut summary = format!("{} files, {} ignored tests", files.len(), ignored.len());
     for line in ignored {
         summary.push_str("\n  ignored: ");
@@ -18,7 +20,7 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
 }
 
 /// Checks every `#[ignore]` in the (path, text) files; returns the ignored tests as `path:line: reason`.
-fn check(files: &[(String, String)]) -> Result<Vec<String>, Vec<String>> {
+fn check(files: &[(String, String)], register: &[Divergence]) -> Result<Vec<String>, Vec<String>> {
     let (mut ignored, mut errors) = (Vec::new(), Vec::new());
     for (path, text) in files {
         for (i, line) in text.lines().enumerate() {
@@ -32,7 +34,7 @@ fn check(files: &[(String, String)]) -> Result<Vec<String>, Vec<String>> {
                 _ => continue,
             };
             let at = format!("{path}:{}", i + 1);
-            match reason(attribute).map(|reason| (reason, valid(reason, path))) {
+            match reason(attribute).map(|reason| (reason, valid(reason, path, register))) {
                 Some((reason, Ok(()))) => ignored.push(format!("{at}: {reason}")),
                 Some((_, Err(why))) => errors.push(format!("{at}: {why}")),
                 None => errors.push(format!("{at}: an ignored test needs a reason (PLAN.md §2.1): `{line}`")),
@@ -49,11 +51,16 @@ fn reason(attribute: &str) -> Option<&str> {
 }
 
 /// PLAN.md §2.1: `DIV-NNNN: `, `issue #N: ` or (in `tests/sweeps.rs` only) `nightly: `, then some words.
-fn valid(reason: &str, path: &str) -> Result<(), String> {
+fn valid(reason: &str, path: &str, register: &[Divergence]) -> Result<(), String> {
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
     let words = if let Some((id, words)) = reason.strip_prefix("DIV-").and_then(|r| r.split_once(": ")) {
         if id.len() != 4 || !digits(id) {
             return Err(format!("`{reason}`: a divergence id is DIV- and four digits"));
+        }
+        match register.iter().find(|d| d.id.strip_prefix("DIV-") == Some(id)) {
+            None => return Err(format!("`{reason}`: DIV-{id} is not in the register")),
+            Some(d) if d.status != DivStatus::Open => return Err(format!("`{reason}`: DIV-{id} is resolved upstream")),
+            Some(_) => {}
         }
         words
     } else if let Some((n, words)) = reason.strip_prefix("issue #").and_then(|r| r.split_once(": ")) {
@@ -81,7 +88,7 @@ mod tests {
     }
 
     fn accepted(path: &str, attribute: &str) -> bool {
-        check(&file(path, attribute)).is_ok()
+        check(&file(path, attribute), phasekit_verify::DIVERGENCES).is_ok()
     }
 
     /// Map 10 R14. PLAN.md §2.1 "Ignores".
@@ -98,7 +105,13 @@ mod tests {
         assert!(!accepted(eos, r#"#[ignore = "DIV-0007: "]"#), "a reason needs words after its id");
         assert!(!accepted(eos, r#"#[ignore = "nightly: only tests/sweeps.rs may say this"]"#));
         assert!(!accepted(eos, r#"#[cfg_attr(target_family = "wasm", ignore)]"#));
-        let listed = check(&file(eos, r#"#[ignore = "issue #12: flaky"]"#));
+        // From M1.6 a cited divergence must exist in the register and still be open (VERIFICATION.md §11.2).
+        assert!(!accepted(eos, r#"#[ignore = "DIV-9999: no such entry"]"#));
+        let resolved =
+            [Divergence { status: DivStatus::ResolvedUpstream { commit: "abc" }, ..phasekit_verify::DIVERGENCES[6] }];
+        let errors = check(&file(eos, r#"#[ignore = "DIV-0007: fixed upstream"]"#), &resolved).unwrap_err();
+        assert!(errors[0].contains("resolved upstream"), "{errors:?}");
+        let listed = check(&file(eos, r#"#[ignore = "issue #12: flaky"]"#), phasekit_verify::DIVERGENCES);
         assert_eq!(listed, Ok(vec![format!("{eos}:2: issue #12: flaky")]));
     }
 }

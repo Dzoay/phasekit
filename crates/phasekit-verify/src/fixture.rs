@@ -18,6 +18,26 @@ const REQUIRED_FROM_ORACLE: [&str; 6] = ["oracle", "generator", "config", "env",
 /// The error classes of a failed oracle call (VERIFICATION.md §3.1): `status` is `ok` or `err:<class>`.
 const ERROR_CLASSES: [&str; 4] = ["notimpl", "solver", "domain", "other"];
 
+/// The fixture kinds of the oracle generator (VERIFICATION.md §3.5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+#[allow(missing_docs)] // the kinds are defined in docs/VERIFICATION.md §3.5
+pub enum Kind {
+    Facts,
+    Checkpoints,
+    Term,
+    Eos,
+    Crit,
+    Sat,
+    Flash,
+    Transport,
+    Sigma,
+    Melt,
+    Refstate,
+    Props,
+    Codes,
+}
+
 /// What a column holds, from its `tol:` entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ColumnRole {

@@ -1,8 +1,10 @@
-//! The compiled divergence register: every deliberate difference from the CoolProp 8.0.0 oracle is a typed,
-//! cited entry, cross-checked against the data corrections and proved by a three-part test
-//! (docs/ROT-REGISTER.md, forthcoming). Literature arbitration as executable TDD.
+//! The compiled divergence register (VERIFICATION.md §6): every deliberate difference from the CoolProp 8.0.0
+//! oracle is a typed, cited entry, cross-checked against the data corrections and proved by tests that run once their
+//! milestone is reached (`tests/divergences.rs`). Literature arbitration as executable TDD.
 
-use phasekit_core::internal::Patch;
+use crate::fixture::Kind;
+use crate::tolerance::Tolerance;
+use phasekit_core::internal::{Edit, Patch};
 
 /// What part of a model the divergence concerns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,7 +18,7 @@ pub enum Part {
     Algorithm,
 }
 
-/// What the tests do about it.
+/// What the tests do about it (VERIFICATION.md §6.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Policy {
@@ -44,158 +46,279 @@ pub enum DivStatus {
     },
 }
 
-/// One register entry.
+/// How the divergence is implemented.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Fix {
+    /// A `data/corrections.csv` patch on the Corrected dataset; every patch cites its entry.
+    Data,
+    /// A code path, named by its module (`phasekit_core::state`), that must exist once the proof is due.
+    Code(&'static str),
+    /// Nothing changes: `KeepOracle` and `Investigate`.
+    None,
+}
+
+/// Which rows of an exempt kind are not asserted against the oracle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum Rows {
+    /// Every row.
+    All,
+    /// Two-phase rows (0 < Q < 1).
+    TwoPhase,
+    /// Rows outside the model's domain (the `.edge` files).
+    BelowDomain,
+    /// Rows with lo ≤ T ≤ hi.
+    TBand {
+        /// Lower temperature (K).
+        lo: f64,
+        /// Upper temperature (K).
+        hi: f64,
+    },
+}
+
+/// The oracle cells a `SkipOracle` entry does not assert on Parity; the tests count them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Exempt {
+    /// Fixture kinds.
+    pub kinds: &'static [Kind],
+    /// Columns (`props` outputs for the long format); `"*"` for every column.
+    pub columns: &'static [&'static str],
+    /// Rows.
+    pub rows: Rows,
+}
+
+/// One register entry (VERIFICATION.md §6.1).
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Divergence {
-    /// Stable id cited by patches, fixtures and `#[ignore = "DIV-…"]`.
+    /// "DIV-0001"; never reused or renumbered.
     pub id: &'static str,
-    /// Fluid (canonical name) or `"*"`.
-    pub fluid: &'static str,
-    /// Affected part.
+    /// Canonical names, "A&B" for a mixture, `["*"]` for every fluid.
+    pub fluids: &'static [&'static str],
+    /// GasConstant | Reducing | Melting | Transport | Algorithm.
     pub part: Part,
-    /// The arbiter (BibTeX key and table), required for `UsePaper`.
+    /// "<bibkey> <table>"; required for UsePaper.
     pub arbiter: Option<&'static str>,
-    /// Policy.
+    /// UsePaper | SkipOracle | KeepOracle | Investigate.
     pub policy: Policy,
-    /// Where the evidence lives.
+    /// Data (a corrections.csv patch) | Code(module) | None.
+    pub fix: Fix,
+    /// Map section, measurement (value, date), upstream commit.
     pub evidence: &'static str,
-    /// Lifecycle.
+    /// SkipOracle only: oracle cells not asserted on Parity.
+    pub exempt: Option<Exempt>,
+    /// The Measured bound: literature rows (KeepOracle, Investigate) or oracle columns that stay asserted beside an
+    /// exemption.
+    pub tolerance: Option<Tolerance>,
+    /// Milestones whose PRs add the proof's parts, e.g. `&[5, 6]`.
+    pub proof: &'static [u8],
+    /// Open | ResolvedUpstream { commit }.
     pub status: DivStatus,
 }
 
-/// The register, seeded from map 12 §6.3 and the map 10 §8.5 seed list (E15); grows by PR with a proof
-/// test per entry. `Investigate` stubs become `UsePaper` once their arbiter row is transcribed (M1-M8), or
-/// `KeepOracle` when the user accepts the oracle value (DIV-0005, docs/design/04-user-decisions.md).
+/// The register, seeded from map 12 §6.3 and the map 10 §8.5 seed list (E15) with VERIFICATION.md §6.6's values; it
+/// grows by PR with a proof per entry. `Investigate` stubs become `UsePaper` once their arbiter row is transcribed
+/// (M1-M8), or `KeepOracle` when the user accepts the oracle value (DIV-0005, docs/design/04-user-decisions.md).
 pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
         id: "DIV-0001",
-        fluid: "R1234ze(E)",
+        fluids: &["R1234ze(E)"],
         part: Part::GasConstant,
         arbiter: Some("Thol-IJT-2016-R1234zeE Table 3"),
         policy: Policy::UsePaper,
+        fix: Fix::Data,
         evidence: "map 13 §3 item 3: stored R 8.314472, paper R 8.3144621",
+        exempt: None,
+        tolerance: None,
+        proof: &[5, 6],
         status: DivStatus::Open,
     },
     Divergence {
         id: "DIV-0002",
-        fluid: "Water",
+        fluids: &["Water"],
         part: Part::Melting,
         arbiter: Some("IAPWS R14-08"),
         policy: Policy::UsePaper,
+        fix: Fix::Data,
         evidence: "map 10 R10: ice VI p0 623.4 MPa vs 632.4 MPa",
+        exempt: None,
+        tolerance: None,
+        proof: &[8],
         status: DivStatus::Open,
     },
     Divergence {
         id: "DIV-0003",
-        fluid: "Nitrogen",
+        fluids: &["Nitrogen"],
         part: Part::Reducing,
         arbiter: Some("Span-JPCRD-2000"),
         policy: Policy::UsePaper,
+        fix: Fix::Data,
         evidence: "map 12 §6.3: rho_r 11183.901464580624 vs 11183.9 (upstream 2acbbc82)",
+        exempt: None,
+        tolerance: None,
+        proof: &[2, 6],
         status: DivStatus::Open,
     },
     Divergence {
         id: "DIV-0004",
-        fluid: "*",
+        fluids: &["*"],
         part: Part::Transport,
         arbiter: None,
         policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::state"),
         evidence: "map 05 §6, map 10 R18: two-phase viscosity/conductivity are meaningless",
+        exempt: Some(Exempt {
+            kinds: &[Kind::Props],
+            columns: &["Cpmass", "Cpmolar", "Cvmass", "Cvmolar", "viscosity", "conductivity"],
+            rows: Rows::TwoPhase,
+        }),
+        tolerance: None,
+        proof: &[5, 8],
         status: DivStatus::Open,
     },
     Divergence {
         id: "DIV-0005",
-        fluid: "Helium",
+        fluids: &["Helium"],
         part: Part::GasConstant,
         arbiter: None,
         policy: Policy::KeepOracle,
+        fix: Fix::None,
         evidence: "map 13 §3.4, R3: R 8.3144598 kept; IR 8474 Table 3 fails with its Table 1 R; tolerance 5e-7",
+        exempt: None,
+        tolerance: Some(Tolerance::Relative(5e-7)),
+        proof: &[5, 6],
         status: DivStatus::Open,
     },
     Divergence {
         id: "DIV-0006",
-        fluid: "Ethylene",
+        fluids: &["Ethylene"],
         part: Part::Reducing,
         arbiter: None,
         policy: Policy::Investigate,
+        fix: Fix::None,
         evidence: "map 12 §6.3: reducing density (and M) corrected upstream 2acbbc82; arbiter row to transcribe",
+        exempt: None,
+        tolerance: None,
+        proof: &[2],
         status: DivStatus::Open,
     },
     Divergence {
         id: "DIV-0007",
-        fluid: "OrthoHydrogen",
+        fluids: &["OrthoHydrogen"],
         part: Part::Reducing,
         arbiter: None,
         policy: Policy::Investigate,
+        fix: Fix::None,
         evidence: "map 12 §6.3: reducing density (and M) corrected upstream 2acbbc82; arbiter row to transcribe",
+        exempt: None,
+        tolerance: None,
+        proof: &[2],
         status: DivStatus::Open,
     },
     Divergence {
         id: "DIV-0008",
-        fluid: "n-Undecane",
+        fluids: &["n-Undecane"],
         part: Part::Reducing,
         arbiter: None,
         policy: Policy::Investigate,
+        fix: Fix::None,
         evidence: "map 12 §6.3: reducing density corrected upstream 2acbbc82; arbiter row to transcribe",
+        exempt: None,
+        tolerance: None,
+        proof: &[2],
         status: DivStatus::Open,
     },
     Divergence {
         id: "DIV-0009",
-        fluid: "R1233zd(E)",
+        fluids: &["R1233zd(E)"],
         part: Part::Transport,
         arbiter: None,
         policy: Policy::Investigate,
+        fix: Fix::None,
         evidence: "map 12 §6.3: v8.0.0 raises 'Viscosity model is not available'; restored upstream 14da1f0d",
+        exempt: None,
+        tolerance: None,
+        proof: &[8],
         status: DivStatus::Open,
     },
     Divergence {
         id: "DIV-0010",
-        fluid: "*",
+        fluids: &["*"],
         part: Part::Algorithm,
         arbiter: None,
         policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_cubic"),
         evidence: "map 12 §6.3: PR/SRK entropy inconsistent (T(ds/dT)p 91.35 vs cp 93.89); identity arbitrates",
+        exempt: None,
+        tolerance: None,
+        proof: &[11],
         status: DivStatus::Open,
     },
     Divergence {
         id: "DIV-0011",
-        fluid: "*",
+        fluids: &["*"],
         part: Part::Algorithm,
         arbiter: None,
         policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::helmholtz"),
         evidence: "map 12 §6.3, R8: Cvirial from delta = 1e-12 is off by up to 7.1e-5; exact Taylor path (E4)",
+        exempt: Some(Exempt { kinds: &[Kind::Eos], columns: &["Cvirial", "dCvirial_dT"], rows: Rows::All }),
+        tolerance: Some(Tolerance::Relative(1e-10)),
+        proof: &[5],
         status: DivStatus::Open,
     },
     Divergence {
         id: "DIV-0012",
-        fluid: "Water",
+        fluids: &["Water"],
         part: Part::Algorithm,
         arbiter: None,
         policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::flash"),
         evidence: "map 12 §6.3: DT at 250 K < Tmin gives p = -5.928 Pa without error; we refuse (DomainError)",
+        exempt: Some(Exempt { kinds: &[Kind::Eos, Kind::Flash], columns: &["*"], rows: Rows::BelowDomain }),
+        tolerance: None,
+        proof: &[5],
         status: DivStatus::Open,
     },
     Divergence {
         id: "DIV-0013",
-        fluid: "R1234yf&R1234ze(E)",
+        fluids: &["R1234yf&R1234ze(E)"],
         part: Part::Reducing,
         arbiter: None,
         policy: Policy::Investigate,
+        fix: Fix::None,
         evidence: "map 10 §8.4: mixture alphar -0.464679 vs Bell 2022 Table XI -0.460595; reducing T differs (M13)",
+        exempt: None,
+        tolerance: None,
+        proof: &[13],
         status: DivStatus::Open,
     },
     Divergence {
         id: "DIV-0014",
-        fluid: "R1224YDZ",
+        fluids: &["R1224YDZ"],
         part: Part::Algorithm,
         arbiter: None,
         policy: Policy::Investigate,
+        fix: Fix::None,
         evidence: "map 10 §8.4: p(400 K, 8000 mol/m3) 21.1790735 MPa vs printed 21.17909 (3.3x half a digit)",
+        exempt: None,
+        tolerance: Some(Tolerance::Relative(8e-7)),
+        proof: &[5],
         status: DivStatus::Open,
     },
 ];
 
-/// Why the register and the corrections disagree.
+/// The corrections `data/corrections.csv` will ship (PLAN.md M2.7), standing in for the patches of the decoded records
+/// until then: one per `UsePaper` entry with `fix: Data`.
+pub fn seed_corrections() -> Vec<Patch> {
+    vec![
+        Patch { divergence: "DIV-0001".into(), edit: Edit::GasConstant(8.314_462_1) },
+        Patch { divergence: "DIV-0002".into(), edit: Edit::MeltingP0 { segment: 2, p0: 632.4e6 } },
+        Patch { divergence: "DIV-0003".into(), edit: Edit::ReducingDensity(11_183.9) },
+    ]
+}
+
+/// Why the register and the corrections disagree (VERIFICATION.md §7.2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RegisterError {
@@ -205,14 +328,22 @@ pub enum RegisterError {
     NotUsePaper(Box<str>),
     /// Two entries share an id.
     DuplicateId(&'static str),
+    /// A patch cites an entry whose `fix` is not `Data`.
+    NotDataFix(Box<str>),
+    /// A `UsePaper` entry with `fix: Data` that no patch implements.
+    UncitedDataFix(&'static str),
+    /// An entry whose evidence cites no map item ("map NN").
+    NoMapCitation(&'static str),
 }
 
-/// Cross-checks the register against the patches shipped in the data (the real test decodes every embedded
-/// record with `Registry::record` and passes all of their patches).
+/// Cross-checks the register against the patches shipped in the data (VERIFICATION.md §7.2).
 pub fn check_register(register: &[Divergence], patches: &[Patch]) -> Result<(), RegisterError> {
     for (i, d) in register.iter().enumerate() {
         if register[..i].iter().any(|e| e.id == d.id) {
             return Err(RegisterError::DuplicateId(d.id));
+        }
+        if !cites_a_map(d.evidence) {
+            return Err(RegisterError::NoMapCitation(d.id));
         }
     }
     for p in patches {
@@ -222,8 +353,57 @@ pub fn check_register(register: &[Divergence], patches: &[Patch]) -> Result<(), 
             Some(d) if d.policy != Policy::UsePaper || d.arbiter.is_none() => {
                 return Err(RegisterError::NotUsePaper(p.divergence.clone()));
             }
+            Some(d) if d.fix != Fix::Data => return Err(RegisterError::NotDataFix(p.divergence.clone())),
             Some(_) => {}
         }
     }
+    let data_fixes = register.iter().filter(|d| d.policy == Policy::UsePaper && d.fix == Fix::Data);
+    if let Some(d) = data_fixes.into_iter().find(|d| !patches.iter().any(|p| *p.divergence == *d.id)) {
+        return Err(RegisterError::UncitedDataFix(d.id));
+    }
     Ok(())
+}
+
+/// The ids of entries whose proof is due (one of its milestones is below `milestone`, the first open one) and that
+/// have no proof among `proofs` (VERIFICATION.md §6.3).
+pub fn missing_proofs(register: &[Divergence], milestone: u8, proofs: &[&str]) -> Vec<&'static str> {
+    register
+        .iter()
+        .filter(|d| d.proof.iter().any(|m| *m < milestone) && !proofs.contains(&d.id))
+        .map(|d| d.id)
+        .collect()
+}
+
+/// The proof ids that name no register entry.
+pub fn unregistered_proofs<'a>(register: &[Divergence], proofs: &[&'a str]) -> Vec<&'a str> {
+    proofs.iter().copied().filter(|id| !register.iter().any(|d| d.id == *id)).collect()
+}
+
+/// Whether `evidence` cites a map item: "map " and two digits (`map 12 §6.3`, `map 05 R2`).
+fn cites_a_map(evidence: &str) -> bool {
+    evidence.match_indices("map ").any(|(i, _)| {
+        let digits = evidence.as_bytes().get(i + 4..i + 6);
+        digits.is_some_and(|d| d.iter().all(u8::is_ascii_digit))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(id: &'static str, proof: &'static [u8]) -> Divergence {
+        Divergence { id, proof, ..DIVERGENCES[5] }
+    }
+
+    /// VERIFICATION.md §6.3: a proof is due once one of its milestones is below the first open milestone.
+    #[test]
+    fn proofs_fall_due_as_milestones_close() {
+        let register = [entry("DIV-0101", &[5, 6]), entry("DIV-0102", &[2]), entry("DIV-0103", &[13])];
+        assert_eq!(missing_proofs(&register, 2, &[]), Vec::<&str>::new(), "nothing is due while M2 is open");
+        assert_eq!(missing_proofs(&register, 3, &[]), ["DIV-0102"]);
+        assert_eq!(missing_proofs(&register, 6, &["DIV-0102"]), ["DIV-0101"], "due at its first milestone, M5");
+        assert_eq!(missing_proofs(&register, 14, &["DIV-0101", "DIV-0102"]), ["DIV-0103"]);
+        assert_eq!(unregistered_proofs(&register, &["DIV-0102", "DIV-0999"]), ["DIV-0999"]);
+        assert_eq!(unregistered_proofs(&register, &[]), Vec::<&str>::new());
+    }
 }
