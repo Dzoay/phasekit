@@ -22,9 +22,9 @@ wasm32-wasip2 phasekit-verify::lazy_load 6
 wasm32-wasip2 phasekit-verify::new_family 4
 wasm32-wasip2 phasekit-verify::register 6
 wasm32-wasip2 phasekit-core::doc 1
-x86_64-unknown-linux-gnu phasekit-verify::fixtures 2
+x86_64-unknown-linux-gnu phasekit-verify::fixtures 3
 x86_64-unknown-linux-gnu phasekit-verify::manifest 2
-wasm32-wasip2 phasekit-verify::fixtures 2
+wasm32-wasip2 phasekit-verify::fixtures 3
 wasm32-wasip2 phasekit-verify::manifest 2
 x86_64-unknown-linux-gnu phasekit-verify::divergences 2
 wasm32-wasip2 phasekit-verify::divergences 2

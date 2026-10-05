@@ -194,7 +194,7 @@ crates/phasekit-verify/
     coolprop-8.0.0/facts/<set>.csv            named oracle facts: `smoke`, `register` (3.5)
     paper/<Fluid>/<bibkey>.<table>.csv        transcribed check tables (4.2)
     paper/<Fluid>/<bibkey>.<table>.check.csv  the independent second transcription (4.2)
-    mp/check-points.csv                       the 390 superancillary check points (3 x 130 fluids, 97 kB)
+    mp/check-points.csv                       the 390 superancillary check points (3 x 130 fluids, 62 kB)
     mp/fastchebpure.lock                      release tag, zip sha256, per-file sha256 (PLAN.md M6.1)
     mp/fastchebpure-2026.06.02-v2/<Fluid>.csv dense outputcheck data, core fluids
     hash/                                     cross-target hashes (9.4)
@@ -214,7 +214,7 @@ never skips them.
 | Kind | Columns after the inputs | Grid: core / all-fluid tier / nightly | First (PLAN.md step) | Compared with |
 |---|---|---|---|---|
 | `facts` | `name, call, status, value`: one named oracle fact per row, `call` written as `PropsSI(H;T;300;Q;1;R134a)` because cells hold no commas; a call is `PropsSI`, `Props1SI` or `AbstractState(backend;fluids;[pair;v1;v2;]method;args…)`, one method on a state (`melting_line`, `d2alphar_dDelta2`) (`set` = `smoke`: the R134a QT enthalpy, Water `Tcrit` and `T_reducing`; `set` = `register`: every value a register entry cites) | one file per set | M1.3, M1.13 | `Exact` (bit-exact parse of what the oracle printed) |
-| `checkpoints` | `T, p, rhoL, rhoV` from `EOS[0].SUPERANCILLARY.check_points`, source `mp:coolprop-json` (written to `mp/check-points.csv`) | 390 rows (all SA fluids) | M1.17 | `SaFit` (SA), `SatMp` (VLE) |
+| `checkpoints` | `fluid, Tc, T, p, rhoL, rhoV, p_sa_mp, rhoL_sa_mp, rhoV_sa_mp` from `EOS[0].SUPERANCILLARY` (`check_points`, and `meta` `Tcrittrue / K`, the T_c of Θ = (T_c − T)/T_c), source `mp:coolprop-json` (written to `mp/check-points.csv`); the SA/mp ratios set each point's `SaFit` bound. Points sit near Θ = 0.5, 0.3, 0.1 (fastchebpure's grid); one below the triple point moves up to it | 390 rows (all SA fluids) | M1.17 | `SaFit` (SA), `SatMp` (VLE) |
 | `term` | `block_idx` (a block index, `all` for the α^r total, `ideal` for the α⁰ total), `block_type, tau, delta`, `a` + 14 α^r derivatives to order 4 (α⁰ to order 3: the oracle exposes no 4th, map 10 §8.2) | δ log-spaced to 1e-8, τ ∈ [Tc/Tmax, Tc/Tmin], τ = δ = 1 neighbourhoods for NonAnalytic (map 10 §8.5): 100 per block / 4 total rows per fluid / 300 per block + 64 total rows per fluid | M3.1 (blocks), M3.6 (totals), M4.3 (α⁰) | `Term`; the test forms A_ij = τ^i δ^j ∂^(i+j)α from the oracle's unscaled derivatives |
 | `eos` | `region, status, p, h, s, u, cv, cp, w, Z, dpdrho_T, dpdT_rho, Bvirial, Cvirial, dBvirial_dT, dCvirial_dT` and the partial, `cp0molar` and residual columns (molar SI) | T ~ U[T_low, Tmax], ρ ~ logU[1e-6·ρL(T_low), ρL(T_low)], phase imposed, T_low = max(Tmin, Ttriple) (map 09 R8): 500 / 8 / 10,000 | M5.1, M5.5 | `Prop` |
 | `crit` | `Tc_pub, pc_pub, rhoc_pub` (SA off), `Tc_num, pc_num, rhoc_num` (SA on), `Ttriple, ptriple, Tmin, Tmax, pmax, M, R` | 1 / 1 / 1 | M2.3 published, M6.7 numerical | `Exact` (data constants); `Flash` (numerical point) |
