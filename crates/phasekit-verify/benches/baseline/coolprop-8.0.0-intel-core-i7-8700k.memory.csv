@@ -1,0 +1,20 @@
+# fixture: coolprop-baseline-memory/v1
+# coolprop: 8.0.0 git=ae81610e7d23efc57f9d051c8e70a4d66e87537f
+# cpu: Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz
+# os: Linux 7.2.9-1-cachyos
+# date: 2026-10-05
+# compiler: 16.2.1 20260810 (CMAKE_BUILD_TYPE=Release, no -march)
+# method: heap = glibc mallinfo2 (uordblks + hblkhd), rss = /proc/self/statm resident pages; per-state rows are the mean over 100 states of that fluid held at once, after construction and after one QT update at 0.7 Tc
+# columns: measure,fluid,heap_bytes,rss_bytes
+library_first_use,Water,33303568,57892864
+state,Water,564397,358113
+state_after_qt,Water,564425,359424
+state,Methane,503138,0
+state_after_qt,Methane,503138,0
+state,R134a,502190,0
+state_after_qt,R134a,502190,0
+state,n-Propane,546446,0
+state_after_qt,n-Propane,546446,0
+state,n-Heptane,491053,0
+state_after_qt,n-Heptane,491053,0
+all_fluids_one_state_each,136,100298832,104611840
