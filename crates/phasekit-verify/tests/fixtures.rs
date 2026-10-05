@@ -25,3 +25,21 @@ fn oracle_smoke_round_trip() {
     let oracle = smoke.header("oracle").unwrap();
     assert!(oracle.contains(lock.get("git").unwrap()) && oracle.contains(lock.get("so_sha256").unwrap()));
 }
+
+/// VERIFICATION.md §3.2, §11.3 (PLAN.md M1.16): oracle fixtures are generated in one image, pinned by digest in the
+/// lock, and every committed oracle fixture names the same generator environment (Python and libc), so a file made
+/// elsewhere cannot slip in beside the others.
+#[test]
+fn oracle_lock_pins_the_runner_image() {
+    let lock = phasekit_verify::OracleLock::parse(phasekit_verify::ORACLE_LOCK).unwrap();
+    let image = lock.get("runner_image").unwrap_or_default();
+    let digest = image.rsplit_once("@sha256:").map_or("", |(_, digest)| digest);
+    assert!(digest.len() == 64 && digest.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')), "`{image}`");
+    let environment = |(path, text): (&str, &str)| {
+        let generator = Fixture::parse(path, text).unwrap().header("generator").unwrap_or_default();
+        generator.split(' ').filter(|field| !field.starts_with("sha256=")).collect::<Vec<_>>().join(" ")
+    };
+    let smoke = environment(fixture!("coolprop-8.0.0/facts/smoke.csv"));
+    assert!(smoke.contains(" python=3.12.") && smoke.contains(" libc=glibc-"), "{smoke}");
+    assert_eq!(environment(fixture!("coolprop-8.0.0/facts/register.csv")), smoke);
+}
