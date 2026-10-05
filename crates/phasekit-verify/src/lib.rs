@@ -10,9 +10,12 @@ pub mod sha256;
 pub mod tolerance;
 
 pub use conformance::{Mismatch, fd_first_order, gauge_invariance, policy_equivalence};
-pub use fixture::{Cell, CheckError, ColumnRole, Fixture, FixtureError, FixtureMismatch, Row};
+pub use fixture::{Cell, CheckError, ColumnRole, Fixture, FixtureError, FixtureMismatch, Kind, Row};
 pub use lock::{ORACLE_LOCK, OracleLock};
-pub use register::{DIVERGENCES, Divergence, Policy, RegisterError, check_register};
+pub use register::{
+    DIVERGENCES, DivStatus, Divergence, Exempt, Fix, Part, Policy, RegisterError, Rows, check_register, missing_proofs,
+    seed_corrections, unregistered_proofs,
+};
 pub use sample::SplitMix64;
 pub use sha256::{sha256, sha256_hex};
 pub use tolerance::{Provenance, Tolerance, ToleranceClass, from_printed};
