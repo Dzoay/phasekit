@@ -11,6 +11,7 @@ publish.workspace = true
 # reaches core's records through `phasekit_core::internal`; nalgebra/faer only here (dependencies R7/R9).
 [dependencies]
 phasekit-core.workspace = true
+phasekit-verify.workspace = true # `MILESTONE`, read by `gates rot`
 
 [lints]
 workspace = true

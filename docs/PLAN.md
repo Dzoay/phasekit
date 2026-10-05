@@ -426,8 +426,9 @@ C++ compiler for M1.15 (present on the dev box, 2026-10-05).
   `every_entry_cites_a_map_id` (`evidence` cites a map item), `use_paper_data_fixes_are_cited_by_a_patch`. *Do:* the
   `Divergence` fields of VERIFICATION.md §6.1 (`fix`, `exempt`, `tolerance`, `proof: &'static [u8]`) on the 14 seeds;
   `tests/divergences.rs` with one `fn div_NNNN()` per entry whose proof milestone is reached and the dispatcher;
-  `cargo xtask gates register` (VERIFICATION.md §7.2); `gates ignores` also checks that cited DIV ids exist. *Done
-  when:* green; G8 includes `register`.
+  `cargo xtask gates register` (VERIFICATION.md §7.2); `gates ignores` also checks that cited DIV ids exist; drop the
+  `<!-- excerpt: illustrative -->` marker on the VERIFICATION.md §6.1 schema, which `gates doc-excerpts` then checks
+  against `register.rs`. *Done when:* green; G8 includes `register`.
 - **M1.7 Arbiter records.** *Failing tests:* `arbiter_statuses_are_asserted` (`tests/arbiters.rs`: each `ARBITERS`
   record's status equals the recorded one; at M1 all are `Expected`, `Transcribed`, `None` or `Unpublished`),
   `every_arbiter_cites_a_doi_or_report`. *Do:* `phasekit_verify::arbiters::ARBITERS` with the statuses of

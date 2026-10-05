@@ -9,21 +9,35 @@
 //!   features (with ECS implications) in `phasekit-data`.
 //! - `oracle`: drives `uv run --no-project --python 3.12 --with CoolProp==8.0.0` with a fresh state per case,
 //!   scrubbed `COOLPROP_*`/`PXFLASH_*`, all 38 config keys recorded and `oracle.lock` checked.
-//! - `gates`: zero-dependency guard, executed-test-count ≥ manifest, `#[ignore]` ids, fixture manifest drift,
-//!   the facade feature-tree check and .wasm size budget (E7), perf-table recording from M3 (E9).
+//! - `gates`: gate G8 (VERIFICATION.md §11.2). From M0.4 the zero-dependency guard, workspace lints, executed-test
+//!   counts, `#[ignore]` reasons, doc excerpts and rot-register ticks; later fixture manifest drift, the facade
+//!   feature-tree check and .wasm size budget (E7), perf-table recording (E9).
 #![allow(
     clippy::print_stdout,
     clippy::print_stderr,
     reason = "a command-line tool; the library denies printing (ROT-024)"
 )]
 
-fn main() {
-    let task = std::env::args().nth(1).unwrap_or_default();
-    let known = ["datagen", "oracle", "gates"];
-    if known.contains(&task.as_str()) {
-        println!("phasekit-xtask {task}: lands at M1/M2 (core {})", core::any::type_name::<phasekit_core::Registry>());
-    } else {
-        println!("usage: cargo xtask <{}>", known.join("|"));
+mod gates;
+mod repo;
+
+use std::process::ExitCode;
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.split_first() {
+        Some((task, rest)) if task == "gates" => gates::main(rest),
+        Some((task, _)) if task == "datagen" || task == "oracle" => {
+            println!(
+                "phasekit-xtask {task}: lands at M1/M2 (core {})",
+                core::any::type_name::<phasekit_core::Registry>()
+            );
+            ExitCode::SUCCESS
+        }
+        _ => {
+            eprintln!("usage: cargo xtask <datagen|oracle|gates>");
+            ExitCode::FAILURE
+        }
     }
 }
 

@@ -19,6 +19,7 @@ publish = false
 [workspace.dependencies]
 phasekit-core = { path = "crates/phasekit-core", default-features = false }
 phasekit-data = { path = "crates/phasekit-data", default-features = false }
+phasekit-verify = { path = "crates/phasekit-verify" }
 
 # D17: workspace lints. phasekit-capi (M10) relaxes `unsafe_code` to `deny` and allows `disallowed_types` in
 # its FFI-state modules only: thread-local error and handle table, plus the CoolPropLib.h shim's

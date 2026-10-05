@@ -407,6 +407,7 @@ its headroom (max error / bound), because map 10 R5 found 7 of 318 transport row
 
 ### 6.1 Schema
 
+<!-- excerpt: illustrative -->
 ```rust
 pub struct Divergence {
     pub id: &'static str,               // "DIV-0001"; never reused or renumbered
@@ -724,10 +725,10 @@ definition of the subcommands; PLAN.md steps add them in the order of the last c
 | Gate | Rule | From (PLAN.md) |
 |---|---|---|
 | `deps` | zero-dependency guard: `cargo tree -p phasekit-core -e normal,build --depth 1 --prefix none` prints only `phasekit-core` and `phasekit-data`, and the same for `phasekit-data` (itself only); from M9 `--features rayon,libm` adds exactly those two (dependencies §3.4, R1) | M0.4 |
-| `lints` | every workspace member has `[lints] workspace = true`; `unsafe_code = "forbid"` holds everywhere except `phasekit-capi`, which may relax it to `deny` with per-item `allow` and a SAFETY comment (BRIEF "memory safe"; D17) | M0.4 |
-| `counts` | executed-test count: sums `test result: ok. N passed` per test binary (doctests included) per target against `ci/test-counts.txt` (`<target> <package>::<binary> <min>`); fails if a listed binary is missing, runs 0 tests or runs fewer than its minimum (map 10 R1). The PR adding tests raises minimums with `gates counts --update`; lowering one needs a `# lowered: <reason>` comment; `# pending M5.9: <test>` lines track the four held-back seed tests and must be gone after M5.9 | M0.4 |
+| `lints` | the workspace sets `unsafe_code = "forbid"` and every workspace member has `[lints] workspace = true`, except `phasekit-capi`, which may instead declare `unsafe_code = "deny"` in its own `[lints.rust]` (per-item `allow` with a SAFETY comment; BRIEF "memory safe"; D17) | M0.4 |
+| `counts` | executed-test count: sums `test result: ok. N passed` per test binary (doctests included) per target against `ci/test-counts.txt` (`<target> <package>::<binary> <min>`; `<binary>` is `lib`, `main`, `doc` or the integration-test name); fails if nothing ran, a listed binary is missing, runs 0 tests or runs fewer than its minimum, or a binary that runs tests is not listed (map 10 R1). The PR adding tests raises minimums with `gates counts --update`, which never lowers one; lowering one by hand needs a `# lowered: <reason>` comment; `# pending M5.9: <test>` lines track the four held-back seed tests and must be gone after M5.9 | M0.4 |
 | `ignores` | every `#[ignore = "..."]` reason starts with `DIV-NNNN: `, `issue #N: ` or `nightly: `; DIV ids exist and are not `ResolvedUpstream` (checked against the register from M1.6); `nightly:` only in `tests/sweeps.rs`; a bare `#[ignore]` fails. Each run publishes the ignored list (map 10 R14) | M0.4 |
-| `doc-excerpts` | every fenced `rust` block in `docs/*.md` appears verbatim (modulo indentation and `///` lines) in `crates/` or `docs/design/sketch/`, or is preceded by `<!-- excerpt: illustrative -->` (ROT-139; map 01 R19) | M0.4 |
+| `doc-excerpts` | every fenced `rust` block in `docs/*.md` is split at blank lines, and each chunk appears verbatim in one source file under `crates/` or `docs/design/sketch/`, its lines in order (modulo indentation and `///`/`//!` lines; an excerpt may leave lines out), unless the block is preceded by `<!-- excerpt: illustrative -->` (ROT-139; map 01 R19) | M0.4 |
 | `rot` | every ROT-REGISTER.md row whose milestone is below `phasekit_verify::MILESTONE` has no GAP status and no Proof still marked "new" that is due (PLAN.md §2.1 defines ticking) | M0.4 |
 | `fixtures` | committed fixtures hash to their `MANIFEST.sha256` lines; every committed fixture is read by a test and every `fixture!` path exists (map 10 R15); committed total ≤ 16 MiB (3.6) | M1.4 |
 | `register` | `check_register` + the 7.2 cross-id checks (also a test) | M1.6 |
