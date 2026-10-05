@@ -300,8 +300,11 @@ values (fastchebpure, the 390 check points) are exact for the EOS: they arbitrat
    map 13 §3 notes the IAPWS-95 table numbers 6 and 7 were from memory. A green-OA copy that is a PMC author
    manuscript is read from its JATS XML, fetched anonymously from the PMC Article Datasets
    (`https://pmc-oa-opendata.s3.amazonaws.com/<pmcid>.<ver>/<pmcid>.<ver>.xml`; the PMC PDF sits behind a browser
-   proof-of-work). Each `<td>` holds one printed string, so this is no PDF text extraction; the XML has no pages, so
-   the citation gives `manuscript=<pmcid>.<ver>` and `xml_sha256=` in place of `page=` and `pdf_sha256=` (PLAN.md M1.9).
+   proof-of-work; the Cloud Service is one of the routes PMC allows for automated retrieval). Each `<td>` holds one
+   printed string, so this is no PDF text extraction; the XML has no pages, so the citation gives
+   `manuscript=<pmcid>.<ver>` and `xml_sha256=` in place of `page=` and `pdf_sha256=` (PLAN.md M1.9). Such a file
+   states "available for text mining … fair use" (PMC code `TDM`), not an open licence: it stays in
+   `reference/papers/`, and committing its numbers rests on 3.7, not on that statement (user decision PS1).
 2. Write `fixtures/paper/<Fluid>/<bibkey>.<table>.csv`:
 
 ```text

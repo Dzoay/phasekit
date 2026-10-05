@@ -95,6 +95,14 @@ const LEMMON_R365MFC: Constants = lemmon_2015("148.07452 g/mol", "460.0 K", "3.2
 const LEMMON_R115: Constants = lemmon_2015("154.466416 g/mol", "353.1 K", "3.98 mol/dm3");
 const LEMMON_R13I1: Constants = lemmon_2015("195.9104 g/mol", "396.44 K", "4.4306 mol/dm3");
 
+/// The constants Thol and Lemmon (Int. J. Thermophys. 37:28, 2016) print for R-1234ze(E) (§2; δ = ρ/ρ_c, τ = T_c/T).
+const THOL_R1234ZEE: Constants = Constants {
+    r: "8.3144621 J/(mol K)",
+    molar_mass: Some("114.0416 g/mol"),
+    t_reducing: "382.513 K",
+    rho_reducing: "4.29 mol/dm3",
+};
+
 /// Where an arbiter stands (VERIFICATION.md §4.3).
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
@@ -286,8 +294,8 @@ pub static ARBITERS: &[Arbiter] = &[
             role: Role::EosPaper,
         },
         tables: &[Table { file: "paper/R1234ze(E)/Thol-IJT-2016-R1234zeE.3.csv", kind: TableKind::K2, rows: Some(6) }],
-        constants: None,
-        status: ArbiterStatus::Expected,
+        constants: Some(THOL_R1234ZEE),
+        status: ArbiterStatus::Transcribed,
     },
     Arbiter {
         fluid: "Helium",

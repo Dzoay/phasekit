@@ -1,0 +1,15 @@
+# fixture: paper/v1
+# source: paper:Thol-IJT-2016-R1234zeE/Table3
+# citation: doi=10.1007/s10765-016-2040-6 table=3 manuscript=PMC13576062.1 erratum-checked=2026-10-05 xml_sha256=91af11988269b85d0065975cae90c425648f001ef418e2594843e1eb0e914d16
+# kind: K2
+# constants: R=8.3144621 J/(mol K) M=114.0416 g/mol Tc=382.513 K rhoc=4.29 mol/dm3 (Tr=Tc rhor=rhoc)
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,rho,p,cv,cp,w
+# units: K,mol/dm3,MPa,J/(mol K),J/(mol K),m/s
+# tol: in,in,paper,paper,paper,paper
+200,12.6,2.161400,94.9481,139.161,982.461
+350,11.4,95.04156,112.495,144.400,902.540
+383,4.29,3.670105,151.107,17431.1,79.9438
+200,0.0,0.0,71.6045,79.9190,127.572
+360,1.0,2.039103,113.342,161.395,122.236
+420,8.0,19.95447,120.029,169.513,371.320

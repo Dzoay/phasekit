@@ -8,6 +8,10 @@ type Text = (&'static str, &'static str);
 
 /// Every transcribed table and its independent second transcription.
 const PAPERS: &[(Text, Text)] = &[
+    (
+        fixture!("paper/R1234ze(E)/Thol-IJT-2016-R1234zeE.3.csv"),
+        fixture!("paper/R1234ze(E)/Thol-IJT-2016-R1234zeE.3.check.csv"),
+    ),
     (fixture!("paper/Water/IAPWS-R6-95-2018.6.csv"), fixture!("paper/Water/IAPWS-R6-95-2018.6.check.csv")),
     (fixture!("paper/Water/IAPWS-R6-95-2018.7.csv"), fixture!("paper/Water/IAPWS-R6-95-2018.7.check.csv")),
     (fixture!("paper/Water/IAPWS-R6-95-2018.8.csv"), fixture!("paper/Water/IAPWS-R6-95-2018.8.check.csv")),

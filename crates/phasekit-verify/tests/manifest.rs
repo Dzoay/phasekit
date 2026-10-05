@@ -9,6 +9,8 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("coolprop-8.0.0/facts/smoke.csv"),
     fixture!("paper/R115/Lemmon-JCED-2016-365227.7.check.csv"),
     fixture!("paper/R115/Lemmon-JCED-2016-365227.7.csv"),
+    fixture!("paper/R1234ze(E)/Thol-IJT-2016-R1234zeE.3.check.csv"),
+    fixture!("paper/R1234ze(E)/Thol-IJT-2016-R1234zeE.3.csv"),
     fixture!("paper/R13I1/Lemmon-JCED-2016-365227.7.check.csv"),
     fixture!("paper/R13I1/Lemmon-JCED-2016-365227.7.csv"),
     fixture!("paper/R227EA/Lemmon-JCED-2016-365227.7.check.csv"),
