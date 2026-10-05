@@ -3,7 +3,7 @@
 phasekit is a from-scratch, idiomatic Rust successor to CoolProp (thermophysical properties of fluids, later
 materials). It is **not** a binding. Work proceeds test-first, one plan step per pull request.
 
-**Current state:** the design is complete and implementation has not started. The next step is **M0.1** in
+**Current state:** milestone M0 is under way. M0.1 (toolchain check) is done; the next step is **M0.2** in
 [docs/PLAN.md](docs/PLAN.md). `docs/design/sketch/` is a compiled type sketch (its own Cargo workspace) that M0.2 seeds
 the real workspace from.
 
@@ -26,7 +26,8 @@ If two sources disagree, follow the higher one and fix the lower one in the same
 Follow [PLAN.md §0](docs/PLAN.md#0-how-to-use-this-plan): write the named failing test first from its oracle or
 arbiter, show it red, implement, make all gates green, update affected docs, open the PR. If a step fails its gate in
 a way the plan did not foresee, stop and re-plan ([PLAN.md §0.4](docs/PLAN.md#04-when-a-step-fails-its-gate-stop-and-re-plan)).
-Do not start the next step in the same PR.
+Do not start the next step in the same PR. `scripts/check-toolchain.sh` checks that the tools the gates need are
+installed.
 
 Gates are defined once in [PLAN.md §2.4](docs/PLAN.md#24-standard-gates) (G1-G8). Agents always set
 `CARGO_TARGET_DIR` to a scratch directory outside the repository.
@@ -76,6 +77,6 @@ The rules are defined in [CONTRIBUTING.md](CONTRIBUTING.md). The ones agents get
 | Path | What |
 |---|---|
 | `docs/` | Brief, architecture, plan, verification, rot register; `coolprop-map/` and `research/` evidence; `design/` history and the type sketch |
-| `scripts/` | `fetch-coolprop.sh`; later `oracle/` and `baseline/` |
+| `scripts/` | `fetch-coolprop.sh`, `check-toolchain.sh`; later `oracle/` and `baseline/` |
 | `crates/phasekit-*` | the workspace, from M0.2 (core, data, compat, verify, xtask; capi, wasm and py later) |
 | `reference/` | gitignored: the CoolProp checkout and local papers |

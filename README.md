@@ -4,9 +4,9 @@ A modular, memory-safe Rust library for thermophysical properties, starting with
 and all states of matter. It is a from-scratch successor to [CoolProp](https://github.com/CoolProp/CoolProp), not a
 binding, verified against CoolProp 8.0.0 and, where CoolProp is wrong, against the published literature.
 
-> **Status: design complete, implementation not started.** This repository holds the architecture, the step-by-step
-> test-driven plan and the verification design. There is no usable library yet. Work starts at step M0.1 of
-> [docs/PLAN.md](docs/PLAN.md).
+> **Status: implementation under way at milestone M0 (toolchain, workspace and CI).** This repository holds the
+> architecture, the step-by-step test-driven plan and the verification design. There is no usable library yet;
+> progress follows [docs/PLAN.md](docs/PLAN.md).
 
 ## Goals
 
@@ -46,7 +46,7 @@ follow afterwards ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)).
 
 ```text
 docs/        design, plan and evidence (above)
-scripts/     fetch-coolprop.sh; later the oracle generator and the C++ baseline harness
+scripts/     fetch-coolprop.sh, check-toolchain.sh; later the oracle generator and the C++ baseline harness
 crates/      the Cargo workspace, from step M0.2 (phasekit-core, -data, -compat, -verify, -xtask; later -capi, -wasm, -py)
 reference/   gitignored: the pinned CoolProp checkout and local papers
 ```
@@ -54,9 +54,11 @@ reference/   gitignored: the pinned CoolProp checkout and local papers
 ## Getting started (contributors)
 
 Requirements: stable Rust (1.99 or newer; the targets `wasm32-unknown-unknown`, `wasm32-wasip2` and
-`x86_64-pc-windows-msvc`), [uv](https://docs.astral.sh/uv/) for the CoolProp oracle, and later `wasmtime`.
+`x86_64-pc-windows-msvc`), [uv](https://docs.astral.sh/uv/) for the CoolProp oracle, and `wasmtime`, `cargo-deny` and
+`cargo-shear` (`cargo install --locked wasmtime-cli cargo-deny cargo-shear`).
 
 ```sh
+scripts/check-toolchain.sh         # reports which of the tools above are missing
 scripts/fetch-coolprop.sh          # pinned, read-only CoolProp v8.0.0 checkout in reference/
 cd docs/design/sketch && cargo test # the compiled type sketch
 uv run --no-project --python 3.12 --with CoolProp==8.0.0 \

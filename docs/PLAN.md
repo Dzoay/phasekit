@@ -29,7 +29,7 @@ Every step in section 3 is one focused change, roughly one PR. Execute it like t
 
 1. **Read.** Read the step, the map sections it cites, the VERIFICATION.md sections it relies on and the
    ROT-REGISTER.md rows assigned to it (the milestone's **ROT rows** line). Check that the previous step is merged
-   (`git log --oneline --grep '^M3.1:'`) and that the step's tools are installed.
+   (`git log --oneline --grep '^Plan-Step: M3.1$'`) and that the step's tools are installed.
 2. **Branch** from a green `main`: `m<n>.<k>-<slug>` (section 2.2).
 3. **Write the failing tests first**: the ones the step names plus the proof tests of its ROT rows (names from
    ROT-REGISTER.md's Proof column). Take the expected value from, in this order: a literature arbiter (VERIFICATION.md
@@ -56,7 +56,7 @@ baseline). The sketch is never edited.
 
 | Level | Done means |
 |---|---|
-| Step | The named failing tests existed and were red first (evidence in the PR). They are now green. G1-G8 (section 2.4) pass locally, and in CI once M0.6 exists. No new `#[ignore]` outside the grammar of section 2.1. `missing_docs` is clean. The step's ROT rows are ticked. The commit subject carries the step ID. |
+| Step | The named failing tests existed and were red first (evidence in the PR). They are now green. G1-G8 (section 2.4) pass locally, and in CI once M0.6 exists. No new `#[ignore]` outside the grammar of section 2.1. `missing_docs` is clean. The step's ROT rows are ticked. The commit carries the step ID in its `Plan-Step:` footer. |
 | Milestone | Every step is done. Every exit-gate item passes with the stated numbers: items marked *(nightly)* on the first green nightly run that includes them (Linux x86-64 only); all other items per PR on Linux x86-64, Windows MSVC and wasm32-wasip2 (D15), except items checked by `phasekit-xtask` (datagen, `gates`), which is a Linux tool (section 2.5). The closing step sets `phasekit_verify::MILESTONE` to n + 1, which arms two fail-closed checks: every divergence proof due by Mn exists (`tests/divergences.rs`, VERIFICATION.md §6.3) and every ROT row of Mn is ticked (`cargo xtask gates rot`). Benches for paths that landed are recorded (section 5.1). CI is green on `main` (from M1 on, a milestone cannot close while CI is owed, section 3 M0.6). The VERIFICATION.md §14 row is satisfied. A tag `m<n>` is set on the merge commit. |
 | v0.1 | M10 is done and the release checklist (section 5.4) is complete. |
 
