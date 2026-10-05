@@ -4,7 +4,7 @@
 # never lowers one. Lowering a minimum by hand needs a `# lowered: <reason>` line above it. `# pending M<n>.<k>:
 # <test>` lines name tests held back until that step; they fail the gate once milestone n has closed.
 x86_64-unknown-linux-gnu phasekit-core::lib 24
-x86_64-unknown-linux-gnu phasekit-verify::lib 5
+x86_64-unknown-linux-gnu phasekit-verify::lib 8
 x86_64-unknown-linux-gnu phasekit-verify::gibbs_seam 1
 # pending M5.9: gibbs_seam.rs::solid_reaches_registry_batch_compat_and_reference_states
 # pending M5.9: gibbs_seam.rs::two_phase_states_from_outside_the_core
@@ -16,7 +16,7 @@ x86_64-unknown-linux-gnu phasekit-verify::register 3
 x86_64-unknown-linux-gnu phasekit-xtask::main 17
 x86_64-unknown-linux-gnu phasekit-core::doc 1
 wasm32-wasip2 phasekit-core::lib 24
-wasm32-wasip2 phasekit-verify::lib 5
+wasm32-wasip2 phasekit-verify::lib 8
 wasm32-wasip2 phasekit-verify::gibbs_seam 1
 wasm32-wasip2 phasekit-verify::lazy_load 6
 wasm32-wasip2 phasekit-verify::new_family 4
