@@ -66,18 +66,24 @@ pub struct Table {
     pub rows: Option<u16>,
 }
 
-/// The constants a paper prints, recorded at transcription (PLAN.md M1.9).
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The constants a paper prints, recorded at transcription as printed, with their units (VERIFICATION.md §4.2 step
+/// 5): a mass-based release such as IAPWS-95 prints a specific R and no molar mass, so nothing is converted here; the
+/// evaluation (M4 on) converts them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Constants {
-    /// Gas constant (J/mol/K).
-    pub r: f64,
-    /// Molar mass (kg/mol).
-    pub molar_mass: f64,
-    /// Reducing temperature (K).
-    pub t_reducing: f64,
-    /// Reducing density (mol/m³).
-    pub rho_reducing: f64,
+    /// Gas constant, e.g. "0.46151805 kJ/(kg K)".
+    pub r: &'static str,
+    /// Molar mass, where the paper prints one.
+    pub molar_mass: Option<&'static str>,
+    /// Reducing temperature, e.g. "647.096 K".
+    pub t_reducing: &'static str,
+    /// Reducing density, e.g. "322 kg/m3".
+    pub rho_reducing: &'static str,
 }
+
+/// IAPWS-95's printed constants (IAPWS R6-95(2018) Eqs. 1-3; T_r = T_c, ρ_r = ρ_c).
+const IAPWS_95: Constants =
+    Constants { r: "0.46151805 kJ/(kg K)", molar_mass: None, t_reducing: "647.096 K", rho_reducing: "322 kg/m3" };
 
 /// Where an arbiter stands (VERIFICATION.md §4.3).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -168,18 +174,18 @@ pub static ARBITERS: &[Arbiter] = &[
         citation: Citation { key: "IAPWS-R6-95-2018", doi_or_report: Some("IAPWS R6-95(2018)"), role: Role::Release },
         tables: &[
             Table { file: "paper/Water/IAPWS-R6-95-2018.6.csv", kind: TableKind::K1, rows: Some(1) },
-            Table { file: "paper/Water/IAPWS-R6-95-2018.7.csv", kind: TableKind::K2, rows: None },
+            Table { file: "paper/Water/IAPWS-R6-95-2018.7.csv", kind: TableKind::K2, rows: Some(11) },
         ],
-        constants: None,
-        status: ArbiterStatus::Expected,
+        constants: Some(IAPWS_95),
+        status: ArbiterStatus::Transcribed,
     },
     Arbiter {
         fluid: "Water",
         part: ArbiterPart::Saturation,
         citation: Citation { key: "IAPWS-R6-95-2018", doi_or_report: Some("IAPWS R6-95(2018)"), role: Role::Release },
-        tables: &[Table { file: "paper/Water/IAPWS-R6-95-2018.8.csv", kind: TableKind::K3, rows: None }],
-        constants: None,
-        status: ArbiterStatus::Expected,
+        tables: &[Table { file: "paper/Water/IAPWS-R6-95-2018.8.csv", kind: TableKind::K3, rows: Some(3) }],
+        constants: Some(IAPWS_95),
+        status: ArbiterStatus::Transcribed,
     },
     Arbiter {
         fluid: "Water",

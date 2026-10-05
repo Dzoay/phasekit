@@ -312,7 +312,9 @@ values (fastchebpure, the 390 check points) are exact for the EOS: they arbitrat
 # tol: in,in,paper,paper,paper,paper
 ```
 
-3. Cells keep the printed strings exactly, trailing zeros included: they set the tolerance. The kit runs `from_printed`
+3. Cells keep the printed strings exactly, trailing zeros included: they set the tolerance. Digit-group spaces are
+   dropped and `× 10ⁿ` is written `en`, so `0.996 556 0 × 10³` is `0.9965560e3` (PLAN.md M1.8); a release without a DOI
+   cites `report=<id>` in place of `doi=`. The kit runs `from_printed`
    on the string (half a unit in the last printed digit, map 13 §3), then converts value and bound to SI by `units`.
 4. Double entry *(decision)*: the second, independent transcription is committed beside the first as
    `<bibkey>.<table>.check.csv`, and the test `paper_tables_double_entry_agree` requires the two to match string for

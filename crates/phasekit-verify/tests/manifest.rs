@@ -5,7 +5,15 @@ use phasekit_verify::{fixture, sha256_hex};
 
 /// Every committed fixture. A new fixture is added here, to MANIFEST.sha256 (`cargo xtask oracle --write-manifest`)
 /// and to the test that reads it.
-const COMMITTED: &[(&str, &str)] = &[fixture!("coolprop-8.0.0/facts/smoke.csv")];
+const COMMITTED: &[(&str, &str)] = &[
+    fixture!("coolprop-8.0.0/facts/smoke.csv"),
+    fixture!("paper/Water/IAPWS-R6-95-2018.6.check.csv"),
+    fixture!("paper/Water/IAPWS-R6-95-2018.6.csv"),
+    fixture!("paper/Water/IAPWS-R6-95-2018.7.check.csv"),
+    fixture!("paper/Water/IAPWS-R6-95-2018.7.csv"),
+    fixture!("paper/Water/IAPWS-R6-95-2018.8.check.csv"),
+    fixture!("paper/Water/IAPWS-R6-95-2018.8.csv"),
+];
 
 const MANIFEST: &str = include_str!("../fixtures/MANIFEST.sha256");
 const REUSE: &str = include_str!("../../../REUSE.toml");
