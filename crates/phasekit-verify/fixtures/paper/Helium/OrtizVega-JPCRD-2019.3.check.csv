@@ -1,0 +1,15 @@
+# fixture: paper/v1
+# source: paper:OrtizVega-JPCRD-2019/Table3
+# citation: doi=10.6028/NIST.IR.8474 table=3 page=16 erratum-checked=2026-10-05 pdf_sha256=dbf50172cbc5b8eb5af6268f4550ff48ab7f96883e5b0b8230b3e7c29fe7e136
+# kind: K2
+# constants: R=8.314472 J/(mol K) M=4.002602 g/mol Tc=5.1953 K rhoc=17.3837 mol/dm3 (Table 1, page 2; Tr=Tc rhor=rhoc)
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,rho,p,cv,w
+# units: K,mol/dm3,MPa,J/(mol K),m/s
+# tol: in,in,paper,paper,paper
+4,40.0,1.593262,8.098737,320.1490
+4,2.0,0.0554523,12.627957,107.3812
+10,50.0,12.65519,10.753076,592.9440
+10,2.0,0.1588571,12.478387,183.7793
+300,25.0,85.769640,13.176055,1349.3067
+300,1.0,2.524130,12.496256,1030.3609

@@ -103,6 +103,16 @@ const THOL_R1234ZEE: Constants = Constants {
     rho_reducing: "4.29 mol/dm3",
 };
 
+/// Helium's constants as NIST IR 8474 Table 1 prints them (τ = T_c/T, δ = ρ/ρ_c). The report says to use this R
+/// (8.314472), but its own Table 3 does not reproduce with it, and CoolProp stores 8.3144598 (DIV-0005; map 13 §3
+/// item 4, R3); Table 2's coefficients match CoolProp's term for term.
+const NIST_IR_8474: Constants = Constants {
+    r: "8.314472 J/(mol K)",
+    molar_mass: Some("4.002602 g/mol"),
+    t_reducing: "5.1953 K",
+    rho_reducing: "17.3837 mol/dm3",
+};
+
 /// Where an arbiter stands (VERIFICATION.md §4.3).
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
@@ -302,16 +312,16 @@ pub static ARBITERS: &[Arbiter] = &[
         part: ArbiterPart::AlphaR,
         citation: Citation { key: "OrtizVega-JPCRD-2019", doi_or_report: Some("NIST IR 8474"), role: Role::EosPaper },
         tables: &[Table { file: "paper/Helium/OrtizVega-JPCRD-2019.3.csv", kind: TableKind::K2, rows: Some(6) }],
-        constants: None,
-        status: ArbiterStatus::Expected,
+        constants: Some(NIST_IR_8474),
+        status: ArbiterStatus::Transcribed,
     },
     Arbiter {
         fluid: "Helium",
         part: ArbiterPart::Saturation,
         citation: Citation { key: "OrtizVega-JPCRD-2019", doi_or_report: Some("NIST IR 8474"), role: Role::EosPaper },
-        tables: &[Table { file: "paper/Helium/OrtizVega-JPCRD-2019.4.csv", kind: TableKind::K3, rows: None }],
-        constants: None,
-        status: ArbiterStatus::Expected,
+        tables: &[Table { file: "paper/Helium/OrtizVega-JPCRD-2019.4.csv", kind: TableKind::K3, rows: Some(17) }],
+        constants: Some(NIST_IR_8474),
+        status: ArbiterStatus::Transcribed,
     },
     Arbiter {
         fluid: "R1234yf",
