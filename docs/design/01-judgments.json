@@ -1,0 +1,898 @@
+{
+  "source": "architecture panel run wf_d479b609-c5b (session 5eaf5c47), Propose + Judge stages; extracted 2026-10-04 after the run was killed in Synthesize",
+  "rubric_weights": {
+    "modularity": 3,
+    "simplicity": 3,
+    "concurrency_memory": 3,
+    "performance": 3,
+    "correctness_tdd": 3,
+    "idiomatic_rust": 3,
+    "rot_elimination": 2,
+    "cross_platform": 2,
+    "migration": 1
+  },
+  "ranking": [
+    {
+      "name": "Verification-first",
+      "mean": 7.551,
+      "per_judge": [
+        7.522,
+        7.565,
+        7.565
+      ],
+      "weighted_total_sum": 521
+    },
+    {
+      "name": "Lean",
+      "mean": 7.449,
+      "per_judge": [
+        7.217,
+        7.696,
+        7.435
+      ],
+      "weighted_total_sum": 514
+    },
+    {
+      "name": "Extensible",
+      "mean": 7.217,
+      "per_judge": [
+        7.043,
+        7.261,
+        7.348
+      ],
+      "weighted_total_sum": 498
+    },
+    {
+      "name": "Kernel",
+      "mean": 6.87,
+      "per_judge": [
+        6.609,
+        6.87,
+        7.13
+      ],
+      "weighted_total_sum": 474
+    }
+  ],
+  "mean_per_criterion": [
+    {
+      "proposal": "Lean",
+      "modularity": 7.3,
+      "simplicity": 9.0,
+      "concurrency_memory": 7.3,
+      "performance": 5.3,
+      "correctness_tdd": 7.7,
+      "idiomatic_rust": 7.7,
+      "rot_elimination": 8.0,
+      "cross_platform": 7.7,
+      "migration": 7.0
+    },
+    {
+      "proposal": "Extensible",
+      "modularity": 9.0,
+      "simplicity": 5.0,
+      "concurrency_memory": 8.0,
+      "performance": 6.0,
+      "correctness_tdd": 7.3,
+      "idiomatic_rust": 6.7,
+      "rot_elimination": 9.0,
+      "cross_platform": 7.3,
+      "migration": 7.3
+    },
+    {
+      "proposal": "Kernel",
+      "modularity": 5.0,
+      "simplicity": 4.3,
+      "concurrency_memory": 9.0,
+      "performance": 8.7,
+      "correctness_tdd": 7.0,
+      "idiomatic_rust": 6.3,
+      "rot_elimination": 7.0,
+      "cross_platform": 8.7,
+      "migration": 5.7
+    },
+    {
+      "proposal": "Verification-first",
+      "modularity": 6.0,
+      "simplicity": 7.0,
+      "concurrency_memory": 8.0,
+      "performance": 6.0,
+      "correctness_tdd": 9.0,
+      "idiomatic_rust": 8.0,
+      "rot_elimination": 9.0,
+      "cross_platform": 8.0,
+      "migration": 7.7
+    }
+  ],
+  "proposals": [
+    {
+      "name": "Lean",
+      "doc_path": "docs/design/proposal-a-lean.md",
+      "sketch_path": "<session scratchpad>/sketch-lean  (LOST: session scratchpad wiped by reboot)",
+      "thesis": "One std-only core crate holds the whole kernel and API: one concrete model type (Fluid), one extension trait (Residual), one derivative mechanism (truncated-Taylor jets), one Copy value type (State) and one batch function, with zero public generic parameters. Each future direction gets a one-item seam that a test already exercises: new families implement Residual, new states of matter call State::from_total, faster execution overrides Residual::eval_batch (bitwise equal to scalar), and mixtures arrive as their own crate. Everything else waits for a benchmark or a second user.",
+      "crates": [
+        "cprs (core: jets, terms, ideal gas, Residual trait, registry, blob decoder, superancillary, roots, flash, State, relations, transport, batch, compat strings; std only, 0 deps; features bundled(default)/rayon/libm/json)",
+        "cprs-data (generated per-fluid binary blobs + 556-key alias index + DATASET id + CoolProp MIT NOTICE; no logic; one feature per fluid, `all` default)",
+        "cprs-capi (C ABI: cp_* exports, pinned append-only status codes, FP guard, cbindgen CLI header; feature coolproplib-compat for legacy PropsSI/Props1SI/PhaseSI)",
+        "cprs-wasm (browser facade via wasm-bindgen, baseline + simd128 builds; WASI is served by cprs itself on wasm32-wasip2)",
+        "cprs-verify (unpublished, dev-only, 0 deps: CSV fixtures, Provenance, tolerance classes, divergence register, later criterion benches)",
+        "xtask (unpublished tools: datagen JSON->blobs via cprs[json], oracle via uv + CoolProp 8.0.0, zero-dependency guard)",
+        "Later, trigger-gated only: cprs-mix (mixtures), cprs-py (pyo3), cprs-simd (only if the M10 auto-vectorization gate fails), a solids crate (first Gibbs solid)"
+      ],
+      "decisions": [
+        {
+          "id": "D1",
+          "decision": "4 shipped crates (cprs, cprs-data, cprs-capi, cprs-wasm) + 2 unpublished (cprs-verify, xtask). Modules become crates only when they get a second consumer; features are additive and few, and only `libm` changes result bits."
+        },
+        {
+          "id": "D2",
+          "decision": "f64 only. Derivatives come from truncated-Taylor jets: separable terms use univariate scaled jets plus one outer product with one exp per term; non-separable terms and new families use the bivariate Jet2. Jet2 doubles as the in-house AD test oracle, so there is no hand-coded per-term derivative and no num-dual."
+        },
+        {
+          "id": "D3",
+          "decision": "Families are open through one object-safe trait, Residual, stored as Box<dyn Residual> in Fluid. Term kinds inside the multiparameter family are a closed enum of SoA blocks with match dispatch, and ideal-gas kinds are a closed public enum shared by every family."
+        },
+        {
+          "id": "D4",
+          "decision": "Composition is not in the core contract; v1 has only the pure-fluid path. Mixtures land in cprs-mix: a Mixture at fixed z implements Residual, its ideal part comes from one additive IdealGas::weighted constructor, and VLE and stability live in that crate."
+        },
+        {
+          "id": "D5",
+          "decision": "State is a Copy value of at most 256 B (compile-time assert) holding the total order-2 bundle plus a residual subset, computed eagerly at the end of the flash. Input has 19 pairs with the basis carried by the quantity and one validation gate (to_molar); outputs are SI f64 getters returning Result where two-phase makes them undefined."
+        },
+        {
+          "id": "D6",
+          "decision": "flash(&Fluid, Input, &FlashOptions) -> Result<State, Error> is a pure function with a per-call Copy options value (phase hint, RootPolicy, limits, guess). There is one function per pair family with ordered Result chains, one verify() acceptance gate, and Root{x,f} evaluated at x; non-unique pairs return MultipleSolutions with the roots as data, and Path records the strategy that ran."
+        },
+        {
+          "id": "D7",
+          "decision": "Pinned v8.0.0 JSON plus a cited corrections.csv go through xtask datagen, which uses one strict serde mirror and precomputes SA extrema, inverses and caloric curves. It writes versioned LE per-fluid blobs that the registry decodes lazily, one OnceLock per fluid. Runtime blobs and user fluids give a new registry value, and ECS references are resolved at decode into an acyclic graph."
+        },
+        {
+          "id": "D8",
+          "decision": "Fluid = Arc<Core>, immutable, with Send + Sync asserted at compile time; the static LazyLock registry holds one OnceLock per fluid. Hot paths take &Fluid with no locks, refcount traffic or shared writes; batch::evaluate is SoA with a per-cell Status and no allocation; rayon runs over fixed chunks; warm starts are opt-in."
+        },
+        {
+          "id": "D9",
+          "decision": "Per-term and per-state scalar functions are the 'what'; loop shape is the 'how'. Chunked eval_batch runs terms outer and states inner, is bitwise equal to scalar (tested), and parallelism uses rayon across points. SIMD upgrade is benchmark-gated: first an inlinable in-house exp/ln for auto-vectorization (gate >= 2.5x on AVX2), then, only if that fails, a private Real trait with lanes or a cprs-simd crate. Branchy flashes and VLE stay scalar."
+        },
+        {
+          "id": "D10",
+          "decision": "Build only cheap seams now: the reducing-invariant Derivs bundle with family-neutral relations; a public State::from_total, through which a Gibbs solid enters after an algebraic Legendre transform (tested); the identity/model/package split; EnergyOffset; DomainError and private-field Limits; non_exhaustive enums. PhaseModel/Substance, relations::gibbs, Domain-with-holes and Phase::Solid wait for their triggers."
+        },
+        {
+          "id": "D11",
+          "decision": "Facade homes: Rust = cprs; PropsSI-style strings = cprs::compat in core, shared by all facades; C ABI = cprs-capi (generational u64 handles, explicit lengths, catch_unwind, FP guard, opt-in legacy shim with the global errstring); browser = cprs-wasm; WASI = cprs on wasip2; Python = cprs-py later. A network server is never core."
+        },
+        {
+          "id": "D12",
+          "decision": "One non_exhaustive Clone Error enum (plus DomainError); no panics on user input; NaN appears only as a batch/C cell fill with a Status. All transcendentals go through math.rs (std by default, libm feature for bit identity), mul_add is banned by clippy, and summation order is fixed. Tolerance classes Exact/Term/Prop/SaCoeff/Flash/Paper live in cprs-verify."
+        },
+        {
+          "id": "D13",
+          "decision": "Six verification layers: hand values; Jet vs Jet2; self-checked paper tables; CoolProp 8.0.0 oracle fixtures (fresh instance, scrubbed env, config recorded); identities and round trips; nightly consistency sweep; plus bitwise exec tests. The divergence register's tests use the literature value and also assert the oracle still differs, so stale entries fail."
+        },
+        {
+          "id": "D14",
+          "decision": "Code is MIT OR Apache-2.0. cprs-data ships the CoolProp MIT notice and every model carries a Source (BibTeX/DOI/terms); no GPL code; data with uncleared provenance stays out of default features. cargo-deny, REUSE and cargo-about are in CI."
+        },
+        {
+          "id": "D15",
+          "decision": "v0.1 = M0-M9: all 136 pure and pseudo-pure fluids, all 19 pairs, staged/IAPWS/ECS transport and surface tension, compat strings, C ABI and browser WASM. Afterwards come the SIMD gate (M10), the remaining transport, mixtures, cubic/PC-SAFT, IF97/ice and Python."
+        },
+        {
+          "id": "D16",
+          "decision": "Placeholder `cprs` (crates) and `cp_` (C symbols); the final name is the user's call, with suggested candidates whose availability is unchecked. Avoid a bare coolprop prefix, because coolprop-sys and coolprop-rs bindings already exist."
+        },
+        {
+          "id": "D17",
+          "decision": "Edition 2024, resolver 3, MSRV 1.85 for published crates, developed on 1.99, no nightly. Workspace lints forbid unsafe (cprs-capi alone overrides to deny with SAFETY notes); CI covers Linux, Windows MSVC, wasip2 tests under wasmtime, wasm32-unknown-unknown baseline + simd128 builds, aarch64, MSRV, clippy, fmt, cargo-deny, the zero-dependency guard and the nightly sweep."
+        }
+      ],
+      "cargo_check": {
+        "host": true,
+        "wasm32": true,
+        "msvc": true,
+        "clippy": true,
+        "tests": true,
+        "notes": "Observed from sketch-lean with CARGO_TARGET_DIR=.../scratchpad/target-lean after touching every .rs file to force recompiles. `cargo check --workspace --all-targets --target x86_64-unknown-linux-gnu`, `--target wasm32-unknown-unknown` and `--target x86_64-pc-windows-msvc` all finished with 0 warnings and 0 errors. `cargo clippy --workspace --all-targets -- -D warnings` was clean. `cargo test --workspace` passed 20 tests with 0 failures: cprs unit 8, gibbs_seam 1, new_family 6, cprs-capi 1, cprs-verify 2, cprs doctests 2. A sketch-lean workspace already existed from an earlier, interrupted run of this role; I reviewed it, kept it as the base and revised it: total-bundle State with a public State::from_total, a chunked eval_batch with a bitwise test, ECS holding the reference Fluid, Fluid::ideal_gas, a json feature placeholder, and a new Gibbs-seam test. All gates were re-run after those changes. Not verified here: the MSRV 1.85 build (no 1.85 toolchain installed) and test execution on wasm32-wasip2 under wasmtime. Oracle values quoted in the doc were re-run on CoolProp 8.0.0 (ae81610e) for this document."
+      },
+      "risks": [
+        "Weakest criterion is performance: jet arithmetic has not been benchmarked against CoolProp's hand-tuned all() (it computes up to 15 entries where 6 suffice), explicit SIMD is only a benchmark-gated plan, and lockstep rho(T,p) with masks is not designed.",
+        "Jets reorder floating-point operations relative to CoolProp, so oracle parity is about 1e-13 relative, not bitwise; tolerance classes must absorb this.",
+        "Box<dyn Residual> blocks cross-call inlining; the cost is assumed negligible (about 1 ns vs about 300 ns per evaluation, inference) and amortised by eval_batch, but it is unmeasured.",
+        "Newtypes have public fields (Temperature(-5.0) is constructible); invalid values are rejected only at the single to_molar gate, a deliberate softening of 'invalid states unrepresentable'.",
+        "One large core crate (estimated 25-30k LOC) may compile slowly; splitting is mechanical, because modules are layered with only two convenience edges (Fluid::state -> flash, State built from &Fluid).",
+        "Two core edits are pre-announced: the additive IdealGas::weighted (mixtures) and Phase::Solid (solids); new term kinds and ideal-gas kinds are closed enums and need edits to eos.rs and data.rs.",
+        "A FluidId from one registry used with another can index the wrong entry until Registry::fluid returns Err on a bad id (planned for M3).",
+        "The superancillary is decoded with the fluid rather than in a second lazy cell; this rests on precomputed extrema making decode a memcpy, and needs a first-use latency measurement.",
+        "The association X_A derivative approach for PC-SAFT (an f64 solve, then one Newton step in Jet2) is an inference that still needs finite-difference validation."
+      ],
+      "key": "a"
+    },
+    {
+      "name": "Extensible",
+      "doc_path": "docs/design/proposal-b-extensible.md",
+      "sketch_path": "<session scratchpad>/sketch-extensible  (LOST: session scratchpad wiped by reboot)",
+      "thesis": "Close what is known, open what will grow. Inside a family, term kinds, transport forms and ancillary forms are closed enums compiled to SoA blocks with match dispatch. Across families, a std-only core offers four small object-safe traits: HelmholtzModel, ThermoModel, Transport and Catalog. They exchange one reducing-invariant currency, Derivs2 (CoolProp's scaled A_ij, the same as teqp's Lambda_ij), held in a 192-byte Copy State. One family = one crate = code + data + catalog. Cubic, PC-SAFT, GERG (as data), IF97, INCOMP, ice and later solids land without core edits. The sketch's tests/open_closed.rs proves this: a value-only Helmholtz family and a Gibbs solid, both defined outside every first-party crate, flash, batch and take reference states through the unchanged core.",
+      "crates": [
+        "cprs-core (std-only kernel: Real/Jet2, math, Derivs2, relations, State, Input/Spec, HelmholtzModel/ThermoModel/Transport/Catalog traits, generic Helmholtz flash, Fluid, Gauged, batch/ExecPolicy)",
+        "cprs-heos (CoolProp multiparameter family: term enums + SoA, ideal gas, superancillary, ancillaries, transport forms, MultiFluid/GERG-as-data, embedded v8.0.0 data, HeosCatalog with OnceLock slots; features all-fluids/tdd5/fluid-<name>)",
+        "cprs (Rust facade: Library of catalogs, FAMILY::name resolver, compat::props_si; features heos default, later cubic/pcsaft/iapws/incomp/humidair)",
+        "cprs-capi (C ABI facade; empty in sketch)",
+        "cprs-wasm (wasm-bindgen browser + wit-bindgen WASI facade; empty in sketch)",
+        "cprs-verify (unpublished, zero-dep: Provenance, ToleranceClass, divergence register, family conformance suite)",
+        "cprs-bench (unpublished: criterion + gungraun; empty in sketch)",
+        "cprs-xtask (unpublished: datagen, oracle, deps-guard, notices)",
+        "future: cprs-cubic, cprs-pcsaft, cprs-iapws (IF97 + ice Ih), cprs-incomp, cprs-humidair, cprs-simd, cprs-py"
+      ],
+      "decisions": [
+        {
+          "id": "D1",
+          "decision": "Core contract crate + one crate per family (code+data+catalog) + thin facades + 3 unpublished dev crates; modules, not crates, inside core. A family gets its own crate only when it brings its own data, provenance or a dependency (GERG and pseudo-pure fluids are data)."
+        },
+        {
+          "id": "D2",
+          "decision": "Kernels are f64; formulas are written once over an in-house Real trait (f64, Jet2, later lanes). Derivatives come from two side-by-side routes: hand-derived SoA fast paths (PowerBlock implemented) and the Jet2 AD route from value-only formulas, which is the correctness oracle and the default for new families. No third-party AD."
+        },
+        {
+          "id": "D3",
+          "decision": "Closed inside a family (non_exhaustive enums + SoA, match dispatch), open across families through object-safe traits, with dyn dispatch once per alpha call or per batch, never per term. FamilyId is an open string token. Optional capabilities are Option-returning default methods."
+        },
+        {
+          "id": "D4",
+          "decision": "Composition is in the contract now and passed per call (&Composition); pure fluids pass a static [1.0] that the model ignores. A mixture is one Arc<MultiFluid> per trimmed component set; zero fractions are rejected; GERG-2008 is data on MultiFluid."
+        },
+        {
+          "id": "D5",
+          "decision": "State is Copy and 192 bytes (asserted <= 256): T, rho, p, the model's own r and M, Phase, Gauge, and a single-phase or two-phase body holding Derivs2. Thermo properties are computed on demand via relations, and two-phase cp/cv/w are errors. Typed methods are the primary API, the Prop enum serves the dynamic paths, and a typed 19-pair Input becomes the molar Spec through one normaliser."
+        },
+        {
+          "id": "D6",
+          "decision": "Pure flash functions over &dyn HelmholtzModel, one module per pair family. Phase comes from the hint, the superancillary (Exact), ancillaries (Guess) or stability tests. A shared solve toolbox returns Root{x,f,iters,status}. RootPolicy plus Ambiguous{roots} handles non-unique pairs. A single verify gate, and immutable Copy FlashOptions."
+        },
+        {
+          "id": "D7",
+          "decision": "Pinned v8.0.0 JSON goes through xtask datagen (validation, FNV gate, cited Corrected overlay) to LE binary sections and a generated index, embedded per fluid behind features. HeosCatalog holds one OnceLock slot per fluid, the superancillary sits in a second lazy cell, and ECS references are resolved through a Weak catalog handle. Runtime bytes build a user Catalog behind a json feature. Two datasets: CoolProp800 (parity) and Corrected (default)."
+        },
+        {
+          "id": "D8",
+          "decision": "Immutable Arc<dyn ThermoModel>; OnceLock is the only cell; clippy disallowed-types (Mutex/RwLock/Cell/RefCell) in core; compile-time Send+Sync+'static asserts in every crate. Copy State, SoA batch with a u8 Status per point, optional rayon with fixed chunks, opt-in warm starts, opt-in LazyLock global library."
+        },
+        {
+          "id": "D9",
+          "decision": "What vs how: model math is generic over Real with an overridable alpha_batch; ExecPolicy {Reference, Auto, Parallel} executors live in core::batch. The scalar path is the source of truth; lanes come first as portable [f64;4], then cprs-simd only if the 2.5x gate fails, across states and bitwise equal to scalar. Dispatch is detected once at runtime; WASM simd128 is compile-time. Branchy flash, VLE and association code stays scalar and is parallel only across requests."
+        },
+        {
+          "id": "D10",
+          "decision": "Build nine cheap seams now: the reducing-free Derivs2 currency, family-neutral relations, ThermoModel with a public State constructor and Phase::Solid (the Gibbs->Lambda transform is proven in a test), Gauge/NativeGauge/Gauged, typed DomainError with private Limits, per-family keys, Source/DataTerms, non_exhaustive, and the open Catalog. Defer Substance/min-Gibbs selection, Domain with holes, the correlation module, solid EOS, tensors, plasma and CALPHAD."
+        },
+        {
+          "id": "D11",
+          "decision": "cprs is the Rust API plus compat::props_si; legacy +inf policies stay in the facade. cprs-capi: extern C, cbindgen CLI, catch_unwind, status codes with a thread-local error, string keys, optional coolprop-compat shim. cprs-wasm: browser baseline and simd128 builds plus a wasip2 component. Python comes later via pyo3 abi3. Plotting is deferred."
+        },
+        {
+          "id": "D12",
+          "decision": "Hand-written non_exhaustive error enums; no panics on input; NaN is rejected at the boundary and per batch point; a non-finite evaluation is rejected when the State is built. No FMA, one math choke point (std by default, libm feature for bit-identical cross-platform results), fixed summation order, tolerance classes rather than bitwise comparison against CoolProp."
+        },
+        {
+          "id": "D13",
+          "decision": "cprs-verify (zero-dep): map-10 L0-L6 pyramid, CSV fixtures with a pinned oracle/config header, provenance priority paper > multiprecision > CoolProp8 > self, tolerance classes, divergences.csv policies, and a reusable family conformance suite. Plus proptest invariants (Maxwell relations, gauge invariance, x=[1,0]), bitwise differential tests, and criterion/gungraun perf gates."
+        },
+        {
+          "id": "D14",
+          "decision": "Code is MIT OR Apache-2.0; CoolProp's MIT notice ships with the cprs-heos data. Source/DataTerms on every model, with a CI rule against restricted data in defaults. cargo-deny allow-list, REUSE, cargo-about. No GPL code; GSW-C is an oracle only; provenance clearance list from map 09."
+        },
+        {
+          "id": "D15",
+          "decision": "v0.1 = M1-M10: 136 HEOS pure fluids, all 19 pairs, transport and sigma, reference states, batch + rayon, PropsSI compat, C ABI, WASM. M11 is the cubic family as the Open/Closed gate (zero-line core diff), then SIMD, mixtures + GERG, IF97 + ice, INCOMP, humid air, PC-SAFT, Python."
+        },
+        {
+          "id": "D16",
+          "decision": "Placeholder cprs-*; the final name is the user's call. Constraints (inference): it must not imply CoolProp endorsement, must be free on crates.io and PyPI, and must work as a C prefix."
+        },
+        {
+          "id": "D17",
+          "decision": "Edition 2024, resolver 3, MSRV 1.85 (1.89 for cprs-simd), develop on 1.99. unsafe_code forbid except capi/simd; missing_docs and clippy::all; core disallowed-types. CI: Linux and MSVC tests, full suite on wasip2 under wasmtime, wasm32-unknown-unknown builds (baseline and simd128), MSRV job, fmt, clippy -D warnings, cargo-deny, zero-dependency guard, semver-checks."
+        }
+      ],
+      "cargo_check": {
+        "host": true,
+        "wasm32": true,
+        "msvc": true,
+        "clippy": true,
+        "tests": true,
+        "notes": "All five commands were run as specified with CARGO_TARGET_DIR=.../scratchpad/target-extensible after a fresh touch of every source file. Each exited 0 with 0 warnings and 0 errors; cargo fmt --check is also clean. cargo test --workspace: 18 passed, 0 failed. The tests cover: power term vs 50-digit hand values; Jet2 AD vs fast path within 1e-14; Gaussian AD vs finite differences; 16 threads bitwise equal to sequential; HEOS model flashing through core Fluid; family conformance suite; State size of 192 B; and five Open/Closed integration tests (value-only Helmholtz family, Gibbs solid with Phase::Solid, Gauged reference state on any family, batch Parallel == Reference bitwise with per-point Status, typed lookup errors). No third-party dependencies; Cargo.lock lives in the scratchpad; nothing was written into the repo except the proposal doc."
+      },
+      "risks": [
+        "Trait shape may not fit an unported family. Mitigated by gating the M11 cubic milestone on a zero-line core diff, plus the open_closed.rs value-only EOS and Gibbs-solid tests.",
+        "dyn dispatch overhead on the hot path: an M8 gate of <=2% versus a monomorphised flash, with a local escape hatch (make flash::helmholtz generic).",
+        "The AD route is slower than hand-coded paths for non-power terms until per-block fast paths land after benchmarks.",
+        "Lambda-scaled derivative exchange vs CoolProp rounding order (research warning); gated at M2/M3 on 5 fluids by the term and prop classes.",
+        "The Gibbs->Derivs2 Legendre transform may lose precision for near-incompressible solids (inference); fallback is a relations::gibbs sibling.",
+        "Crate sprawl from one-family-one-crate; mitigated by the crate rule (GERG, pseudo-pure and alternate EOS are data).",
+        "Simplicity is the weakest rubric criterion: 4 traits + Real/Jet2 + Fluid/Gauged wrappers mean more concepts than a closed-enum design.",
+        "OnceLock::get_or_try_init is unstable, so load errors are cached (acceptable for datagen-validated embedded data).",
+        "The compat facade's mixture-string cache needs a lock (outside the kernel)."
+      ],
+      "key": "b"
+    },
+    {
+      "name": "Kernel",
+      "doc_path": "docs/design/proposal-c-kernel.md",
+      "sketch_path": "<session scratchpad>/sketch-kernel  (LOST: session scratchpad wiped by reboot)",
+      "thesis": "Concurrency comes from immutability, and speed comes from writing the math once. Each fluid is one immutable Arc<FluidModel>, decoded lazily into a lock-free registry: one OnceLock per FluidId, so after the first touch a lookup is a single acquire load. A State is a 232-byte Copy value produced by a pure flash() and holds no Arc. All model math is generic over one Real trait. The executors (scalar reference, Lanes<W>, ISA entry points, rayon chunks) contain no math and match the scalar reference bit for bit, so SIMD and thread paths are tested exactly and never duplicate physics. There are four library crates and zero third-party runtime dependencies. Library unsafe code lives in one dispatch module, plus the C facade.",
+      "crates": [
+        "cprs-kernel (std only, forbid(unsafe)): num/Real/Lanes/Dual/vmath, eos (A_xy Derivs, exp-of-jets term blocks, ad), relations, solve (Root/Tol/TOMS748/Clenshaw), model (object-safe HelmholtzModel seam, Capabilities, Limits, Gauge, Source), fluid (FluidModel with lazy SatData/Transport), flash (19-pair Input, FlashOptions, State, flash), exec (LaneKernel, run_scalar/run_lanes/run_parallel, ExecPolicy, Plan, eval_batch), registry (FluidId -> OnceLock<Arc<FluidModel>>, DataSource, FluidRef); feature rayon",
+        "cprs-simd: #[target_feature] entry points (AVX2 now, NEON/simd128 run 2 lanes) that instantiate exec::run_lanes, detection done once in a OnceLock; the only library unsafe (one module)",
+        "cprs-data: generated per-fluid little-endian blobs (include_bytes!), sorted name/alias/CAS index, ECS dependency list, CoolProp MIT notice; no code dependencies; per-fluid features that enable the fluid's ECS reference fluids",
+        "cprs: composition root; built-in LazyLock registry, fluid(name), ExecPolicy::Auto routed to ISA dispatch, compat::props_si; features simd (default), rayon, compat, fluid sets",
+        "cprs-capi: C ABI facade (cdylib/staticlib, cbindgen, opaque handles, status code plus thread-local error, FP guard, opt-in CoolPropLib.h shim)",
+        "cprs-wasm: browser (wasm-bindgen, Float64Array batches, baseline + simd128 builds) and WASI component facade",
+        "cprs-py: pyo3 abi3 facade, deferred; releases the GIL",
+        "cprs-verify (dev, zero deps): fixture reader, Tolerance classes, Provenance, typed OVERRIDES divergence register",
+        "cprs-bench (unpublished): criterion/gungraun benchmarks and the GATES perf-target table",
+        "xtask (unpublished): datagen (CoolProp JSON -> blobs, ECS DAG, precomputed SA data), oracle fixture generation, check-deps"
+      ],
+      "decisions": [
+        {
+          "id": "D1",
+          "decision": "Four library crates (kernel, simd, data, cprs), three thin facades (capi, wasm, py) and three dev tools (verify, bench, xtask). Features only add capability (rayon, simd, compat, fluid sets); numerics are chosen at run time through ExecPolicy, so feature unification never changes results."
+        },
+        {
+          "id": "D2",
+          "decision": "The public API is f64 SI; internally one Real trait over f64 (reference), Lanes<W> and Dual/HyperDual/Jet. Separable terms use hand-derived log-jets with shared Bell/Stirling B-factors (exp-of-jets, one exp per term); NonAnalytic terms and new families use value-only AD. num-dual is a dev oracle only."
+        },
+        {
+          "id": "D3",
+          "decision": "Closed inside a family, open between families: multiparameter term kinds form a non_exhaustive enum of SoA blocks with a match per block, never per term. New families plug in through the object-safe HelmholtzModel trait, and data-parallel kernels plug into executors through LaneKernel."
+        },
+        {
+          "id": "D4",
+          "decision": "There is no composition in the v1 contract, and the pure fast path is the concrete FluidModel. Mixtures land in P2 as a Mixture type implementing HelmholtzModel at fixed, trimmed composition with Arc-shared components, plus a MixtureModel extension trait for mole-number AD derivatives."
+        },
+        {
+          "id": "D5",
+          "decision": "State is a 232 B Copy value, asserted at compile time to be at most 256 B, built only by flash. It holds T, p, phase, quality as an Option, the ideal-gas tau-jet, one or two Sides each with rho, ln delta and the order-2 A^r bundle, and R, M, gauge and ModelKey. Inputs are a 19-pair Input enum of validated newtypes whose basis travels with the quantity; outputs are typed getters plus a non_exhaustive Prop."
+        },
+        {
+          "id": "D6",
+          "decision": "flash(&M, Input, &FlashOptions, Gauge) -> Result<State> is a pure function: capability check, normalise, domain check, one kernel phase rule from SaturationCurve, an ordered strategy chain inside brackets, and a single verify gate. The solver toolbox returns Root{x, f evaluated at x, iters, status}, tolerances are typed Rel/Abs/Log, and RootPolicy decides between multiple solutions; there is no global config."
+        },
+        {
+          "id": "D7",
+          "decision": "xtask datagen strictly validates the pinned v8.0.0 JSON, precomputes the derived superancillary data, applies the cited corrections overlay and builds the ECS dependency DAG, then writes uncompressed little-endian per-fluid blobs into cprs-data. At run time each blob is either static (include_bytes!) or shared (fetched); it is validated whole on first get, the EOS is materialised immediately, and the superancillary and transport sections are materialised lazily. ECS references resolve through the same registry."
+        },
+        {
+          "id": "D8",
+          "decision": "Registry = one OnceLock<Result<Arc<FluidModel>>> per FluidId plus an immutable sorted index. Handles are borrowed FluidRef<'r> (32 B, Copy), so there is no Arc clone per call; clippy bans Mutex, RwLock and Cell types in the kernel. Batches use caller buffers with zero allocation; rayon is optional with fixed chunks; Send + Sync + 'static is asserted at compile time."
+        },
+        {
+          "id": "D9",
+          "decision": "A LaneKernel defines what is computed and executors define how: run_scalar is the source of truth, run_lanes<W> is bitwise equal to it, cprs-simd adds ISA entry points selected at run time on native (compile time on WASM), and run_parallel uses fixed chunks. Data-parallel kernels (alpha bundles, relations, superancillary, lockstep Newton) get lanes; branchy flashes, VLE and mixtures parallelise only across points. Across-terms SIMD, the FMA Fast policy and GPU are deferred."
+        },
+        {
+          "id": "D10",
+          "decision": "Seams built now: the family-neutral relations layer on A_xy, the HelmholtzModel trait, non_exhaustive Phase/Prop/errors, private State and Limits fields, Source provenance, NativeGauge and LaneKernel. GibbsModel, relations::gibbs, PhaseModel/Substance/min-Gibbs selection, Domain with holes, the correlation module, solids and plasma are deferred, each with a named trigger."
+        },
+        {
+          "id": "D11",
+          "decision": "The Rust API lives in cprs. A strict PropsSI-style compat module (no echo shortcut, no sentinels) sits behind a feature; the C ABI is cprs-capi with an opt-in CoolPropLib.h shim; WASM is cprs-wasm (wasm-bindgen for browsers, wasip2/WIT); Python is cprs-py, deferred."
+        },
+        {
+          "id": "D12",
+          "decision": "Errors are hand-written non_exhaustive enums implementing core::error::Error, with a u8 Status per batch point and an optional sparse error list. NaN is rejected at the newtypes, there are no panics on any input, and catch_unwind guards the FFI. An own msun-port vmath, with no mul_add and no std powi/powf, makes results bitwise identical across Linux, Windows and WASM, verified by a CI result hash."
+        },
+        {
+          "id": "D13",
+          "decision": "cprs-verify (zero deps) provides map-10 tolerance classes, Provenance, a typed OVERRIDES divergence register and the fixture reader. Fixtures come from a multi-process oracle, from papers and from multiprecision references; L6 tests are bitwise (lanes, threads and batch equal scalar). Thirteen performance gates with targets and measurement methods are run with criterion, gungraun, a thread-scaling harness, a counting allocator and a compile-time size assert."
+        },
+        {
+          "id": "D14",
+          "decision": "Code is MIT OR Apache-2.0. CoolProp's MIT notice ships in cprs-data and LICENSE-THIRD-PARTY, the NIST disclaimer is kept if superancillary code is ported, and every model carries a Source (bibkey, DOI, hash). cargo-deny, REUSE and cargo-about run in CI; no GPL code is used, and GSW-C serves only as an oracle."
+        },
+        {
+          "id": "D15",
+          "decision": "Ten always-green milestones M0-M10. v0.1 is thermodynamics for 136 pure and pseudo-pure fluids, all 19 pairs, scalar + batch + SIMD + threads, Rust API, compat API, C ABI and browser/WASI. v0.2 adds transport, surface tension, reference states and melting; v0.3 adds mixtures; IF97, ice and humid air follow."
+        },
+        {
+          "id": "D16",
+          "decision": "cprs-* is a placeholder and the final name is the user's call, with crates.io availability checked at M0. The Python namespace must not shadow CoolProp by default."
+        },
+        {
+          "id": "D17",
+          "decision": "Edition 2024, resolver 3, develop on 1.99.0, rust-version 1.85 for every library crate (an AVX-512 level would raise cprs-simd alone to 1.89). Workspace lints: forbid(unsafe_code) except one allowed module in simd and capi, plus missing_docs and unreachable_pub; clippy -D warnings including incompatible_msrv. CI covers Linux, Windows MSVC, wasip2 under wasmtime, wasm32 baseline and simd128, aarch64, MSRV, Miri, forced dispatch levels and the cross-platform result hash."
+        }
+      ],
+      "cargo_check": {
+        "host": true,
+        "wasm32": true,
+        "msvc": true,
+        "clippy": true,
+        "tests": true,
+        "notes": "All five required commands ran from the sketch root with CARGO_TARGET_DIR=<scratchpad>/target-kernel and were observed with exit code 0 and 0 warnings or errors (final run after touching all sources). cargo test --workspace: 13 tests passed (kernel 10, simd 1, verify 2) and 1 doc example was ignored. The tests include: the power-term A_xy bundle against a hand derivation (relative error <= 1e-14; A00 = 0.18901064400954748); hand-derived jets against Dual-number AD (<= 1e-13); run_lanes::<4> bitwise equal to run_scalar with a remainder; every cprs-simd level bitwise equal to scalar, with the AVX2 entry point exercised because the dev CPU has avx2; and 16 threads on a cold fluid reading the data source exactly once. Extra checks also passed with 0 warnings: cargo check --target wasm32-wasip2; clippy with cprs/compat,cprs/rayon; clippy -p cprs --no-default-features --features fluids-core; clippy for wasm32-unknown-unknown and x86_64-pc-windows-msvc. The sketch has zero third-party dependencies. Measured sizes: State = 232 B, FluidRef = 32 B. The oracle (CoolProp 8.0.0 via uv) supplied the check values for Water at 500 K and 838.025 kg/m3 used in milestones M2 and M4, and the walkthrough value 112654.89965464505 J/kg."
+      },
+      "risks": [
+        "The SIMD payoff is unverified (the 3-3.5x AVX2 figure is an estimate). M8 requires at least 2.5x on alpha^r or SIMD stops and the plan is revisited; scalar plus threads stand alone.",
+        "The Bell/Stirling B-factor formulation may lose digits against CoolProp's recurrence at high t or l because of cancellation (inference). It is measured at M2 in the Term class, with CoolProp's operation order as the fallback inside the same block API.",
+        "The own msun-port vmath may be slower (one division per exp). A SLEEF-style polynomial is the fallback and keeps scalar results equal to SIMD.",
+        "Lockstep masked Newton for PH/PS batches is complex. It is limited to rho(T,p) and the (T, ln rho) Newton, with a scalar retry and batch equal to scalar bitwise as the gate.",
+        "OnceLock re-entrancy could deadlock if an ECS reference cycle slipped through. Datagen rejects cycles and a load-time test covers this.",
+        "WASM memory: embedded data segments are copied per instance. A fluids-core browser build plus fetched Blob::Shared avoids this; the all-136 build is never the only option.",
+        "Simplicity is the weakest criterion: ten workspace crates and const-generic LaneKernel/executors add concepts before M8 pays them back. This is mitigated by staging crates per milestone.",
+        "The bitwise cross-platform claim is unproven until aarch64 and Windows CI runners compare result hashes (M8). Until then it is labelled inference.",
+        "The performance targets (13 gates) are estimates until the M7 baseline and a C++-level CoolProp baseline built in scratch."
+      ],
+      "key": "c"
+    },
+    {
+      "name": "Verification-first",
+      "doc_path": "docs/design/proposal-d-verification-first.md",
+      "sketch_path": "<session scratchpad>/sketch-verification-first  (LOST: session scratchpad wiped by reboot)",
+      "thesis": "The scalar f64 reference path is the specification, and every layer exposes a typed seam where an independent check attaches. Checks: AD against hand-derived jets, identities against relations, printed tables against the EOS, multiprecision points against saturation, round trips against flashes, the Reference policy against every accelerated policy. CoolProp 8.0.0 is a provisional oracle; printed check tables arbitrate. Every deliberate difference is a typed, cited, proof-tested entry in a compiled divergence register, with a Parity/Corrected data switch. Declared capabilities grow milestone by milestone, so every milestone stays green.",
+      "crates": [
+        "cprs-core (kernel L0-L6 as modules: num/units, relations, helmholtz/model, data/fluid/registry, flash/saturation/state, transport, batch; std only, forbid(unsafe))",
+        "cprs-data (generated per-fluid LE blobs of v8.0.0 parity data + static name index; features = fluid sets; CoolProp MIT notice)",
+        "cprs-compat (PropsSI-style string API, CoolProp names, strict FluidSpec, FillPolicy, Session; legacy policies live here, not in core)",
+        "cprs-capi (C ABI facade: fixed-width ints, buffer lengths, catch_unwind, generational handles, thread-local last error, optional CoolPropLib.h shim; empty in sketch)",
+        "cprs-wasm (wasm-bindgen browser facade, baseline + simd128 builds; WASI packaging later; empty in sketch)",
+        "cprs-py (pyo3 + maturin abi3, after release 0.1; empty in sketch)",
+        "cprs-verify (zero-dependency verification kit reusable by any model crate: provenance, tolerance classes, fixture format, divergence register, arbiter registry, generic conformance checks, SplitMix64; plus the conformance corpus, fixtures and benches)",
+        "cprs-xtask (datagen JSON->blobs with FNV-1a hash gate, uv-pinned oracle driver, manifest/register/zero-dep/test-count CI gates; never shipped)"
+      ],
+      "decisions": [
+        {
+          "id": "D1",
+          "decision": "Eight crates: one kernel crate with layered modules, a separate generated data crate, compat, three thin facades, a verification kit and an xtask. Features only add capabilities (fluid sets, embedded, rayon, libm, json); verify depends on core, never the reverse, so there are no dev-dependency cycles."
+        },
+        {
+          "id": "D2",
+          "decision": "f64 public API. Each term family is written once as generic value::<R: Real> (the paper formula); the hot path uses hand-derived univariate log-jets (one exp per term, Bell + Stirling conversion, Order mask). In-house HyperDual/Jet4 are production AD for non-separable terms and the test oracle for the jets; num-dual is at most a dev oracle."
+        },
+        {
+          "id": "D3",
+          "decision": "A closed set of term kinds compiled into per-family SoA blocks (unknown kinds are a LoadError). New model families plug in through two object-safe traits (HelmholtzModel, PureFluidModel) without core edits; flash and batch are generic, and facades may use dyn."
+        },
+        {
+          "id": "D4",
+          "decision": "Pure fluids first, with composition fixed inside a model instance (one Arc per trimmed composition), so the pure path pays nothing. Mixtures land after 0.1 as another HelmholtzModel implementor plus MixtureModel (mole-number AD), verified by an x=[1,0]-equals-pure invariant under any gauge."
+        },
+        {
+          "id": "D5",
+          "decision": "State is a Copy value of at most 256 B, size asserted at compile time: T, rho, p, phase, an eager order-2 bundle (two for two-phase), R, M, gauge and SolvePath, all private with getters. Inputs are a 19-variant Input whose fields carry their basis, normalised once by to_molar; SI newtypes validate at the edge."
+        },
+        {
+          "id": "D6",
+          "decision": "Pure flash(&model, Input, &FlashOptions) -> Result<State, FlashError> with an ordered strategy list per pair; the strategy that succeeded is recorded in State::path. Solvers return Root{x, f at x, iterations, status}; an acceptance gate checks every root; non-unique pairs return Ambiguous{roots} under the default RootPolicy::Strict. No globals."
+        },
+        {
+          "id": "D7",
+          "decision": "xtask turns v8.0.0 JSON into versioned LE blobs plus a committed static index, with an FNV-1a hash gate. At run time: decode -> FluidRecord (mutable arbitration seam) -> CORRECTIONS overlay unless DataSet::Parity -> compile -> Arc. One OnceLock per fluid, lazy superancillary and transport, Registry::from_bytes for WASM. A patched EOS marks its superancillary stale and saturation falls back to VLE."
+        },
+        {
+          "id": "D8",
+          "decision": "Immutable registry with a OnceLock<Result<Arc<FluidData>>> per fluid; Fluid is an Arc plus a Gauge; State has no Arc. Clippy bans Mutex/RwLock/RefCell/Cell, env reads and mul_add. The batch API uses caller-owned SoA slices with a per-cell Status; rayon chunks are fixed size; Send + Sync + 'static is asserted at compile time."
+        },
+        {
+          "id": "D9",
+          "decision": "Runtime ExecPolicy {Reference, Auto, Parallel{chunk}}: the scalar Reference path is the specification. SIMD lanes come later in a separate cprs-simd crate implementing Real and overriding residual_batch, with dispatch detected once (wasm simd128 at compile time). policy_equivalence tests are bitwise for lanes and threads and use a summation bound otherwise; branchy solvers never vectorise."
+        },
+        {
+          "id": "D10",
+          "decision": "Build now: reducing-invariant Bundle relations, the identity/model/package split with Substance/Material reserved, Gauge as a value, DomainError and private Limits, a read-only State, non_exhaustive enums, Source provenance and a generic conformance kit that new families inherit. GibbsModel and relations::gibbs come with ice Ih; PhaseModel/Substance, solids, plasma and CALPHAD are deferred with triggers."
+        },
+        {
+          "id": "D11",
+          "decision": "The Rust API lives in core; PropsSI-style strings and legacy fill policies live in cprs-compat. The C ABI in cprs-capi uses string keys, fixed-width ints, lengths, catch_unwind and handles. cprs-wasm covers browser and WASI; Python follows 0.1. CoolProp defects are not reproduced; each deviation is a register entry."
+        },
+        {
+          "id": "D12",
+          "decision": "Hand-written non_exhaustive error enums; no panics on user input (unwrap/expect denied). NaN appears only alongside a non-Ok batch status. No FMA, fixed summation order and one math module, with a libm feature for a cross-target bit-identical output hash. Tolerances are the map 10 classes or half a unit in the last printed digit, and are never widened to fit CoolProp."
+        },
+        {
+          "id": "D13",
+          "decision": "uv-pinned oracle generator (fresh state per case, scrubbed env, oracle.lock). Fixtures: CSV with # header and per-column tolerance class; a core subset is committed, the full set is regenerated nightly against a manifest. Compiled ARBITERS and DIVERGENCES registers with three-part proof tests; identity, gauge, FD and round-trip property tests; differential tests for every accelerated path; criterion/gungraun perf gates; a zero-tests-equals-failure gate."
+        },
+        {
+          "id": "D14",
+          "decision": "Code is MIT OR Apache-2.0; cprs-data carries CoolProp's MIT notice. A Source/DataTerms record sits on every model and labels unpublished EOS. Committing paper check values and fastchebpure data waits for user clearance. No GPL/LGPL/MPL code is copied (GSW-C is oracle only); cargo-deny, REUSE and cargo-about in CI."
+        },
+        {
+          "id": "D15",
+          "decision": "Ten always-green milestones: kit, data, separable terms, full alpha, relations/DT, saturation, flashes, transport, batch/concurrency, facades. Release 0.1 = M10: all 136 pure/pseudo-pure HEOS fluids, 19 pairs, transport, melting, reference states, compat, C ABI and WASM. After 0.1: SIMD, mixtures, ice/IF97, cubic/PC-SAFT, Python; CoolPropPlot plotting/isolines/cycles deferred."
+        },
+        {
+          "id": "D16",
+          "decision": "Placeholder prefix cprs-; the final name is the user's call. Constraints (inference): available on crates.io, npm and PyPI; no implied CoolProp endorsement; short enough for a C symbol prefix."
+        },
+        {
+          "id": "D17",
+          "decision": "Edition 2024, resolver 3, MSRV 1.85 (1.89 for the future SIMD crate). CI tests Linux, Windows MSVC and wasip2 under wasmtime, plus wasm32-unknown-unknown baseline and simd128 builds. Workspace lints: unsafe_code forbid, missing_docs, unwrap/expect denied, clippy disallowed types/methods; capi relaxes to deny with per-item SAFETY allows."
+        }
+      ],
+      "cargo_check": {
+        "host": true,
+        "wasm32": true,
+        "msvc": true,
+        "clippy": true,
+        "tests": true,
+        "notes": "Observed on the final sketch, run from the sketch root with CARGO_TARGET_DIR=.../scratchpad/target-verification-first: all five required commands exit 0 with 0 warnings and 0 errors. Commands: cargo check --workspace --all-targets --target x86_64-unknown-linux-gnu; cargo check --workspace --target wasm32-unknown-unknown; cargo check --workspace --target x86_64-pc-windows-msvc; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace. Tests: 15 passed, 0 failed (14 unit/integration tests plus 1 compiled no_run doctest of walkthrough (a)). They include the power term against hand-computed A_ij up to order 4, power jets against HyperDual AD at 300 random points, an FD conformance check on a PureEos, divergence-register invariants and the CORRECTIONS cross-check, and printed-digit tolerances. Extra checks: cargo check --target wasm32-wasip2 also passes, and cargo fmt --check is clean. No third-party dependencies anywhere in the sketch."
+      },
+      "risks": [
+        "Performance is the weakest criterion. The path to SIMD (jets, SoA, ExecPolicy, lane-ready Real) is clean, but lanes come after 0.1 and no throughput number has been measured yet. The research section 3.4 targets stay unconfirmed until the M9 benchmarks and a C++ CoolProp baseline.",
+        "Verification overhead (fixtures, arbiters, register proof tests) may slow early feature delivery; mitigated by writing the kit once at M1 and reusing it for every family.",
+        "Arbiter access: 101 EOS papers are paywalled and 74 fluids only have expected check tables (map 13), so many fluids stay oracle-provisional until the user supplies papers.",
+        "A literature correction that changes EOS constants (e.g. the R1234ze(E) gas constant, the N2 reducing density) invalidates that fluid's shipped v8.0.0 superancillary through the hash gate. Saturation must fall back to VLE until a refit pipeline exists.",
+        "Cross-platform FP drift with std libm: bit-identical results need the libm feature, whose speed cost is unmeasured; otherwise comparisons fall back to tolerance classes.",
+        "The literature itself can be wrong or self-inconsistent (Helium NIST IR 8474, post-v8 transport equation errata), so a self-consistency check is required before any table becomes an arbiter.",
+        "Full fixture set is ~3.5 GB raw; only a core subset is committed, so the nightly regeneration and manifest gate must stay reliable.",
+        "Licensing of committed paper check values and fastchebpure dense outputs is unresolved and needs a user decision.",
+        "The extra vocabulary of the verification layer (provenance, tolerance classes, divergence register, arbiters, Parity/Corrected overlay) costs simplicity, although it is confined to cprs-verify and a small data module."
+      ],
+      "key": "d"
+    }
+  ],
+  "judgments": [
+    {
+      "judge": "Independent judge: principal Rust library engineer (lens: idiomatic modern Rust, API ergonomics, type strength, simplicity, crate boundaries, minimal dependencies, compile times, semver hygiene). I re-ran every gate with CARGO_TARGET_DIR=.../scratchpad/target-judge-rust after touching all sources: host, wasm32-unknown-unknown, wasm32-wasip2 and x86_64-pc-windows-msvc check; clippy -D warnings; tests (Lean 20, Extensible 18, Kernel 13 + 1 ignored doctest, Verification-first 15). All four pass with 0 warnings and zero third-party dependencies. One exception: `cargo fmt --check` fails on Kernel with a 971-line diff.",
+      "scores": [
+        {
+          "proposal": "Lean",
+          "modularity": 7,
+          "simplicity": 9,
+          "concurrency_memory": 7,
+          "performance": 5,
+          "correctness_tdd": 8,
+          "idiomatic_rust": 7,
+          "rot_elimination": 8,
+          "cross_platform": 7,
+          "migration": 7,
+          "justification": "Simplest credible design: one computing crate, one object-safe trait (`Residual`, 4 methods), zero public generics, one `Error`, private-field `FlashOptions` with const builders. The sketch backs more of its doc than any other: PT/DT/QT/PQ flash with a `verify` gate, a reference batch with per-cell `Status`, `compat::props_si_in` over any `Registry`, and the LE blob reader. tests/new_family.rs proves a vdW family from outside the crate going through Registry, compat strings, batch and 16 threads with no core edit. The Gibbs seam is only `State::from_total` (tests/gibbs_seam.rs): a solid cannot be a `Fluid`, cannot be flashed, registered or batched, and `Phase::Solid` and `IdealGas::weighted` are core edits. Performance is the weakest of the four: `PowerBlock::term` rebuilds `Jet::power(t)` and the Faà di Bruno exp-jet per term per state (eos.rs) instead of precomputing B-factors; the core is f64-only with no lane type; SIMD comes after v0.1. Type strength is softened by `Temperature(pub f64)`, with validation only at `to_molar`. Concurrency: OnceLock per fluid and a 16-thread bitwise test. However, the SA is decoded eagerly and clippy.toml bans only mul_add (no lock lint). The claim that the ECS reference is decoded with the dependent fluid is unbacked (`data::decode(bytes)` has no registry access), and it would load reference fluids even for thermo-only use. Crate boundaries are clean: data is split out, facades are thin and corrections are applied in datagen. Migration is good: compat is implemented and tested, the C legacy shim is planned, and transport is in v0.1."
+        },
+        {
+          "proposal": "Extensible",
+          "modularity": 9,
+          "simplicity": 5,
+          "concurrency_memory": 8,
+          "performance": 6,
+          "correctness_tdd": 7,
+          "idiomatic_rust": 6,
+          "rot_elimination": 9,
+          "cross_platform": 7,
+          "migration": 7,
+          "justification": "Best Open/Closed story. Term enums are closed inside cprs-heos; four object-safe traits (HelmholtzModel, ThermoModel, Transport, Catalog) span families. open_closed.rs proves that a value-only Helmholtz family and a Gibbs solid (Phase::Solid), both defined outside every first-party crate, get Library lookup, flash, `Gauged` reference states and Parallel==Reference bitwise batches with zero core edits. `Gauged` removes reference-state rot for every family (map 15 X3/X7), and `rho_max` comes from the model (map 06 C10). Costs: it has the most concepts (4 traits plus Real, Jet2, Fluid, Gauged, Library, Catalog, Composition, and `Spec`/`Input` duplicating 19 arms). Crate-per-family couples every family crate's semver to the cprs-core traits. The FamilyId(&'static str) token is stringly typed. `&Composition` on every alpha/flash/state call taxes the 136 pure fluids that come first and bakes mole fractions into the contract, which materials §4 warns against (INCOMP mass fractions, humid-air ratio). `Gauged` stores a single per-component gauge, so `Gauge::mix` is silently wrong for mixtures. `Derivs2` is order-2 only. Batch runs point by point through `dyn ThermoModel::flash`, so `alpha_batch` has no caller and lockstep ρ(T,p) has no seam. Non-power kinds go through per-term AD until fast paths land. `Status` is repr(u8) in core and claimed to cross the C ABI directly. The PT flash is todo!, so walkthrough (a) is unbacked. Verification is solid: conformance suite, CoolProp800/Corrected datasets, divergence policies."
+        },
+        {
+          "proposal": "Kernel",
+          "modularity": 5,
+          "simplicity": 4,
+          "concurrency_memory": 9,
+          "performance": 8,
+          "correctness_tdd": 7,
+          "idiomatic_rust": 6,
+          "rot_elimination": 7,
+          "cross_platform": 8,
+          "migration": 5,
+          "justification": "Strongest kernel engineering. The exp-of-jets engine precomputes the τ-side B-factors at decode (`PowerBlock.bt`) and adds a `Vars` δ^k table and a const ORD. `LaneKernel` executors are bitwise-equal to scalar, including a real AVX2 `#[target_feature]` entry point; unsafe is confined to one module with SAFETY comments. The registry is lock-free, uses a `DataSource`/`Blob` abstraction and loads SA and transport lazily; a counting-source test proves one decode under 16 threads. It also has the best perf-gate table, a deterministic vmath plan for cross-target bit identity, and clippy bans on f64::powi/powf/mul_add. But: (1) v0.1 ships ISA-dispatched SIMD (cprs-simd) and a partitioned lockstep batch pipeline while deferring transport and σ to v0.2. That is over-engineering against the user's 'future/investigate' framing of SIMD, and PropsSI users get no viscosity or conductivity in the first release. (2) The open seam is weaker than claimed. `HelmholtzModel::alphar(tau, delta)` plus `reducing()` forces a reducing state on families that have none (map 06 C10). `Registry`/`FluidRef` are concrete over `FluidModel { eos: MultiParamEos }`, so a PC-SAFT crate cannot reach the registry, compat or the C ABI, contradicting walkthrough (c). (3) Gibbs solids need new kernel modules. `flash()` and `eval_batch()` are entirely todo!, so walkthroughs (a) and (b) are paper only; `Lanes::exp` is per-lane scalar until vmath lands. The `FluidRef<'r>` lifetime and const-generic `[&mut [f64]; NO]` signatures add API friction. Ten workspace crates; rustfmt not clean."
+        },
+        {
+          "proposal": "Verification-first",
+          "modularity": 6,
+          "simplicity": 7,
+          "concurrency_memory": 8,
+          "performance": 6,
+          "correctness_tdd": 9,
+          "idiomatic_rust": 8,
+          "rot_elimination": 9,
+          "cross_platform": 8,
+          "migration": 7,
+          "justification": "Best fit for the user's 'TDD with CoolProp as verification, source material when we find bugs', and the most idiomatic, type-strong API. It is one std-only kernel crate with module layers. Two object-safe traits take (T, ρ) and return reducing-invariant `Derivs`; flash and batch are generic over `M: PureFluidModel + ?Sized`. Newtypes validate on construction (`Temperature::new -> Result`), `Input` uses named fields, and lints deny unwrap_used/expect_used and disallow Mutex/RwLock/Cell/RefCell/env::var/mul_add. Verification is typed code: `CORRECTIONS` patches are cross-checked by id against a compiled `DIVERGENCES` register (tests/register.rs), and the Parity vs Corrected datasets make 'the difference is exactly the patch' testable. Further pieces: `Provenance::is_arbiter`, `from_printed` tolerances, and a conformance kit (fd_first_order, gauge_invariance, capability_matrix, policy_equivalence). An `IMPLEMENTED` capability set grows per milestone, so every milestone is green on Linux, MSVC and wasip2. I checked the register entries against map 13 §3 (R1234ze(E) R; Helium inconsistency) and map 10 R10 (ice VI p0 632.4 MPa). Weaknesses: `Registry` stores the concrete `Arc<FluidData>` and the compat `Session` holds `&'static Registry`, so third-party families get flash and batch but not the registry, compat or C ABI. Gibbs needs a new `GibbsModel` trait and a `Body` variant (additive core edits). `PureFluidModel` has about 10 methods. Errors are split across several types (FlashError, PropError, BatchError, CompatError). SIMD comes after 0.1 and no performance is measured. The corrections overlay lives in core rather than the data crate. The sketch backs the QT flash, a reference batch with per-cell Status, the register, and AD/FD tests; the walkthrough compiles as a no_run doctest; compat is todo!."
+        }
+      ],
+      "fatal_flaws": [
+        {
+          "proposal": "Kernel",
+          "flaw": "The first-release scope contradicts the user's 'we must not over engineer this' and the framing of SIMD as a future thing 'to investigate'. v0.1 (M8) ships an unsafe ISA-dispatch crate, const-generic LaneKernel executors and a partitioned lockstep PH batch pipeline, while transport and surface tension (core CoolProp outputs that PropsSI users need) are pushed to v0.2. The gate's 'stop and re-plan' softens the risk, but the plan still puts optional speed ahead of required functionality."
+        },
+        {
+          "proposal": "Kernel",
+          "flaw": "The modularity claim is not backed by the types. `Registry` cells and `FluidRef` are concrete over `FluidModel { eos: MultiParamEos }`, so a new family such as PC-SAFT can call `flash`, but it can never be registered or reached by compat, the C ABI or WASM. Walkthrough (c) asserts otherwise. The open trait also takes (τ, δ) plus `reducing()`, which forces a fabricated reducing state on families that have none (map 06 C10). Modularity is the user's 'KEY' requirement."
+        }
+      ],
+      "grafts": [
+        {
+          "from": "Lean",
+          "idea": "Make the package handle hold `Box<dyn Residual>`/`Arc<dyn PureFluidModel>` instead of concrete `FluidData`, add `Registry::with_fluid(self, f) -> Registry` (a new value, never mutation), and use `compat::props_si_in(&registry, ...)` over any registry.",
+          "why": "This closes Verification-first's main modularity gap: third-party families then reach the registry, compat, C ABI and WASM with zero core edits. Lean's tests/new_family.rs already proves the pattern; port that test as the acceptance gate."
+        },
+        {
+          "from": "Lean",
+          "idea": "Add a public `State::from_total(t, rho, r, m, phase, &Derivs)` now, plus the tests/gibbs_seam.rs Legendre-transform test.",
+          "why": "It gives the states-of-matter seam now at roughly zero cost, instead of deferring every Gibbs path until `GibbsModel` lands."
+        },
+        {
+          "from": "Lean",
+          "idea": "Add `Derivs::IDEAL_DELTA`: the universal ρ-part of α0, so density solves use `alpha_r + IDEAL_DELTA` and never evaluate α0.",
+          "why": "A free hot-path saving in every PT/P+X density iteration, exact for the mechanical relations."
+        },
+        {
+          "from": "Kernel",
+          "idea": "Precompute the τ-side B-factors per term at decode (`PowerBlock.bt`), keep a per-state `Vars` with a δ^k table, and select the order with a const ORD in the separable kernel.",
+          "why": "It cuts per-term work in the dominant cost centre with no API change, and the existing jets-vs-AD tests still cover it."
+        },
+        {
+          "from": "Kernel",
+          "idea": "Add the `DataSource` trait plus `Blob::{Static, Shared}`, and the counting-source test `first_touch_initialises_once_under_contention`.",
+          "why": "It cleanly separates embedded and fetched bytes (WASM) from the kernel, and makes 'decode exactly once under contention' a test rather than a claim."
+        },
+        {
+          "from": "Kernel",
+          "idea": "Keep the LaneKernel/run_lanes executor design, the cprs-simd `#[target_feature]` entry points and the perf-gate table as the documented post-0.1 SIMD plan. Activate it only when the ≥2.5× gate fires. Also add the clippy disallowed-methods entries for f64::powi/powf.",
+          "why": "It is the cleanest side-by-side, bitwise-tested path to SIMD and keeps the physics out of the executors. Adopting it later avoids Kernel's v0.1 over-engineering."
+        },
+        {
+          "from": "Kernel",
+          "idea": "Use generated `fluid-<x>` data features that also enable the features of their ECS reference fluids, and materialise transport lazily, resolving ECS references through the same registry so each reference model is shared.",
+          "why": "Subset or WASM builds can then never miss a reference fluid, and thermo-only users never load transport or reference fluids, which meets 'load only what is needed'."
+        },
+        {
+          "from": "Extensible",
+          "idea": "Make it a milestone gate that the second model family (cubic) lands with a zero-line diff in the core crate.",
+          "why": "It turns the Open/Closed claim into a falsifiable, always-green check before the traits ossify."
+        },
+        {
+          "from": "Extensible",
+          "idea": "Get the density bracket from the model (`rho_max(t)`), tag saturation results with `SatAccuracy::{Exact, Guess, Definition}`, and apply reference states through a gauge wrapper that works for any model.",
+          "why": "This removes fabricated bracketing metadata (map 06 C10) and makes the pseudo-pure ancillaries' trust level explicit. Reference states then work for every family, not just HEOS (map 15 X3/X7)."
+        }
+      ],
+      "winner": "Verification-first",
+      "rationale": "Weighted totals (out of 230): Verification-first 173, Lean 166, Extensible 162, Kernel 152.\n\nWhy Verification-first wins:\n- It scores highest on the criteria where the user was most explicit: TDD step by step, CoolProp as the oracle, and literature arbitration when bugs are found. Its compiled, cross-checked divergence register and its Parity/Corrected datasets turn 'the literature overrides CoolProp' into mechanised tests rather than prose.\n- Through my lens it is also the most idiomatic and type-strong design while staying simple: one kernel crate, two traits, validated newtypes, generic flash over `?Sized` models, and lint-enforced bans on locks, env and FMA.\n\nLean is a close second:\n- It is the simplest design, and its sketch backs its document best, including out-of-crate family integration through the registry and compat.\n- It loses on performance (jets are rebuilt per term per state), type strength (public newtype fields) and lazy-loading details (eager SA; unbacked ECS-at-decode).\n\nExtensible:\n- It has the best modularity: a Gibbs solid and a value-only EOS are full out-of-tree citizens.\n- It pays for that in simplicity and API ergonomics: four traits, wrapper layers, a `Composition` argument on every pure-fluid call, and duplicated `Spec`/`Input` enums.\n- Its batch path also has no seam yet for lockstep SIMD.\n\nKernel:\n- It has the best concurrency and performance engineering.\n- It over-engineers v0.1 (SIMD before transport), its open seam is unreachable from the registry and facades, it leaks reducing state into the trait, and its flash and batch are unimplemented in the sketch.\n\nThe winner should adopt the grafts listed. Lean's open registry, `State::from_total` and `IDEAL_DELTA` fix Verification-first's modularity gap at near-zero conceptual cost. Kernel's precomputed B-factors, `DataSource`, lazy ECS-aware transport and the post-0.1 executor/SIMD plan fix its performance gap. Extensible's zero-core-diff second-family gate and model-supplied bracketing make the Open/Closed claim testable. CoolPropPlot (plotting, isolines, cycles) is deferred in all four, as required.",
+      "key": "rust"
+    },
+    {
+      "judge": "Independent judge, thermophysical-properties and numerical-methods lens (CoolProp, REFPROP, teqp, FeOs). I re-ran the gates for all four sketches with CARGO_TARGET_DIR=.../scratchpad/target-judge-thermo after touching every .rs file. Every command passed with 0 warnings: check on x86_64-linux-gnu with all targets, check on wasm32-unknown-unknown, check on x86_64-pc-windows-msvc, clippy with -D warnings, and test. I also ran check on wasm32-wasip2 for all four, and it passed. Test counts match the self-reports: Lean 20, Extensible 18, Kernel 13 plus 1 ignored doctest, Verification-first 15. I also checked the algebra by hand: the Legendre transforms from Gibbs derivatives to the Helmholtz derivative bundle in Lean and Extensible, Kernel's Bell/Stirling B-factor formula, and Lean's Faà di Bruno exp-of-jets recursion. All are correct.",
+      "scores": [
+        {
+          "proposal": "Lean",
+          "modularity": 8,
+          "simplicity": 9,
+          "concurrency_memory": 8,
+          "performance": 6,
+          "correctness_tdd": 7,
+          "idiomatic_rust": 8,
+          "rot_elimination": 8,
+          "cross_platform": 8,
+          "migration": 7,
+          "justification": "The contract is a (T, rho) Residual trait that returns the reducing-invariant A_xy bundle up to order 4, so no family ever sees another family's tau/delta (map 06 C1). It has 1 public trait and 0 public generics. Both open seams are proven out of tree. tests/new_family.rs writes van der Waals in Jet2 and runs it through PT flash, batch and 16 threads. tests/gibbs_seam.rs takes a g(T,p) model through State::from_total, and I checked its transform algebra. Supporting a solid needs only an additive Phase::Solid. The power term is finite at delta=0 because powi is used instead of d*ln(delta), which matters for exact virials. The chunked eval_batch (terms outer, states inner) is bitwise equal to the scalar path and tested. Weaknesses: (1) There is a single dataset and no Parity build, so oracle rows for corrected fluids fall to a widened divergence tolerance. (2) Corrections that change EOS constants (N2 reducing density, R) leave the v8.0.0 superancillary in place, so saturation is fitted to a different EOS. The design never addresses this, although its rot table claims everything derived is regenerated. (3) Saturation is a closed core enum (None/Superancillary/Ancillary), so a family with its own saturation method needs a core edit. (4) Jet2 is f64-only, so a family written in it cannot later run on SIMD lanes without a rewrite. (5) Newtype fields are public. Performance is a plausible plan with no SIMD design beyond auto-vectorization. The scope is right: transport is in v0.1 and SIMD comes after."
+        },
+        {
+          "proposal": "Extensible",
+          "modularity": 9,
+          "simplicity": 5,
+          "concurrency_memory": 8,
+          "performance": 6,
+          "correctness_tdd": 7,
+          "idiomatic_rust": 7,
+          "rot_elimination": 9,
+          "cross_platform": 8,
+          "migration": 7,
+          "justification": "This is the strongest materials and states-of-matter path. HEOS lives in its own crate, so the core never names a family. The sketch proves a value-only Helmholtz family and a Gibbs solid with Phase::Solid outside every first-party crate (open_closed.rs), and I verified its gibbs_to_derivs2 algebra. Gauged applies reference states to any family, including the solid, which designs out map 15 X3/X7. Several thermodynamic details are right: rho_max comes from the model (covolume or packing fraction, fixing map 06 C10); SatAccuracy distinguishes Exact, Guess and Definition (the last for pseudo-pure fluids); CriticalPoint carries its origin; mixtures use sparse departures with zero fractions rejected (map 04). Major weakness: the currency between families is Derivs2/Jet2 at ORDER 2 ONLY. Map 02 says order 3 is needed for first/second partial derivatives, and fundamental_derivative_of_gas_dynamics is a CoolProp output (map 01). No family can supply third-order derivatives without a trait change, critical points cannot be solved for models without a superancillary, and term checks stop at order 2 although the oracle exposes derivatives up to d4alphar. The design also has the most concepts: 4 traits, Library->Catalog->ThermoModel->HelmholtzModel layering, FamilyId tokens, and duplicated Spec/Input types. That runs against 'must not over engineer'. Every alpha call returns a Result through dyn dispatch; the cost is small but unmeasured."
+        },
+        {
+          "proposal": "Kernel",
+          "modularity": 5,
+          "simplicity": 4,
+          "concurrency_memory": 9,
+          "performance": 9,
+          "correctness_tdd": 7,
+          "idiomatic_rust": 6,
+          "rot_elimination": 7,
+          "cross_platform": 9,
+          "migration": 6,
+          "justification": "This has the best performance engineering. Exp-of-jets with Bell/Stirling B-factors (algebra checked) uses precomputed tau-side factors. The SIMD lanes are tested bitwise equal to scalar, including the AVX2 entry point. The borrowing FluidRef handle avoids refcount traffic. Superancillary and transport sections load lazily. A first-touch test shows the data source is read exactly once under 16 threads. The perf-gate table is tied to CoolProp baselines, and its own msun math port aims at bitwise results across platforms. From my lens, though, the family contract is wrong: HelmholtzModel takes (tau, delta) and requires reducing(). Every PC-SAFT or cubic family must invent a reducing state (the coordinate hack that map 06 D4 says to drop), and a borrowed ideal-gas part can be evaluated at another model's tau. That is the C1 hazard map 06 warns about ('never share tau/delta between models with different reducing states'). States are built only inside the kernel's flash, and ice requires a new kernel GibbsModel trait, relations::gibbs and a new Sides variant, so states of matter are not core-edit-free (the proposal admits this). Scope is inverted: unsafe AVX2 dispatch and const-generic LaneKernel<NI,NO> executors land in v0.1 (M8), while transport and surface tension slip to v0.2. The doc also contradicts itself on reference states (in D15 they are v0.2, in M10 they are part of v0.1). eval_batch takes 9 parameters. No out-of-tree family is demonstrated in the sketch."
+        },
+        {
+          "proposal": "Verification-first",
+          "modularity": 6,
+          "simplicity": 7,
+          "concurrency_memory": 8,
+          "performance": 6,
+          "correctness_tdd": 9,
+          "idiomatic_rust": 8,
+          "rot_elimination": 9,
+          "cross_platform": 8,
+          "migration": 8,
+          "justification": "This is the best verification and arbitration design I have seen for a property library. It keeps a Parity dataset (bit-exact v8.0.0) and a Corrected one, with typed CORRECTIONS cross-checked by id against a compiled divergence register (tested). Each entry gets a three-part proof: Corrected matches the paper, the oracle differs from the paper, and Parity matches the oracle. The mutable FluidRecord acts as an arbitration seam: swap one constant and re-run the paper's own table (map 13 protocol). An EOS-hash gate marks the superancillary stale and falls back to VLE after a correction, which is the thermodynamically correct handling that Lean misses. Further strengths: from_printed tolerances; arbiter versus non-arbiter provenance; t_triple kept distinct from t_min; published_critical() separate from eos_critical(); SatSource tags; SolvePath; capabilities that grow per milestone; an executed-test-count gate. The kernel follows the right (T, rho) A_xy contract, with value::<R> paper formulas, a HyperDual oracle and a Real trait ready for lanes. Weaknesses: solids need core edits (GibbsModel trait, relations::gibbs, Body::Gibbs) because State is built only by the flash. PureFluidModel ties flash to pure fluids and places transport on the EOS trait. No out-of-tree family is demonstrated: conformance_fd tests the core's own PureEos. Performance is the least developed, with SIMD only after 0.1."
+        }
+      ],
+      "fatal_flaws": [
+        {
+          "proposal": "Extensible",
+          "flaw": "The open family currency is order 2 only: Derivs2 and Jet2 carry v, t, d, tt, td, dd, and HelmholtzModel::alpha has no order parameter. Map 02 states that order-3 alpha derivatives are needed for first/second partial derivatives, and map 01 marks second partial derivatives as P1-early (U9) and lists fundamental_derivative_of_gas_dynamics as a CoolProp output. No family can supply them, and EOS critical points for models without a superancillary are blocked. Adding order 3 later means a trait change whose default cannot be computed for dyn families, so the CoolProp-parity requirement is broken by design."
+        },
+        {
+          "proposal": "Kernel",
+          "flaw": "The open family contract is alphar(tau, delta) and alpha0(tau, delta) plus a mandatory reducing(). Every non-multiparameter family (PC-SAFT, cubic) must invent a reducing state, which is the coordinate hack map 06 D4 says to drop. A borrowed canonical ideal-gas part can be evaluated at the wrong tau, which re-admits the class of the C1 entropy bug. Map 06 says to exchange reducing-invariant A_nm and 'never share tau/delta between models with different reducing states'."
+        },
+        {
+          "proposal": "Kernel",
+          "flaw": "Future states of matter require kernel edits. A State can be built only by the kernel's flash, and ice Ih needs a new kernel GibbsModel trait, relations::gibbs and a Sides::Solid variant (the proposal admits 'not zero lines'). The user calls modularity KEY for all states of matter. The design also implements the FUTURE SIMD extension now (unsafe AVX2 dispatch and const-generic LaneKernel executors in v0.1, M8) while deferring transport and surface tension to v0.2. That contradicts 'seams now, not implementations' and 'must not over engineer'."
+        },
+        {
+          "proposal": "Lean",
+          "flaw": "This flaw is limited to fluids that receive corrections. The corrections overlay changes EOS constants (N2 reducing density 11183.9 vs 11183.9014...; R values per map 13), but the v8.0.0 superancillary ships unchanged. There is no stale-SA gate and no Parity dataset. QT, PQ and phase classification for those fluids then come from an SA fitted to a different EOS (about 1e-7 to 1e-6 relative). Their oracle fixtures can only be checked at a widened divergence tolerance, which hides algorithm regressions at that level. Grafting Verification-first's design fixes this."
+        },
+        {
+          "proposal": "Verification-first",
+          "flaw": "Gibbs-explicit solids and other future states of matter need core edits (a new GibbsModel trait, relations::gibbs and a private Body::Gibbs variant) because State is flash-only. Lean and Extensible show that a public total-bundle constructor plus an algebraic Legendre transform avoids this. The claim that a new family needs no core edit is asserted but not demonstrated in the sketch: the only HelmholtzModel implementors are the core's own PureEos and Fluid."
+        }
+      ],
+      "grafts": [
+        {
+          "from": "Verification-first",
+          "idea": "Two datasets, Parity and Corrected. Corrections are typed Patch/Edit values that each cite a divergence-register id, cross-checked by a test, and every entry gets the three-part proof (Corrected matches the arbiter, the oracle still differs from the arbiter, Parity matches the oracle). An EOS-hash gate marks the superancillary stale and falls back to VLE or a polish after any correction to EOS constants.",
+          "why": "This closes Lean's main correctness gap (stale SA, no parity mode) and separates algorithm bugs from data bugs at 1e-14 for every fluid."
+        },
+        {
+          "from": "Verification-first",
+          "idea": "A mutable FluidRecord as the arbitration seam: decode, swap one constant for the paper's value, compile, and re-run the paper's own check table before it becomes an arbiter (map 13 self-consistency). Add from_printed tolerances (half a unit in the last printed digit), arbiter versus non-arbiter Provenance, an executed-test-count CI gate, and a rule that every #[ignore] carries a register id.",
+          "why": "This is literature arbitration as executable TDD, which the user asked for ('coolprop as verification but with source material when we find bugs')."
+        },
+        {
+          "from": "Extensible",
+          "idea": "Replace Lean's closed Saturation enum with an open family-trait method that returns a saturation estimate tagged SatAccuracy {Exact, Guess, Definition}. Add a model-supplied rho_max(T) for density bracketing and a CriticalPoint tagged with its origin (Numerical or Published).",
+          "why": "Families with their own saturation methods (PC-SAFT, GERG pure fluids) plug in without core edits. Pseudo-pure dew/bubble conventions become explicit, and invented bracketing metadata (map 06 C10) is avoided."
+        },
+        {
+          "from": "Extensible",
+          "idea": "Add Phase::Solid now. Apply reference states (the gauge) uniformly to any model through one wrapper, tested on a Gibbs solid. Add a family conformance suite every implementor inherits: FD consistency in dimensional variables, part additivity, and thread and batch invariance.",
+          "why": "This makes Lean's from_total seam fully core-edit-free for solids and removes the six gauge mechanisms of map 15 for every family, not just multiparameter EOS."
+        },
+        {
+          "from": "Kernel",
+          "idea": "Use Bell/Stirling exp-of-jets with tau-side B-factors precomputed per term as the scalar fast path. Add a counting DataSource test proving one decode under 16 racing threads, lazy SA and transport sections, a ModelKey content hash stored in State (refusing foreign states, and serving as the future surrogate cache key), an own msun exp/ln as the determinism choke point, and the perf-gate table with CoolProp baselines.",
+          "why": "These give measurable performance and memory targets and cross-platform bitwise determinism without adopting Kernel's SIMD machinery before it is needed."
+        },
+        {
+          "from": "Extensible / Verification-first",
+          "idea": "Make Jet2 and each term's value form generic over a crate-private Real trait (f64, jets, later lanes), keeping zero public generic parameters.",
+          "why": "A family's alpha^r written once in Jet2 (PC-SAFT, user EOS) can later run on SIMD lanes without a rewrite. This answers the user's side-by-side SIMD follow-up and costs almost nothing now."
+        }
+      ],
+      "winner": "Lean",
+      "rationale": "Weighted totals on my scores are Lean 177, Verification-first 174, Extensible 167 and Kernel 158. Lean wins narrowly. Its kernel is the simplest of the four, and it still gets the thermodynamics right where it matters most. It uses a (T, rho) contract that returns the reducing-invariant A_xy bundle to order 4, which is enough for CoolProp's second partial derivatives, the fundamental derivative, Householder density steps and critical points. It is finite at zero density. It is the only proposal besides Extensible that proves both open seams out of tree, a new EOS family and a Gibbs solid via State::from_total, with tests I checked by hand. Its weaknesses are confined and fixable without adding layers: a single dataset, a stale superancillary after EOS corrections, a closed Saturation enum, and an f64-only Jet2. Verification-first's data and arbitration machinery fixes the first two. Extensible's SatAccuracy, rho_max and Phase::Solid fix the third. A crate-private Real trait fixes the fourth. Verification-first has the best correctness architecture, but its solids need core edits and its family seam is not demonstrated. Extensible has the best materials path, but its order-2-only currency breaks CoolProp parity, and it carries the most concepts against the user's 'do not over engineer'. Kernel has the best performance design, but its (tau, delta) plus reducing() contract re-admits map 06's C1/D4 hazard, solids need kernel edits, and SIMD lands in v0.1 ahead of transport. Recommended outcome: Lean as the base, with the Verification-first verification design grafted in full.",
+      "key": "thermo"
+    },
+    {
+      "judge": "Independent judge, high-performance systems lens: concurrency under parallel load, lazy loading and memory, batch throughput, SIMD and side-by-side execution, WASM (browser and WASI) and Windows. I re-ran 6 gates on every sketch with CARGO_TARGET_DIR=.../target-judge-systems: check on linux-gnu (all targets), wasm32-unknown-unknown, wasm32-wasip2 (which I added) and x86_64-pc-windows-msvc, then clippy -D warnings and cargo test. All 24 runs exited 0 with 0 warnings. Test counts match the self-reports: Lean 20, Extensible 18, Kernel 13 (plus 1 ignored doctest), Verification-first 15. No wasm runtime is installed here, so wasip2 tests were compiled but not executed.",
+      "scores": [
+        {
+          "proposal": "Lean",
+          "modularity": 7,
+          "simplicity": 9,
+          "concurrency_memory": 7,
+          "performance": 5,
+          "correctness_tdd": 8,
+          "idiomatic_rust": 8,
+          "rot_elimination": 8,
+          "cross_platform": 8,
+          "migration": 7,
+          "justification": "Modularity: the Registry holds Fluid = Arc<Core> with a Box<dyn Residual>, so a third-party family gets name lookup, compat strings, batch and 16-thread sharing with no edit. tests/new_family.rs proves this from outside the crate. The public State::from_total is a tested Gibbs seam, but a Gibbs or non-Helmholtz model (IF97, INCOMP, ice) cannot be flashed, batched or registered until a future PhaseModel exists. IdealGas::weighted and Phase::Solid are named core edits. Simplicity: best of the four (1 computing crate, 1 trait, 0 public generics, 1 error type). Concurrency and memory: one OnceLock per fluid, no hot-path locks, Send+Sync and size asserts, and a passing 16-thread bitwise test. Weaker points: ECS references are decoded eagerly together with the dependent fluid, which violates 'only load what is needed' (a PH flash of an ECS fluid also decodes R134a or Propane). The superancillary has no separate lazy cell (deliberate and justified). The lint config bans only mul_add (no disallowed Mutex or Cell types), and every lookup clones the Arc. Performance: weakest. The kernel is f64 only with no Real trait. eval_batch puts terms outer and states inner and is bitwise-tested, but it writes array-of-structs Derivs ([f64;15] per state) through std exp with a runtime-order loop, so the hoped-for auto-vectorisation is unlikely. Explicit lanes are a post-v0.1 refactor behind a gate (honestly self-scored). Correctness: re-observed oracle values for every milestone, 6 truth layers, and a divergence register that fails when an entry goes stale. Types: public newtype fields such as Temperature(pub f64) soften 'invalid states unrepresentable' (acknowledged). Cross-platform: from_owned exists for WASM fetch and the per-fluid features allow subsets."
+        },
+        {
+          "proposal": "Extensible",
+          "modularity": 9,
+          "simplicity": 5,
+          "concurrency_memory": 8,
+          "performance": 6,
+          "correctness_tdd": 8,
+          "idiomatic_rust": 7,
+          "rot_elimination": 9,
+          "cross_platform": 7,
+          "migration": 8,
+          "justification": "Modularity: best. The open Catalog lets a family register by token. ThermoModel lets non-Helmholtz backends flash, and open_closed.rs proves this with a Gibbs solid that flashes PT, takes Phase::Solid, batches and accepts Gauged reference states, all out of tree. Gauged applies reference states uniformly to every family (map 15). The planned conformance suite and M11 zero-core-diff gate keep this honest. Simplicity: the cost of that openness. There are 4 traits plus Real/Jet2, Library, LibraryBuilder, Catalog, Fluid and Gauged, two dyn layers per flash, and &Composition in every signature even for pure fluids, with Input and Spec duplicating 19 arms. Concurrency: one OnceLock slot per fluid, the superancillary in a second lazy cell, disallowed-types, and composition per call so one Arc serves many concurrent mixture compositions. Against that, the sketch's lookup allocates (to_ascii_lowercase, a Vec collect, a linear catalog scan), and the compat mixture-string cache takes a lock (facade only). Performance: Real with Mask/select exists and alpha_batch is an overridable seam. But the HEOS fast path PowerBlock::accumulate is f64 only, so lanes need a generic rewrite. alpha_batch writes &mut [Result<AlphaSplit, _>] (array of structs plus a discriminant), which is unfriendly to lanes, and lanes are post-v0.1 (M12). The test 'Parallel == Reference bitwise' is vacuous in the sketch because Parallel runs sequential chunks. Cross-platform: the binary catalog is static only (FluidEntry.blob: &'static [u8]), and runtime or WASM-fetched data goes through the json feature (serde_json). The browser lazy-fetch path is therefore the heavy one, despite dependencies.md:522 on data-segment memory. Correctness: two datasets, divergence policies and concrete check values. Rot elimination: strongest on gauge and cross-model rot (map 15 X1-X12, map 06 C5/C10)."
+        },
+        {
+          "proposal": "Kernel",
+          "modularity": 5,
+          "simplicity": 5,
+          "concurrency_memory": 9,
+          "performance": 9,
+          "correctness_tdd": 7,
+          "idiomatic_rust": 7,
+          "rot_elimination": 7,
+          "cross_platform": 9,
+          "migration": 6,
+          "justification": "Concurrency and memory: best. The borrowed FluidRef<'r> means a per-request lookup does no Arc refcount write (kernel-performance line 68 counts Arc::clone as a shared write). DataSource and Blob::{Static,Shared} keep the kernel free of fs and data, the superancillary and transport sections materialise in their own OnceLocks, and ECS references resolve lazily through the same registry, so a PH flash on R143a does not load R134a. clippy disallows Mutex, RwLock, Cell and RefCell, a 16-thread cold-fluid test reads the source exactly once, and preload() serves warm-up. Performance: best. LaneKernel separates what is computed from how, run_lanes<W> is bitwise equal to scalar, and cprs-simd confines unsafe to one #[target_feature] AVX2 entry point, which is exercised and bitwise-tested on this machine. The term kernel accumulate<R: Real, const ORD> is generic, so lanes do not duplicate the physics. The design also covers a partition-then-lockstep batch, a perf-gate table and zero-allocation tests. Not yet real: vmath forwards to std, and eval_batch, run_parallel and the lockstep Newton are todo! (the lockstep Newton's complexity is acknowledged). Cross-platform: best. There are two explicit wasm builds (baseline and simd128), ISA dispatch compiles on every target, the cross-target result hash is the default goal, and the WASM data-segment memory risk is explicitly mitigated. Modularity: weak, with an unsupported claim. Registry cells and FluidRef are concrete over FluidModel, so a new family can be flashed through flash<M> but cannot be registered or named, or reached from compat, the C ABI or WASM, without kernel edits. Walkthrough (c) claims otherwise, and solids need new kernel modules. Simplicity: 10 workspace crates, const-generic [&mut [f64]; NO] executor signatures and lifetime-carrying handles is heavy before the M8 gate pays for it. Correctness: SIMD (M8) comes before the full pair coverage (M9), transport and surface tension slip to v0.2 (which also weakens PropsSI migration), and the rot table is narrower (19 items)."
+        },
+        {
+          "proposal": "Verification-first",
+          "modularity": 6,
+          "simplicity": 7,
+          "concurrency_memory": 8,
+          "performance": 6,
+          "correctness_tdd": 9,
+          "idiomatic_rust": 8,
+          "rot_elimination": 9,
+          "cross_platform": 8,
+          "migration": 8,
+          "justification": "Correctness: best. A compiled, typed DIVERGENCES register is cross-checked against CORRECTIONS by a test (use-paper entries must name an arbiter), with three-part proof tests and a ResolvedUpstream lifecycle. It also has from_printed() tolerances, provenance-ranked arbiters with a self-consistency check, and a capability constant that grows per milestone, which keeps the 19x2 matrix green at every step. A conformance kit (FD, gauge invariance, policy_equivalence) applies to any model, and an executed-test-count gate guards CI. Concurrency: one OnceLock per fluid, a lazily materialised superancillary, clippy bans on Mutex, RwLock, Cell, RefCell and env::var, plus preload() and loaded() introspection. However, the sketch has no thread test, the doc's lazy transport cell is eager in the sketch (Option<TransportData>) with no registry path to resolve ECS FluidIds, and resolve() is a linear scan in the sketch. Performance: Real already has Mask/select, which makes it lane-ready, and residual_batch plus ExecPolicy are the seams. But only value::<R> is generic (the jet fast path is f64), Derivs is a 25-slot array-of-structs (208 B) value, Parallel returns PolicyUnavailable, and lanes come after 0.1 (honestly self-scored). Modularity: two object-safe traits, generic flash and batch, and an inherited conformance kit. But the Registry is concrete over Arc<FluidData> and the compat Session is hardwired to Registry::embedded(), so a new family cannot reach the string, C or WASM facades without core edits, and Gibbs needs additive kernel modules. Cross-platform: include_str! fixtures let the corpus run on wasip2 without filesystem mapping, a libm hash CI is planned, and from_bytes is in place. Migration: a separate compat crate with an explicit FillPolicy and Session, and a string-keyed C ABI."
+        }
+      ],
+      "fatal_flaws": [
+        {
+          "proposal": "Kernel",
+          "flaw": "Requirement gap (fixable, not unsound): Registry stores Arc<FluidModel> and FluidRef borrows &FluidModel, so a new model family (walkthrough c, PC-SAFT) cannot be registered, named, or reached from compat::props_si, the C ABI or WASM without kernel edits. The doc claims these 'all work immediately through &dyn HelmholtzModel', and the sketch does not back that. This undercuts 'modularity is KEY / new families without core edits' at the user-facing layer."
+        },
+        {
+          "proposal": "Verification-first",
+          "flaw": "Requirement gap (fixable, not unsound): the Registry is concrete over Arc<FluidData>, and the cprs-compat Session is hardwired to Registry::embedded(), so a third-party family cannot reach the string, C or WASM facades without core edits. The doc's lazy transport OnceLock is not in the sketch (Option<TransportData> is eager), and FluidData::compile has no registry handle, so ECS FluidId references have no resolution path."
+        },
+        {
+          "proposal": "Lean",
+          "flaw": "Minor requirement deviation (not unsound): ECS reference fluids are decoded eagerly whenever a dependent fluid is decoded, so a request that needs no transport still loads Propane, R134a or N2. That conflicts with 'only load what is needed for the requests coming in'. The fix is a lazy transport cell that resolves references through the registry (as Kernel does)."
+        }
+      ],
+      "grafts": [
+        {
+          "from": "Kernel",
+          "idea": "Lane execution layer: LaneKernel<NI,NO> (what) vs run_scalar / run_lanes<W> / fixed-chunk run_parallel (how), with a separate cprs-simd crate that confines unsafe to #[target_feature] entry points selected once at run time. Every level is forced in CI and asserted bitwise equal to scalar, and wasm simd128 ships as a second build.",
+          "why": "This is the only proposal with a working, tested path to SIMD side by side with the scalar reference (the user's follow-up request). It slots directly into the winner's ExecPolicy and policy_equivalence differential tests without duplicating physics (K8, K9, K11, K15, K17)."
+        },
+        {
+          "from": "Kernel",
+          "idea": "Make the hot term kernel itself generic, as accumulate<R: Real, const ORD: usize>, with per-state precomputed delta powers. Lanes then run the B-factor fast path rather than only the value::<R> AD form, and the derivative order is a compile-time loop bound.",
+          "why": "The Real-generic code in Verification-first and Extensible covers only the AD/value form. Without this graft, lanes would need a second hand-written fast path."
+        },
+        {
+          "from": "Kernel",
+          "idea": "DataSource with Blob::{Static, Shared(Arc<[u8]>)}. Validate the whole blob once at decode but materialise the EOS only, and give the superancillary and transport their own OnceLocks. ECS references resolve lazily through the same registry, so the dependency is a declared DAG that is never loaded unless transport is used.",
+          "why": "This gives the tightest 'load only what is needed' (map 11 U2/U7/U8, map 05 R7) and one clean path for browser fetch and native files without a JSON dependency."
+        },
+        {
+          "from": "Kernel",
+          "idea": "A borrowing lookup (FluidRef-style, or a registry getter returning &Fluid) for per-request name resolution, plus a perf-gate table with a counting-allocator zero-allocation test and a 1..N thread-scaling harness on same and different fluids.",
+          "why": "PropsSI-style high-frequency calls from many threads on one fluid otherwise do an Arc fetch_add and fetch_sub on one shared cache line per call (kernel-performance line 68). The gates turn the concurrency claims into measured facts (K19)."
+        },
+        {
+          "from": "Kernel",
+          "idea": "WASM memory policy: never ship all 136 fluids as the only browser build. Provide a fluids-core embed plus runtime-fetched binary blobs, and give fluid-<x> features that pull in their ECS references automatically.",
+          "why": "Active data segments are copied into linear memory at instantiation (dependencies.md:284/522), so per-instance memory is set by what is embedded."
+        },
+        {
+          "from": "Lean",
+          "idea": "An open registry over a dyn-family package. Registry::with_fluid returns a new value, and Fluid wraps Box<dyn Residual>, so third-party families get name lookup, compat strings, batch and the facades. An out-of-crate test (vdW written in Jet2) proves it, including 16-thread bitwise sharing.",
+          "why": "This closes the Open/Closed gap that both Kernel and Verification-first leave in their concrete registries, with one trait and no extra concepts."
+        },
+        {
+          "from": "Lean",
+          "idea": "A public State::from_total over the family-neutral total order-2 bundle as the states-of-matter seam, tested with a Gibbs g(T,p) through an algebraic Legendre transform. Also the chunked eval_batch (64-state stack chunks, terms outer and states inner, bitwise equal to scalar) as the immediate batch step before lanes.",
+          "why": "It is the cheapest proven seam for solids and gives a zero-risk batch speedup structure that later hosts lane kernels."
+        },
+        {
+          "from": "Extensible",
+          "idea": "When the first non-Helmholtz CoolProp backend lands (IF97, INCOMP, ice Ih), make it a flashable model behind the same batch and registry paths (ThermoModel-style), and apply reference states through one Gauged wrapper for every family. Add Phase::Solid now.",
+          "why": "These are proven out of tree in open_closed.rs. They remove CoolProp's six gauge mechanisms (map 15 X3/X7) and let solids use batch, compat and C without core edits."
+        },
+        {
+          "from": "Extensible",
+          "idea": "A family conformance suite that every family runs (FD consistency, part additivity, thread and batch invariance), with the second family's PR gated on a zero-line core diff (the M11 cubic gate).",
+          "why": "This makes 'modularity without core edits' a CI-enforced property instead of a claim."
+        },
+        {
+          "from": "Verification-first",
+          "idea": "A compiled, typed DIVERGENCES register cross-checked by test against the data CORRECTIONS, plus a per-milestone IMPLEMENTED capability constant, include_str! fixtures so the corpus runs on wasip2, and an executed-test-count gate.",
+          "why": "These are already in the winner. Keep them as the backbone that every graft above must pass through."
+        },
+        {
+          "from": "Kernel",
+          "idea": "Shared fix for Lean, Extensible and Kernel (Verification-first has no thread tests yet): cfg-gate the std::thread::scope tests off target_family = \"wasm\", or run them only on native. Then the 'full suite under wasmtime on wasip2' CI claim can actually hold.",
+          "why": "None of the sketches gate their thread tests. wasip2 has no thread spawning, so the claimed wasip2 test job would fail as written."
+        }
+      ],
+      "winner": "Verification-first",
+      "rationale": "Weighted totals (weights 3,3,3,3,3,3,2,2,1, out of 230): Verification-first 174, Lean 171, Extensible 169, Kernel 164. The top two are within judgement noise.\n\n**Why Verification-first narrowly wins.** It best serves the user's explicit TDD contract ('using coolprop as verification but with source material when we find bugs'). Its typed, test-cross-checked divergence register and capability-gated always-green milestones are its key mechanisms. It also stays fairly simple: one kernel crate and two traits. It is the best base for the systems grafts: its Real trait already has Mask/select, and ExecPolicy plus policy_equivalence is the right harness to admit Kernel's lane executors bitwise.\n\n**Lean, the close second.** It is the simplest and has the better Open/Closed registry. Its scores suffer on performance (f64-only, array-of-structs batch output, auto-vectorisation hope) and slightly on memory (eager ECS decode).\n\n**Extensible.** Most modular, with Gibbs solids and gauges proven for any family. It pays for that in simplicity on every call (Composition, dyn layers, 4 traits), and its WASM runtime loading needs serde_json.\n\n**Kernel.** Best through my lens: lock-free borrowed handles, section-lazy loading, a tested AVX2 lane path bitwise equal to scalar, and an explicit WASM memory policy. It loses on modularity: its concrete registry contradicts its own Open/Closed walkthrough. It also loses on simplicity (10 crates, const-generic executors) and defers transport.\n\n**Recommended composite.** Verification-first as the skeleton, with:\n- from Kernel: the LaneKernel/cprs-simd execution layer, the generic accumulate<R, ORD>, DataSource/Blob with section-lazy SA, transport and ECS, borrowed lookups, and perf gates;\n- from Lean: the open with_fluid registry over dyn families, and from_total;\n- from Extensible: a flashable Gibbs model and Gauged reference states, plus the conformance and zero-diff gates.\n\nAll four sketches built cleanly for Linux, Windows MSVC, wasm32-unknown-unknown and wasm32-wasip2 in my re-run. Remaining shared weaknesses:\n- Determinism across targets depends on an in-house or libm exp/ln that every sketch currently forwards to std.\n- The thread tests are not gated off wasm.\n- No proposal has measured a single performance number yet (K19).\n- Plotting, isolines and cycle helpers (CoolPropPlot) are correctly deferred by all four.",
+      "key": "systems"
+    }
+  ]
+}

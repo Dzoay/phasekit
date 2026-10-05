@@ -1,0 +1,9 @@
+# Pinned CoolProp checkout used as read-only reference/oracle (see scripts/fetch-coolprop.sh)
+/reference/
+
+# Rust build output
+/target/
+
+# Local scratch
+*.swp
+.DS_Store
