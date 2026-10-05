@@ -371,7 +371,7 @@ wasm32-wasip2, x86_64-pc-windows-msvc, clippy and rustfmt (installed); `uv`; `re
   2012-2018 Ian H. Bell and other CoolProp developers", map 09 §9), `LICENSES/`, `REUSE.toml` (annotations for
   fixtures and blobs), `deny.toml` (licence allow-list of dependencies §3.1; ban `bincode`, `serde_cbor`, and
   `once_cell` and `lazy_static` as direct dependencies (dependencies §3.1 "Banned"); `wildcards = "deny"`; unknown
-  registries and git sources denied; R7, R19); commit `Cargo.lock`; add `reuse`, `deny` and `shear` to the linux CI
+  registries and git sources denied; R7, R19); `Cargo.lock` is committed since M0.2; add `reuse`, `deny` and `shear` to the linux CI
   job. Close M0: set `MILESTONE = 1`. *Done when:* the three commands pass locally (and in CI once M0.6 is done); `gates
   rot` passes with every M0 row ticked.
 

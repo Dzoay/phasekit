@@ -1,0 +1,5 @@
+# Cargo configuration for the phasekit workspace (docs/PLAN.md §2.3).
+
+[alias]
+# `cargo xtask <task>`: developer tasks and the gates (crates/phasekit-xtask).
+xtask = "run --quiet -p phasekit-xtask --"

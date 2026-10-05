@@ -1,0 +1,17 @@
+[package]
+name = "phasekit-verify"
+description = "Zero-dependency verification kit (provenance, tolerances, divergence register, conformance) + corpus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# verify depends on core, never the reverse: no dev-dependency cycles. Real crate dev-deps (tier T3):
+# num-dual (the AD oracle for Jet4, M3), proptest (std only; BatchRequest and Input::new shapes, E12),
+# criterion + gungraun in benches/ from M3 (E9; dependencies R18).
+[dependencies]
+phasekit-core = { workspace = true, features = ["fluids-all"] }
+
+[lints]
+workspace = true

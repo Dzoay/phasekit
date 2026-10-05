@@ -47,7 +47,7 @@ follow afterwards ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)).
 ```text
 docs/        design, plan and evidence (above)
 scripts/     fetch-coolprop.sh, check-toolchain.sh; later the oracle generator and the C++ baseline harness
-crates/      the Cargo workspace, from step M0.2 (phasekit-core, -data, -compat, -verify, -xtask; later -capi, -wasm, -py)
+crates/      the Cargo workspace: phasekit-core, -data, -verify, -xtask; -compat from M5.9; later -capi, -wasm, -py
 reference/   gitignored: the pinned CoolProp checkout and local papers
 ```
 
@@ -60,7 +60,7 @@ Requirements: stable Rust (1.99 or newer; the targets `wasm32-unknown-unknown`, 
 ```sh
 scripts/check-toolchain.sh         # reports which of the tools above are missing
 scripts/fetch-coolprop.sh          # pinned, read-only CoolProp v8.0.0 checkout in reference/
-cd docs/design/sketch && cargo test # the compiled type sketch
+cargo test --workspace             # the workspace
 uv run --no-project --python 3.12 --with CoolProp==8.0.0 \
   python -c "import CoolProp.CoolProp as CP; print(CP.PropsSI('H', 'T', 300, 'P', 101325, 'Water'))"
 ```
