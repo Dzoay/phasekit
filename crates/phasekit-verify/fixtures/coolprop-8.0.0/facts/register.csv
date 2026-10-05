@@ -1,0 +1,69 @@
+# fixture: facts/v1
+# oracle: CoolProp 8.0.0 git=ae81610e7d23efc57f9d051c8e70a4d66e87537f so_sha256=05d85591871524e83bb23170e22ee149e1167fb3ef5deaf81b9d248283089be5
+# generator: gen.py sha256=633b50616ba6a4d19ef4a3d91f12e23255f5fc83b4976adfcddf11fd3fbde48e python=3.12.14 libc=glibc-2.44
+# config: {"ALLOW_SVDSBTL_IN_PROPSSI":false,"ALTERNATIVE_REFPROP_HMX_BNC_PATH":"","ALTERNATIVE_REFPROP_LIBRARY_PATH":"","ALTERNATIVE_REFPROP_PATH":"","ALTERNATIVE_SVDTABLES_DIRECTORY":"","ALTERNATIVE_TABLES_DIRECTORY":"","ASSUME_CRITICAL_POINT_STABLE":false,"CRITICAL_SPLINES_ENABLED":true,"CRITICAL_WITHIN_1UK":true,"DONT_CHECK_PROPERTY_LIMITS":false,"ENABLE_MELTING_CALORIC_HS":true,"ENABLE_SUPERANCILLARIES":true,"FLOAT_PUNCTUATION":".","HENRYS_LAW_TO_GENERATE_VLE_GUESSES":false,"HSU_D_TWOPHASE_EOS_POLISH":true,"LIST_STRING_DELIMITER":",","MAXIMUM_TABLE_DIRECTORY_SIZE_IN_GB":1.0,"MIXTURE_STABILITY_ALGORITHM":1,"NORMALIZE_GAS_CONSTANTS":true,"OVERWRITE_BINARY_INTERACTION":false,"OVERWRITE_DEPARTURE_FUNCTION":false,"OVERWRITE_FLUIDS":false,"PHASE_ENVELOPE_STARTING_PRESSURE_PA":100.0,"REFPROP_DONT_ESTIMATE_INTERACTION_PARAMETERS":false,"REFPROP_ERROR_THRESHOLD":0,"REFPROP_IGNORE_ERROR_ESTIMATED_INTERACTION_PARAMETERS":false,"REFPROP_RESOLVE_COOLPROP_ALIASES":true,"REFPROP_USE_GERG":false,"REFPROP_USE_PENGROBINSON":false,"R_U_CODATA":8.31446261815324,"SAVE_RAW_TABLES":false,"SPINODAL_MINIMUM_DELTA":0.5,"SVDSBTL_SAMPLING_THREADS":1,"TABULAR_NX":200,"TABULAR_NY":200,"USE_GUESSES_IN_PROPSSI":false,"VTPR_ALWAYS_RELOAD_LIBRARY":false,"VTPR_UNIFAC_PATH":""}
+# env: scrubbed COOLPROP_* PXFLASH_*; LC_ALL=C
+# fluid: Ethylene json_sha256=e7cb6603155fa25cbea699c7a9e2c095fbc2db26ebe6dbb640b6f1e86d469846 Helium json_sha256=255d17ba8376ef503954da45de60659263a1d61f8abf06523b447c07bb21d614 Nitrogen json_sha256=791432d1685eafcc75b43e776e8fe4e30f7cf73a2a73b67de0c1a94c57a2b9aa OrthoHydrogen json_sha256=185400d93f03f4061f48468900286925705b7b823d29e889aab7da59b8004809 R1224YDZ json_sha256=56109aad8d5a45281616adc0201718de9aa03e164c46dfe8c1728bc502ceb1d3 R1233zd(E) json_sha256=1aef3096c6114cdeb654c8bfa0b10d4eb8c7ec09c65ce130b1e1ceb4c5fbf01b R1234yf json_sha256=586174f41b6dfe95c3060e28a31ab91462b7e38c4f2f2f4b9c2bb40a68e67114 R1234ze(E) json_sha256=9f68a59914a7abb9b9e6b4c2d2681deb9758fa3638b5598a98786d502a284fde Water json_sha256=85021d3803d2b02edb1d3e90bd60f4eee4a70380e06ed6b7b44e57716b4c2266 n-Propane json_sha256=9a21895b593b610ac075b35c0b49b02dabdbb6cc3fda55052aafdc27f19164b1 n-Undecane json_sha256=a1664bfc71bee13009a4399dcb6cac25ee6585a642a9af937fe294e20b767d00
+# source: coolprop
+# columns: name,call,status,value
+# tol: label,label,label,exact
+# bits: fnv1a64=0148376e83bf9faa
+div0001_gas_constant,Props1SI(R1234ze(E);gas_constant),ok,8.314472
+div0001_p_row0,PropsSI(P;T;200;Dmolar;12600;R1234ze(E)),ok,2161402.1734209782
+div0001_p_row1,PropsSI(P;T;350;Dmolar;11400;R1234ze(E)),ok,95041677.81279843
+div0001_p_row2,PropsSI(P;T;383;Dmolar;4290;R1234ze(E)),ok,3670109.568463043
+div0001_p_row4,PropsSI(P;T;360;Dmolar;1000;R1234ze(E)),ok,2039105.612574312
+div0001_p_row5,PropsSI(P;T;420;Dmolar;8000;R1234ze(E)),ok,19954497.311390802
+div0002_melting_t_1356.76mpa,AbstractState(HEOS;Water;melting_line;iT;iP;1356760000.0),ok,320.96541060763263
+div0002_melting_p_320k,AbstractState(HEOS;Water;melting_line;iP;iT;320),ok,1337447838.7725754
+div0003_rhomolar_reducing,Props1SI(Nitrogen;rhomolar_reducing),ok,11183.901464580624
+div0004_eta_t500_q0.5,PropsSI(V;T;500;Q;0.5;Water),ok,1.6048185052430146e-05
+div0005_gas_constant,Props1SI(Helium;gas_constant),ok,8.3144598
+div0005_p_row0,PropsSI(P;T;4;Dmolar;40000;Helium),ok,1593261.4275617518
+div0005_cv_row0,PropsSI(CVMOLAR;T;4;Dmolar;40000;Helium),ok,8.09873401630911
+div0005_w_row0,PropsSI(A;T;4;Dmolar;40000;Helium),ok,320.14889685869304
+div0005_p_row1,PropsSI(P;T;4;Dmolar;2000;Helium),ok,55452.29505544655
+div0005_cv_row1,PropsSI(CVMOLAR;T;4;Dmolar;2000;Helium),ok,12.627952470039933
+div0005_w_row1,PropsSI(A;T;4;Dmolar;2000;Helium),ok,107.38115594538182
+div0005_p_row2,PropsSI(P;T;10;Dmolar;50000;Helium),ok,12655184.981271867
+div0005_cv_row2,PropsSI(CVMOLAR;T;10;Dmolar;50000;Helium),ok,10.753072560815655
+div0005_w_row2,PropsSI(A;T;10;Dmolar;50000;Helium),ok,592.9439160074834
+div0005_p_row3,PropsSI(P;T;10;Dmolar;2000;Helium),ok,158857.06196164858
+div0005_cv_row3,PropsSI(CVMOLAR;T;10;Dmolar;2000;Helium),ok,12.47838229467257
+div0005_w_row3,PropsSI(A;T;10;Dmolar;2000;Helium),ok,183.77923583846436
+div0005_p_row4,PropsSI(P;T;300;Dmolar;25000;Helium),ok,85769610.47526762
+div0005_cv_row4,PropsSI(CVMOLAR;T;300;Dmolar;25000;Helium),ok,13.176051017575318
+div0005_w_row4,PropsSI(A;T;300;Dmolar;25000;Helium),ok,1349.3064605405002
+div0005_p_row5,PropsSI(P;T;300;Dmolar;1000;Helium),ok,2524128.7888179156
+div0005_cv_row5,PropsSI(CVMOLAR;T;300;Dmolar;1000;Helium),ok,12.49625187315651
+div0005_w_row5,PropsSI(A;T;300;Dmolar;1000;Helium),ok,1030.3607548004252
+div0006_rhomolar_reducing,Props1SI(Ethylene;rhomolar_reducing),ok,7636.76598074554
+div0006_molar_mass,Props1SI(Ethylene;molar_mass),ok,0.02805376
+div0007_rhomolar_reducing,Props1SI(OrthoHydrogen;rhomolar_reducing),ok,15444.54031369981
+div0007_molar_mass,Props1SI(OrthoHydrogen;molar_mass),ok,0.00201594
+div0008_rhomolar_reducing,Props1SI(n-Undecane;rhomolar_reducing),ok,1514.916863638556
+div0009_eta_t300_p101325,PropsSI(V;T;300;P;101325;R1233zd(E)),err:notimpl,nan
+div0010_smolar_t399.99,PropsSI(Smolar;T;399.99;P;100000.0;PR::n-Propane),ok,67.57000983499319
+div0010_smolar_t400.01,PropsSI(Smolar;T;400.01;P;100000.0;PR::n-Propane),ok,67.57457721076722
+div0010_cpmolar_t400,PropsSI(CPMOLAR;T;400;P;100000.0;PR::n-Propane),ok,93.8949848578295
+div0011_cvirial_propane,PropsSI(Cvirial;T;300;Dmolar;0.001;n-Propane),ok,1.9575125003524e-08
+div0011_rhomolar_reducing_propane,Props1SI(n-Propane;rhomolar_reducing),ok,5000.000000000001
+div0011_d2alphar_ddelta2_propane_rho1,AbstractState(HEOS;n-Propane;DmolarT_INPUTS;1.0;300;d2alphar_dDelta2),ok,0.48944003748760506
+div0011_d2alphar_ddelta2_propane_rho2,AbstractState(HEOS;n-Propane;DmolarT_INPUTS;2.0;300;d2alphar_dDelta2),ok,0.4894684380169819
+div0011_d2alphar_ddelta2_propane_rho3,AbstractState(HEOS;n-Propane;DmolarT_INPUTS;3.0;300;d2alphar_dDelta2),ok,0.4894963389446447
+div0011_d2alphar_ddelta2_propane_rho4,AbstractState(HEOS;n-Propane;DmolarT_INPUTS;4.0;300;d2alphar_dDelta2),ok,0.4895237380620335
+div0011_cvirial_nitrogen,PropsSI(Cvirial;T;300;Dmolar;0.001;Nitrogen),ok,1.4102416815439083e-09
+div0011_rhomolar_reducing_nitrogen,Props1SI(Nitrogen;rhomolar_reducing),ok,11183.901464580624
+div0011_d2alphar_ddelta2_nitrogen_rho1,AbstractState(HEOS;Nitrogen;DmolarT_INPUTS;1.0;300;d2alphar_dDelta2),ok,0.17640473972756068
+div0011_d2alphar_ddelta2_nitrogen_rho2,AbstractState(HEOS;Nitrogen;DmolarT_INPUTS;2.0;300;d2alphar_dDelta2),ok,0.17640447921738925
+div0011_d2alphar_ddelta2_nitrogen_rho3,AbstractState(HEOS;Nitrogen;DmolarT_INPUTS;3.0;300;d2alphar_dDelta2),ok,0.17640422316350615
+div0011_d2alphar_ddelta2_nitrogen_rho4,AbstractState(HEOS;Nitrogen;DmolarT_INPUTS;4.0;300;d2alphar_dDelta2),ok,0.17640397156372348
+div0011_cvirial_water,PropsSI(Cvirial;T;600;Dmolar;0.001;Water),ok,-2.171327927453763e-09
+div0011_rhomolar_reducing_water,Props1SI(Water;rhomolar_reducing),ok,17873.72799560906
+div0011_d2alphar_ddelta2_water_rho1,AbstractState(HEOS;Water;DmolarT_INPUTS;1.0;600;d2alphar_dDelta2),ok,-0.692967999464613
+div0011_d2alphar_ddelta2_water_rho2,AbstractState(HEOS;Water;DmolarT_INPUTS;2.0;600;d2alphar_dDelta2),ok,-0.6922745794422677
+div0011_d2alphar_ddelta2_water_rho3,AbstractState(HEOS;Water;DmolarT_INPUTS;3.0;600;d2alphar_dDelta2),ok,-0.6915813043320501
+div0011_d2alphar_ddelta2_water_rho4,AbstractState(HEOS;Water;DmolarT_INPUTS;4.0;600;d2alphar_dDelta2),ok,-0.6908881741320128
+div0012_p_t250_rho55018.5,PropsSI(P;T;250;Dmolar;55018.5;Water),ok,-5.9277123935677105
+div0013_alphar_t469_rho3399,PropsSI(alphar;T;469;Dmolar;3399;HEOS::R1234yf[0.4]&R1234ze(E)[0.6]),ok,-0.4646789982425775
+div0014_p_t400_rho8000,PropsSI(P;T;400;Dmolar;8000;R1224YDZ),ok,21179073.53074043
