@@ -1,0 +1,12 @@
+# fixture: paper/v1
+# source: paper:Lemmon-JCED-2016-365227/Table7
+# citation: doi=10.1021/acs.jced.5b00684 table=7 manuscript=PMC13576076.1 erratum-checked=2026-10-05 xml_sha256=0d34369ab186fd3d18769b63610b19bd0465bc6c144203fb275ff41a8dd488fa
+# kind: K2
+# constants: R=8.3144621 J/(mol K) M=154.466416 g/mol Tc=353.1 K rhoc=3.98 mol/dm3 (Tr=Tc rhor=rhoc)
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,rho,p,cv,cp,w
+# units: K,mol/dm3,MPa,J/(mol K),J/(mol K),m/s
+# tol: in,in,paper,paper,paper,paper
+300.0,0.0,0.0,102.2181,110.5326,132.1423
+300.0,10.0,57.40521,111.0519,146.0220,728.9583
+354.0,4.0,3.190363,137.4032,5990.358,70.43849

@@ -464,7 +464,7 @@ C++ compiler for M1.15 (present on the dev box, 2026-10-05).
   | Source | Tables | DOI or URL | Access | Step |
   |---|---|---|---|---|
   | IAPWS R6-95(2018) (Water) | 6 (α at 500 K, 838.025 kg/m³), 7 (T, ρ), 8 (saturation) | iapws.org release R6-95(2018) | free | M1.8 |
-  | Lemmon et al., JCED 2016 (R227EA, R365MFC, R115, R13I1) | 7 (12 states) | 10.1021/acs.jced.5b00684 (map 13 §4) | green OA | M1.9 |
+  | Lemmon et al., JCED 60:3745 (2015; the key's 2016 is stale, map 13 R2) (R227EA, R365MFC, R115, R13I1) | 7 (12 states) | 10.1021/acs.jced.5b00684 (map 13 §4) | green OA: PMC13576076 author manuscript (XML, VERIFICATION.md §4.2) | M1.9 |
   | Thol et al., IJT 2016 (R1234ze(E)) | 3 (6 rows) | 10.1007/s10765-016-2040-6 | green OA | M1.10 |
   | NIST IR 8474 (Helium; key OrtizVega-JPCRD-2019, map 13 §4) | 3, 4 | 10.6028/NIST.IR.8474 | OA | M1.11 |
   | CoolProp test rows: Lemmon & Akasaka IJT 2022 Table 7 (R1234yf, 6 states) and 12 one-row fluids (R1130(E) from Huber et al. IJT 2025 Table 4 among them) | 18 states, 68 values | `CoolProp-Tests.cpp:4399-4474, 4798-4815` (map 10 §8.1); 10.1007/s10765-022-03015-y (paywalled); 10.1007/s10765-025-03535-3 (OA) | in repo; open papers re-checked | M1.12 |
