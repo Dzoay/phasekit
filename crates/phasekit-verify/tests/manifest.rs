@@ -6,6 +6,7 @@ use phasekit_verify::{fixture, sha256_hex};
 /// Every committed fixture. A new fixture is added here, to MANIFEST.sha256 (`cargo xtask oracle --write-manifest`)
 /// and to the test that reads it.
 const COMMITTED: &[(&str, &str)] = &[
+    fixture!("coolprop-8.0.0/facts/register.csv"),
     fixture!("coolprop-8.0.0/facts/smoke.csv"),
     fixture!("paper/Helium/OrtizVega-JPCRD-2019.3.check.csv"),
     fixture!("paper/Helium/OrtizVega-JPCRD-2019.3.csv"),

@@ -43,12 +43,60 @@ ERROR_CLASSES = [
 ]
 
 # The `facts` sets (section 3.5): one named oracle fact per row. `call` is written with `;` because cells hold no
-# commas. M1.13 adds the `register` set.
+# commas. A call is `PropsSI`, `Props1SI` or `AbstractState` (see `abstract_state`).
+THOL_2016_TABLE3 = [(0, 200, 12600), (1, 350, 11400), (2, 383, 4290), (4, 360, 1000), (5, 420, 8000)]  # row, K, mol/m3
+NIST_IR_8474_TABLE3 = [(0, 4, 40000), (1, 4, 2000), (2, 10, 50000), (3, 10, 2000), (4, 300, 25000), (5, 300, 1000)]
+VIRIAL_STATES = [("propane", "n-Propane", 300), ("nitrogen", "Nitrogen", 300), ("water", "Water", 600)]
+BELL_TABLE_XI_MIXTURE = "HEOS::R1234yf[0.4]&R1234ze(E)[0.6]"  # z1 = 0.4 at T = 469 K, 3399 mol/m3 (map 10 section 8.4)
 FACTS = {
     "smoke": [
         ("r134a_h_t300_q1", "PropsSI", ("H", "T", 300, "Q", 1, "R134a")),
         ("water_tcrit", "Props1SI", ("Water", "Tcrit")),
         ("water_t_reducing", "Props1SI", ("Water", "T_reducing")),
+    ],
+    # The oracle side of every divergence register entry (PLAN.md M1.13; map 12 section 6.3, map 10 section 8.4,
+    # map 13 section 3). Names start with the entry's id; rows of a paper table carry the row's index in its file.
+    "register": [
+        ("div0001_gas_constant", "Props1SI", ("R1234ze(E)", "gas_constant")),
+        *[
+            (f"div0001_p_row{i}", "PropsSI", ("P", "T", t, "Dmolar", rho, "R1234ze(E)"))
+            for i, t, rho in THOL_2016_TABLE3
+        ],
+        ("div0002_melting_t_1356.76mpa", "AbstractState", ("HEOS", "Water", "melting_line", "iT", "iP", 1356.76e6)),
+        ("div0002_melting_p_320k", "AbstractState", ("HEOS", "Water", "melting_line", "iP", "iT", 320)),
+        ("div0003_rhomolar_reducing", "Props1SI", ("Nitrogen", "rhomolar_reducing")),
+        ("div0004_eta_t500_q0.5", "PropsSI", ("V", "T", 500, "Q", 0.5, "Water")),
+        ("div0005_gas_constant", "Props1SI", ("Helium", "gas_constant")),
+        *[
+            (f"div0005_{name}_row{i}", "PropsSI", (key, "T", t, "Dmolar", rho, "Helium"))
+            for i, t, rho in NIST_IR_8474_TABLE3
+            for name, key in (("p", "P"), ("cv", "CVMOLAR"), ("w", "A"))
+        ],
+        ("div0006_rhomolar_reducing", "Props1SI", ("Ethylene", "rhomolar_reducing")),
+        ("div0006_molar_mass", "Props1SI", ("Ethylene", "molar_mass")),
+        ("div0007_rhomolar_reducing", "Props1SI", ("OrthoHydrogen", "rhomolar_reducing")),
+        ("div0007_molar_mass", "Props1SI", ("OrthoHydrogen", "molar_mass")),
+        ("div0008_rhomolar_reducing", "Props1SI", ("n-Undecane", "rhomolar_reducing")),
+        ("div0009_eta_t300_p101325", "PropsSI", ("V", "T", 300, "P", 101325, "R1233zd(E)")),
+        ("div0010_smolar_t399.99", "PropsSI", ("Smolar", "T", 399.99, "P", 1e5, "PR::n-Propane")),
+        ("div0010_smolar_t400.01", "PropsSI", ("Smolar", "T", 400.01, "P", 1e5, "PR::n-Propane")),
+        ("div0010_cpmolar_t400", "PropsSI", ("CPMOLAR", "T", 400, "P", 1e5, "PR::n-Propane")),
+        *[
+            fact
+            for label, fluid, t in VIRIAL_STATES
+            for fact in [
+                (f"div0011_cvirial_{label}", "PropsSI", ("Cvirial", "T", t, "Dmolar", 0.001, fluid)),
+                (f"div0011_rhomolar_reducing_{label}", "Props1SI", (fluid, "rhomolar_reducing")),
+                *[
+                    (f"div0011_d2alphar_ddelta2_{label}_rho{rho}", "AbstractState",
+                     ("HEOS", fluid, "DmolarT_INPUTS", float(rho), t, "d2alphar_dDelta2"))
+                    for rho in (1, 2, 3, 4)
+                ],
+            ]
+        ],
+        ("div0012_p_t250_rho55018.5", "PropsSI", ("P", "T", 250, "Dmolar", 55018.5, "Water")),
+        ("div0013_alphar_t469_rho3399", "PropsSI", ("alphar", "T", 469, "Dmolar", 3399, BELL_TABLE_XI_MIXTURE)),
+        ("div0014_p_t400_rho8000", "PropsSI", ("P", "T", 400, "Dmolar", 8000, "R1224YDZ")),
     ],
 }
 
@@ -166,12 +214,23 @@ def error_class(exception):
     return "other"
 
 
+def abstract_state(CP, backend, fluids, *args):
+    """`AbstractState(backend;fluids;[pair;v1;v2;]method;args...)`: a state updated with `pair` when one is given, then
+    one method call; a string argument names a CoolProp constant (`iT`, `iP`)."""
+    state = CP.AbstractState(backend, fluids)
+    if args[0].endswith("_INPUTS"):
+        pair, v1, v2, *args = args
+        state.update(getattr(CP, pair), v1, v2)
+    method, *rest = args
+    return getattr(state, method)(*(getattr(CP, a) if isinstance(a, str) else a for a in rest))
+
+
 def call(CP, fn, args):
     """One oracle call -> (value, status). `PropsSI` raises on failure, but `Props1SI` returns inf and leaves the
     message in the process-wide errstring (CoolProp's C convention; reading errstring clears it): both are checked."""
     CP.get_global_param_string("errstring")
     try:
-        value = float(getattr(CP, fn)(*args))
+        value = float(abstract_state(CP, *args) if fn == "AbstractState" else getattr(CP, fn)(*args))
     except Exception as exception:  # every oracle failure becomes a status, never a crash
         return math.nan, f"err:{error_class(exception)}"
     message = CP.get_global_param_string("errstring")
@@ -215,11 +274,17 @@ def header(kind, lock, config, fluids, columns, tol, floats):
     return "".join(f"# {line}\n" for line in lines)
 
 
+def fact_fluids(fn, inputs):
+    """The pure fluids a fact reads: `PR::n-Propane` is n-Propane, `HEOS::A[0.4]&B[0.6]` is A and B."""
+    name = {"PropsSI": inputs[-1], "Props1SI": inputs[0], "AbstractState": inputs[1]}[fn]
+    return [part.split("[")[0] for part in name.split("::")[-1].split("&")]
+
+
 def facts(CP, lock, config, files, args):
     rows = FACTS.get(args.set)
     if rows is None:
         fail(f"--set must be one of {', '.join(sorted(FACTS))} for --kind facts")
-    fluids = sorted({inputs[-1] if fn == "PropsSI" else inputs[0] for _, fn, inputs in rows})
+    fluids = sorted({fluid for _, fn, inputs in rows for fluid in fact_fluids(fn, inputs)})
     shas = [(fluid, assert_fluid(CP, files, fluid)) for fluid in fluids]
     lines, floats = [], []
     for name, fn, inputs in rows:

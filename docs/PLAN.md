@@ -482,7 +482,7 @@ C++ compiler for M1.15 (present on the dev box, 2026-10-05).
 - **M1.13 Register facts reproduced.** *Failing test:* `register_cites_reproducible_oracle_facts` reads
   `facts/register.csv` and checks each seed entry's cited v8.0.0 value: N₂ `rhomolar_reducing` 11183.901464580624
   (DIV-0003), Water DT(55018.5 mol/m³, 250 K) p = −5.9277123935677105 Pa without error (DIV-0012), C virial errors
-  −6.8e-5/−7.1e-5/+1.9e-5 for Propane 300 K/N₂ 300 K/Water 600 K (DIV-0011), two-phase Water η(500 K, Q=0.5) =
+  −6.7e-5/−7.1e-5/+1.9e-5 for Propane 300 K/N₂ 300 K/Water 600 K (DIV-0011), two-phase Water η(500 K, Q=0.5) =
   1.6048e-5 (DIV-0004), R1233zd(E) viscosity raising (DIV-0009), R1224YDZ p (DIV-0014), and the oracle side of the
   DIV-0001 and DIV-0005 table comparisons (map 12 §6.3, map 10 §8.4, map 13 §3). *Do:* the `register` set of the
   `facts` kind. *Done when:* all 14 entries pass; a fact that does not reproduce is fixed in the register (with the
