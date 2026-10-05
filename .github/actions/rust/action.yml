@@ -1,0 +1,35 @@
+# Installs a Rust toolchain with rustup (installing rustup first where the runner lacks it). The default `toolchain`
+# is the one stable version CI uses (PLAN.md §2.2): a `chore: rust 1.NN` PR changes it here and nowhere else.
+name: rust
+description: Install a pinned Rust toolchain with rustup
+inputs:
+  toolchain:
+    description: Toolchain to install and make the default
+    default: "1.99.0"
+  components:
+    description: Comma-separated rustup components
+    default: ""
+  targets:
+    description: Comma-separated extra targets
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: rustup toolchain install
+      shell: bash
+      env:
+        TOOLCHAIN: ${{ inputs.toolchain }}
+        COMPONENTS: ${{ inputs.components }}
+        TARGETS: ${{ inputs.targets }}
+      run: |
+        if ! command -v rustup >/dev/null 2>&1; then
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$PATH"
+        fi
+        args=(--profile minimal)
+        if [ -n "$COMPONENTS" ]; then args+=(--component "$COMPONENTS"); fi
+        if [ -n "$TARGETS" ]; then args+=(--target "$TARGETS"); fi
+        rustup toolchain install "$TOOLCHAIN" "${args[@]}"
+        rustup default "$TOOLCHAIN"
+        rustc --version

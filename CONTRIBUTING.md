@@ -114,7 +114,7 @@ Add the same public key on GitHub (Settings → SSH and GPG keys → New SSH key
 ## What a PR must show
 
 - For a test-first step: the failing test and its red output (paste it in the PR description).
-- All standard gates green (G1-G8 locally until CI runs them).
+- All standard gates green: G1-G8 locally, and the `ci` workflow's required checks on the PR.
 - Docs that the change affects updated in the same PR (PLAN.md, VERIFICATION.md, ROT-REGISTER.md, ARCHITECTURE.md).
 - When results differ from CoolProp: the divergence workflow in
   [VERIFICATION.md §6](docs/VERIFICATION.md#6-divergence-register). Never widen a tolerance to make CoolProp pass.

@@ -85,11 +85,8 @@ impl Repo {
 
     /// Runs `cargo <args>` in the root with the toolchain that built xtask; returns (success, stdout).
     pub fn cargo(&self, args: &[&str]) -> Result<(bool, String), String> {
-        let output = Command::new(env!("CARGO"))
-            .args(args)
-            .current_dir(&self.root)
-            .output()
-            .map_err(|e| format!("cannot run cargo {}: {e}", args.join(" ")))?;
+        let output =
+            self.cargo_command(args).output().map_err(|e| format!("cannot run cargo {}: {e}", args.join(" ")))?;
         Ok((output.status.success(), String::from_utf8_lossy(&output.stdout).into_owned()))
     }
 
@@ -99,9 +96,8 @@ impl Repo {
         let log = std::env::temp_dir().join(format!("phasekit-xtask-{}-{label}.log", std::process::id()));
         let file = std::fs::File::create(&log).map_err(|e| format!("cannot create {}: {e}", log.display()))?;
         let stderr = file.try_clone().map_err(|e| format!("cannot share {}: {e}", log.display()))?;
-        let status = Command::new(env!("CARGO"))
-            .args(args)
-            .current_dir(&self.root)
+        let status = self
+            .cargo_command(args)
             .stdout(file)
             .stderr(stderr)
             .status()
@@ -109,6 +105,14 @@ impl Repo {
         let text = std::fs::read_to_string(&log).map_err(|e| format!("cannot read {}: {e}", log.display()));
         let _ = std::fs::remove_file(&log);
         Ok((status?.success(), text?))
+    }
+
+    /// `cargo <args>` in the root with the toolchain that built xtask, uncoloured: its output is parsed, and an
+    /// inherited `CARGO_TERM_COLOR=always` (as in CI) would put escape codes in front of every line.
+    fn cargo_command(&self, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO"));
+        command.args(args).current_dir(&self.root).env("CARGO_TERM_COLOR", "never");
+        command
     }
 
     /// Runs `git <args>` in the root; returns stdout.

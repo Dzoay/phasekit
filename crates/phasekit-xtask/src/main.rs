@@ -147,6 +147,7 @@ mod tests {
             .arg(scratch.join("Cargo.toml"))
             .args(["--", "-D", "warnings"])
             .env("CARGO_TARGET_DIR", scratch.join("target"))
+            .env("CARGO_TERM_COLOR", "never") // CI colours cargo's output; the diagnostics are parsed below
             .env_remove("CLIPPY_CONF_DIR")
             .output()
             .unwrap();
