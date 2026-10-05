@@ -4,6 +4,9 @@
 # Rust build output
 /target/
 
+# Nightly full oracle fixture set, regenerated and never committed (docs/VERIFICATION.md §3.6)
+/crates/phasekit-verify/fixtures-full/
+
 # Local scratch
 *.swp
 .DS_Store

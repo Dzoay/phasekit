@@ -1,0 +1,37 @@
+# The phasekit workspace (docs/ARCHITECTURE.md §2), seeded from docs/design/sketch at M0.2. Crates use the
+# `phasekit-` prefix and C symbols `pk_` (D16, decided 2026-10-05). Members are the M0 crates (core, data,
+# verify, xtask); phasekit-compat joins at M5.9, phasekit-capi and phasekit-wasm at M10 and phasekit-py after
+# 0.1 (S-11).
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85" # one workspace MSRV (D17); raised only for a concrete feature
+license = "MIT OR Apache-2.0"
+publish = false
+
+# E7: default features are OFF on every internal dependency, so feature unification can never make a
+# facade embed more fluids than it asked for. Each consumer names its fluid set explicitly.
+[workspace.dependencies]
+phasekit-core = { path = "crates/phasekit-core", default-features = false }
+phasekit-data = { path = "crates/phasekit-data", default-features = false }
+
+# D17: workspace lints. phasekit-capi (M10) relaxes `unsafe_code` to `deny` and allows `disallowed_types` in
+# its FFI-state modules only: thread-local error and handle table, plus the CoolPropLib.h shim's
+# process-wide errstring (D11, E13); every other crate inherits this table unchanged.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+# D12 / S-06 / E12: no panic is reachable from library code; unfinished work returns a typed error.
+todo = "deny"
+unimplemented = "deny"
+panic = "deny"
