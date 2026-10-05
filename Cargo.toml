@@ -5,6 +5,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+exclude = ["crates/phasekit-xtask/probes"] # lint probes, built only in scratch copies (M0.3)
 
 [workspace.package]
 version = "0.0.0"
@@ -35,3 +36,7 @@ dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
 panic = "deny"
+# ROT-024: no printing from library code; diagnostics travel as values (`SolvePath`, `Root`, `Status`).
+# phasekit-xtask, a command-line tool, allows both at its crate root.
+print_stdout = "deny"
+print_stderr = "deny"

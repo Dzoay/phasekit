@@ -6,6 +6,7 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use std::sync::Arc;
+#[allow(clippy::disallowed_types, reason = "a test-only load counter; the library has no atomics (ROT-031)")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use phasekit_core::internal::FluidRecord;
@@ -18,6 +19,7 @@ use phasekit_core::{
 type Spec = (&'static [&'static str], &'static [&'static str], bool);
 
 #[derive(Debug)]
+#[allow(clippy::disallowed_types, reason = "a test-only load counter; the library has no atomics (ROT-031)")]
 struct Counting {
     fluids: Vec<Spec>,
     reads: Vec<AtomicUsize>,
@@ -28,6 +30,7 @@ struct Counting {
 struct Shared(Arc<Counting>);
 
 impl Shared {
+    #[allow(clippy::disallowed_types, reason = "a test-only load counter; the library has no atomics (ROT-031)")]
     fn new(fluids: &[Spec]) -> Self {
         Shared(Arc::new(Counting {
             fluids: fluids.to_vec(),

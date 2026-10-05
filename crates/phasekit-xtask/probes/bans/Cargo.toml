@@ -1,0 +1,10 @@
+# Lint probe for `phasekit_xtask::tests::clippy_bans_fire` (PLAN.md M0.3). Excluded from the phasekit workspace; the
+# test copies it into a scratch workspace whose `[workspace.lints]` and `clippy.toml` are the repository's.
+[package]
+name = "bans"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lints]
+workspace = true

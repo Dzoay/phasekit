@@ -833,10 +833,12 @@ checked further). Constraints it meets *(inference)*:
   (e.g. to fearless_simd's 1.89 if the `simd` feature lands; dependencies R3, Q1). Developed on 1.99.0; no nightly
   (R3, R4).
 - Lints: `unsafe_code = "forbid"`, `missing_docs`, clippy `all`, with `unwrap_used`, `expect_used`, `dbg_macro`,
-  `todo`, `unimplemented` and `panic` denied (tests may unwrap and panic); `indexing_slicing` denied in `batch` and
-  `flash`.
-- `clippy.toml` bans `Mutex`, `RwLock`, `Cell`, `RefCell`, `OnceCell`, `std::env::{var, var_os}` and 27 `f64` methods
-  (every transcendental, `powi`, `mul_add`); a probe verified that 15 of them, the original 8 included, fire.
+  `todo`, `unimplemented`, `panic`, `print_stdout` and `print_stderr` denied (tests may unwrap and panic;
+  `phasekit-xtask` may print); `indexing_slicing` denied in `batch` and `flash`.
+- `clippy.toml` bans `Mutex`, `RwLock`, `Cell`, `RefCell`, `OnceCell`, the `std::sync::atomic` types, `thread_local!`,
+  `std::env::{var, var_os, vars, vars_os, home_dir}`, the filesystem (`std::fs` functions and the `Path` methods that
+  query it) and 27 `f64` methods (every transcendental, `powi`, `mul_add`). `phasekit_xtask::tests::clippy_bans_fire`
+  checks that every entry and every denied lint fires on a probe crate (PLAN.md M0.3).
 - Unsafe: `phasekit-capi` uses `deny` with per-item `allow` and a SAFETY comment. Its FFI-state modules carry
   `#[allow(clippy::disallowed_types, reason = ..)]`: the thread-local last error, the generational handle table and,
   behind `coolproplib-shim`, the process-wide `errstring` slot (D11). A probe showed `RefCell`/`Mutex` there fail
