@@ -25,6 +25,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 FLUIDS_DIR = ROOT / "reference" / "CoolProp" / "dev" / "fluids"
+FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
+MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
 KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transport", "sigma", "melt", "refstate",
          "props", "codes"]
 SCRUBBED_PREFIXES = ("COOLPROP_", "PXFLASH_")
@@ -243,6 +245,27 @@ def write(out, files):
         os.replace(tmp, path)
 
 
+def write_manifest(out, files):
+    """--write-manifest: rewrite the MANIFEST.sha256 lines of the files written ("<sha256> <bytes> <rows> <path>",
+    path relative to the fixtures directory, section 3.4); other lines are kept, entries stay sorted by path."""
+    entries, comments = {}, []
+    for line in MANIFEST.read_text(encoding="utf-8").splitlines() if MANIFEST.exists() else []:
+        if line.startswith("#"):
+            comments.append(line)
+        elif line:
+            entries[line.rsplit(" ", 1)[1]] = line
+    for rel, text in files.items():
+        path = (Path(out) / rel).resolve()
+        if not path.is_relative_to(FIXTURES_DIR.resolve()):
+            fail(f"--write-manifest: {path} is not under {FIXTURES_DIR}")
+        name = path.relative_to(FIXTURES_DIR.resolve()).as_posix()
+        data = text.encode("utf-8")
+        rows = sum(1 for line in text.splitlines() if not line.startswith("#"))
+        entries[name] = f"{hashlib.sha256(data).hexdigest()} {len(data)} {rows} {name}"
+    lines = comments + [entries[name] for name in sorted(entries)]
+    write(MANIFEST.parent, {MANIFEST.name: "".join(f"{line}\n" for line in lines)})
+
+
 def check(out, files):
     """--check: compare with what DIR holds, byte for byte."""
     differ = [rel for rel, text in sorted(files.items()) if not (Path(out) / rel).is_file()
@@ -272,8 +295,6 @@ def main(argv):
     args = parse_args(argv)
     assert_environment()
     lock = read_lock(args.lock)
-    if args.write_manifest:
-        fail("--write-manifest lands at PLAN.md M1.4")
     generate = GENERATORS.get(args.kind)
     if generate is None:
         fail(f"--kind {args.kind} is added by the PLAN.md step that first uses it")
@@ -286,6 +307,8 @@ def main(argv):
     if args.check:
         return check(args.out, files)
     write(args.out, files)
+    if args.write_manifest:
+        write_manifest(args.out, files)
     return 0
 
 

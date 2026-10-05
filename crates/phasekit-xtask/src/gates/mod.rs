@@ -6,6 +6,7 @@ mod assertions;
 mod counts;
 mod deps;
 mod doc_excerpts;
+mod fixtures;
 mod ignores;
 mod lints;
 mod mutants;
@@ -22,13 +23,14 @@ type Verdict = Result<String, Vec<String>>;
 type Gate = fn(&Repo, &[String]) -> Verdict;
 
 /// The gates in force, in the order `gates all` runs them (VERIFICATION.md §11.2).
-const GATES: [(&str, Gate); 8] = [
+const GATES: [(&str, Gate); 9] = [
     ("deps", deps::run),
     ("lints", lints::run),
     ("counts", counts::run),
     ("ignores", ignores::run),
     ("doc-excerpts", doc_excerpts::run),
     ("rot", rot::run),
+    ("fixtures", fixtures::run),
     ("assertions", assertions::run),
     ("mutants", mutants::run),
 ];
