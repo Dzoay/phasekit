@@ -7,7 +7,7 @@
 //!   blob per fluid (EOS section written by `phasekit_core::internal::EosRecord::encode`, the same encoder the
 //!   runtime hash gate uses, E14), the name/alias/CAS index with declared references, and the per-fluid
 //!   features (with ECS implications) in `phasekit-data`.
-//! - `oracle`: drives `uv run --no-project --python 3.12 --with CoolProp==8.0.0` with a fresh state per case,
+//! - `oracle`: runs scripts/oracle/gen.py through `uv run --no-project --python 3.12 --with CoolProp==8.0.0` (M1.3),
 //!   scrubbed `COOLPROP_*`/`PXFLASH_*`, all 38 config keys recorded and `oracle.lock` checked.
 //! - `gates`: gate G8 (VERIFICATION.md §11.2). From M0.4 the zero-dependency guard, workspace lints, executed-test
 //!   counts, `#[ignore]` reasons, doc excerpts and rot-register ticks; later fixture manifest drift, the facade
@@ -19,6 +19,7 @@
 )]
 
 mod gates;
+mod oracle;
 mod repo;
 
 use std::process::ExitCode;
@@ -27,7 +28,8 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.split_first() {
         Some((task, rest)) if task == "gates" => gates::main(rest),
-        Some((task, _)) if task == "datagen" || task == "oracle" => {
+        Some((task, rest)) if task == "oracle" => oracle::main(rest),
+        Some((task, _)) if task == "datagen" => {
             println!(
                 "phasekit-xtask {task}: lands at M1/M2 (core {})",
                 core::any::type_name::<phasekit_core::Registry>()
