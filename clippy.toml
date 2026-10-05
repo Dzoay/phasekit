@@ -3,20 +3,76 @@ allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
 
-# The library's only interior mutability is std's one-shot `OnceLock` / `LazyLock` (D8). Atomics are not
-# banned here because only tests use them (counting data sources).
+# The library's only interior mutability is std's one-shot `OnceLock` / `LazyLock` (D8). Atomics are banned too
+# (ROT-031): only phasekit-capi's FFI-state modules may allow them (M10.4), and a test that counts across threads
+# allows them on its counter alone. Each stable atomic type is listed by name.
 disallowed-types = [
     { path = "std::sync::Mutex", reason = "no locks in the library (D8)" },
     { path = "std::sync::RwLock", reason = "no locks in the library (D8)" },
     { path = "std::cell::Cell", reason = "no interior mutability in shared models (D8)" },
     { path = "std::cell::RefCell", reason = "no interior mutability in shared models (D8)" },
     { path = "std::cell::OnceCell", reason = "not Sync; shared lazy state uses OnceLock / LazyLock (D8)" },
+    { path = "std::sync::atomic::AtomicBool", reason = "no shared counters or flags in the library (D8, ROT-031)" },
+    { path = "std::sync::atomic::AtomicI8", reason = "no shared counters or flags in the library (D8, ROT-031)" },
+    { path = "std::sync::atomic::AtomicI16", reason = "no shared counters or flags in the library (D8, ROT-031)" },
+    { path = "std::sync::atomic::AtomicI32", reason = "no shared counters or flags in the library (D8, ROT-031)" },
+    { path = "std::sync::atomic::AtomicI64", reason = "no shared counters or flags in the library (D8, ROT-031)" },
+    { path = "std::sync::atomic::AtomicIsize", reason = "no shared counters or flags in the library (D8, ROT-031)" },
+    { path = "std::sync::atomic::AtomicU8", reason = "no shared counters or flags in the library (D8, ROT-031)" },
+    { path = "std::sync::atomic::AtomicU16", reason = "no shared counters or flags in the library (D8, ROT-031)" },
+    { path = "std::sync::atomic::AtomicU32", reason = "no shared counters or flags in the library (D8, ROT-031)" },
+    { path = "std::sync::atomic::AtomicU64", reason = "no shared counters or flags in the library (D8, ROT-031)" },
+    { path = "std::sync::atomic::AtomicUsize", reason = "no shared counters or flags in the library (D8, ROT-031)" },
+    { path = "std::sync::atomic::AtomicPtr", reason = "no shared counters or flags in the library (D8, ROT-031)" },
 ]
 
-# E16: every f64 transcendental goes through `phasekit_core::math`, the one choke point (D12, dependencies R14).
+# No per-thread state (D8, ROT-268); only phasekit-capi's thread-local last error may allow it (M10.4).
+disallowed-macros = [
+    { path = "std::thread_local", reason = "no per-thread state or scratch (D8, ROT-268)" },
+]
+
+# The environment and the filesystem are out of bounds for the library (ROT-015, ROT-016, ROT-153): every `std::fs`
+# function that reaches the filesystem, and the `Path` methods that query it. E16: every f64 transcendental goes
+# through `phasekit_core::math`, the one choke point (D12, dependencies R14).
 disallowed-methods = [
     { path = "std::env::var", reason = "the library never reads the environment (map 12 R4)" },
     { path = "std::env::var_os", reason = "the library never reads the environment (map 12 R4)" },
+    { path = "std::env::vars", reason = "the library never reads the environment (map 12 R4)" },
+    { path = "std::env::vars_os", reason = "the library never reads the environment (map 12 R4)" },
+    { path = "std::env::home_dir", reason = "no home-directory lookup (map 12 R4, ROT-153)" },
+    { path = "std::fs::canonicalize", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::copy", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::create_dir", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::create_dir_all", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::exists", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::hard_link", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::metadata", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::read", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::read_dir", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::read_link", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::read_to_string", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::remove_dir", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::remove_dir_all", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::remove_file", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::rename", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::set_permissions", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::symlink_metadata", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::write", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::File::open", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::File::create", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::File::create_new", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::OpenOptions::open", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::fs::DirBuilder::create", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::path::Path::canonicalize", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::path::Path::exists", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::path::Path::is_dir", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::path::Path::is_file", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::path::Path::is_symlink", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::path::Path::metadata", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::path::Path::read_dir", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::path::Path::read_link", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::path::Path::symlink_metadata", reason = "the library never touches the filesystem (ROT-153)" },
+    { path = "std::path::Path::try_exists", reason = "the library never touches the filesystem (ROT-153)" },
     { path = "f64::mul_add", reason = "FMA breaks cross-target determinism (D12, K12)" },
     { path = "f64::powi", reason = "use math::powi: a fixed multiplication chain (D12)" },
     { path = "f64::powf", reason = "use math::powf: the transcendental choke point (D12)" },
