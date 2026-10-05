@@ -54,8 +54,8 @@ reference/   gitignored: the pinned CoolProp checkout and local papers
 ## Getting started (contributors)
 
 Requirements: stable Rust (1.99 or newer; the targets `wasm32-unknown-unknown`, `wasm32-wasip2` and
-`x86_64-pc-windows-msvc`), [uv](https://docs.astral.sh/uv/) for the CoolProp oracle, and `wasmtime`, `cargo-deny` and
-`cargo-shear` (`cargo install --locked wasmtime-cli cargo-deny cargo-shear`).
+`x86_64-pc-windows-msvc`), [uv](https://docs.astral.sh/uv/) for the CoolProp oracle, and `wasmtime`, `cargo-deny`,
+`cargo-shear` and `cargo-mutants` (`cargo install --locked wasmtime-cli cargo-deny cargo-shear cargo-mutants`).
 
 ```sh
 scripts/check-toolchain.sh         # reports which of the tools above are missing

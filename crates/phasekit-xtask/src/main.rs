@@ -53,6 +53,11 @@ mod tests {
     /// The probe crate, relative to the repository root. It is excluded from the workspace.
     const PROBE: &str = "crates/phasekit-xtask/probes/bans";
 
+    /// Lints of `clippy::all` that catch tautological assertions (ROT-294). They are not in the workspace table, so
+    /// they are probed by name: `-D warnings` makes them errors only while they stay in `all`.
+    const TAUTOLOGY_LINTS: [&str; 3] =
+        ["clippy::assertions_on_constants", "clippy::eq_op", "clippy::bool_assert_comparison"];
+
     fn repo_root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
     }
@@ -105,7 +110,7 @@ mod tests {
             .collect()
     }
 
-    /// Rot: ROT-015, ROT-016, ROT-018, ROT-024, ROT-153 (PLAN.md M0.3; E16 made permanent). Every `clippy.toml` entry
+    /// Rot: ROT-015, ROT-016, ROT-018, ROT-024, ROT-153, ROT-294 (PLAN.md M0.3, M0.4a; E16 made permanent). Every `clippy.toml` entry
     /// and every lint the workspace denies has a probe line, and clippy run as in G2 reports an error on every probe
     /// line (naming the banned path, for a `clippy.toml` entry) and nothing anywhere else.
     #[test]
@@ -122,6 +127,7 @@ mod tests {
             .iter()
             .copied()
             .chain(lints.iter().map(String::as_str))
+            .chain(TAUTOLOGY_LINTS)
             .filter(|rule| !markers.iter().any(|(_, r)| r == rule))
             .collect();
         assert!(unprobed.is_empty(), "rules without a `// fires:` line in {PROBE}/src/lib.rs: {unprobed:?}");

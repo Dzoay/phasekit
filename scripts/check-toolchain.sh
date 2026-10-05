@@ -7,7 +7,7 @@ set -euo pipefail
 MIN_RUST_MAJOR=1
 MIN_RUST_MINOR=85
 TARGETS=(x86_64-unknown-linux-gnu wasm32-unknown-unknown wasm32-wasip2 x86_64-pc-windows-msvc)
-INSTALL_CMD="cargo install --locked --root ~/.local wasmtime-cli cargo-deny cargo-shear"
+INSTALL_CMD="cargo install --locked --root ~/.local wasmtime-cli cargo-deny cargo-shear cargo-mutants"
 # Where `cargo install` may have put a binary that is not on PATH.
 BIN_DIRS=("$HOME/.local/bin" "${CARGO_HOME:-$HOME/.cargo}/bin")
 
@@ -88,6 +88,7 @@ fi
 check_tool wasmtime "$INSTALL_CMD" wasmtime --version
 check_tool cargo-deny "$INSTALL_CMD" cargo deny --version
 check_tool cargo-shear "$INSTALL_CMD" cargo shear --version
+check_tool cargo-mutants "$INSTALL_CMD" cargo mutants --version
 check_tool uv "https://docs.astral.sh/uv/" uv --version
 
 # Not needed until the C++ baseline (M1.15): warn only.

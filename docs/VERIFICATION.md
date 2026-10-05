@@ -630,8 +630,12 @@ matrix per milestone as a table.
 - A counting `#[global_allocator]` asserts 0 heap allocations per flash and per batch point after warm-up (M5). At
   compile time: Send + Sync, `size_of::<State>() <= 256`, `size_of::<Error>() <= 48` (ARCHITECTURE.md §3.8); PLAN.md
   M9.7 records the actual `State` size (208 B in the sketch) and asserts only the bound.
-- Mutation testing (`cargo-mutants`) is not part of v0.1: no requirement or decision asks for it, and principle 5
-  (round trips assert values against a class) is the map 10 R3 remedy. It can be added later as a report-only job.
+- Tests that cannot fail (ROT-294; user decisions TQ1, TQ2, which replace the earlier deferral of mutation testing):
+  `gates assertions` requires every `#[test]` to assert (or be `#[should_panic]`) and rejects an `assert_eq!` or
+  `assert_ne!` with identical sides; `clippy_bans_fire` keeps clippy's tautology lints firing; `gates mutants` runs
+  `cargo mutants --in-diff` on every PR, and a mutant of changed code that no test catches fails it unless
+  `.cargo/mutants.toml` excludes it with a reason. Principle 5 (round trips assert values against a class) still
+  answers map 10 R3 for what a test asserts.
 
 ## 9. Differential tests for execution strategies
 
@@ -730,6 +734,8 @@ definition of the subcommands; PLAN.md steps add them in the order of the last c
 | `ignores` | every `#[ignore = "..."]` reason starts with `DIV-NNNN: `, `issue #N: ` or `nightly: `; DIV ids exist and are not `ResolvedUpstream` (checked against the register from M1.6); `nightly:` only in `tests/sweeps.rs`; a bare `#[ignore]` fails. Each run publishes the ignored list (map 10 R14) | M0.4 |
 | `doc-excerpts` | every fenced `rust` block in `docs/*.md` is split at blank lines, and each chunk appears verbatim in one source file under `crates/` or `docs/design/sketch/`, its lines in order (modulo indentation and `///`/`//!` lines; an excerpt may leave lines out), unless the block is preceded by `<!-- excerpt: illustrative -->` (ROT-139; map 01 R19) | M0.4 |
 | `rot` | every ROT-REGISTER.md row whose milestone is below `phasekit_verify::MILESTONE` has no GAP status and no Proof still marked "new" that is due (PLAN.md §2.1 defines ticking) | M0.4 |
+| `assertions` | every `#[test]` in `crates/` (lint probes aside) contains `assert!`, `assert_eq!` or `assert_ne!`, or is `#[should_panic]`; no `assert_eq!`/`assert_ne!` has identical sides; comments and string literals are not code (ROT-294; map 10 R3, map 07 I11) | M0.4a |
+| `mutants` | `cargo mutants --in-diff` over the Rust changes since the merge base with `origin/main` (untracked files included): no mutant missed unless `.cargo/mutants.toml` excludes it with a reason; a timeout counts as caught and is listed (ROT-294; user decisions TQ1, TQ2) | M0.4a |
 | `fixtures` | committed fixtures hash to their `MANIFEST.sha256` lines; every committed fixture is read by a test and every `fixture!` path exists (map 10 R15); committed total ≤ 16 MiB (3.6) | M1.4 |
 | `register` | `check_register` + the 7.2 cross-id checks (also a test) | M1.6 |
 | `datagen` | `cargo xtask datagen` regenerates blobs, index and features; `git diff --exit-code` on the outputs | M2.5 |
@@ -746,13 +752,13 @@ core, data and compat (D17). Before a release: `cargo semver-checks` and `cargo 
 
 | Job | Runner | Runs | Notes |
 |---|---|---|---|
-| linux | x86_64 Linux | G1, G2, G3, G7, G8 (`gates all`), deny, reuse, shear, MSRV | caches `reference/CoolProp` keyed by its pinned commit and runs `scripts/fetch-coolprop.sh` on a miss (anonymous clone); gungraun from M9 |
+| linux | x86_64 Linux | G1, G2, G3, G7, G8 (`gates all`), deny, reuse, shear, MSRV | fetches `origin/main` and installs cargo-mutants for `gates mutants`; caches `reference/CoolProp` keyed by its pinned commit and runs `scripts/fetch-coolprop.sh` on a miss (anonymous clone); gungraun from M9 |
 | windows | Windows MSVC | G3 with `--exclude phasekit-xtask` (so G6 is a real build) | MSVC CRT transcendentals differ in ulps; the classes absorb it |
 | wasip2 | x86_64 Linux + wasmtime | G4: `cargo test --workspace --exclude phasekit-xtask --target wasm32-wasip2`, `CARGO_TARGET_WASM32_WASIP2_RUNNER=wasmtime` | fixtures via `include_str!`, no filesystem; thread tests compiled out |
 | wasm-browser | x86_64 Linux | G5; `cargo build -p phasekit-core --no-default-features --features fluids-core --target wasm32-unknown-unknown`, baseline and `RUSTFLAGS="-C target-feature=+simd128"`; from M10 also `phasekit-wasm` and the JS smoke test (section 13) | K15 |
 | aarch64 | aarch64 Linux | G3 with `--exclude phasekit-xtask` | D17 |
 | hash-compare | the four targets above | from M9.4: `tests/cross_target.rs` with std and with `--features libm`; collects and compares the hashes (9.4) | |
-| weekly | Linux | `cargo update` then G3 | dependencies §3.4 item 4 |
+| weekly | Linux | `cargo update` then G3; a full `cargo mutants` run, published as a report (surviving mutants of code no PR has touched since) | dependencies §3.4 item 4; user decision TQ2 |
 | nightly | pinned `runner_image` | `cargo xtask oracle --check` twice over the committed files (drift, determinism; 3.6), then `--tier full` into `fixtures-full/`, from M6 `cargo xtask fetch-fastchebpure --all`, then `cargo test -p phasekit-verify --release -- --ignored` (L5), then the report | fail closed |
 
 Until the user creates the remote (PLAN.md M0.6, a user checkpoint), the jobs run locally where they can (every gate;
@@ -835,7 +841,7 @@ Gate names are those of PLAN.md §2.4 and 11.2; fixture names those of 3.4-3.6.
 
 | M | New verification | Fixtures added | Arbiters | Gates turned on |
 |---|---|---|---|---|
-| M0 | the sketch's 47 tests minus the 4 that call `phasekit_compat` (43 executed on Linux, 40 on wasip2; the 4 return at M5.9); L0 unit tests; compile-time Send/Sync and size asserts; lint probes | — | hand derivations | G1-G8 with `deps`, `lints`, `counts`, `ignores`, `doc-excerpts`, `rot`; deny, reuse, shear, MSRV; CI matrix (or CI owed until the user's remote exists) |
+| M0 | the sketch's 47 tests minus the 4 that call `phasekit_compat` (43 executed on Linux, 40 on wasip2; the 4 return at M5.9); L0 unit tests; compile-time Send/Sync and size asserts; lint probes | — | hand derivations | G1-G8 with `deps`, `lints`, `counts`, `ignores`, `doc-excerpts`, `rot`, `assertions`, `mutants`; deny, reuse, shear, MSRV; CI matrix (or CI owed until the user's remote exists) |
 | M1 | kit: `Provenance`, `ToleranceClass` (+ `SaFit`, `Measured`, `Identity`, `Fd`, `RefAnchor`), `from_printed`, fixture reader + `bits`, comparators, `sample::SplitMix64` (golden vector), report; register schema (6.1), `check_register`, proof dispatcher and `MILESTONE`; `ARBITERS`; proptest over `Input::new` and batch shapes; conformance kit (FD, gauge, sequential policy); C++ baseline | `oracle.lock`, `MANIFEST.sha256`, `facts/smoke.csv`, `facts/register.csv`, `mp/check-points.csv` | `from_printed("21.17909")` = 5e-6 (map 10 §8.4); double entry of IAPWS-95 Tables 6-8, Lemmon 2016 Table 7, Thol 2016 Table 3, NIST IR 8474 Tables 3-4 and the 18 CoolProp test states | fixture round trip bit-exact; `fixtures`, `register`; nightly drift check |
 | M2 | datagen: 136 fluids parse; 130 `source_eos_hash` stamps recompute + self-test; 390 check points match the JSON; 556 keys, 0 collisions; JSON → record bit for bit (map 09 §8); Parity diff = patches; hash gate (7.3); counting-source lazy tests; blob fuzz; citation lint | `crit` (published, `Exact`; core and all-fluid tier) | — | `datagen`; DIV-0003 (constant) and DIV-0006..0008 proofs; lookup bench |
 | M3 | L1 for separable kinds: jets vs num-dual at ~300 points per block incl. δ → 0; oracle block isolation | `term` (separable residual kinds, core subset; α^r total rows in the all-fluid tier) | AD (num-dual) | α^r bench; memory budget recorded |
