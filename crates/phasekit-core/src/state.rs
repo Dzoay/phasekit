@@ -281,7 +281,7 @@ impl State {
         let pt = self.single_point(Prop::SpeedOfSound)?;
         let w2 =
             self.defined(Prop::SpeedOfSound, relations::speed_of_sound_squared(self.r, pt.t, self.molar_mass, &pt.b))?;
-        if w2 > 0.0 { Ok(math::sqrt(w2)) } else { Err(DomainError::MechanicallyUnstable.into()) }
+        if w2 > 0.0 { Ok(w2.sqrt()) } else { Err(DomainError::MechanicallyUnstable.into()) }
     }
     /// A first partial derivative from the stored order-2 bundle: every family, no model call (E1).
     pub fn partial(&self, p: Partial) -> Result<f64, Error> {
