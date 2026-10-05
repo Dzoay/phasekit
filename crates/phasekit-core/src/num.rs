@@ -78,7 +78,7 @@ impl Real for f64 {
         math::powf(self, y)
     }
     fn sqrt(self) -> Self {
-        math::sqrt(self)
+        math::sqrt( self )
     }
     fn sinh(self) -> Self {
         math::sinh(self)
