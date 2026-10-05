@@ -1,0 +1,49 @@
+name: Bug report
+description: phasekit computes something wrong, returns an unexpected error, or crashes
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If a value disagrees with a published paper, use **Literature disagrees** instead.
+        Security problems go through private reporting (SECURITY.md), not here. Please leave out personal contact details.
+  - type: input
+    id: version
+    attributes:
+      label: phasekit version or commit
+      placeholder: v0.1.0, or a commit hash
+    validations:
+      required: true
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Interface
+      options:
+        - Rust API
+        - PropsSI-style string API (compat)
+        - C ABI (pk_*)
+        - C compatibility shim (CoolPropLib.h)
+        - WebAssembly (browser)
+        - WASI
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: Linux x86-64, Windows MSVC, macOS arm64, a browser, wasmtime ...
+  - type: textarea
+    id: inputs
+    attributes:
+      label: Fluid, inputs and output
+      description: The fluid, the input pair with values and units, the output asked for. A minimal code snippet is best.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual
+      description: What you got, what you expected, and where the expected value comes from (CoolProp 8.0.0, REFPROP, a paper ...).
+    validations:
+      required: true

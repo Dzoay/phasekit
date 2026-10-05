@@ -238,7 +238,7 @@ Every artefact has one path and one defining section. VERIFICATION.md uses the s
 | Data corrections | `data/corrections.csv` (DIV id, fluid, field, v8.0.0 value, corrected value, citation) | VERIFICATION.md §6.4 |
 | Generated data | `crates/phasekit-data/blobs/*.bin`, `crates/phasekit-data/src/generated.rs`, its `Cargo.toml` features | ARCHITECTURE.md §8; M2.4-M2.5 |
 | Executed-test minimums | `ci/test-counts.txt` (`<target> <package>::<binary> <min>`; `# lowered: <reason>` and `# pending M5.9: <test>` comments) | VERIFICATION.md §11.2 `counts` |
-| CI workflows | `.github/workflows/{ci,nightly,weekly}.yml` | VERIFICATION.md §11.3; M0.6 |
+| CI workflows | `.github/workflows/{ci,nightly,weekly}.yml`; `pr-title.yml` (exists since 2026-10-05, CONTRIBUTING.md) | VERIFICATION.md §11.3; M0.6 |
 | C header (M10) | `crates/phasekit-capi/include/phasekit.h` (cbindgen CLI output, committed; R15) | M10.4 |
 
 Committed fixtures are read with `include_str!`, so the corpus runs on wasip2 without filesystem access. Their sizes:
@@ -355,7 +355,7 @@ wasm32-wasip2, x86_64-pc-windows-msvc, clippy and rustfmt (installed); `uv`; `re
   tests are already gated off `target_family = "wasm"`). *Do:* `[target.wasm32-wasip2] runner = "wasmtime"` in
   `.cargo/config.toml`. *Done when:* G4 passes and its executed count (40 expected: 43 minus the three thread tests)
   is in `ci/test-counts.txt`.
-- **M0.6 CI.** The remote exists (`Dzoay/phasekit`, created 2026-10-05; section 6, P2). *Failing command:* a probe PR with a mis-formatted file fails the `fmt` job, and one with a banned call fails
+- **M0.6 CI.** The remote exists (`Dzoay/phasekit`, created 2026-10-05; section 6, P2), with the `pr-title` check and signed-commit rule already required on `main`. *Failing command:* a probe PR with a mis-formatted file fails the `fmt` job, and one with a banned call fails
   `clippy`. *Do:* `.github/workflows/ci.yml` (GitHub Actions on the public repo `Dzoay/phasekit`, section 6 P2; then add the green jobs as required checks to the `main` ruleset) with the jobs of VERIFICATION.md §11.3: linux
   (G1, G2, G3, G7, G8, deny, reuse, shear, MSRV `cargo +1.85 check --lib -p phasekit-core -p phasekit-data`;
   dev-dependencies such as num-dual need newer toolchains, so tests are not run on 1.85, dependencies §4; caches

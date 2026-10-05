@@ -29,7 +29,7 @@ The PR title becomes the commit subject on `main`, so it must follow
 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
 
 ```text
-<type>(<scope>)<!>: <imperative summary, lower case, no full stop>
+<type>(<scope>)<!>: <imperative summary, no trailing full stop>
 
 <body: what and why; the red evidence for a test-first step>
 
@@ -49,12 +49,16 @@ BREAKING CHANGE: <what breaks and how to migrate>
 | `docs` | documentation only | none |
 | `build`, `ci` | Cargo, toolchain, workflows | none |
 | `chore` | everything else (dependency bumps, `chore: rust 1.NN`) | none |
+| `revert` | reverts an earlier commit (`revert: feat(core): ...`) | as the reverted change |
 
 - **Scopes:** the crate without its prefix (`core`, `data`, `compat`, `verify`, `xtask`, `capi`, `wasm`, `py`), or
   `plan`, `deps`, `repo`. Omit the scope only when a change truly spans everything.
 - **Breaking changes:** add `!` before the colon *and* a `BREAKING CHANGE:` footer.
 - **Footers:** `Plan-Step:` is required on plan steps. `Rot:` and `Div:` link rot-register rows and divergence-register
   entries.
+- **Checked by CI:** the `pr-title` workflow (`.github/workflows/pr-title.yml`) fails a PR whose title is not
+  `<type>(<scope>)<!>: <summary>` with a listed type and scope, a summary with no trailing full stop, and at most 72
+  characters. A new crate or scope is added to that workflow and to the list above in the same PR.
 
 Examples:
 
@@ -78,6 +82,21 @@ git config user.email "<id>+<github-username>@users.noreply.github.com"
 Turning on "Keep my email addresses private" and "Block command line pushes that expose my email" in GitHub's email
 settings makes GitHub reject a push that would leak it.
 
+### Signed commits
+
+Every commit on `main` must be signed; the `main` ruleset enforces it. Commits on `main` are squash merges that GitHub
+creates and signs itself, so they are always "Verified". Sign your own commits and tags too, with your SSH key:
+
+```sh
+git config gpg.format ssh
+git config user.signingkey ~/.ssh/id_ed25519.pub
+git config commit.gpgsign true
+git config tag.gpgsign true
+```
+
+Add the same public key on GitHub (Settings → SSH and GPG keys → New SSH key, key type **Signing key**). Release tags
+`vX.Y.Z` are always signed.
+
 ## Versions: SemVer 2.0
 
 - All published crates share one version (`[workspace.package] version` in the root `Cargo.toml`).
@@ -86,7 +105,7 @@ settings makes GitHub reject a push that would leak it.
 - The bump follows from the Conventional Commits since the last tag: any `!` → breaking; otherwise any `feat` → minor
   (patch before 1.0); otherwise patch.
 - `cargo semver-checks` must pass before every release; it catches an API break the commit types missed.
-- Releases are annotated tags `vX.Y.Z` on `main`. `CHANGELOG.md` is generated from the commit subjects since the last
+- Releases are signed, annotated tags `vX.Y.Z` on `main`. `CHANGELOG.md` is generated from the commit subjects since the last
   tag. Crates (crates.io) and the browser package (npm) are published from the tag by GitHub Actions using trusted
   publishing; no API tokens live in the repository.
 - Versioned separately, never by the crate version: the CoolProp v8.0.0 codes in the C compatibility shim (pinned) and

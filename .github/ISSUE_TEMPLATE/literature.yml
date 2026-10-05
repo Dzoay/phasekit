@@ -1,0 +1,41 @@
+name: Literature disagrees
+description: A published reference value differs from phasekit (or from CoolProp, phasekit's provisional oracle)
+labels: [divergence]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        phasekit treats the printed literature as the arbiter when CoolProp is wrong. This report starts the divergence
+        workflow in docs/VERIFICATION.md §6. Please do not attach copies of paywalled papers; a citation is enough.
+  - type: input
+    id: fluid
+    attributes:
+      label: Fluid (or material)
+    validations:
+      required: true
+  - type: textarea
+    id: state
+    attributes:
+      label: Quantity and state
+      description: The property and the state point with units (for example p at T = 300 K, rho = 1000 mol/m3).
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: Reference
+      description: Full citation with DOI, the table or equation number, and the printed value with all its digits.
+    validations:
+      required: true
+  - type: textarea
+    id: values
+    attributes:
+      label: phasekit and CoolProp values
+      description: phasekit's value (version or commit) and, if you know it, CoolProp 8.0.0's value.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks done (optional)
+      options:
+        - label: The paper's own constants (R, molar mass, reducing values) reproduce its table
+        - label: The difference is larger than the number of printed digits explains
