@@ -12,6 +12,13 @@ const KEYS: [&str; 12] =
 /// Keys every fixture has.
 const REQUIRED: [&str; 4] = ["fixture", "source", "columns", "tol"];
 
+/// The header keys of a printed table, `paper/v1`, in order (VERIFICATION.md §4.2).
+const PAPER_KEYS: [&str; 9] =
+    ["fixture", "source", "citation", "kind", "constants", "transcribed", "columns", "units", "tol"];
+
+/// Keys every printed table has (`constants` only where the paper prints them).
+const PAPER_REQUIRED: [&str; 8] = ["fixture", "source", "citation", "kind", "transcribed", "columns", "units", "tol"];
+
 /// Keys a fixture from the CoolProp oracle has besides those.
 const REQUIRED_FROM_ORACLE: [&str; 6] = ["oracle", "generator", "config", "env", "fluid", "bits"];
 
@@ -65,6 +72,8 @@ pub struct Row<'a> {
     pub line: usize,
     /// One cell per column.
     pub cells: Vec<Cell<'a>>,
+    /// Each cell's text as the file has it.
+    pub printed: Vec<&'a str>,
 }
 
 /// A parsed fixture.
@@ -153,6 +162,8 @@ impl<'a> Fixture<'a> {
         if text.contains('\r') {
             return Err(error(0, "lines end in LF only".to_string()));
         }
+        let paper = text.starts_with("# fixture: paper/v1\n");
+        let keys: &[&str] = if paper { &PAPER_KEYS } else { &KEYS };
         let mut lines = text.lines().enumerate().map(|(i, line)| (i + 1, line)).peekable();
         let mut header: Vec<(&'a str, &'a str)> = Vec::new();
         while let Some((n, line)) = lines.next_if(|(_, line)| line.starts_with('#')) {
@@ -160,23 +171,29 @@ impl<'a> Fixture<'a> {
                 .strip_prefix("# ")
                 .and_then(|rest| rest.split_once(": "))
                 .ok_or_else(|| error(n, format!("a header line is `# key: value`, got `{line}`")))?;
-            let position = KEYS
+            let position = keys
                 .iter()
                 .position(|known| *known == key)
                 .ok_or_else(|| error(n, format!("unknown header key `{key}`")))?;
-            if header.last().and_then(|(last, _)| KEYS.iter().position(|known| known == last)) >= Some(position) {
-                return Err(error(n, format!("`{key}` repeats or is out of order; the order is {}", KEYS.join(", "))));
+            if header.last().and_then(|(last, _)| keys.iter().position(|known| known == last)) >= Some(position) {
+                return Err(error(n, format!("`{key}` repeats or is out of order; the order is {}", keys.join(", "))));
             }
             header.push((key, value));
         }
         let get = |key: &str| header.iter().find(|(k, _)| *k == key).map(|(_, v)| *v);
         let source = get("source").unwrap_or_default();
         let oracle_keys: &[&str] = if source == "coolprop" { &REQUIRED_FROM_ORACLE } else { &[] };
-        if let Some(key) = REQUIRED.iter().chain(oracle_keys).find(|key| get(key).is_none()) {
+        let required: &[&str] = if paper { &PAPER_REQUIRED } else { &REQUIRED };
+        if let Some(key) = required.iter().chain(oracle_keys).find(|key| get(key).is_none()) {
             return Err(error(0, format!("header key `{key}` is required")));
         }
-        if parse_source(source).is_none() {
-            return Err(error(0, format!("unknown source `{source}`")));
+        match parse_source(source) {
+            None => return Err(error(0, format!("unknown source `{source}`"))),
+            Some(Origin::Paper { .. } | Origin::Iapws { .. }) => {}
+            Some(_) if paper => {
+                return Err(error(0, format!("a printed table's source is paper: or iapws:, not `{source}`")));
+            }
+            Some(_) => {}
         }
         let kind = get("fixture")
             .and_then(|f| f.strip_suffix("/v1"))
@@ -216,7 +233,7 @@ impl<'a> Fixture<'a> {
                 })
                 .collect::<Option<Vec<_>>>()
                 .ok_or_else(|| error(n, format!("a float cell is not a Python repr: `{line}`")))?;
-            rows.push(Row { line: n, cells });
+            rows.push(Row { line: n, cells, printed: line.split(',').collect() });
         }
         if rows.is_empty() {
             return Err(error(0, "no data rows".to_string()));
@@ -254,6 +271,13 @@ impl<'a> Fixture<'a> {
     /// The data rows.
     pub fn rows(&self) -> &[Row<'a>] {
         &self.rows
+    }
+
+    /// The text of the cell in `row` (0-based) and `column` exactly as the file has it: a printed table's string,
+    /// whose last digit sets its tolerance (`from_printed`, VERIFICATION.md §4.2).
+    pub fn printed(&self, row: usize, column: &str) -> Option<&'a str> {
+        let index = self.columns.iter().position(|c| *c == column)?;
+        self.rows.get(row)?.printed.get(index).copied()
     }
 
     /// The float in `row` (0-based) and `column`.
@@ -479,6 +503,54 @@ mod tests {
         }
         let failed = fixture_text().replace("300.0,stable,ok", "300.0,stable,err:solver");
         assert!(parse(failed).is_ok(), "err:<class> is a valid status");
+    }
+
+    const PAPER: &str = "\
+# fixture: paper/v1
+# source: iapws:R6-95(2018)/8
+# citation: report=IAPWS-R6-95(2018) table=8 page=15 erratum-checked=2026-10-05 pdf_sha256=00
+# kind: K3
+# constants: Tc=647.096 K rhoc=322 kg/m3
+# transcribed: A; checked: B
+# columns: T,p_sigma
+# units: K,MPa
+# tol: in,paper
+275,0.698451167e-3
+450,0.932203564
+";
+
+    /// VERIFICATION.md §4.2: a printed table has its own header keys, a paper or IAPWS source, and keeps the printed
+    /// strings, trailing zeros and all, because they set the tolerance.
+    #[test]
+    fn paper_fixtures_keep_their_printed_strings() {
+        let paper = parse(PAPER.to_string()).unwrap();
+        assert_eq!(
+            (paper.kind(), paper.header("kind"), paper.header("citation").map(|c| c.contains("page=15"))),
+            ("paper", Some("K3"), Some(true))
+        );
+        assert_eq!(paper.provenance(), Provenance::Iapws { release: "R6-95(2018)" });
+        assert_eq!((paper.printed(0, "p_sigma"), paper.printed(1, "T")), (Some("0.698451167e-3"), Some("450")));
+        assert_eq!(paper.value(0, "p_sigma"), Some(0.698451167e-3));
+        assert_eq!((paper.printed(2, "T"), paper.printed(0, "rho")), (None, None));
+        let trailing = parse(PAPER.replace("0.932203564", "0.932203560")).unwrap();
+        assert_eq!(trailing.printed(1, "p_sigma"), Some("0.932203560"), "a trailing zero is a printed digit");
+        // Required keys, the key order and a paper source belong to the paper format.
+        assert!(parse(PAPER.replace("# transcribed: A; checked: B\n", "")).is_err());
+        assert!(parse(PAPER.replace("# kind: K3\n", "")).is_err());
+        assert!(parse(PAPER.replace("# source: iapws:R6-95(2018)/8", "# source: coolprop")).is_err());
+        assert!(parse(PAPER.replace("# source: iapws:R6-95(2018)/8", "# source: mp:coolprop-json")).is_err());
+        assert!(
+            parse(PAPER.replace(
+                "# kind: K3\n# constants: Tc=647.096 K rhoc=322 kg/m3\n",
+                "# constants: Tc=647.096 K rhoc=322 kg/m3\n# kind: K3\n"
+            ))
+            .is_err()
+        );
+        assert!(parse(PAPER.replace("# kind: K3", "# oracle: CoolProp")).is_err(), "oracle keys are not paper keys");
+        assert!(
+            parse(PAPER.replace("# constants: Tc=647.096 K rhoc=322 kg/m3\n", "")).is_ok(),
+            "constants are optional"
+        );
     }
 
     /// Map 10 U1: a failure names the fixture, the row, the column, its class and the provenance.

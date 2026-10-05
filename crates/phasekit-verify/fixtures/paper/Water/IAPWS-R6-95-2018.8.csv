@@ -1,0 +1,12 @@
+# fixture: paper/v1
+# source: iapws:R6-95(2018)/8
+# citation: report=IAPWS-R6-95(2018) table=8 page=15 erratum-checked=2026-10-05 pdf_sha256=512879217b94f4d0741c88cab743d41098268914d538d73e680a736cb1c3aad7
+# kind: K3
+# constants: Tc=647.096 K rhoc=322 kg/m3 R=0.46151805 kJ/(kg K) (Tr=Tc rhor=rhoc; M not printed)
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,p_sigma,rho_liq,rho_vap,h_liq,h_vap,s_liq,s_vap
+# units: K,MPa,kg/m3,kg/m3,kJ/kg,kJ/kg,kJ/(kg K),kJ/(kg K)
+# tol: in,paper,paper,paper,paper,paper,paper,paper
+275,0.698451167e-3,0.999887406e3,0.550664919e-2,0.775972202e1,0.250428995e4,0.283094670e-1,0.910660121e1
+450,0.932203564,0.890341250e3,0.481200360e1,0.749161585e3,0.277441078e4,0.210865845e1,0.660921221e1
+625,0.169082693e2,0.567090385e3,0.118290280e3,0.168626976e4,0.255071625e4,0.380194683e1,0.518506121e1

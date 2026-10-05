@@ -1,0 +1,10 @@
+# fixture: paper/v1
+# source: iapws:R6-95(2018)/6
+# citation: report=IAPWS-R6-95(2018) table=6 page=15 erratum-checked=2026-10-05 pdf_sha256=512879217b94f4d0741c88cab743d41098268914d538d73e680a736cb1c3aad7
+# kind: K1
+# constants: Tc=647.096 K rhoc=322 kg/m3 R=0.46151805 kJ/(kg K) (Tr=Tc rhor=rhoc; M not printed)
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,rho,phi0,phi0_d,phi0_dd,phi0_t,phi0_tt,phi0_dt,phir,phir_d,phir_dd,phir_t,phir_tt,phir_dt
+# units: K,kg/m3,-,-,-,-,-,-,-,-,-,-,-,-
+# tol: in,in,paper,paper,paper,paper,paper,paper,paper,paper,paper,paper,paper,paper
+500,838.025,0.204797733e1,0.384236747,-0.147637878,0.904611106e1,-0.193249185e1,0,-0.342693206e1,-0.364366650,0.856063701,-0.581403435e1,-0.223440737e1,-0.112176915e1
