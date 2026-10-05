@@ -1,0 +1,28 @@
+# Nightly (VERIFICATION.md §11.3). Filled at M1.16 with the oracle drift and determinism checks and the full-set
+# sweep; until then it runs the corpus in release mode, ignored tests included (the L5 step).
+name: nightly
+
+on:
+  schedule:
+    - cron: "23 3 * * *" # daily 03:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  corpus:
+    name: corpus (release)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/rust
+      - name: cargo test -p phasekit-verify --release -- --include-ignored
+        run: cargo test -p phasekit-verify --release -- --include-ignored

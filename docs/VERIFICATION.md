@@ -752,18 +752,18 @@ core, data and compat (D17). Before a release: `cargo semver-checks` and `cargo 
 
 | Job | Runner | Runs | Notes |
 |---|---|---|---|
-| linux | x86_64 Linux | G1, G2, G3, G7, G8 (`gates all`), deny, reuse, shear, MSRV | fetches `origin/main` and installs cargo-mutants for `gates mutants`; caches `reference/CoolProp` keyed by its pinned commit and runs `scripts/fetch-coolprop.sh` on a miss (anonymous clone); gungraun from M9 |
+| fmt, clippy, linux, msrv | x86_64 Linux | `fmt`: G1. `clippy`: G2, G7. `linux`: G3, G8 (`gates all`), and from M0.7 deny, reuse, shear. `msrv`: `cargo +1.85.0 check --lib -p phasekit-core -p phasekit-data` (compat from M5.9) | `linux` fetches `origin/main`, the wasip2 target, wasmtime and cargo-mutants for `gates counts` and `gates mutants`; caches `reference/CoolProp` keyed by its pinned commit and runs `scripts/fetch-coolprop.sh` on a miss (anonymous clone); gungraun from M9 |
 | windows | Windows MSVC | G3 with `--exclude phasekit-xtask` (so G6 is a real build) | MSVC CRT transcendentals differ in ulps; the classes absorb it |
 | wasip2 | x86_64 Linux + wasmtime | G4: `cargo test --workspace --exclude phasekit-xtask --target wasm32-wasip2` under the `wasmtime` runner set in `.cargo/config.toml` (M0.5) | fixtures via `include_str!`, no filesystem; thread tests compiled out |
 | wasm-browser | x86_64 Linux | G5; `cargo build -p phasekit-core --no-default-features --features fluids-core --target wasm32-unknown-unknown`, baseline and `RUSTFLAGS="-C target-feature=+simd128"`; from M10 also `phasekit-wasm` and the JS smoke test (section 13) | K15 |
 | aarch64 | aarch64 Linux | G3 with `--exclude phasekit-xtask` | D17 |
 | hash-compare | the four targets above | from M9.4: `tests/cross_target.rs` with std and with `--features libm`; collects and compares the hashes (9.4) | |
 | weekly | Linux | `cargo update` then G3; a full `cargo mutants` run, published as a report (surviving mutants of code no PR has touched since) | dependencies §3.4 item 4; user decision TQ2 |
-| nightly | pinned `runner_image` | `cargo xtask oracle --check` twice over the committed files (drift, determinism; 3.6), then `--tier full` into `fixtures-full/`, from M6 `cargo xtask fetch-fastchebpure --all`, then `cargo test -p phasekit-verify --release -- --ignored` (L5), then the report | fail closed |
+| nightly | pinned `runner_image` | until M1.16 only the L5 step, as `-- --include-ignored`; then `cargo xtask oracle --check` twice over the committed files (drift, determinism; 3.6), then `--tier full` into `fixtures-full/`, from M6 `cargo xtask fetch-fastchebpure --all`, then `cargo test -p phasekit-verify --release -- --ignored` (L5), then the report | fail closed |
 
-Until the user creates the remote (PLAN.md M0.6, a user checkpoint), the jobs run locally where they can (every gate;
-not the Windows and aarch64 test runs, MSRV or the nightly), and CI is recorded as owed; the first green run on `main`
-replays the backlog.
+The workflows live in `.github/workflows/{ci,weekly,nightly}.yml` (M0.6); every `ci.yml` job is a required check on
+`main`. They pin GitHub's own actions by commit, install the toolchain through `.github/actions/rust` (which holds the
+one stable version) and build pinned tools from crates.io into a cache.
 
 Nightly report, per fluid × kind: rows, cells asserted, cells exempt per DIV id, `nan` cells, oracle-gap rows (11.4),
 headroom; plus the ignored tests and each fluid's arbiter status (oracle-only fluids stay visible).
