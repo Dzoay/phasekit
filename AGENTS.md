@@ -38,6 +38,9 @@ The rules are defined in [CONTRIBUTING.md](CONTRIBUTING.md). The ones agents get
 - **Identity:** commit as `Dzoay <3277116+Dzoay@users.noreply.github.com>` (the maintainer's GitHub identity), set with
   repo-local `git config`. Check `git config user.email` before the first commit of a session. Never use, add or
   infer a personal email address anywhere: commits, trailers, tags, files.
+- **Signing:** commits and tags are SSH-signed (repo-local config, CONTRIBUTING.md "Signed commits"). If signing
+  fails because the key is not available, stop and ask the user to load it into the SSH agent; never pass
+  `--no-gpg-sign` or turn signing off.
 - **Linear history:** never push to `main` and never force-push `main`. One branch and one PR per step. Squash merge
   is the only merge method. Merge only when CI is green and the user has asked you to merge.
 - **Conventional Commits:** the PR title is the commit subject, e.g. `feat(core): power-term jets match the oracle`,

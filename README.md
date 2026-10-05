@@ -76,6 +76,12 @@ Then read [CONTRIBUTING.md](CONTRIBUTING.md). AI coding agents start with [AGENT
 
 Details: [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Reporting problems
+
+- Wrong values, errors or crashes: open a **Bug report** issue.
+- A published reference value that disagrees: open a **Literature disagrees** issue. Literature beats CoolProp here.
+- Security problems: report privately, see [SECURITY.md](SECURITY.md).
+
 ## Licence
 
 Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at your option.
