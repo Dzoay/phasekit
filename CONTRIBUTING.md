@@ -124,4 +124,7 @@ Add the same public key on GitHub (Settings → SSH and GPG keys → New SSH key
 ## Licence
 
 By contributing you agree that your contribution is licensed under MIT OR Apache-2.0, like the rest of the project
-([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)).
+([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)). The licence of every file is recorded through
+[REUSE.toml](REUSE.toml) ([REUSE 3.3](https://reuse.software)): a new file of the project's own needs nothing, and a
+file under another licence (data derived from CoolProp, say) gets an annotation there; `reuse lint` checks it in CI.
+Dependencies pass `cargo deny check` ([deny.toml](deny.toml)) and `cargo shear`.

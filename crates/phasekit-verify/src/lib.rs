@@ -12,4 +12,4 @@ pub use tolerance::{Provenance, Tolerance, ToleranceClass, from_printed};
 /// The first milestone that is not closed (PLAN.md §0.2). The step that closes milestone n sets it to n + 1, which
 /// arms the fail-closed checks for everything due by n: `cargo xtask gates rot` (VERIFICATION.md §11.2) and, from M1.6,
 /// `tests/divergences.rs` (VERIFICATION.md §6.3).
-pub const MILESTONE: u8 = 0;
+pub const MILESTONE: u8 = 1;

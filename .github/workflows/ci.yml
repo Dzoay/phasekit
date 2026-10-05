@@ -1,4 +1,4 @@
-# CI (PLAN.md M0.6; the jobs of VERIFICATION.md §11.3). Every job is a required check on `main`. The stable toolchain
+# CI (PLAN.md M0.6, M0.7; the jobs of VERIFICATION.md §11.3). Every job is a required check on `main`. The stable toolchain
 # is pinned once, in .github/actions/rust; tools are built from crates.io at pinned versions and cached.
 name: ci
 
@@ -20,6 +20,9 @@ env:
   CARGO_INCREMENTAL: "0"
   WASMTIME_VERSION: "49.0.2"
   CARGO_MUTANTS_VERSION: "27.1.0"
+  CARGO_DENY_VERSION: "0.20.2"
+  CARGO_SHEAR_VERSION: "1.14.0"
+  REUSE_VERSION: "6.2.0"
 
 defaults:
   run:
@@ -66,10 +69,12 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.tools
-          key: tools-${{ runner.os }}-${{ runner.arch }}-wasmtime-${{ env.WASMTIME_VERSION }}-mutants-${{ env.CARGO_MUTANTS_VERSION }}
-      - name: Install wasmtime and cargo-mutants
+          key: tools-${{ runner.os }}-${{ runner.arch }}-wasmtime-${{ env.WASMTIME_VERSION }}-mutants-${{ env.CARGO_MUTANTS_VERSION }}-deny-${{ env.CARGO_DENY_VERSION }}-shear-${{ env.CARGO_SHEAR_VERSION }}
+      - name: Install wasmtime, cargo-mutants, cargo-deny and cargo-shear
         if: steps.tools.outputs.cache-hit != 'true'
-        run: cargo install --locked --root ~/.tools "wasmtime-cli@$WASMTIME_VERSION" "cargo-mutants@$CARGO_MUTANTS_VERSION"
+        run: >-
+          cargo install --locked --root ~/.tools "wasmtime-cli@$WASMTIME_VERSION" "cargo-mutants@$CARGO_MUTANTS_VERSION"
+          "cargo-deny@$CARGO_DENY_VERSION" "cargo-shear@$CARGO_SHEAR_VERSION"
       - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
       - name: CoolProp checkout cache
         id: coolprop
@@ -84,6 +89,12 @@ jobs:
         run: cargo test --workspace
       - name: G8 cargo xtask gates all
         run: cargo xtask gates all
+      - name: cargo deny check
+        run: cargo deny check
+      - name: cargo shear
+        run: cargo shear
+      - name: reuse lint (REUSE 3.3)
+        run: pipx run "reuse==$REUSE_VERSION" lint
 
   msrv:
     name: msrv

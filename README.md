@@ -4,9 +4,9 @@ A modular, memory-safe Rust library for thermophysical properties, starting with
 and all states of matter. It is a from-scratch successor to [CoolProp](https://github.com/CoolProp/CoolProp), not a
 binding, verified against CoolProp 8.0.0 and the published literature.
 
-> **Status: implementation under way at milestone M0 (toolchain, workspace and CI).** This repository holds the
-> architecture, the step-by-step test-driven plan and the verification design. There is no usable library yet;
-> progress follows [docs/PLAN.md](docs/PLAN.md).
+> **Status: milestone M0 (toolchain, workspace, gates and CI) is done; M1 (verification kit and oracle) is next.**
+> This repository holds the architecture, the step-by-step test-driven plan and the verification design. There is no
+> usable library yet; progress follows [docs/PLAN.md](docs/PLAN.md).
 
 ## Goals
 

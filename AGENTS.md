@@ -3,10 +3,10 @@
 phasekit is a from-scratch, idiomatic Rust successor to CoolProp (thermophysical properties of fluids, later
 materials). It is **not** a binding. Work proceeds test-first, one plan step per pull request.
 
-**Current state:** milestone M0 is under way. M0.1 (toolchain check), M0.2 (workspace seeded from the sketch), M0.3
-(lint probes), M0.4 (xtask gates), M0.4a (test-quality gates), M0.5 (wasip2 tests under wasmtime) and M0.6 (CI) are
-done; the next step is **M0.7** in [docs/PLAN.md](docs/PLAN.md). `docs/design/sketch/` is the compiled type sketch (its
-own Cargo workspace) that seeded the workspace; it is never edited, and later steps copy from it only when they say so.
+**Current state:** milestone M0 (toolchain, workspace, lints, gates, test-quality gates, CI, licences) is done and
+`phasekit_verify::MILESTONE` is 1; the next step is **M1.1** in [docs/PLAN.md](docs/PLAN.md). `docs/design/sketch/` is
+the compiled type sketch (its own Cargo workspace) that seeded the workspace; it is never edited, and later steps copy
+from it only when they say so.
 
 ## Sources of truth, in order
 
