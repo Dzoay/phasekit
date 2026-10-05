@@ -15,6 +15,10 @@ const HEADER: &str = "\
 # <test>` lines name tests held back until that step; they fail the gate once milestone n has closed.
 ";
 
+/// The targets measured besides the host (G4). xtask spawns processes and reads the repository, so it is a host-only
+/// tool and their runs leave it out (PLAN.md §2.5).
+const CROSS: [&str; 1] = ["wasm32-wasip2"];
+
 /// A test binary's owner: a package name and its integration-test files relative to the package (`tests/eos.rs`).
 type Owner = (String, Vec<String>);
 
@@ -39,27 +43,46 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
         Err(e) => return Err(vec![e]),
     };
     let manifest = parse_manifest(&text).map_err(|e| vec![e])?;
-    // wasm32-wasip2 gets its runner at M0.5; until then only the host's counts can be measured here.
-    if let Some(other) = manifest.iter().find(|entry| entry.target != host) {
-        return Err(vec![format!("{MANIFEST}: no test runner for target {} in gates counts", other.target)]);
+    if let Some(other) = manifest.iter().find(|entry| test_command(&entry.target, &host).is_none()) {
+        return Err(vec![format!("{MANIFEST}: no test runner for target {} on {host}", other.target)]);
     }
     let owners = owners(repo).map_err(|e| vec![e])?;
-    let (ok, output) = repo.cargo_merged("test", &["test", "--workspace"]).map_err(|e| vec![e])?;
-    if !ok {
-        let tail: Vec<String> = output.lines().rev().take(20).map(str::to_string).collect();
-        return Err(std::iter::once("cargo test --workspace failed:".to_string())
-            .chain(tail.into_iter().rev())
-            .collect());
+    let (mut updated, mut errors, mut summary) = (text.clone(), Vec::new(), Vec::new());
+    for target in std::iter::once(host.as_str()).chain(CROSS) {
+        let args = test_command(target, &host).unwrap_or_default();
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let (ok, output) = repo.cargo_merged(&format!("test-{target}"), &args).map_err(|e| vec![e])?;
+        if !ok {
+            let tail: Vec<String> = output.lines().rev().take(20).map(str::to_string).collect();
+            return Err(std::iter::once(format!("cargo {} failed:", args.join(" ")))
+                .chain(tail.into_iter().rev())
+                .collect());
+        }
+        let executed = executed(&output, &owners).map_err(|e| vec![e])?;
+        updated = update(&updated, target, &executed);
+        errors.extend(check(&manifest, target, &executed).into_iter().map(|e| format!("{target}: {e}")));
+        let total: usize = executed.iter().map(|(_, n)| n).sum();
+        summary.push(format!("{total} tests on {target}"));
     }
-    let executed = executed(&output, &owners).map_err(|e| vec![e])?;
     if update_manifest {
-        repo.write(MANIFEST, &update(&text, &host, &executed)).map_err(|e| vec![e])?;
-        return Ok(format!("{MANIFEST} updated for {host}"));
+        repo.write(MANIFEST, &updated).map_err(|e| vec![e])?;
+        return Ok(format!("{MANIFEST} updated: {}", summary.join(", ")));
     }
-    let mut errors = check(&manifest, &host, &executed);
     errors.extend(pending_due(&text, phasekit_verify::MILESTONE));
-    let total: usize = executed.iter().map(|(_, n)| n).sum();
-    if errors.is_empty() { Ok(format!("{total} tests in {} binaries on {host}", manifest.len())) } else { Err(errors) }
+    if errors.is_empty() { Ok(format!("{} binaries; {}", manifest.len(), summary.join(", "))) } else { Err(errors) }
+}
+
+/// The `cargo test` arguments that measure `target`: everything on the host, everything but xtask on a cross target
+/// (run by the runner in `.cargo/config.toml`), and `None` for a target this machine cannot run.
+fn test_command(target: &str, host: &str) -> Option<Vec<String>> {
+    let args: &[&str] = if target == host {
+        &["test", "--workspace"]
+    } else if CROSS.contains(&target) {
+        &["test", "--workspace", "--exclude", "phasekit-xtask", "--target", target]
+    } else {
+        return None;
+    };
+    Some(args.iter().map(|arg| arg.to_string()).collect())
 }
 
 /// Each member's package name and integration-test files.
@@ -316,6 +339,16 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
         assert!(!check(&[], HOST, &ran(&[("phasekit-data::lib", 0)])).is_empty());
         assert!(parse_manifest(&format!("{HOST} phasekit-core::lib 0\n")).is_err());
         assert!(parse_manifest(&format!("{HOST} phasekit-core 24\n")).is_err());
+    }
+
+    /// G3 and G4 (PLAN.md §2.4): the host runs every crate; wasip2 runs all but the host-only xtask under wasmtime.
+    #[test]
+    fn each_target_is_measured_by_its_own_test_command() {
+        let words = |args: &[&str]| Some(args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>());
+        assert_eq!(test_command(HOST, HOST), words(&["test", "--workspace"]));
+        let wasip2 = words(&["test", "--workspace", "--exclude", "phasekit-xtask", "--target", "wasm32-wasip2"]);
+        assert_eq!(test_command("wasm32-wasip2", HOST), wasip2);
+        assert_eq!(test_command("x86_64-pc-windows-msvc", HOST), None, "no runner for Windows on this host");
     }
 
     #[test]
