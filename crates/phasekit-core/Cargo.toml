@@ -20,5 +20,9 @@ fluids-core = ["embedded", "phasekit-data/core"]
 [dependencies]
 phasekit-data = { workspace = true, optional = true }
 
+# T3 dev-only (dependencies §2.12, §3.1): invariants over any input (PLAN.md M1.14); never in a public API.
+[dev-dependencies]
+proptest = { version = "1.11", default-features = false, features = ["std"] }
+
 [lints]
 workspace = true

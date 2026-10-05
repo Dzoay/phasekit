@@ -692,7 +692,10 @@ matrix per milestone as a table.
 
 - proptest (std only, dependencies R18), fixed CI seed, committed `proptest-regressions/`: `Input::new` over NaN, ±∞,
   ±0, subnormals, negatives, Q ∉ [0, 1] → `InvalidInput`, never a panic (map 12 R9); `BatchRequest` shapes (zero
-  points, zero outputs, n·m overflow, mismatched lengths) → early return or `Shape` (E12); registry names (case folding,
+  points, zero outputs, n·m overflow, mismatched lengths) → early return or `Shape` (E12). Since M1.14 these two are
+  `crates/phasekit-core/tests/properties.rs`, 4096 cases each from `RngSeed::Fixed` in the test's config (every machine
+  runs the same cases), failures replayed from `crates/phasekit-core/proptest-regressions/properties.txt`; n·m overflow
+  is reachable only where `usize` is 32 bits (wasip2), elsewhere such buffers cannot exist. Registry names (case folding,
   non-ASCII, unknown) → typed errors; truncated or bit-flipped blobs → `LoadError` (checksum). Rust-side grids use
   SplitMix64 (`phasekit_verify::sample`), reproducible on every target, wasip2 included (dependencies §2.12).
 - Lazy loading with a counting `DataSource` (ARCHITECTURE.md §6, E5, E6): building the index decodes nothing; a thermo

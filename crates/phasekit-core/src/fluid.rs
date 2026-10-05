@@ -301,3 +301,32 @@ impl Fluid {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::FluidRecord;
+    use crate::state::Phase;
+    use crate::units::Density;
+
+    /// ROT-006 (map 01 R13, map 14 R11): a flash takes no prior state and mutates nothing it is given, so after a
+    /// failed flash the earlier state reads exactly as before, and the handle flashes the same point to the same bits
+    /// (CoolProp's backend is left torn: `T_` and `get_T()` disagree after a failed update).
+    #[test]
+    fn failed_flash_leaves_the_previous_state_untouched() {
+        let fluid = Fluid::new(Arc::new(FluidRecord::toy("X").unwrap().compile().unwrap()));
+        let liquid = FlashOptions::new().with_phase(Phase::Liquid);
+        let dt = |t| Input::dt(Density::molar(5_000.0).unwrap(), Temperature::new(t).unwrap());
+        let read =
+            |s: &State| [Prop::T, Prop::P, Prop::Hmolar, Prop::Cpmolar].map(|p| fluid.prop(s, p).map(f64::to_bits));
+        let state = fluid.flash(dt(300.0), &liquid).unwrap();
+        let before = (state, read(&state));
+        // Above the 420 K limit, and a pair the toy model does not declare.
+        assert!(matches!(fluid.flash(dt(500.0), &liquid), Err(Error::Domain(_))));
+        let pt = Input::pt(Pressure::new(1e6).unwrap(), Temperature::new(300.0).unwrap());
+        assert_eq!(fluid.flash(pt, &liquid), Err(Error::Unsupported { pair: Pair::PT }));
+        assert_eq!((state, read(&state)), before);
+        let again = fluid.flash(dt(300.0), &liquid).unwrap();
+        assert_eq!((again, read(&again)), before, "the handle carries nothing over from the failure");
+    }
+}
