@@ -7,6 +7,10 @@ use phasekit_verify::{fixture, sha256_hex};
 /// and to the test that reads it.
 const COMMITTED: &[(&str, &str)] = &[
     fixture!("coolprop-8.0.0/facts/smoke.csv"),
+    fixture!("paper/Helium/OrtizVega-JPCRD-2019.3.check.csv"),
+    fixture!("paper/Helium/OrtizVega-JPCRD-2019.3.csv"),
+    fixture!("paper/Helium/OrtizVega-JPCRD-2019.4.check.csv"),
+    fixture!("paper/Helium/OrtizVega-JPCRD-2019.4.csv"),
     fixture!("paper/R115/Lemmon-JCED-2016-365227.7.check.csv"),
     fixture!("paper/R115/Lemmon-JCED-2016-365227.7.csv"),
     fixture!("paper/R1234ze(E)/Thol-IJT-2016-R1234zeE.3.check.csv"),

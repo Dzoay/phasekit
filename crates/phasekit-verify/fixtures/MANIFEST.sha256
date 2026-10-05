@@ -1,5 +1,9 @@
 # MANIFEST.sha256 (docs/VERIFICATION.md section 3.4): "<sha256> <bytes> <rows> <path>" for every committed fixture.
 57d8bce16a33af3f4ad2fefd55c48c65f543053202702c906e37718dfbd92f09 2068 3 coolprop-8.0.0/facts/smoke.csv
+f21c4ebf7ef549dcb3f70a9a7b97761ee6673c65c180496de21a335c67c42330 738 6 paper/Helium/OrtizVega-JPCRD-2019.3.check.csv
+f21c4ebf7ef549dcb3f70a9a7b97761ee6673c65c180496de21a335c67c42330 738 6 paper/Helium/OrtizVega-JPCRD-2019.3.csv
+48ddb0c8372f3b689a76ff4719c5da61e01591222643a80372db577a80881141 1275 17 paper/Helium/OrtizVega-JPCRD-2019.4.check.csv
+48ddb0c8372f3b689a76ff4719c5da61e01591222643a80372db577a80881141 1275 17 paper/Helium/OrtizVega-JPCRD-2019.4.csv
 f44ddb2f6be5d7f2095025b203aea2aff954460d38981f34430a8ad54702daa9 680 3 paper/R115/Lemmon-JCED-2016-365227.7.check.csv
 f44ddb2f6be5d7f2095025b203aea2aff954460d38981f34430a8ad54702daa9 680 3 paper/R115/Lemmon-JCED-2016-365227.7.csv
 2deb4fe8b8edaefc898bd1056daf1def7ee8c3efb82c23bd0d7a3f00aafe7389 790 6 paper/R1234ze(E)/Thol-IJT-2016-R1234zeE.3.check.csv
