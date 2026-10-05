@@ -1,0 +1,9 @@
+# fixture: paper/v1
+# source: paper:Akasaka-IJT-2023-R1224ydZ/Table7
+# citation: doi=10.1007/s10765-023-03266-3 table=7 tests=src/Tests/CoolProp-Tests.cpp:4798@ae81610e erratum-checked=2026-10-05 cpp_sha256=da633f3da9ea90507094960ae93103dd46735760eda20bb6e6522847406434fb
+# kind: K2
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,rho,p,cv,cp,w,note
+# units: K,mol/m3,Pa,J/(mol K),J/(mol K),m/s,-
+# tol: in,in,paper,paper,paper,paper,label
+400.0,8000.0,21.17909e6,139.592,185.184,489.479,row 4 DIV-0014

@@ -1,0 +1,14 @@
+# fixture: paper/v1
+# source: paper:Lemmon-IJT-2022/Table7
+# citation: doi=10.1007/s10765-022-03015-y table=7 tests=src/Tests/CoolProp-Tests.cpp:4403-4461@ae81610e erratum-checked=2026-10-05 cpp_sha256=da633f3da9ea90507094960ae93103dd46735760eda20bb6e6522847406434fb
+# kind: K2
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,rho,p,cv,cp,w,note
+# units: K,mol/dm3,MPa,J/(mol K),J/(mol K),m/s,-
+# tol: in,in,paper,paper,paper,paper,label
+280,0,,89.2037,97.5182,149.388,
+280,11,28.95760,101.930,139.307,738.905,
+280,0.1,0.2185345,91.3497,102.623,141.882,
+340,8,2.309798,113.805,195.748,265.888,
+340,1,1.855076,113.479,168.646,114.354,
+368,4.2,3.394716,149.703,48981.3,76.3597,

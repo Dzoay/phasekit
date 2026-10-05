@@ -56,13 +56,15 @@ pub enum ColumnRole {
     Output(ToleranceClass),
 }
 
-/// One cell: a float (every column but labels) or text.
+/// One cell: a float (every column but labels), text, or a printed table's blank.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Cell<'a> {
     /// A float cell, parsed from its Python `repr`.
     Num(f64),
     /// A label cell.
     Text(&'a str),
+    /// An output a printed table leaves blank: its source gives no value there (VERIFICATION.md §4.2).
+    Blank,
 }
 
 /// One data row and the line it came from.
@@ -229,6 +231,7 @@ impl<'a> Fixture<'a> {
                 .zip(&roles)
                 .map(|(cell, role)| match role {
                     ColumnRole::Label => Some(Cell::Text(cell)),
+                    ColumnRole::Output(_) if paper && cell.is_empty() => Some(Cell::Blank),
                     _ => parse_float(cell).map(Cell::Num),
                 })
                 .collect::<Option<Vec<_>>>()
@@ -285,7 +288,7 @@ impl<'a> Fixture<'a> {
         let index = self.columns.iter().position(|c| *c == column)?;
         match self.rows.get(row)?.cells.get(index)? {
             Cell::Num(value) => Some(*value),
-            Cell::Text(_) => None,
+            Cell::Text(_) | Cell::Blank => None,
         }
     }
 
@@ -550,6 +553,22 @@ mod tests {
         assert!(
             parse(PAPER.replace("# constants: Tc=647.096 K rhoc=322 kg/m3\n", "")).is_ok(),
             "constants are optional"
+        );
+    }
+
+    /// VERIFICATION.md §4.2: a printed table may leave an output blank where its source gives no value; an input may
+    /// not, and neither may any cell of an oracle fixture.
+    #[test]
+    fn a_printed_table_may_leave_an_output_blank() {
+        let blank = parse(PAPER.replace("450,0.932203564", "450,")).unwrap();
+        assert_eq!((blank.printed(1, "p_sigma"), blank.value(1, "p_sigma")), (Some(""), None));
+        assert_eq!(blank.rows()[1].cells[1], Cell::Blank);
+        assert!(matches!(blank.check(1, "p_sigma", 0.9), Err(CheckError::NoNumber { .. })));
+        assert!(parse(PAPER.replace("450,0.932203564", ",0.932203564")).is_err(), "an input is never blank");
+        let oracle = "# fixture: eos/v1\n# source: paper:lemmon2016/7\n# columns: T,p\n# tol: in,prop\n1.0,";
+        assert!(
+            parse(format!("{oracle}2.0\n")).is_ok() && parse(format!("{oracle}\n")).is_err(),
+            "only printed tables"
         );
     }
 
