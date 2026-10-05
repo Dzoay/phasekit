@@ -21,4 +21,8 @@ exclude_re = [
     # `gates::main` and `usage` dispatch the subcommands and print the verdicts: G8 runs them on every PR.
     "replace (main|usage) -> ExitCode",
     "in (main|usage)$",
+    # Equivalent mutants of SHA-256's Ch and Maj, written as FIPS 180-4 writes them: in Ch the two terms are bitwise
+    # disjoint, and in Maj any two set terms are covered by the third, so `^` and `|` give the same bits. The NIST
+    # vectors in sha256.rs test everything else.
+    "sha256\\.rs:(27:30|30:31|30:41): replace \\^ with \\| in sha256",
 ]

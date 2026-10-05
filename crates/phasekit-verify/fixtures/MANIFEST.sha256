@@ -1,0 +1,2 @@
+# MANIFEST.sha256 (docs/VERIFICATION.md section 3.4): "<sha256> <bytes> <rows> <path>" for every committed fixture.
+57d8bce16a33af3f4ad2fefd55c48c65f543053202702c906e37718dfbd92f09 2068 3 coolprop-8.0.0/facts/smoke.csv
