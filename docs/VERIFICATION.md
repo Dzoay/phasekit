@@ -367,7 +367,10 @@ Procedure (`tests/arbiters.rs`, on the mutable `FluidRecord` seam, ARCHITECTURE.
 | 130 SA fluids | P-mp check points (Θ = 0.5, 0.3, 0.1), fastchebpure dense files | K3 (mp) | SA vs mp: p median 4.8e-14, max 4.7e-9 (map 10 §8.1) | M5 SA, M6 VLE |
 | Transport, 41 fluids | the 318 `CoolProp-Tests.cpp` rows re-labelled: only P/P-IAPWS rows arbitrate; R-other, R-self, unsourced rows dropped (map 13 §8, map 10 R6) | rows | median 7.8e-6 vs oracle | M8 |
 
-No milestone gate depends on a paywalled paper: every D15 gate names an open arbiter (IAPWS, Lemmon 2016, Thol 2016,
+`phasekit_verify::arbiters::ARBITERS` (PLAN.md M1.7) holds these rows as records, all `Expected` or `Unpublished`
+at M1 until their tables are transcribed; the 12 one-row fluids join at M1.12, the n-Heptane and D6 c_p⁰ equation checks
+with M4, the transport rows and releases with M8.2, the mp check points with M1.17. No milestone gate depends on a
+paywalled paper: every D15 gate names an open arbiter (IAPWS, Lemmon 2016, Thol 2016,
 NIST IR 8474, mp points). Fluids without a usable arbiter stay oracle-verified (provisional) and the nightly report
 lists them.
 
