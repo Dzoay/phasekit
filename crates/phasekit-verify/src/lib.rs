@@ -1,6 +1,7 @@
 //! `phasekit-verify`: the verification kit (D13), reusable by any model crate, plus the conformance corpus in
 //! `tests/`. Zero dependencies beyond `phasekit-core`. The full design is docs/VERIFICATION.md (forthcoming).
 
+pub mod arbiters;
 pub mod conformance;
 pub mod fixture;
 pub mod lock;
@@ -9,6 +10,7 @@ pub mod sample;
 pub mod sha256;
 pub mod tolerance;
 
+pub use arbiters::{ARBITERS, Arbiter, ArbiterPart, ArbiterStatus};
 pub use conformance::{Mismatch, fd_first_order, gauge_invariance, policy_equivalence};
 pub use fixture::{Cell, CheckError, ColumnRole, Fixture, FixtureError, FixtureMismatch, Kind, Row};
 pub use lock::{ORACLE_LOCK, OracleLock};
