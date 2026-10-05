@@ -86,6 +86,43 @@ value. Concurrency then follows from the types, not from locks. Nothing ships in
  later   phasekit-mix, -cubic, -pcsaft, -iapws (IF97 + ice), -incomp, -humidair
 ```
 
+The same structure as a diagram (each kernel layer depends only on the layers below it; dotted lines are optional or
+build-time links):
+
+```mermaid
+flowchart TB
+  subgraph facades["Facades (thin)"]
+    capi["phasekit-capi<br/>C ABI + CoolPropLib.h shim (M10)"]
+    wasm["phasekit-wasm<br/>browser package (M10)"]
+    py["phasekit-py<br/>Python wheels (after 0.1)"]
+  end
+  compat["phasekit-compat<br/>PropsSI strings, CoolProp names (M5.9)"]
+  subgraph core["phasekit-core: the kernel (std only, no unsafe)"]
+    direction TB
+    L6["L6 exec: batch, ExecPolicy"]
+    L5["L5 transport"]
+    L4["L4 solve: flash, saturation, State"]
+    L3["L3 package: ThermoModel, PureFluid, Fluid, Registry"]
+    L2["L2 model: Helmholtz families, term blocks, jets"]
+    L1["L1 relations: derivative bundles, partials"]
+    L0["L0 numerics: Real, math, units, Input, Error"]
+    L6 ~~~ L5 ~~~ L4 ~~~ L3 ~~~ L2 ~~~ L1 ~~~ L0
+  end
+  pkdata["phasekit-data<br/>generated blobs + name index, no logic"]
+  subgraph dev["Development only, never shipped"]
+    verify["phasekit-verify<br/>kit, fixtures, corpus tests, benches"]
+    xtask["phasekit-xtask<br/>datagen, oracle driver, gates"]
+  end
+  capi --> compat
+  wasm --> compat
+  py --> compat
+  compat --> core
+  core -. "feature 'embedded'" .-> pkdata
+  verify --> core
+  xtask --> core
+  xtask -. "datagen writes" .-> pkdata
+```
+
 | Crate | Responsibility | Depends on | Features | no_std? |
 |---|---|---|---|---|
 | `phasekit-core` | The kernel, L0-L6: numerics, Helmholtz families, relations, packages, registry, flash, saturation, transport, batch | `phasekit-data` (optional) | `fluids-all` (default), `fluids-core`, `embedded`; `rayon`, `libm` (M9); triggered only: `simd`, `json` | No: needs `std::sync` (`OnceLock`, `LazyLock`, `Arc`) |
@@ -869,6 +906,34 @@ checked further). Constraints it meets *(inference)*:
    stamped.
 6. `state.h(Basis::Mass)` = `(relations::enthalpy + gauge.dh) / M`. No lock, global or allocation after first use.
 
+The same call as a sequence:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Caller
+  participant R as Registry
+  participant S as Slot (OnceLock)
+  participant F as Fluid
+  participant P as PureFluid
+  participant M as Helmholtz model
+  C->>R: get("Water")
+  R->>S: first use only: decode the blob, apply corrections, compile
+  S-->>R: Fluid (later calls: one atomic load)
+  R-->>C: &Fluid
+  C->>F: flash(Input::pt(p, T)), the input already validated by its newtypes
+  F->>F: capability check, basis to molar, gauge to native: NativeInput
+  F->>P: flash(NativeInput)
+  P->>P: domain check, phase rule (saturation curve decoded lazily)
+  loop density Newton
+    P->>M: ideal + residual derivatives at (T, ρ)
+    M-->>P: Bundle
+  end
+  P-->>F: State with its SolvePath
+  F-->>C: State, stamped with the handle's gauge
+  Note over C: state.h(Basis::Mass): relations + gauge, no lock, no allocation
+```
+
 **(b) A batch of 1,000,000 PH points over 3 fluids, submitted from 16 threads.**
 - Each thread calls `batch::evaluate(fluid, &req, &mut out, &mut status)` with caller-owned point-major buffers.
 - The driver validates shapes (zero points or outputs return at once), then runs each point through `Input::new` and
@@ -989,6 +1054,31 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
    `EosRecord::encode`, the same encoder the runtime hash gate uses), the sorted index (556 keys, 0 collisions, map 09)
    and `DATASET`. Everything is committed and diffed in CI.
 
+
+```mermaid
+flowchart LR
+  json["CoolProp v8.0.0<br/>dev/fluids/*.json<br/>(sha256 in oracle.lock)"]
+  subgraph datagen["xtask datagen (M2)"]
+    direction TB
+    parse["parse: one serde mirror,<br/>FNV source_eos_hash recomputed"]
+    enums["closed enums + validation"]
+    fix["corrections.csv<br/>(DIV ids, citations)"]
+    pre["precompute: SA extrema,<br/>inverse, stamp"]
+    parse --> enums --> fix --> pre
+  end
+  blobs["phasekit-data<br/>one LE blob per fluid<br/>+ sorted index"]
+  subgraph runtime["Runtime (phasekit-core)"]
+    direction TB
+    layer["Registry layer"]
+    first["first get: validate blob,<br/>Parity or Corrected, compile EOS"]
+    lazy["saturation, transport:<br/>lazy on first use"]
+    layer --> first --> lazy
+  end
+  json --> parse
+  pre --> blobs
+  blobs --> layer
+```
+
 **Runtime.** `DataSource::blob` returns `Blob::Static(&'static [u8])` (zero-copy) or `Blob::Shared(Arc<[u8]>)`. The
 blob is validated whole once, its record name must match the index, and only the EOS is materialised. Saturation and
 transport stay as lazy closures over the blob; the transport closure also holds its reference slots. `DataSet::Parity`
@@ -1066,6 +1156,35 @@ environment (map 10 §8.3, map 01 §8).
 | L4 identities and round trips | relations, Jacobian identities, gauge invariance, FD, analytic virials, 19 × 2 capability matrix | identities |
 | L5 nightly sweeps | all pairs × fluids, fail-closed | — |
 | L6 execution | every `ExecPolicy`, 1..N threads, batch vs scalar | bitwise `Reference` |
+
+
+How the evidence flows into the tests:
+
+```mermaid
+flowchart LR
+  subgraph sources["Sources"]
+    oracle["CoolProp 8.0.0<br/>gen.py in the pinned image"]
+    papers["Papers and IAPWS releases<br/>double entry, two sessions"]
+    mp["fastchebpure multiprecision<br/>(via the fluid JSON)"]
+  end
+  subgraph fixtures["Committed fixtures (MANIFEST.sha256)"]
+    ofix["oracle fixtures<br/>bit-exact, provisional"]
+    pfix["paper/v1 tables<br/>printed digits = tolerance"]
+    mfix["mp check points"]
+  end
+  register["Divergence register<br/>+ ARBITERS: who wins"]
+  tests["Corpus tests per PR<br/>Linux, Windows, aarch64, wasip2"]
+  nightly["Nightly: regenerate twice,<br/>full set, L5 sweeps"]
+  oracle --> ofix
+  papers --> pfix
+  mp --> mfix
+  ofix --> tests
+  pfix --> tests
+  mfix --> tests
+  register --> tests
+  oracle -.-> nightly
+  nightly -.-> tests
+```
 
 - **Oracle.** `scripts/oracle/gen.py` under `uv run --no-project --python 3.12 --with CoolProp==8.0.0`: a fresh state
   per case, `COOLPROP_*`/`PXFLASH_*` scrubbed, `LC_ALL=C`, all 38 config keys recorded, and the wheel's `.so` sha256 in
