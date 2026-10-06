@@ -5,7 +5,9 @@
 
 use phasekit_core::{Basis, Order, Phase, PureFluid, Registry, State, ThermoModel, math};
 use phasekit_verify::arbiters::{ArbiterPart, Role, violations};
-use phasekit_verify::{ARBITERS, ArbiterStatus, Fixture, MILESTONE, Tolerance, fixture, from_printed};
+use phasekit_verify::{
+    ARBITERS, ArbiterStatus, DIVERGENCES, Fixture, MILESTONE, Part, Tolerance, fixture, from_printed,
+};
 
 const MANIFEST: &str = include_str!("../fixtures/MANIFEST.sha256");
 
@@ -155,4 +157,61 @@ fn iapws95_table7_within_printed_digits() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A printed constant in molar SI with half a unit of its last printed digit, both through the unit's factor; a
+/// per-mass gas constant or density converts with the record's molar mass `m` (IAPWS-95 prints no M). `None` for a
+/// unit not listed here.
+fn printed_si(text: &str, m: f64) -> Option<(f64, f64)> {
+    let (number, unit) = text.split_once(' ')?;
+    let Some(Tolerance::Absolute(half)) = from_printed(number) else { return None };
+    let factor = match unit {
+        "K" | "J/(mol K)" => 1.0,
+        "kJ/(kg K)" => 1e3 * m,
+        "g/mol" => 1e-3,
+        "kg/m3" => 1.0 / m,
+        "mol/dm3" => 1e3,
+        _ => return None,
+    };
+    Some((number.parse::<f64>().ok()? * factor, half * factor))
+}
+
+/// PLAN.md M4.7 (map 13 A3 and R1; VERIFICATION.md §4.3 step 1): R, M, T_r and ρ_r as v8.0.0 stores them (`Parity`)
+/// against every paper's printed constants, within half a unit of the last printed digit. A mismatch must be
+/// registered, a `GasConstant` (R) or `Reducing` (M, T_r, ρ_r) divergence of that fluid, and the registered ones are
+/// pinned: R1234ze(E)'s R (DIV-0001; Thol 2016 prints 8.3144621, v8.0.0 stores 8.314472) and Helium's (DIV-0005; NIST
+/// IR 8474 prints 8.314472, v8.0.0 stores 8.3144598). Map 13 R1's other 14 candidates have no transcribed paper
+/// value yet, so none is listed.
+#[test]
+fn stored_constants_match_their_arbiter_records() {
+    let registry = Registry::embedded().unwrap();
+    let (mut audited, mut registered, mut unregistered) = (Vec::new(), Vec::new(), Vec::new());
+    for a in ARBITERS {
+        let Some(c) = a.constants else { continue };
+        let record = phasekit_core::internal::record(registry, a.fluid).unwrap();
+        let (e, m) = (&record.eos, record.molar_mass);
+        let mut rows = vec![
+            ("R", Part::GasConstant, e.gas_constant, c.r),
+            ("T_r", Part::Reducing, e.t_reducing, c.t_reducing),
+            ("rho_r", Part::Reducing, e.rho_reducing, c.rho_reducing),
+        ];
+        rows.extend(c.molar_mass.map(|printed| ("M", Part::Reducing, m, printed)));
+        for (name, part, stored, printed) in rows {
+            let (paper, half) = printed_si(printed, m).expect(printed);
+            audited.push((a.fluid, name));
+            if (stored - paper).abs() <= half {
+                continue;
+            }
+            match DIVERGENCES.iter().find(|d| d.fluids.contains(&a.fluid) && d.part == part) {
+                Some(d) => registered.push((a.fluid, name, d.id)),
+                None => unregistered.push(format!("{} {name}: stored {stored}, printed {printed}", a.fluid)),
+            }
+        }
+    }
+    assert_eq!(unregistered, Vec::<String>::new());
+    registered.dedup();
+    assert_eq!(registered, [("R1234ze(E)", "R", "DIV-0001"), ("Helium", "R", "DIV-0005")]);
+    audited.sort_unstable();
+    audited.dedup();
+    assert_eq!(audited.len(), 9 * 4 - 1, "9 fluids, M printed for all but Water");
 }
