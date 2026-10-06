@@ -78,6 +78,7 @@ jobs:
           cargo xtask oracle --kind checkpoints --out "$FIXTURES" --write-manifest
           cargo xtask oracle --kind crit --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind crit --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
+          cargo xtask oracle --kind term --out "$FIXTURES/coolprop-8.0.0" --write-manifest
       - name: Upload the regenerated fixtures
         if: inputs.regenerate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -97,6 +98,8 @@ jobs:
             cargo xtask oracle --kind crit --out "$FIXTURES/coolprop-8.0.0" --check
             cargo xtask oracle --kind crit --tier all --out "$FIXTURES/coolprop-8.0.0" --check
             echo "pass $pass: crit/*.csv and all/crit.csv identical"
+            cargo xtask oracle --kind term --out "$FIXTURES/coolprop-8.0.0" --check
+            echo "pass $pass: term/*.csv identical"
           done
       - name: The full set into fixtures-full/
         run: |
@@ -117,7 +120,7 @@ jobs:
             echo
             echo "| Fixture | Rows | Failed calls |"
             echo "|---|---|---|"
-            for f in "$FIXTURES"/coolprop-8.0.0/{facts,crit,all}/*.csv "$FIXTURES"/mp/check-points.csv; do
+            for f in "$FIXTURES"/coolprop-8.0.0/{facts,crit,term,all}/*.csv "$FIXTURES"/mp/check-points.csv; do
               rows=$(grep -vc '^#' "$f"); failed=$(grep -v '^#' "$f" | grep -c ',err:' || true)
               echo "| ${f#$FIXTURES/} | $rows | $failed |"
             done
