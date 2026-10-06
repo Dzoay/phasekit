@@ -314,7 +314,7 @@ mod tests {
     /// (CoolProp's backend is left torn: `T_` and `get_T()` disagree after a failed update).
     #[test]
     fn failed_flash_leaves_the_previous_state_untouched() {
-        let fluid = Fluid::new(Arc::new(FluidRecord::toy("X").unwrap().compile().unwrap()));
+        let fluid = Fluid::new(Arc::new(FluidRecord::synthetic("X").unwrap().compile().unwrap()));
         let liquid = FlashOptions::new().with_phase(Phase::Liquid);
         let dt = |t| Input::dt(Density::molar(5_000.0).unwrap(), Temperature::new(t).unwrap());
         let read =

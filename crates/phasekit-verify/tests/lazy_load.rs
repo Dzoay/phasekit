@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use phasekit_core::internal::FluidRecord;
 use phasekit_core::{
-    Blob, DataSet, DataSource, Density, Error, FlashOptions, FluidId, Input, LoadError, Phase, Prop, Registry,
+    Blob, DataSet, DataSource, Density, Error, FlashOptions, FluidId, Input, LoadError, Pack, Phase, Prop, Registry,
     Temperature,
 };
 
@@ -52,8 +52,9 @@ impl DataSource for Shared {
     fn blob(&self, id: FluidId) -> Result<Blob, LoadError> {
         self.0.reads[id.0 as usize].fetch_add(1, Ordering::SeqCst);
         let (names, _, decodes) = self.spec(id)?;
-        let bytes = if *decodes { format!("PKIT\0toy:{}", names[0]) } else { "PKIT\0v9".into() };
-        Ok(Blob::Shared(bytes.into_bytes().into()))
+        let bytes =
+            if *decodes { FluidRecord::synthetic(names[0]).unwrap().encode() } else { b"PKITBLOB\x02".to_vec() };
+        Ok(Blob::Shared(bytes.into()))
     }
     fn references(&self, id: FluidId) -> Vec<String> {
         self.spec(id).map(|(_, refs, _)| refs.iter().map(|r| r.to_string()).collect()).unwrap_or_default()
@@ -78,7 +79,7 @@ fn nothing_is_read_until_asked_and_failures_are_cached() {
     let first = reg.get("ALPHA").unwrap_err();
     let again = reg.clone().get("alpha").unwrap_err(); // clones share the layers
     assert_eq!(first, again);
-    assert!(matches!(first, Error::Load(LoadError::Format(_)))); // sketch: blob format lands at M2
+    assert!(matches!(first, Error::Load(LoadError::Format(_)))); // a truncated blob
     assert_eq!(source.reads(), [1, 0]);
     assert!(matches!(reg.get("gamma"), Err(Error::Load(LoadError::UnknownName(_)))));
 }
@@ -172,7 +173,7 @@ fn layers_share_fluids_and_misses_are_not_cached() {
 /// E5: a data fluid may reference a provided model (the old `Weak` resolver could not reach those).
 #[test]
 fn a_reference_may_name_a_provided_model() {
-    let provided = Arc::new(FluidRecord::toy("Base").unwrap().compile().unwrap());
+    let provided = Arc::new(FluidRecord::synthetic("Base").unwrap().compile().unwrap());
     let base = Registry::empty().with_model(provided).unwrap();
     let source = Shared::new(&[(&["A"], &["base"], true)]);
     let reg = layer(&base, &source).unwrap();
@@ -180,4 +181,36 @@ fn a_reference_may_name_a_provided_model() {
     let viscosity = reg.get("A").unwrap().prop(&state, Prop::Viscosity);
     assert_eq!(viscosity, Err(Error::NoModel { prop: Prop::Viscosity })); // resolved, materialised, M8 evaluates
     assert_eq!(source.reads(), [1]);
+}
+
+/// E6, PLAN.md M2.6: a browser fetches a pack (several v1 blobs and their index) and adds it over the embedded
+/// registry with `withPack`. Its fluids resolve by any of their names and compute; a reference into the embedded layer
+/// resolves when the layer is built; a name the embedded data already has, a corrupt pack and another version are
+/// refused; the embedded registry value is unchanged.
+#[test]
+fn pack_from_generated_bytes_layers_over_embedded() {
+    let fluid = |names: &[&str], requires: &[&str]| {
+        let blob: Arc<[u8]> = FluidRecord::synthetic(names[0]).unwrap().encode().into();
+        (names.iter().map(|n| n.to_string()).collect(), requires.iter().map(|r| r.to_string()).collect(), blob)
+    };
+    let bytes = phasekit_core::internal::pack(&[fluid(&["PackA", "pa-1"], &[]), fluid(&["PackB"], &["r134a"])]);
+    let embedded = Registry::embedded().unwrap();
+    let page = embedded.with_source(Box::new(Pack::new(bytes.clone().into()).unwrap()), DataSet::Corrected).unwrap();
+    assert_eq!(page.canonical_name("PA-1"), Some("PackA"));
+    gas_state(&page, "packa");
+    gas_state(&page, "PackB");
+    assert_eq!(page.canonical_name("R1234ZE(E)"), Some("R1234ze(E)")); // the embedded layer, shared
+    assert!(embedded.get("PackA").is_err());
+
+    let clash = phasekit_core::internal::pack(&[fluid(&["water"], &[])]);
+    let refused = embedded.with_source(Box::new(Pack::new(clash.into()).unwrap()), DataSet::Corrected);
+    assert_eq!(refused.unwrap_err(), Error::Load(LoadError::DuplicateName("water".into())));
+    let mut corrupt = bytes.clone();
+    let last = corrupt.len() - 1;
+    corrupt[last] ^= 1;
+    assert_eq!(Pack::new(corrupt.into()).unwrap_err(), LoadError::Format("pack checksum mismatch".into()));
+    let mut v2 = bytes;
+    v2[8] = 2;
+    let err = Pack::new(v2.into()).unwrap_err();
+    assert!(matches!(&err, LoadError::Format(m) if m.starts_with("pack version 2")), "{err:?}");
 }

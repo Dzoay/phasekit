@@ -150,6 +150,6 @@ const OUTPUTS: [Prop; 4] = [Prop::P, Prop::Hmolar, Prop::Cpmolar, Prop::Q];
 const LIQUID: FlashOptions = FlashOptions::new().with_phase(Phase::Liquid);
 
 static FLUID: LazyLock<Result<Fluid, Error>> =
-    LazyLock::new(|| FluidRecord::toy("X").and_then(|r| r.compile()).map(|model| Fluid::new(Arc::new(model))));
+    LazyLock::new(|| FluidRecord::synthetic("X").and_then(|r| r.compile()).map(|model| Fluid::new(Arc::new(model))));
 static BIG_X: LazyLock<Vec<f64>> = LazyLock::new(|| vec![300.0; (1 << 16) + 64]);
 static BIG_OUTPUTS: LazyLock<Vec<Prop>> = LazyLock::new(|| vec![Prop::T; (1 << 16) + 64]);

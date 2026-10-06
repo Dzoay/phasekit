@@ -184,7 +184,7 @@ mod tests {
     /// value or +inf, and the cells around it are still evaluated (CoolProp gives [.., inf] for [300, nan]).
     #[test]
     fn nan_input_is_invalid_input_status() {
-        let fluid = Fluid::new(Arc::new(FluidRecord::toy("X").unwrap().compile().unwrap()));
+        let fluid = Fluid::new(Arc::new(FluidRecord::synthetic("X").unwrap().compile().unwrap()));
         let liquid = FlashOptions::new().with_phase(crate::state::Phase::Liquid);
         let (x, y) = ([5000.0, f64::NAN, 5000.0], [300.0, 300.0, f64::NAN]);
         let req = BatchRequest::new(Pair::DT, Basis::Molar, &x, &y, &[Prop::T, Prop::P]).with_flash(liquid);
@@ -201,7 +201,7 @@ mod tests {
     /// zero points included). `batch_request_shapes_never_panic` (tests/properties.rs) widens this to any shape.
     #[test]
     fn batch_shapes_never_panic() {
-        let fluid = Fluid::new(Arc::new(FluidRecord::toy("X").unwrap().compile().unwrap()));
+        let fluid = Fluid::new(Arc::new(FluidRecord::synthetic("X").unwrap().compile().unwrap()));
         let (xs, ys, props) = ([5000.0, f64::NAN, -1.0, 1.0], [300.0; 4], [Prop::P, Prop::Cpmolar]);
         for n in 0..=3 {
             for m in 0..=2 {

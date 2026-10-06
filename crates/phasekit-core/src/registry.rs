@@ -142,6 +142,13 @@ impl Embedded {
     fn new() -> Self {
         Self { fluids: phasekit_data::FLUIDS.iter().filter(|f| !f.blob.is_empty()).collect() }
     }
+
+    /// The embedded layer as a build with only `names` on would have it (tests of the not-embedded path, which a
+    /// build with every fluid's feature on cannot reach otherwise).
+    #[cfg(test)]
+    fn only(names: &[&str]) -> Self {
+        Self { fluids: Self::new().fluids.into_iter().filter(|f| names.contains(&f.name)).collect() }
+    }
 }
 
 #[cfg(feature = "embedded")]
@@ -373,6 +380,7 @@ fn not_embedded(_name: &str) -> Option<LoadError> {
 #[cfg(all(test, feature = "embedded"))]
 mod tests {
     use super::*;
+    use crate::error::Error;
 
     /// The real index (M2.5): names, aliases, CAS numbers and InChIKeys resolve, case-insensitively, without
     /// decoding anything. CoolProp's canonical name for propane is `n-Propane`.
@@ -387,6 +395,109 @@ mod tests {
         assert_eq!(reg.canonical_name("R1234ze(E)"), Some("R1234ze(E)"));
         assert_eq!(reg.canonical_name("unobtainium"), None);
         assert_eq!(reg.loaded().count(), 0);
+    }
+
+    /// A source that counts blob reads per fluid.
+    #[derive(Debug)]
+    #[allow(clippy::disallowed_types, reason = "a test-only read counter; the library has no atomics (ROT-031)")]
+    struct Counting<S>(S, Arc<Vec<std::sync::atomic::AtomicUsize>>);
+
+    #[allow(clippy::disallowed_types, reason = "a test-only read counter; the library has no atomics (ROT-031)")]
+    impl<S: DataSource> Counting<S> {
+        fn new(source: S) -> (Self, Arc<Vec<std::sync::atomic::AtomicUsize>>) {
+            let reads = Arc::new(source.names().iter().map(|_| std::sync::atomic::AtomicUsize::new(0)).collect());
+            (Counting(source, Arc::clone(&reads)), reads)
+        }
+    }
+
+    impl<S: DataSource> DataSource for Counting<S> {
+        fn names(&self) -> Vec<Vec<String>> {
+            self.0.names()
+        }
+        fn blob(&self, id: FluidId) -> Result<crate::data::Blob, LoadError> {
+            if let Some(n) = self.1.get(id.0 as usize) {
+                n.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            self.0.blob(id)
+        }
+        fn references(&self, id: FluidId) -> Vec<String> {
+            self.0.references(id)
+        }
+    }
+
+    #[allow(clippy::disallowed_types, reason = "a test-only read counter; the library has no atomics (ROT-031)")]
+    fn total(reads: &[std::sync::atomic::AtomicUsize]) -> usize {
+        reads.iter().map(|r| r.load(std::sync::atomic::Ordering::SeqCst)).sum()
+    }
+
+    /// Per-fluid read counts.
+    #[allow(clippy::disallowed_types, reason = "a test-only read counter; the library has no atomics (ROT-031)")]
+    type Reads = Arc<Vec<std::sync::atomic::AtomicUsize>>;
+
+    fn embedded_layer(source: Embedded) -> Result<(Registry, Reads), Error> {
+        let (counting, reads) = Counting::new(source);
+        Ok((Registry::empty().push_source(Box::new(counting), DataSet::Corrected, true)?, reads))
+    }
+
+    /// ROT-027, PLAN.md M2.6: building the embedded layer indexes all 136 fluids and every one of their 556 keys
+    /// without reading a single blob.
+    #[test]
+    fn embedded_layer_indexes_all_136_without_decoding() {
+        let (reg, reads) = embedded_layer(Embedded::new()).unwrap();
+        assert_eq!(reads.len(), 136);
+        for f in phasekit_data::FLUIDS {
+            for key in core::iter::once(f.name).chain(f.aliases.iter().copied()) {
+                assert_eq!(reg.canonical_name(&key.to_ascii_uppercase()), Some(f.name), "{key}");
+            }
+        }
+        assert_eq!((total(&reads), reg.loaded().count()), (0, 0));
+        let (counting, _) = Counting::new(Embedded::new());
+        let r143a = counting.names().iter().position(|n| n[0] == "R143a").unwrap();
+        assert_eq!(counting.references(FluidId(r143a as u32)), ["R134a"]); // declared, resolved, not read
+    }
+
+    /// ROT-039, PLAN.md M2.6: a fluid whose term kinds have not landed fails with a typed error naming the step that
+    /// lands them, read once and cached, never a partial model; other fluids are untouched.
+    #[test]
+    fn unimplemented_kinds_are_cached_typed_load_errors() {
+        let (reg, reads) = embedded_layer(Embedded::new()).unwrap();
+        let first = reg.get("Water").unwrap_err();
+        assert_eq!(first, Error::Load(LoadError::Format("Gaussian terms land at M3.4".into())));
+        assert_eq!(reg.get("water").unwrap_err(), first);
+        assert_eq!(total(&reads), 1);
+        assert_eq!(reg.loaded().count(), 0);
+    }
+
+    /// E6, PLAN.md M2.6: a known CoolProp fluid whose feature is off is `NotEmbedded { feature }`, never cached, so
+    /// a pack added later supplies it; the registry without the pack is unchanged.
+    #[test]
+    fn not_embedded_is_uncached() {
+        let (reg, _) = embedded_layer(Embedded::only(&["Water"])).unwrap();
+        let missing = Error::Load(LoadError::NotEmbedded { name: "R134a".into(), feature: "fluid-r134a" });
+        assert_eq!(reg.get("r134a").unwrap_err(), missing);
+        assert_eq!(reg.get("R134A").unwrap_err(), missing);
+        assert_eq!(reg.get("unobtainium").unwrap_err(), Error::Load(LoadError::UnknownName("unobtainium".into())));
+        let blob: Arc<[u8]> = FluidRecord::synthetic("R134a").unwrap().encode().into();
+        let pack = crate::internal::pack(&[(vec!["R134a".into()], vec![], blob)]);
+        let page = reg.with_source(Box::new(crate::data::Pack::new(pack.into()).unwrap()), DataSet::Corrected).unwrap();
+        assert_eq!(page.get("r134a").unwrap().info().name(), "R134a");
+        assert_eq!(reg.get("r134a").unwrap_err(), missing);
+    }
+
+    /// The number of embedded fluids that compile, under both datasets, never drops (PLAN.md M2.6). Raised as kinds
+    /// land; 136 at M4.4. At M2.6, 26 fluids hold only kinds the evaluator has (Power terms; Lead, LogTau, Power and
+    /// Planck-Einstein ideal terms).
+    const MIN_COMPILABLE: usize = 26;
+
+    #[test]
+    fn compilable_fluid_count_never_drops() {
+        let count = |set: DataSet| {
+            let reg = Registry::from_embedded(set).unwrap();
+            phasekit_data::FLUIDS.iter().filter(|f| reg.get(f.name).is_ok()).count()
+        };
+        let (parity, corrected) = (count(DataSet::Parity), count(DataSet::Corrected));
+        assert_eq!(parity, corrected);
+        assert!(parity >= MIN_COMPILABLE, "{parity} compile, fewer than {MIN_COMPILABLE}");
     }
 
     /// Map 09 §4.5: the shipped index has 556 ASCII case-folded keys over 136 fluids, none shared between fluids;

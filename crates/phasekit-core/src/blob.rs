@@ -6,12 +6,19 @@
 //! - The section table: one 24-byte entry per section (id u32, zero u32, offset u64, length u64).
 //! - The sections, each starting at a multiple of 8 bytes, in id order, with no gaps beyond that padding.
 //!
+//! A pack (`Pack::new`; a browser's `withPack`) is several blobs with their index in one buffer, format v1 too: a
+//! 32-byte header (magic `PKITPACK`, version, fluid count, length, checksum), then per fluid its names (canonical
+//! first), the canonical names of its references, and its blob, 8-byte aligned. Every blob in it is validated when
+//! the pack is read, and decoded only on first use.
+//!
 //! v1 lists every planned section from the start, each empty until the step that fills it, so filling one changes the
 //! bytes, not the version. Only a layout change to a filled section bumps the version; the decoder refuses any other
 //! version, and packs are regenerated, never migrated. Ids and tags are written from the tables here, never from
 //! enum discriminants (ROT-055). The EOS section is `EosRecord::encode`'s bytes, the encoder the hash gate uses
 //! (E14), so α⁰ lives there too. Restricted data (`FluidRecord::environmental`) is never written (D14), and
 //! `applied` is runtime state.
+
+use std::sync::Arc;
 
 use crate::data::{Edit, EosRecord, FluidRecord, MeltingSegment, Patch, SaStamp};
 use crate::error::LoadError;
@@ -320,13 +327,8 @@ pub(crate) fn assemble(bodies: &[Vec<u8>; SECTION_COUNT]) -> Vec<u8> {
     out
 }
 
-/// Whether `bytes` claim to be a v1-family blob (any version).
-pub(crate) fn is_blob(bytes: &[u8]) -> bool {
-    bytes.starts_with(MAGIC)
-}
-
-/// Validates a v1 blob whole (header, checksum, section table), then decodes it.
-pub(crate) fn decode(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
+/// The header, checksum and section table of a v1 blob, checked whole: its sections, in id order.
+fn validated_sections(bytes: &[u8]) -> Result<Vec<&[u8]>, LoadError> {
     let header = bytes.get(..HEADER).ok_or_else(|| bad(format!("blob of {} bytes has no header", bytes.len())))?;
     let mut h = Reader::new(header, "header");
     if h.take::<8>()? != *MAGIC {
@@ -369,10 +371,91 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
     if next != bytes.len() {
         return Err(bad(format!("blob has {} bytes after its last section", bytes.len() - next)));
     }
+    Ok(sections)
+}
+
+/// Validates a v1 blob whole (header, checksum, section table), then decodes it.
+pub(crate) fn decode(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
+    let sections = validated_sections(bytes)?;
     let eos = EosRecord::decode(sections[1])?;
     let mut record = read_metadata(sections[0], eos)?;
     record.superancillary_fit = read_fit(sections[2])?;
     record.melting = read_melting(sections[8])?;
     record.corrections = read_corrections(sections[9])?;
     Ok(record)
+}
+
+/// The first eight bytes of every pack.
+const PACK_MAGIC: &[u8; 8] = b"PKITPACK";
+
+/// One fluid of a pack: its names (canonical first, then aliases), the canonical names of its references, its blob.
+pub type PackFluid = (Vec<String>, Vec<String>, Arc<[u8]>);
+
+/// The v1 pack of `fluids`.
+pub(crate) fn pack(fluids: &[PackFluid]) -> Vec<u8> {
+    let mut body = Vec::new();
+    for (names, requires, blob) in fluids {
+        for list in [names, requires] {
+            put_u32(&mut body, list.len() as u32);
+            list.iter().for_each(|n| put_str(&mut body, n));
+        }
+        body.extend_from_slice(&(blob.len() as u64).to_le_bytes());
+        let padding = (HEADER + body.len()).next_multiple_of(8) - (HEADER + body.len());
+        body.resize(body.len() + padding, 0);
+        body.extend_from_slice(blob);
+    }
+    let mut out = Vec::with_capacity(HEADER + body.len());
+    out.extend_from_slice(PACK_MAGIC);
+    put_u32(&mut out, VERSION);
+    put_u32(&mut out, fluids.len() as u32);
+    out.extend_from_slice(&((HEADER + body.len()) as u64).to_le_bytes());
+    out.extend_from_slice(&ModelKey::from_content(&body).get().to_le_bytes());
+    out.extend_from_slice(&body);
+    out
+}
+
+/// Reads a v1 pack: header and checksum, then each fluid's names, references and blob, every blob validated whole.
+pub(crate) fn unpack(bytes: &[u8]) -> Result<Vec<PackFluid>, LoadError> {
+    let header = bytes.get(..HEADER).ok_or_else(|| bad(format!("pack of {} bytes has no header", bytes.len())))?;
+    let mut h = Reader::new(header, "pack header");
+    if h.take::<8>()? != *PACK_MAGIC {
+        return Err(bad("not a phasekit pack".into()));
+    }
+    let version = h.u32()?;
+    if version != VERSION {
+        return Err(bad(format!("pack version {version}; this build reads version {VERSION} (regenerate the pack)")));
+    }
+    let (count, length, checksum) = (h.u32()?, h.u64()?, h.u64()?);
+    if length != bytes.len() as u64 {
+        return Err(bad(format!("pack says {length} bytes, has {}", bytes.len())));
+    }
+    let body = bytes.get(HEADER..).unwrap_or_default();
+    if ModelKey::from_content(body).get() != checksum {
+        return Err(bad("pack checksum mismatch".into()));
+    }
+    let mut r = Reader::new(body, "pack");
+    let mut fluids = Vec::new();
+    for _ in 0..count {
+        let mut lists = [Vec::new(), Vec::new()];
+        for list in &mut lists {
+            *list = (0..r.u32()?).map(|_| r.str()).collect::<Result<_, _>>()?;
+        }
+        let len = usize::try_from(r.u64()?).map_err(|_| bad("pack: a blob length overflows".into()))?;
+        let padding = (HEADER + r.at).next_multiple_of(8) - (HEADER + r.at);
+        let start = r.at + padding;
+        let blob = start.checked_add(len).and_then(|end| body.get(start..end));
+        let blob = blob.ok_or_else(|| bad("pack is truncated".into()))?;
+        if body.get(r.at..start).is_some_and(|pad| pad.iter().any(|&b| b != 0)) {
+            return Err(bad("pack: nonzero padding".into()));
+        }
+        r.at = start + len;
+        validated_sections(blob)?;
+        let [names, requires] = lists;
+        if names.is_empty() {
+            return Err(bad("pack: a fluid without a name".into()));
+        }
+        fluids.push((names, requires, Arc::from(blob)));
+    }
+    r.done()?;
+    Ok(fluids)
 }
