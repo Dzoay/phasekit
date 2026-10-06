@@ -276,3 +276,23 @@ fn gaussian_matches_ad_of_the_paper_formula() {
     let checked = check_ad("R1234yf", select, paper, scale) + check_ad("Water", select, paper, scale);
     assert_eq!(checked, 2 * 300 * 15);
 }
+
+/// AD oracle: num-dual 0.15 on `n τ^t δ^d e^(−η(δ − ε)² + 1/(β(τ − γ)² + b))` (Gao et al. 2020), Ammonia's 2 terms;
+/// scale [`majorant::gao_b`].
+#[test]
+fn gao_b_matches_ad_of_the_paper_formula() {
+    let paper = |e: &EosRecord, tau: &D4, delta: &D4| {
+        let mut sum = var(0.0, [false; 4]);
+        for k in &e.gao_b {
+            let (wt, wd) = (*tau - k.gamma, *delta - k.epsilon);
+            let exponent = (wt * wt * k.beta + k.b).recip() - wd * wd * k.eta;
+            sum += tau.powf(k.t) * delta.powi(i32::from(k.d)) * exponent.exp() * k.n;
+        }
+        sum
+    };
+    let scale = |e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize| {
+        e.gao_b.iter().map(|term| majorant::gao_b(term, tau, delta, i, j)).sum()
+    };
+    let select = |e: &EosRecord, eos: &mut EosRecord| eos.gao_b.clone_from(&e.gao_b);
+    assert_eq!(check_ad("Ammonia", select, paper, scale), 300 * 15);
+}

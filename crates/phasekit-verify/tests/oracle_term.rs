@@ -106,7 +106,8 @@ fn scale(e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
     let lemmon: f64 = e.lemmon2005.iter().map(|t| majorant::lemmon2005(t, tau, delta, i, j)).sum();
     let double: f64 = e.double_exponential.iter().map(|t| majorant::double_exponential(t, tau, delta, i, j)).sum();
     let gaussian: f64 = e.gaussian.iter().map(|t| majorant::gaussian(t, tau, delta, i, j)).sum();
-    power + lemmon + double + gaussian
+    let gao_b: f64 = e.gao_b.iter().map(|t| majorant::gao_b(t, tau, delta, i, j)).sum();
+    power + lemmon + double + gaussian + gao_b
 }
 
 /// Every block of `kind` in the core subset against the same block compiled alone from the `Parity` record: all 15
@@ -205,6 +206,13 @@ fn double_exponential_matches_oracle_term_fixtures() {
 #[test]
 fn gaussian_matches_oracle_term_fixtures() {
     assert_eq!(check_kind("Gaussian"), 8 * 100 * 15);
+}
+
+/// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/term/Ammonia.csv: the only GaoB block (block 2, 2 terms; Gao et
+/// al. 2020, η in the paper's sign), scale [`majorant::gao_b`].
+#[test]
+fn gao_b_matches_oracle_term_fixtures() {
+    assert_eq!(check_kind("GaoB"), 100 * 15);
 }
 
 /// VERIFICATION.md §3.2, §11.3: the `term` files come from the pinned runner image, like every committed oracle

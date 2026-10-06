@@ -6,7 +6,7 @@
 //! A raw Σ_k |φ_k| cannot serve the derivatives: a τ-derivative of a term with t = 50 carries the factor
 //! t(t − 1)(t − 2)(t − 3) ≈ 5.5e6, so its rounding alone exceeds 1e-13 · Σ_k |φ_k| (PLAN.md M3.1, measured on Water).
 
-use phasekit_core::internal::{DoubleExponentialTerm, GaussianTerm, Lemmon2005Term, PowerTerm};
+use phasekit_core::internal::{DoubleExponentialTerm, GaoBTerm, GaussianTerm, Lemmon2005Term, PowerTerm};
 use phasekit_core::math;
 
 /// `|a|(|a| + 1)…(|a| + n − 1)`: the falling factorial `a(a − 1)…(a − n + 1)` with every summand of its expansion in
@@ -87,6 +87,28 @@ pub fn gaussian(term: &GaussianTerm, tau: f64, delta: f64, i: usize, j: usize) -
     phi.abs() * tau_side * gaussian_side(f64::from(term.d), term.eta, term.epsilon, delta, j)
 }
 
+/// The `Term` scale of entry `(i, j)` of a GaoB term `n τ^t δ^d e^(−η(δ − ε)² + 1/(β(τ − γ)² + b))`. The δ-side is a
+/// Gaussian side; the τ-side's `h_k = τ^k v⁽ᵏ⁾` of `v = 1/q`, `q = β(τ − γ)² + b`, take the chain rule's summands with
+/// `|q′| = 2|β||τ − γ|`, `|q″| = 2|β|`, `r = 1/|q|`: `|v′| = |q′|r²`, `|v″| = (2q′²r + |q″|)r²`,
+/// `|v‴| = 6|q′|(|q″| + q′²r)r³`, `|v⁗| = (6q″² + 36q′²|q″|r + 24q′⁴r²)r³`.
+pub fn gao_b(term: &GaoBTerm, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
+    let (wt, wd) = (tau - term.gamma, delta - term.epsilon);
+    let q = term.beta * wt * wt + term.b;
+    let exponent = term.t * math::ln(tau) + 1.0 / q - term.eta * wd * wd;
+    let phi = term.n * math::exp(exponent) * math::powi(delta, i32::from(term.d));
+    let (q1, q2, r) = (2.0 * term.beta.abs() * wt.abs(), 2.0 * term.beta.abs(), 1.0 / q.abs());
+    let (r2, r3, q11) = (r * r, r * r * r, q1 * q1);
+    let v = [
+        q1 * r2,
+        (2.0 * q11 * r + q2) * r2,
+        6.0 * q1 * (q2 + q11 * r) * r3,
+        (6.0 * q2 * q2 + 36.0 * q11 * q2 * r + 24.0 * q11 * q11 * r2) * r3,
+    ];
+    let a = [tau * v[0], tau * tau * v[1], tau * tau * tau * v[2], tau * tau * tau * tau * v[3]];
+    let tau_side: f64 = (0..=i).map(|m| binomial(i, m) * rising(term.t, i - m) * bell(m, &a)).sum();
+    phi.abs() * tau_side * gaussian_side(f64::from(term.d), term.eta, term.epsilon, delta, j)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,5 +180,45 @@ mod tests {
         let tau_term = GaussianTerm { n: 1.0, t: 1.0, d: 0, eta: 0.0, epsilon: 0.0, beta: 3.0, gamma: 1.5 };
         let phi = 2.0 * math::exp(-0.75);
         assert!(close(gaussian(&tau_term, 2.0, 0.5, 2, 0), 74.0 * phi));
+    }
+
+    /// A GaoB τ-side by hand at τ = 1, γ = 0, β = 1, b = 1 (q = 2, |q′| = |q″| = 2, r = 1/2): |v′| = 1/2,
+    /// |v″| = (4 + 2)/4 = 3/2, so with t = 0 and i = 2: B_2(1/2, 3/2) = 1/4 + 3/2 = 7/4; φ = e^(1/2) with d = 0.
+    #[test]
+    fn gao_b_scale_by_hand() {
+        let close = |a: f64, b: f64| ((a / b) - 1.0).abs() < 1e-15;
+        let term = GaoBTerm { n: 1.0, t: 0.0, d: 0, eta: 0.0, epsilon: 0.0, beta: 1.0, gamma: 0.0, b: 1.0 };
+        let phi = math::exp(0.5);
+        assert!(close(gao_b(&term, 1.0, 0.5, 0, 0), phi));
+        assert!(close(gao_b(&term, 1.0, 0.5, 1, 0), 0.5 * phi));
+        assert!(close(gao_b(&term, 1.0, 0.5, 2, 0), 1.75 * phi));
+        // i = 3: B_3 = a1³ + 3a1a2 + a3 with |v‴| = 6·2·(2 + 4/2)/8 = 6.
+        assert!(close(gao_b(&term, 1.0, 0.5, 3, 0), (0.125 + 2.25 + 6.0) * phi));
+        // τ = 2, γ = 1, β = b = 1 (w = 1, q = 2, |q′| = |q″| = 2, r = 1/2): |v′..v⁗| = 1/2, 3/2, 6, 33, so
+        // h = (τ|v′|, τ²|v″|, τ³|v‴|, τ⁴|v⁗|) = (1, 6, 48, 528) and B_1..B_4 = 1, 7, 67, 865.
+        let shifted = GaoBTerm { gamma: 1.0, ..term };
+        for (i, bell) in [(1, 1.0), (2, 7.0), (3, 67.0), (4, 865.0)] {
+            assert!(close(gao_b(&shifted, 2.0, 0.5, i, 0), bell * phi), "i = {i}");
+        }
+        // τ = 2.5 (w = 1.5, q = 13/4, |q′| = 3, |q″| = 2): exact fractions give B_1..B_4 = 120/169,
+        // 141800/28561, 236196000/4826809, 528628500000/815730721; φ = e^(4/13).
+        let phi = math::exp(4.0 / 13.0);
+        let exact = [120.0 / 169.0, 141800.0 / 28561.0, 236196000.0 / 4826809.0, 528628500000.0 / 815730721.0];
+        for (i, bell) in exact.into_iter().enumerate() {
+            let got = gao_b(&shifted, 2.5, 0.5, i + 1, 0);
+            assert!(((got / (bell * phi)) - 1.0).abs() < 1e-14, "i = {}", i + 1);
+        }
+        // η and d reach φ: d = 2, η = 3, ε = 0.5 at τ = 1, δ = 1.5 (q = 2): φ = δ² e^(1/2 − 3·1²) = 2.25 e^(−2.5).
+        let full = GaoBTerm { n: 1.0, t: 0.0, d: 2, eta: 3.0, epsilon: 0.5, beta: 1.0, gamma: 0.0, b: 1.0 };
+        assert!(close(gao_b(&full, 1.0, 1.5, 0, 0), 2.25 * math::exp(-2.5)));
+        // β = 2 and δ − ε = 3/2 keep every factor visible: τ = 3/2, δ = 2, q = 11/2, |q′| = 6, |q″| = 4, r = 2/11:
+        // φ = δ² e^(2/11 − 27/4), h₁ = 36/121, B₂ = h₁² + h₂ = 19908/14641.
+        let wide = GaoBTerm { n: 1.0, t: 0.0, d: 2, eta: 3.0, epsilon: 0.5, beta: 2.0, gamma: 0.0, b: 1.0 };
+        let phi = 4.0 * math::exp(2.0 / 11.0 - 27.0 / 4.0);
+        assert!((gao_b(&wide, 1.5, 2.0, 0, 0) / phi - 1.0).abs() < 1e-14);
+        assert!((gao_b(&wide, 1.5, 2.0, 1, 0) / (36.0 / 121.0 * phi) - 1.0).abs() < 1e-14);
+        assert!((gao_b(&wide, 1.5, 2.0, 2, 0) / (19908.0 / 14641.0 * phi) - 1.0).abs() < 1e-14);
+        // j = 1 on the Gaussian δ-side: d + 2η|δ − ε|δ = 2 + 18.
+        assert!((gao_b(&wide, 1.5, 2.0, 0, 1) / (20.0 * phi) - 1.0).abs() < 1e-14);
     }
 }
