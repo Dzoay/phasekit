@@ -981,15 +981,10 @@ mod tests {
         assert_eq!(record.eos.offset(), (0.1, 0.2), "the record's Offset term");
     }
 
-    /// A kind without an evaluator is refused when the record compiles, never dropped from α: every residual kind
-    /// compiles since M4.1, the ideal-gas kinds of M4.2 are still refused.
+    /// Every kind has an evaluator since M4.2: the toy record with one term of each compiles, none dropped.
     #[test]
-    fn kinds_without_an_evaluator_are_refused() {
-        let mut record = every_kind();
-        let err = record.clone().compile().unwrap_err().to_string();
-        assert!(err.contains("ideal-gas PlanckEinsteinGeneralized terms land at M4.2"), "{err}");
-        record.eos.ideal.truncate(2);
-        assert!(record.compile().is_ok());
+    fn every_kind_compiles() {
+        assert!(every_kind().compile().is_ok());
     }
 
     /// E14, as an exhaustive property over the toy record with one term of every kind: changing any EOS field flips

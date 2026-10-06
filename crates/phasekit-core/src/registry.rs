@@ -456,16 +456,26 @@ mod tests {
         assert_eq!(counting.references(FluidId(r143a as u32)), ["R134a"]); // declared, resolved, not read
     }
 
-    /// ROT-039, PLAN.md M2.6: a fluid whose term kinds have not landed fails with a typed error naming the step that
-    /// lands them, read once and cached, never a partial model; other fluids are untouched.
+    /// ROT-039, PLAN.md M2.6: a fluid that cannot be compiled fails with a typed error, read once and cached, never a
+    /// partial model; other fluids are untouched. Every shipped kind compiles since M4.2, so a record whose c_p⁰ term
+    /// has a zero reference temperature stands in for one.
     #[test]
     fn unimplemented_kinds_are_cached_typed_load_errors() {
-        let (reg, reads) = embedded_layer(Embedded::new()).unwrap();
-        let first = reg.get("CarbonDioxide").unwrap_err();
-        assert_eq!(first, Error::Load(LoadError::Format("ideal-gas Offset terms land at M4.2".into())));
-        assert_eq!(reg.get("co2").unwrap_err(), first);
-        assert_eq!(total(&reads), 1);
-        assert_eq!(reg.loaded().count(), 0);
+        let mut bad = FluidRecord::synthetic("Bad").unwrap();
+        bad.eos.ideal.push(crate::internal::IdealTerm::Cp0Power { c: 1.0, t: 0.0, tc: 300.0, t0: 0.0 });
+        let blob = |r: FluidRecord| -> Arc<[u8]> { r.encode().into() };
+        let pack = crate::internal::pack(&[
+            (vec!["Bad".into()], vec![], blob(bad)),
+            (vec!["R134a".into()], vec![], blob(FluidRecord::synthetic("R134a").unwrap())),
+        ]);
+        let (counting, reads) = Counting::new(crate::data::Pack::new(pack.into()).unwrap());
+        let reg = Registry::empty().push_source(Box::new(counting), DataSet::Corrected, true).unwrap();
+        let first = reg.get("Bad").unwrap_err();
+        let message = "ideal-gas term: non-finite number or non-positive temperature";
+        assert_eq!(first, Error::Load(LoadError::Format(message.into())));
+        assert_eq!(reg.get("bad").unwrap_err(), first);
+        assert_eq!((total(&reads), reg.loaded().count()), (1, 0));
+        assert!(reg.get("R134a").is_ok());
     }
 
     /// E6, PLAN.md M2.6: a known CoolProp fluid whose feature is off is `NotEmbedded { feature }`, never cached, so
@@ -487,8 +497,8 @@ mod tests {
     /// The number of embedded fluids that compile, under both datasets, never drops (PLAN.md M2.6). Raised as kinds
     /// land; 136 at M4.4. At M2.6, 26 fluids hold only kinds the evaluator has (Power terms; Lead, LogTau, Power and
     /// Planck-Einstein ideal terms); M3.3 adds R125 (Lemmon2005), M3.4 the 51 fluids whose last missing kind was
-    /// Gaussian, M3.5 Ammonia (GaoB), M4.1 Water (NonAnalytic).
-    const MIN_COMPILABLE: usize = 80;
+    /// Gaussian, M3.5 Ammonia (GaoB), M4.1 Water (NonAnalytic), M4.2 the other 56 (their ideal-gas kinds): all 136.
+    const MIN_COMPILABLE: usize = 136;
 
     #[test]
     fn compilable_fluid_count_never_drops() {
