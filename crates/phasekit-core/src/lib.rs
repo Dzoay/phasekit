@@ -21,7 +21,7 @@
 //!         let state = water.flash(input, &FlashOptions::default())?;
 //!         let _ = (state.h(Basis::Mass), state.path());
 //!     }
-//!     // Until M4.1 Water's NonAnalytic terms have no evaluator: a typed load error, never a wrong value.
+//!     // Until M4.4 some kinds of Water's EOS have no evaluator: a typed load error, never a wrong value.
 //!     Err(Error::Load(LoadError::Format(_))) => {}
 //!     Err(e) => return Err(e),
 //! }
@@ -78,6 +78,14 @@ pub mod internal {
     /// The decoded, uncorrected record of a data-backed fluid.
     pub fn record(registry: &crate::Registry, name: &str) -> Result<FluidRecord, crate::Error> {
         registry.record(name)
+    }
+
+    /// One fluid of a pack: names (canonical first), the canonical names of its references, its v1 blob.
+    pub use crate::blob::PackFluid;
+
+    /// The v1 pack of `fluids`, which [`crate::Pack::new`] reads (tooling and tests; a browser fetches one).
+    pub fn pack(fluids: &[PackFluid]) -> Vec<u8> {
+        crate::blob::pack(fluids)
     }
 }
 

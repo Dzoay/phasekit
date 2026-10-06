@@ -231,7 +231,7 @@ mod tests {
     /// state and flags it (scalar and batch); a saturation fit is never evaluated outside its range.
     #[test]
     fn extrapolation_is_opt_in_flagged_and_never_extends_a_fit() {
-        let mut record = FluidRecord::toy("X").unwrap();
+        let mut record = FluidRecord::synthetic("X").unwrap();
         record.limits = Limits::new(169.0, 420.0, 100e6).unwrap().with_t_triple(175.0);
         let fluid = Fluid::new(Arc::new(record.builder().unwrap().saturation(Fit).build()));
         let dt = |t| Input::dt(Density::molar(5_000.0).unwrap(), Temperature::new(t).unwrap());

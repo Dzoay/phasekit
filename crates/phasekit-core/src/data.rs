@@ -62,9 +62,17 @@ pub struct Pack {
 }
 
 impl Pack {
-    /// Parses and validates a pack (header, checksum, index, section table).
+    /// Parses and validates a pack (header, checksum, index, and every blob's header, checksum and section table;
+    /// format v1, `crate::blob`). Blobs are decoded on first use.
     pub fn new(bytes: Arc<[u8]>) -> Result<Pack, LoadError> {
-        Err(LoadError::Format(format!("pack format lands at M2 ({} bytes)", bytes.len()).into()))
+        let fluids = crate::blob::unpack(&bytes)?;
+        let mut pack = Pack { index: Vec::new(), requires: Vec::new(), blobs: Vec::new() };
+        for (names, requires, blob) in fluids {
+            pack.index.push(names);
+            pack.requires.push(requires);
+            pack.blobs.push(blob);
+        }
+        Ok(pack)
     }
 }
 
@@ -478,25 +486,15 @@ impl FluidRecord {
         crate::blob::encode(self)
     }
 
-    /// Decodes and validates a blob: format v1 (header, checksum, section table, every section), or, until M2.6,
-    /// the sketch's stand-in `PKIT\0toy:<name>`, a small fixed record named `<name>` that the registry's lazy-load,
-    /// layering and reference tests still use.
+    /// Decodes and validates a blob (format v1: header, checksum, section table, every section).
     pub fn decode(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
-        if crate::blob::is_blob(bytes) {
-            return crate::blob::decode(bytes);
-        }
-        let [b'P', b'K', b'I', b'T', 0, rest @ ..] = bytes else {
-            return Err(LoadError::Format("not a phasekit blob".into()));
-        };
-        let Some(name) = rest.strip_prefix(b"toy:") else {
-            return Err(LoadError::Format("not a phasekit blob".into()));
-        };
-        let name = core::str::from_utf8(name).map_err(|_| LoadError::Format("name is not UTF-8".into()))?;
-        FluidRecord::toy(name).map_err(|e| LoadError::Format(e.to_string().into()))
+        crate::blob::decode(bytes)
     }
 
-    /// The sketch's toy record: an R1234ze(E)-like two-term EOS (no superancillary, no corrections).
-    pub fn toy(name: &str) -> Result<FluidRecord, Error> {
+    /// A synthetic record named `name` (the sketch's toy): an R1234ze(E)-like two-term EOS with no superancillary
+    /// and no corrections. It compiles with today's evaluator, so tests of the registry, packs and layers use its
+    /// v1 blob (`synthetic(name)?.encode()`) where they need a fluid that works.
+    pub fn synthetic(name: &str) -> Result<FluidRecord, Error> {
         let mut eos = EosRecord::new(8.314_472, 382.513, 4290.0, 20_000.0);
         eos.power = vec![PowerTerm::new(0.03, 1.0, 4, 0, 0.0), PowerTerm::new(0.5, 1.5, 2, 1, 1.0)];
         eos.ideal = vec![IdealTerm::Lead { a1: -12.5, a2: 8.6 }, IdealTerm::LogTau { a: 3.0 }];
@@ -589,7 +587,7 @@ mod tests {
     use crate::units::{Density, Temperature};
 
     fn record() -> FluidRecord {
-        let mut r = FluidRecord::toy("R1234ze(E)").unwrap();
+        let mut r = FluidRecord::synthetic("R1234ze(E)").unwrap();
         r.corrections = vec![Patch { divergence: "DIV-0001".into(), edit: Edit::GasConstant(8.314_462_1) }];
         let e = &r.eos;
         r.superancillary_fit =
@@ -629,7 +627,7 @@ mod tests {
 
     /// The toy record plus one term of every kind the evaluator does not compile yet.
     fn every_kind() -> FluidRecord {
-        let mut r = FluidRecord::toy("X").unwrap();
+        let mut r = FluidRecord::synthetic("X").unwrap();
         let e = &mut r.eos;
         e.lemmon2005 = vec![Lemmon2005Term { n: 0.1, t: 0.2, d: 1, l: 2, m: 0.3 }];
         e.double_exponential = vec![DoubleExponentialTerm { n: 0.1, t: 0.2, d: 1, gd: 0.3, ld: 2, gt: -0.4, lt: 1.0 }];
@@ -730,7 +728,8 @@ mod tests {
             assert!(err.contains(why), "{err}");
         }
         assert_eq!(format_error(&blob[..8]), "blob of 8 bytes has no header");
-        assert_eq!(format_error(b"PKIT\0v2"), "not a phasekit blob");
+        assert_eq!(format_error(b"PKIT\0toy:X"), "blob of 10 bytes has no header");
+        assert_eq!(format_error(&[b'X'; 40]), "not a phasekit blob");
     }
 
     /// v1 reserves every planned section; one the decoder cannot read yet must be empty, and a section's bytes are
@@ -780,7 +779,7 @@ mod tests {
                 Ok(Blob::Shared(self.0.clone().into()))
             }
         }
-        let blob = FluidRecord::toy("B").unwrap().encode();
+        let blob = FluidRecord::synthetic("B").unwrap().encode();
         let wrong = crate::Registry::empty().with_source(Box::new(One(blob.clone(), "A")), DataSet::Parity).unwrap();
         let err = wrong.get("A").unwrap_err().to_string();
         assert!(err.contains("record name does not match its index entry"), "{err}");
