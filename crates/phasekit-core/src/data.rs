@@ -9,8 +9,8 @@ use std::sync::Arc;
 use crate::error::{Error, LoadError};
 use crate::fluid::{PureFluid, PureFluidBuilder};
 use crate::helmholtz::{
-    DoubleExponentialTerm, GaoBTerm, GaussianTerm, IdealGas, IdealTerm, Lemmon2005Term, MAX_POW, MultiParameterEos,
-    NonAnalyticTerm, OffsetReference, PowerBlock, PowerTerm, ResidualBlock, TauExpBlock,
+    DoubleExponentialTerm, GaoBTerm, GaussianBlock, GaussianTerm, IdealGas, IdealTerm, Lemmon2005Term, MAX_POW,
+    MultiParameterEos, NonAnalyticTerm, OffsetReference, PowerBlock, PowerTerm, ResidualBlock, TauExpBlock,
 };
 use crate::model::{CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source};
 
@@ -651,11 +651,7 @@ impl FluidRecord {
     /// A package builder (the registry's decoder adds the lazy saturation and transport parts).
     pub fn builder(self) -> Result<PureFluidBuilder, Error> {
         let e = &self.eos;
-        let pending = [
-            (e.gaussian.is_empty(), "Gaussian", "M3.4"),
-            (e.gao_b.is_empty(), "GaoB", "M3.5"),
-            (e.non_analytic.is_empty(), "NonAnalytic", "M4.1"),
-        ];
+        let pending = [(e.gao_b.is_empty(), "GaoB", "M3.5"), (e.non_analytic.is_empty(), "NonAnalytic", "M4.1")];
         if let Some((_, kind, step)) = pending.into_iter().find(|(empty, ..)| !empty) {
             return Err(Error::Load(LoadError::Format(format!("{kind} terms land at {step}").into())));
         }
@@ -663,6 +659,9 @@ impl FluidRecord {
         let mut blocks = vec![ResidualBlock::Power(PowerBlock::new(&e.power)?)];
         if !(e.lemmon2005.is_empty() && e.double_exponential.is_empty()) {
             blocks.push(ResidualBlock::TauExp(TauExpBlock::new(&e.lemmon2005, &e.double_exponential)?));
+        }
+        if !e.gaussian.is_empty() {
+            blocks.push(ResidualBlock::Gaussian(GaussianBlock::new(&e.gaussian)?));
         }
         let eos = MultiParameterEos::new(e.gas_constant, e.t_reducing, e.rho_reducing, e.rho_max, blocks, ideal)?;
         let aliases: Vec<&str> = self.aliases.iter().map(String::as_str).collect();
@@ -983,8 +982,7 @@ mod tests {
     #[test]
     fn kinds_without_an_evaluator_are_refused() {
         type Clear = fn(&mut EosRecord);
-        let pending: [(Clear, &str); 3] = [
-            (|e| e.gaussian.clear(), "Gaussian terms land at M3.4"),
+        let pending: [(Clear, &str); 2] = [
             (|e| e.gao_b.clear(), "GaoB terms land at M3.5"),
             (|e| e.non_analytic.clear(), "NonAnalytic terms land at M4.1"),
         ];

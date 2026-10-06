@@ -1,7 +1,7 @@
-//! Residual term data the evaluator does not compile yet (map 02 §3.1). Datagen decodes every kind into these from
-//! M2.3 on, as each paper prints its terms; each kind's block lands with its step (Lemmon2005 and DoubleExponential
-//! M3.3, Gaussian M3.4, GaoB M3.5, NonAnalytic M4.1). Until then a record holding one is refused when it is compiled,
-//! never evaluated without it.
+//! Residual term data beyond power terms, as each paper prints them (map 02 §3.1). Datagen decodes every kind into
+//! these from M2.3 on; the evaluator compiles Lemmon2005 and DoubleExponential (M3.3) and Gaussian (M3.4) terms.
+//! GaoB lands at M3.5 and NonAnalytic at M4.1: until then a record holding one is refused when it is compiled, never
+//! evaluated without it.
 
 /// `n τ^t δ^d e^(−δ^l − τ^m)` (Lemmon & Jacobsen 2005; R125). `l = 0` and `m = 0` mean that factor is absent, as
 /// in the paper (CoolProp's "0 means absent", `Helmholtz.cpp:169, 184`).

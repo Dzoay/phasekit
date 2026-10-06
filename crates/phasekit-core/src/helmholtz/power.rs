@@ -21,6 +21,7 @@ pub const MAX_POW: usize = 16;
 /// (map 02 §3) stay finite at δ = 0 (kernel-performance §4).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Vars<R> {
+    pub(super) tau: R,
     pub(super) ln_tau: R,
     pub(super) delta_pow: [R; MAX_POW + 1],
 }
@@ -32,7 +33,7 @@ impl<R: Real> Vars<R> {
         for k in 1..=MAX_POW {
             delta_pow[k] = delta_pow[k - 1] * delta;
         }
-        Self { ln_tau: tau.ln(), delta_pow }
+        Self { tau, ln_tau: tau.ln(), delta_pow }
     }
 }
 
