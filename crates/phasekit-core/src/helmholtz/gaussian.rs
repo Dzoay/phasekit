@@ -57,6 +57,11 @@ pub(super) fn gaussian_side<R: Real>(z: R, eta: f64, epsilon: f64) -> (R, [R; 4]
     (w * w * -eta, [w * z * (-2.0 * eta), z * z * (-2.0 * eta), zero, zero])
 }
 
+/// The δ → 0 Taylor coefficients of `e^(−η(δ − ε)² + ηε²)`: `[1, 2ηε, 2η²ε² − η]`.
+pub(super) fn delta_series(eta: f64, epsilon: f64) -> [f64; 3] {
+    [1.0, 2.0 * eta * epsilon, 2.0 * eta * eta * epsilon * epsilon - eta]
+}
+
 /// A structure-of-arrays block of Gaussian terms, compiled once at decode.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GaussianBlock {
@@ -116,8 +121,7 @@ impl GaussianBlock {
             let w = tau - gamma;
             let f = self.n[k] * math::exp(self.t[k] * math::ln(tau) - beta * w * w - eta * eps * eps);
             let tf = f * (self.t[k] - 2.0 * beta * tau * w);
-            let series = [1.0, 2.0 * eta * eps, 2.0 * eta * eta * eps * eps - eta];
-            for (q, c) in series.into_iter().enumerate() {
+            for (q, c) in delta_series(eta, eps).into_iter().enumerate() {
                 if let Some(slot) = out.get_mut(usize::from(self.d[k]) + q) {
                     slot[0] += c * f;
                     slot[1] += c * tf;
