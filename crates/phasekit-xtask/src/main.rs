@@ -21,6 +21,7 @@
 )]
 
 mod baseline;
+mod datagen;
 mod gates;
 mod oracle;
 mod repo;
@@ -33,13 +34,7 @@ fn main() -> ExitCode {
         Some((task, rest)) if task == "gates" => gates::main(rest),
         Some((task, rest)) if task == "oracle" => oracle::main(rest),
         Some((task, rest)) if task == "baseline" => baseline::main(rest),
-        Some((task, _)) if task == "datagen" => {
-            println!(
-                "phasekit-xtask {task}: lands at M1/M2 (core {})",
-                core::any::type_name::<phasekit_core::Registry>()
-            );
-            ExitCode::SUCCESS
-        }
+        Some((task, rest)) if task == "datagen" => datagen::main(rest),
         _ => {
             eprintln!("usage: cargo xtask <baseline|datagen|oracle|gates>");
             ExitCode::FAILURE
