@@ -486,8 +486,8 @@ mod tests {
 
     /// The number of embedded fluids that compile, under both datasets, never drops (PLAN.md M2.6). Raised as kinds
     /// land; 136 at M4.4. At M2.6, 26 fluids hold only kinds the evaluator has (Power terms; Lead, LogTau, Power and
-    /// Planck-Einstein ideal terms).
-    const MIN_COMPILABLE: usize = 26;
+    /// Planck-Einstein ideal terms); M3.3 adds R125 (Lemmon2005).
+    const MIN_COMPILABLE: usize = 27;
 
     #[test]
     fn compilable_fluid_count_never_drops() {

@@ -3,6 +3,7 @@
 mod eos;
 mod ideal;
 mod power;
+mod tau_exp;
 mod terms;
 
 use core::fmt;
@@ -12,6 +13,7 @@ pub(crate) use ideal::IdealGas;
 pub use ideal::{IdealTerm, OffsetReference};
 pub(crate) use power::PowerBlock;
 pub use power::{MAX_POW, PowerTerm};
+pub(crate) use tau_exp::TauExpBlock;
 pub use terms::{DoubleExponentialTerm, GaoBTerm, GaussianTerm, Lemmon2005Term, NonAnalyticTerm};
 
 use crate::derivs::{Derivs, Order, Virials};
