@@ -662,8 +662,10 @@ On every core fluid at eos-grid states (stable and imposed phase), on the out-of
   closed form vs the generic Jacobian path.
 - Saturation equilibrium at every SA or VLE point: p(T, ρ′) = p(T, ρ″), g′ = g″ from the EOS (the oracle shows Δg/RT
   1e-15 to 1e-13, map 03 §8).
-- Critical point (E17): at (Tc, ρc) of Water and CO₂, p, h, s finite; c_v, c_p, w return `Undefined { prop,
-  CriticalPoint }`.
+- Critical point (E17): at (Tc, ρc) of Water and CO₂, evaluated at the point itself with no nudge (ROT-065): α^r's
+  α, first derivatives, A11 and A02 finite and the limits of their neighbours, A20 = −∞, orders 3-4 NaN (no limit);
+  p, h, s finite; c_v, c_p, w return `Undefined { prop, CriticalPoint }`. On the critical isochore ρ = ρc every entry
+  but A04 (|δ − 1|^(1/β) has no fourth derivative at δ = 1) is finite (`tests/terms.rs`, M4.6).
 
 ### 8.2 Round trips (L4, class `Flash`)
 

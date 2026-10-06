@@ -740,7 +740,7 @@ mod tests {
         e.gaussian = vec![GaussianTerm { n: 0.1, t: 0.2, d: 1, eta: 0.3, epsilon: 0.4, beta: 0.5, gamma: 0.6 }];
         e.gao_b = vec![GaoBTerm { n: 0.1, t: 0.2, d: 1, eta: 0.3, epsilon: 0.4, beta: 0.5, gamma: 0.6, b: 0.7 }];
         e.non_analytic =
-            vec![NonAnalyticTerm { n: 0.1, a: 0.2, b: 0.3, beta: 0.4, big_a: 0.5, big_b: 0.6, big_c: 0.7, big_d: 0.8 }];
+            vec![NonAnalyticTerm { n: 0.1, a: 0.2, b: 0.7, beta: 0.4, big_a: 0.5, big_b: 0.6, big_c: 0.7, big_d: 0.8 }];
         e.ideal.extend([
             IdealTerm::PlanckEinsteinGeneralized { n: 0.1, theta: 0.2, c: 0.3, d: 0.4 },
             IdealTerm::Cp0Power { c: 0.1, t: 0.2, tc: 0.3, t0: 0.4 },
