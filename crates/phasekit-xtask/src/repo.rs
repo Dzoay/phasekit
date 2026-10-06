@@ -206,6 +206,63 @@ impl Repo {
         Ok(MutantsRun { success: status.success(), outcomes, output: out.display().to_string() })
     }
 
+    /// Runs `cargo bench -p phasekit-verify` (criterion), its output on the terminal.
+    pub fn bench(&self) -> Result<(), String> {
+        let status = Command::new(env!("CARGO"))
+            .args(["bench", "-p", "phasekit-verify"])
+            .current_dir(&self.root)
+            .status()
+            .map_err(|e| format!("cannot run cargo bench: {e}"))?;
+        if status.success() { Ok(()) } else { Err("cargo bench failed".into()) }
+    }
+
+    /// Every criterion result under the target directory: (`benchmark.json`, `estimates.json`) of each `new/` run.
+    pub fn criterion_results(&self) -> Result<Vec<(String, String)>, String> {
+        let target = std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| self.root.join("target"), PathBuf::from);
+        let mut pending = vec![target.join("criterion")];
+        let mut found = Vec::new();
+        while let Some(dir) = pending.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if path.file_name().is_some_and(|n| n == "new") {
+                        let read = |f: &str| {
+                            std::fs::read_to_string(path.join(f)).map_err(|e| format!("{}: {e}", path.display()))
+                        };
+                        found.push((read("benchmark.json")?, read("estimates.json")?));
+                    } else {
+                        pending.push(path);
+                    }
+                }
+            }
+        }
+        if found.is_empty() {
+            return Err(format!("no criterion results under {}", target.display()));
+        }
+        found.sort();
+        Ok(found)
+    }
+
+    /// The date, commit, CPU model, OS, rustc and CPU frequency governor a bench result is recorded with.
+    pub fn machine(&self) -> Result<crate::bench::Machine, String> {
+        let run = |program: &str, args: &[&str]| -> String {
+            let output = Command::new(program).args(args).current_dir(&self.root).output();
+            output.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
+        };
+        let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
+        let cpu = cpuinfo.lines().find_map(|l| l.strip_prefix("model name")).and_then(|l| l.split_once(':'));
+        let governor = std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor");
+        Ok(crate::bench::Machine {
+            date: run("date", &["-u", "+%Y-%m-%d"]),
+            commit: run("git", &["rev-parse", "--short", "HEAD"]),
+            cpu: cpu.map(|(_, m)| m.trim().to_string()).ok_or("no CPU model in /proc/cpuinfo")?,
+            os: run("uname", &["-sr"]),
+            rustc: run("rustc", &["-V"]),
+            governor: governor.map(|g| g.trim().to_string()).unwrap_or_else(|_| "unknown".into()),
+        })
+    }
+
     /// An environment variable, if set.
     pub fn var(&self, name: &str) -> Option<String> {
         std::env::var_os(name).map(|v| v.to_string_lossy().into_owned())

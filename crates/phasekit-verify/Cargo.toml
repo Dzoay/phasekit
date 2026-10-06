@@ -9,13 +9,25 @@ publish.workspace = true
 
 # verify depends on core, never the reverse: no dev-dependency cycles. Real crate dev-deps (tier T3):
 # num-dual (the AD oracle for Jet4, M3), proptest (std only; BatchRequest and Input::new shapes, E12),
-# criterion + gungraun in benches/ from M3 (E9; dependencies R18).
+# criterion (M2.9) and gungraun (M9) in benches/ (E9; dependencies R18).
 [dependencies]
 phasekit-core = { workspace = true, features = ["fluids-all"] }
 
 # The embedded index (`phasekit_data::FLUIDS`) names every fluid the corpus decodes (PLAN.md M2.7).
+# allocation-counter (tier T3, user decision AC1, M2.9) counts heap allocations through its own global allocator,
+# so the workspace stays free of `unsafe` code.
 [dev-dependencies]
+allocation-counter = "0.8"
 phasekit-data.workspace = true
+
+# Wall-clock benches (VERIFICATION.md §12; PLAN.md M2.9): criterion builds for every OS but not for wasm (§2.5).
+# 0.7, not 0.8: 0.8 depends on `alloca`, whose C build script breaks the local G6 cross-check for MSVC.
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "lookup"
+harness = false
 
 [lints]
 workspace = true

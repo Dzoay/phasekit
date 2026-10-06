@@ -701,9 +701,9 @@ matrix per milestone as a table.
 - Lazy loading with a counting `DataSource` (ARCHITECTURE.md §6, E5, E6): building the index decodes nothing; a thermo
   path never reads an ECS reference; the first viscosity call reads it once, also under 16 threads; failures are
   cached, misses are not.
-- A counting `#[global_allocator]` asserts 0 heap allocations per flash and per batch point after warm-up (M5). At
-  compile time: Send + Sync, `size_of::<State>() <= 256`, `size_of::<Error>() <= 48` (ARCHITECTURE.md §3.8); PLAN.md
-  M9.7 records the actual `State` size (208 B in the sketch) and asserts only the bound.
+- allocation-counter's counting global allocator (user decision AC1) asserts 0 heap allocations per flash and per batch
+  point after warm-up (M5). At compile time: Send + Sync, `size_of::<State>() <= 256`, `size_of::<Error>() <= 48`
+  (ARCHITECTURE.md §3.8); PLAN.md M9.7 records the actual `State` size (208 B in the sketch) and asserts only the bound.
 - Tests that cannot fail (ROT-294; user decisions TQ1, TQ2, which replace the earlier deferral of mutation testing):
   `gates assertions` requires every `#[test]` to assert (or be `#[should_panic]`) and rejects an `assert_eq!` or
   `assert_ne!` with identical sides; `clippy_bans_fire` keeps clippy's tautology lints firing; `gates mutants` runs
@@ -857,11 +857,12 @@ headroom; plus the ignored tests and each fluid's arbiter status (oracle-only fl
 This section is the one definition of the bench harness, the C++ baseline and the result files; PLAN.md §5.1 lists
 the steps that record each row.
 - **Where:** `crates/phasekit-verify/benches/` (`harness = false`); `phasekit-verify` stays unpublished, which is the
-  "unpublished workspace member" dependencies §2.12 asks for. criterion 0.8 for wall clock on every OS (a non-wasm
-  dev-dependency); gungraun for instruction counts on Linux only (it cannot run on Windows): a
+  "unpublished workspace member" dependencies §2.12 asks for. criterion 0.7 for wall clock on every OS (a non-wasm
+  dev-dependency; 0.8 adds `alloca`, a C build script that breaks the local G6 cross-check); gungraun for instruction counts on Linux only (it cannot run on Windows): a
   `cfg(target_os = "linux")` dev-dependency whose bench file compiles to an empty `main` elsewhere, so G6
-  `--all-targets` still builds *(inference)*; a counting `#[global_allocator]` for allocations (dependencies §2.12,
-  R18). `cargo test` never builds the benches.
+  `--all-targets` still builds *(inference)*; allocation-counter's counting global allocator for allocations (a T3
+  dev-dependency, user decision AC1: implementing `GlobalAlloc` would need `unsafe`, which the workspace forbids;
+  dependencies §2.12, R18). `cargo test` never builds the benches.
 - **Bench fluids:** Water (56 terms), Methane (40), R134a (21), n-Propane (18) and n-Heptane (12 power terms, chosen at
   M1.15 from the JSON term counts: one of 28 twelve-term fluids, with a superancillary and in the core subset;
   kernel-performance §3.3), on SplitMix64 grids shared with the C++ baseline.

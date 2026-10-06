@@ -1,0 +1,6 @@
+# fixture: phasekit-bench/v1 (VERIFICATION.md §12; written by `cargo xtask bench --record`)
+# machine: intel-core-i7-8700k
+# columns: date,commit,step,bench,fluid,median,unit,cpu,os,rustc,governor
+2026-10-06,df011bb,M2.9,lookup_by_name/alias,R134a,47.686,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-06,df011bb,M2.9,lookup_by_name/cas,R134a,35.584,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-06,df011bb,M2.9,lookup_by_name/name,R134a,47.777,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
