@@ -208,5 +208,8 @@ mod tests {
             let got = gao_b(&shifted, 2.5, 0.5, i + 1, 0);
             assert!(((got / (bell * phi)) - 1.0).abs() < 1e-14, "i = {}", i + 1);
         }
+        // η and d reach φ: d = 2, η = 3, ε = 0.5 at τ = 1, δ = 1.5 (q = 2): φ = δ² e^(1/2 − 3·1²) = 2.25 e^(−2.5).
+        let full = GaoBTerm { n: 1.0, t: 0.0, d: 2, eta: 3.0, epsilon: 0.5, beta: 1.0, gamma: 0.0, b: 1.0 };
+        assert!(close(gao_b(&full, 1.0, 1.5, 0, 0), 2.25 * math::exp(-2.5)));
     }
 }
