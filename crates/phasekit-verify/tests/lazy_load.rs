@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use phasekit_core::internal::FluidRecord;
 use phasekit_core::{
-    Blob, DataSet, DataSource, Density, Error, FlashOptions, FluidId, Input, LoadError, Pack, Phase, Prop, Registry,
-    Temperature,
+    Blob, DataSet, DataSource, Density, Error, FlashOptions, FluidId, Input, LoadError, Order, Pack, Phase, Prop,
+    Registry, Temperature,
 };
 
 /// One test fluid: names (canonical first), declared references, and whether its blob decodes.
@@ -70,6 +70,25 @@ fn gas_state(reg: &Registry, name: &str) -> phasekit_core::State {
     reg.get(name).unwrap().flash(input, &FlashOptions::new().with_phase(Phase::Gas)).unwrap()
 }
 
+/// `f(k)` on 16 threads, k = 0..16, each held at a barrier until all 16 have started, so their first touches overlap
+/// instead of running one after another as the threads spawn. The results, in thread order.
+#[cfg(not(target_family = "wasm"))]
+fn race<T: Send>(f: impl Fn(usize) -> T + Sync) -> Vec<T> {
+    let start = std::sync::Barrier::new(16);
+    std::thread::scope(|s| {
+        let handles: Vec<_> = (0..16)
+            .map(|k| {
+                let (start, f) = (&start, &f);
+                s.spawn(move || {
+                    start.wait();
+                    f(k)
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    })
+}
+
 #[test]
 fn nothing_is_read_until_asked_and_failures_are_cached() {
     let source = Shared::new(&[(&["Alpha", "A-1"], &[], false), (&["Beta"], &[], false)]);
@@ -89,11 +108,7 @@ fn nothing_is_read_until_asked_and_failures_are_cached() {
 fn first_touch_initialises_once_under_contention() {
     let source = Shared::new(&[(&["Alpha"], &[], true), (&["Beta"], &[], true)]);
     let reg = layer(&Registry::empty(), &source).unwrap();
-    std::thread::scope(|s| {
-        for _ in 0..16 {
-            s.spawn(|| reg.get("Beta").map(|_| ()));
-        }
-    });
+    assert!(race(|_| reg.get("Beta").is_ok()).into_iter().all(|ok| ok));
     assert_eq!(source.reads(), [0, 1]);
     assert_eq!(reg.loaded().collect::<Vec<_>>(), ["Beta"]);
 }
@@ -144,11 +159,8 @@ fn a_reference_is_read_once_under_contention() {
     let source = Shared::new(&[(&["A"], &["B"], true), (&["B"], &[], true)]);
     let reg = layer(&Registry::empty(), &source).unwrap();
     let state = gas_state(&reg, "A");
-    std::thread::scope(|s| {
-        for _ in 0..16 {
-            s.spawn(|| reg.get("A").unwrap().prop(&state, Prop::Viscosity));
-        }
-    });
+    let viscosities = race(|_| reg.get("A").unwrap().prop(&state, Prop::Viscosity));
+    assert!(viscosities.iter().all(|v| *v == Err(Error::NoModel { prop: Prop::Viscosity })), "{viscosities:?}");
     assert_eq!(source.reads(), [1, 1]);
 }
 
@@ -213,4 +225,79 @@ fn pack_from_generated_bytes_layers_over_embedded() {
     v2[8] = 2;
     let err = Pack::new(v2.into()).unwrap_err();
     assert!(matches!(&err, LoadError::Format(m) if m.starts_with("pack version 2")), "{err:?}");
+}
+
+/// PLAN.md M4.4: every embedded fluid compiles under both datasets, and each compiled model evaluates: α^r and α⁰ to
+/// order 4 at (1.05 T_r, 0.9 ρ_r) are finite. (On δ = 1 itself the non-analytic terms' order-4 δ-derivatives are
+/// infinite; that line and the critical point are M4.6.)
+#[test]
+fn all_136_fluids_compile_under_both_datasets() {
+    for set in [DataSet::Parity, DataSet::Corrected] {
+        let reg = Registry::from_embedded(set).unwrap();
+        let mut compiled = 0;
+        for f in phasekit_data::FLUIDS {
+            let fluid = reg.get(f.name).unwrap_or_else(|e| panic!("{}: {e}", f.name));
+            let eos = fluid.model().helmholtz().unwrap();
+            let record = phasekit_core::internal::record(&reg, f.name).unwrap();
+            let (t, rho) = (1.05 * record.eos.t_reducing, 0.9 * record.eos.rho_reducing);
+            let all = eos.residual(t, rho, Order::Four) + eos.ideal(t, rho, Order::Four);
+            assert!((0..=4).all(|n| (0..=n).all(|i| all.get(i, n - i).is_some_and(f64::is_finite))), "{}", f.name);
+            compiled += 1;
+        }
+        assert_eq!(compiled, 136, "{set:?}");
+    }
+}
+
+/// The embedded Water entry as a `DataSource` that counts its blob reads.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Debug)]
+#[allow(clippy::disallowed_types, reason = "a test-only load counter; the library has no atomics (ROT-031)")]
+struct RealWater(AtomicUsize);
+
+#[cfg(not(target_family = "wasm"))]
+impl DataSource for RealWater {
+    fn names(&self) -> Vec<Vec<String>> {
+        let water = phasekit_data::FLUIDS.iter().find(|f| f.name == "Water").unwrap();
+        vec![std::iter::once(water.name).chain(water.aliases.iter().copied()).map(str::to_string).collect()]
+    }
+    fn blob(&self, _: FluidId) -> Result<Blob, LoadError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(Blob::Static(phasekit_data::FLUIDS.iter().find(|f| f.name == "Water").unwrap().blob))
+    }
+    fn references(&self, _: FluidId) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+/// PLAN.md M4.4 (D8, real data): 16 threads released together by a barrier race the first `get` of the embedded Water
+/// blob; it is decoded and compiled once, and every thread gets the same model and the same bits for a state, by any
+/// of Water's names.
+#[cfg(not(target_family = "wasm"))]
+#[test]
+#[allow(clippy::disallowed_types, reason = "a test-only load counter; the library has no atomics (ROT-031)")]
+fn embedded_water_initialises_once_under_16_threads() {
+    let source = Arc::new(RealWater(AtomicUsize::new(0)));
+    #[derive(Debug)]
+    struct Shared(Arc<RealWater>);
+    impl DataSource for Shared {
+        fn names(&self) -> Vec<Vec<String>> {
+            self.0.names()
+        }
+        fn blob(&self, id: FluidId) -> Result<Blob, LoadError> {
+            self.0.blob(id)
+        }
+        fn references(&self, id: FluidId) -> Vec<String> {
+            self.0.references(id)
+        }
+    }
+    let reg = Registry::empty().with_source(Box::new(Shared(Arc::clone(&source))), DataSet::Corrected).unwrap();
+    let names = ["Water", "water", "H2O", "R718"];
+    let results = race(|k| {
+        let fluid = reg.get(names[k % names.len()]).unwrap();
+        let a = fluid.model().helmholtz().unwrap().residual(500.0, 20_000.0, Order::Two);
+        (std::ptr::from_ref(fluid.model()).cast::<()>() as usize, a.get(2, 0).unwrap().to_bits())
+    });
+    assert_eq!(source.0.load(Ordering::SeqCst), 1);
+    assert!(results.iter().all(|r| *r == results[0]), "{results:?}");
+    assert_eq!(reg.loaded().collect::<Vec<_>>(), ["Water"]);
 }
