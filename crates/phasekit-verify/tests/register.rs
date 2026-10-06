@@ -1,12 +1,25 @@
-//! The divergence register is consistent with the corrections shipped in the data (VERIFICATION.md §7.2). From M2.7
-//! the test decodes every embedded record and collects its patches; `seed_corrections()`, the rows
-//! `data/corrections.csv` will ship, stand in for them until then.
+//! The divergence register is consistent with the corrections shipped in the data (VERIFICATION.md §7.2): the tests
+//! decode every embedded record and collect its patches (PLAN.md M2.7).
 
-use phasekit_core::internal::{Edit, Patch};
+#![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
+
+use phasekit_core::internal::{Edit, FluidRecord, Patch};
+use phasekit_core::{DataSet, Registry};
 use phasekit_verify::{
     Cell, DIVERGENCES, Fix, Fixture, Policy, Provenance, RegisterError, Tolerance, check_register, fixture,
-    from_printed, seed_corrections,
+    from_printed,
 };
+
+/// Every embedded fluid's record, as decoded (uncorrected).
+fn records() -> Vec<FluidRecord> {
+    let registry = Registry::embedded().unwrap();
+    phasekit_data::FLUIDS.iter().map(|f| phasekit_core::internal::record(registry, f.name).unwrap()).collect()
+}
+
+/// The patches the embedded data ships.
+fn seed_corrections() -> Vec<Patch> {
+    records().into_iter().flat_map(|r| r.corrections).collect()
+}
 
 fn patch(id: &str, edit: Edit) -> Patch {
     Patch { divergence: id.into(), edit }
@@ -190,4 +203,63 @@ fn register_cites_reproducible_oracle_facts() {
         let id = name.get(3..7).map(|n| format!("DIV-{n}"));
         assert!(name.starts_with("div") && id.is_some_and(|id| ids.contains(&id.as_str())), "fact `{name}`");
     }
+}
+
+/// PLAN.md M2.7: the embedded data ships exactly the three `UsePaper` data corrections, and the register accepts them.
+#[test]
+fn check_register_accepts_the_shipped_patches() {
+    let shipped = seed_corrections();
+    let ids: Vec<&str> = shipped.iter().map(|p| &*p.divergence).collect();
+    assert_eq!(ids, ["DIV-0003", "DIV-0001", "DIV-0002"]); // Nitrogen, R1234ze(E), Water: index order
+    assert_eq!(check_register(DIVERGENCES, &shipped), Ok(()));
+    assert_eq!(shipped[2].edit, Edit::MeltingP0 { segment: 3, p0: 632.4e6 });
+}
+
+/// VERIFICATION.md §7.2 on real data: for all 136 fluids, Corrected differs from Parity by exactly the shipped edits
+/// (undoing them gives Parity back), `applied` lists them, and the model key changes if and only if a patch applies.
+#[test]
+fn parity_and_corrected_differ_by_exactly_the_patches() {
+    let mut changed = Vec::new();
+    for record in records() {
+        let mut parity = record.clone();
+        parity.apply(DataSet::Parity).unwrap();
+        let mut corrected = record.clone();
+        corrected.apply(DataSet::Corrected).unwrap();
+        assert_eq!(parity, record, "{}: Parity is the v8.0.0 data", record.name);
+        let ids: Vec<Box<str>> = record.corrections.iter().map(|p| p.divergence.clone()).collect();
+        assert_eq!(corrected.applied, ids, "{}", record.name);
+        assert_eq!(parity.model_key() == corrected.model_key(), ids.is_empty(), "{}", record.name);
+        let mut undone = corrected.clone();
+        for patch in &record.corrections {
+            match patch.edit {
+                Edit::GasConstant(_) => undone.eos.gas_constant = parity.eos.gas_constant,
+                Edit::ReducingDensity(_) => undone.eos.rho_reducing = parity.eos.rho_reducing,
+                Edit::MolarMass(_) => undone.molar_mass = parity.molar_mass,
+                Edit::MeltingP0 { segment, .. } => {
+                    let s = usize::from(segment);
+                    undone.melting[s].p0 = parity.melting[s].p0;
+                }
+                _ => panic!("an edit kind this test does not know"),
+            }
+        }
+        undone.applied.clear();
+        assert_eq!(undone, parity, "{}", record.name);
+        if !ids.is_empty() {
+            changed.push(record.name.clone());
+        }
+    }
+    assert_eq!(changed, ["Nitrogen", "R1234ze(E)", "Water"]);
+}
+
+/// DIV-0005 (`KeepOracle`, user decision 5): Helium ships no patch, Corrected is Parity, and no patch may cite the entry.
+#[test]
+fn helium_ships_no_patch() {
+    let helium = records().into_iter().find(|r| r.name == "Helium").unwrap();
+    assert!(helium.corrections.is_empty());
+    let (mut parity, mut corrected) = (helium.clone(), helium);
+    parity.apply(DataSet::Parity).unwrap();
+    corrected.apply(DataSet::Corrected).unwrap();
+    assert_eq!(parity, corrected);
+    let citing = [patch("DIV-0005", Edit::GasConstant(8.314_472))];
+    assert_eq!(check_register(DIVERGENCES, &citing), Err(RegisterError::NotUsePaper("DIV-0005".into())));
 }

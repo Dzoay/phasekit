@@ -1,5 +1,5 @@
 //! `gates register` (VERIFICATION.md §7.2): the divergence register against the shipped corrections
-//! (`check_register`), and every `Fix::Code` module named by an entry whose proof is due exists.
+//! (`data/corrections.csv`, `check_register`), and every `Fix::Code` module named by an entry whose proof is due exists.
 
 use phasekit_verify::{Divergence, Fix, MILESTONE};
 
@@ -8,7 +8,9 @@ use crate::repo::Repo;
 
 pub fn run(repo: &Repo, args: &[String]) -> Verdict {
     no_args(args)?;
-    let patches = phasekit_verify::seed_corrections();
+    let corrections = repo.read(crate::datagen::corrections::CORRECTIONS).map_err(|e| vec![e])?;
+    let rows = crate::datagen::corrections::parse(&corrections).map_err(|e| vec![e])?;
+    let patches: Vec<_> = rows.into_iter().map(|row| row.patch).collect();
     let register = phasekit_verify::DIVERGENCES;
     phasekit_verify::check_register(register, &patches).map_err(|e| vec![format!("check_register: {e:?}")])?;
     let files = repo.files("crates", ".rs", true).map_err(|e| vec![e])?;

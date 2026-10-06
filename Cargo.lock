@@ -76,6 +76,7 @@ name = "phasekit-verify"
 version = "0.0.0"
 dependencies = [
  "phasekit-core",
+ "phasekit-data",
 ]
 
 [[package]]

@@ -4,7 +4,7 @@
 
 use crate::fixture::Kind;
 use crate::tolerance::Tolerance;
-use phasekit_core::internal::{Edit, Patch};
+use phasekit_core::internal::Patch;
 
 /// What part of a model the divergence concerns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -307,16 +307,6 @@ pub static DIVERGENCES: &[Divergence] = &[
         status: DivStatus::Open,
     },
 ];
-
-/// The corrections `data/corrections.csv` will ship (PLAN.md M2.7), standing in for the patches of the decoded records
-/// until then: one per `UsePaper` entry with `fix: Data`.
-pub fn seed_corrections() -> Vec<Patch> {
-    vec![
-        Patch { divergence: "DIV-0001".into(), edit: Edit::GasConstant(8.314_462_1) },
-        Patch { divergence: "DIV-0002".into(), edit: Edit::MeltingP0 { segment: 2, p0: 632.4e6 } },
-        Patch { divergence: "DIV-0003".into(), edit: Edit::ReducingDensity(11_183.9) },
-    ]
-}
 
 /// Why the register and the corrections disagree (VERIFICATION.md §7.2).
 #[derive(Clone, Debug, PartialEq, Eq)]

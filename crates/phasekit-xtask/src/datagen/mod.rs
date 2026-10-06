@@ -4,6 +4,7 @@
 //! stamp must recompute ([`fnv`], M2.2); each default EOS maps into core's record, every JSON quirk resolved and every
 //! value validated ([`record`], M2.3). Later steps add the blobs (M2.4) and the index and features (M2.5).
 
+pub mod corrections;
 pub mod fnv;
 pub mod index;
 pub mod json;
@@ -145,10 +146,12 @@ pub fn load(repo: &Repo) -> Result<Vec<Source>, Vec<String>> {
 /// Everything datagen derives from the pinned files: the parsed sources and the index entries, blobs included.
 pub fn generate(repo: &Repo) -> Result<(Vec<Source>, Vec<index::Entry>), Vec<String>> {
     let sources = load(repo)?;
+    let mut records = sources.iter().map(record::to_record).collect::<Result<Vec<_>, _>>().map_err(|e| vec![e])?;
+    let rows = corrections::parse(&repo.read(corrections::CORRECTIONS).map_err(|e| vec![e])?).map_err(|e| vec![e])?;
+    corrections::attach(&rows, &mut records)?;
     let mut fluids = Vec::with_capacity(sources.len());
-    for source in &sources {
-        let bytes = record::to_record(source).and_then(|r| blob(&r)).map_err(|e| vec![e])?;
-        fluids.push((source, bytes));
+    for (source, record) in sources.iter().zip(&records) {
+        fluids.push((source, blob(record).map_err(|e| vec![e])?));
     }
     let entries = index::index(&fluids).map_err(|e| vec![e])?;
     Ok((sources, entries))
