@@ -18,7 +18,7 @@
 
 use phasekit_core::internal::{
     DoubleExponentialTerm, Environmental, EosRecord, FluidRecord, GaoBTerm, GaussianTerm, IdealTerm, Lemmon2005Term,
-    MAX_POW, NonAnalyticTerm, OffsetReference, PowerTerm,
+    MAX_POW, MeltingSegment, NonAnalyticTerm, OffsetReference, PowerTerm,
 };
 use phasekit_core::{CriticalOrigin, CriticalPoint, DataTerms, Limits, Source};
 
@@ -54,6 +54,7 @@ pub fn to_record(source: &super::Source) -> Result<FluidRecord, String> {
     let c = &fluid.states.critical;
     fluid_record.critical = Some(CriticalPoint { t: c.t, p: c.p, rho: c.rhomolar, origin: CriticalOrigin::Published });
     fluid_record.environmental = info.environmental.as_ref().map(environmental).transpose().map_err(|e| at(&e))?;
+    fluid_record.melting = melting(&fluid.ancillaries).map_err(|e| at(&format!("ANCILLARIES.melting_line: {e}")))?;
     check_constants(&fluid_record).map_err(|e| at(&e))?;
     Ok(fluid_record)
 }
@@ -271,6 +272,20 @@ fn environmental(env: &mirror::Environmental) -> Result<Environmental, String> {
         (potential(env.gwp20), potential(env.gwp100), potential(env.gwp500), potential(env.odp));
     (out.health, out.flammability, out.physical) = (rating(env.hh), rating(env.fh), rating(env.ph));
     Ok(out)
+}
+
+/// The melting curve's segments as stored (30 fluids; map 02 §3.7): each part's reference point and range, in file
+/// order. Only these four values are mapped until M8.11 adds the curve forms; a correction of a segment's `p_0`
+/// (DIV-0002) needs them now. The ice Ih part of Water keeps CoolProp's T_min > T_max.
+fn melting(ancillaries: &serde_json::Value) -> Result<Vec<MeltingSegment>, String> {
+    let Some(line) = ancillaries.get("melting_line") else { return Ok(Vec::new()) };
+    let parts = line.get("parts").and_then(|p| p.as_array()).ok_or("no parts")?;
+    let mut segments = Vec::with_capacity(parts.len());
+    for (i, part) in parts.iter().enumerate() {
+        let get = |key: &str| part.get(key).and_then(serde_json::Value::as_f64).ok_or(format!("part {i}: no {key}"));
+        segments.push(MeltingSegment { t0: get("T_0")?, p0: get("p_0")?, t_min: get("T_min")?, t_max: get("T_max")? });
+    }
+    Ok(segments)
 }
 
 /// The units every `*_units` field must name; datagen checks them and drops them (map 09 §9 D2).

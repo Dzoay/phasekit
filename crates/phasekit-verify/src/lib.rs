@@ -16,7 +16,7 @@ pub use fixture::{Cell, CheckError, ColumnRole, Fixture, FixtureError, FixtureMi
 pub use lock::{ORACLE_LOCK, OracleLock};
 pub use register::{
     DIVERGENCES, DivStatus, Divergence, Exempt, Fix, Part, Policy, RegisterError, Rows, check_register, missing_proofs,
-    seed_corrections, unregistered_proofs,
+    unregistered_proofs,
 };
 pub use sample::SplitMix64;
 pub use sha256::{sha256, sha256_hex};

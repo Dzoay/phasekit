@@ -1,0 +1,9 @@
+# data/corrections.csv (PLAN.md M2.7; VERIFICATION.md §6.4, §7): the corrections DataSet::Corrected ships, one row per
+# edit. Datagen checks each row's v8.0.0 value against the JSON bit for bit, refuses any other row, and writes the edit
+# into that fluid's blob; the divergence register entry it cites must be UsePaper with fix Data (check_register).
+# Fields: gas_constant, rhomolar_reducing, molar_mass, melting_p0[<segment>]. The citation is the last column and may
+# hold commas.
+div,fluid,field,v8.0.0,corrected,citation
+DIV-0001,R1234ze(E),gas_constant,8.314472,8.3144621,Thol & Lemmon, IJT 37 (2016) 28: the EOS is fitted with R = 8.3144621 J/(mol K) (Table 3 reproduces with it)
+DIV-0002,Water,melting_p0[3],623400000.0,632400000.0,IAPWS R14-08(2011): the ice VI melting curve has p* = 632.4 MPa (CoolProp's JSON transposes the digits)
+DIV-0003,Nitrogen,rhomolar_reducing,11183.901464580624,11183.9,Span et al., JPCRD 29 (2000) 1361: rho_c = 11.1839 mol/dm3 (upstream 2acbbc82)

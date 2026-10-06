@@ -13,5 +13,9 @@ publish.workspace = true
 [dependencies]
 phasekit-core = { workspace = true, features = ["fluids-all"] }
 
+# The embedded index (`phasekit_data::FLUIDS`) names every fluid the corpus decodes (PLAN.md M2.7).
+[dev-dependencies]
+phasekit-data.workspace = true
+
 [lints]
 workspace = true

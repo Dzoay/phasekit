@@ -100,6 +100,48 @@ mod tests {
         denied
     }
 
+    /// Lines (1-based) of `source` outside its test module whose code (comments aside) holds a float literal starting
+    /// `8.31`: a hard-coded gas constant.
+    fn gas_constant_literals(source: &str) -> Vec<usize> {
+        let mut found = Vec::new();
+        for (i, line) in source.lines().enumerate() {
+            if line.starts_with("#[cfg(test)]") {
+                break;
+            }
+            let code = line.split("//").next().unwrap_or_default();
+            let bytes = code.as_bytes();
+            let hit = code.match_indices("8.31").any(|(at, _)| {
+                !at.checked_sub(1)
+                    .and_then(|j| bytes.get(j))
+                    .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'.')
+            });
+            if hit {
+                found.push(i + 1);
+            }
+        }
+        found
+    }
+
+    /// Rot: ROT-042. R is per-model data (`HelmholtzModel::gas_constant`), never a literal in the kernel: no float
+    /// literal `8.31…` appears in `crates/phasekit-core/src` outside test modules (CoolProp hard-codes 8.3144598 in five
+    /// places beside 10 distinct EOS values; map 12 R7, map 02 §6). Comments and tests may name values.
+    #[test]
+    fn no_gas_constant_literal_in_core() {
+        assert_eq!(
+            gas_constant_literals("let r = 8.314_462_618;\nlet x = 18.31; // 8.31\n#[cfg(test)]\nlet r = 8.31;"),
+            [1]
+        );
+        assert_eq!(gas_constant_literals("let r = R * 8.3144598;"), [1]);
+        let files = crate::repo::Repo::locate().files("crates/phasekit-core/src", ".rs", true).unwrap();
+        assert!(files.len() > 20);
+        let hits: Vec<(String, Vec<usize>)> = files
+            .iter()
+            .map(|(path, text)| (path.clone(), gas_constant_literals(text)))
+            .filter(|(_, lines)| !lines.is_empty())
+            .collect();
+        assert!(hits.is_empty(), "{hits:?}");
+    }
+
     /// The probe's marked lines: (line number, rule) for every `<code> // fires: <rule>`.
     fn markers(probe: &str) -> Vec<(usize, &str)> {
         probe

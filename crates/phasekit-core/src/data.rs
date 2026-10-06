@@ -495,7 +495,8 @@ impl FluidRecord {
     /// and no corrections. It compiles with today's evaluator, so tests of the registry, packs and layers use its
     /// v1 blob (`synthetic(name)?.encode()`) where they need a fluid that works.
     pub fn synthetic(name: &str) -> Result<FluidRecord, Error> {
-        let mut eos = EosRecord::new(8.314_472, 382.513, 4290.0, 20_000.0);
+        // A synthetic gas constant: the kernel holds no physical R literal (ROT-042); R is each model's data.
+        let mut eos = EosRecord::new(8.3, 382.513, 4290.0, 20_000.0);
         eos.power = vec![PowerTerm::new(0.03, 1.0, 4, 0, 0.0), PowerTerm::new(0.5, 1.5, 2, 1, 1.0)];
         eos.ideal = vec![IdealTerm::Lead { a1: -12.5, a2: 8.6 }, IdealTerm::LogTau { a: 3.0 }];
         let limits = Limits::new(169.0, 420.0, 100e6)?;
@@ -535,12 +536,15 @@ impl FluidRecord {
         })
     }
 
-    /// Content key of the compiled model: the canonical EOS section (α^r, α⁰, R, reducing state), M and the
-    /// name (E14).
+    /// Content key of the compiled model: the canonical EOS section (α^r, α⁰, R, reducing state), M, the melting
+    /// segments and the name (E14): any correction changes it (VERIFICATION.md §7.2).
     pub fn model_key(&self) -> ModelKey {
         let mut bytes = Vec::new();
         self.eos.encode(&mut bytes);
         bytes.extend_from_slice(&self.molar_mass.to_le_bytes());
+        for s in &self.melting {
+            [s.t0, s.p0, s.t_min, s.t_max].iter().for_each(|x| bytes.extend_from_slice(&x.to_le_bytes()));
+        }
         bytes.extend_from_slice(self.name.as_bytes());
         ModelKey::from_content(&bytes)
     }
@@ -609,7 +613,7 @@ mod tests {
         (undone.eos.gas_constant, undone.applied) = (parity.eos.gas_constant, vec![]);
         assert_eq!(undone, parity);
         assert_eq!(parity.superancillary_freshness(), Some(SaFreshness::Fresh));
-        let p = 8.314_462_1 / 8.314_472;
+        let p = 8.314_462_1 / 8.3;
         assert_eq!(corrected.superancillary_freshness(), Some(SaFreshness::Rescaled { p, rho: 1.0 }));
         let mut reshaped = parity.clone();
         reshaped.eos.power[1].n = 0.51;
@@ -894,5 +898,12 @@ mod tests {
         heavier.molar_mass += 1e-9;
         assert_eq!(heavier.eos.eos_hash(), base.eos.eos_hash());
         assert_ne!(heavier.model_key(), base.model_key());
+        let mut melting = base.clone();
+        melting.melting = vec![MeltingSegment { t0: 1.0, p0: 2.0, t_min: 1.0, t_max: 3.0 }];
+        assert_eq!(melting.eos.eos_hash(), base.eos.eos_hash());
+        assert_ne!(melting.model_key(), base.model_key());
+        let mut p0 = melting.clone();
+        p0.melting[0].p0 = 2.5;
+        assert_ne!(p0.model_key(), melting.model_key());
     }
 }

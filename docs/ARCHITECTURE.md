@@ -1107,9 +1107,9 @@ feature is off gives `LoadError::NotEmbedded { feature }`, uncached, so a later 
 **Runtime JSON.** Not in core. The serde mirror lives in xtask; a `json` feature (serde_json, R2/R7) moves it behind
 core only when a runtime-JSON consumer is scheduled (S-12).
 
-**Provenance.** Every model carries a `Source`; `DATASET` names the snapshot; `ModelKey` hashes the whole compiled
-model (canonical EOS bytes, M, name; E14). Fixtures record the wheel sha, all 38 config keys and the scrubbed
-environment (map 10 §8.3, map 01 §8).
+**Provenance.** Every model carries a `Source`; `DATASET` names the snapshot; `ModelKey` hashes the whole compiled model
+(canonical EOS bytes, M, the melting segments, name; E14), so every correction changes it. Fixtures record the wheel
+sha, all 38 config keys and the scrubbed environment (map 10 §8.3, map 01 §8).
 
 ## 9. Errors, NaN policy, FP determinism and tolerances
 
