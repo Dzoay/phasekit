@@ -21,8 +21,8 @@ pub const MAX_POW: usize = 16;
 /// (map 02 §3) stay finite at δ = 0 (kernel-performance §4).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Vars<R> {
-    ln_tau: R,
-    delta_pow: [R; MAX_POW + 1],
+    pub(super) ln_tau: R,
+    pub(super) delta_pow: [R; MAX_POW + 1],
 }
 
 impl<R: Real> Vars<R> {
@@ -57,7 +57,7 @@ impl PowerTerm {
 }
 
 /// Polynomial in x truncated at degree 4 (enough for order-4 δ-factors).
-type Poly = [f64; 5];
+pub(super) type Poly = [f64; 5];
 
 fn poly_mul(a: Poly, b: Poly) -> Poly {
     let mut r = [0.0; 5];
@@ -79,14 +79,14 @@ fn poly_sum(terms: &[(f64, Poly)]) -> Poly {
     r
 }
 
-/// Coefficients `C[j][k]` of `B^δ_j(x) = Σ_k C[j][k]·x^k` for `g = δ^d e^(−x)`, `x = c·δ^l`. With
-/// `u = ln δ`: `D_u ln g = d − l·x` and `D_u^k ln g = −l^k·x` (k ≥ 2); complete Bell polynomials give
-/// `D_u^k g / g`, Stirling numbers of the first kind turn them into `δ^k g^(k) / g`. All coefficients are
-/// integers below 2^53 (d ≤ 15, l ≤ 6), so they are exact in f64.
-fn delta_poly(d: u8, l: u8) -> [Poly; 5] {
-    let (d, l) = (f64::from(d), f64::from(l));
-    let p1 = [d, -l, 0.0, 0.0, 0.0];
-    let pk = |k: i32| [0.0, -crate::num::math::powi(l, k), 0.0, 0.0, 0.0];
+/// Coefficients `C[j][k]` of `B_j(x) = Σ_k C[j][k]·x^k`, the scaled derivatives `z^j g^(j)/g` of `g = z^p e^(−x)`,
+/// `x = c·z^q`, as polynomials in x. With `u = ln z`: `D_u ln g = p − q·x` and `D_u^k ln g = −q^k·x` (k ≥ 2);
+/// complete Bell polynomials give `D_u^k g / g`, Stirling numbers of the first kind turn them into `z^k g^(k) / g`.
+/// For the δ-side of a power term (p = d ≤ 15, q = l ≤ 6) every coefficient is an integer below 2^53, so exact in
+/// f64; the τ-side of Lemmon2005 and DoubleExponential terms has real p = t and q = m.
+pub(super) fn exp_poly(p: f64, q: f64) -> [Poly; 5] {
+    let p1 = [p, -q, 0.0, 0.0, 0.0];
+    let pk = |k: i32| [0.0, -crate::num::math::powi(q, k), 0.0, 0.0, 0.0];
     let (p2, p3, p4) = (pk(2), pk(3), pk(4));
     let p11 = poly_mul(p1, p1);
     let y1 = p1;
@@ -106,6 +106,17 @@ fn delta_poly(d: u8, l: u8) -> [Poly; 5] {
         poly_sum(&[(1.0, y3), (-3.0, y2), (2.0, y1)]),
         poly_sum(&[(1.0, y4), (-6.0, y3), (11.0, y2), (-6.0, y1)]),
     ]
+}
+
+/// `[1, B_1(x), …, B_ORD(x)]` from the polynomials of [`exp_poly`], by Horner: exact coefficients, no cancellation
+/// as x → 0.
+#[inline(always)]
+pub(super) fn horner<R: Real, const ORD: usize>(polys: &[Poly; 5], x: R) -> [R; 5] {
+    let mut b = [R::from_f64(1.0); 5];
+    for (j, (b, poly)) in b.iter_mut().zip(polys).enumerate().take(ORD + 1).skip(1) {
+        *b = poly[..j].iter().rev().fold(R::from_f64(poly[j]), |acc, &ck| acc * x + ck);
+    }
+    b
 }
 
 /// A structure-of-arrays block of power terms, compiled once at decode.
@@ -141,7 +152,7 @@ impl PowerBlock {
             l: terms.iter().map(|p| p.l).collect(),
             c: terms.iter().map(|p| p.c).collect(),
             bt: terms.iter().map(|p| falling(p.t)).collect(),
-            bd: terms.iter().map(|p| delta_poly(p.d, p.l)).collect(),
+            bd: terms.iter().map(|p| exp_poly(f64::from(p.d), f64::from(p.l))).collect(),
         })
     }
 
@@ -150,12 +161,7 @@ impl PowerBlock {
     fn term<R: Real, const ORD: usize>(&self, k: usize, v: &Vars<R>) -> (R, [R; 5]) {
         let x = v.delta_pow[usize::from(self.l[k])] * self.c[k]; // c δ^l (0 for polynomial terms)
         let phi = (v.ln_tau * self.t[k] - x).exp() * v.delta_pow[usize::from(self.d[k])] * self.n[k];
-        let mut bd = [R::from_f64(1.0); 5];
-        for (j, (b, poly)) in bd.iter_mut().zip(&self.bd[k]).enumerate().take(ORD + 1).skip(1) {
-            // Horner on the degree-j polynomial: exact coefficients, no cancellation as x → 0.
-            *b = poly[..j].iter().rev().fold(R::from_f64(poly[j]), |acc, &ck| acc * x + ck);
-        }
-        (phi, bd)
+        (phi, horner::<R, ORD>(&self.bd[k], x))
     }
 
     /// Hot path for one state: one `exp` per term, then `A_ij += φ·B^τ_i·B^δ_j` for `i + j ≤ ORD`.

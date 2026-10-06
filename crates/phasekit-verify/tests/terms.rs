@@ -5,7 +5,7 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use num_dual::{DualNum, HyperDual};
-use phasekit_core::internal::{EosRecord, FluidRecord, PowerTerm};
+use phasekit_core::internal::{EosRecord, FluidRecord};
 use phasekit_core::{Jet4, Order, Real, Registry};
 use phasekit_verify::{SplitMix64, ToleranceClass, majorant};
 
@@ -112,63 +112,146 @@ fn jet4_matches_num_dual_on_every_real_method() {
     assert!(failures.is_empty(), "{} of {checked} outside Term:\n{}", failures.len(), failures.join("\n"));
 }
 
-/// The paper formula `Σ n τ^t δ^d e^(−cδ^l)` in num-dual.
-fn paper(terms: &[PowerTerm], tau: &D4, delta: &D4) -> D4 {
+/// 300 SplitMix64 points for a fluid's terms: τ ~ U[T_r/Tmax, T_r/Tmin], δ ~ logU[1e-12, ρ_max/ρ_r], 10 of them at
+/// δ = 1e-8, 10 at δ = 1e-12 and 10 within 1e-2 of τ = δ = 1 (VERIFICATION.md §9.3).
+fn points(record: &FluidRecord) -> Vec<(f64, f64)> {
+    let e = &record.eos;
+    let (tau_lo, tau_hi) = (e.t_reducing / record.limits.t_max(), e.t_reducing / record.limits.t_min());
+    let mut rng = SplitMix64::new(1);
+    (0..300)
+        .map(|k| {
+            let tau = if k >= 290 { 1.0 + rng.uniform(-1e-2, 1e-2) } else { rng.uniform(tau_lo, tau_hi) };
+            let delta = match k {
+                0..270 => rng.log_uniform(1e-12, e.rho_max / e.rho_reducing),
+                270..280 => 1e-8,
+                280..290 => 1e-12,
+                _ => 1.0 + rng.uniform(-1e-2, 1e-2),
+            };
+            (tau, delta)
+        })
+        .collect()
+}
+
+/// `eos` (one kind's terms of `fluid`) compiled alone, at the [`points`] of `fluid`: all 15 `A_ij` of `residual`
+/// against num-dual AD of `paper`, class `Term` with the entry's `scale`. Returns the entries checked; panics with the
+/// first 20 failures.
+fn check_ad(
+    fluid: &str,
+    select: impl Fn(&EosRecord, &mut EosRecord),
+    paper: impl Fn(&EosRecord, &D4, &D4) -> D4,
+    scale: impl Fn(&EosRecord, f64, f64, usize, usize) -> f64,
+) -> usize {
+    let record = phasekit_core::internal::record(Registry::embedded().unwrap(), fluid).unwrap();
+    let e = &record.eos;
+    let mut eos = EosRecord::new(e.gas_constant, e.t_reducing, e.rho_reducing, e.rho_max);
+    select(e, &mut eos);
+    let model = FluidRecord::new(fluid, record.molar_mass, record.source.clone(), eos.clone(), record.limits);
+    let model = model.compile().unwrap();
+    let (t_r, rho_r) = (e.t_reducing, e.rho_reducing);
+    let (mut failures, mut checked) = (Vec::new(), 0);
+    for (tau, delta) in points(&record) {
+        // The model's own τ and δ, from the (T, ρ) it is called with.
+        let (t, rho) = (t_r / tau, delta * rho_r);
+        let (tau, delta) = (t_r / t, rho / rho_r);
+        let got = model.eos().residual(t, rho, Order::Four);
+        for (i, j) in entries() {
+            let (x, y) = tau_delta(tau, delta, i, j);
+            let factor = phasekit_core::math::powi(tau, i as i32) * phasekit_core::math::powi(delta, j as i32);
+            let want = part(&paper(&eos, &x, &y), i + j) * factor;
+            let got = got.get(i, j).unwrap();
+            checked += 1;
+            if (got - want).abs() > ToleranceClass::Term.bound(scale(&eos, tau, delta, i, j)).unwrap() {
+                failures.push(format!("{fluid} at ({tau}, {delta}), A{i}{j}: fast path {got:e}, num-dual {want:e}"));
+            }
+        }
+    }
+    let shown = failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n");
+    assert!(failures.is_empty(), "{} of {checked} outside Term:\n{shown}", failures.len());
+    checked
+}
+
+/// The paper formula `Σ n τ^t δ^d e^(−cδ^l)` of power and Exponential terms in num-dual.
+fn power_paper(e: &EosRecord, tau: &D4, delta: &D4) -> D4 {
     let mut sum = var(0.0, [false; 4]);
-    for k in terms {
+    for k in &e.power {
         let damping = (delta.powi(i32::from(k.l)) * -k.c).exp();
         sum += tau.powf(k.t) * delta.powi(i32::from(k.d)) * damping * k.n;
     }
     sum
 }
 
-/// AD oracle: num-dual 0.15 on the paper formula (map 02 §3.1). The power list of every core-subset fluid (Power and
-/// Exponential terms, as datagen merges them), compiled alone, at 300 SplitMix64 points: τ ~ U[T_r/Tmax, T_r/Tmin],
-/// δ ~ logU[1e-12, ρ_max/ρ_r], 10 of them at δ = 1e-8 and 10 at δ = 1e-12, and 10 within 1e-2 of τ = δ = 1. All 15
-/// `A_ij` of `residual` (the `accumulate` fast path) against num-dual, class `Term`, scale [`majorant::power`].
-/// Replaces the seed's test-only hyper-dual (S-07; ROT-137).
+fn power_scale(e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
+    e.power.iter().map(|term| majorant::power(term, tau, delta, i, j)).sum()
+}
+
+/// AD oracle: num-dual 0.15 on the paper formula (map 02 §3.1). The power list of every core-subset fluid that has
+/// one (Power and Exponential terms, as datagen merges them), compiled alone, at 300 [`points`] each: all 15 `A_ij`
+/// of `residual` (the `accumulate` fast path) against num-dual, class `Term`, scale [`majorant::power`]. Replaces
+/// the seed's test-only hyper-dual (S-07; ROT-137).
 #[test]
 fn jets_match_num_dual_ad() {
-    let registry = Registry::embedded().unwrap();
     let core = ["Air", "Ammonia", "CarbonDioxide", "HFE143m", "Helium", "Methanol", "Nitrogen", "R1130(E)", "R1234yf"];
     let core = [&core[..], &["R1234ze(E)", "R410A", "Water", "n-Heptane"]].concat();
-    let (mut failures, mut checked) = (Vec::new(), 0);
-    for name in core {
-        let record = phasekit_core::internal::record(registry, name).unwrap();
-        let e = &record.eos;
-        let mut eos = EosRecord::new(e.gas_constant, e.t_reducing, e.rho_reducing, e.rho_max);
-        eos.power.clone_from(&e.power);
-        let model = FluidRecord::new(name, record.molar_mass, record.source.clone(), eos, record.limits);
-        let model = model.compile().unwrap();
-        let (t_r, rho_r) = (e.t_reducing, e.rho_reducing);
-        let (tau_lo, tau_hi) = (t_r / record.limits.t_max(), t_r / record.limits.t_min());
-        let mut rng = SplitMix64::new(1);
-        for k in 0..300 {
-            let tau = if k >= 290 { 1.0 + rng.uniform(-1e-2, 1e-2) } else { rng.uniform(tau_lo, tau_hi) };
-            let delta = match k {
-                0..270 => rng.log_uniform(1e-12, e.rho_max / rho_r),
-                270..280 => 1e-8,
-                280..290 => 1e-12,
-                _ => 1.0 + rng.uniform(-1e-2, 1e-2),
-            };
-            // The model's own τ and δ, from the (T, ρ) it is called with.
-            let (t, rho) = (t_r / tau, delta * rho_r);
-            let (tau, delta) = (t_r / t, rho / rho_r);
-            let got = model.eos().residual(t, rho, Order::Four);
-            for (i, j) in entries() {
-                let (x, y) = tau_delta(tau, delta, i, j);
-                let factor = phasekit_core::math::powi(tau, i as i32) * phasekit_core::math::powi(delta, j as i32);
-                let want = part(&paper(&e.power, &x, &y), i + j) * factor;
-                let scale: f64 = e.power.iter().map(|term| majorant::power(term, tau, delta, i, j)).sum();
-                let got = got.get(i, j).unwrap();
-                checked += 1;
-                if (got - want).abs() > ToleranceClass::Term.bound(scale).unwrap() {
-                    failures.push(format!("{name} at ({tau}, {delta}), A{i}{j}: fast path {got:e}, num-dual {want:e}"));
-                }
-            }
-        }
-    }
+    let select = |e: &EosRecord, eos: &mut EosRecord| eos.power.clone_from(&e.power);
+    let checked: usize = core.iter().map(|fluid| check_ad(fluid, select, power_paper, power_scale)).sum();
     assert_eq!(checked, 13 * 300 * 15);
-    let shown = failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n");
-    assert!(failures.is_empty(), "{} of {checked} outside Term:\n{shown}", failures.len());
+}
+
+/// AD oracle: num-dual 0.15 on `n τ^t δ^d e^(−gδ^l)`, the Exponential terms alone: R1130(E)'s 5 (after its 6 Power
+/// terms; g ≠ 1) and Methanol's 36 (map 02 §3.1, map 13 §8).
+#[test]
+fn exponential_matches_ad_of_the_paper_formula() {
+    let tail = |from: usize| {
+        move |e: &EosRecord, eos: &mut EosRecord| {
+            assert_eq!(e.power.len(), from + if from == 0 { 36 } else { 5 });
+            eos.power = e.power[from..].to_vec();
+        }
+    };
+    let checked = check_ad("R1130(E)", tail(6), power_paper, power_scale)
+        + check_ad("Methanol", tail(0), power_paper, power_scale);
+    assert_eq!(checked, 2 * 300 * 15);
+}
+
+/// AD oracle: num-dual 0.15 on `n τ^t δ^d e^(−δ^l − τ^m)` with each exponential absent when its exponent is 0
+/// (Lemmon & Jacobsen 2005), R125's 18 terms; scale [`majorant::lemmon2005`].
+#[test]
+fn lemmon2005_matches_ad_of_the_paper_formula() {
+    let paper = |e: &EosRecord, tau: &D4, delta: &D4| {
+        let mut sum = var(0.0, [false; 4]);
+        for k in &e.lemmon2005 {
+            let mut exponent = var(0.0, [false; 4]);
+            if k.l > 0 {
+                exponent -= delta.powi(i32::from(k.l));
+            }
+            if k.m > 0.0 {
+                exponent -= tau.powf(k.m);
+            }
+            sum += tau.powf(k.t) * delta.powi(i32::from(k.d)) * exponent.exp() * k.n;
+        }
+        sum
+    };
+    let scale = |e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize| {
+        e.lemmon2005.iter().map(|term| majorant::lemmon2005(term, tau, delta, i, j)).sum()
+    };
+    let select = |e: &EosRecord, eos: &mut EosRecord| eos.lemmon2005.clone_from(&e.lemmon2005);
+    assert_eq!(check_ad("R125", select, paper, scale), 300 * 15);
+}
+
+/// AD oracle: num-dual 0.15 on `n τ^t δ^d e^(−g_d δ^(l_d) − g_t τ^(l_t))` (de Reuck & Craven 1993), Methanol's 8
+/// terms with g_t < 0; scale [`majorant::double_exponential`].
+#[test]
+fn double_exponential_matches_ad_of_the_paper_formula() {
+    let paper = |e: &EosRecord, tau: &D4, delta: &D4| {
+        let mut sum = var(0.0, [false; 4]);
+        for k in &e.double_exponential {
+            let exponent = -(delta.powi(i32::from(k.ld)) * k.gd) - tau.powf(k.lt) * k.gt;
+            sum += tau.powf(k.t) * delta.powi(i32::from(k.d)) * exponent.exp() * k.n;
+        }
+        sum
+    };
+    let scale = |e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize| {
+        e.double_exponential.iter().map(|term| majorant::double_exponential(term, tau, delta, i, j)).sum()
+    };
+    let select = |e: &EosRecord, eos: &mut EosRecord| eos.double_exponential.clone_from(&e.double_exponential);
+    assert_eq!(check_ad("Methanol", select, paper, scale), 300 * 15);
 }

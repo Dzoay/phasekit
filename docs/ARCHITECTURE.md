@@ -239,18 +239,23 @@ A separable term `n τ^t δ^d e^(−cδ^l)` has scaled derivatives `α · B^τ_i
 - δ^d and δ^l come from a per-state multiplication table, so the 57 MBWR d = 0 terms stay finite at δ = 0.
 
 One `exp` per term, about 10 multiply-adds for the δ-factors, no hand-written derivative per term. The same generic
-code runs on `f64` and `Jet4` (and on lanes, if the gate fires).
+code runs on `f64` and `Jet4` (and on lanes, if the gate fires). Lemmon2005 and DoubleExponential terms,
+`n τ^t e^(−aτ^m) δ^d e^(−cδ^l)`, get the same polynomials on their τ-side too, built from real `(t, m)` by the same
+`exp_poly` and evaluated in `y = aτ^m` (`TauExpBlock`, M3.3): one more `exp` per term where a ≠ 0.
 
 ```rust
+pub(super) fn horner<R: Real, const ORD: usize>(polys: &[Poly; 5], x: R) -> [R; 5] {
+    let mut b = [R::from_f64(1.0); 5];
+    for (j, (b, poly)) in b.iter_mut().zip(polys).enumerate().take(ORD + 1).skip(1) {
+        *b = poly[..j].iter().rev().fold(R::from_f64(poly[j]), |acc, &ck| acc * x + ck);
+    }
+    b
+}
+
     fn term<R: Real, const ORD: usize>(&self, k: usize, v: &Vars<R>) -> (R, [R; 5]) {
         let x = v.delta_pow[usize::from(self.l[k])] * self.c[k]; // c δ^l (0 for polynomial terms)
         let phi = (v.ln_tau * self.t[k] - x).exp() * v.delta_pow[usize::from(self.d[k])] * self.n[k];
-        let mut bd = [R::from_f64(1.0); 5];
-        for (j, (b, poly)) in bd.iter_mut().zip(&self.bd[k]).enumerate().take(ORD + 1).skip(1) {
-            // Horner on the degree-j polynomial: exact coefficients, no cancellation as x → 0.
-            *b = poly[..j].iter().rev().fold(R::from_f64(poly[j]), |acc, &ck| acc * x + ck);
-        }
-        (phi, bd)
+        (phi, horner::<R, ORD>(&self.bd[k], x))
     }
     pub(crate) fn accumulate<R: Real, const ORD: usize>(&self, v: &Vars<R>, acc: &mut Derivs<R>) {
         for k in 0..self.n.len() {

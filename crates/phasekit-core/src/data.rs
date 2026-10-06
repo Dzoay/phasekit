@@ -10,7 +10,7 @@ use crate::error::{Error, LoadError};
 use crate::fluid::{PureFluid, PureFluidBuilder};
 use crate::helmholtz::{
     DoubleExponentialTerm, GaoBTerm, GaussianTerm, IdealGas, IdealTerm, Lemmon2005Term, MAX_POW, MultiParameterEos,
-    NonAnalyticTerm, OffsetReference, PowerBlock, PowerTerm, ResidualBlock,
+    NonAnalyticTerm, OffsetReference, PowerBlock, PowerTerm, ResidualBlock, TauExpBlock,
 };
 use crate::model::{CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source};
 
@@ -652,8 +652,6 @@ impl FluidRecord {
     pub fn builder(self) -> Result<PureFluidBuilder, Error> {
         let e = &self.eos;
         let pending = [
-            (e.lemmon2005.is_empty(), "Lemmon2005", "M3.3"),
-            (e.double_exponential.is_empty(), "DoubleExponential", "M3.3"),
             (e.gaussian.is_empty(), "Gaussian", "M3.4"),
             (e.gao_b.is_empty(), "GaoB", "M3.5"),
             (e.non_analytic.is_empty(), "NonAnalytic", "M4.1"),
@@ -662,7 +660,10 @@ impl FluidRecord {
             return Err(Error::Load(LoadError::Format(format!("{kind} terms land at {step}").into())));
         }
         let ideal = IdealGas::new(e.t_reducing, e.rho_reducing, e.ideal.clone())?;
-        let blocks = vec![ResidualBlock::Power(PowerBlock::new(&e.power)?)];
+        let mut blocks = vec![ResidualBlock::Power(PowerBlock::new(&e.power)?)];
+        if !(e.lemmon2005.is_empty() && e.double_exponential.is_empty()) {
+            blocks.push(ResidualBlock::TauExp(TauExpBlock::new(&e.lemmon2005, &e.double_exponential)?));
+        }
         let eos = MultiParameterEos::new(e.gas_constant, e.t_reducing, e.rho_reducing, e.rho_max, blocks, ideal)?;
         let aliases: Vec<&str> = self.aliases.iter().map(String::as_str).collect();
         let info = FluidInfo::new(&self.name, self.molar_mass, self.source.clone(), self.model_key())?;
@@ -982,9 +983,7 @@ mod tests {
     #[test]
     fn kinds_without_an_evaluator_are_refused() {
         type Clear = fn(&mut EosRecord);
-        let pending: [(Clear, &str); 5] = [
-            (|e| e.lemmon2005.clear(), "Lemmon2005 terms land at M3.3"),
-            (|e| e.double_exponential.clear(), "DoubleExponential terms land at M3.3"),
+        let pending: [(Clear, &str); 3] = [
             (|e| e.gaussian.clear(), "Gaussian terms land at M3.4"),
             (|e| e.gao_b.clear(), "GaoB terms land at M3.5"),
             (|e| e.non_analytic.clear(), "NonAnalytic terms land at M4.1"),

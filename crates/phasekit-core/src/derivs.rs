@@ -81,6 +81,17 @@ impl<R: Real> Derivs<R> {
             }
         }
     }
+    /// `A_ij += φ · bt[i] · bd[j]` for `i + j ≤ ORD`, with state-dependent τ-factors (terms with an exponential
+    /// on the τ-side too).
+    pub(crate) fn add_separable<const ORD: usize>(&mut self, phi: R, bt: &[R; 5], bd: &[R; 5]) {
+        for (i, &bti) in bt.iter().enumerate().take(ORD + 1) {
+            let e = phi * bti;
+            for (j, &bdj) in bd.iter().enumerate().take(ORD + 1 - i) {
+                let k = idx(i, j);
+                self.a[k] = self.a[k] + e * bdj;
+            }
+        }
+    }
 }
 
 impl Derivs<f64> {

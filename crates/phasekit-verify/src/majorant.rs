@@ -6,7 +6,7 @@
 //! A raw Σ_k |φ_k| cannot serve the derivatives: a τ-derivative of a term with t = 50 carries the factor
 //! t(t − 1)(t − 2)(t − 3) ≈ 5.5e6, so its rounding alone exceeds 1e-13 · Σ_k |φ_k| (PLAN.md M3.1, measured on Water).
 
-use phasekit_core::internal::PowerTerm;
+use phasekit_core::internal::{DoubleExponentialTerm, Lemmon2005Term, PowerTerm};
 use phasekit_core::math;
 
 /// `|a|(|a| + 1)…(|a| + n − 1)`: the falling factorial `a(a − 1)…(a − n + 1)` with every summand of its expansion in
@@ -29,20 +29,45 @@ fn binomial(n: usize, k: usize) -> f64 {
     (0..k).fold(1.0, |acc, i| acc * (n - i) as f64 / (i + 1) as f64)
 }
 
-/// The `Term` scale of entry `(i, j)`, `i + j ≤ 4`, of one power term `n τ^t δ^d e^(−cδ^l)` at (τ, δ). With
-/// `φ = n τ^t δ^d e^(−x)`, `x = cδ^l`: `τ^i ∂^i τ^t = (t)_i τ^t` and, by Leibniz and Faà di Bruno,
-/// `δ^j ∂^j (δ^d e^(−x)) = δ^d e^(−x) Σ_m C(j, m) (d)_(j−m) B_m(−(l)_1 x, …, −(l)_m x)`. The scale replaces every
-/// falling factorial by its rising counterpart and `x` by `|x|`:
-/// `|φ| · t^(i) · Σ_m C(j, m) d^(j−m) B_m(l^(1)|x|, …, l^(m)|x|)`.
-pub fn power(term: &PowerTerm, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
-    let x = term.c * math::powi(delta, i32::from(term.l));
-    let phi = term.n * math::exp(term.t * math::ln(tau) - x) * math::powi(delta, i32::from(term.d));
+/// The scale of one side of a separable term: `Σ_m C(k, m) p^(k−m) B_m(q^(1)|x|, …, q^(m)|x|)` for the factor
+/// `z^p e^(−x)`, `x = c·z^q`, whose scaled derivative `z^k ∂^k (z^p e^(−x)) / (z^p e^(−x))` is, by Leibniz and Faà
+/// di Bruno, `Σ_m C(k, m) (p)_(k−m) B_m(−(q)_1 x, …, −(q)_m x)` with every falling factorial made rising.
+fn side(p: f64, q: f64, x: f64, k: usize) -> f64 {
     let mut a = [0.0; 4];
-    for (k, slot) in a.iter_mut().enumerate() {
-        *slot = rising(f64::from(term.l), k + 1) * x.abs();
+    for (n, slot) in a.iter_mut().enumerate() {
+        *slot = rising(q, n + 1) * x.abs();
     }
-    let delta_side: f64 = (0..=j).map(|m| binomial(j, m) * rising(f64::from(term.d), j - m) * bell(m, &a)).sum();
-    phi.abs() * rising(term.t, i) * delta_side
+    (0..=k).map(|m| binomial(k, m) * rising(p, k - m) * bell(m, &a)).sum()
+}
+
+/// The `Term` scale of entry `(i, j)`, `i + j ≤ 4`, of the separable term `n τ^t e^(−aτ^m) δ^d e^(−cδ^l)` at
+/// (τ, δ): `|φ| ·` [`side`]`(t, m, aτ^m, i) ·` [`side`]`(d, l, cδ^l, j)`. Power, Exponential, Lemmon2005 and
+/// DoubleExponential terms are all of this form.
+#[allow(clippy::too_many_arguments)] // the symbols of the formula, as printed
+pub fn separable(n: f64, t: f64, a: f64, m: f64, d: f64, c: f64, l: f64, at: (f64, f64), ij: (usize, usize)) -> f64 {
+    let ((tau, delta), (i, j)) = (at, ij);
+    let y = if a == 0.0 { 0.0 } else { a * math::powf(tau, m) };
+    let x = if c == 0.0 { 0.0 } else { c * math::powf(delta, l) };
+    let phi = n * math::exp(t * math::ln(tau) - y - x) * math::powf(delta, d);
+    phi.abs() * side(t, m, y, i) * side(d, l, x, j)
+}
+
+/// [`separable`] for a power term `n τ^t δ^d e^(−cδ^l)`: `|φ| · t^(i) · side(d, l, cδ^l, j)`.
+pub fn power(term: &PowerTerm, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
+    let (d, l) = (f64::from(term.d), f64::from(term.l));
+    separable(term.n, term.t, 0.0, 0.0, d, term.c, l, (tau, delta), (i, j))
+}
+
+/// [`separable`] for a Lemmon2005 term `n τ^t δ^d e^(−δ^l − τ^m)`, each exponential absent when its exponent is 0.
+pub fn lemmon2005(term: &Lemmon2005Term, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
+    let (a, c) = (if term.m > 0.0 { 1.0 } else { 0.0 }, if term.l > 0 { 1.0 } else { 0.0 });
+    separable(term.n, term.t, a, term.m, f64::from(term.d), c, f64::from(term.l), (tau, delta), (i, j))
+}
+
+/// [`separable`] for a DoubleExponential term `n τ^t δ^d e^(−g_d δ^(l_d) − g_t τ^(l_t))`.
+pub fn double_exponential(term: &DoubleExponentialTerm, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
+    let (d, l) = (f64::from(term.d), f64::from(term.ld));
+    separable(term.n, term.t, term.gt, term.lt, d, term.gd, l, (tau, delta), (i, j))
 }
 
 #[cfg(test)]
@@ -80,5 +105,25 @@ mod tests {
         // d = 1, l = 2, x = 0.25 at δ = 0.5: a₁ = 2x, a₂ = 2·3x, so j = 2 gives d^(2) + 2·d·a₁ + a₁² + a₂ = 4.75.
         let square = PowerTerm::new(1.0, 0.0, 1, 2, 1.0);
         assert!(close(power(&square, 1.0, 0.5, 0, 2), 4.75 * 0.5 * math::exp(-0.25)));
+    }
+
+    /// The τ-side mirrors the δ-side: a Lemmon2005 term with m = 2 at τ = 0.5 (y = 0.25) and t = 1 has the τ-scale
+    /// 4.75 of the l = 2 power term above; l = 0 removes the δ exponential, so A_00 is |n|τ^t δ^d e^(−τ^m). A
+    /// DoubleExponential term with g_t < 0 keeps |y|.
+    #[test]
+    fn tau_side_scales_by_hand() {
+        let close = |a: f64, b: f64| ((a / b) - 1.0).abs() < 1e-15;
+        let lemmon = Lemmon2005Term { n: -2.0, t: 1.0, d: 3, l: 0, m: 2.0 };
+        let phi = 2.0 * 0.5 * math::exp(-0.25) * 0.125;
+        assert!(close(lemmon2005(&lemmon, 0.5, 0.5, 0, 0), phi));
+        assert!(close(lemmon2005(&lemmon, 0.5, 0.5, 2, 0), 4.75 * phi));
+        assert!(close(lemmon2005(&lemmon, 0.5, 0.5, 0, 1), 3.0 * phi));
+        // m = 0 removes the τ exponential, l = 1 keeps e^(−δ): A_00 = |n| τ^t δ^d e^(−δ).
+        let flat = Lemmon2005Term { n: 1.0, t: 1.0, d: 1, l: 1, m: 0.0 };
+        assert!(close(lemmon2005(&flat, 0.5, 0.5, 0, 0), 0.25 * math::exp(-0.5)));
+        let double = DoubleExponentialTerm { n: 1.0, t: 0.0, d: 1, gd: 0.0, ld: 2, gt: -3.0, lt: 1.0 };
+        let phi = 2.0 * math::exp(6.0);
+        // τ-side, i = 1: t + m|y| = 0 + 6; δ-side, j = 1: d = 1 (g_d = 0).
+        assert!(close(double_exponential(&double, 2.0, 2.0, 1, 1), 6.0 * phi));
     }
 }

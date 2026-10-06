@@ -3,8 +3,8 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::internal::{EosRecord, FluidRecord, PowerTerm};
-use phasekit_core::{Order, PureFluid, Registry, math};
+use phasekit_core::internal::{EosRecord, FluidRecord};
+use phasekit_core::{Order, Registry, math};
 use phasekit_verify::{Cell, CheckError, Fixture, fixture, majorant};
 
 /// The core subset's `term` files (VERIFICATION.md §3.6).
@@ -72,48 +72,74 @@ fn blocks<'a>(fixture: &Fixture<'a>) -> Vec<Block<'a>> {
     blocks.into_iter().map(|(_, block)| block).collect()
 }
 
-/// `record` with `power` as its whole residual part (and no ideal part, which `residual` never reads), compiled.
-fn power_only(record: &FluidRecord, power: &[PowerTerm]) -> PureFluid {
-    let e = &record.eos;
-    let mut eos = EosRecord::new(e.gas_constant, e.t_reducing, e.rho_reducing, e.rho_max);
-    eos.power = power.to_vec();
-    FluidRecord::new(&record.name, record.molar_mass, record.source.clone(), eos, record.limits).compile().unwrap()
+/// The record list a block kind's terms go to at datagen: Power and Exponential blocks share the power list, in file
+/// order (map 02 §9), so a block's terms are the next `terms` of its list.
+fn list(kind: &str) -> &'static str {
+    match kind {
+        "Power" | "Exponential" => "power",
+        "Lemmon2005" => "lemmon2005",
+        "DoubleExponential" => "double_exponential",
+        "Gaussian" => "gaussian",
+        "GaoB" => "gao_b",
+        _ => "non_analytic",
+    }
 }
 
-/// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/term/<Fluid>.csv (map 10 §8.5 L1). Every `ResidualHelmholtzPower`
-/// block of the core subset (12 blocks; R125 and Methanol have none), all 15 `A_ij` to order 4 at 100 (τ, δ) with δ
-/// log-spaced down to 1e-8, evaluated at the oracle's (T, ρ), so τ and δ are bitwise the oracle's. Power and
-/// Exponential blocks both become power terms at datagen, in file order, so a block's terms are the next `terms` of
-/// the record's power list. Class `Term`, scale [`majorant::power`] (measured headroom 0.03).
-#[test]
-fn power_blocks_match_oracle_term_fixtures() {
+/// `e`'s constants with only the terms `range` of `kind`'s list as the residual part (and no ideal part, which
+/// `residual` never reads).
+fn one_block(e: &EosRecord, kind: &str, range: std::ops::Range<usize>) -> EosRecord {
+    let mut eos = EosRecord::new(e.gas_constant, e.t_reducing, e.rho_reducing, e.rho_max);
+    match list(kind) {
+        "power" => eos.power = e.power[range].to_vec(),
+        "lemmon2005" => eos.lemmon2005 = e.lemmon2005[range].to_vec(),
+        "double_exponential" => eos.double_exponential = e.double_exponential[range].to_vec(),
+        "gaussian" => eos.gaussian = e.gaussian[range].to_vec(),
+        "gao_b" => eos.gao_b = e.gao_b[range].to_vec(),
+        _ => eos.non_analytic = e.non_analytic[range].to_vec(),
+    }
+    eos
+}
+
+/// The `Term` scale of entry (i, j) of a one-block record: the sum of its terms' [`majorant`]s.
+fn scale(e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
+    let power: f64 = e.power.iter().map(|t| majorant::power(t, tau, delta, i, j)).sum();
+    let lemmon: f64 = e.lemmon2005.iter().map(|t| majorant::lemmon2005(t, tau, delta, i, j)).sum();
+    let double: f64 = e.double_exponential.iter().map(|t| majorant::double_exponential(t, tau, delta, i, j)).sum();
+    power + lemmon + double
+}
+
+/// Every block of `kind` in the core subset against the same block compiled alone from the `Parity` record: all 15
+/// `A_ij` at the oracle's (T, ρ), so τ and δ are bitwise the oracle's, class `Term`. Returns the entries checked;
+/// panics with the first 20 failures.
+fn check_kind(kind: &str) -> usize {
     let registry = Registry::embedded().unwrap();
     let (mut failures, mut checked, mut headroom) = (Vec::new(), 0, 0.0_f64);
     for (path, text) in TERM_CORE {
         let fixture = Fixture::parse(path, text).unwrap();
         let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
         let record = phasekit_core::internal::record(registry, name).unwrap();
-        let mut offset = 0;
+        let e = &record.eos;
+        let mut offsets = std::collections::BTreeMap::new();
         for block in blocks(&fixture) {
-            if !matches!(block.kind, "Power" | "Exponential") {
+            let offset = offsets.entry(list(block.kind)).or_insert(0);
+            let range = *offset..*offset + block.terms;
+            *offset += block.terms;
+            if block.kind != kind {
                 continue;
             }
-            let terms = &record.eos.power[offset..offset + block.terms];
-            offset += block.terms;
-            if block.kind != "Power" {
-                continue;
-            }
-            let model = power_only(&record, terms);
+            let eos = one_block(e, kind, range);
+            let model = FluidRecord::new(name, record.molar_mass, record.source.clone(), eos.clone(), record.limits);
+            let model = model.compile().unwrap();
             for &row in &block.rows {
                 let (t, rho) = (fixture.value(row, "T").unwrap(), fixture.value(row, "rhomolar").unwrap());
-                assert_eq!(fixture.check(row, "tau", record.eos.t_reducing / t), Ok(()), "{path}: τ as the oracle's");
-                assert_eq!(fixture.check(row, "delta", rho / record.eos.rho_reducing), Ok(()), "{path}: δ");
+                assert_eq!(fixture.check(row, "tau", e.t_reducing / t), Ok(()), "{path}: τ as the oracle's");
+                assert_eq!(fixture.check(row, "delta", rho / e.rho_reducing), Ok(()), "{path}: δ");
                 let (tau, delta) = (fixture.value(row, "tau").unwrap(), fixture.value(row, "delta").unwrap());
                 let got = model.eos().residual(t, rho, Order::Four);
                 for (column, i, j) in COLUMNS {
                     // The oracle's unscaled derivative is A_ij / (τ^i δ^j); so is the scale.
                     let factor = math::powi(tau, i as i32) * math::powi(delta, j as i32);
-                    let scale: f64 = terms.iter().map(|term| majorant::power(term, tau, delta, i, j)).sum();
+                    let scale = scale(&eos, tau, delta, i, j);
                     checked += 1;
                     match fixture.check_scaled(row, column, got.get(i, j).unwrap() / factor, scale / factor) {
                         Ok(ratio) => headroom = headroom.max(ratio),
@@ -123,15 +149,54 @@ fn power_blocks_match_oracle_term_fixtures() {
                 }
             }
         }
-        assert_eq!(offset, record.eos.power.len(), "{path}: the Power and Exponential blocks are the power list");
+        let lengths = [
+            ("power", e.power.len()),
+            ("lemmon2005", e.lemmon2005.len()),
+            ("double_exponential", e.double_exponential.len()),
+            ("gaussian", e.gaussian.len()),
+            ("gao_b", e.gao_b.len()),
+            ("non_analytic", e.non_analytic.len()),
+        ];
+        for (list, len) in lengths {
+            assert_eq!(offsets.get(list).copied().unwrap_or(0), len, "{path}: the blocks are the {list} list");
+        }
     }
-    assert_eq!(checked, 12 * 100 * 15);
     let shown = failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n");
     assert!(
         failures.is_empty(),
         "{} of {checked} entries outside Term (headroom {headroom:.3}):\n{shown}",
         failures.len()
     );
+    checked
+}
+
+/// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/term/<Fluid>.csv (map 10 §8.5 L1). Every `ResidualHelmholtzPower`
+/// block of the core subset (12 blocks; R125 and Methanol have none), 100 (τ, δ) each with δ log-spaced down to
+/// 1e-8, scale [`majorant::power`] (measured headroom 0.03).
+#[test]
+fn power_blocks_match_oracle_term_fixtures() {
+    assert_eq!(check_kind("Power"), 12 * 100 * 15);
+}
+
+/// Oracle: CoolProp 8.0.0, term fixtures of R1130(E) (Exponential with g ≠ 1, block 1) and Methanol (block 0); map 02
+/// §3.1, map 13 §8. They compile to power terms with c = g.
+#[test]
+fn exponential_matches_oracle_term_fixtures() {
+    assert_eq!(check_kind("Exponential"), 2 * 100 * 15);
+}
+
+/// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/term/R125.csv: the only Lemmon2005 block (18 terms; 15 with
+/// m = 0 and 5 with l = 0, "0 means absent").
+#[test]
+fn lemmon2005_matches_oracle_term_fixtures() {
+    assert_eq!(check_kind("Lemmon2005"), 100 * 15);
+}
+
+/// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/term/Methanol.csv: the only DoubleExponential block (8 terms,
+/// g_t < 0: e^(+|g_t|τ)).
+#[test]
+fn double_exponential_matches_oracle_term_fixtures() {
+    assert_eq!(check_kind("DoubleExponential"), 100 * 15);
 }
 
 /// VERIFICATION.md §3.2, §11.3: the `term` files come from the pinned runner image, like every committed oracle
