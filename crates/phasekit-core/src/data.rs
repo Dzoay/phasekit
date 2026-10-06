@@ -332,6 +332,14 @@ impl EosRecord {
         Ok(eos)
     }
 
+    /// The α⁰ offset (a1, a2): the sum of the `Offset` terms, (0, 0) without one.
+    pub fn offset(&self) -> (f64, f64) {
+        self.ideal.iter().fold((0.0, 0.0), |(a1, a2), t| match *t {
+            IdealTerm::Offset { a1: b1, a2: b2, .. } => (a1 + b1, a2 + b2),
+            _ => (a1, a2),
+        })
+    }
+
     /// Hash of the whole canonical EOS section.
     pub fn eos_hash(&self) -> ModelKey {
         let mut bytes = Vec::new();
@@ -428,6 +436,77 @@ impl Environmental {
     }
 }
 
+/// What precomputed caloric curves were sampled on (PLAN.md M2.11, M5.2a): the superancillary whose pieces they share
+/// and the α⁰ offset (a1, a2) of the record's `Offset` terms at sampling, which fixes their gauge.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CaloricStamp {
+    /// The superancillary the curves were sampled on (its stamp; the curves use its pieces).
+    pub superancillary: SaStamp,
+    /// α⁰ offset constant at sampling.
+    pub a1: f64,
+    /// α⁰ offset τ coefficient at sampling.
+    pub a2: f64,
+}
+
+impl CaloricStamp {
+    /// The gauge that moves curves sampled at this stamp's offset to α⁰ offset `(a1, a2)`: α⁰ gains
+    /// `Δa1 + Δa2·τ`, so h and u gain `R·T_r·Δa2` and s gains `−R·Δa1` (map 03 §6).
+    pub fn gauge_to(&self, a1: f64, a2: f64, r: f64, t_r: f64) -> Result<crate::fluid::Gauge, Error> {
+        crate::fluid::Gauge::new(r * t_r * (a2 - self.a2), -r * (a1 - self.a1))
+    }
+}
+
+/// The saturated caloric curves h′, h″, s′, s″, u′, u″ (molar, native gauge) as Chebyshev expansions of degree 12 on
+/// the superancillary's pieces (CoolProp builds them at first use, 45-63 ms per fluid; map 03 §6). Datagen
+/// precomputes them from M5.2a; M2.11 fixes the form. `breaks` has one more entry than each curve has pieces.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CaloricCurves {
+    /// What they were sampled on.
+    pub stamp: CaloricStamp,
+    /// Piece boundaries in T, strictly increasing: the superancillary's.
+    pub breaks: Vec<f64>,
+    /// Per curve (h′, h″, s′, s″, u′, u″ in that order) and piece, the 13 Chebyshev coefficients.
+    pub curves: [Vec<[f64; 13]>; 6],
+}
+
+impl CaloricCurves {
+    /// The checks a blob's curves pass before they are used: at least one piece, finite strictly increasing
+    /// boundaries, every curve one coefficient row per piece, finite coefficients.
+    pub fn check(&self) -> Result<(), LoadError> {
+        let bad = |m: String| LoadError::Format(format!("caloric curves: {m}").into());
+        let pieces = self.breaks.len().saturating_sub(1);
+        if pieces == 0 || !self.breaks.windows(2).all(|w| w[0].is_finite() && w[0] < w[1] && w[1].is_finite()) {
+            return Err(bad("boundaries must be finite and strictly increasing, at least two".into()));
+        }
+        for (name, curve) in ["h'", "h''", "s'", "s''", "u'", "u''"].iter().zip(&self.curves) {
+            if curve.len() != pieces {
+                return Err(bad(format!(
+                    "{name} has {} pieces for {pieces} intervals: they share one breakpoint array",
+                    curve.len()
+                )));
+            }
+            if curve.iter().flatten().any(|c| !c.is_finite()) {
+                return Err(bad(format!("{name} has a non-finite coefficient")));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// How a record's EOS relates to the caloric curves shipped with it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CaloricFreshness {
+    /// Sampled on exactly this EOS (a ρ_r-only change leaves (τ, δ) and so h, s, u at a given T unchanged).
+    Fresh,
+    /// Only R changed: h, s and u scale by `factor` = R′/R exactly.
+    Rescaled {
+        /// R′/R.
+        factor: f64,
+    },
+    /// Any other EOS change: the curves are not used; the EOS answers.
+    Stale,
+}
+
 /// A decoded fluid as plain, mutable data: the arbitration seam. Swap one constant for the paper's value,
 /// `compile`, and re-run the paper's own check table (map 13 §3 protocol).
 #[derive(Clone, Debug, PartialEq)]
@@ -456,6 +535,8 @@ pub struct FluidRecord {
     pub applied: Vec<Box<str>>,
     /// Restricted metadata, never shipped by default (see [`Environmental`]).
     pub environmental: Option<Environmental>,
+    /// Precomputed saturated caloric curves (M5.2a fills them; empty until then).
+    pub caloric: Option<CaloricCurves>,
 }
 
 impl FluidRecord {
@@ -477,7 +558,25 @@ impl FluidRecord {
             corrections: Vec::new(),
             applied: Vec::new(),
             environmental: None,
+            caloric: None,
         }
+    }
+
+    /// The caloric curves, or the typed "not yet" error until datagen computes them (M5.2a).
+    pub fn caloric_curves(&self) -> Result<&CaloricCurves, LoadError> {
+        self.caloric.as_ref().ok_or(LoadError::Format("caloric curves land at M5.2a".into()))
+    }
+
+    /// The caloric curves' freshness gate, beside [`FluidRecord::superancillary_freshness`]; `None` without curves.
+    pub fn caloric_freshness(&self) -> Option<CaloricFreshness> {
+        let stamp = self.caloric.as_ref()?.stamp.superancillary;
+        Some(if self.eos.shape_hash() != stamp.shape {
+            CaloricFreshness::Stale
+        } else if self.eos.gas_constant == stamp.gas_constant {
+            CaloricFreshness::Fresh
+        } else {
+            CaloricFreshness::Rescaled { factor: self.eos.gas_constant / stamp.gas_constant }
+        })
     }
 
     /// The versioned little-endian blob of this record (format v1; `crate::blob`). Restricted metadata and the
@@ -755,7 +854,7 @@ mod tests {
             edit(&mut bodies[i]);
             crate::blob::assemble(&bodies)
         };
-        let steps = [(3, "superancillary", "M5.2"), (4, "caloric curves", "M2.11"), (5, "ancillaries", "M6.3")];
+        let steps = [(3, "superancillary", "M5.2"), (5, "ancillaries", "M6.3")];
         let more = [(6, "transport", "M8.1"), (7, "surface tension", "M8.4")];
         for (i, name, step) in steps.into_iter().chain(more) {
             let err = format_error(&blob_with(i, |b| b.extend([0; 8])));
@@ -798,6 +897,85 @@ mod tests {
         assert!(err.contains("record name does not match its index entry"), "{err}");
         let right = crate::Registry::empty().with_source(Box::new(One(blob, "B")), DataSet::Parity).unwrap();
         assert_eq!(right.get("b").unwrap().info().name(), "B");
+    }
+
+    /// Synthetic caloric curves on two pieces, stamped with `r`'s superancillary fit.
+    fn curves(r: &FluidRecord) -> CaloricCurves {
+        let stamp = CaloricStamp { superancillary: r.superancillary_fit.unwrap(), a1: 0.25, a2: -1.5 };
+        let piece = |k: f64| core::array::from_fn(|i| k + i as f64 / 16.0);
+        let curves = core::array::from_fn(|c| vec![piece(c as f64), piece(10.0 + c as f64)]);
+        CaloricCurves { stamp, breaks: vec![200.0, 300.0, 382.5], curves }
+    }
+
+    /// PLAN.md M2.11: a record with caloric curves round-trips through the blob bitwise; without them the section is
+    /// empty and asking for them is the typed "not yet" error.
+    #[test]
+    fn caloric_section_round_trips() {
+        let mut record = every_field();
+        assert_eq!(record.caloric_curves(), Err(LoadError::Format("caloric curves land at M5.2a".into())));
+        record.caloric = Some(curves(&record));
+        let blob = record.encode();
+        assert_eq!(FluidRecord::decode(&blob), Ok(record.clone()));
+        assert_eq!(FluidRecord::decode(&blob).unwrap().encode(), blob);
+        assert_eq!(record.caloric_curves().unwrap().breaks.len(), 3);
+    }
+
+    /// PLAN.md M2.11 (map 03 §6, SA.h:1156-1174): the six curves share one breakpoint array, the superancillary's, one
+    /// coefficient row per piece; a blob that breaks that, or whose curves were sampled on another superancillary, is
+    /// a `LoadError`.
+    #[test]
+    fn caloric_curves_share_the_superancillary_pieces() {
+        let mut record = every_field();
+        let good = curves(&record);
+        assert_eq!(good.check(), Ok(()));
+        let mut short = good.clone();
+        short.curves[1].pop();
+        let err = short.check().unwrap_err().to_string();
+        assert!(err.contains("h'' has 1 pieces for 2 intervals: they share one breakpoint array"), "{err}");
+        let mut unordered = good.clone();
+        unordered.breaks = vec![300.0, 200.0, 382.5];
+        assert!(unordered.check().unwrap_err().to_string().contains("strictly increasing"));
+        let mut repeated = good.clone();
+        repeated.breaks = vec![200.0, 200.0, 382.5];
+        assert!(repeated.check().unwrap_err().to_string().contains("strictly increasing"), "a repeated boundary");
+        let mut lonely = good.clone();
+        (lonely.breaks, lonely.curves) = (vec![300.0], Default::default());
+        assert!(lonely.check().is_err());
+        let mut nan = good.clone();
+        nan.curves[5][0][3] = f64::NAN;
+        assert!(nan.check().unwrap_err().to_string().contains("u'' has a non-finite coefficient"));
+        record.caloric = Some(short);
+        assert!(matches!(FluidRecord::decode(&record.encode()), Err(LoadError::Format(m)) if m.contains("share one")));
+        let mut other = good.clone();
+        other.stamp.superancillary.rho_reducing += 1.0;
+        record.caloric = Some(other);
+        let err = FluidRecord::decode(&record.encode()).unwrap_err().to_string();
+        assert!(err.contains("sampled on another superancillary"), "{err}");
+    }
+
+    /// PLAN.md M2.11: the stamp binds the curves to the EOS and the gauge. Same EOS: fresh; R alone: h, s, u scale by
+    /// R′/R; ρ_r alone: unchanged; any other edit: stale. Another α⁰ offset is a gauge, Δh = Δu = R·T_r·Δa2 and
+    /// Δs = −R·Δa1 (map 03 §6).
+    #[test]
+    fn caloric_stamp_binds_the_eos_and_the_gauge() {
+        let mut record = every_field();
+        assert_eq!(record.caloric_freshness(), None);
+        record.caloric = Some(curves(&record));
+        assert_eq!(record.caloric_freshness(), Some(CaloricFreshness::Fresh));
+        let mut rho = record.clone();
+        rho.eos.rho_reducing *= 1.01;
+        assert_eq!(rho.caloric_freshness(), Some(CaloricFreshness::Fresh));
+        let mut r = record.clone();
+        r.eos.gas_constant = 8.314_462_618;
+        assert_eq!(r.caloric_freshness(), Some(CaloricFreshness::Rescaled { factor: 8.314_462_618 / 8.3 }));
+        let mut stale = record.clone();
+        stale.eos.power[0].n += 1e-12;
+        assert_eq!(stale.caloric_freshness(), Some(CaloricFreshness::Stale));
+        let stamp = record.caloric.as_ref().unwrap().stamp;
+        let gauge = stamp.gauge_to(0.75, -1.0, 8.3, 382.513).unwrap();
+        assert_eq!((gauge.dh(), gauge.ds()), (8.3 * 382.513 * 0.5, -8.3 * 0.5));
+        assert_eq!(stamp.gauge_to(0.25, -1.5, 8.3, 382.513).unwrap(), crate::fluid::Gauge::NATIVE);
+        assert_eq!(record.eos.offset(), (0.1, 0.2), "the record's Offset term");
     }
 
     /// A residual kind without an evaluator is refused when the record compiles, never dropped from α^r.

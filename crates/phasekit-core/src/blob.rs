@@ -20,7 +20,7 @@
 
 use std::sync::Arc;
 
-use crate::data::{Edit, EosRecord, FluidRecord, MeltingSegment, Patch, SaStamp};
+use crate::data::{CaloricCurves, CaloricStamp, Edit, EosRecord, FluidRecord, MeltingSegment, Patch, SaStamp};
 use crate::error::LoadError;
 use crate::model::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataTerms, Limits, ModelKey, Source};
 
@@ -40,7 +40,7 @@ pub(crate) const SECTIONS: [(u32, &str, Option<&str>); 10] = [
     (2, "eos", None),
     (3, "superancillary fit", None),
     (4, "superancillary", Some("M5.2")),
-    (5, "caloric curves", Some("M2.11")),
+    (5, "caloric curves", None),
     (6, "ancillaries", Some("M6.3")),
     (7, "transport", Some("M8.1")),
     (8, "surface tension", Some("M8.4")),
@@ -241,6 +241,54 @@ fn read_fit(bytes: &[u8]) -> Result<Option<SaStamp>, LoadError> {
     Ok(Some(stamp))
 }
 
+/// The caloric section (M2.11 layout, filled from M5.2a): the stamp (superancillary shape, R, ρ_r; α⁰ a1, a2), the
+/// piece boundaries (count, values), then each of the six curves (piece count, 13 coefficients per piece).
+fn caloric(curves: Option<&CaloricCurves>) -> Vec<u8> {
+    let mut out = Vec::new();
+    if let Some(c) = curves {
+        let s = &c.stamp;
+        out.extend_from_slice(&s.superancillary.shape.get().to_le_bytes());
+        [s.superancillary.gas_constant, s.superancillary.rho_reducing, s.a1, s.a2]
+            .into_iter()
+            .for_each(|x| put_f64(&mut out, x));
+        put_u32(&mut out, c.breaks.len() as u32);
+        c.breaks.iter().for_each(|x| put_f64(&mut out, *x));
+        for curve in &c.curves {
+            put_u32(&mut out, curve.len() as u32);
+            curve.iter().flatten().for_each(|x| put_f64(&mut out, *x));
+        }
+    }
+    out
+}
+
+fn read_caloric(bytes: &[u8], fit: Option<SaStamp>) -> Result<Option<CaloricCurves>, LoadError> {
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    let mut r = Reader::new(bytes, "caloric curves");
+    let shape = ModelKey::from_raw(r.u64()?);
+    let superancillary = SaStamp { shape, gas_constant: r.f64()?, rho_reducing: r.f64()? };
+    let stamp = CaloricStamp { superancillary, a1: r.f64()?, a2: r.f64()? };
+    let breaks = (0..r.u32()?).map(|_| r.f64()).collect::<Result<Vec<_>, _>>()?;
+    let mut curves: [Vec<[f64; 13]>; 6] = Default::default();
+    for curve in &mut curves {
+        for _ in 0..r.u32()? {
+            let mut piece = [0.0; 13];
+            for c in &mut piece {
+                *c = r.f64()?;
+            }
+            curve.push(piece);
+        }
+    }
+    r.done()?;
+    let curves = CaloricCurves { stamp, breaks, curves };
+    curves.check()?;
+    if fit != Some(stamp.superancillary) {
+        return Err(bad("caloric curves: sampled on another superancillary than the blob's".into()));
+    }
+    Ok(Some(curves))
+}
+
 fn melting(segments: &[MeltingSegment]) -> Vec<u8> {
     let mut out = Vec::new();
     for s in segments {
@@ -318,6 +366,7 @@ pub(crate) fn sections(record: &FluidRecord) -> [Vec<u8>; SECTION_COUNT] {
     bodies[0] = metadata(record);
     bodies[1] = eos;
     bodies[2] = fit(record.superancillary_fit);
+    bodies[4] = caloric(record.caloric.as_ref());
     bodies[8] = melting(&record.melting);
     bodies[9] = corrections(&record.corrections);
     bodies
@@ -403,6 +452,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
     let eos = EosRecord::decode(sections[1])?;
     let mut record = read_metadata(sections[0], eos)?;
     record.superancillary_fit = read_fit(sections[2])?;
+    record.caloric = read_caloric(sections[4], record.superancillary_fit)?;
     record.melting = read_melting(sections[8])?;
     record.corrections = read_corrections(sections[9])?;
     Ok(record)

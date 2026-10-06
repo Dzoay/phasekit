@@ -12,8 +12,8 @@
 use std::process::ExitCode;
 
 use phasekit_core::internal::{
-    DoubleExponentialTerm, Edit, EosRecord, FluidRecord, GaoBTerm, GaussianTerm, IdealTerm, Lemmon2005Term,
-    MeltingSegment, NonAnalyticTerm, OffsetReference, Patch, PowerTerm, SaStamp,
+    CaloricCurves, CaloricStamp, DoubleExponentialTerm, Edit, EosRecord, FluidRecord, GaoBTerm, GaussianTerm,
+    IdealTerm, Lemmon2005Term, MeltingSegment, NonAnalyticTerm, OffsetReference, Patch, PowerTerm, SaStamp,
 };
 use phasekit_core::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataSet, DataTerms, Limits, Source};
 use serde_json::{Map, Value, json};
@@ -98,6 +98,15 @@ pub fn to_json(r: &FluidRecord) -> Value {
         "superancillary_fit": r.superancillary_fit.map_or(Value::Null, |s| json!({"shape": format!("{:016x}", s.shape.get()), "gas_constant": num(s.gas_constant), "rho_reducing": num(s.rho_reducing)})),
         "melting": r.melting.iter().map(|s| json!({"t0": num(s.t0), "p0": num(s.p0), "t_min": num(s.t_min), "t_max": num(s.t_max)})).collect::<Vec<_>>(),
         "corrections": r.corrections.iter().map(patch_json).collect::<Vec<_>>(),
+        "caloric": r.caloric.as_ref().map_or(Value::Null, |c| {
+            let st = &c.stamp;
+            let sa = &st.superancillary;
+            json!({
+                "stamp": {"shape": format!("{:016x}", sa.shape.get()), "gas_constant": num(sa.gas_constant), "rho_reducing": num(sa.rho_reducing), "a1": num(st.a1), "a2": num(st.a2)},
+                "breaks": c.breaks.iter().map(|x| num(*x)).collect::<Vec<_>>(),
+                "curves": c.curves.iter().map(|curve| curve.iter().map(|p| p.iter().map(|x| num(*x)).collect::<Vec<_>>()).collect::<Vec<_>>()).collect::<Vec<_>>(),
+            })
+        }),
     })
 }
 
@@ -274,6 +283,31 @@ pub fn from_json(v: &Value) -> Result<FluidRecord, String> {
             t_max: f(&m, "t_max")?,
         });
     }
+    if let Some(c) = v.get("caloric").filter(|x| !x.is_null()) {
+        let st = c.get("stamp").ok_or("caloric without a stamp")?;
+        let shape = u64::from_str_radix(&s(st, "shape")?, 16).map_err(|e| format!("caloric shape: {e}"))?;
+        let superancillary = SaStamp {
+            shape: phasekit_core::internal::model_key(shape),
+            gas_constant: f(st, "gas_constant")?,
+            rho_reducing: f(st, "rho_reducing")?,
+        };
+        let stamp = CaloricStamp { superancillary, a1: f(st, "a1")?, a2: f(st, "a2")? };
+        let floats = |x: &Value| x.as_f64().ok_or("caloric: not a number");
+        let breaks = list(c, "breaks")?.iter().map(floats).collect::<Result<Vec<_>, _>>()?;
+        let mut curves: [Vec<[f64; 13]>; 6] = Default::default();
+        let given = list(c, "curves")?;
+        if given.len() != 6 {
+            return Err(format!("caloric: {} curves, not 6", given.len()));
+        }
+        for (curve, pieces) in curves.iter_mut().zip(&given) {
+            for piece in pieces.as_array().ok_or("caloric: a curve is not a list")? {
+                let row = piece.as_array().ok_or("caloric: a piece is not a list")?;
+                let row: Vec<f64> = row.iter().map(floats).collect::<Result<_, _>>()?;
+                curve.push(row.try_into().map_err(|_| "caloric: a piece needs 13 coefficients")?);
+            }
+        }
+        r.caloric = Some(CaloricCurves { stamp, breaks, curves });
+    }
     for p in list(v, "corrections")? {
         let edit = p.get("edit").ok_or("correction without an edit")?;
         let edit = if let Some(x) = edit.get("gas_constant").and_then(Value::as_f64) {
@@ -449,7 +483,7 @@ mod tests {
     }
 
     /// The blob sections the dump covers, by their names in `BLOB_SECTIONS` (PLAN.md §2.5).
-    const DUMPED: [&str; 5] = ["metadata", "eos", "superancillary fit", "melting", "corrections"];
+    const DUMPED: [&str; 6] = ["metadata", "eos", "superancillary fit", "caloric curves", "melting", "corrections"];
 
     /// PLAN.md §2.5: every section the blob decoder reads has a readable form here; a step that fills a reserved
     /// section (its decoder no longer refuses it) must extend the dump in the same PR, or this fails.
@@ -465,7 +499,26 @@ mod tests {
             "a section the decoder reads is missing from the dump, or the dump lists one it does not"
         );
         let reserved = phasekit_core::internal::BLOB_SECTIONS.len() - read.len();
-        assert_eq!(reserved, 5, "superancillary, caloric curves, ancillaries, transport, surface tension");
+        assert_eq!(reserved, 4, "superancillary, ancillaries, transport, surface tension");
+    }
+
+    /// Caloric curves survive the dump (no shipped blob has them before M5.2a).
+    #[test]
+    fn caloric_curves_round_trip() {
+        let records = records(&Repo::locate()).unwrap();
+        let mut r = records.iter().find(|r| r.name == "Nitrogen").unwrap().clone();
+        let superancillary = r.superancillary_fit.unwrap();
+        let rows = |k: f64| vec![core::array::from_fn(|i| k + i as f64), core::array::from_fn(|i| -k * i as f64)];
+        let curves = core::array::from_fn(|c| rows(c as f64 + 0.5));
+        r.caloric = Some(CaloricCurves {
+            stamp: CaloricStamp { superancillary, a1: 0.1, a2: -0.2 },
+            breaks: vec![63.2, 100.0, 126.1],
+            curves,
+        });
+        assert_eq!(from_json(&to_json(&r)).unwrap().encode(), r.encode());
+        let mut bad = to_json(&r);
+        bad["caloric"]["curves"][2][0] = json!([1.0, 2.0]);
+        assert_eq!(from_json(&bad).unwrap_err(), "caloric: a piece needs 13 coefficients");
     }
 
     /// A base revision whose blobs use another format version is reported in one line; any other decode failure
