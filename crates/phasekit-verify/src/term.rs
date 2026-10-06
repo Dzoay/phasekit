@@ -100,6 +100,72 @@ impl TermCheck {
     }
 }
 
+/// The `Term` scale of the α⁰ entries of one fluid (VERIFICATION.md §5): every ideal term's own contribution in
+/// absolute value, each evaluated alone at ρ = ρ_r (where its ln δ is 0), plus |ln δ| for α⁰ itself and 1 for the exact
+/// δ-entries `A_0j` (1, −1, 2).
+#[derive(Debug)]
+pub struct IdealScale {
+    parts: Vec<PureFluid>,
+    rho_r: f64,
+}
+
+impl IdealScale {
+    /// One compiled part per ideal term of `record`.
+    pub fn new(record: &FluidRecord) -> Result<IdealScale, Error> {
+        let e = &record.eos;
+        let mut parts = Vec::new();
+        for term in &e.ideal {
+            let mut eos = EosRecord::new(e.gas_constant, e.t_reducing, e.rho_reducing, e.rho_max);
+            eos.ideal = vec![*term];
+            parts.push(residual_model(record, &eos)?);
+        }
+        Ok(IdealScale { parts, rho_r: e.rho_reducing })
+    }
+
+    /// The scale of α⁰ entry (i, j), `i + j ≤ 3`, at (T, ρ).
+    pub fn get(&self, t: f64, rho: f64, i: usize, j: usize) -> f64 {
+        if j > 0 {
+            return if i == 0 { 1.0 } else { 0.0 };
+        }
+        let terms: f64 =
+            self.parts.iter().map(|p| p.eos().ideal(t, self.rho_r, Order::Three).get(i, 0).unwrap_or(0.0).abs()).sum();
+        if i == 0 { terms + math::ln(rho / self.rho_r).abs() } else { terms }
+    }
+}
+
+impl TermCheck {
+    /// Checks the α⁰ rows `rows` (0-based) of `fixture` against `model`'s ideal part, orders 0-3 (the oracle's limit;
+    /// the order-4 columns are `nan`), with the scale of [`IdealScale`].
+    pub fn ideal_rows(
+        &mut self,
+        fixture: &Fixture<'_>,
+        rows: &[usize],
+        model: &dyn HelmholtzModel,
+        scale: &IdealScale,
+    ) {
+        for &row in rows {
+            let number = |column: &str| fixture.value(row, column);
+            let (Some(t), Some(rho), Some(tau), Some(delta)) =
+                (number("T"), number("rhomolar"), number("tau"), number("delta"))
+            else {
+                self.failures.push(format!("row {row}: T, rhomolar, tau or delta is missing"));
+                continue;
+            };
+            let got = model.ideal(t, rho, Order::Three);
+            for (column, i, j) in COLUMNS.into_iter().filter(|&(_, i, j)| i + j <= 3) {
+                let factor = math::powi(tau, i as i32) * math::powi(delta, j as i32);
+                let scaled = scale.get(t, rho, i, j).max(TERM_FLOOR);
+                self.checked += 1;
+                match fixture.check_scaled(row, column, got.get(i, j).unwrap_or(f64::NAN) / factor, scaled / factor) {
+                    Ok(ratio) => self.headroom = self.headroom.max(ratio),
+                    Err(CheckError::Mismatch(m)) => self.failures.push(m.to_string()),
+                    Err(e) => self.failures.push(format!("row {row}, {column}: {e:?}")),
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,5 +177,21 @@ mod tests {
         assert_eq!(check.report(5), None);
         check.failures = vec!["a".into(), "b".into(), "c".into()];
         assert_eq!(check.report(2), Some("3 of 30 entries outside Term (headroom 0.250):\na\nb".into()));
+    }
+
+    /// δ-entries have the fixed scales of their exact forms; τ-entries sum |term| at ρ_r, and only A00 adds
+    /// |ln(ρ/ρ_r)| (Water's ideal terms, 400 K, ρ = 2ρ_r).
+    #[test]
+    fn ideal_scale_sums_the_terms() {
+        let record = phasekit_core::internal::record(phasekit_core::Registry::embedded().unwrap(), "Water").unwrap();
+        let scale = IdealScale::new(&record).unwrap();
+        let (t, rho_r) = (400.0, record.eos.rho_reducing);
+        assert_eq!([scale.get(t, rho_r, 0, 1), scale.get(t, rho_r, 1, 1), scale.get(t, rho_r, 0, 2)], [1.0, 0.0, 1.0]);
+        let sum = |i| scale.parts.iter().map(|p| p.eos().ideal(t, rho_r, Order::Three).get(i, 0).unwrap().abs()).sum();
+        let (a00, a10): (f64, f64) = (sum(0), sum(1));
+        assert!(a00 > 1.0 && a10 > 1.0, "{a00} {a10}");
+        assert_eq!(scale.get(t, rho_r, 0, 0), a00);
+        assert!((scale.get(t, 2.0 * rho_r, 0, 0) - a00 - math::ln(2.0)).abs() < 1e-14 * a00);
+        assert_eq!(scale.get(t, 2.0 * rho_r, 1, 0), a10);
     }
 }
