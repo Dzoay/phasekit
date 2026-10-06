@@ -374,8 +374,8 @@ Procedure (`tests/arbiters.rs`, on the mutable `FluidRecord` seam, ARCHITECTURE.
 
 | Fluid / part | Arbiter | Kind | Status (map 13 unless stated) | Gate |
 |---|---|---|---|---|
-| Water α | IAPWS R6-95(2018) α table, 500 K, 838.025 kg/m³ ("Table 6") | K1 | oracle ≤ 2.9e-9 | M4 |
-| Water properties | IAPWS-95 (T, ρ) table ("Table 7"), saturation table ("Table 8") | K2, K3 | ≤ 2.6e-9 (K2) | M5 (Table 7), M6 (Table 8) |
+| Water α | IAPWS R6-95(2018) α table, 500 K, 838.025 kg/m³ ("Table 6") | K1 | oracle ≤ 2.9e-9; `SelfConsistent` at M4.5 (Tables 6 and 7, both constant sets) | M4 |
+| Water properties | IAPWS-95 (T, ρ) table ("Table 7"), saturation table ("Table 8") | K2, K3 | ≤ 2.6e-9 (K2); Table 7 within its printed digits at M4.5 through `State::from_total` | M4.5 (Table 7), M6 (Table 8) |
 | Water η, λ, melting, σ | IAPWS R12-08, R15-11, R14-08, R1-76(2014) | rows | R14-08 decides DIV-0002; CoolProp's σ is Mulero 2012, so IAPWS σ is a separate labelled comparison (map 10 §8.4) | M8 |
 | R227EA, R365MFC, R115, R13I1 | Lemmon et al. 2016 Table 7 (OA), 12 states | K2 | oracle ≤ 4.3e-7, within 7 digits | M5 |
 | R1234ze(E) | Thol et al. 2016 Table 3 (OA) | K2 | DIV-0001 | M5 |
