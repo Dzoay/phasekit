@@ -178,4 +178,20 @@ mod tests {
         check.failures = vec!["a".into(), "b".into(), "c".into()];
         assert_eq!(check.report(2), Some("3 of 30 entries outside Term (headroom 0.250):\na\nb".into()));
     }
+
+    /// δ-entries have the fixed scales of their exact forms; τ-entries sum |term| at ρ_r, and only A00 adds
+    /// |ln(ρ/ρ_r)| (Water's ideal terms, 400 K, ρ = 2ρ_r).
+    #[test]
+    fn ideal_scale_sums_the_terms() {
+        let record = phasekit_core::internal::record(phasekit_core::Registry::embedded().unwrap(), "Water").unwrap();
+        let scale = IdealScale::new(&record).unwrap();
+        let (t, rho_r) = (400.0, record.eos.rho_reducing);
+        assert_eq!([scale.get(t, rho_r, 0, 1), scale.get(t, rho_r, 1, 1), scale.get(t, rho_r, 0, 2)], [1.0, 0.0, 1.0]);
+        let sum = |i| scale.parts.iter().map(|p| p.eos().ideal(t, rho_r, Order::Three).get(i, 0).unwrap().abs()).sum();
+        let (a00, a10): (f64, f64) = (sum(0), sum(1));
+        assert!(a00 > 1.0 && a10 > 1.0, "{a00} {a10}");
+        assert_eq!(scale.get(t, rho_r, 0, 0), a00);
+        assert!((scale.get(t, 2.0 * rho_r, 0, 0) - a00 - math::ln(2.0)).abs() < 1e-14 * a00);
+        assert_eq!(scale.get(t, 2.0 * rho_r, 1, 0), a10);
+    }
 }
