@@ -17,7 +17,7 @@ fn read(path: &str) -> String {
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures-full/coolprop-8.0.0/term/<Fluid>.csv (PLAN.md M3.6, the M3 exit gate's nightly
-/// part; every fluid since M4.1): α^r and its 14 derivatives on the 64-point totals grid, against
+/// part; every fluid since M4.1; α⁰ to order 3 since M4.3): α^r and its 14 derivatives on the 64-point totals grid, against
 /// the whole residual part compiled from the `Parity` record; class `Term`, scale `majorant::eos`.
 #[test]
 #[ignore = "nightly: reads the full term set (cargo xtask oracle --kind term --tier full)"]
@@ -32,11 +32,16 @@ fn alphar_totals_match_oracle_on_the_nightly_grid() {
         let totals: Vec<usize> = (0..fixture.rows().len())
             .filter(|&row| fixture.rows()[row].cells.first() == Some(&Cell::Text("all")))
             .collect();
-        assert_eq!(totals.len(), 64, "{path}");
+        let ideal: Vec<usize> = (0..fixture.rows().len())
+            .filter(|&row| fixture.rows()[row].cells.first() == Some(&Cell::Text("ideal")))
+            .collect();
+        assert_eq!((totals.len(), ideal.len()), (64, 64), "{path}");
         let eos = term::residual_part(&record.eos);
         check.rows(&fixture, &totals, term::residual_model(&record, &eos).unwrap().eos(), &eos);
+        let scale = term::IdealScale::new(&record).unwrap();
+        check.ideal_rows(&fixture, &ideal, record.clone().compile().unwrap().eos(), &scale);
         fluids += 1;
     }
-    assert_eq!((fluids, check.checked), (136, 136 * 64 * 15));
+    assert_eq!((fluids, check.checked), (136, 136 * 64 * (15 + 10)));
     assert_eq!(check.report(20), None);
 }

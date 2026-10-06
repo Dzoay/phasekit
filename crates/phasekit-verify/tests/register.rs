@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::internal::{Edit, FluidRecord, IdealTerm, Patch, SaFreshness};
-use phasekit_core::{DataSet, Registry};
+use phasekit_core::{DataSet, Order, Registry};
 use phasekit_verify::{
     Cell, DIVERGENCES, Fix, Fixture, Policy, Provenance, RegisterError, Tolerance, check_register, fixture,
     from_printed,
@@ -195,6 +195,15 @@ fn register_cites_reproducible_oracle_facts() {
     let half_units = (printed.value(0, "p").unwrap_or(f64::NAN) - p) / 5.0;
     assert!(cites(p / 1e6, "21.1790735") && cites(half_units, "3.3"), "DIV-0014: {half_units}");
     checked.push("DIV-0014");
+
+    // DIV-0015: R123's T_r is 456.831 K, and the oracle's c_p⁰ at 300 K is the one its c_p⁰ blocks give with their own
+    // Tc = 456.82 K: Parity's, within 1e-12.
+    assert_eq!(ok("div0015_t_reducing"), 456.831);
+    let r123 = phasekit_core::internal::record(Registry::embedded().unwrap(), "R123").unwrap();
+    let (r, rho_r) = (r123.eos.gas_constant, r123.eos.rho_reducing);
+    let parity = r * (1.0 - r123.compile().unwrap().eos().ideal(300.0, rho_r, Order::Two).get(2, 0).unwrap());
+    assert!((ok("div0015_cp0molar_t300") / parity - 1.0).abs() < 1e-12, "DIV-0015");
+    checked.push("DIV-0015");
 
     let ids: Vec<&str> = DIVERGENCES.iter().map(|d| d.id).collect();
     assert_eq!(checked, ids, "every register entry has its facts checked");

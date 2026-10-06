@@ -174,7 +174,7 @@ fn nonanalytic_matches_oracle_away_from_the_critical_point() {
     let mut check = TermCheck::default();
     for name in ["CarbonDioxide", "Water"] {
         let rows: Vec<usize> = (0..fixture.rows().len())
-            .filter(|&row| fixture.rows()[row].cells.first() == Some(&Cell::Text(name)))
+            .filter(|&row| fixture.rows()[row].cells[..2] == [Cell::Text(name), Cell::Text("all")])
             .collect();
         let record = phasekit_core::internal::record(registry, name).unwrap();
         let eos = term::residual_part(&record.eos);
@@ -197,6 +197,9 @@ fn alphar_totals_match_oracle_for_134_fluids() {
     let registry = Registry::embedded().unwrap();
     let mut by_fluid: Vec<(&str, Vec<usize>)> = Vec::new();
     for (row, cells) in fixture.rows().iter().enumerate() {
+        if cells.cells[1] == Cell::Text("ideal") {
+            continue;
+        }
         let (Cell::Text(fluid), Cell::Text("all")) = (cells.cells[0], cells.cells[1]) else { panic!("{path}: {row}") };
         match by_fluid.last_mut() {
             Some((name, rows)) if *name == fluid => rows.push(row),
@@ -235,4 +238,36 @@ fn term_fixtures_name_the_pinned_generator_environment() {
     for file in TERM_CORE.into_iter().chain([fixture!("coolprop-8.0.0/all/term.csv")]) {
         assert_eq!(environment(file), smoke, "{}", file.0);
     }
+}
+
+/// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/all/term.csv, the α⁰ rows (`block_idx = ideal`, PLAN.md M4.3): α⁰
+/// and its derivatives to order 3 (the oracle's limit) of all 136 fluids at 4 (τ, δ) each, against the compiled
+/// `Parity` record's `ideal`. Class `Term`, scale [`term::IdealScale`]. R123's c_p⁰ blocks keep their own Tc (456.82 K
+/// against T_r = 456.831 K) as CoolProp evaluates them, so Parity matches the oracle there too (DIV-0015 records the
+/// question for Corrected).
+#[test]
+fn alpha0_matches_oracle_for_136_fluids() {
+    let (path, text) = fixture!("coolprop-8.0.0/all/term.csv");
+    let fixture = Fixture::parse(path, text).unwrap();
+    let registry = Registry::embedded().unwrap();
+    let mut by_fluid: Vec<(&str, Vec<usize>)> = Vec::new();
+    for (row, cells) in fixture.rows().iter().enumerate() {
+        if cells.cells[1] != Cell::Text("ideal") {
+            continue;
+        }
+        let Cell::Text(fluid) = cells.cells[0] else { panic!("{path}: row {row}") };
+        match by_fluid.last_mut() {
+            Some((name, rows)) if *name == fluid => rows.push(row),
+            _ => by_fluid.push((fluid, vec![row])),
+        }
+    }
+    let mut check = TermCheck::default();
+    for (name, rows) in &by_fluid {
+        let record = phasekit_core::internal::record(registry, name).unwrap();
+        let scale = term::IdealScale::new(&record).unwrap();
+        let model = record.clone().compile().unwrap();
+        check.ideal_rows(&fixture, rows, model.eos(), &scale);
+    }
+    assert_eq!((by_fluid.len(), check.checked), (136, 136 * 4 * 10));
+    assert_eq!(check.report(20), None);
 }

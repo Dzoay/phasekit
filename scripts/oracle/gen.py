@@ -102,6 +102,8 @@ FACTS = {
         ("div0012_p_t250_rho55018.5", "PropsSI", ("P", "T", 250, "Dmolar", 55018.5, "Water")),
         ("div0013_alphar_t469_rho3399", "PropsSI", ("alphar", "T", 469, "Dmolar", 3399, BELL_TABLE_XI_MIXTURE)),
         ("div0014_p_t400_rho8000", "PropsSI", ("P", "T", 400, "Dmolar", 8000, "R1224YDZ")),
+        ("div0015_t_reducing", "Props1SI", ("R123", "T_reducing")),
+        ("div0015_cp0molar_t300", "PropsSI", ("CP0MOLAR", "T", 300, "Dmolar", 1, "R123")),
     ],
 }
 
@@ -404,6 +406,9 @@ def crit(CP, lock, config, files, args):
 TERM_METHODS = ["alphar", "dalphar_dTau", "dalphar_dDelta", "d2alphar_dTau2", "d2alphar_dDelta_dTau", "d2alphar_dDelta2",
                 "d3alphar_dTau3", "d3alphar_dDelta_dTau2", "d3alphar_dDelta2_dTau", "d3alphar_dDelta3", "d4alphar_dTau4",
                 "d4alphar_dDelta_dTau3", "d4alphar_dDelta2_dTau2", "d4alphar_dDelta3_dTau", "d4alphar_dDelta4"]
+# The alpha^0 methods to order 3, the oracle's limit (map 10 section 8.2), in the columns of the first 10 alpha^r ones.
+ALPHA0_METHODS = ["alpha0", "dalpha0_dTau", "dalpha0_dDelta", "d2alpha0_dTau2", "d2alpha0_dDelta_dTau", "d2alpha0_dDelta2",
+                  "d3alpha0_dTau3", "d3alpha0_dDelta_dTau2", "d3alpha0_dDelta2_dTau", "d3alpha0_dDelta3"]
 TERM_COLUMNS = ["block_idx", "block_type", "terms", "T", "rhomolar", "tau", "delta", "status",
                 *(m.lower() for m in TERM_METHODS)]
 TERM_UNITS = ["-", "-", "-", "K", "mol/m3", "-", "-", "-", *["-"] * len(TERM_METHODS)]
@@ -438,12 +443,15 @@ def term_grid(seed, rows, tau_range, delta_max):
 
 
 def term_row(CP, fluid, index, kind, terms, t, rho):
-    """One row: a fresh `AbstractState` of `fluid` with the phase imposed at (T, rho); (floats, line)."""
+    """One row: a fresh `AbstractState` of `fluid` with the phase imposed at (T, rho); (floats, line). `ideal` rows
+    hold alpha^0 to order 3 and nan in the order-4 columns."""
+    methods = ALPHA0_METHODS if kind == "ideal" else TERM_METHODS
+    padding = [math.nan] * (len(TERM_METHODS) - len(methods))
     try:
         state = CP.AbstractState("HEOS", fluid)
         state.specify_phase(CP.iphase_gas)
         state.update(CP.DmolarT_INPUTS, rho, t)
-        values, status = [state.tau(), state.delta(), *(getattr(state, m)() for m in TERM_METHODS)], "ok"
+        values, status = [state.tau(), state.delta(), *(getattr(state, m)() for m in methods), *padding], "ok"
     except Exception as exception:  # every oracle failure becomes a status, never a crash
         values, status = [math.nan] * (2 + len(TERM_METHODS)), f"err:{error_class(exception)}"
     row = [float(terms), t, rho, *values]
@@ -479,6 +487,10 @@ def term_rows(job):
         row, line = term_row(CP, name, "all", "all", terms, t, rho)
         floats.extend(row)
         lines.append(line)
+    for t, rho in points["totals"]:
+        row, line = term_row(CP, name, "ideal", "ideal", len(fluid["EOS"][0]["alpha0"]), t, rho)
+        floats.extend(row)
+        lines.append(line)
     return lines, floats
 
 
@@ -495,8 +507,9 @@ def term(CP, lock, config, files, args):
     """The `term` kind (section 3.5): the oracle's alphar and 14 derivatives on one grid per fluid (tau ~ U[T_r/Tmax,
     T_r/Tmin], delta ~ logU[1e-8, rho_max/rho_r] with rho_max the saturated liquid at the minimum temperature, the
     record's density bound). The core tier has 100 points per block of every core fluid (NonAnalytic blocks also 20
-    near tau = delta = 1) in term/<Fluid>.csv; the all-fluid tier the alpha^r totals (`block_idx = all`) at the first 4
-    points of every fluid in all/term.csv; the full tier 300 points per block and 64 totals per fluid."""
+    near tau = delta = 1) in term/<Fluid>.csv; the all-fluid tier the alpha^r totals (`block_idx = all`) and the alpha^0
+    rows (`block_idx = ideal`, orders 0-3, `terms` the number of alpha^0 blocks) at the first 4 points of every fluid in
+    all/term.csv; the full tier 300 points per block and 64 of each kind of total per fluid."""
     rows, totals = args.rows or TERM_ROWS[args.tier], TERM_TOTALS[args.tier]
     jobs, shas = [], {}
     for name in tier_fluids(args, files):

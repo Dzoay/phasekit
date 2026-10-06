@@ -4,13 +4,18 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::internal::FluidRecord;
-use phasekit_core::{DataSet, Registry};
+use phasekit_core::internal::{FluidRecord, IdealTerm};
+use phasekit_core::{DataSet, Order, Registry};
 use phasekit_verify::{Cell, DIVERGENCES, Fixture, MILESTONE, fixture, missing_proofs, unregistered_proofs};
 
 /// Every proof function, by register id.
-const PROOFS: &[(&str, fn())] =
-    &[("DIV-0003", div_0003), ("DIV-0006", div_0006), ("DIV-0007", div_0007), ("DIV-0008", div_0008)];
+const PROOFS: &[(&str, fn())] = &[
+    ("DIV-0003", div_0003),
+    ("DIV-0006", div_0006),
+    ("DIV-0007", div_0007),
+    ("DIV-0008", div_0008),
+    ("DIV-0015", div_0015),
+];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
 fn fact(name: &str) -> f64 {
@@ -76,4 +81,29 @@ fn every_due_proof_exists() {
 #[test]
 fn every_proof_names_a_registered_id() {
     assert_eq!(unregistered_proofs(DIVERGENCES, &ids()), Vec::<&str>::new());
+}
+
+/// DIV-0015 (`Investigate`, PLAN.md M4.3; map 02 §6, map 13 A4): R123's c_p⁰ blocks (Younglove & McLinden 1994, MBWR)
+/// are written with Tc = 456.82 K while T_r is 456.831 K. Evaluated as stored, CoolProp's way and Parity's, c_p⁰ differs
+/// from the T_r form by −1.33e-5 at 300 K (−1.46e-5 at 200 K, −1.06e-5 at 500 K); the oracle's α⁰ rows match Parity
+/// (`alpha0_matches_oracle_for_136_fluids`). Corrected = Parity until the paper's c_p⁰ is checked; the paper is
+/// paywalled (PLAN.md §6 P4), which is the action that resolves the entry.
+fn div_0015() {
+    let (parity, corrected) = (record("R123", DataSet::Parity), record("R123", DataSet::Corrected));
+    assert_eq!(corrected, parity);
+    let mut at_t_r = parity.clone();
+    let t_r = at_t_r.eos.t_reducing;
+    let mut blocks = 0;
+    for term in &mut at_t_r.eos.ideal {
+        if let IdealTerm::Cp0Power { tc, .. } = term {
+            assert_eq!((*tc, t_r), (456.82, 456.831));
+            (*tc, blocks) = (t_r, blocks + 1);
+        }
+    }
+    assert_eq!(blocks, 4, "CP0Constant and the three CP0PolyT terms");
+    let rho = parity.eos.rho_reducing;
+    let cp0 =
+        |r: &FluidRecord| 1.0 - r.clone().compile().unwrap().eos().ideal(300.0, rho, Order::Two).get(2, 0).unwrap();
+    let shift = cp0(&parity) / cp0(&at_t_r) - 1.0;
+    assert!((shift / -1.33e-5 - 1.0).abs() < 0.01, "{shift}");
 }

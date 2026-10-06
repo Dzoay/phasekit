@@ -306,6 +306,19 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[5],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0015",
+        fluids: &["R123"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 02 §6, map 13 A4: c_p0 blocks Tc 456.82 vs T_r 456.831; c_p0 -1.33e-5 at 300 K (M4.3)",
+        exempt: None,
+        tolerance: None,
+        proof: &[4],
+        status: DivStatus::Open,
+    },
 ];
 
 /// Why the register and the corrections disagree (VERIFICATION.md §7.2).

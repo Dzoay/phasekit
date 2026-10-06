@@ -183,16 +183,19 @@ fn planck_einstein(n: f64, theta: f64, tau: f64) -> [f64; 5] {
 /// `c + d e^x = (c + d) + d·expm1(x)` keeps the Aly-Lee form `ln(1 − e^x)` accurate for small |x|.
 fn planck_einstein_generalized(n: f64, theta: f64, c: f64, d: f64, tau: f64) -> [f64; 5] {
     let x = theta * tau;
-    let (value, s) = if x > 0.0 {
+    // s and its complement 1 − s are each computed from their own expression: near s = 1 (Air above θτ ≈ 36) the
+    // subtraction 1 − s would keep none of the tail's digits.
+    let (value, s, sc) = if x > 0.0 {
         let e = math::exp(-x);
-        (x + math::ln(d + c * e), d / (c * e + d))
+        let den = c * e + d;
+        (x + math::ln(d + c * e), d / den, c * e / den)
     } else {
         let g = (c + d) + d * math::expm1(x);
-        (math::ln(g), d * math::exp(x) / g)
+        (math::ln(g), d * math::exp(x) / g, c / g)
     };
-    let s1 = s * (1.0 - s);
+    let s1 = s * sc;
     let (x2, x3) = (x * x, x * x * x);
-    [n * value, n * x * s, n * x2 * s1, n * x3 * s1 * (1.0 - 2.0 * s), n * x3 * x * s1 * (1.0 - 6.0 * s + 6.0 * s * s)]
+    [n * value, n * x * s, n * x2 * s1, n * x3 * s1 * (sc - s), n * x3 * x * s1 * (1.0 - 6.0 * s1)]
 }
 
 /// `τ^k d^k/dτ^k` of the α⁰ part of `c_p⁰/R = c·T^t`, integrated from `t0` (CoolProp's CP0PolyT and CP0Constant,
@@ -334,5 +337,20 @@ mod tests {
             assert!((got[0] / (n * x) - 1.0).abs() < 1e-15 && (got[1] / (n * x) - 1.0).abs() < 1e-15);
             assert!(got[2..].iter().all(|v| v.abs() < 1e-300), "{temp} K: {got:?}");
         }
+    }
+
+    /// Air at θτ ≈ 36: 1 − s ≈ 1.3e-16 is below an ulp of 1, so the tail terms must come from its own expression.
+    /// CoolProp's exp-based closed forms (`Helmholtz.cpp:1152-1176`; e^(θτ) ≈ 5e15 is far from overflow here) keep it:
+    /// τ²f″ = nθ²τ² c d e/(c + d e)² and τ³f‴ = nθ³τ³ c d (c − d e) e/(c + d e)³ agree within 1e-14.
+    #[test]
+    fn generalized_term_keeps_its_tail() {
+        let (n, theta, c, d, tau) = (-0.197938904, 87.31279, 2.0 / 3.0, 1.0, 0.4145642920804462);
+        let got = planck_einstein_generalized(n, theta, c, d, tau);
+        let (x, e) = (theta * tau, math::exp(theta * tau));
+        let para = c + d * e;
+        let second = n * x * x * c * d * e / (para * para);
+        let third = n * x * x * x * c * d * (c - d * e) * e / (para * para * para);
+        assert!((got[2] / second - 1.0).abs() < 1e-14, "{} vs {second}", got[2]);
+        assert!((got[3] / third - 1.0).abs() < 1e-14, "{} vs {third}", got[3]);
     }
 }
