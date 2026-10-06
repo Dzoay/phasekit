@@ -34,8 +34,8 @@ x86_64-unknown-linux-gnu phasekit-verify::papers 4
 wasm32-wasip2 phasekit-verify::papers 4
 x86_64-unknown-linux-gnu phasekit-core::properties 2
 wasm32-wasip2 phasekit-core::properties 2
-x86_64-unknown-linux-gnu phasekit-verify::allocations 1
-wasm32-wasip2 phasekit-verify::allocations 1
+x86_64-unknown-linux-gnu phasekit-verify::allocations 2
+wasm32-wasip2 phasekit-verify::allocations 2
 x86_64-unknown-linux-gnu phasekit-verify::oracle_term 8
 wasm32-wasip2 phasekit-verify::oracle_term 8
 x86_64-unknown-linux-gnu phasekit-verify::terms 9

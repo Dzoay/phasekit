@@ -32,5 +32,9 @@ criterion = { version = "0.7", default-features = false, features = ["cargo_benc
 name = "lookup"
 harness = false
 
+[[bench]]
+name = "alphar"
+harness = false
+
 [lints]
 workspace = true
