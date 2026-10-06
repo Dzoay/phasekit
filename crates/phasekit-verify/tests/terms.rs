@@ -6,7 +6,7 @@
 
 use num_dual::{DualNum, HyperDual};
 use phasekit_core::internal::{EosRecord, FluidRecord};
-use phasekit_core::{Jet4, Order, Real, Registry};
+use phasekit_core::{Basis, Error, HelmholtzModel, Jet4, Order, Phase, Prop, Real, Registry, State, ThermoModel};
 use phasekit_verify::{SplitMix64, ToleranceClass, majorant, term};
 
 /// A nested hyper-dual with four ε directions (outer: 1 and 2, inner: 3 and 4): one evaluation gives one mixed
@@ -395,4 +395,76 @@ fn nonanalytic_matches_ad_of_the_paper_formula() {
     let select = |e: &EosRecord, eos: &mut EosRecord| eos.non_analytic.clone_from(&e.non_analytic);
     let checked = check_ad("Water", select, paper, scale) + check_ad("CarbonDioxide", select, paper, scale);
     assert_eq!(checked, 2 * 300 * 15);
+}
+
+/// The `entries` of `eos`'s α^r at (T, ρ) are the limits of their neighbours at T(1 ± 1e-9) and ρ(1 ± 1e-9): within
+/// 1e-6 of each, relative to max(1, |neighbour|). The step moves a smooth entry by about 1e-9 of its next derivative
+/// (Water's and CarbonDioxide's Gaussians make that up to 4.4e-7 at 0.8 T_c), and the non-analytic parts by
+/// |1 − τ|^(2b−1) or |δ − 1|^(1/β−2) (b ≥ 0.85, β = 0.3), at most 1e-7 at the critical point.
+fn limit_of_neighbours(name: &str, eos: &dyn HelmholtzModel, t: f64, rho: f64, entries: &[(usize, usize)]) {
+    let a = eos.residual(t, rho, Order::Two);
+    let near = [(t * (1.0 - 1e-9), rho), (t * (1.0 + 1e-9), rho), (t, rho * (1.0 - 1e-9)), (t, rho * (1.0 + 1e-9))];
+    for (tn, rn) in near {
+        let b = eos.residual(tn, rn, Order::Two);
+        for &(i, j) in entries {
+            let (got, want) = (a.get(i, j).unwrap(), b.get(i, j).unwrap());
+            assert!((got - want).abs() <= 1e-6 * want.abs().max(1.0), "{name} ({t}, {rho}): A{i}{j} {got} vs {want}");
+        }
+    }
+}
+
+/// PLAN.md M4.6 (E17, ROT-065): at (T_c, ρ_c) of Water and CarbonDioxide, which are their reducing points (τ = δ = 1),
+/// every non-analytic Δ vanishes. Evaluated there, with no nudge off the point, α^r keeps α and its first
+/// derivatives finite: A20 = −∞ (c_v diverges); A11 and A02 are finite (their non-analytic parts tend to 0); nothing of
+/// order ≤ 2 is NaN, and each finite entry is the limit of its neighbours. Orders 3 and 4 have no limit there (A30
+/// changes sign with 1 − τ) and are NaN. `State::from_total` then reports p, h and s, and `Undefined` for c_v, c_p
+/// and w.
+#[test]
+fn water_and_co2_critical_bundles_keep_first_order() {
+    let registry = Registry::embedded().unwrap();
+    for name in ["Water", "CarbonDioxide"] {
+        let record = phasekit_core::internal::record(registry, name).unwrap();
+        let critical = record.critical.as_ref().unwrap();
+        let (t, rho) = (record.eos.t_reducing, record.eos.rho_reducing);
+        assert_eq!((critical.t, critical.rho), (t, rho), "{name}: the critical point is the reducing point");
+        let model = record.clone().compile().unwrap();
+        let eos = model.eos();
+        let a = eos.residual(t, rho, Order::Four);
+        assert_eq!(a.get(2, 0), Some(f64::NEG_INFINITY), "{name}");
+        limit_of_neighbours(name, eos, t, rho, &[(0, 0), (1, 0), (0, 1), (1, 1), (0, 2)]);
+        for (i, j) in entries().filter(|(i, j)| i + j >= 3) {
+            assert!(a.get(i, j).unwrap().is_nan(), "{name}: A{i}{j} = {:?}", a.get(i, j));
+        }
+        let total = (eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two)).bundle().unwrap();
+        let (r, m) = (eos.gas_constant(), record.molar_mass);
+        let state = State::from_total(model.info().key(), t, rho, r, m, Phase::CriticalPoint, &total).unwrap();
+        let first_order = [state.p(), state.h(Basis::Molar), state.s(Basis::Molar)];
+        assert!(first_order.iter().all(|x| x.is_finite()), "{name}: {first_order:?}");
+        assert!((state.p() / critical.p - 1.0).abs() < 1e-4, "{name}: p = {} vs p_c = {}", state.p(), critical.p);
+        let undefined = |prop| Err(Error::Undefined { prop, phase: Phase::CriticalPoint });
+        assert_eq!(state.cv(Basis::Molar), undefined(Prop::Cvmolar), "{name}");
+        assert_eq!(state.cp(Basis::Molar), undefined(Prop::Cpmolar), "{name}");
+        assert_eq!(state.speed_of_sound(), undefined(Prop::SpeedOfSound), "{name}");
+    }
+}
+
+/// PLAN.md M4.6: on the critical isochore ρ = ρ_c away from T_c (δ = 1, τ ≠ 1), |δ − 1|^(1/β) has no fourth
+/// derivative (1/β = 10/3). Every A_ij but A04 is still finite, and to order 2 the limit of its neighbours, at 0.8, 1.2
+/// and 2 T_c. A04 has no finite value there: each term's is infinite, and NaN where terms of opposite sign meet.
+#[test]
+fn critical_isochore_is_finite_but_for_a04() {
+    let registry = Registry::embedded().unwrap();
+    for name in ["Water", "CarbonDioxide"] {
+        let record = phasekit_core::internal::record(registry, name).unwrap();
+        let model = record.clone().compile().unwrap();
+        let (tc, rho) = (record.eos.t_reducing, record.eos.rho_reducing);
+        for t in [0.8 * tc, 1.2 * tc, 2.0 * tc] {
+            let a = model.eos().residual(t, rho, Order::Four);
+            for (i, j) in entries() {
+                let aij = a.get(i, j).unwrap();
+                assert_eq!(aij.is_finite(), (i, j) != (0, 4), "{name} at {t} K: A{i}{j} = {aij}");
+            }
+            limit_of_neighbours(name, model.eos(), t, rho, &[(0, 0), (1, 0), (0, 1), (2, 0), (1, 1), (0, 2)]);
+        }
+    }
 }

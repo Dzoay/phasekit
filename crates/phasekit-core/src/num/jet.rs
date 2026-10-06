@@ -94,16 +94,31 @@ impl Jet4 {
     }
 
     /// `f(self)` from `f` and its first four derivatives at the value: `Σ_n f⁽ⁿ⁾/n! εⁿ` by Horner, with `ε = self −
-    /// value` nilpotent (ε⁵ = 0). The value part is `d[0]` itself.
+    /// value` nilpotent (ε⁵ = 0). The value part is `d[0]` itself. Each Horner product skips a zero factor, so an
+    /// infinite derivative reaches only the slots its power of ε fills: `|δ − 1|^(10/3)` at δ = 1 has f⁗ = ∞ and
+    /// ε⁴ = k⁴, and only `c_04` is infinite, where 0 · ∞ would have made every slot NaN (M4.6). Finite results are
+    /// bitwise those of the plain product.
     fn compose(self, d: [f64; 5]) -> Self {
         let mut eps = self;
         eps.c[0] = 0.0;
         let mut r = Self::constant(d[4] / FACTORIAL[4]);
         for n in (0..4).rev() {
-            r = r * eps + d[n] / FACTORIAL[n];
+            r = r.times_nilpotent(eps) + d[n] / FACTORIAL[n];
         }
         r.c[0] = d[0];
         r
+    }
+
+    /// `self · eps` for an `eps` whose value is zero, every product with an exact zero factor skipped.
+    fn times_nilpotent(self, eps: Self) -> Self {
+        let mut c = [0.0; SLOTS];
+        for &(k, a, b) in &PRODUCT[1..] {
+            let (x, y) = (self.c[usize::from(a)], eps.c[usize::from(b)]);
+            if x != 0.0 && y != 0.0 {
+                c[usize::from(k)] += x * y;
+            }
+        }
+        Self { c }
     }
 
     /// `x^y` with derivatives `(y)_k x^(y−k)`; a zero falling factorial gives an exact zero, so `x⁰`, `x¹` stay
@@ -259,6 +274,29 @@ mod tests {
         assert_eq!((p3.derivative(3, 2), p3.derivative(4, 1), p3.derivative(0, 5)), (None, None, None));
         // A_ij: τ^i δ^j ∂: A_11 = 2·3·324.
         assert_eq!(p3.derivs(2.0, 3.0).get(1, 1), Some(1944.0));
+    }
+
+    /// An infinite derivative stays in the slots its power of ε fills: |δ − 1|^(10/3) at δ = 1 has f⁗ = ∞ and ε⁴ = k⁴,
+    /// so ∂⁴/∂δ⁴ is ∞ and every other derivative 0. e^(τ + that) at τ = 2 carries the ∞ through a second composition:
+    /// e² in every pure τ-slot, ∞ in the δ⁴ one, 0 elsewhere. With plain products every slot of both was NaN.
+    #[test]
+    fn infinite_derivatives_stay_in_their_slots() {
+        let x = (Jet4::delta(1.0) + -1.0).abs().powf(10.0 / 3.0);
+        let y = (Jet4::tau(2.0) + x).exp();
+        let e2 = math::exp(2.0);
+        for n in 0..=4 {
+            for i in 0..=n {
+                let j = n - i;
+                let infinite = (i, j) == (0, 4);
+                assert_eq!(x.derivative(i, j), Some(if infinite { f64::INFINITY } else { 0.0 }), "x ({i}, {j})");
+                let got = y.derivative(i, j).unwrap();
+                if j == 0 {
+                    assert!((got / e2 - 1.0).abs() < 1e-15, "y ({i}, 0): {got}");
+                } else {
+                    assert_eq!(got, if infinite { f64::INFINITY } else { 0.0 }, "y ({i}, {j})");
+                }
+            }
+        }
     }
 
     /// The product table has every pair whose exponents add up, and only those.
