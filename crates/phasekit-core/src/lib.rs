@@ -25,7 +25,7 @@
 //!         Err(Error::Unsupported { .. }) => {}
 //!         Err(e) => return Err(e),
 //!     },
-//!     // Until M4.4 some fluids hold kinds without an evaluator: a typed load error.
+//!     // A blob that cannot be decoded or compiled is a typed load error, never a partial model.
 //!     Err(Error::Load(LoadError::Format(_))) => {}
 //!     Err(e) => return Err(e),
 //! }
