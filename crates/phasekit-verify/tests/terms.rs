@@ -7,7 +7,7 @@
 use num_dual::{DualNum, HyperDual};
 use phasekit_core::internal::{EosRecord, FluidRecord};
 use phasekit_core::{Jet4, Order, Real, Registry};
-use phasekit_verify::{SplitMix64, ToleranceClass, majorant};
+use phasekit_verify::{SplitMix64, ToleranceClass, majorant, term};
 
 /// A nested hyper-dual with four ε directions (outer: 1 and 2, inner: 3 and 4): one evaluation gives one mixed
 /// derivative up to order 4, `∂ⁿf/∂x_1…∂x_n` for the variables seeded in directions 1..n.
@@ -295,4 +295,81 @@ fn gao_b_matches_ad_of_the_paper_formula() {
     };
     let select = |e: &EosRecord, eos: &mut EosRecord| eos.gao_b.clone_from(&e.gao_b);
     assert_eq!(check_ad("Ammonia", select, paper, scale), 300 * 15);
+}
+
+/// PLAN.md M3.7 (map 02 §3.1): at ρ = 0 every `A_ij` of every fluid without NonAnalytic terms (134; Water and
+/// CarbonDioxide at M4.1) is finite at T_min, T_r and T_max, and every δ-derivative vanishes (`A_ij = 0` for j ≥ 1:
+/// each carries δ^j). The 57 MBWR d = 0 terms (CycloPropane, Propyne, R114, R123, R13, R14, R152A, R21, RC318) and
+/// Methane's three d = 0 Gaussians are among them; their α^r at ρ = 0 is finite, not NaN from `0 · ln 0`. The exact
+/// virials exist and are finite for the same fluids.
+#[test]
+fn finite_at_zero_density_for_every_fluid() {
+    let registry = Registry::embedded().unwrap();
+    let mut d0_fluids = Vec::new();
+    let mut fluids = 0;
+    for f in phasekit_data::FLUIDS {
+        let record = phasekit_core::internal::record(registry, f.name).unwrap();
+        let e = &record.eos;
+        if !e.non_analytic.is_empty() {
+            continue;
+        }
+        if e.power.iter().any(|k| k.d == 0) || e.gaussian.iter().any(|k| k.d == 0) {
+            d0_fluids.push(f.name);
+        }
+        let eos = term::residual_part(e);
+        let model = term::residual_model(&record, &eos).unwrap();
+        for t in [record.limits.t_min(), e.t_reducing, record.limits.t_max()] {
+            let a = model.eos().residual(t, 0.0, Order::Four);
+            for (i, j) in entries() {
+                let aij = a.get(i, j).unwrap();
+                assert!(aij.is_finite(), "{} at {t} K: A{i}{j} = {aij}", f.name);
+                assert!(j == 0 || aij == 0.0, "{} at {t} K: A{i}{j} = {aij} at ρ = 0", f.name);
+            }
+            let v = model.eos().zero_density(t).unwrap();
+            assert!([v.b, v.c, v.db_dt, v.dc_dt].iter().all(|x| x.is_finite()), "{} at {t} K: {v:?}", f.name);
+        }
+        fluids += 1;
+    }
+    assert_eq!(fluids, 134);
+    let want = ["CycloPropane", "Methane", "Propyne", "R114", "R123", "R13", "R14", "R152A", "R21", "RC318"];
+    d0_fluids.sort_unstable();
+    assert_eq!(d0_fluids, want);
+}
+
+/// PLAN.md M3.7 (E4): at δ = 1e-12 the δ-factors keep full relative accuracy for every (d, l, c) of the power and
+/// Exponential terms in the data (68 (d, l) pairs): each such term, compiled alone at τ = 1.3, gives all 15 `A_ij`
+/// within 1e-13 of num-dual's, entry by entry (not against a Σ|φ| scale), and exactly zero where num-dual's is.
+/// num-dual differentiates δ^d e^(−cδ^l) without dividing by δ, so it is a valid reference there; CoolProp is not
+/// (it divides by δ^j, VERIFICATION.md §3.5).
+#[test]
+fn delta_factors_are_cancellation_free_near_zero_density() {
+    let registry = Registry::embedded().unwrap();
+    let mut seen = std::collections::BTreeMap::new();
+    for f in phasekit_data::FLUIDS {
+        let record = phasekit_core::internal::record(registry, f.name).unwrap();
+        for term in &record.eos.power {
+            seen.entry((term.d, term.l, term.c.to_bits())).or_insert((record.clone(), *term));
+        }
+    }
+    let pairs: std::collections::BTreeSet<_> = seen.keys().map(|&(d, l, _)| (d, l)).collect();
+    assert_eq!(pairs.len(), 68);
+    for ((d, l, _), (record, term)) in &seen {
+        let e = &record.eos;
+        let mut eos = EosRecord::new(e.gas_constant, e.t_reducing, e.rho_reducing, e.rho_max);
+        eos.power = vec![*term];
+        let model = term::residual_model(record, &eos).unwrap();
+        let (t, rho) = (e.t_reducing / 1.3, 1e-12 * e.rho_reducing);
+        let (tau, delta) = (e.t_reducing / t, rho / e.rho_reducing);
+        let got = model.eos().residual(t, rho, Order::Four);
+        for (i, j) in entries() {
+            let (x, y) = tau_delta(tau, delta, i, j);
+            let factor = phasekit_core::math::powi(tau, i as i32) * phasekit_core::math::powi(delta, j as i32);
+            let want = part(&power_paper(&eos, &x, &y), i + j) * factor;
+            let got = got.get(i, j).unwrap();
+            assert!(
+                (got - want).abs() <= 1e-13 * want.abs(),
+                "d = {d}, l = {l}, {term:?}: A{i}{j} {got:e} vs {want:e}"
+            );
+        }
+    }
 }
