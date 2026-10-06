@@ -270,6 +270,9 @@ lint` and `cargo shear` run locally and in CI.
 
 - Crate, module and type names are those of ARCHITECTURE.md §2-§3. A name not there is chosen in the step and
   recorded in the PR.
+- Every blob section has a readable form: a step that fills or changes a section of blob v1 (M5.2 superancillary,
+  M5.2a caloric curves, M8.1 transport, ...) extends `cargo xtask fluid` in the same PR, and
+  `every_blob_section_is_dumped` fails until it does (user decision FD1; M2.9a).
 - `pk_*` for every native C symbol. CoolProp's unprefixed names exist only behind the `coolproplib-shim` feature,
   in a separate build (D11).
 - Fluid features: `fluid-<name>`, `<name>` = CoolProp canonical name lowercased, each run of non-alphanumerics replaced
@@ -292,10 +295,10 @@ lint` and `cargo shear` run locally and in CI.
 |---|---|---|---|
 | M0 | Toolchain, workspace seeded from the sketch, lints, xtask gates, test-quality gates, CI (user checkpoint), licences | 8 | G1-G8 green; 43 seed tests; zero third-party deps |
 | M1 | Verification kit, oracle generator and lock, register and arbiter machinery, paper corpus, proptest, C++ baseline (time, memory, threads), mp check points | 18 | Fixture round trip bit-exact; `from_printed("21.17909")` rejects the oracle; 14/14 register facts |
-| M2 | Datagen, blob v1, index, features, Parity/Corrected, hash gate, citations on real data | 10 | 130 FNV stamps; 556 keys, 0 collisions; Parity vs Corrected = 3 patches |
+| M2 | Datagen, blob v1, index, features, Parity/Corrected, hash gate, readable fluid dump, citations on real data, caloric-curve contract | 12 | 130 FNV stamps; 556 keys, 0 collisions; Parity vs Corrected = 3 patches |
 | M3 | Separable residual kinds on real data, `Jet4` with num-dual oracle | 8 | Jets = AD (class `Term`); oracle block isolation; α^r totals of 134 fluids |
 | M4 | NonAnalytic, all ideal kinds, all 136 compile | 7 | IAPWS-95 Table 6; Water/CO₂ critical `Undefined` |
-| M5 | Relations, SA evaluation, DT, gauge, partials, virials, batch, compat, seam gates | 11 | Lemmon 2016 Table 7; DIV-0001 proof; analytic virials; seams green |
+| M5 | Relations, SA evaluation, caloric curves, DT, gauge, partials, virials, batch, compat, seam gates | 12 | Lemmon 2016 Table 7; DIV-0001 proof; analytic virials; seams green |
 | M6 | fastchebpure fetch, roots, pure VLE, critical points, QT/PQ, Guess polish, pseudo-pure rules, saturation arbiters | 11 | 390 mp points; exact rescaling; R410A rows |
 | M7 | All 19 pairs, phase rule, second partials, fundamental derivative | 10 | 19 × 2 capability matrix; `Ambiguous` cases |
 | M8 | Transport decode and arbiters, σ, transport (staged, IAPWS, ECS), melting | 12 | Paper rows stage by stage; DIV-0002, -0004, -0009 |
@@ -560,15 +563,15 @@ data (D7, ARCHITECTURE.md §8). **Prerequisites.** M1; `reference/CoolProp` at a
   "UNKNOWN"/"?", `REFPROP_NAME` "N/A"; map 09 R17) become `None` with their source (ROT-057); add the `crit` kind to
   gen.py (VERIFICATION.md §3.5) and commit its files. *Done when:* all 136 map without error.
 - **M2.4 Blob format v1.** *Failing tests:* `every_fluid_round_trips_bitwise` (decode(encode(r)) == r for 136),
-  `truncated_or_corrupt_blob_is_a_load_error` (checksum, section table, version mismatch), `record_name_must_match_the_index`,
-  and the seed's `every_eos_field_is_hashed` on a real record. *Do:* versioned header, checksum, section table,
-  8-byte-aligned LE sections (map 09 D3). v1 reserves a section id for every planned section (EOS, α⁰, superancillary
-  with its precomputed extrema and inverse, ancillaries, transport, σ, melting, metadata, corrections); a section is
-  empty until the milestone that fills it (M5.2 SA, M8.1 transport), and filling one changes blob bytes, not the
-  version. Only a layout change to a filled section bumps the version; the decoder refuses other versions (packs are
-  regenerated, never migrated). `EosRecord::encode` is the one encoder (E14). The v1 decoder is added beside the seed's
-  `PKIT\0toy:` path, which stays until M2.6. *Done when:* round trip 136/136; bytes per fluid recorded (map 09 §4:
-  median 22,348 B raw f64).
+  `truncated_or_corrupt_blob_is_a_load_error` (checksum, section table, version mismatch),
+  `record_name_must_match_the_index`, and the seed's `every_eos_field_is_hashed` on a real record. *Do:* versioned
+  header, checksum, section table, 8-byte-aligned LE sections (map 09 D3). v1 reserves a section id for every planned
+  section (EOS, α⁰, superancillary with its precomputed extrema and inverse, caloric curves, ancillaries, transport, σ,
+  melting, metadata, corrections); a section is empty until the milestone that fills it (M5.2 SA, M5.2a caloric curves,
+  M8.1 transport), and filling one changes blob bytes, not the version. Only a layout change to a filled section bumps
+  the version; the decoder refuses other versions (packs are regenerated, never migrated). `EosRecord::encode` is the
+  one encoder (E14). The v1 decoder is added beside the seed's `PKIT\0toy:` path, which stays until M2.6. *Done when:*
+  round trip 136/136; bytes per fluid recorded (map 09 §4: median 22,348 B raw f64).
 - **M2.5 Index, features, references.** *Failing tests:* `index_has_556_keys_and_no_collisions` (map 09),
   `case_variants_collapse` ("water"/"WATER"), `feature_names_are_unique`, `ecs_reference_graph_is_acyclic` (map 05 R7),
   `fluid_feature_enables_its_references`. *Do:* generated `phasekit-data` (`#![no_std]`): one blob per fluid via
@@ -601,17 +604,43 @@ data (D7, ARCHITECTURE.md §8). **Prerequisites.** M1; `reference/CoolProp` at a
 - **M2.9 Lookup cost.** *Failing test:* `hot_get_allocates_nothing` (counting `#[global_allocator]`). *Do:* criterion
   bench `lookup_by_name` (target ≤ 50 ns, ARCHITECTURE.md §7), `cargo xtask bench --record`; criterion added as a
   non-wasm dev-dependency of `phasekit-verify` (section 2.5). *Done when:* recorded, non-blocking.
+- **M2.9a Readable fluid data** (user decision FD1). Humans and agents review exactly what ships: `cargo xtask fluid
+  list|show|diff` prints each decoded record (from the blobs, under Parity or Corrected) as JSON, deterministic and at
+  full float precision (shortest round-trip form). xtask already depends on core and may use serde_json (tier T4), so
+  this adds no crate, no dependency and nothing published; TOML or YAML would need a dependency decision. *Failing tests
+  (xtask):* `dump_round_trips_bitwise` (parsing the dump and re-encoding it reproduces the blob byte for byte, for all
+  136 fluids: the readable form is complete, and it is the obvious input format for authoring a fluid later),
+  `parity_and_corrected_diff_is_exactly_the_three_patches` (M2.7's criterion, through `fluid diff`), and
+  `every_blob_section_is_dumped` (fails when a step fills a blob section without extending the dump; section 2.5). *Do:*
+  the dump form and its parser in xtask; `diff` compares two datasets or the blobs of two git revisions. Also, if it
+  needs no new permission: on PRs that change `data/` or `crates/phasekit-data/`, the `linux` CI job writes `cargo xtask
+  fluid diff origin/main` to its job summary, so data changes are reviewable on GitHub without committing text dumps
+  (about 10 MB). *Done when:* green.
 - **M2.10 Citations.** *Failing tests (xtask):* `every_default_source_has_an_identifier` and `every_bibkey_resolves`
   (every default model's `bibkey` resolves in CoolProp's bundled `CoolPropBibTeXLibrary.bib` and has a DOI or report
   id, else a waiver with a reason; the 19 EOS keys without a DOI, map 13 R2, are waived with the OpenAlex DOI map 13
   lists), `composite_citations_are_split_by_role` (map 13 R5: coefficients, erratum, check table), and
   `unpublished_models_have_no_paper_arbiter` (Propylene, SES36, Neon; map 13 R7). *Do:* datagen citation lint; the
   record's `Source` holds a list of role-tagged citations; reviewed corrections to citations live in
-  `data/citations.csv`. Close M2: set `MILESTONE = 3`. *Done when:* green.
+  `data/citations.csv`. *Done when:* green.
+- **M2.11 Caloric-curve contract** (user decision CC1). The curves h′, h″, s′, s″, u′, u″ along both saturation
+  branches, which CoolProp builds lazily at first use (45-63 ms per fluid behind a mutex; map 03 §6), are precomputed by
+  datagen (ARCHITECTURE.md §8 step 5); this step fixes their form, and M5.2a computes them. *Failing tests:*
+  `caloric_section_round_trips` (a synthetic curve set through blob v1, bitwise),
+  `caloric_curves_share_the_superancillary_pieces` (one breakpoint array for the SA and all six curves, 13 coefficients
+  per piece, as CoolProp builds them, SA.h:1156-1174; a mismatch is a `LoadError`),
+  `caloric_stamp_binds_the_eos_and_the_gauge` (the stamp records the SA stamp and the α⁰ offset (a1, a2) the curves were
+  sampled in; an R-only correction rescales h, s, u by R′/R exactly, a ρ_r-only correction leaves them unchanged, any
+  other EOS edit marks them stale; a different offset shifts them by Δh = Δu = R·T_r·Δa2, Δs = −R·Δa1, map 03 §6), and
+  `caloric_section_is_empty_until_m5_2a` (every shipped blob carries the section empty; asking for a curve gives the
+  typed "not yet" error). *Do:* the `Caloric` section of blob v1 and its layout, `FluidRecord::caloric` (`Option`), its
+  freshness check beside `superancillary_freshness()`, and the datagen hook that writes the section when curves exist.
+  Close M2: set `MILESTONE = 3`. *Done when:* green.
 
 **Exit gate.** G1-G8 incl. `datagen`; 136 parse; 130 FNV stamps; 390 check points match the JSON; 556 keys, 0
-collisions; 136 blobs round-trip bitwise; Parity vs Corrected = 3 patches; 130 fresh / 2 rescaled; DIV-0003 (part 1)
-and DIV-0006..0008 proofs; core and data still zero third-party dependencies.
+collisions; 136 blobs round-trip bitwise, and so does their readable dump; Parity vs Corrected = 3 patches; 130 fresh /
+2 rescaled; the caloric section round-trips and its stamp classifies edits; DIV-0003 (part 1) and DIV-0006..0008 proofs;
+core and data still zero third-party dependencies.
 **ROT rows.** M2.1: ROT-038, ROT-058. M2.2: ROT-053. M2.3: ROT-041, ROT-046, ROT-052, ROT-068. M2.4: ROT-026,
 ROT-040, ROT-055. M2.5: ROT-045, ROT-054. M2.6: ROT-025, ROT-027, ROT-033, ROT-034, ROT-039. M2.7: ROT-042. M2.8:
 ROT-056. M2.10: ROT-142, ROT-143, ROT-144. (ROT-057's datagen half lands in M2.3; the row closes at M10.2.)
@@ -723,6 +752,17 @@ subcritical point (D5, D6, E18). **Prerequisites.** M4; M1.9-M1.12 transcription
   NIST/fastchebpure; if any CoolProp SA code is translated, the NIST disclaimer goes into NOTICE; user decision 3a);
   datagen fills the reserved SA section, with extrema and the T(ln p) inverse precomputed (map 03 §9). *Done when:*
   130 fluids green.
+- **M5.2a Caloric curves** (user decision CC1). *Failing tests:* `caloric_curves_match_the_eos_between_nodes` (h, s, u
+  of each curve against the EOS at (T, ρ_SA(T)) at piece midpoints, where a fit has no node, for 130 fluids; class
+  `SaCoeff`), `caloric_fit_error_is_checked` (datagen refuses a piece whose midpoint error exceeds the class; CoolProp
+  has no fit-error check, map 03 §6), `caloric_curves_match_oracle_sat_rows` (hL, hV, sL, sV of the `sat` kind's QT rows
+  on the all-fluid tier; class `Prop`), `gauge_shift_is_exact` (an IIR or NBP reference state shifts the curves by the
+  M2.11 formula, against the EOS), `corrected_curves_rescale_or_go_stale` (DIV-0001's R correction rescales them by
+  R′/R, checked against the Corrected EOS; a synthetic shape edit reports stale and the EOS answers instead), and
+  `first_caloric_query_builds_nothing` (counting allocator: 0 allocations; ROT-027). *Do:* datagen samples h, s, u from
+  the compiled Parity record at the 13 Chebyshev-Lobatto nodes of every SA piece, at the M5.2 SA densities, in the
+  native gauge, fits degree 12 (the Lobatto L matrix), and fills the M2.11 section; bytes per fluid recorded. Consumed
+  by the SA-based Q pairs and HS (M7.7, M7.8). *Done when:* 130 fluids green.
 - **M5.3 DT below the critical temperature.** *Failing tests:* `dt_two_phase_matches_oracle` (lever rule through
   `State::from_split`; `flash` kind DT rows), `two_phase_cp_cv_w_are_undefined` (`Undefined { prop, TwoPhase }`; the
   DIV-0004 c_p/c_v proof part due at M5), `dt_below_the_triple_point_is_refused` (Water DT(55018.5 mol/m³, 250 K) →
@@ -774,13 +814,14 @@ subcritical point (D5, D6, E18). **Prerequisites.** M4; M1.9-M1.12 transcription
   CoolProp 1.5-10.7 µs) and `dt_flash` recorded. Close M5: set `MILESTONE = 6`. *Done when:* rows recorded.
 
 **Exit gate.** G1-G8 (G7 with compat; `features`); eos fixtures at `Prop` for the core subset and all-fluid tier, full
-grid *(nightly)*; SA within `SaCoeff` for 130 fluids (all-fluid tier; 200 T *(nightly)*) and within `SaFit` at the
-390 check points; Lemmon 2016 Table 7 (12 states), IAPWS-95 Table 7 and the CoolProp paper rows within printed digits;
-proofs due at M5: DIV-0001 (three parts), DIV-0004 (c_p, c_v), DIV-0005 (Table 3), DIV-0011, DIV-0012, DIV-0014; 0
-allocations per DT flash and batch point; seam tests green.
-**ROT rows.** M5.1: ROT-062. M5.2: ROT-035, ROT-087, ROT-093. M5.3: ROT-010 (c_p, c_v, w part), ROT-013, ROT-020,
-ROT-078, ROT-083, ROT-092. M5.4: ROT-098, ROT-102. M5.6: ROT-063. M5.7: ROT-043, ROT-044, ROT-059, ROT-132. M5.8:
-ROT-011, ROT-014, ROT-171. M5.9: ROT-028, ROT-165. M5.10: ROT-001, ROT-002, ROT-003, ROT-005, ROT-212.
+grid *(nightly)*; SA within `SaCoeff` for 130 fluids (all-fluid tier; 200 T *(nightly)*) and within `SaFit` at the 390
+check points; caloric curves within `SaCoeff` of the EOS for 130 fluids; Lemmon 2016 Table 7 (12 states), IAPWS-95 Table
+7 and the CoolProp paper rows within printed digits; proofs due at M5: DIV-0001 (three parts), DIV-0004 (c_p, c_v),
+DIV-0005 (Table 3), DIV-0011, DIV-0012, DIV-0014; 0 allocations per DT flash and batch point; seam tests green.
+**ROT rows.** M5.1: ROT-062. M5.2: ROT-035, ROT-087, ROT-093. M5.2a: ROT-027 (caloric part). M5.3: ROT-010 (c_p, c_v, w
+part), ROT-013, ROT-020, ROT-078, ROT-083, ROT-092. M5.4: ROT-098, ROT-102. M5.6: ROT-063. M5.7: ROT-043, ROT-044,
+ROT-059, ROT-132. M5.8: ROT-011, ROT-014, ROT-171. M5.9: ROT-028, ROT-165. M5.10: ROT-001, ROT-002, ROT-003, ROT-005,
+ROT-212.
 **User decisions implemented.** 2, 6 (refuse below the triple point; `Extrapolate` opt-in), 11 (point-major), 3a
 (exact saturation from superancillaries).
 
@@ -883,10 +924,11 @@ bands (map 03 §8; map 10 §8.5 L4).
   green.
 - **M7.6 DP.** *Failing test:* `dp_honours_the_phase_hint` (oracle ignores an imposed gas at a two-phase (d, p);
   map 03 §6). *Do:* `flash::dp`. *Done when:* green.
-- **M7.7 QS, HQ, DQ.** *Failing tests:* `hq_water_400k_lists_both_roots` (400 K and 587.912 K; map 03 §6),
-  `qs_r1234ze_e_vapour_has_three_roots` (267.3, 275.6, 363.7 K), `dq_works_near_tc` (oracle fails at T_c − 0.05 K),
-  `q_pairs_are_symmetric_in_q`. *Do:* SA-based Q-pairs bracketed to T_c,num, roots as data (map 03 §9 `flash::qx`).
-  *Done when:* green.
+- **M7.7 QS, HQ, DQ.** *Prerequisite:* the caloric curves (M5.2a). *Failing tests:* `hq_water_400k_lists_both_roots`
+  (400 K and 587.912 K; map 03 §6), `qs_r1234ze_e_vapour_has_three_roots` (267.3, 275.6, 363.7 K), `dq_works_near_tc`
+  (oracle fails at T_c − 0.05 K), `q_pairs_are_symmetric_in_q`. *Do:* SA-based Q-pairs bracketed to T_c,num, roots found
+  on the precomputed caloric curves (M5.2a) and polished on the EOS, roots as data (map 03 §9 `flash::qx`). *Done when:*
+  green.
 - **M7.8 HS and SU.** *Failing tests:* `hs_round_trips` (two-phase 25 T × 5 Q and single-phase 20 × 20 grids; map 03
   §8 HS tests), `hsu_d_issue_cases` (#2486, #2157, #1698, #1054, #2154, #2173, #1965, #2022, #2685, #2426),
   `su_round_trips` (no CoolProp arm, map 01 R4: truth from (p, T) only). *Do:* two-phase screen, legs and corrector;
