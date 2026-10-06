@@ -6,7 +6,7 @@
 //! A raw Σ_k |φ_k| cannot serve the derivatives: a τ-derivative of a term with t = 50 carries the factor
 //! t(t − 1)(t − 2)(t − 3) ≈ 5.5e6, so its rounding alone exceeds 1e-13 · Σ_k |φ_k| (PLAN.md M3.1, measured on Water).
 
-use phasekit_core::internal::{DoubleExponentialTerm, Lemmon2005Term, PowerTerm};
+use phasekit_core::internal::{DoubleExponentialTerm, GaussianTerm, Lemmon2005Term, PowerTerm};
 use phasekit_core::math;
 
 /// `|a|(|a| + 1)…(|a| + n − 1)`: the falling factorial `a(a − 1)…(a − n + 1)` with every summand of its expansion in
@@ -70,6 +70,23 @@ pub fn double_exponential(term: &DoubleExponentialTerm, tau: f64, delta: f64, i:
     separable(term.n, term.t, term.gt, term.lt, d, term.gd, l, (tau, delta), (i, j))
 }
 
+/// The scale of one side of a Gaussian term, `z^p e^u` with `u = −η(z − ε)²`: Leibniz over the power's rising
+/// factorials and the complete Bell polynomials of `|z u'| = 2|η||z − ε|z` and `|z² u''| = 2|η|z²` (Faà di Bruno in
+/// `w = z − ε`, as the block and CoolProp evaluate it).
+fn gaussian_side(p: f64, eta: f64, epsilon: f64, z: f64, k: usize) -> f64 {
+    let a = [2.0 * eta.abs() * (z - epsilon).abs() * z, 2.0 * eta.abs() * z * z, 0.0, 0.0];
+    (0..=k).map(|m| binomial(k, m) * rising(p, k - m) * bell(m, &a)).sum()
+}
+
+/// The `Term` scale of entry `(i, j)` of a Gaussian term `n τ^t δ^d e^(−η(δ − ε)² − β(τ − γ)²)`.
+pub fn gaussian(term: &GaussianTerm, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
+    let (wt, wd) = (tau - term.gamma, delta - term.epsilon);
+    let exponent = term.t * math::ln(tau) - term.beta * wt * wt - term.eta * wd * wd;
+    let phi = term.n * math::exp(exponent) * math::powi(delta, i32::from(term.d));
+    let tau_side = gaussian_side(term.t, term.beta, term.gamma, tau, i);
+    phi.abs() * tau_side * gaussian_side(f64::from(term.d), term.eta, term.epsilon, delta, j)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,5 +142,21 @@ mod tests {
         let phi = 2.0 * math::exp(6.0);
         // τ-side, i = 1: t + m|y| = 0 + 6; δ-side, j = 1: d = 1 (g_d = 0).
         assert!(close(double_exponential(&double, 2.0, 2.0, 1, 1), 6.0 * phi));
+    }
+
+    /// A Gaussian side by hand at z = 2, ε = 1.5, η = 3: |z u'| = 6, |z² u''| = 24; with p = 1, k = 2:
+    /// p^(2) + 2·p·6 + (6² + 24) = 2 + 12 + 60 = 74. The τ-side with β = 0 is the power's rising factorial.
+    #[test]
+    fn gaussian_scale_by_hand() {
+        let close = |a: f64, b: f64| ((a / b) - 1.0).abs() < 1e-15;
+        let term = GaussianTerm { n: -0.5, t: 1.5, d: 1, eta: 3.0, epsilon: 1.5, beta: 0.0, gamma: 7.0 };
+        let phi = 0.5 * math::powf(2.0, 1.5) * 2.0 * math::exp(-0.75);
+        assert!(close(gaussian(&term, 2.0, 2.0, 0, 0), phi));
+        assert!(close(gaussian(&term, 2.0, 2.0, 0, 2), 74.0 * phi));
+        assert!(close(gaussian(&term, 2.0, 2.0, 2, 0), 1.5 * 2.5 * phi));
+        // β > 0 on the τ-side: τ = 2, γ = 1.5, β = 3 gives the same 74 for t = 1.
+        let tau_term = GaussianTerm { n: 1.0, t: 1.0, d: 0, eta: 0.0, epsilon: 0.0, beta: 3.0, gamma: 1.5 };
+        let phi = 2.0 * math::exp(-0.75);
+        assert!(close(gaussian(&tau_term, 2.0, 0.5, 2, 0), 74.0 * phi));
     }
 }

@@ -1,6 +1,6 @@
 //! CoolProp's multiparameter Helmholtz EOS: the built-in family.
 
-use super::{HelmholtzModel, IdealGas, PowerBlock, TauExpBlock, power::Vars};
+use super::{GaussianBlock, HelmholtzModel, IdealGas, PowerBlock, TauExpBlock, power::Vars};
 use crate::derivs::{Derivs, Order, Virials};
 use crate::error::{Error, LoadError};
 
@@ -8,11 +8,13 @@ use crate::error::{Error, LoadError};
 /// Six separable kinds cover 99.8 % of default terms (map 02); NonAnalytic stays scalar.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ResidualBlock {
-    /// Power and Exponential terms (M3 adds Gaussian and GaoB; M4 NonAnalytic). Every kind gets its δ-factors in
-    /// a cancellation-free form and its exact δ → 0 series (E4).
+    /// Power and Exponential terms (M3.5 adds GaoB; M4 NonAnalytic). Every kind gets its δ-factors in a
+    /// cancellation-free form and its exact δ → 0 series (E4).
     Power(PowerBlock),
     /// Lemmon2005 and DoubleExponential terms: an exponential on the τ-side too.
     TauExp(TauExpBlock),
+    /// Gaussian bell-shaped terms.
+    Gaussian(GaussianBlock),
 }
 
 /// The multiparameter EOS of one fluid: its own R, reducing state (private: never shared, map 06 C1),
@@ -49,6 +51,7 @@ impl MultiParameterEos {
             match block {
                 ResidualBlock::Power(b) => b.accumulate::<f64, ORD>(vars, &mut acc),
                 ResidualBlock::TauExp(b) => b.accumulate::<f64, ORD>(vars, &mut acc),
+                ResidualBlock::Gaussian(b) => b.accumulate::<f64, ORD>(vars, &mut acc),
             }
         }
         acc
@@ -86,6 +89,7 @@ impl HelmholtzModel for MultiParameterEos {
             let s = match block {
                 ResidualBlock::Power(b) => b.zero_density_series(tau),
                 ResidualBlock::TauExp(b) => b.zero_density_series(tau),
+                ResidualBlock::Gaussian(b) => b.zero_density_series(tau),
             };
             for (acc, x) in a.iter_mut().flatten().zip(s.iter().flatten()) {
                 *acc += x;

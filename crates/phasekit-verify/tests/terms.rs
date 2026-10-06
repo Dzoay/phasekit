@@ -255,3 +255,24 @@ fn double_exponential_matches_ad_of_the_paper_formula() {
     let select = |e: &EosRecord, eos: &mut EosRecord| eos.double_exponential.clone_from(&e.double_exponential);
     assert_eq!(check_ad("Methanol", select, paper, scale), 300 * 15);
 }
+
+/// AD oracle: num-dual 0.15 on `n τ^t δ^d e^(−η(δ − ε)² − β(τ − γ)²)`, the Gaussian blocks of R1234yf (7 terms) and
+/// Water (3 terms, β up to 250; map 02 §3.1); scale [`majorant::gaussian`].
+#[test]
+fn gaussian_matches_ad_of_the_paper_formula() {
+    let paper = |e: &EosRecord, tau: &D4, delta: &D4| {
+        let mut sum = var(0.0, [false; 4]);
+        for k in &e.gaussian {
+            let (wt, wd) = (*tau - k.gamma, *delta - k.epsilon);
+            let exponent = -(wd * wd * k.eta) - wt * wt * k.beta;
+            sum += tau.powf(k.t) * delta.powi(i32::from(k.d)) * exponent.exp() * k.n;
+        }
+        sum
+    };
+    let scale = |e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize| {
+        e.gaussian.iter().map(|term| majorant::gaussian(term, tau, delta, i, j)).sum()
+    };
+    let select = |e: &EosRecord, eos: &mut EosRecord| eos.gaussian.clone_from(&e.gaussian);
+    let checked = check_ad("R1234yf", select, paper, scale) + check_ad("Water", select, paper, scale);
+    assert_eq!(checked, 2 * 300 * 15);
+}

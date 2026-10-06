@@ -105,7 +105,8 @@ fn scale(e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
     let power: f64 = e.power.iter().map(|t| majorant::power(t, tau, delta, i, j)).sum();
     let lemmon: f64 = e.lemmon2005.iter().map(|t| majorant::lemmon2005(t, tau, delta, i, j)).sum();
     let double: f64 = e.double_exponential.iter().map(|t| majorant::double_exponential(t, tau, delta, i, j)).sum();
-    power + lemmon + double
+    let gaussian: f64 = e.gaussian.iter().map(|t| majorant::gaussian(t, tau, delta, i, j)).sum();
+    power + lemmon + double + gaussian
 }
 
 /// Every block of `kind` in the core subset against the same block compiled alone from the `Parity` record: all 15
@@ -197,6 +198,13 @@ fn lemmon2005_matches_oracle_term_fixtures() {
 #[test]
 fn double_exponential_matches_oracle_term_fixtures() {
     assert_eq!(check_kind("DoubleExponential"), 100 * 15);
+}
+
+/// Oracle: CoolProp 8.0.0, term fixtures: the Gaussian blocks of the core subset (Ammonia 10 terms, CarbonDioxide 5,
+/// Helium 11, Nitrogen 4, R1130(E) 4, R1234yf 7, R1234ze(E) 6, Water 3; map 02 §3.1), scale [`majorant::gaussian`].
+#[test]
+fn gaussian_matches_oracle_term_fixtures() {
+    assert_eq!(check_kind("Gaussian"), 8 * 100 * 15);
 }
 
 /// VERIFICATION.md §3.2, §11.3: the `term` files come from the pinned runner image, like every committed oracle

@@ -1,6 +1,7 @@
 //! L2 Helmholtz models: the family seam (D3) and the built-in CoolProp multiparameter family.
 
 mod eos;
+mod gaussian;
 mod ideal;
 mod power;
 mod tau_exp;
@@ -9,6 +10,7 @@ mod terms;
 use core::fmt;
 
 pub(crate) use eos::{MultiParameterEos, ResidualBlock};
+pub(crate) use gaussian::GaussianBlock;
 pub(crate) use ideal::IdealGas;
 pub use ideal::{IdealTerm, OffsetReference};
 pub(crate) use power::PowerBlock;
