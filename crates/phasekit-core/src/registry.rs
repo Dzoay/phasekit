@@ -500,6 +500,18 @@ mod tests {
         assert!(parity >= MIN_COMPILABLE, "{parity} compile, fewer than {MIN_COMPILABLE}");
     }
 
+    /// PLAN.md M2.11: until M5.2a computes them, every shipped blob carries the caloric section empty, and asking for
+    /// the curves is the typed "not yet" error.
+    #[test]
+    fn caloric_section_is_empty_until_m5_2a() {
+        for f in phasekit_data::FLUIDS {
+            let record = FluidRecord::decode(f.blob).unwrap();
+            assert_eq!(record.caloric, None, "{}", f.name);
+            assert_eq!(record.caloric_curves(), Err(LoadError::Format("caloric curves land at M5.2a".into())));
+        }
+        assert_eq!(phasekit_data::FLUIDS.len(), 136);
+    }
+
     /// Map 09 §4.5: the shipped index has 556 ASCII case-folded keys over 136 fluids, none shared between fluids;
     /// building the embedded registry refuses a collision, so `embedded()` succeeding proves it at run time too.
     #[test]
