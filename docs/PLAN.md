@@ -270,6 +270,9 @@ lint` and `cargo shear` run locally and in CI.
 
 - Crate, module and type names are those of ARCHITECTURE.md §2-§3. A name not there is chosen in the step and
   recorded in the PR.
+- Every blob section has a readable form: a step that fills or changes a section of blob v1 (M5.2 superancillary,
+  M5.2a caloric curves, M8.1 transport, ...) extends `cargo xtask fluid` in the same PR, and
+  `every_blob_section_is_dumped` fails until it does (user decision FD1; M2.9a).
 - `pk_*` for every native C symbol. CoolProp's unprefixed names exist only behind the `coolproplib-shim` feature,
   in a separate build (D11).
 - Fluid features: `fluid-<name>`, `<name>` = CoolProp canonical name lowercased, each run of non-alphanumerics replaced
@@ -292,7 +295,7 @@ lint` and `cargo shear` run locally and in CI.
 |---|---|---|---|
 | M0 | Toolchain, workspace seeded from the sketch, lints, xtask gates, test-quality gates, CI (user checkpoint), licences | 8 | G1-G8 green; 43 seed tests; zero third-party deps |
 | M1 | Verification kit, oracle generator and lock, register and arbiter machinery, paper corpus, proptest, C++ baseline (time, memory, threads), mp check points | 18 | Fixture round trip bit-exact; `from_printed("21.17909")` rejects the oracle; 14/14 register facts |
-| M2 | Datagen, blob v1, index, features, Parity/Corrected, hash gate, citations on real data, caloric-curve contract | 11 | 130 FNV stamps; 556 keys, 0 collisions; Parity vs Corrected = 3 patches |
+| M2 | Datagen, blob v1, index, features, Parity/Corrected, hash gate, readable fluid dump, citations on real data, caloric-curve contract | 12 | 130 FNV stamps; 556 keys, 0 collisions; Parity vs Corrected = 3 patches |
 | M3 | Separable residual kinds on real data, `Jet4` with num-dual oracle | 8 | Jets = AD (class `Term`); oracle block isolation; α^r totals of 134 fluids |
 | M4 | NonAnalytic, all ideal kinds, all 136 compile | 7 | IAPWS-95 Table 6; Water/CO₂ critical `Undefined` |
 | M5 | Relations, SA evaluation, caloric curves, DT, gauge, partials, virials, batch, compat, seam gates | 12 | Lemmon 2016 Table 7; DIV-0001 proof; analytic virials; seams green |
@@ -601,6 +604,18 @@ data (D7, ARCHITECTURE.md §8). **Prerequisites.** M1; `reference/CoolProp` at a
 - **M2.9 Lookup cost.** *Failing test:* `hot_get_allocates_nothing` (counting `#[global_allocator]`). *Do:* criterion
   bench `lookup_by_name` (target ≤ 50 ns, ARCHITECTURE.md §7), `cargo xtask bench --record`; criterion added as a
   non-wasm dev-dependency of `phasekit-verify` (section 2.5). *Done when:* recorded, non-blocking.
+- **M2.9a Readable fluid data** (user decision FD1). Humans and agents review exactly what ships: `cargo xtask fluid
+  list|show|diff` prints each decoded record (from the blobs, under Parity or Corrected) as JSON, deterministic and at
+  full float precision (shortest round-trip form). xtask already depends on core and may use serde_json (tier T4), so
+  this adds no crate, no dependency and nothing published; TOML or YAML would need a dependency decision. *Failing tests
+  (xtask):* `dump_round_trips_bitwise` (parsing the dump and re-encoding it reproduces the blob byte for byte, for all
+  136 fluids: the readable form is complete, and it is the obvious input format for authoring a fluid later),
+  `parity_and_corrected_diff_is_exactly_the_three_patches` (M2.7's criterion, through `fluid diff`), and
+  `every_blob_section_is_dumped` (fails when a step fills a blob section without extending the dump; section 2.5). *Do:*
+  the dump form and its parser in xtask; `diff` compares two datasets or the blobs of two git revisions. Also, if it
+  needs no new permission: on PRs that change `data/` or `crates/phasekit-data/`, the `linux` CI job writes `cargo xtask
+  fluid diff origin/main` to its job summary, so data changes are reviewable on GitHub without committing text dumps
+  (about 10 MB). *Done when:* green.
 - **M2.10 Citations.** *Failing tests (xtask):* `every_default_source_has_an_identifier` and `every_bibkey_resolves`
   (every default model's `bibkey` resolves in CoolProp's bundled `CoolPropBibTeXLibrary.bib` and has a DOI or report
   id, else a waiver with a reason; the 19 EOS keys without a DOI, map 13 R2, are waived with the OpenAlex DOI map 13
@@ -623,9 +638,9 @@ data (D7, ARCHITECTURE.md §8). **Prerequisites.** M1; `reference/CoolProp` at a
   Close M2: set `MILESTONE = 3`. *Done when:* green.
 
 **Exit gate.** G1-G8 incl. `datagen`; 136 parse; 130 FNV stamps; 390 check points match the JSON; 556 keys, 0
-collisions; 136 blobs round-trip bitwise; Parity vs Corrected = 3 patches; 130 fresh / 2 rescaled; the caloric section
-round-trips and its stamp classifies edits; DIV-0003 (part 1) and DIV-0006..0008 proofs; core and data still zero
-third-party dependencies.
+collisions; 136 blobs round-trip bitwise, and so does their readable dump; Parity vs Corrected = 3 patches; 130 fresh /
+2 rescaled; the caloric section round-trips and its stamp classifies edits; DIV-0003 (part 1) and DIV-0006..0008 proofs;
+core and data still zero third-party dependencies.
 **ROT rows.** M2.1: ROT-038, ROT-058. M2.2: ROT-053. M2.3: ROT-041, ROT-046, ROT-052, ROT-068. M2.4: ROT-026,
 ROT-040, ROT-055. M2.5: ROT-045, ROT-054. M2.6: ROT-025, ROT-027, ROT-033, ROT-034, ROT-039. M2.7: ROT-042. M2.8:
 ROT-056. M2.10: ROT-142, ROT-143, ROT-144. (ROT-057's datagen half lands in M2.3; the row closes at M10.2.)
