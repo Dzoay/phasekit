@@ -362,7 +362,11 @@ saturation}): citation {key, DOI or report, role}, table {file, kind, rows}, pri
 
 Procedure (`tests/arbiters.rs`, on the mutable `FluidRecord` seam, ARCHITECTURE.md §3.8):
 1. Decode under `Parity`; diff R, M, T_r, ρ_r and per-block Tc against the printed constants (map 13 §3 lesson: check
-   these before blaming the evaluator).
+   these before blaming the evaluator). `stored_constants_match_their_arbiter_records` (M4.7) audits R, M, T_r and ρ_r
+   of every record with transcribed constants (9 fluids) within half a unit of the last printed digit: a mismatch
+   must be a registered `GasConstant` or `Reducing` divergence of that fluid, and the two found are pinned
+   (R1234ze(E)'s R, DIV-0001; Helium's, DIV-0005). Map 13 R1's other 14 R candidates enter the register as
+   `Investigate` only once a paper's printed R is transcribed; none is yet.
 2. Set the paper's constants, `compile`, evaluate every row. All within `Paper` → `SelfConsistent`; otherwise
    `Inconsistent { residual }`. NIST IR 8474 Table 3 is 1.0e-6 to 1.4e-6 off with its own Table 1 R, so it cannot
    arbitrate (map 13 §3 item 4).
