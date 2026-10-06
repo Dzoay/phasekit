@@ -79,6 +79,7 @@ jobs:
           cargo xtask oracle --kind crit --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind crit --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind term --out "$FIXTURES/coolprop-8.0.0" --write-manifest
+          cargo xtask oracle --kind term --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
       - name: Upload the regenerated fixtures
         if: inputs.regenerate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -99,7 +100,8 @@ jobs:
             cargo xtask oracle --kind crit --tier all --out "$FIXTURES/coolprop-8.0.0" --check
             echo "pass $pass: crit/*.csv and all/crit.csv identical"
             cargo xtask oracle --kind term --out "$FIXTURES/coolprop-8.0.0" --check
-            echo "pass $pass: term/*.csv identical"
+            cargo xtask oracle --kind term --tier all --out "$FIXTURES/coolprop-8.0.0" --check
+            echo "pass $pass: term/*.csv and all/term.csv identical"
           done
       - name: The full set into fixtures-full/
         run: |
@@ -108,6 +110,7 @@ jobs:
           done
           cargo xtask oracle --kind checkpoints --out crates/phasekit-verify/fixtures-full
           cargo xtask oracle --kind crit --tier full --out crates/phasekit-verify/fixtures-full/coolprop-8.0.0
+          cargo xtask oracle --kind term --tier full --out crates/phasekit-verify/fixtures-full/coolprop-8.0.0
       - name: cargo test -p phasekit-verify --release -- --ignored (L5)
         run: cargo test -p phasekit-verify --release -- --ignored 2>&1 | tee sweep.log
       - name: Report

@@ -409,7 +409,8 @@ TERM_COLUMNS = ["block_idx", "block_type", "terms", "T", "rhomolar", "tau", "del
 TERM_UNITS = ["-", "-", "-", "K", "mol/m3", "-", "-", "-", *["-"] * len(TERM_METHODS)]
 TERM_TOL = ["label", "label", "in", "in", "in", "in", "in", "label", *["term"] * len(TERM_METHODS)]
 TERM_DELTA_MIN = 1e-8
-TERM_ROWS = {"core": 100}  # per block; every block of a fluid shares the same (tau, delta) points
+TERM_ROWS = {"core": 100, "all": 0, "full": 300}  # per block; every block of a fluid shares the same (tau, delta) points
+TERM_TOTALS = {"core": 0, "all": 4, "full": 64}  # alpha^r total rows per fluid, on the first points of the same grid
 TERM_NEAR_CRITICAL = 20  # extra NonAnalytic rows with |tau - 1| and |delta - 1| ~ logU[1e-6, 1e-2]
 TERM_PREFIX = "ResidualHelmholtz"
 
@@ -436,15 +437,30 @@ def term_grid(seed, rows, tau_range, delta_max):
     return shared, near
 
 
+def term_row(CP, fluid, index, kind, terms, t, rho):
+    """One row: a fresh `AbstractState` of `fluid` with the phase imposed at (T, rho); (floats, line)."""
+    try:
+        state = CP.AbstractState("HEOS", fluid)
+        state.specify_phase(CP.iphase_gas)
+        state.update(CP.DmolarT_INPUTS, rho, t)
+        values, status = [state.tau(), state.delta(), *(getattr(state, m)() for m in TERM_METHODS)], "ok"
+    except Exception as exception:  # every oracle failure becomes a status, never a crash
+        values, status = [math.nan] * (2 + len(TERM_METHODS)), f"err:{error_class(exception)}"
+    row = [float(terms), t, rho, *values]
+    return row, ",".join([index, kind, *map(cell, row[:5]), status, *map(cell, row[5:])]) + "\n"
+
+
 def term_rows(job):
     """One fluid's rows, in a pool child (map 10 section 8.2): each residual block becomes a renamed one-block clone
     loaded with `add_fluids_as_JSON` (EOS[0] only, no superancillary), and every row is a fresh `AbstractState` with
-    the phase imposed, evaluated at T = T_r/tau, rho = delta*rho_r; tau and delta are the ones CoolProp then holds."""
+    the phase imposed, evaluated at T = T_r/tau, rho = delta*rho_r; tau and delta are the ones CoolProp then holds.
+    The totals rows (`block_idx = all`) evaluate the fluid itself."""
     import CoolProp.CoolProp as CP  # the parent's module, inherited through fork
 
     name, fluid, points = job
     lines, floats = [], []
-    for index, block in enumerate(fluid["EOS"][0]["alphar"]):
+    blocks = fluid["EOS"][0]["alphar"]
+    for index, block in enumerate(blocks if points["shared"] else []):
         clone = json.loads(json.dumps(fluid))
         alias = f"PHASEKIT_TERM_{index}_{name}"
         clone["INFO"].update(NAME=alias, ALIASES=[], CAS=alias, REFPROP_NAME=alias)
@@ -455,16 +471,14 @@ def term_rows(job):
         kind = block["type"].removeprefix(TERM_PREFIX)
         grid = points["shared"] + (points["near"] if kind == "NonAnalytic" else [])
         for t, rho in grid:
-            try:
-                state = CP.AbstractState("HEOS", alias)
-                state.specify_phase(CP.iphase_gas)
-                state.update(CP.DmolarT_INPUTS, rho, t)
-                values, status = [state.tau(), state.delta(), *(getattr(state, m)() for m in TERM_METHODS)], "ok"
-            except Exception as exception:  # every oracle failure becomes a status, never a crash
-                values, status = [math.nan] * (2 + len(TERM_METHODS)), f"err:{error_class(exception)}"
-            row = [float(len(block["n"])), t, rho, *values]
+            row, line = term_row(CP, alias, str(index), kind, len(block["n"]), t, rho)
             floats.extend(row)
-            lines.append(",".join([str(index), kind, *map(cell, row[:5]), status, *map(cell, row[5:])]) + "\n")
+            lines.append(line)
+    terms = sum(len(block["n"]) for block in blocks)
+    for t, rho in points["totals"]:
+        row, line = term_row(CP, name, "all", "all", terms, t, rho)
+        floats.extend(row)
+        lines.append(line)
     return lines, floats
 
 
@@ -478,13 +492,12 @@ def pool_map(function, jobs, workers):
 
 
 def term(CP, lock, config, files, args):
-    """The `term` kind (section 3.5): per block of every core fluid, the oracle's alphar and 14 derivatives on the shared
-    grid (100 points: tau ~ U[T_r/Tmax, T_r/Tmin], delta ~ logU[1e-8, rho_max/rho_r] with rho_max the saturated liquid
-    at the minimum temperature, the record's density bound), NonAnalytic blocks also at 20 points near tau = delta = 1.
-    The totals rows (`block_idx = all`) of the all-fluid tier land at PLAN.md M3.6."""
-    if args.tier not in TERM_ROWS:
-        fail(f"--kind term --tier {args.tier} lands at PLAN.md M3.6 (totals)")
-    rows = args.rows or TERM_ROWS[args.tier]
+    """The `term` kind (section 3.5): the oracle's alphar and 14 derivatives on one grid per fluid (tau ~ U[T_r/Tmax,
+    T_r/Tmin], delta ~ logU[1e-8, rho_max/rho_r] with rho_max the saturated liquid at the minimum temperature, the
+    record's density bound). The core tier has 100 points per block of every core fluid (NonAnalytic blocks also 20
+    near tau = delta = 1) in term/<Fluid>.csv; the all-fluid tier the alpha^r totals (`block_idx = all`) at the first 4
+    points of every fluid in all/term.csv; the full tier 300 points per block and 64 totals per fluid."""
+    rows, totals = args.rows or TERM_ROWS[args.tier], TERM_TOTALS[args.tier]
     jobs, shas = [], {}
     for name in tier_fluids(args, files):
         shas[name] = assert_fluid(CP, files, name)
@@ -493,14 +506,24 @@ def term(CP, lock, config, files, args):
         state = CP.AbstractState("HEOS", name)
         t_r, rho_r = state.T_reducing(), state.rhomolar_reducing()
         tau_range = (t_r / state.Tmax(), t_r / state.Tmin())
-        shared, near = term_grid(args.seed, rows, tau_range, eos["STATES"]["sat_min_liquid"]["rhomolar"] / rho_r)
-        points = {key: [(t_r / tau, delta * rho_r) for tau, delta in grid] for key, grid in
-                  (("shared", shared), ("near", near))}
+        delta_max = eos["STATES"]["sat_min_liquid"]["rhomolar"] / rho_r
+        shared, near = term_grid(args.seed, max(rows, totals), tau_range, delta_max)
+        to_t_rho = lambda grid: [(t_r / tau, delta * rho_r) for tau, delta in grid]  # noqa: E731
+        points = {"shared": to_t_rho(shared[:rows]), "near": to_t_rho(near), "totals": to_t_rho(shared[:totals])}
         jobs.append((name, fluid, points))
-    out = {}
     grid = (f"tau~U[Tr/Tmax,Tr/Tmin] delta~logU[{TERM_DELTA_MIN!r},rhomax/rhor] n={rows} seed={args.seed} "
-            f"phase=imposed:gas; NonAnalytic +{TERM_NEAR_CRITICAL} at |tau-1|,|delta-1|~logU[1e-6,1e-2]")
-    for (name, _, _), (lines, floats) in zip(jobs, pool_map(term_rows, jobs, args.jobs)):
+            f"phase=imposed:gas; NonAnalytic +{TERM_NEAR_CRITICAL} at |tau-1|,|delta-1|~logU[1e-6,1e-2]; "
+            f"totals n={totals}")
+    results = pool_map(term_rows, jobs, args.jobs)
+    if args.tier == "all":
+        floats = [value for _, values in results for value in values]
+        fluids = f"{len(jobs)} fluids, fluids_sha256={lock['fluids_sha256']}"
+        columns, tol, units = ["fluid", *TERM_COLUMNS], ["label", *TERM_TOL], ["-", *TERM_UNITS]
+        text = header("term", lock, config, fluids, columns, tol, floats, units=units, grid=grid)
+        lines = [f"{name},{line}" for (name, _, _), (rows_, _) in zip(jobs, results) for line in rows_]
+        return {"all/term.csv": text + "".join(lines)}
+    out = {}
+    for (name, _, _), (lines, floats) in zip(jobs, results):
         text = header("term", lock, config, [(name, shas[name])], TERM_COLUMNS, TERM_TOL, floats, units=TERM_UNITS,
                       grid=grid)
         out[f"term/{name}.csv"] = text + "".join(lines)
