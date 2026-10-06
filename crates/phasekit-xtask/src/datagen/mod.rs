@@ -1,8 +1,10 @@
 //! `cargo xtask datagen` (ARCHITECTURE.md §8; PLAN.md M2): the pinned v8.0.0 fluid JSON → phasekit's data. This
 //! step reads: the files are checked against `data/fluids.lock` first, then each is parsed with the
-//! literal-kind-preserving reader ([`json`]) and the closed serde mirror ([`mirror`]). Later steps add the FNV-1a stamp
-//! gate (M2.2), the mapping into core records (M2.3), the blobs (M2.4) and the index and features (M2.5).
+//! literal-kind-preserving reader ([`json`]) and the closed serde mirror ([`mirror`]), and every stored superancillary
+//! stamp must recompute ([`fnv`], M2.2). Later steps add the mapping into core records (M2.3), the blobs (M2.4) and the
+//! index and features (M2.5).
 
+pub mod fnv;
 pub mod json;
 pub mod mirror;
 
@@ -23,7 +25,9 @@ pub const FLUIDS_LOCK: &str = "data/fluids.lock";
 pub struct Source {
     /// The file name (`R1224yd(Z).json`: names come from `INFO.NAME`, not file names; map 09 §4.3).
     pub file: String,
-    /// The typed mirror of the file.
+    /// The literal-kind tree, each duplicate key reduced to its last value.
+    pub tree: Json,
+    /// The typed mirror of the same tree.
     pub fluid: mirror::Fluid,
     /// Logged waivers (map 09 R19).
     pub waivers: Vec<String>,
@@ -55,7 +59,23 @@ pub fn parse(file: &str, text: &str) -> Result<Source, String> {
             }
         }
     }
-    Ok(Source { file: file.to_string(), fluid, waivers })
+    Ok(Source { file: file.to_string(), tree, fluid, waivers })
+}
+
+/// The FNV-1a gate (map 09 §8): a stored `source_eos_hash` must recompute from the parsed `EOS[0]`, so the shipped
+/// superancillary was fitted to exactly this EOS. Returns the stamp, or `None` for a fluid without one.
+pub fn check_stamp(source: &Source) -> Result<Option<String>, String> {
+    let file = &source.file;
+    let Some(stored) = source.fluid.eos.first().and_then(|e| e.superancillary.as_ref()?.source_eos_hash.as_ref())
+    else {
+        return Ok(None);
+    };
+    let computed = fnv::eos_stamp(&source.tree).ok_or_else(|| format!("{file}: no EOS[0] object to stamp"))?;
+    if computed == *stored {
+        Ok(Some(computed))
+    } else {
+        Err(format!("{file}: source_eos_hash {stored}, recomputed {computed}"))
+    }
 }
 
 /// Checks the files against the lock: same names, same sha256, and the lock's lines hash to `fluids_sha256`.
@@ -98,8 +118,8 @@ pub fn load(repo: &Repo) -> Result<Vec<Source>, Vec<String>> {
         return Err(fail(format!("no fluid files in {FLUIDS_DIR} (scripts/fetch-coolprop.sh)")));
     }
     check_lock(&repo.read(FLUIDS_LOCK).map_err(fail)?, fluids_sha256, &files)?;
-    let (sources, errors): (Vec<_>, Vec<_>) =
-        files.iter().map(|(file, text)| parse(file, text)).partition(Result::is_ok);
+    let checked = |(file, text): &(String, String)| parse(file, text).and_then(|s| check_stamp(&s).map(|_| s));
+    let (sources, errors): (Vec<_>, Vec<_>) = files.iter().map(checked).partition(Result::is_ok);
     if errors.is_empty() {
         Ok(sources.into_iter().flatten().collect())
     } else {
@@ -122,7 +142,11 @@ pub fn main(args: &[String]) -> ExitCode {
                 }
             }
             let entries: usize = sources.iter().map(|s| s.fluid.eos.len()).sum();
-            println!("datagen: {} fluids parsed, {entries} EOS entries", sources.len());
+            let stamps = sources.iter().filter(|s| matches!(check_stamp(s), Ok(Some(_)))).count();
+            println!(
+                "datagen: {} fluids parsed, {entries} EOS entries, {stamps} source_eos_hash stamps recomputed",
+                sources.len()
+            );
             ExitCode::SUCCESS
         }
         Err(errors) => {
@@ -256,6 +280,54 @@ mod tests {
         assert_eq!(blocks.iter().filter_map(IdealBlock::polyt_constants).count(), 2, "both edited: they agree again");
         let err = parse("n-Heptane.json", &edited).unwrap_err();
         assert!(err.contains("n-Heptane.json: EOS[0]: c_p0 blocks with different Tc or T0"), "{err}");
+    }
+
+    /// Map 09 §8: all 130 stored `source_eos_hash` stamps recompute from the parsed default EOS (literal kinds kept),
+    /// and the six pseudo-pure fluids carry none. One edited coefficient makes the stamp stale.
+    #[test]
+    fn all_130_stamps_recompute() {
+        let sources = sources();
+        let stamped: Vec<&str> =
+            sources.iter().filter(|s| check_stamp(s).unwrap().is_some()).map(|s| s.fluid.info.name.as_str()).collect();
+        assert_eq!(stamped.len(), 130);
+        let unstamped: Vec<&str> =
+            sources.iter().map(|s| s.fluid.info.name.as_str()).filter(|n| !stamped.contains(n)).collect();
+        assert_eq!(unstamped, ["Air", "R404A", "R407C", "R410A", "R507A", "SES36"]);
+        let nitrogen = text("Nitrogen.json");
+        assert!(nitrogen.contains("0.924803575275"));
+        let edited = parse("Nitrogen.json", &nitrogen.replacen("0.924803575275", "0.924803575276", 1)).unwrap();
+        let err = check_stamp(&edited).unwrap_err();
+        assert!(err.starts_with("Nitrogen.json: source_eos_hash 66cd08903a5b654e, recomputed "), "{err}");
+    }
+
+    /// PLAN.md M2.2: the committed `mp/check-points.csv` (M1.17) is the JSON's `check_points`, bit for bit, with the
+    /// superancillary's `Tcrittrue / K` as `Tc`: 390 points of 130 fluids, sorted by name.
+    #[test]
+    fn check_points_match_the_json() {
+        let text = Repo::locate().read("crates/phasekit-verify/fixtures/mp/check-points.csv").unwrap();
+        let points = phasekit_verify::Fixture::parse("mp/check-points.csv", &text).unwrap();
+        let mut want: Vec<(String, [f64; 8])> = Vec::new();
+        for source in sources() {
+            let Some(sa) = &source.fluid.eos[0].superancillary else { continue };
+            let tc = sa.meta["Tcrittrue / K"].as_f64().unwrap();
+            for p in sa.check_points.as_deref().unwrap_or_default() {
+                let row = [tc, p.t, p.p, p.rho_l, p.rho_v, p.p_ratio, p.rho_l_ratio, p.rho_v_ratio];
+                want.push((source.fluid.info.name.clone(), row));
+            }
+        }
+        want.sort_by(|a, b| a.0.cmp(&b.0)); // stable: points keep their JSON order within a fluid
+        assert_eq!(want.len(), 390);
+        let columns = ["Tc", "T", "p", "rhoL", "rhoV", "p_sa_mp", "rhoL_sa_mp", "rhoV_sa_mp"];
+        let got: Vec<(String, [f64; 8])> = (0..points.rows().len())
+            .map(|i| {
+                let fluid = points.printed(i, "fluid").unwrap_or_default().to_string();
+                (fluid, columns.map(|c| points.value(i, c).unwrap_or(f64::NAN)))
+            })
+            .collect();
+        let bits = |rows: &[(String, [f64; 8])]| -> Vec<(String, [u64; 8])> {
+            rows.iter().map(|(f, r)| (f.clone(), r.map(f64::to_bits))).collect()
+        };
+        assert_eq!(bits(&got), bits(&want));
     }
 
     /// PLAN.md M2.1: the lock is checked before anything is parsed. A changed byte, a missing file and an extra file
