@@ -18,7 +18,7 @@
 
 use phasekit_core::internal::{
     DoubleExponentialTerm, Environmental, EosRecord, FluidRecord, GaoBTerm, GaussianTerm, IdealTerm, Lemmon2005Term,
-    MAX_POW, MeltingSegment, NonAnalyticTerm, OffsetReference, PowerTerm,
+    MAX_POW, MeltingSegment, NonAnalyticTerm, OffsetReference, PowerTerm, SaStamp,
 };
 use phasekit_core::{CriticalOrigin, CriticalPoint, DataTerms, Limits, Source};
 
@@ -51,6 +51,13 @@ pub fn to_record(source: &super::Source) -> Result<FluidRecord, String> {
     fluid_record.cas = Some(info.cas.clone());
     fluid_record.refprop_name = Some(info.refprop_name.clone()).filter(|n| n != "N/A");
     fluid_record.inchi_key.clone_from(&info.inchi_key);
+    // The shipped superancillary was fitted to exactly this EOS: M2.2's FNV-1a gate recomputed its stamp from the
+    // parsed JSON. Its stamp here is phasekit's own hash gate (E14; PLAN.md M2.8).
+    if eos.superancillary.is_some() {
+        let e = &fluid_record.eos;
+        let (shape, gas_constant, rho_reducing) = (e.shape_hash(), e.gas_constant, e.rho_reducing);
+        fluid_record.superancillary_fit = Some(SaStamp { shape, gas_constant, rho_reducing });
+    }
     let c = &fluid.states.critical;
     fluid_record.critical = Some(CriticalPoint { t: c.t, p: c.p, rho: c.rhomolar, origin: CriticalOrigin::Published });
     fluid_record.environmental = info.environmental.as_ref().map(environmental).transpose().map_err(|e| at(&e))?;

@@ -3,7 +3,7 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::internal::{Edit, FluidRecord, Patch};
+use phasekit_core::internal::{Edit, FluidRecord, IdealTerm, Patch, SaFreshness};
 use phasekit_core::{DataSet, Registry};
 use phasekit_verify::{
     Cell, DIVERGENCES, Fix, Fixture, Policy, Provenance, RegisterError, Tolerance, check_register, fixture,
@@ -262,4 +262,72 @@ fn helium_ships_no_patch() {
     assert_eq!(parity, corrected);
     let citing = [patch("DIV-0005", Edit::GasConstant(8.314_472))];
     assert_eq!(check_register(DIVERGENCES, &citing), Err(RegisterError::NotUsePaper("DIV-0005".into())));
+}
+
+/// The superancillary hash gate (VERIFICATION.md §7.3; E14; PLAN.md M2.8) of every record under `set`: (name, result)
+/// for the fluids that ship a superancillary.
+fn freshness(set: DataSet) -> Vec<(String, SaFreshness)> {
+    let mut out = Vec::new();
+    for mut record in records() {
+        record.apply(set).unwrap();
+        if let Some(f) = record.superancillary_freshness() {
+            out.push((record.name, f));
+        }
+    }
+    out
+}
+
+/// Under Parity every one of the 130 shipped superancillaries is fresh: it was fitted to exactly this EOS (M2.2), and
+/// the six pseudo-pure fluids ship none.
+#[test]
+fn all_130_superancillaries_are_fresh_under_parity() {
+    let parity = freshness(DataSet::Parity);
+    assert_eq!(parity.len(), 130);
+    assert!(parity.iter().all(|(_, f)| *f == SaFreshness::Fresh));
+    let without: Vec<String> =
+        records().into_iter().filter(|r| r.superancillary_fit.is_none()).map(|r| r.name).collect();
+    assert_eq!(without, ["Air", "R404A", "R407C", "R410A", "R507A", "SES36"]);
+}
+
+/// Under Corrected, the R correction (DIV-0001) and the ρ_r correction (DIV-0003) leave the shape alone, so their
+/// curves rescale exactly: ρ′, ρ″ by ρ_r′/ρ_r and p_sat by (R′/R)(ρ_r′/ρ_r). Water's melting correction (DIV-0002)
+/// leaves its curve fresh. 128 fresh, 2 rescaled.
+#[test]
+fn rho_r_and_r_corrections_rescale_exactly() {
+    let corrected = freshness(DataSet::Corrected);
+    let rescaled: Vec<&(String, SaFreshness)> = corrected.iter().filter(|(_, f)| *f != SaFreshness::Fresh).collect();
+    let rho = 11_183.9 / 11_183.901_464_580_624;
+    assert_eq!(
+        rescaled,
+        [
+            &("Nitrogen".to_string(), SaFreshness::Rescaled { p: rho, rho }),
+            &("R1234ze(E)".to_string(), SaFreshness::Rescaled { p: 8.314_462_1 / 8.314_472, rho: 1.0 }),
+        ]
+    );
+    assert_eq!(corrected.len(), 130);
+}
+
+/// Any EOS edit other than R and ρ_r (a residual or ideal-gas coefficient, T_r) marks the curve stale, so it becomes
+/// a `Guess` polished by VLE (M6.6); ρ_max, a bracketing bound, is not part of the fit.
+#[test]
+fn any_other_eos_edit_marks_the_curve_stale() {
+    let nitrogen = records().into_iter().find(|r| r.name == "Nitrogen").unwrap();
+    type Edit = fn(&mut FluidRecord);
+    let stale: [(&str, Edit); 4] = [
+        ("power n", |r| r.eos.power[0].n *= 1.0 + 1e-15),
+        ("gaussian beta", |r| r.eos.gaussian[0].beta += 1e-12),
+        ("ideal term", |r| r.eos.ideal[0] = IdealTerm::Lead { a1: 0.0, a2: 0.0 }),
+        ("T_r", |r| r.eos.t_reducing += 1e-12),
+    ];
+    for (what, edit) in stale {
+        let mut r = nitrogen.clone();
+        edit(&mut r);
+        assert_eq!(r.superancillary_freshness(), Some(SaFreshness::Stale), "{what}");
+    }
+    let mut bound = nitrogen.clone();
+    bound.eos.rho_max *= 2.0;
+    assert_eq!(bound.superancillary_freshness(), Some(SaFreshness::Fresh));
+    let mut r = nitrogen.clone();
+    r.eos.gas_constant = 8.314_462_618;
+    assert!(matches!(r.superancillary_freshness(), Some(SaFreshness::Rescaled { rho: 1.0, .. })));
 }
