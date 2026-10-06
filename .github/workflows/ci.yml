@@ -89,6 +89,17 @@ jobs:
         run: cargo test --workspace
       - name: G8 cargo xtask gates all
         run: cargo xtask gates all
+      - name: Fluid data changes (job summary; PRs that change data; PLAN.md M2.9a)
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff --quiet origin/main...HEAD -- data crates/phasekit-data && exit 0
+          {
+            echo "## Fluid data changes against main (\`cargo xtask fluid diff --base origin/main\`)"
+            echo
+            echo '```'
+            cargo xtask fluid diff --base origin/main
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: cargo deny check
         run: cargo deny check
       - name: cargo shear

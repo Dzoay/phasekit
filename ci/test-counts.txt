@@ -13,7 +13,7 @@ x86_64-unknown-linux-gnu phasekit-verify::new_family 5
 # pending M5.9: new_family.rs::compat_strings_reach_the_new_family
 # pending M5.9: new_family.rs::reference_states_work_for_any_family
 x86_64-unknown-linux-gnu phasekit-verify::register 12
-x86_64-unknown-linux-gnu phasekit-xtask::main 69
+x86_64-unknown-linux-gnu phasekit-xtask::main 74
 x86_64-unknown-linux-gnu phasekit-core::doc 1
 wasm32-wasip2 phasekit-core::lib 38
 wasm32-wasip2 phasekit-verify::lib 19

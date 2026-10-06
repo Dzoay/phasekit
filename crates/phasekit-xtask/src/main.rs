@@ -23,6 +23,7 @@
 mod baseline;
 mod bench;
 mod datagen;
+mod fluid;
 mod gates;
 mod oracle;
 mod repo;
@@ -36,9 +37,10 @@ fn main() -> ExitCode {
         Some((task, rest)) if task == "oracle" => oracle::main(rest),
         Some((task, rest)) if task == "baseline" => baseline::main(rest),
         Some((task, rest)) if task == "bench" => bench::main(rest),
+        Some((task, rest)) if task == "fluid" => fluid::main(rest),
         Some((task, rest)) if task == "datagen" => datagen::main(rest),
         _ => {
-            eprintln!("usage: cargo xtask <baseline|bench|datagen|oracle|gates>");
+            eprintln!("usage: cargo xtask <baseline|bench|datagen|fluid|oracle|gates>");
             ExitCode::FAILURE
         }
     }
