@@ -34,6 +34,10 @@ impl ModelKey {
     pub const fn get(self) -> u64 {
         self.0
     }
+    /// A key read back from stored bytes (a blob's superancillary stamp).
+    pub(crate) const fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
 }
 
 /// Licence and publication status of a model's data (D14).

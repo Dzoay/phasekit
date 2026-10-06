@@ -28,6 +28,7 @@
 //! # Ok(()) }
 //! ```
 
+mod blob;
 mod data;
 mod derivs;
 mod error;
