@@ -198,8 +198,8 @@ pub fn violations(arbiters: &[Arbiter], committed: &dyn Fn(&str) -> bool, milest
                 errors.push(format!("{name}: Transcribed, but not every table is committed"))
             }
             _ if evaluated && !all => errors.push(format!("{name}: {:?}, but not every table is committed", a.status)),
-            _ if evaluated && milestone <= EVALUATED_FROM => {
-                errors.push(format!("{name}: {:?}, but nothing is evaluated before M{EVALUATED_FROM} closes", a.status))
+            _ if evaluated && milestone < EVALUATED_FROM => {
+                errors.push(format!("{name}: {:?}, but nothing is evaluated before M{EVALUATED_FROM}", a.status))
             }
             ArbiterStatus::None | ArbiterStatus::Unpublished if !a.tables.is_empty() => {
                 errors.push(format!("{name}: {:?} lists no table", a.status))
@@ -222,7 +222,7 @@ pub static ARBITERS: &[Arbiter] = &[
             Table { file: "paper/Water/IAPWS-R6-95-2018.7.csv", kind: TableKind::K2, rows: Some(11) },
         ],
         constants: Some(IAPWS_95),
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "Water",
@@ -637,8 +637,8 @@ mod tests {
         assert_eq!(rules(&[transcribed], &[file], 2), Vec::<String>::new());
         assert!(!rules(&[transcribed], &[], 2).is_empty(), "Transcribed needs its files");
         let evaluated = Arbiter { status: ArbiterStatus::SelfConsistent, ..transcribed };
-        assert!(!rules(&[evaluated], &[file], 4).is_empty(), "nothing is evaluated while M4 is open");
-        assert_eq!(rules(&[evaluated], &[file], 5), Vec::<String>::new());
+        assert!(!rules(&[evaluated], &[file], 3).is_empty(), "nothing is evaluated before M4");
+        assert_eq!(rules(&[evaluated], &[file], 4), Vec::<String>::new(), "M4.5 evaluates the first table");
         let inconsistent = Arbiter { status: ArbiterStatus::Inconsistent { residual: 1.4e-6 }, ..transcribed };
         assert!(!rules(&[inconsistent], &[file], 3).is_empty());
         assert!(!rules(&[evaluated], &[], 5).is_empty(), "an evaluated table is committed");
