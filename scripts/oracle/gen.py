@@ -32,6 +32,11 @@ KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transpo
 SCRUBBED_PREFIXES = ("COOLPROP_", "PXFLASH_")
 FLUID_COUNT = 136
 
+# The committed core subset (VERIFICATION.md section 3.6): one file per fluid and kind. The all-fluid tier holds every
+# fluid in one file per kind under all/.
+CORE_FLUIDS = ["Air", "Ammonia", "CarbonDioxide", "HFE143m", "Helium", "Methanol", "Nitrogen", "R1130(E)", "R1234yf",
+               "R1234ze(E)", "R125", "R410A", "Water", "n-Heptane"]
+
 # splitmix64-v1, seed 1: the vector phasekit_verify::sample checks too (VERIFICATION.md section 3.1, assertion 5).
 GOLDEN = [0x910A2DEC89025CC1, 0xBEEB8DA1658EEC67, 0xF893A2EEFB32555E, 0x71C18690EE42C90B]
 
@@ -333,7 +338,67 @@ def checkpoints(CP, lock, config, files, args):
     return {"mp/check-points.csv": text + "".join(lines)}
 
 
-GENERATORS = {"facts": facts, "checkpoints": checkpoints}
+def tier_fluids(args, files):
+    """The fluids of --tier (core: the committed subset; all and full: every fluid), narrowed by --fluids."""
+    names = CORE_FLUIDS if args.tier == "core" else sorted(files)
+    if args.fluids:
+        wanted = args.fluids.split(",")
+        unknown = [name for name in wanted if name not in names]
+        if unknown:
+            fail(f"--fluids: not in the {args.tier} tier: {', '.join(unknown)}")
+        names = [name for name in names if name in wanted]
+    return names
+
+
+CRIT_COLUMNS = ["Tc_pub", "pc_pub", "rhoc_pub", "Tc_num", "pc_num", "rhoc_num", "Ttriple", "ptriple", "Tmin", "Tmax",
+                "pmax", "M", "R"]
+CRIT_UNITS = ["K", "Pa", "mol/m3", "K", "Pa", "mol/m3", "K", "Pa", "K", "K", "Pa", "kg/mol", "J/mol/K"]
+CRIT_TOL = ["exact"] * 3 + ["flash"] * 3 + ["exact"] * 7
+
+
+def crit_row(CP, lock, fluid):
+    """One fluid's constants (section 3.5): the critical point with superancillaries off (the published one, JSON
+    STATES.critical) and on (the superancillary's exact one; a pseudo-pure fluid has none and repeats the published
+    point), then CoolProp's Ttriple and ptriple (the saturation minimum, map 09 R8), Tmin, Tmax, pmax, M and R. The
+    switch is restored to the lock's value after each use."""
+    row = []
+    for enabled in (False, True):
+        CP.set_config_bool(CP.ENABLE_SUPERANCILLARIES, enabled)
+        state = CP.AbstractState("HEOS", fluid)
+        row += [state.T_critical(), state.p_critical(), state.rhomolar_critical()]
+    CP.set_config_bool(CP.ENABLE_SUPERANCILLARIES, json.loads(lock["config_json"])["ENABLE_SUPERANCILLARIES"])
+    state = CP.AbstractState("HEOS", fluid)
+    return row + [state.Ttriple(), state.p_triple(), state.Tmin(), state.Tmax(), state.pmax(), state.molar_mass(),
+                  state.gas_constant()]
+
+
+def crit(CP, lock, config, files, args):
+    """The `crit` kind (section 3.5), one row per fluid: crit/<Fluid>.csv in the core tier, all/crit.csv (with a
+    fluid column, sorted by name) otherwise. Assertion 4 holds for every fluid. A failed call stops the generator: every
+    fluid has these constants."""
+    names = tier_fluids(args, files)
+    rows = {}
+    for name in names:
+        sha = assert_fluid(CP, files, name)
+        try:
+            rows[name] = (sha, crit_row(CP, lock, name))
+        except Exception as exception:  # a constant every fluid has; a failure is a generator bug
+            fail(f"crit: {name}: {exception}")
+    if args.tier == "core":
+        out = {}
+        for name, (sha, row) in rows.items():
+            text = header("crit", lock, config, [(name, sha)], CRIT_COLUMNS, CRIT_TOL, row, units=CRIT_UNITS)
+            out[f"crit/{name}.csv"] = text + ",".join(map(cell, row)) + "\n"
+        return out
+    floats = [value for _, row in rows.values() for value in row]
+    fluids = f"{len(names)} fluids, fluids_sha256={lock['fluids_sha256']}"
+    columns, tol, units = ["fluid", *CRIT_COLUMNS], ["label", *CRIT_TOL], ["-", *CRIT_UNITS]
+    text = header("crit", lock, config, fluids, columns, tol, floats, units=units)
+    lines = [",".join([name, *map(cell, row)]) + "\n" for name, (_, row) in rows.items()]
+    return {"all/crit.csv": text + "".join(lines)}
+
+
+GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit}
 
 
 def write(out, files):

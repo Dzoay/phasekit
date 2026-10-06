@@ -9,8 +9,8 @@
 //! the superancillary expansions (M5.2), the critical-region splines (M6) and transport (M8).
 #![expect(
     dead_code,
-    reason = "a schema: every field exists so the closed structs accept the file; M2.2 reads the stamps and check \
-              points, M2.3 the rest (and drops this)"
+    reason = "a schema: every field exists so the closed structs accept the file; the identity strings no record \
+              holds (SMILES, ChemSpider), documentation (`*_note`), and subtrees typed by later steps stay unread"
 )]
 
 use serde::Deserialize;

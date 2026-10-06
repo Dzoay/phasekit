@@ -160,6 +160,19 @@ impl Limits {
         self.t_triple = Some(t);
         self
     }
+    /// The model's lower temperature limit, K (CoolProp's T_min: the saturation minimum, kept apart from the triple
+    /// point, map 09 R8).
+    pub fn t_min(&self) -> f64 {
+        self.t_min
+    }
+    /// The model's upper temperature limit, K.
+    pub fn t_max(&self) -> f64 {
+        self.t_max
+    }
+    /// The model's upper pressure limit, Pa.
+    pub fn p_max(&self) -> f64 {
+        self.p_max
+    }
     /// Triple-point temperature, if known.
     pub fn t_triple(&self) -> Option<f64> {
         self.t_triple

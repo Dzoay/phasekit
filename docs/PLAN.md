@@ -861,7 +861,8 @@ bands (map 03 §8; map 10 §8.5 L4).
   `a_guess_is_only_a_seed` (Water 10 MPa/300 K with a 0.9·ρ guess must not return dp/dρ < 0 as the oracle does; map 03
   §6), `a_guess_changes_no_output` (every `Prop`, with and without `with_guess`; map 01 R6). *Do:* add the `flash`
   kind's PT rows to gen.py; Newton on `residual + IDEAL_DELTA`, bracketed by ρ′/ρ″ and `rho_max(T)`, acceptance (inputs
-  reproduced, in domain, dp/dρ > 0, cv > 0 unless a phase is imposed). *Done when:* green.
+  reproduced, in domain, dp/dρ > 0, cv > 0 unless a phase is imposed); datagen's provisional `rho_max` (the saturated
+  liquid density at T_min, M2.3) becomes ρ(T_min, p_max) from this solver. *Done when:* green.
 - **M7.2 PT and DT phase rule complete.** *Failing tests:* `pt_at_saturation_is_ambiguous_under_strict`
   (`Ambiguous { roots: [ρ′, ρ″] }` at Water 305 K and 315 K at p_sat; `Nearest` and `with_phase` pick one; map 03 §6
   "PT near saturation"), `imposed_two_phase_dt_matches_qt`, `water_dg_dt_at_constant_p_equals_minus_s` (300 K, 1 atm:
