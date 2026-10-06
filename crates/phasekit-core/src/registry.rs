@@ -374,12 +374,50 @@ fn not_embedded(_name: &str) -> Option<LoadError> {
 mod tests {
     use super::*;
 
+    /// The real index (M2.5): names, aliases, CAS numbers and InChIKeys resolve, case-insensitively, without
+    /// decoding anything. CoolProp's canonical name for propane is `n-Propane`.
     #[test]
     fn embedded_index_builds_and_resolves_without_loading() {
         let reg = Registry::embedded().unwrap();
         assert_eq!(reg.canonical_name("h2o"), Some("Water"));
         assert_eq!(reg.canonical_name("7732-18-5"), Some("Water"));
-        assert_eq!(reg.canonical_name("n-PROPANE"), Some("Propane"));
+        assert_eq!(reg.canonical_name("n-PROPANE"), Some("n-Propane"));
+        assert_eq!(reg.canonical_name("r290"), Some("n-Propane"));
+        assert_eq!(reg.canonical_name("ATUOYWHBWRKTHZ-UHFFFAOYSA-N"), Some("n-Propane"));
+        assert_eq!(reg.canonical_name("R1234ze(E)"), Some("R1234ze(E)"));
+        assert_eq!(reg.canonical_name("unobtainium"), None);
         assert_eq!(reg.loaded().count(), 0);
+    }
+
+    /// Map 09 §4.5: the shipped index has 556 ASCII case-folded keys over 136 fluids, none shared between fluids;
+    /// building the embedded registry refuses a collision, so `embedded()` succeeding proves it at run time too.
+    #[test]
+    fn index_has_556_keys_and_no_collisions() {
+        let fluids = phasekit_data::FLUIDS;
+        let mut keys: Vec<(String, &str)> = fluids
+            .iter()
+            .flat_map(|f| {
+                core::iter::once(f.name).chain(f.aliases.iter().copied()).map(|k| (k.to_ascii_lowercase(), f.name))
+            })
+            .collect();
+        keys.sort();
+        let total = keys.len();
+        keys.dedup();
+        assert_eq!((fluids.len(), total, keys.len()), (136, 556, 556), "each key listed once");
+        assert!(keys.windows(2).all(|w| w[0].0 != w[1].0), "no key names two fluids");
+        assert!(fluids.windows(2).all(|w| w[0].name < w[1].name), "sorted by name");
+        assert!(Registry::embedded().is_ok());
+    }
+
+    /// CoolProp lists "water" and "WATER" (and "H2O" and "h2o") as separate aliases; the index holds each key once,
+    /// and every spelling resolves.
+    #[test]
+    fn case_variants_collapse() {
+        let water = phasekit_data::FLUIDS.iter().find(|f| f.name == "Water").unwrap();
+        assert_eq!(water.aliases, ["H2O", "R718", "7732-18-5", "XLYOFNOQVPJJNP-UHFFFAOYSA-N"]);
+        let reg = Registry::embedded().unwrap();
+        for spelling in ["water", "WATER", "Water", "wAtEr", "H2O", "h2o", "r718"] {
+            assert_eq!(reg.canonical_name(spelling), Some("Water"), "{spelling}");
+        }
     }
 }
