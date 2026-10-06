@@ -211,5 +211,14 @@ mod tests {
         // η and d reach φ: d = 2, η = 3, ε = 0.5 at τ = 1, δ = 1.5 (q = 2): φ = δ² e^(1/2 − 3·1²) = 2.25 e^(−2.5).
         let full = GaoBTerm { n: 1.0, t: 0.0, d: 2, eta: 3.0, epsilon: 0.5, beta: 1.0, gamma: 0.0, b: 1.0 };
         assert!(close(gao_b(&full, 1.0, 1.5, 0, 0), 2.25 * math::exp(-2.5)));
+        // β = 2 and δ − ε = 3/2 keep every factor visible: τ = 3/2, δ = 2, q = 11/2, |q′| = 6, |q″| = 4, r = 2/11:
+        // φ = δ² e^(2/11 − 27/4), h₁ = 36/121, B₂ = h₁² + h₂ = 19908/14641.
+        let wide = GaoBTerm { n: 1.0, t: 0.0, d: 2, eta: 3.0, epsilon: 0.5, beta: 2.0, gamma: 0.0, b: 1.0 };
+        let phi = 4.0 * math::exp(2.0 / 11.0 - 27.0 / 4.0);
+        assert!((gao_b(&wide, 1.5, 2.0, 0, 0) / phi - 1.0).abs() < 1e-14);
+        assert!((gao_b(&wide, 1.5, 2.0, 1, 0) / (36.0 / 121.0 * phi) - 1.0).abs() < 1e-14);
+        assert!((gao_b(&wide, 1.5, 2.0, 2, 0) / (19908.0 / 14641.0 * phi) - 1.0).abs() < 1e-14);
+        // j = 1 on the Gaussian δ-side: d + 2η|δ − ε|δ = 2 + 18.
+        assert!((gao_b(&wide, 1.5, 2.0, 0, 1) / (20.0 * phi) - 1.0).abs() < 1e-14);
     }
 }
