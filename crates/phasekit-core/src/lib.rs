@@ -59,7 +59,7 @@ pub use input::{Capabilities, Input, NativeInput, Pair, Var};
 pub use model::{
     Citation, CitationRole, CriticalOrigin, CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source, ThermoModel,
 };
-pub use num::Real;
+pub use num::{Jet4, Real};
 pub use prop::{DerivVar, Partial, Prop};
 pub use registry::Registry;
 pub use relations::{GibbsDerivs, bundle_from_gibbs};

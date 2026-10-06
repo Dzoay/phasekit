@@ -172,8 +172,7 @@ fn planck_einstein(n: f64, theta: f64, tau: f64) -> [f64; 5] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::num::Real;
-    use crate::num::hyperdual::HyperDual;
+    use crate::num::{Jet4, Real};
 
     /// Kinds without an evaluator are refused when the ideal gas is built, never evaluated as zero (M4.2 lands them).
     #[test]
@@ -191,19 +190,15 @@ mod tests {
         }
     }
 
-    /// The closed form against hyper-dual AD: orders 1-2 of f, order 3 as f''' = (f')'', order 4 as
-    /// f'''' = (f'')'' (each differentiated twice by AD).
+    /// The closed form against `Jet4` AD of `n ln(−expm1(−θτ))`, all four τ-orders.
     #[test]
     fn planck_einstein_matches_ad() {
         let (n, theta, tau) = (1.3, 2.7, 0.9);
-        let x = HyperDual::var(tau, true, true);
-        let f = (-(-(x * theta)).expm1()).ln() * n;
-        let w = |x: HyperDual| HyperDual::from_f64(1.0) / (x * theta).expm1();
-        let f1 = w(x) * (n * theta);
-        let f2 = w(x) * (w(x) + 1.0) * (-n * theta * theta);
+        let x = Jet4::tau(tau);
+        let ad = (((-(x * theta)).expm1() * -1.0).ln() * n).derivs(tau, 1.0);
         let got = planck_einstein(n, theta, tau);
-        let want = [f.re, tau * f.e1, tau * tau * f.e12, tau * tau * tau * f1.e12, tau * tau * tau * tau * f2.e12];
-        for (k, (g, w)) in got.iter().zip(want).enumerate() {
+        for (k, g) in got.iter().enumerate() {
+            let w = ad.get(k, 0).unwrap();
             assert!(((g - w) / w).abs() < 1e-14, "order {k}: {g} vs {w}");
         }
     }
