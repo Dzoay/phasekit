@@ -6,7 +6,7 @@
 //! A raw Σ_k |φ_k| cannot serve the derivatives: a τ-derivative of a term with t = 50 carries the factor
 //! t(t − 1)(t − 2)(t − 3) ≈ 5.5e6, so its rounding alone exceeds 1e-13 · Σ_k |φ_k| (PLAN.md M3.1, measured on Water).
 
-use phasekit_core::internal::{DoubleExponentialTerm, GaoBTerm, GaussianTerm, Lemmon2005Term, PowerTerm};
+use phasekit_core::internal::{DoubleExponentialTerm, EosRecord, GaoBTerm, GaussianTerm, Lemmon2005Term, PowerTerm};
 use phasekit_core::math;
 
 /// `|a|(|a| + 1)…(|a| + n − 1)`: the falling factorial `a(a − 1)…(a − n + 1)` with every summand of its expansion in
@@ -107,6 +107,17 @@ pub fn gao_b(term: &GaoBTerm, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
     let a = [tau * v[0], tau * tau * v[1], tau * tau * tau * v[2], tau * tau * tau * tau * v[3]];
     let tau_side: f64 = (0..=i).map(|m| binomial(i, m) * rising(term.t, i - m) * bell(m, &a)).sum();
     phi.abs() * tau_side * gaussian_side(f64::from(term.d), term.eta, term.epsilon, delta, j)
+}
+
+/// The `Term` scale of entry `(i, j)` of a whole residual part: the sum of every term's scale. NonAnalytic terms
+/// (M4.1) have none yet and are not counted.
+pub fn eos(e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
+    let power: f64 = e.power.iter().map(|t| power(t, tau, delta, i, j)).sum();
+    let lemmon: f64 = e.lemmon2005.iter().map(|t| lemmon2005(t, tau, delta, i, j)).sum();
+    let double: f64 = e.double_exponential.iter().map(|t| double_exponential(t, tau, delta, i, j)).sum();
+    let gaussian: f64 = e.gaussian.iter().map(|t| gaussian(t, tau, delta, i, j)).sum();
+    let gao_b: f64 = e.gao_b.iter().map(|t| gao_b(t, tau, delta, i, j)).sum();
+    power + lemmon + double + gaussian + gao_b
 }
 
 #[cfg(test)]

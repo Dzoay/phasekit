@@ -3,9 +3,10 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::internal::{EosRecord, FluidRecord};
-use phasekit_core::{Order, Registry, math};
-use phasekit_verify::{Cell, CheckError, Fixture, fixture, majorant};
+use phasekit_core::internal::EosRecord;
+use phasekit_core::{Order, Registry};
+use phasekit_verify::term::{self, TermCheck};
+use phasekit_verify::{Cell, Fixture, fixture};
 
 /// The core subset's `term` files (VERIFICATION.md §3.6).
 const TERM_CORE: [(&str, &str); 14] = [
@@ -23,25 +24,6 @@ const TERM_CORE: [(&str, &str); 14] = [
     fixture!("coolprop-8.0.0/term/R410A.csv"),
     fixture!("coolprop-8.0.0/term/Water.csv"),
     fixture!("coolprop-8.0.0/term/n-Heptane.csv"),
-];
-
-/// The 15 output columns, each with the (i, j) of the `A_ij` it is unscaled.
-const COLUMNS: [(&str, usize, usize); 15] = [
-    ("alphar", 0, 0),
-    ("dalphar_dtau", 1, 0),
-    ("dalphar_ddelta", 0, 1),
-    ("d2alphar_dtau2", 2, 0),
-    ("d2alphar_ddelta_dtau", 1, 1),
-    ("d2alphar_ddelta2", 0, 2),
-    ("d3alphar_dtau3", 3, 0),
-    ("d3alphar_ddelta_dtau2", 2, 1),
-    ("d3alphar_ddelta2_dtau", 1, 2),
-    ("d3alphar_ddelta3", 0, 3),
-    ("d4alphar_dtau4", 4, 0),
-    ("d4alphar_ddelta_dtau3", 3, 1),
-    ("d4alphar_ddelta2_dtau2", 2, 2),
-    ("d4alphar_ddelta3_dtau", 1, 3),
-    ("d4alphar_ddelta4", 0, 4),
 ];
 
 /// One oracle block: its kind (`ResidualHelmholtz` dropped), its term count and its rows, contiguous in the file.
@@ -100,22 +82,11 @@ fn one_block(e: &EosRecord, kind: &str, range: std::ops::Range<usize>) -> EosRec
     eos
 }
 
-/// The `Term` scale of entry (i, j) of a one-block record: the sum of its terms' [`majorant`]s.
-fn scale(e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
-    let power: f64 = e.power.iter().map(|t| majorant::power(t, tau, delta, i, j)).sum();
-    let lemmon: f64 = e.lemmon2005.iter().map(|t| majorant::lemmon2005(t, tau, delta, i, j)).sum();
-    let double: f64 = e.double_exponential.iter().map(|t| majorant::double_exponential(t, tau, delta, i, j)).sum();
-    let gaussian: f64 = e.gaussian.iter().map(|t| majorant::gaussian(t, tau, delta, i, j)).sum();
-    let gao_b: f64 = e.gao_b.iter().map(|t| majorant::gao_b(t, tau, delta, i, j)).sum();
-    power + lemmon + double + gaussian + gao_b
-}
-
-/// Every block of `kind` in the core subset against the same block compiled alone from the `Parity` record: all 15
-/// `A_ij` at the oracle's (T, ρ), so τ and δ are bitwise the oracle's, class `Term`. Returns the entries checked;
-/// panics with the first 20 failures.
+/// Every block of `kind` in the core subset against the same block compiled alone from the `Parity` record. Returns
+/// the entries checked; panics with the first 20 failures.
 fn check_kind(kind: &str) -> usize {
     let registry = Registry::embedded().unwrap();
-    let (mut failures, mut checked, mut headroom) = (Vec::new(), 0, 0.0_f64);
+    let mut check = TermCheck::default();
     for (path, text) in TERM_CORE {
         let fixture = Fixture::parse(path, text).unwrap();
         let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
@@ -126,29 +97,9 @@ fn check_kind(kind: &str) -> usize {
             let offset = offsets.entry(list(block.kind)).or_insert(0);
             let range = *offset..*offset + block.terms;
             *offset += block.terms;
-            if block.kind != kind {
-                continue;
-            }
-            let eos = one_block(e, kind, range);
-            let model = FluidRecord::new(name, record.molar_mass, record.source.clone(), eos.clone(), record.limits);
-            let model = model.compile().unwrap();
-            for &row in &block.rows {
-                let (t, rho) = (fixture.value(row, "T").unwrap(), fixture.value(row, "rhomolar").unwrap());
-                assert_eq!(fixture.check(row, "tau", e.t_reducing / t), Ok(()), "{path}: τ as the oracle's");
-                assert_eq!(fixture.check(row, "delta", rho / e.rho_reducing), Ok(()), "{path}: δ");
-                let (tau, delta) = (fixture.value(row, "tau").unwrap(), fixture.value(row, "delta").unwrap());
-                let got = model.eos().residual(t, rho, Order::Four);
-                for (column, i, j) in COLUMNS {
-                    // The oracle's unscaled derivative is A_ij / (τ^i δ^j); so is the scale.
-                    let factor = math::powi(tau, i as i32) * math::powi(delta, j as i32);
-                    let scale = scale(&eos, tau, delta, i, j);
-                    checked += 1;
-                    match fixture.check_scaled(row, column, got.get(i, j).unwrap() / factor, scale / factor) {
-                        Ok(ratio) => headroom = headroom.max(ratio),
-                        Err(CheckError::Mismatch(m)) => failures.push(m.to_string()),
-                        Err(e) => failures.push(format!("{path}: row {row}, {column}: {e:?}")),
-                    }
-                }
+            if block.kind == kind {
+                let eos = one_block(e, kind, range);
+                check.rows(&fixture, &block.rows, term::residual_model(&record, &eos).unwrap().eos(), &eos);
             }
         }
         let lengths = [
@@ -163,13 +114,8 @@ fn check_kind(kind: &str) -> usize {
             assert_eq!(offsets.get(list).copied().unwrap_or(0), len, "{path}: the blocks are the {list} list");
         }
     }
-    let shown = failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n");
-    assert!(
-        failures.is_empty(),
-        "{} of {checked} entries outside Term (headroom {headroom:.3}):\n{shown}",
-        failures.len()
-    );
-    checked
+    assert_eq!(check.report(20), None);
+    check.checked
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/term/<Fluid>.csv (map 10 §8.5 L1). Every `ResidualHelmholtzPower`
@@ -215,6 +161,45 @@ fn gao_b_matches_oracle_term_fixtures() {
     assert_eq!(check_kind("GaoB"), 100 * 15);
 }
 
+/// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/all/term.csv, the all-fluid tier (VERIFICATION.md §3.6): α^r and
+/// its 14 derivatives of every fluid without NonAnalytic terms (134 of 136; Water and CarbonDioxide wait for M4.1) at
+/// 4 (τ, δ) each, phase imposed, against the whole residual part compiled from the `Parity` record:
+/// `MultiParameterEos::residual` over all its blocks, one `match` per block (D3). Class `Term`, scale
+/// [`majorant::eos`]. Re-evaluating each fluid's first state after its last gives the same bits (ROT-030: no state
+/// carried between calls).
+#[test]
+fn alphar_totals_match_oracle_for_134_fluids() {
+    let (path, text) = fixture!("coolprop-8.0.0/all/term.csv");
+    let fixture = Fixture::parse(path, text).unwrap();
+    let registry = Registry::embedded().unwrap();
+    let mut by_fluid: Vec<(&str, Vec<usize>)> = Vec::new();
+    for (row, cells) in fixture.rows().iter().enumerate() {
+        let (Cell::Text(fluid), Cell::Text("all")) = (cells.cells[0], cells.cells[1]) else { panic!("{path}: {row}") };
+        match by_fluid.last_mut() {
+            Some((name, rows)) if *name == fluid => rows.push(row),
+            _ => by_fluid.push((fluid, vec![row])),
+        }
+    }
+    let (mut check, mut skipped) = (TermCheck::default(), Vec::new());
+    for (name, rows) in &by_fluid {
+        let record = phasekit_core::internal::record(registry, name).unwrap();
+        if !record.eos.non_analytic.is_empty() {
+            skipped.push(*name);
+            continue;
+        }
+        let eos = term::residual_part(&record.eos);
+        let model = term::residual_model(&record, &eos).unwrap();
+        check.rows(&fixture, rows, model.eos(), &eos);
+        let (t, rho) = (fixture.value(rows[0], "T").unwrap(), fixture.value(rows[0], "rhomolar").unwrap());
+        let first = model.eos().residual(t, rho, Order::Four);
+        check.rows(&fixture, &rows[1..], model.eos(), &eos);
+        assert_eq!(model.eos().residual(t, rho, Order::Four), first, "{name}: residual is a pure function");
+    }
+    assert_eq!((by_fluid.len(), skipped), (136, vec!["CarbonDioxide", "Water"]));
+    assert_eq!(check.checked, 134 * 4 * 15 + 134 * 3 * 15);
+    assert_eq!(check.report(20), None);
+}
+
 /// VERIFICATION.md §3.2, §11.3: the `term` files come from the pinned runner image, like every committed oracle
 /// fixture (`oracle_lock_pins_the_runner_image` in tests/fixtures.rs checks the others).
 #[test]
@@ -224,7 +209,7 @@ fn term_fixtures_name_the_pinned_generator_environment() {
         generator.split(' ').filter(|field| !field.starts_with("sha256=")).collect::<Vec<_>>().join(" ")
     };
     let smoke = environment(fixture!("coolprop-8.0.0/facts/smoke.csv"));
-    for file in TERM_CORE {
+    for file in TERM_CORE.into_iter().chain([fixture!("coolprop-8.0.0/all/term.csv")]) {
         assert_eq!(environment(file), smoke, "{}", file.0);
     }
 }

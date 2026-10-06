@@ -9,6 +9,7 @@ pub mod majorant;
 pub mod register;
 pub mod sample;
 pub mod sha256;
+pub mod term;
 pub mod tolerance;
 
 pub use arbiters::{ARBITERS, Arbiter, ArbiterPart, ArbiterStatus};
