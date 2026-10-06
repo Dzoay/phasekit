@@ -8,7 +8,7 @@ x86_64-unknown-linux-gnu phasekit-verify::lib 29
 x86_64-unknown-linux-gnu phasekit-verify::gibbs_seam 1
 # pending M5.9: gibbs_seam.rs::solid_reaches_registry_batch_compat_and_reference_states
 # pending M5.9: gibbs_seam.rs::two_phase_states_from_outside_the_core
-x86_64-unknown-linux-gnu phasekit-verify::lazy_load 9
+x86_64-unknown-linux-gnu phasekit-verify::lazy_load 11
 x86_64-unknown-linux-gnu phasekit-verify::new_family 5
 # pending M5.9: new_family.rs::compat_strings_reach_the_new_family
 # pending M5.9: new_family.rs::reference_states_work_for_any_family
@@ -18,7 +18,7 @@ x86_64-unknown-linux-gnu phasekit-core::doc 2
 wasm32-wasip2 phasekit-core::lib 63
 wasm32-wasip2 phasekit-verify::lib 29
 wasm32-wasip2 phasekit-verify::gibbs_seam 1
-wasm32-wasip2 phasekit-verify::lazy_load 7
+wasm32-wasip2 phasekit-verify::lazy_load 8
 wasm32-wasip2 phasekit-verify::new_family 4
 wasm32-wasip2 phasekit-verify::register 12
 wasm32-wasip2 phasekit-core::doc 2
