@@ -500,7 +500,7 @@ impl FluidRecord {
         eos.power = vec![PowerTerm::new(0.03, 1.0, 4, 0, 0.0), PowerTerm::new(0.5, 1.5, 2, 1, 1.0)];
         eos.ideal = vec![IdealTerm::Lead { a1: -12.5, a2: 8.6 }, IdealTerm::LogTau { a: 3.0 }];
         let limits = Limits::new(169.0, 420.0, 100e6)?;
-        let source = Source { bibkey: "toy".into(), doi: None, terms: DataTerms::Published };
+        let source = Source::new("toy", None, DataTerms::Published);
         Ok(FluidRecord::new(name, 0.114_041_6, source, eos, limits))
     }
 
@@ -587,7 +587,7 @@ mod tests {
     use crate::fluid::Fluid;
     use crate::input::Input;
     use crate::model::ThermoModel;
-    use crate::model::{CriticalOrigin, CriticalPoint};
+    use crate::model::{Citation, CitationRole, CriticalOrigin, CriticalPoint};
     use crate::units::{Density, Temperature};
 
     fn record() -> FluidRecord {
@@ -654,7 +654,16 @@ mod tests {
         (r.cas, r.refprop_name, r.inchi_key) = (Some("1-2-3".into()), None, Some("KEY".into()));
         r.limits = Limits::new(169.0, 420.0, 100e6).unwrap().with_t_triple(168.5);
         r.critical = Some(CriticalPoint { t: 382.513, p: 3.6e6, rho: 4290.0, origin: CriticalOrigin::Published });
-        r.source = Source { bibkey: "toy".into(), doi: Some("10.1/x".into()), terms: DataTerms::Unpublished };
+        r.source = Source::new("toy", Some("10.1/x"), DataTerms::Unpublished);
+        r.source.citations = [
+            ("toy", Some("10.1/x"), CitationRole::Coefficients),
+            ("toy-cp0", None, CitationRole::IdealGas),
+            ("toy-corr", Some("10.1/y"), CitationRole::Erratum),
+            ("toy-thesis", None, CitationRole::Related),
+        ]
+        .into_iter()
+        .map(|(key, doi, role)| Citation { key: key.into(), doi: doi.map(Into::into), role })
+        .collect();
         let e = &r.eos;
         r.superancillary_fit =
             Some(SaStamp { shape: e.shape_hash(), gas_constant: e.gas_constant, rho_reducing: e.rho_reducing });
@@ -679,7 +688,7 @@ mod tests {
         assert_eq!(FluidRecord::decode(&blob).unwrap().encode(), blob);
         let mut restricted = record.clone();
         let terms = DataTerms::Restricted;
-        restricted.environmental = Some(Environmental::new(Source { bibkey: "dtu".into(), doi: None, terms }));
+        restricted.environmental = Some(Environmental::new(Source::new("dtu", None, terms)));
         restricted.applied = vec!["DIV-0001".into()];
         assert_eq!(restricted.encode(), blob);
     }
@@ -721,8 +730,8 @@ mod tests {
         }
         type Edit = fn(&mut Vec<u8>);
         let cases: [(Edit, &str); 5] = [
-            (|b| b[8] = 2, "blob version 2; this build reads version 1"),
-            (|b| b[12] = 9, "blob lists 9 sections; version 1 has 10"),
+            (|b| b[8] = 3, "blob version 3; this build reads version 2"),
+            (|b| b[12] = 9, "blob lists 9 sections; version 2 has 10"),
             (|b| b[32] = 2, "section table: entry 2 at"),
             (|b| b[40] += 8, "where section 1 (metadata) belongs"),
             (|b| b.extend([0; 8]), "blob has 8 bytes after its last section"),

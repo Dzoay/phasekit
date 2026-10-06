@@ -56,7 +56,9 @@ pub use flash::{DomainPolicy, FlashOptions, RootPolicy};
 pub use fluid::{Fluid, Gauge, PureFluid, PureFluidBuilder, ReferenceState};
 pub use helmholtz::HelmholtzModel;
 pub use input::{Capabilities, Input, NativeInput, Pair, Var};
-pub use model::{CriticalOrigin, CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source, ThermoModel};
+pub use model::{
+    Citation, CitationRole, CriticalOrigin, CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source, ThermoModel,
+};
 pub use num::Real;
 pub use prop::{DerivVar, Partial, Prop};
 pub use registry::Registry;

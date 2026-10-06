@@ -52,15 +52,51 @@ pub enum DataTerms {
     Restricted,
 }
 
-/// Provenance of a model or dataset (materials S8).
+/// What a citation is for (map 13 R5: CoolProp joins several keys in one untyped string).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CitationRole {
+    /// The paper whose coefficients the model uses.
+    Coefficients,
+    /// The source of the ideal-gas part, when it is not the EOS paper.
+    IdealGas,
+    /// An erratum to the coefficients' paper.
+    Erratum,
+    /// Cited with the model; its role is not reviewed yet (a thesis beside the paper, a later table).
+    Related,
+}
+
+/// One cited work: its key in CoolProp's bibliography, its DOI or report id, and its role.
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Citation {
+    /// BibTeX key.
+    pub key: Box<str>,
+    /// DOI or report identifier, if the work has one.
+    pub doi: Option<Box<str>>,
+    /// Why it is cited.
+    pub role: CitationRole,
+}
+
+/// Provenance of a model or dataset (materials S8): the primary work (`bibkey`, `doi`), every role-tagged citation
+/// (M2.10, ROT-144) and the publication terms.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Source {
-    /// BibTeX key in the project bibliography.
+    /// BibTeX key of the primary work (the coefficients' paper).
     pub bibkey: Box<str>,
-    /// DOI, if any.
+    /// Its DOI or report identifier, if any.
     pub doi: Option<Box<str>>,
     /// Licence / publication status.
     pub terms: DataTerms,
+    /// Every cited work with its role, the primary one first; empty when only `bibkey` is known.
+    pub citations: Vec<Citation>,
+}
+
+impl Source {
+    /// A source with its primary work only.
+    pub fn new(bibkey: &str, doi: Option<&str>, terms: DataTerms) -> Source {
+        Source { bibkey: bibkey.into(), doi: doi.map(Into::into), terms, citations: Vec::new() }
+    }
 }
 
 /// Where a critical point comes from: the paper's metadata, or the model itself (they differ by up to

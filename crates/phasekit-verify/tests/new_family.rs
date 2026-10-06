@@ -79,7 +79,7 @@ impl HelmholtzModel for VanDerWaals {
 fn vdw() -> (Arc<dyn ThermoModel>, CriticalPoint) {
     let model = VanDerWaals { a: 0.1355, b: 3.2e-5 };
     let crit = model.critical();
-    let source = Source { bibkey: "vanderWaals-1873".into(), doi: None, terms: DataTerms::Published };
+    let source = Source::new("vanderWaals-1873", None, DataTerms::Published);
     let key = ModelKey::from_content(b"vdw a=0.1355 b=3.2e-5");
     let info = FluidInfo::new("vdW-Argon", 0.039_948, source, key).unwrap().with_aliases(&["vdw"]);
     let limits = Limits::new(50.0, 2000.0, 1e9).unwrap();
