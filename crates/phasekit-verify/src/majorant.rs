@@ -6,8 +6,12 @@
 //! A raw Σ_k |φ_k| cannot serve the derivatives: a τ-derivative of a term with t = 50 carries the factor
 //! t(t − 1)(t − 2)(t − 3) ≈ 5.5e6, so its rounding alone exceeds 1e-13 · Σ_k |φ_k| (PLAN.md M3.1, measured on Water).
 
-use phasekit_core::internal::{DoubleExponentialTerm, EosRecord, GaoBTerm, GaussianTerm, Lemmon2005Term, PowerTerm};
+use phasekit_core::internal::{
+    DoubleExponentialTerm, EosRecord, GaoBTerm, GaussianTerm, Lemmon2005Term, NonAnalyticTerm, PowerTerm,
+};
 use phasekit_core::math;
+
+use crate::tolerance::TERM_FLOOR;
 
 /// `|a|(|a| + 1)…(|a| + n − 1)`: the falling factorial `a(a − 1)…(a − n + 1)` with every summand of its expansion in
 /// powers of `a` taken positive (the unsigned Stirling numbers of the first kind).
@@ -109,15 +113,158 @@ pub fn gao_b(term: &GaoBTerm, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
     phi.abs() * tau_side * gaussian_side(f64::from(term.d), term.eta, term.epsilon, delta, j)
 }
 
-/// The `Term` scale of entry `(i, j)` of a whole residual part: the sum of every term's scale. NonAnalytic terms
-/// (M4.1) have none yet and are not counted.
+/// `(i + j)(i + j + 1)/2 + i`: the slot of the Taylor coefficient of `h^i k^j`, as in `phasekit_core::Derivs`.
+const fn slot(i: usize, j: usize) -> usize {
+    (i + j) * (i + j + 1) / 2 + i
+}
+
+/// Majorant arithmetic for formulas that are not separable (VERIFICATION.md §5): a formula's value at (τ₀, δ₀), and
+/// for every Taylor coefficient of total order ≤ 4 a bound on the sum of the absolute values of the summands that
+/// form it. Sums and products combine the bounds of their operands in absolute value; a function composed by Faà di
+/// Bruno contributes |f⁽ⁿ⁾(x₀)| at the true value x₀. Evaluating a formula on `Bound`s gives its `Term` scale.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Bound {
+    value: f64,
+    c: [f64; 15],
+}
+
+impl Bound {
+    /// A constant.
+    pub fn constant(value: f64) -> Bound {
+        let mut c = [0.0; 15];
+        c[0] = value.abs();
+        Bound { value, c }
+    }
+
+    /// The first variable at τ₀.
+    pub fn tau(tau: f64) -> Bound {
+        let mut b = Bound::constant(tau);
+        b.c[slot(1, 0)] = 1.0;
+        b
+    }
+
+    /// The second variable at δ₀.
+    pub fn delta(delta: f64) -> Bound {
+        let mut b = Bound::constant(delta);
+        b.c[slot(0, 1)] = 1.0;
+        b
+    }
+
+    /// The bound of `∂^(i+j)/∂τ^i∂δ^j` at (τ₀, δ₀), `i + j ≤ 4`.
+    pub fn derivative(&self, i: usize, j: usize) -> f64 {
+        const FACTORIAL: [f64; 5] = [1.0, 1.0, 2.0, 6.0, 24.0];
+        self.c[slot(i, j)] * FACTORIAL[i] * FACTORIAL[j]
+    }
+
+    /// `x · self`.
+    pub fn scale(self, x: f64) -> Bound {
+        Bound { value: self.value * x, c: self.c.map(|a| a * x.abs()) }
+    }
+
+    /// `f(self)` from `f`'s value and first four derivatives at the true value: `Σ_n |f⁽ⁿ⁾|/n! εⁿ` with ε the
+    /// non-constant part.
+    pub fn compose(self, d: [f64; 5]) -> Bound {
+        let mut eps = self;
+        (eps.value, eps.c[0]) = (0.0, 0.0);
+        let (mut power, mut c) = (Bound::constant(1.0), [0.0; 15]);
+        for (n, factorial) in [1.0, 1.0, 2.0, 6.0, 24.0].into_iter().enumerate() {
+            let weight = d[n].abs() / factorial;
+            c.iter_mut().zip(power.c).for_each(|(c, p)| *c += weight * p);
+            power = power * eps;
+        }
+        Bound { value: d[0], c }
+    }
+
+    /// `e^self`.
+    pub fn exp(self) -> Bound {
+        self.compose([math::exp(self.value); 5])
+    }
+
+    /// `self^y` for a positive value, with derivatives `(y)_k x^(y−k)`.
+    pub fn powf(self, y: f64) -> Bound {
+        let mut d = [0.0; 5];
+        let mut falling = 1.0;
+        for (k, slot) in d.iter_mut().enumerate() {
+            *slot = falling * math::powf(self.value, y - k as f64);
+            falling *= y - k as f64;
+        }
+        self.compose(d)
+    }
+
+    /// `|self|`: the summands keep their magnitudes.
+    pub fn abs(self) -> Bound {
+        Bound { value: self.value.abs(), c: self.c }
+    }
+}
+
+impl core::ops::Add for Bound {
+    type Output = Bound;
+    /// The bounds of the two operands add.
+    fn add(self, other: Bound) -> Bound {
+        let mut c = self.c;
+        c.iter_mut().zip(other.c).for_each(|(a, b)| *a += b);
+        Bound { value: self.value + other.value, c }
+    }
+}
+
+impl core::ops::Sub for Bound {
+    type Output = Bound;
+    /// The summands of a difference add as those of a sum.
+    fn sub(self, other: Bound) -> Bound {
+        self + other.scale(-1.0)
+    }
+}
+
+impl core::ops::Mul for Bound {
+    type Output = Bound;
+    /// Every product of a summand of one operand with a summand of the other.
+    fn mul(self, other: Bound) -> Bound {
+        let mut c = [0.0; 15];
+        for n in 0..=4 {
+            for i in 0..=n {
+                let j = n - i;
+                for a in 0..=i {
+                    for b in 0..=j {
+                        c[slot(i, j)] += self.c[slot(a, b)] * other.c[slot(i - a, j - b)];
+                    }
+                }
+            }
+        }
+        Bound { value: self.value * other.value, c }
+    }
+}
+
+/// The `Term` scale of entry `(i, j)` of a non-analytic term `n Δ^b δ ψ` (Span & Wagner 1996, Wagner & Pruß 2002)
+/// at (τ, δ): the formula evaluated on [`Bound`]s, as the block evaluates it (`|δ − 1|^(2p)` for `[(δ − 1)²]^p`).
+pub fn non_analytic(term: &NonAnalyticTerm, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
+    let (t, d) = (Bound::tau(tau), Bound::delta(delta));
+    let one = Bound::constant(1.0);
+    let (w, u) = (d - one, t - one);
+    let aw = w.abs();
+    let theta = one - t + aw.powf(1.0 / term.beta).scale(term.big_a);
+    let big_delta = theta * theta + aw.powf(2.0 * term.a).scale(term.big_b);
+    let psi = ((w * w).scale(-term.big_c) - (u * u).scale(term.big_d)).exp();
+    let alpha = (big_delta.powf(term.b) * d * psi).scale(term.n);
+    alpha.derivative(i, j) * math::powi(tau, i as i32) * math::powi(delta, j as i32)
+}
+
+/// The floor of the `Term` class applied to an entry (VERIFICATION.md §5): when the α scale Σ_k |φ_k| (the entry
+/// (0, 0) of the same terms) is below 1e-300, the terms' own values reach the subnormal range, where binary64 keeps
+/// fewer digits than the class asks of every entry built from them; each entry's scale is then raised by the same
+/// factor 1e-300 / Σ_k |φ_k|.
+pub fn floored(scale: f64, alpha_scale: f64) -> f64 {
+    if alpha_scale > 0.0 { scale * (TERM_FLOOR / alpha_scale).max(1.0) } else { scale }
+}
+
+/// The `Term` scale of entry `(i, j)` of a whole residual part: the sum of every term's scale.
 pub fn eos(e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
     let power: f64 = e.power.iter().map(|t| power(t, tau, delta, i, j)).sum();
     let lemmon: f64 = e.lemmon2005.iter().map(|t| lemmon2005(t, tau, delta, i, j)).sum();
     let double: f64 = e.double_exponential.iter().map(|t| double_exponential(t, tau, delta, i, j)).sum();
     let gaussian: f64 = e.gaussian.iter().map(|t| gaussian(t, tau, delta, i, j)).sum();
     let gao_b: f64 = e.gao_b.iter().map(|t| gao_b(t, tau, delta, i, j)).sum();
-    power + lemmon + double + gaussian + gao_b
+    let non_analytic: f64 = e.non_analytic.iter().map(|t| non_analytic(t, tau, delta, i, j)).sum();
+    power + lemmon + double + gaussian + gao_b + non_analytic
 }
 
 #[cfg(test)]
@@ -231,5 +378,59 @@ mod tests {
         assert!((gao_b(&wide, 1.5, 2.0, 2, 0) / (19908.0 / 14641.0 * phi) - 1.0).abs() < 1e-14);
         // j = 1 on the Gaussian δ-side: d + 2η|δ − ε|δ = 2 + 18.
         assert!((gao_b(&wide, 1.5, 2.0, 0, 1) / (20.0 * phi) - 1.0).abs() < 1e-14);
+    }
+    /// A non-analytic scale by hand with A = B = C = D = 0, so α = n((1 − τ)²)^b δ: the (0, 0) scale is |α| itself,
+    /// and the (1, 0) scale is |n| b Δ^(b−1) · 2(1 + τ) · δ · τ with Δ = (1 − τ)² (the summands of 1 − τ are 1 and τ).
+    #[test]
+    fn non_analytic_scale_by_hand() {
+        let term =
+            NonAnalyticTerm { n: -2.0, a: 3.5, b: 0.85, beta: 0.3, big_a: 0.0, big_b: 0.0, big_c: 0.0, big_d: 0.0 };
+        let (tau, delta) = (0.5, 2.0);
+        let big_delta: f64 = 0.25;
+        let alpha = 2.0 * math::powf(big_delta, 0.85) * delta;
+        assert!((non_analytic(&term, tau, delta, 0, 0) / alpha - 1.0).abs() < 1e-15);
+        let a10 = 2.0 * 0.85 * math::powf(big_delta, -0.15) * 2.0 * 1.5 * delta * tau;
+        assert!((non_analytic(&term, tau, delta, 1, 0) / a10 - 1.0).abs() < 1e-15);
+        // (0, 1): α is linear in δ, so the scale is |n| Δ^b · δ, |α| again.
+        assert!((non_analytic(&term, tau, delta, 0, 1) / alpha - 1.0).abs() < 1e-15);
+        // Every parameter nonzero: the (0, 0) scale is still |α| at the true θ, Δ and ψ.
+        let full =
+            NonAnalyticTerm { n: 0.3, a: 3.5, b: 0.95, beta: 0.3, big_a: 0.32, big_b: 0.2, big_c: 32.0, big_d: 8.0 };
+        let (tau, delta) = (0.9, 1.4);
+        let w: f64 = 0.4;
+        let theta = 0.1 + 0.32 * math::powf(w, 1.0 / 0.3);
+        let big_delta = theta * theta + 0.2 * math::powf(w, 7.0);
+        let psi = math::exp(-32.0 * w * w - 8.0 * 0.01);
+        let alpha = 0.3 * math::powf(big_delta, 0.95) * delta * psi;
+        assert!((non_analytic(&full, tau, delta, 0, 0) / alpha - 1.0).abs() < 1e-14);
+    }
+
+    /// The floor raises every entry's scale by the same factor once the α scale is below 1e-300, and only then.
+    #[test]
+    fn floored_scales_entries_below_the_alpha_floor() {
+        assert_eq!(floored(5.0, 1.0), 5.0);
+        assert_eq!(floored(5.0, 0.0), 5.0);
+        assert_eq!(floored(5.0, TERM_FLOOR), 5.0);
+        assert_eq!(floored(5.0, 1e-302), 5.0 * (TERM_FLOOR / 1e-302));
+    }
+
+    /// Majorant arithmetic by hand at τ = 3: w = τ − 1 has value 2 and summands |τ| + 1 = 4, so w² has value 4 and
+    /// bounds 16, 8, 2 for orders 0-2; e^τ bounds every τ-derivative by e³; τ² gives 9, 6, 2, 0; |−τ| keeps the
+    /// bounds of τ.
+    #[test]
+    fn bound_arithmetic_by_hand() {
+        let w = Bound::tau(3.0) - Bound::constant(1.0);
+        let w2 = w * w;
+        assert_eq!((w2.value, w2.derivative(0, 0), w2.derivative(1, 0), w2.derivative(2, 0)), (4.0, 16.0, 8.0, 2.0));
+        assert_eq!((w2.derivative(3, 0), w2.derivative(0, 1)), (0.0, 0.0));
+        let e = Bound::tau(3.0).exp();
+        assert!((0..=4).all(|k| (e.derivative(k, 0) / math::exp(3.0) - 1.0).abs() < 1e-15));
+        let square = Bound::tau(3.0).powf(2.0);
+        assert_eq!([0, 1, 2, 3].map(|k| square.derivative(k, 0)), [9.0, 6.0, 2.0, 0.0]);
+        let flipped = Bound::tau(-2.0).abs();
+        assert_eq!((flipped.value, flipped.derivative(1, 0)), (2.0, 1.0));
+        assert_eq!(Bound::delta(5.0).powf(2.0).derivative(0, 2), 2.0);
+        let mixed = (Bound::tau(2.0) * Bound::delta(5.0)).scale(-3.0);
+        assert_eq!((mixed.value, mixed.derivative(0, 0), mixed.derivative(1, 1)), (-30.0, 30.0, 3.0));
     }
 }

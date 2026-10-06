@@ -17,11 +17,15 @@
 //! let input = Input::dt(Density::mass(996.55)?, Temperature::new(300.0)?);
 //! match Registry::embedded()?.get("Water") {
 //!     // &Fluid: decoded once, then an atomic load per lookup.
-//!     Ok(water) => {
-//!         let state = water.flash(input, &FlashOptions::default())?;
-//!         let _ = (state.h(Basis::Mass), state.path());
-//!     }
-//!     // Until M4.4 some kinds of Water's EOS have no evaluator: a typed load error, never a wrong value.
+//!     Ok(water) => match water.flash(input, &FlashOptions::default()) {
+//!         Ok(state) => {
+//!             let _ = (state.h(Basis::Mass), state.path());
+//!         }
+//!         // Until the DT flash lands (M5) it is a typed "not yet", never a wrong value.
+//!         Err(Error::Unsupported { .. }) => {}
+//!         Err(e) => return Err(e),
+//!     },
+//!     // Until M4.4 some fluids hold kinds without an evaluator: a typed load error.
 //!     Err(Error::Load(LoadError::Format(_))) => {}
 //!     Err(e) => return Err(e),
 //! }

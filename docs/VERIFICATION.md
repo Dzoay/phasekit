@@ -403,13 +403,19 @@ derivative A_ij the φ_k are the summands of its expansion by the product and ch
 written out, so Σ_k |φ_k| bounds the rounding of any evaluation order and is Σ_k |φ_k| of the terms for A_00
 (`phasekit_verify::majorant`; PLAN.md M3.1). The plain Σ_k |φ_k| of the terms cannot bound a derivative: the
 τ⁴-derivative of a term with t = 50 carries 50·49·48·47 ≈ 5.5e6, and Water's Power block misses it by up to 1.5e5 times,
-while the expansion scale leaves every Power block of the core subset at headroom ≤ 0.03. "nc" is the near-critical
-window |T/Tc − 1| < 1e-3 and |ρ/ρc − 1| < 0.1, published Tc, ρc (map 10 §8.3).
+while the expansion scale leaves every Power block of the core subset at headroom ≤ 0.03. The floor applies in the units
+of each entry and to α itself: when Σ_k |φ_k| of α is below 1e-300 the terms' values, and every entry built from them,
+pass through subnormal numbers, so each entry's scale is raised by the same factor 1e-300 / Σ_k |φ_k|
+(`majorant::floored`), and an entry is never compared below the floor in its scaled form A_ij (M4.1: far from the
+critical point Water's non-analytic terms underflow, e^(−700(τ − 1)²) ≈ 1e-300). Non-separable terms take their scale
+from the formula evaluated in majorant arithmetic (`majorant::Bound`: every sum and product taken on absolute values,
+every composed function's derivatives at the true value). "nc" is the near-critical window |T/Tc − 1| < 1e-3 and |ρ/ρc −
+1| < 0.1, published Tc, ρc (map 10 §8.3).
 
 | Class | Bound | Applies to | Derivation |
 |---|---|---|---|
 | `Exact` | bitwise (`to_bits`), statuses equal | executors, threads, batch vs scalar; gauge-invariant outputs; data constants (M, R, published Tc); fixture parse (`bits:`); `libm` cross-target hash | same code path, same operations; Rust neither contracts nor reorders (K12, map 10 R16) |
-| `Term` | 1e-13 · Σ_k abs(φ_k), floor 1e-300 | α terms and A_ij vs oracle block isolation; `accumulate` vs `Jet4`/num-dual | sum-of-blocks vs total ≤ 2.2e-13 near critical (map 10 §8.2); 1-3 ulp FMA/libm (map 10 R16); 1e-13 is about 450 ulp of the expansion scale above; core-subset blocks vs the oracle (M3.1-M3.5): headroom ≤ 0.04 for every kind but Gaussian, 0.36 there, from contributions near 1e-141 whose exponent (\|u\| ≈ 320) rounds to \|u\|·ulp; α^r totals of 134 fluids 0.02 (M3.6) |
+| `Term` | 1e-13 · Σ_k abs(φ_k), floor 1e-300 | α terms and A_ij vs oracle block isolation; `accumulate` vs `Jet4`/num-dual | sum-of-blocks vs total ≤ 2.2e-13 near critical (map 10 §8.2); 1-3 ulp FMA/libm (map 10 R16); 1e-13 is about 450 ulp of the expansion scale above; core-subset blocks vs the oracle (M3.1-M3.5): headroom ≤ 0.04 for every kind but Gaussian, 0.36 there, from contributions near 1e-141 whose exponent (\|u\| ≈ 320) rounds to \|u\|·ulp; α^r totals of 134 fluids 0.02 (M3.6); non-analytic blocks 0.006 (M4.1) |
 | `Prop` | 1e-12; nc 1e-8 | properties at (T, ρ), ancillaries, σ, melting vs oracle | cancellation near critical in c_p, w (map 10 §8.3) |
 | `SaCoeff` | 1e-14 | Rust Clenshaw vs oracle SA at the same input | same Chebyshev coefficients (map 10 §8.3) |
 | `SaFit` | 4 · abs(SA/mp − 1) of that point, floor 1e-14 | SA vs P-mp points | CoolProp's own acceptance rule (map 10 §3) |

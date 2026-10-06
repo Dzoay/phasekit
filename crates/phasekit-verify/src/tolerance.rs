@@ -44,6 +44,9 @@ impl Provenance {
     }
 }
 
+/// The floor of class `Term` (VERIFICATION.md §5): the smallest Σ_k |φ_k| an entry is compared against.
+pub const TERM_FLOOR: f64 = 1e-300;
+
 /// An absolute or relative bound.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Tolerance {
@@ -110,7 +113,7 @@ impl ToleranceClass {
     /// lands (PLAN.md M3 on). `Term` takes Σ_k |φ_k| from [`crate::majorant`].
     pub fn bound(self, scale: f64) -> Option<f64> {
         match self {
-            ToleranceClass::Term => Some(1e-13 * scale.max(1e-300)),
+            ToleranceClass::Term => Some(1e-13 * scale.max(TERM_FLOOR)),
             _ => None,
         }
     }

@@ -187,9 +187,13 @@ impl Real for Jet4 {
     fn from_f64(x: f64) -> Self {
         Self::constant(x)
     }
+    /// Composed with unit derivatives, then scaled by e^x₀ once: a subnormal e^x₀ (NonAnalytic terms far from the
+    /// critical point) is rounded once, not at every Horner step.
     fn exp(self) -> Self {
         let e = math::exp(self.c[0]);
-        self.compose([e; 5])
+        let mut r = self.compose([1.0; 5]) * e;
+        r.c[0] = e;
+        r
     }
     fn expm1(self) -> Self {
         let e = math::exp(self.c[0]);

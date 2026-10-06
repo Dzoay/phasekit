@@ -461,9 +461,9 @@ mod tests {
     #[test]
     fn unimplemented_kinds_are_cached_typed_load_errors() {
         let (reg, reads) = embedded_layer(Embedded::new()).unwrap();
-        let first = reg.get("Water").unwrap_err();
-        assert_eq!(first, Error::Load(LoadError::Format("NonAnalytic terms land at M4.1".into())));
-        assert_eq!(reg.get("water").unwrap_err(), first);
+        let first = reg.get("CarbonDioxide").unwrap_err();
+        assert_eq!(first, Error::Load(LoadError::Format("ideal-gas Offset terms land at M4.2".into())));
+        assert_eq!(reg.get("co2").unwrap_err(), first);
         assert_eq!(total(&reads), 1);
         assert_eq!(reg.loaded().count(), 0);
     }
@@ -487,8 +487,8 @@ mod tests {
     /// The number of embedded fluids that compile, under both datasets, never drops (PLAN.md M2.6). Raised as kinds
     /// land; 136 at M4.4. At M2.6, 26 fluids hold only kinds the evaluator has (Power terms; Lead, LogTau, Power and
     /// Planck-Einstein ideal terms); M3.3 adds R125 (Lemmon2005), M3.4 the 51 fluids whose last missing kind was
-    /// Gaussian, M3.5 Ammonia (GaoB).
-    const MIN_COMPILABLE: usize = 79;
+    /// Gaussian, M3.5 Ammonia (GaoB), M4.1 Water (NonAnalytic).
+    const MIN_COMPILABLE: usize = 80;
 
     #[test]
     fn compilable_fluid_count_never_drops() {

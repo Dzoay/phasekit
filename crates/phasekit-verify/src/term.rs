@@ -1,10 +1,11 @@
 //! Checking `term` fixtures (VERIFICATION.md §3.5) against a compiled residual part, shared by the corpus tests and the
 //! nightly sweep: each row is evaluated at the oracle's (T, ρ), so τ and δ are bitwise the oracle's, and every
-//! `A_ij` is compared under class `Term` with the scale [`majorant::eos`].
+//! `A_ij` is compared under class `Term` with the scale [`majorant::eos`], floored ([`majorant::floored`]).
 
 use phasekit_core::internal::{EosRecord, FluidRecord};
 use phasekit_core::{Error, HelmholtzModel, Order, PureFluid, math};
 
+use crate::tolerance::TERM_FLOOR;
 use crate::{CheckError, Fixture, majorant};
 
 /// The 15 output columns of a `term` fixture, each with the (i, j) of the `A_ij` it holds unscaled.
@@ -73,10 +74,13 @@ impl TermCheck {
                 }
             }
             let got = model.residual(t, rho, Order::Four);
+            let alpha_scale = majorant::eos(eos, tau, delta, 0, 0);
             for (column, i, j) in COLUMNS {
-                // The oracle's unscaled derivative is A_ij / (τ^i δ^j); so is the scale.
+                // The oracle's unscaled derivative is A_ij / (τ^i δ^j), and so is the scale, floored on A_ij itself
+                // (an entry that is subnormal in scaled form keeps only a few digits there).
                 let factor = math::powi(tau, i as i32) * math::powi(delta, j as i32);
-                let scale = majorant::eos(eos, tau, delta, i, j) / factor;
+                let scaled = majorant::floored(majorant::eos(eos, tau, delta, i, j), alpha_scale);
+                let scale = scaled.max(TERM_FLOOR) / factor;
                 let a = got.get(i, j).unwrap_or(f64::NAN);
                 self.checked += 1;
                 match fixture.check_scaled(row, column, a / factor, scale) {
