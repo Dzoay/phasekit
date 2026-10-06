@@ -10,7 +10,8 @@ use crate::error::{Error, LoadError};
 use crate::fluid::{PureFluid, PureFluidBuilder};
 use crate::helmholtz::{
     DoubleExponentialTerm, GaoBBlock, GaoBTerm, GaussianBlock, GaussianTerm, IdealGas, IdealTerm, Lemmon2005Term,
-    MAX_POW, MultiParameterEos, NonAnalyticTerm, OffsetReference, PowerBlock, PowerTerm, ResidualBlock, TauExpBlock,
+    MAX_POW, MultiParameterEos, NonAnalyticBlock, NonAnalyticTerm, OffsetReference, PowerBlock, PowerTerm,
+    ResidualBlock, TauExpBlock,
 };
 use crate::model::{CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source};
 
@@ -651,9 +652,6 @@ impl FluidRecord {
     /// A package builder (the registry's decoder adds the lazy saturation and transport parts).
     pub fn builder(self) -> Result<PureFluidBuilder, Error> {
         let e = &self.eos;
-        if !e.non_analytic.is_empty() {
-            return Err(Error::Load(LoadError::Format("NonAnalytic terms land at M4.1".into())));
-        }
         let ideal = IdealGas::new(e.t_reducing, e.rho_reducing, e.ideal.clone())?;
         let mut blocks = vec![ResidualBlock::Power(PowerBlock::new(&e.power)?)];
         if !(e.lemmon2005.is_empty() && e.double_exponential.is_empty()) {
@@ -664,6 +662,9 @@ impl FluidRecord {
         }
         if !e.gao_b.is_empty() {
             blocks.push(ResidualBlock::GaoB(GaoBBlock::new(&e.gao_b)?));
+        }
+        if !e.non_analytic.is_empty() {
+            blocks.push(ResidualBlock::NonAnalytic(NonAnalyticBlock::new(&e.non_analytic)?));
         }
         let eos = MultiParameterEos::new(e.gas_constant, e.t_reducing, e.rho_reducing, e.rho_max, blocks, ideal)?;
         let aliases: Vec<&str> = self.aliases.iter().map(String::as_str).collect();
@@ -980,17 +981,11 @@ mod tests {
         assert_eq!(record.eos.offset(), (0.1, 0.2), "the record's Offset term");
     }
 
-    /// A residual kind without an evaluator is refused when the record compiles, never dropped from α^r.
+    /// A kind without an evaluator is refused when the record compiles, never dropped from α: every residual kind
+    /// compiles since M4.1, the ideal-gas kinds of M4.2 are still refused.
     #[test]
     fn kinds_without_an_evaluator_are_refused() {
-        type Clear = fn(&mut EosRecord);
-        let pending: [(Clear, &str); 1] = [(|e| e.non_analytic.clear(), "NonAnalytic terms land at M4.1")];
         let mut record = every_kind();
-        for (clear, why) in pending {
-            let err = record.clone().compile().unwrap_err().to_string();
-            assert!(err.contains(why), "{err}");
-            clear(&mut record.eos);
-        }
         let err = record.clone().compile().unwrap_err().to_string();
         assert!(err.contains("ideal-gas PlanckEinsteinGeneralized terms land at M4.2"), "{err}");
         record.eos.ideal.truncate(2);

@@ -17,7 +17,7 @@ fn read(path: &str) -> String {
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures-full/coolprop-8.0.0/term/<Fluid>.csv (PLAN.md M3.6, the M3 exit gate's nightly
-/// part): α^r and its 14 derivatives of every fluid without NonAnalytic terms on the 64-point totals grid, against
+/// part; every fluid since M4.1): α^r and its 14 derivatives on the 64-point totals grid, against
 /// the whole residual part compiled from the `Parity` record; class `Term`, scale `majorant::eos`.
 #[test]
 #[ignore = "nightly: reads the full term set (cargo xtask oracle --kind term --tier full)"]
@@ -26,9 +26,6 @@ fn alphar_totals_match_oracle_on_the_nightly_grid() {
     let (mut check, mut fluids) = (TermCheck::default(), 0);
     for f in phasekit_data::FLUIDS {
         let record = phasekit_core::internal::record(registry, f.name).unwrap();
-        if !record.eos.non_analytic.is_empty() {
-            continue;
-        }
         let path = format!("{FULL}/term/{}.csv", f.name);
         let text = read(&path);
         let fixture = Fixture::parse(&path, &text).unwrap();
@@ -40,6 +37,6 @@ fn alphar_totals_match_oracle_on_the_nightly_grid() {
         check.rows(&fixture, &totals, term::residual_model(&record, &eos).unwrap().eos(), &eos);
         fluids += 1;
     }
-    assert_eq!((fluids, check.checked), (134, 134 * 64 * 15));
+    assert_eq!((fluids, check.checked), (136, 136 * 64 * 15));
     assert_eq!(check.report(20), None);
 }

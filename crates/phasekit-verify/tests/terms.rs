@@ -160,7 +160,8 @@ fn check_ad(
             let want = part(&paper(&eos, &x, &y), i + j) * factor;
             let got = got.get(i, j).unwrap();
             checked += 1;
-            if (got - want).abs() > ToleranceClass::Term.bound(scale(&eos, tau, delta, i, j)).unwrap() {
+            let scale = majorant::floored(scale(&eos, tau, delta, i, j), scale(&eos, tau, delta, 0, 0));
+            if (got - want).abs() > ToleranceClass::Term.bound(scale).unwrap() {
                 failures.push(format!("{fluid} at ({tau}, {delta}), A{i}{j}: fast path {got:e}, num-dual {want:e}"));
             }
         }
@@ -297,8 +298,8 @@ fn gao_b_matches_ad_of_the_paper_formula() {
     assert_eq!(check_ad("Ammonia", select, paper, scale), 300 * 15);
 }
 
-/// PLAN.md M3.7 (map 02 §3.1): at ρ = 0 every `A_ij` of every fluid without NonAnalytic terms (134; Water and
-/// CarbonDioxide at M4.1) is finite at T_min, T_r and T_max, and every δ-derivative vanishes (`A_ij = 0` for j ≥ 1:
+/// PLAN.md M3.7 (map 02 §3.1): at ρ = 0 every `A_ij` of every fluid (all 136; Water's and CarbonDioxide's
+/// non-analytic terms since M4.1) is finite at T_min, T_r and T_max, and every δ-derivative vanishes (`A_ij = 0` for j ≥ 1:
 /// each carries δ^j). The 57 MBWR d = 0 terms (CycloPropane, Propyne, R114, R123, R13, R14, R152A, R21, RC318) and
 /// Methane's three d = 0 Gaussians are among them; their α^r at ρ = 0 is finite, not NaN from `0 · ln 0`. The exact
 /// virials exist and are finite for the same fluids.
@@ -310,9 +311,6 @@ fn finite_at_zero_density_for_every_fluid() {
     for f in phasekit_data::FLUIDS {
         let record = phasekit_core::internal::record(registry, f.name).unwrap();
         let e = &record.eos;
-        if !e.non_analytic.is_empty() {
-            continue;
-        }
         if e.power.iter().any(|k| k.d == 0) || e.gaussian.iter().any(|k| k.d == 0) {
             d0_fluids.push(f.name);
         }
@@ -330,7 +328,7 @@ fn finite_at_zero_density_for_every_fluid() {
         }
         fluids += 1;
     }
-    assert_eq!(fluids, 134);
+    assert_eq!(fluids, 136);
     let want = ["CycloPropane", "Methane", "Propyne", "R114", "R123", "R13", "R14", "R152A", "R21", "RC318"];
     d0_fluids.sort_unstable();
     assert_eq!(d0_fluids, want);
@@ -372,4 +370,29 @@ fn delta_factors_are_cancellation_free_near_zero_density() {
             );
         }
     }
+}
+
+/// AD oracle: num-dual 0.15 on the paper formula of Wagner & Pruß 2002 (map 02 §3.1), `n Δ^b δ ψ` with
+/// `[(δ − 1)²]^p` taken literally (`powf` of the square): Water's 2 and CarbonDioxide's 3 non-analytic terms at the 300
+/// [`points`] of each fluid, those within 1e-2 of τ = δ = 1 included; class `Term`, scale [`majorant::non_analytic`].
+#[test]
+fn nonanalytic_matches_ad_of_the_paper_formula() {
+    let paper = |e: &EosRecord, tau: &D4, delta: &D4| {
+        let mut sum = var(0.0, [false; 4]);
+        for k in &e.non_analytic {
+            let (w, u) = (*delta - 1.0, *tau - 1.0);
+            let w2 = w * w;
+            let theta = -*tau + 1.0 + w2.powf(1.0 / (2.0 * k.beta)) * k.big_a;
+            let big_delta = theta * theta + w2.powf(k.a) * k.big_b;
+            let psi = (-(w2 * k.big_c) - u * u * k.big_d).exp();
+            sum += big_delta.powf(k.b) * *delta * psi * k.n;
+        }
+        sum
+    };
+    let scale = |e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize| {
+        e.non_analytic.iter().map(|term| majorant::non_analytic(term, tau, delta, i, j)).sum()
+    };
+    let select = |e: &EosRecord, eos: &mut EosRecord| eos.non_analytic.clone_from(&e.non_analytic);
+    let checked = check_ad("Water", select, paper, scale) + check_ad("CarbonDioxide", select, paper, scale);
+    assert_eq!(checked, 2 * 300 * 15);
 }

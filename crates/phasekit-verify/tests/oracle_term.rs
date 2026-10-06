@@ -161,6 +161,29 @@ fn gao_b_matches_oracle_term_fixtures() {
     assert_eq!(check_kind("GaoB"), 100 * 15);
 }
 
+/// Oracle: CoolProp 8.0.0 (PLAN.md M4.1): the non-analytic blocks of Water (2 terms) and CarbonDioxide (3 terms) in
+/// their core term fixtures, at the 100 shared points and the 20 within 1e-6..1e-2 of τ = δ = 1 (never on it: that is
+/// M4.6), and both fluids' α^r totals of the all-fluid tier, now that every block compiles. Class `Term`, scale
+/// [`majorant::non_analytic`] (with every other kind's for the totals).
+#[test]
+fn nonanalytic_matches_oracle_away_from_the_critical_point() {
+    assert_eq!(check_kind("NonAnalytic"), 2 * 120 * 15);
+    let (path, text) = fixture!("coolprop-8.0.0/all/term.csv");
+    let fixture = Fixture::parse(path, text).unwrap();
+    let registry = Registry::embedded().unwrap();
+    let mut check = TermCheck::default();
+    for name in ["CarbonDioxide", "Water"] {
+        let rows: Vec<usize> = (0..fixture.rows().len())
+            .filter(|&row| fixture.rows()[row].cells.first() == Some(&Cell::Text(name)))
+            .collect();
+        let record = phasekit_core::internal::record(registry, name).unwrap();
+        let eos = term::residual_part(&record.eos);
+        check.rows(&fixture, &rows, term::residual_model(&record, &eos).unwrap().eos(), &eos);
+    }
+    assert_eq!(check.checked, 2 * 4 * 15);
+    assert_eq!(check.report(20), None);
+}
+
 /// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/all/term.csv, the all-fluid tier (VERIFICATION.md §3.6): α^r and
 /// its 14 derivatives of every fluid without NonAnalytic terms (134 of 136; Water and CarbonDioxide wait for M4.1) at
 /// 4 (τ, δ) each, phase imposed, against the whole residual part compiled from the `Parity` record:
