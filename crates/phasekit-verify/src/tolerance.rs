@@ -105,6 +105,16 @@ impl ToleranceClass {
         Self::NAMES.iter().find(|(_, n)| *n == name).map(|(class, _)| *class)
     }
 
+    /// The absolute bound for an entry of magnitude `scale`, the class's floor applied (VERIFICATION.md §5), for the
+    /// classes compared numerically so far; `None` for the others until the first fixture kind compared under each
+    /// lands (PLAN.md M3 on). `Term` takes Σ_k |φ_k| from [`crate::majorant`].
+    pub fn bound(self, scale: f64) -> Option<f64> {
+        match self {
+            ToleranceClass::Term => Some(1e-13 * scale.max(1e-300)),
+            _ => None,
+        }
+    }
+
     /// Every class with its bound as VERIFICATION.md §5 states it, in that table's order.
     pub fn table() -> Vec<(ToleranceClass, &'static str)> {
         Self::BOUNDS.to_vec()

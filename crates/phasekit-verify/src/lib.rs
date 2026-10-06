@@ -5,6 +5,7 @@ pub mod arbiters;
 pub mod conformance;
 pub mod fixture;
 pub mod lock;
+pub mod majorant;
 pub mod register;
 pub mod sample;
 pub mod sha256;

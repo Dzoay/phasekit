@@ -317,6 +317,36 @@ impl<'a> Fixture<'a> {
             error: (got - want).abs(),
         }))
     }
+
+    /// Compares `got` with the fixture's value in `row` (0-based) and `column` under the column's class, whose bound
+    /// scales with a magnitude the caller supplies (`Term`: Σ_k |φ_k|, see [`crate::majorant`]; VERIFICATION.md §5).
+    /// Returns the headroom, error / bound, which a passing fixture reports (VERIFICATION.md §5). Two NaNs agree.
+    pub fn check_scaled(&self, row: usize, column: &str, got: f64, scale: f64) -> Result<f64, CheckError> {
+        let no_number = || CheckError::NoNumber { row, column: column.to_string() };
+        let want = self.value(row, column).ok_or_else(no_number)?;
+        let class = match self.columns.iter().position(|c| *c == column).and_then(|i| self.roles.get(i)) {
+            Some(ColumnRole::Output(class)) => *class,
+            _ => return Err(no_number()),
+        };
+        let bound = class.bound(scale).ok_or(CheckError::NoBound { class })?;
+        let error = (got - want).abs();
+        if error <= bound {
+            return Ok(error / bound);
+        }
+        if got.is_nan() && want.is_nan() {
+            return Ok(0.0);
+        }
+        Err(CheckError::Mismatch(FixtureMismatch {
+            fixture: self.name.to_string(),
+            line: self.rows.get(row).map_or(0, |r| r.line),
+            column: column.to_string(),
+            class: class.name(),
+            provenance: self.header("source").unwrap_or_default().to_string(),
+            got,
+            want,
+            error,
+        }))
+    }
 }
 
 impl Fixture<'static> {
@@ -407,6 +437,7 @@ fn fnv1a64(rows: &[Row]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use phasekit_core::math;
 
     const ORACLE_HEADER: &str = "\
 # fixture: eos/v1
@@ -592,6 +623,28 @@ mod tests {
         let paper = paper.unwrap();
         assert_eq!(paper.provenance(), Provenance::Paper { citation: "lemmon2016", table: "7" });
         assert_eq!(paper.check(0, "p", 1.5), Err(CheckError::NoBound { class: ToleranceClass::Prop }));
+    }
+
+    /// VERIFICATION.md §5: a `Term` column is within 1e-13 of the caller's Σ_k |φ_k| (floor 1e-300); a pass reports
+    /// its headroom, the bound itself passes and the next float above it does not.
+    #[test]
+    fn term_class_scales_with_the_callers_magnitude() {
+        let fixture = parse(fixture_text().replace("# tol: exact,", "# tol: term,")).unwrap();
+        let e = math::powi(2.0, -36); // 300 + e is exact
+        let ratio = fixture.check_scaled(10, "value", 300.0 + e, e / 0.5e-13).unwrap();
+        assert!((ratio - 0.5).abs() < 1e-12, "{ratio}");
+        let Err(CheckError::Mismatch(m)) = fixture.check_scaled(10, "value", 300.0 + e, e / 2e-13) else { panic!() };
+        assert_eq!((m.line, m.class, m.got, m.want, m.error), (21, "term", 300.0 + e, 300.0, e));
+        let bound = ToleranceClass::Term.bound(7.0).unwrap();
+        assert_eq!(fixture.check_scaled(3, "value", bound, 7.0), Ok(1.0));
+        assert!(fixture.check_scaled(3, "value", f64::from_bits(bound.to_bits() + 1), 7.0).is_err());
+        assert_eq!(ToleranceClass::Term.bound(0.0), Some(1e-13 * 1e-300));
+        assert_eq!(fixture.check_scaled(9, "value", 0.1, 0.0), Ok(0.0));
+        assert_eq!(fixture.check_scaled(6, "value", f64::NAN, 1.0), Ok(0.0));
+        assert!(matches!(fixture.check_scaled(6, "value", 1.0, 1.0), Err(CheckError::Mismatch(_))));
+        assert!(matches!(fixture.check_scaled(9, "region", 0.1, 1.0), Err(CheckError::NoNumber { .. })));
+        let exact = parse(fixture_text()).unwrap();
+        assert_eq!(exact.check_scaled(9, "value", 0.1, 1.0), Err(CheckError::NoBound { class: ToleranceClass::Exact }));
     }
 
     /// VERIFICATION.md §3.3: each `source:` form maps to its provenance; a form with an empty part is refused.

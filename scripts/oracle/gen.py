@@ -261,7 +261,7 @@ def fnv1a64(values):
     return f"{h:016x}"
 
 
-def header(kind, lock, config, fluids, columns, tol, floats, source="coolprop", units=None):
+def header(kind, lock, config, fluids, columns, tol, floats, source="coolprop", units=None, grid=None):
     """The `<kind>/v1` header (section 3.3); `fluids` is (name, json sha256) pairs or one line naming them."""
     generator = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     libc = "-".join(part for part in platform.libc_ver() if part) or "unknown"
@@ -272,6 +272,7 @@ def header(kind, lock, config, fluids, columns, tol, floats, source="coolprop", 
         f"config: {config}",
         "env: scrubbed COOLPROP_* PXFLASH_*; LC_ALL=C",
         "fluid: " + (fluids if isinstance(fluids, str) else " ".join(f"{n} json_sha256={sha}" for n, sha in fluids)),
+        *([f"grid: {grid}"] if grid else []),
         f"source: {source}",
         "columns: " + ",".join(columns),
         *(["units: " + ",".join(units)] if units else []),
@@ -398,7 +399,115 @@ def crit(CP, lock, config, files, args):
     return {"all/crit.csv": text + "".join(lines)}
 
 
-GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit}
+# The `term` kind (section 3.5): CoolProp's alphar and its 14 derivatives to order 4, in the method order of
+# `AbstractState`; each column is lower-cased in the file.
+TERM_METHODS = ["alphar", "dalphar_dTau", "dalphar_dDelta", "d2alphar_dTau2", "d2alphar_dDelta_dTau", "d2alphar_dDelta2",
+                "d3alphar_dTau3", "d3alphar_dDelta_dTau2", "d3alphar_dDelta2_dTau", "d3alphar_dDelta3", "d4alphar_dTau4",
+                "d4alphar_dDelta_dTau3", "d4alphar_dDelta2_dTau2", "d4alphar_dDelta3_dTau", "d4alphar_dDelta4"]
+TERM_COLUMNS = ["block_idx", "block_type", "terms", "T", "rhomolar", "tau", "delta", "status",
+                *(m.lower() for m in TERM_METHODS)]
+TERM_UNITS = ["-", "-", "-", "K", "mol/m3", "-", "-", "-", *["-"] * len(TERM_METHODS)]
+TERM_TOL = ["label", "label", "in", "in", "in", "in", "in", "label", *["term"] * len(TERM_METHODS)]
+TERM_DELTA_MIN = 1e-8
+TERM_ROWS = {"core": 100}  # per block; every block of a fluid shares the same (tau, delta) points
+TERM_NEAR_CRITICAL = 20  # extra NonAnalytic rows with |tau - 1| and |delta - 1| ~ logU[1e-6, 1e-2]
+TERM_PREFIX = "ResidualHelmholtz"
+
+
+def uniform(rng, lo, hi):
+    """`phasekit_verify::sample::SplitMix64::uniform`: the top 53 bits times 2^-53, then lo + (hi - lo) * u."""
+    return lo + (hi - lo) * ((next(rng) >> 11) * 2.0**-53)
+
+
+def log_uniform(rng, lo, hi):
+    """`SplitMix64::log_uniform`: uniform in ln, clamped to [lo, hi]."""
+    return min(max(math.exp(uniform(rng, math.log(lo), math.log(hi))), lo), hi)
+
+
+def term_grid(seed, rows, tau_range, delta_max):
+    """The shared (tau, delta) points of one fluid and the NonAnalytic neighbourhood of tau = delta = 1 (section 3.5),
+    from one SplitMix64 stream per fluid, so a file does not depend on which other fluids are generated."""
+    rng = splitmix64(seed)
+    shared = [(uniform(rng, *tau_range), log_uniform(rng, TERM_DELTA_MIN, delta_max)) for _ in range(rows)]
+    near = []
+    for _ in range(TERM_NEAR_CRITICAL):
+        tau, delta = (1.0 + (1 if next(rng) >> 63 else -1) * log_uniform(rng, 1e-6, 1e-2) for _ in range(2))
+        near.append((tau, delta))
+    return shared, near
+
+
+def term_rows(job):
+    """One fluid's rows, in a pool child (map 10 section 8.2): each residual block becomes a renamed one-block clone
+    loaded with `add_fluids_as_JSON` (EOS[0] only, no superancillary), and every row is a fresh `AbstractState` with
+    the phase imposed, evaluated at T = T_r/tau, rho = delta*rho_r; tau and delta are the ones CoolProp then holds."""
+    import CoolProp.CoolProp as CP  # the parent's module, inherited through fork
+
+    name, fluid, points = job
+    lines, floats = [], []
+    for index, block in enumerate(fluid["EOS"][0]["alphar"]):
+        clone = json.loads(json.dumps(fluid))
+        alias = f"PHASEKIT_TERM_{index}_{name}"
+        clone["INFO"].update(NAME=alias, ALIASES=[], CAS=alias, REFPROP_NAME=alias)
+        clone["EOS"] = [clone["EOS"][0]]
+        clone["EOS"][0]["alphar"] = [block]
+        clone["EOS"][0].pop("SUPERANCILLARY", None)
+        CP.add_fluids_as_JSON("HEOS", json.dumps([clone]))
+        kind = block["type"].removeprefix(TERM_PREFIX)
+        grid = points["shared"] + (points["near"] if kind == "NonAnalytic" else [])
+        for t, rho in grid:
+            try:
+                state = CP.AbstractState("HEOS", alias)
+                state.specify_phase(CP.iphase_gas)
+                state.update(CP.DmolarT_INPUTS, rho, t)
+                values, status = [state.tau(), state.delta(), *(getattr(state, m)() for m in TERM_METHODS)], "ok"
+            except Exception as exception:  # every oracle failure becomes a status, never a crash
+                values, status = [math.nan] * (2 + len(TERM_METHODS)), f"err:{error_class(exception)}"
+            row = [float(len(block["n"])), t, rho, *values]
+            floats.extend(row)
+            lines.append(",".join([str(index), kind, *map(cell, row[:5]), status, *map(cell, row[5:])]) + "\n")
+    return lines, floats
+
+
+def pool_map(function, jobs, workers):
+    """`function` over `jobs` in a fork pool (children inherit the loaded library; section 3.1), results in job order,
+    so bytes do not depend on --jobs. Children are used even for one worker: they may mutate the library."""
+    import multiprocessing
+
+    with multiprocessing.get_context("fork").Pool(workers or os.cpu_count()) as pool:
+        return pool.map(function, jobs, chunksize=1)
+
+
+def term(CP, lock, config, files, args):
+    """The `term` kind (section 3.5): per block of every core fluid, the oracle's alphar and 14 derivatives on the shared
+    grid (100 points: tau ~ U[T_r/Tmax, T_r/Tmin], delta ~ logU[1e-8, rho_max/rho_r] with rho_max the saturated liquid
+    at the minimum temperature, the record's density bound), NonAnalytic blocks also at 20 points near tau = delta = 1.
+    The totals rows (`block_idx = all`) of the all-fluid tier land at PLAN.md M3.6."""
+    if args.tier not in TERM_ROWS:
+        fail(f"--kind term --tier {args.tier} lands at PLAN.md M3.6 (totals)")
+    rows = args.rows or TERM_ROWS[args.tier]
+    jobs, shas = [], {}
+    for name in tier_fluids(args, files):
+        shas[name] = assert_fluid(CP, files, name)
+        fluid = json.loads(files[name].read_text(encoding="utf-8"))
+        eos = fluid["EOS"][0]
+        state = CP.AbstractState("HEOS", name)
+        t_r, rho_r = state.T_reducing(), state.rhomolar_reducing()
+        tau_range = (t_r / state.Tmax(), t_r / state.Tmin())
+        shared, near = term_grid(args.seed, rows, tau_range, eos["STATES"]["sat_min_liquid"]["rhomolar"] / rho_r)
+        points = {key: [(t_r / tau, delta * rho_r) for tau, delta in grid] for key, grid in
+                  (("shared", shared), ("near", near))}
+        jobs.append((name, fluid, points))
+    out = {}
+    grid = (f"tau~U[Tr/Tmax,Tr/Tmin] delta~logU[{TERM_DELTA_MIN!r},rhomax/rhor] n={rows} seed={args.seed} "
+            f"phase=imposed:gas; NonAnalytic +{TERM_NEAR_CRITICAL} at |tau-1|,|delta-1|~logU[1e-6,1e-2]")
+    for (name, _, _), (lines, floats) in zip(jobs, pool_map(term_rows, jobs, args.jobs)):
+        text = header("term", lock, config, [(name, shas[name])], TERM_COLUMNS, TERM_TOL, floats, units=TERM_UNITS,
+                      grid=grid)
+        out[f"term/{name}.csv"] = text + "".join(lines)
+    return out
+
+
+GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term}
 
 
 def write(out, files):
