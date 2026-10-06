@@ -43,6 +43,8 @@ fn oracle_lock_pins_the_runner_image() {
     assert!(smoke.contains(" python=3.12.") && smoke.contains(" libc=glibc-"), "{smoke}");
     assert_eq!(environment(fixture!("coolprop-8.0.0/facts/register.csv")), smoke);
     assert_eq!(environment(fixture!("mp/check-points.csv")), smoke);
+    assert_eq!(environment(fixture!("coolprop-8.0.0/all/crit.csv")), smoke);
+    assert!(CRIT_CORE.iter().all(|&file| environment(file) == smoke));
 }
 
 /// PLAN.md M1.17 (map 09 §8, map 10 §8.1): the superancillary check points of CoolProp's fluid files, 3 for each of
@@ -85,4 +87,59 @@ fn check_points_are_390_and_well_formed() {
     unique.dedup();
     assert_eq!((fluids.len(), unique.len()), (130, 130), "130 fluids, each once");
     assert!(fluids.windows(2).all(|w| w[0] < w[1]), "sorted by name");
+}
+
+/// The core subset's `crit` files (VERIFICATION.md §3.6).
+const CRIT_CORE: [(&str, &str); 14] = [
+    fixture!("coolprop-8.0.0/crit/Air.csv"),
+    fixture!("coolprop-8.0.0/crit/Ammonia.csv"),
+    fixture!("coolprop-8.0.0/crit/CarbonDioxide.csv"),
+    fixture!("coolprop-8.0.0/crit/HFE143m.csv"),
+    fixture!("coolprop-8.0.0/crit/Helium.csv"),
+    fixture!("coolprop-8.0.0/crit/Methanol.csv"),
+    fixture!("coolprop-8.0.0/crit/Nitrogen.csv"),
+    fixture!("coolprop-8.0.0/crit/R1130(E).csv"),
+    fixture!("coolprop-8.0.0/crit/R1234yf.csv"),
+    fixture!("coolprop-8.0.0/crit/R1234ze(E).csv"),
+    fixture!("coolprop-8.0.0/crit/R125.csv"),
+    fixture!("coolprop-8.0.0/crit/R410A.csv"),
+    fixture!("coolprop-8.0.0/crit/Water.csv"),
+    fixture!("coolprop-8.0.0/crit/n-Heptane.csv"),
+];
+
+/// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/all/crit.csv and crit/<Fluid>.csv (PLAN.md M2.3; VERIFICATION.md
+/// §3.5). One row per fluid, 136 sorted by name; each core file's row is its all-tier row. CoolProp's `Ttriple` is its
+/// T_min (map 09 R8); the published and numerical critical points coincide for the 6 pseudo-pure fluids (no
+/// superancillary) and differ by at most 2.33 K elsewhere (R40: 416.3 vs 418.63 K; map 02 §3.6). The records' side
+/// is `phasekit_xtask::datagen::tests::published_constants_match_the_oracle_crit_rows`.
+#[test]
+fn crit_rows_cover_every_fluid_once() {
+    let (path, text) = fixture!("coolprop-8.0.0/all/crit.csv");
+    let all = Fixture::parse(path, text).unwrap();
+    assert_eq!(
+        (all.kind(), all.provenance(), all.rows().len()),
+        ("crit", Provenance::Oracle { version: "8.0.0" }, 136)
+    );
+    let names: Vec<&str> = (0..136).map(|i| all.printed(i, "fluid").unwrap_or_default()).collect();
+    assert!(names.windows(2).all(|w| w[0] < w[1]), "sorted, each once");
+    let value = |i: usize, column: &str| all.value(i, column).unwrap_or(f64::NAN);
+    let mut coincide = Vec::new();
+    for (i, name) in names.iter().enumerate() {
+        let columns = &all.columns()[1..];
+        assert!(columns.iter().all(|c| value(i, c).is_finite() && value(i, c) > 0.0), "{name}");
+        assert_eq!(value(i, "Ttriple"), value(i, "Tmin"), "{name}");
+        let gap = (value(i, "Tc_num") - value(i, "Tc_pub")).abs();
+        assert!(gap <= 2.34, "{name}: {gap} K");
+        if gap == 0.0 && value(i, "rhoc_num") == value(i, "rhoc_pub") {
+            coincide.push(*name);
+        }
+    }
+    assert_eq!(coincide, ["Air", "R404A", "R407C", "R410A", "R507A", "SES36"]);
+    for (path, text) in CRIT_CORE {
+        let file = Fixture::parse(path, text).unwrap();
+        let name = file.header("fluid").and_then(|f| f.split(' ').next()).unwrap_or_default();
+        let row = names.iter().position(|n| *n == name).unwrap_or_else(|| panic!("{path}: {name} not in the all tier"));
+        assert!(file.columns().iter().all(|c| file.printed(0, c) == all.printed(row, c)), "{path}");
+        assert_eq!(file.rows().len(), 1, "{path}");
+    }
 }

@@ -3,14 +3,16 @@
 mod eos;
 mod ideal;
 mod power;
+mod terms;
 
 use core::fmt;
 
 pub(crate) use eos::{MultiParameterEos, ResidualBlock};
 pub(crate) use ideal::IdealGas;
-pub use ideal::IdealTerm;
+pub use ideal::{IdealTerm, OffsetReference};
 pub(crate) use power::PowerBlock;
-pub use power::PowerTerm;
+pub use power::{MAX_POW, PowerTerm};
+pub use terms::{DoubleExponentialTerm, GaoBTerm, GaussianTerm, Lemmon2005Term, NonAnalyticTerm};
 
 use crate::derivs::{Derivs, Order, Virials};
 

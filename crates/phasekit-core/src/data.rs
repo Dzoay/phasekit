@@ -8,7 +8,10 @@ use std::sync::Arc;
 
 use crate::error::{Error, LoadError};
 use crate::fluid::{PureFluid, PureFluidBuilder};
-use crate::helmholtz::{IdealGas, IdealTerm, MultiParameterEos, PowerBlock, PowerTerm, ResidualBlock};
+use crate::helmholtz::{
+    DoubleExponentialTerm, GaoBTerm, GaussianTerm, IdealGas, IdealTerm, Lemmon2005Term, MultiParameterEos,
+    NonAnalyticTerm, OffsetReference, PowerBlock, PowerTerm, ResidualBlock,
+};
 use crate::model::{CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source};
 
 /// Position of a data-backed fluid in its source's index.
@@ -117,7 +120,7 @@ pub struct Patch {
     pub edit: Edit,
 }
 
-/// EOS constants and terms as decoded.
+/// EOS constants and terms as decoded: one list per residual kind (map 02 §3.1), the α⁰ terms in file order.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 #[allow(missing_docs)] // the symbols of the EOS
@@ -125,12 +128,37 @@ pub struct EosRecord {
     pub gas_constant: f64,
     pub t_reducing: f64,
     pub rho_reducing: f64,
+    /// Upper molar-density bound for root bracketing. Datagen's bound is provisional: the EOS's saturated-liquid
+    /// density at T_min (`STATES.sat_min_liquid`), until M7.1 can solve ρ(T_min, p_max) *(inference)*.
     pub rho_max: f64,
+    /// CoolProp's Power and Exponential kinds.
     pub power: Vec<PowerTerm>,
+    pub lemmon2005: Vec<Lemmon2005Term>,
+    pub double_exponential: Vec<DoubleExponentialTerm>,
+    pub gaussian: Vec<GaussianTerm>,
+    pub gao_b: Vec<GaoBTerm>,
+    pub non_analytic: Vec<NonAnalyticTerm>,
     pub ideal: Vec<IdealTerm>,
 }
 
 impl EosRecord {
+    /// An EOS with its constants and no terms yet.
+    pub fn new(gas_constant: f64, t_reducing: f64, rho_reducing: f64, rho_max: f64) -> EosRecord {
+        EosRecord {
+            gas_constant,
+            t_reducing,
+            rho_reducing,
+            rho_max,
+            power: Vec::new(),
+            lemmon2005: Vec::new(),
+            double_exponential: Vec::new(),
+            gaussian: Vec::new(),
+            gao_b: Vec::new(),
+            non_analytic: Vec::new(),
+            ideal: Vec::new(),
+        }
+    }
+
     /// The canonical bytes of the EOS section: the ONE encoder, shared by datagen (which writes it into the
     /// blob) and the runtime hash gate (E14). Scale constants first, then the shape.
     pub fn encode(&self, out: &mut Vec<u8>) {
@@ -151,12 +179,38 @@ impl EosRecord {
         for p in &self.power {
             put(1, &[p.n, p.t, f64::from(p.d), f64::from(p.l), p.c]);
         }
+        for p in &self.lemmon2005 {
+            put(2, &[p.n, p.t, f64::from(p.d), f64::from(p.l), p.m]);
+        }
+        for p in &self.double_exponential {
+            put(3, &[p.n, p.t, f64::from(p.d), p.gd, f64::from(p.ld), p.gt, p.lt]);
+        }
+        for p in &self.gaussian {
+            put(4, &[p.n, p.t, f64::from(p.d), p.eta, p.epsilon, p.beta, p.gamma]);
+        }
+        for p in &self.gao_b {
+            put(5, &[p.n, p.t, f64::from(p.d), p.eta, p.epsilon, p.beta, p.gamma, p.b]);
+        }
+        for p in &self.non_analytic {
+            put(6, &[p.n, p.a, p.b, p.beta, p.big_a, p.big_b, p.big_c, p.big_d]);
+        }
         for term in &self.ideal {
             match *term {
                 IdealTerm::Lead { a1, a2 } => put(10, &[a1, a2]),
                 IdealTerm::LogTau { a } => put(11, &[a]),
                 IdealTerm::Power { n, t } => put(12, &[n, t]),
                 IdealTerm::PlanckEinstein { n, theta } => put(13, &[n, theta]),
+                IdealTerm::PlanckEinsteinGeneralized { n, theta, c, d } => put(14, &[n, theta, c, d]),
+                IdealTerm::Cp0Power { c, t, tc, t0 } => put(15, &[c, t, tc, t0]),
+                IdealTerm::Offset { a1, a2, reference } => {
+                    let tag = match reference {
+                        OffsetReference::Iir => 0.0,
+                        OffsetReference::Nbp => 1.0,
+                        OffsetReference::Other => 2.0,
+                        OffsetReference::Custom => 3.0,
+                    };
+                    put(16, &[a1, a2, tag]);
+                }
             }
         }
     }
@@ -213,6 +267,50 @@ pub enum SaFreshness {
     Stale,
 }
 
+/// Environmental and safety metadata (CoolProp's `INFO.ENVIRONMENTAL`, map 09 §4.2). CoolProp built it from a DTU
+/// table that reads REFPROP files and states no source or licence (map 09 §9), so it is restricted data: carried in
+/// the record with `source.terms = Restricted` and never written into the default blobs (D14). CoolProp's sentinels
+/// (−1 and ±10^n for "not specified", "UNKNOWN" and "?") are `None` (ROT-057).
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct Environmental {
+    /// ASHRAE 34 safety class (`A1`, `A2L`, `B2`, ...).
+    pub ashrae34: Option<Box<str>>,
+    /// Global warming potentials over 20, 100 and 500 years, relative to CO₂.
+    pub gwp20: Option<f64>,
+    #[allow(missing_docs)]
+    pub gwp100: Option<f64>,
+    #[allow(missing_docs)]
+    pub gwp500: Option<f64>,
+    /// Ozone depletion potential, relative to R11.
+    pub odp: Option<f64>,
+    /// NFPA 704 health, flammability and physical-hazard ratings, 0-4.
+    pub health: Option<u8>,
+    #[allow(missing_docs)]
+    pub flammability: Option<u8>,
+    #[allow(missing_docs)]
+    pub physical: Option<u8>,
+    /// Where the values come from, and their terms.
+    pub source: Source,
+}
+
+impl Environmental {
+    /// Metadata from `source` with every value absent.
+    pub fn new(source: Source) -> Environmental {
+        Environmental {
+            ashrae34: None,
+            gwp20: None,
+            gwp100: None,
+            gwp500: None,
+            odp: None,
+            health: None,
+            flammability: None,
+            physical: None,
+            source,
+        }
+    }
+}
+
 /// A decoded fluid as plain, mutable data: the arbitration seam. Swap one constant for the paper's value,
 /// `compile`, and re-run the paper's own check table (map 13 §3 protocol).
 #[derive(Clone, Debug, PartialEq)]
@@ -220,7 +318,13 @@ pub enum SaFreshness {
 #[allow(missing_docs)]
 pub struct FluidRecord {
     pub name: String,
+    /// The aliases CoolProp lists, verbatim (identifiers below are kept apart).
     pub aliases: Vec<String>,
+    /// CAS number, or CoolProp's synthetic id for a blend (`AIR.PPF`; map 09 R16).
+    pub cas: Option<String>,
+    /// REFPROP's name for the fluid, when it has one (CoolProp writes "N/A" otherwise; ROT-057).
+    pub refprop_name: Option<String>,
+    pub inchi_key: Option<String>,
     pub molar_mass: f64,
     pub source: Source,
     pub eos: EosRecord,
@@ -233,9 +337,32 @@ pub struct FluidRecord {
     pub corrections: Vec<Patch>,
     /// Divergence ids actually applied.
     pub applied: Vec<Box<str>>,
+    /// Restricted metadata, never shipped by default (see [`Environmental`]).
+    pub environmental: Option<Environmental>,
 }
 
 impl FluidRecord {
+    /// A record with its identity, EOS and limits; everything else empty.
+    pub fn new(name: &str, molar_mass: f64, source: Source, eos: EosRecord, limits: Limits) -> FluidRecord {
+        FluidRecord {
+            name: name.into(),
+            aliases: Vec::new(),
+            cas: None,
+            refprop_name: None,
+            inchi_key: None,
+            molar_mass,
+            source,
+            eos,
+            limits,
+            critical: None,
+            melting: Vec::new(),
+            superancillary_fit: None,
+            corrections: Vec::new(),
+            applied: Vec::new(),
+            environmental: None,
+        }
+    }
+
     /// Decodes and validates a versioned little-endian blob (M2: header, checksum, section table).
     /// Sketch stand-in until M2: `PKIT\0toy:<name>` decodes to a small fixed record named `<name>`, so the
     /// registry's lazy-load, layering and reference tests run end to end.
@@ -252,28 +379,12 @@ impl FluidRecord {
 
     /// The sketch's toy record: an R1234ze(E)-like two-term EOS (no superancillary, no corrections).
     pub fn toy(name: &str) -> Result<FluidRecord, Error> {
-        let eos = EosRecord {
-            gas_constant: 8.314_472,
-            t_reducing: 382.513,
-            rho_reducing: 4290.0,
-            rho_max: 20_000.0,
-            power: vec![PowerTerm::new(0.03, 1.0, 4, 0, 0.0), PowerTerm::new(0.5, 1.5, 2, 1, 1.0)],
-            ideal: vec![IdealTerm::Lead { a1: -12.5, a2: 8.6 }, IdealTerm::LogTau { a: 3.0 }],
-        };
+        let mut eos = EosRecord::new(8.314_472, 382.513, 4290.0, 20_000.0);
+        eos.power = vec![PowerTerm::new(0.03, 1.0, 4, 0, 0.0), PowerTerm::new(0.5, 1.5, 2, 1, 1.0)];
+        eos.ideal = vec![IdealTerm::Lead { a1: -12.5, a2: 8.6 }, IdealTerm::LogTau { a: 3.0 }];
         let limits = Limits::new(169.0, 420.0, 100e6)?;
-        Ok(FluidRecord {
-            name: name.into(),
-            aliases: vec![],
-            molar_mass: 0.114_041_6,
-            source: Source { bibkey: "toy".into(), doi: None, terms: DataTerms::Published },
-            eos,
-            limits,
-            critical: None,
-            melting: vec![],
-            superancillary_fit: None,
-            corrections: vec![],
-            applied: vec![],
-        })
+        let source = Source { bibkey: "toy".into(), doi: None, terms: DataTerms::Published };
+        Ok(FluidRecord::new(name, 0.114_041_6, source, eos, limits))
     }
 
     /// Applies the shipped corrections when `set` is `Corrected`; a no-op for `Parity`.
@@ -321,6 +432,16 @@ impl FluidRecord {
     /// A package builder (the registry's decoder adds the lazy saturation and transport parts).
     pub fn builder(self) -> Result<PureFluidBuilder, Error> {
         let e = &self.eos;
+        let pending = [
+            (e.lemmon2005.is_empty(), "Lemmon2005", "M3.3"),
+            (e.double_exponential.is_empty(), "DoubleExponential", "M3.3"),
+            (e.gaussian.is_empty(), "Gaussian", "M3.4"),
+            (e.gao_b.is_empty(), "GaoB", "M3.5"),
+            (e.non_analytic.is_empty(), "NonAnalytic", "M4.1"),
+        ];
+        if let Some((_, kind, step)) = pending.into_iter().find(|(empty, ..)| !empty) {
+            return Err(Error::Load(LoadError::Format(format!("{kind} terms land at {step}").into())));
+        }
         let ideal = IdealGas::new(e.t_reducing, e.rho_reducing, e.ideal.clone())?;
         let blocks = vec![ResidualBlock::Power(PowerBlock::new(&e.power)?)];
         let eos = MultiParameterEos::new(e.gas_constant, e.t_reducing, e.rho_reducing, e.rho_max, blocks, ideal)?;
@@ -387,11 +508,53 @@ mod tests {
         assert!(((pb / pa) - p).abs() < 1e-15);
     }
 
-    /// E14, as an exhaustive property over the toy record: changing any EOS field flips the EOS hash and the
-    /// model key; the shape hash ignores exactly R, ρ_r and ρ_max; M changes the key but not the EOS hash.
+    /// The toy record plus one term of every kind the evaluator does not compile yet.
+    fn every_kind() -> FluidRecord {
+        let mut r = FluidRecord::toy("X").unwrap();
+        let e = &mut r.eos;
+        e.lemmon2005 = vec![Lemmon2005Term { n: 0.1, t: 0.2, d: 1, l: 2, m: 0.3 }];
+        e.double_exponential = vec![DoubleExponentialTerm { n: 0.1, t: 0.2, d: 1, gd: 0.3, ld: 2, gt: -0.4, lt: 1.0 }];
+        e.gaussian = vec![GaussianTerm { n: 0.1, t: 0.2, d: 1, eta: 0.3, epsilon: 0.4, beta: 0.5, gamma: 0.6 }];
+        e.gao_b = vec![GaoBTerm { n: 0.1, t: 0.2, d: 1, eta: 0.3, epsilon: 0.4, beta: 0.5, gamma: 0.6, b: 0.7 }];
+        e.non_analytic =
+            vec![NonAnalyticTerm { n: 0.1, a: 0.2, b: 0.3, beta: 0.4, big_a: 0.5, big_b: 0.6, big_c: 0.7, big_d: 0.8 }];
+        e.ideal.extend([
+            IdealTerm::PlanckEinsteinGeneralized { n: 0.1, theta: 0.2, c: 0.3, d: 0.4 },
+            IdealTerm::Cp0Power { c: 0.1, t: 0.2, tc: 0.3, t0: 0.4 },
+            IdealTerm::Offset { a1: 0.1, a2: 0.2, reference: OffsetReference::Iir },
+        ]);
+        r
+    }
+
+    /// A residual kind without an evaluator is refused when the record compiles, never dropped from α^r.
+    #[test]
+    fn kinds_without_an_evaluator_are_refused() {
+        type Clear = fn(&mut EosRecord);
+        let pending: [(Clear, &str); 5] = [
+            (|e| e.lemmon2005.clear(), "Lemmon2005 terms land at M3.3"),
+            (|e| e.double_exponential.clear(), "DoubleExponential terms land at M3.3"),
+            (|e| e.gaussian.clear(), "Gaussian terms land at M3.4"),
+            (|e| e.gao_b.clear(), "GaoB terms land at M3.5"),
+            (|e| e.non_analytic.clear(), "NonAnalytic terms land at M4.1"),
+        ];
+        let mut record = every_kind();
+        for (clear, why) in pending {
+            let err = record.clone().compile().unwrap_err().to_string();
+            assert!(err.contains(why), "{err}");
+            clear(&mut record.eos);
+        }
+        let err = record.clone().compile().unwrap_err().to_string();
+        assert!(err.contains("ideal-gas PlanckEinsteinGeneralized terms land at M4.2"), "{err}");
+        record.eos.ideal.truncate(2);
+        assert!(record.compile().is_ok());
+    }
+
+    /// E14, as an exhaustive property over the toy record with one term of every kind: changing any EOS field flips
+    /// the EOS hash and the model key; the shape hash ignores exactly R, ρ_r and ρ_max; M changes the key but not the
+    /// EOS hash.
     #[test]
     fn every_eos_field_is_hashed() {
-        let base = FluidRecord::toy("X").unwrap();
+        let base = every_kind();
         type Mutation = (&'static str, fn(&mut FluidRecord), bool);
         let mutations: Vec<Mutation> = vec![
             ("R", |r| r.eos.gas_constant *= 1.0 + 1e-15, false),
@@ -406,6 +569,58 @@ mod tests {
             ("ideal a1", |r| r.eos.ideal[0] = IdealTerm::Lead { a1: -12.5 + 1e-12, a2: 8.6 }, true),
             ("ideal kind", |r| r.eos.ideal[1] = IdealTerm::Power { n: 3.0, t: 0.0 }, true),
             ("extra term", |r| r.eos.power.push(PowerTerm::new(0.0, 0.0, 0, 0, 0.0)), true),
+            ("lemmon n", |r| r.eos.lemmon2005[0].n += 1e-12, true),
+            ("lemmon t", |r| r.eos.lemmon2005[0].t += 1e-12, true),
+            ("lemmon d", |r| r.eos.lemmon2005[0].d += 1, true),
+            ("lemmon l", |r| r.eos.lemmon2005[0].l += 1, true),
+            ("lemmon m", |r| r.eos.lemmon2005[0].m += 1e-12, true),
+            ("double n", |r| r.eos.double_exponential[0].n += 1e-12, true),
+            ("double t", |r| r.eos.double_exponential[0].t += 1e-12, true),
+            ("double d", |r| r.eos.double_exponential[0].d += 1, true),
+            ("double gd", |r| r.eos.double_exponential[0].gd += 1e-12, true),
+            ("double ld", |r| r.eos.double_exponential[0].ld += 1, true),
+            ("double gt", |r| r.eos.double_exponential[0].gt += 1e-12, true),
+            ("double lt", |r| r.eos.double_exponential[0].lt += 1e-12, true),
+            ("gaussian n", |r| r.eos.gaussian[0].n += 1e-12, true),
+            ("gaussian t", |r| r.eos.gaussian[0].t += 1e-12, true),
+            ("gaussian d", |r| r.eos.gaussian[0].d += 1, true),
+            ("gaussian eta", |r| r.eos.gaussian[0].eta += 1e-12, true),
+            ("gaussian epsilon", |r| r.eos.gaussian[0].epsilon += 1e-12, true),
+            ("gaussian beta", |r| r.eos.gaussian[0].beta += 1e-12, true),
+            ("gaussian gamma", |r| r.eos.gaussian[0].gamma += 1e-12, true),
+            ("gaob n", |r| r.eos.gao_b[0].n += 1e-12, true),
+            ("gaob t", |r| r.eos.gao_b[0].t += 1e-12, true),
+            ("gaob d", |r| r.eos.gao_b[0].d += 1, true),
+            ("gaob eta", |r| r.eos.gao_b[0].eta += 1e-12, true),
+            ("gaob epsilon", |r| r.eos.gao_b[0].epsilon += 1e-12, true),
+            ("gaob beta", |r| r.eos.gao_b[0].beta += 1e-12, true),
+            ("gaob gamma", |r| r.eos.gao_b[0].gamma += 1e-12, true),
+            ("gaob b", |r| r.eos.gao_b[0].b += 1e-12, true),
+            ("nonanalytic n", |r| r.eos.non_analytic[0].n += 1e-12, true),
+            ("nonanalytic a", |r| r.eos.non_analytic[0].a += 1e-12, true),
+            ("nonanalytic b", |r| r.eos.non_analytic[0].b += 1e-12, true),
+            ("nonanalytic beta", |r| r.eos.non_analytic[0].beta += 1e-12, true),
+            ("nonanalytic A", |r| r.eos.non_analytic[0].big_a += 1e-12, true),
+            ("nonanalytic B", |r| r.eos.non_analytic[0].big_b += 1e-12, true),
+            ("nonanalytic C", |r| r.eos.non_analytic[0].big_c += 1e-12, true),
+            ("nonanalytic D", |r| r.eos.non_analytic[0].big_d += 1e-12, true),
+            (
+                "generalized",
+                |r| r.eos.ideal[2] = IdealTerm::PlanckEinsteinGeneralized { n: 0.1, theta: 0.2, c: 0.3, d: 0.5 },
+                true,
+            ),
+            ("cp0 tc", |r| r.eos.ideal[3] = IdealTerm::Cp0Power { c: 0.1, t: 0.2, tc: 0.31, t0: 0.4 }, true),
+            ("cp0 t0", |r| r.eos.ideal[3] = IdealTerm::Cp0Power { c: 0.1, t: 0.2, tc: 0.3, t0: 0.41 }, true),
+            (
+                "offset a2",
+                |r| r.eos.ideal[4] = IdealTerm::Offset { a1: 0.1, a2: 0.21, reference: OffsetReference::Iir },
+                true,
+            ),
+            (
+                "offset tag",
+                |r| r.eos.ideal[4] = IdealTerm::Offset { a1: 0.1, a2: 0.2, reference: OffsetReference::Custom },
+                true,
+            ),
         ];
         for (what, mutate, shape) in mutations {
             let mut m = base.clone();

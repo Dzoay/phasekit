@@ -68,8 +68,11 @@ pub use units::{Basis, Density, Enthalpy, Entropy, InternalEnergy, Pressure, Qua
 /// register). Not API: these records grow every milestone (M4 ancillaries, M6 superancillary, M8 transport).
 #[doc(hidden)]
 pub mod internal {
-    pub use crate::data::{Edit, EosRecord, FluidRecord, MeltingSegment, Patch, SaFreshness, SaStamp};
-    pub use crate::helmholtz::{IdealTerm, PowerTerm};
+    pub use crate::data::{Edit, Environmental, EosRecord, FluidRecord, MeltingSegment, Patch, SaFreshness, SaStamp};
+    pub use crate::helmholtz::{
+        DoubleExponentialTerm, GaoBTerm, GaussianTerm, IdealTerm, Lemmon2005Term, MAX_POW, NonAnalyticTerm,
+        OffsetReference, PowerTerm,
+    };
 
     /// The decoded, uncorrected record of a data-backed fluid.
     pub fn record(registry: &crate::Registry, name: &str) -> Result<FluidRecord, crate::Error> {

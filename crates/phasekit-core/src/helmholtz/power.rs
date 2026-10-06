@@ -14,7 +14,7 @@ use crate::error::{Error, LoadError};
 use crate::num::Real;
 
 /// Largest integer exponent `d` or `l` of a power term (v8.0.0 data: d ≤ 15, l ≤ 6; datagen rejects more).
-pub(crate) const MAX_POW: usize = 16;
+pub const MAX_POW: usize = 16;
 
 /// Per-state variables shared by every block of one evaluation: one `ln` and a δ^k table by
 /// multiplication. δ^d comes from the table, not from `exp(d·ln δ)`, so the 57 MBWR terms with d = 0

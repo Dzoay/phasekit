@@ -3,7 +3,7 @@
 # than its minimum, or if a binary that runs tests is not listed. `--update` raises minimums and adds binaries; it
 # never lowers one. Lowering a minimum by hand needs a `# lowered: <reason>` line above it. `# pending M<n>.<k>:
 # <test>` lines name tests held back until that step; they fail the gate once milestone n has closed.
-x86_64-unknown-linux-gnu phasekit-core::lib 26
+x86_64-unknown-linux-gnu phasekit-core::lib 28
 x86_64-unknown-linux-gnu phasekit-verify::lib 19
 x86_64-unknown-linux-gnu phasekit-verify::gibbs_seam 1
 # pending M5.9: gibbs_seam.rs::solid_reaches_registry_batch_compat_and_reference_states
@@ -13,18 +13,18 @@ x86_64-unknown-linux-gnu phasekit-verify::new_family 5
 # pending M5.9: new_family.rs::compat_strings_reach_the_new_family
 # pending M5.9: new_family.rs::reference_states_work_for_any_family
 x86_64-unknown-linux-gnu phasekit-verify::register 6
-x86_64-unknown-linux-gnu phasekit-xtask::main 40
+x86_64-unknown-linux-gnu phasekit-xtask::main 53
 x86_64-unknown-linux-gnu phasekit-core::doc 1
-wasm32-wasip2 phasekit-core::lib 26
+wasm32-wasip2 phasekit-core::lib 28
 wasm32-wasip2 phasekit-verify::lib 19
 wasm32-wasip2 phasekit-verify::gibbs_seam 1
 wasm32-wasip2 phasekit-verify::lazy_load 6
 wasm32-wasip2 phasekit-verify::new_family 4
 wasm32-wasip2 phasekit-verify::register 6
 wasm32-wasip2 phasekit-core::doc 1
-x86_64-unknown-linux-gnu phasekit-verify::fixtures 3
+x86_64-unknown-linux-gnu phasekit-verify::fixtures 4
 x86_64-unknown-linux-gnu phasekit-verify::manifest 2
-wasm32-wasip2 phasekit-verify::fixtures 3
+wasm32-wasip2 phasekit-verify::fixtures 4
 wasm32-wasip2 phasekit-verify::manifest 2
 x86_64-unknown-linux-gnu phasekit-verify::divergences 2
 wasm32-wasip2 phasekit-verify::divergences 2

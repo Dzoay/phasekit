@@ -28,13 +28,64 @@ pub enum IdealTerm {
         /// Exponent.
         t: f64,
     },
-    /// `n·ln(1 − e^(−θτ))`, θ > 0 (CoolProp stores θ with a flipped sign; datagen normalises it).
+    /// `n·ln(1 − e^(−θτ))`, θ > 0 (CoolProp stores θ with a flipped sign; datagen normalises it). CoolProp's
+    /// `PlanckEinsteinFunctionT` arrives here with θ = v/T_crit, computed as CoolProp computes it.
     PlanckEinstein {
         /// Coefficient.
         n: f64,
         /// Characteristic reduced temperature.
         theta: f64,
     },
+    /// `n·ln(c + d·e^(θτ))`, θ as CoolProp stores it (Air: θ = +87.31, c = 2/3; and the two hyperbolic terms of an
+    /// Aly-Lee c_p⁰, converted at datagen as CoolProp converts them, map 02 §3.2). Evaluated from M4.2.
+    PlanckEinsteinGeneralized {
+        /// Coefficient.
+        n: f64,
+        /// Exponent factor.
+        theta: f64,
+        /// Constant inside the logarithm.
+        c: f64,
+        /// Factor of the exponential.
+        d: f64,
+    },
+    /// The α⁰ part of `c_p⁰/R = c·T^t` integrated from the reference temperature `t0`, written in τ with the
+    /// block's own `tc` in place of T_r, as CoolProp evaluates it (`Helmholtz.cpp:1188-1258`). `tc` is kept as
+    /// stored: R123's is 456.82 K against T_r = 456.831 K (map 02 §6). CP0Constant is the `t = 0` case, and an Aly-Lee
+    /// block's constant arrives here too. Evaluated from M4.2.
+    Cp0Power {
+        /// Coefficient of `T^t` in `c_p⁰/R`.
+        c: f64,
+        /// Exponent.
+        t: f64,
+        /// The block's critical temperature, K.
+        tc: f64,
+        /// Reference temperature, K.
+        t0: f64,
+    },
+    /// `a1 + a2·τ`: the offset that puts the fluid in its default reference state (CoolProp's
+    /// `EnthalpyEntropyOffset`; map 02 §3.2). Evaluated from M4.2.
+    Offset {
+        /// Constant.
+        a1: f64,
+        /// τ coefficient.
+        a2: f64,
+        /// The reference state the offset realises.
+        reference: OffsetReference,
+    },
+}
+
+/// The reference state an [`IdealTerm::Offset`] realises, as CoolProp tags it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum OffsetReference {
+    /// IIR: h = 200 kJ/kg, s = 1 kJ/(kg K) for saturated liquid at 0 °C.
+    Iir,
+    /// NBP: h = s = 0 for saturated liquid at 1 atm.
+    Nbp,
+    /// Another convention the fluid's paper uses (`OTH`).
+    Other,
+    /// A custom anchor (`CUSTOM`).
+    Custom,
 }
 
 /// α⁰ of one fluid with its own reducing constants. Families that borrow a canonical ideal gas reach it
@@ -52,6 +103,15 @@ impl IdealGas {
     pub(crate) fn new(t_r: f64, rho_r: f64, terms: Vec<IdealTerm>) -> Result<Self, Error> {
         if !(t_r > 0.0 && rho_r > 0.0) {
             return Err(Error::Load(LoadError::Format("ideal-gas reducing constants must be > 0".into())));
+        }
+        let pending = terms.iter().find_map(|term| match term {
+            IdealTerm::PlanckEinsteinGeneralized { .. } => Some("PlanckEinsteinGeneralized"),
+            IdealTerm::Cp0Power { .. } => Some("Cp0Power"),
+            IdealTerm::Offset { .. } => Some("Offset"),
+            _ => None,
+        });
+        if let Some(kind) = pending {
+            return Err(Error::Load(LoadError::Format(format!("ideal-gas {kind} terms land at M4.2").into())));
         }
         Ok(Self { t_r, rho_r, terms: terms.into_boxed_slice() })
     }
@@ -75,6 +135,10 @@ impl IdealGas {
                     ]
                 }
                 IdealTerm::PlanckEinstein { n, theta } => planck_einstein(n, theta, tau),
+                // Refused by `new` until M4.2.
+                IdealTerm::PlanckEinsteinGeneralized { .. } | IdealTerm::Cp0Power { .. } | IdealTerm::Offset { .. } => {
+                    [0.0; 5]
+                }
             };
             a.iter_mut().zip(add).for_each(|(x, y)| *x += y);
         }
@@ -110,6 +174,22 @@ mod tests {
     use super::*;
     use crate::num::Real;
     use crate::num::hyperdual::HyperDual;
+
+    /// Kinds without an evaluator are refused when the ideal gas is built, never evaluated as zero (M4.2 lands them).
+    #[test]
+    fn kinds_without_an_evaluator_are_refused() {
+        let lead = IdealTerm::Lead { a1: 1.0, a2: 2.0 };
+        assert!(IdealGas::new(300.0, 1e4, vec![lead]).is_ok());
+        let pending = [
+            (IdealTerm::PlanckEinsteinGeneralized { n: 1.0, theta: 2.0, c: 1.0, d: -1.0 }, "PlanckEinsteinGeneralized"),
+            (IdealTerm::Cp0Power { c: 1.0, t: 0.0, tc: 300.0, t0: 298.15 }, "Cp0Power"),
+            (IdealTerm::Offset { a1: 1.0, a2: 2.0, reference: OffsetReference::Iir }, "Offset"),
+        ];
+        for (term, kind) in pending {
+            let err = IdealGas::new(300.0, 1e4, vec![lead, term]).unwrap_err().to_string();
+            assert!(err.contains(&format!("ideal-gas {kind} terms land at M4.2")), "{err}");
+        }
+    }
 
     /// The closed form against hyper-dual AD: orders 1-2 of f, order 3 as f''' = (f')'', order 4 as
     /// f'''' = (f'')'' (each differentiated twice by AD).
