@@ -4,13 +4,17 @@
 use core::fmt::Debug;
 use core::ops::{Add, Div, Mul, Neg, Sub};
 
+mod jet;
+
+pub use jet::Jet4;
+
 mod sealed {
     /// Only the core implements `Real`, so methods can be added later without a breaking change (S-02).
     pub trait Sealed {}
     impl Sealed for f64 {}
 }
 
-/// The scalar the model math is written over. `f64` is the reference; `Jet4` (bivariate, order 4, M3)
+/// The scalar the model math is written over. `f64` is the reference; [`Jet4`] (bivariate, order 4)
 /// gives exact derivatives; a core-local `Lanes<W>` joins only if the post-0.1 SIMD gate fires (D9).
 /// Public so families outside the core can write a formula once and evaluate it on `f64` and `Jet4`;
 /// sealed so nobody outside the core implements it. The public API itself stays `f64`.
@@ -191,142 +195,8 @@ pub(crate) mod roots {
     }
 }
 
-/// Test-only AD oracle: hyper-dual `f + f₁ε₁ + f₂ε₂ + f₁₂ε₁ε₂` (ε₁² = ε₂² = 0). In the real crate the
-/// oracle is `num-dual` (dev-dependency, M3) and production AD is the in-house `Jet4` (S-07); the sketch
-/// keeps this ~100-line stand-in because it has no dependencies at all.
-#[cfg(test)]
-pub(crate) mod hyperdual {
-    use super::{Real, math, sealed};
-    use core::ops::{Add, Div, Mul, Neg, Sub};
-
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub(crate) struct HyperDual {
-        pub(crate) re: f64,
-        pub(crate) e1: f64,
-        pub(crate) e2: f64,
-        pub(crate) e12: f64,
-    }
-
-    impl HyperDual {
-        /// A variable seeded in the given directions (`(true, true)` on one variable: d²/dx²).
-        pub(crate) const fn var(re: f64, seed1: bool, seed2: bool) -> Self {
-            let e1 = if seed1 { 1.0 } else { 0.0 };
-            let e2 = if seed2 { 1.0 } else { 0.0 };
-            Self { re, e1, e2, e12: 0.0 }
-        }
-        /// Chain rule for a function with value `f0`, first derivative `f1` and second derivative `f2`.
-        fn chain(self, f0: f64, f1: f64, f2: f64) -> Self {
-            Self { re: f0, e1: f1 * self.e1, e2: f1 * self.e2, e12: f1 * self.e12 + f2 * self.e1 * self.e2 }
-        }
-    }
-
-    impl Add for HyperDual {
-        type Output = Self;
-        fn add(self, o: Self) -> Self {
-            Self { re: self.re + o.re, e1: self.e1 + o.e1, e2: self.e2 + o.e2, e12: self.e12 + o.e12 }
-        }
-    }
-    impl Sub for HyperDual {
-        type Output = Self;
-        fn sub(self, o: Self) -> Self {
-            self + -o
-        }
-    }
-    impl Mul for HyperDual {
-        type Output = Self;
-        fn mul(self, o: Self) -> Self {
-            Self {
-                re: self.re * o.re,
-                e1: self.re * o.e1 + self.e1 * o.re,
-                e2: self.re * o.e2 + self.e2 * o.re,
-                e12: self.re * o.e12 + self.e1 * o.e2 + self.e2 * o.e1 + self.e12 * o.re,
-            }
-        }
-    }
-    impl Div for HyperDual {
-        type Output = Self;
-        fn div(self, o: Self) -> Self {
-            let r = 1.0 / o.re;
-            self * o.chain(r, -r * r, 2.0 * r * r * r)
-        }
-    }
-    impl Neg for HyperDual {
-        type Output = Self;
-        fn neg(self) -> Self {
-            Self { re: -self.re, e1: -self.e1, e2: -self.e2, e12: -self.e12 }
-        }
-    }
-    impl Add<f64> for HyperDual {
-        type Output = Self;
-        fn add(self, c: f64) -> Self {
-            Self { re: self.re + c, ..self }
-        }
-    }
-    impl Mul<f64> for HyperDual {
-        type Output = Self;
-        fn mul(self, c: f64) -> Self {
-            Self { re: self.re * c, e1: self.e1 * c, e2: self.e2 * c, e12: self.e12 * c }
-        }
-    }
-
-    impl sealed::Sealed for HyperDual {}
-
-    impl Real for HyperDual {
-        fn from_f64(x: f64) -> Self {
-            Self { re: x, e1: 0.0, e2: 0.0, e12: 0.0 }
-        }
-        fn exp(self) -> Self {
-            let f = math::exp(self.re);
-            self.chain(f, f, f)
-        }
-        fn expm1(self) -> Self {
-            let f = math::exp(self.re);
-            self.chain(math::expm1(self.re), f, f)
-        }
-        fn ln(self) -> Self {
-            let r = 1.0 / self.re;
-            self.chain(math::ln(self.re), r, -r * r)
-        }
-        fn ln_1p(self) -> Self {
-            let r = 1.0 / (1.0 + self.re);
-            self.chain(math::ln_1p(self.re), r, -r * r)
-        }
-        fn powi(self, n: i32) -> Self {
-            let nf = f64::from(n);
-            let f1 = nf * math::powi(self.re, n - 1);
-            let f2 = nf * (nf - 1.0) * math::powi(self.re, n - 2);
-            self.chain(math::powi(self.re, n), f1, f2)
-        }
-        fn powf(self, y: f64) -> Self {
-            let f1 = y * math::powf(self.re, y - 1.0);
-            let f2 = y * (y - 1.0) * math::powf(self.re, y - 2.0);
-            self.chain(math::powf(self.re, y), f1, f2)
-        }
-        fn sqrt(self) -> Self {
-            let s = math::sqrt(self.re);
-            self.chain(s, 0.5 / s, -0.25 / (s * self.re))
-        }
-        fn sinh(self) -> Self {
-            let (s, c) = (math::sinh(self.re), math::cosh(self.re));
-            self.chain(s, c, s)
-        }
-        fn cosh(self) -> Self {
-            let (s, c) = (math::sinh(self.re), math::cosh(self.re));
-            self.chain(c, s, c)
-        }
-        fn atan(self) -> Self {
-            let r = 1.0 / (1.0 + self.re * self.re);
-            self.chain(math::atan(self.re), r, -2.0 * self.re * r * r)
-        }
-        fn abs(self) -> Self {
-            if self.re < 0.0 { -self } else { self }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::hyperdual::HyperDual;
     use super::*;
 
     #[test]
@@ -334,12 +204,5 @@ mod tests {
         assert_eq!(math::powi(2.0, 10), 1024.0);
         assert_eq!(math::powi(2.0, -2), 0.25);
         assert_eq!(math::powi(0.0, 0), 1.0);
-    }
-
-    #[test]
-    fn hyperdual_second_derivative_of_x_cubed() {
-        let x = HyperDual::var(2.0, true, true);
-        let y = x * x * x;
-        assert_eq!((y.re, y.e1, y.e12), (8.0, 12.0, 12.0));
     }
 }

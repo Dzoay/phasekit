@@ -18,6 +18,9 @@ phasekit-core = { workspace = true, features = ["fluids-all"] }
 # so the workspace stays free of `unsafe` code.
 [dev-dependencies]
 allocation-counter = "0.8"
+# The AD oracle for Jet4 and the power-term fast path (tests/terms.rs; PLAN.md M3.2): scalar duals only, so no
+# nalgebra (dependencies §2.4).
+num-dual = { version = "0.15", default-features = false }
 phasekit-data.workspace = true
 
 # Wall-clock benches (VERIFICATION.md §12; PLAN.md M2.9): criterion builds for every OS but not for wasm (§2.5).

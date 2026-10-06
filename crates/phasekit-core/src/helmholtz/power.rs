@@ -189,7 +189,7 @@ impl PowerBlock {
         a
     }
 
-    /// The paper formula (test oracle): with `R = HyperDual` it yields exact derivatives to check the jets.
+    /// The paper formula (test oracle): with `R = Jet4` it yields exact derivatives to check the jets.
     #[cfg(test)]
     pub(crate) fn value<R: Real>(&self, tau: R, delta: R) -> R {
         let mut sum = R::from_f64(0.0);
@@ -205,7 +205,7 @@ impl PowerBlock {
 mod tests {
     use super::*;
     use crate::derivs::Order;
-    use crate::num::hyperdual::HyperDual;
+    use crate::num::Jet4;
     use crate::num::math;
 
     fn rel(a: f64, b: f64) -> f64 {
@@ -258,9 +258,10 @@ mod tests {
         }
     }
 
-    /// The jets agree with hyper-dual AD of the paper formula.
+    /// The jets agree with `Jet4` AD of the paper formula on all 15 A_ij (tests/terms.rs checks both against
+    /// num-dual on real data).
     #[test]
-    fn jets_match_hyperdual_ad() {
+    fn jets_match_jet4_ad() {
         let block = PowerBlock::new(&[
             PowerTerm::new(0.5, 1.5, 2, 1, 1.0),
             PowerTerm::new(-0.7, 0.25, 1, 0, 0.0),
@@ -268,37 +269,27 @@ mod tests {
         ])
         .unwrap();
         let (tau, delta) = (1.7, 0.8);
-        let mut acc = Derivs::zero(Order::Two);
-        block.accumulate::<f64, 2>(&Vars::new(tau, delta), &mut acc);
-        let ad = |st: (bool, bool), sd: (bool, bool)| {
-            block.value(HyperDual::var(tau, st.0, st.1), HyperDual::var(delta, sd.0, sd.1))
-        };
-        let (dt, dd) = (ad((true, false), (false, true)), ad((true, true), (false, false)));
-        let ddd = ad((false, false), (true, true));
-        let want = [
-            (1, 0, tau * dt.e1),
-            (0, 1, delta * dt.e2),
-            (1, 1, tau * delta * dt.e12),
-            (2, 0, tau * tau * dd.e12),
-            (0, 2, delta * delta * ddd.e12),
-        ];
-        for (i, j, w) in want {
-            assert!(rel(acc.get(i, j).unwrap(), w) < 1e-14, "A{i}{j}");
+        let mut acc = Derivs::zero(Order::Four);
+        block.accumulate::<f64, 4>(&Vars::new(tau, delta), &mut acc);
+        let ad = block.value(Jet4::tau(tau), Jet4::delta(delta)).derivs(tau, delta);
+        for n in 0..=4 {
+            for i in 0..=n {
+                assert!(rel(acc.get(i, n - i).unwrap(), ad.get(i, n - i).unwrap()) < 1e-14, "A{i}{}", n - i);
+            }
         }
     }
 
-    /// The fast path is generic: run on another `Real`, its value parts are bitwise those of `f64`.
+    /// The fast path is generic: run on `Jet4`, its value parts are bitwise those of `f64`.
     #[test]
     fn generic_fast_path_is_bitwise_scalar() {
         let block = PowerBlock::new(&[PowerTerm::new(0.5, 1.5, 2, 1, 1.0)]).unwrap();
         let mut a = Derivs::zero(Order::Four);
-        let mut h = Derivs::<HyperDual>::zero(Order::Four);
+        let mut h = Derivs::<Jet4>::zero(Order::Four);
         block.accumulate::<f64, 4>(&Vars::new(2.0, 0.5), &mut a);
-        let v = Vars::new(HyperDual::var(2.0, false, false), HyperDual::var(0.5, false, false));
-        block.accumulate::<HyperDual, 4>(&v, &mut h);
+        block.accumulate::<Jet4, 4>(&Vars::new(Jet4::tau(2.0), Jet4::delta(0.5)), &mut h);
         for n in 0..=4 {
             for i in 0..=n {
-                assert_eq!(a.get(i, n - i).unwrap().to_bits(), h.get(i, n - i).unwrap().re.to_bits());
+                assert_eq!(a.get(i, n - i).unwrap().to_bits(), h.get(i, n - i).unwrap().value().to_bits());
             }
         }
     }
