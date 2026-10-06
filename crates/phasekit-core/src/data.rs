@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::error::{Error, LoadError};
 use crate::fluid::{PureFluid, PureFluidBuilder};
 use crate::helmholtz::{
-    DoubleExponentialTerm, GaoBTerm, GaussianTerm, IdealGas, IdealTerm, Lemmon2005Term, MultiParameterEos,
+    DoubleExponentialTerm, GaoBTerm, GaussianTerm, IdealGas, IdealTerm, Lemmon2005Term, MAX_POW, MultiParameterEos,
     NonAnalyticTerm, OffsetReference, PowerBlock, PowerTerm, ResidualBlock,
 };
 use crate::model::{CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source};
@@ -215,6 +215,115 @@ impl EosRecord {
         }
     }
 
+    /// The inverse of [`EosRecord::encode`]: the EOS section of a blob. Every tag, count and exponent is checked;
+    /// trailing or missing bytes are errors.
+    pub fn decode(bytes: &[u8]) -> Result<EosRecord, LoadError> {
+        let bad = |m: String| LoadError::Format(format!("eos section: {m}").into());
+        let mut values = bytes;
+        let f64s = |values: &mut &[u8], n: usize| -> Result<Vec<f64>, LoadError> {
+            let (head, rest) = values.split_at_checked(8 * n).ok_or_else(|| bad("truncated".into()))?;
+            *values = rest;
+            Ok(head.chunks_exact(8).map(|c| f64::from_le_bytes(c.try_into().unwrap_or_default())).collect())
+        };
+        let [r, rho_r, rho_max] = f64s(&mut values, 3)?[..] else { return Err(bad("truncated".into())) };
+        let mut eos = EosRecord::new(r, f64::NAN, rho_r, rho_max);
+        let int = |x: f64, what: &str| -> Result<u8, LoadError> {
+            if x.fract() == 0.0 && (0.0..=MAX_POW as f64).contains(&x) {
+                Ok(x as u8)
+            } else {
+                Err(bad(format!("{what} = {x} is not an exponent")))
+            }
+        };
+        let mut first = true;
+        while let Some((&tag, rest)) = values.split_first() {
+            values = rest;
+            let need = match tag {
+                0 | 11 => 1,
+                10 | 12 | 13 => 2,
+                16 => 3,
+                14 | 15 => 4,
+                1 | 2 => 5,
+                3 | 4 => 7,
+                5 | 6 => 8,
+                _ => return Err(bad(format!("unknown tag {tag}"))),
+            };
+            if first != (tag == 0) {
+                return Err(bad("T_r must come first, once".into()));
+            }
+            first = false;
+            let v = f64s(&mut values, need)?;
+            match tag {
+                0 => eos.t_reducing = v[0],
+                1 => eos.power.push(PowerTerm::new(v[0], v[1], int(v[2], "d")?, int(v[3], "l")?, v[4])),
+                2 => eos.lemmon2005.push(Lemmon2005Term {
+                    n: v[0],
+                    t: v[1],
+                    d: int(v[2], "d")?,
+                    l: int(v[3], "l")?,
+                    m: v[4],
+                }),
+                3 => eos.double_exponential.push(DoubleExponentialTerm {
+                    n: v[0],
+                    t: v[1],
+                    d: int(v[2], "d")?,
+                    gd: v[3],
+                    ld: int(v[4], "ld")?,
+                    gt: v[5],
+                    lt: v[6],
+                }),
+                4 => eos.gaussian.push(GaussianTerm {
+                    n: v[0],
+                    t: v[1],
+                    d: int(v[2], "d")?,
+                    eta: v[3],
+                    epsilon: v[4],
+                    beta: v[5],
+                    gamma: v[6],
+                }),
+                5 => eos.gao_b.push(GaoBTerm {
+                    n: v[0],
+                    t: v[1],
+                    d: int(v[2], "d")?,
+                    eta: v[3],
+                    epsilon: v[4],
+                    beta: v[5],
+                    gamma: v[6],
+                    b: v[7],
+                }),
+                6 => eos.non_analytic.push(NonAnalyticTerm {
+                    n: v[0],
+                    a: v[1],
+                    b: v[2],
+                    beta: v[3],
+                    big_a: v[4],
+                    big_b: v[5],
+                    big_c: v[6],
+                    big_d: v[7],
+                }),
+                10 => eos.ideal.push(IdealTerm::Lead { a1: v[0], a2: v[1] }),
+                11 => eos.ideal.push(IdealTerm::LogTau { a: v[0] }),
+                12 => eos.ideal.push(IdealTerm::Power { n: v[0], t: v[1] }),
+                13 => eos.ideal.push(IdealTerm::PlanckEinstein { n: v[0], theta: v[1] }),
+                14 => eos.ideal.push(IdealTerm::PlanckEinsteinGeneralized { n: v[0], theta: v[1], c: v[2], d: v[3] }),
+                15 => eos.ideal.push(IdealTerm::Cp0Power { c: v[0], t: v[1], tc: v[2], t0: v[3] }),
+                _ => {
+                    let reference = match v[2] {
+                        0.0 => OffsetReference::Iir,
+                        1.0 => OffsetReference::Nbp,
+                        2.0 => OffsetReference::Other,
+                        3.0 => OffsetReference::Custom,
+                        x => return Err(bad(format!("unknown offset reference {x}"))),
+                    };
+                    eos.ideal.push(IdealTerm::Offset { a1: v[0], a2: v[1], reference });
+                }
+            }
+        }
+        if first {
+            return Err(bad("no T_r".into()));
+        }
+        Ok(eos)
+    }
+
     /// Hash of the whole canonical EOS section.
     pub fn eos_hash(&self) -> ModelKey {
         let mut bytes = Vec::new();
@@ -363,15 +472,24 @@ impl FluidRecord {
         }
     }
 
-    /// Decodes and validates a versioned little-endian blob (M2: header, checksum, section table).
-    /// Sketch stand-in until M2: `PKIT\0toy:<name>` decodes to a small fixed record named `<name>`, so the
-    /// registry's lazy-load, layering and reference tests run end to end.
+    /// The versioned little-endian blob of this record (format v1; `crate::blob`). Restricted metadata and the
+    /// `applied` list are not written.
+    pub fn encode(&self) -> Vec<u8> {
+        crate::blob::encode(self)
+    }
+
+    /// Decodes and validates a blob: format v1 (header, checksum, section table, every section), or, until M2.6,
+    /// the sketch's stand-in `PKIT\0toy:<name>`, a small fixed record named `<name>` that the registry's lazy-load,
+    /// layering and reference tests still use.
     pub fn decode(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
+        if crate::blob::is_blob(bytes) {
+            return crate::blob::decode(bytes);
+        }
         let [b'P', b'K', b'I', b'T', 0, rest @ ..] = bytes else {
             return Err(LoadError::Format("not a phasekit blob".into()));
         };
         let Some(name) = rest.strip_prefix(b"toy:") else {
-            return Err(LoadError::Format("blob format v1 lands at M2".into()));
+            return Err(LoadError::Format("not a phasekit blob".into()));
         };
         let name = core::str::from_utf8(name).map_err(|_| LoadError::Format("name is not UTF-8".into()))?;
         FluidRecord::toy(name).map_err(|e| LoadError::Format(e.to_string().into()))
@@ -467,6 +585,7 @@ mod tests {
     use crate::fluid::Fluid;
     use crate::input::Input;
     use crate::model::ThermoModel;
+    use crate::model::{CriticalOrigin, CriticalPoint};
     use crate::units::{Density, Temperature};
 
     fn record() -> FluidRecord {
@@ -524,6 +643,149 @@ mod tests {
             IdealTerm::Offset { a1: 0.1, a2: 0.2, reference: OffsetReference::Iir },
         ]);
         r
+    }
+
+    /// `every_kind` with every other field a blob carries set, too.
+    fn every_field() -> FluidRecord {
+        let mut r = every_kind();
+        r.aliases = vec!["x".into(), "X-1".into()];
+        (r.cas, r.refprop_name, r.inchi_key) = (Some("1-2-3".into()), None, Some("KEY".into()));
+        r.limits = Limits::new(169.0, 420.0, 100e6).unwrap().with_t_triple(168.5);
+        r.critical = Some(CriticalPoint { t: 382.513, p: 3.6e6, rho: 4290.0, origin: CriticalOrigin::Published });
+        r.source = Source { bibkey: "toy".into(), doi: Some("10.1/x".into()), terms: DataTerms::Unpublished };
+        let e = &r.eos;
+        r.superancillary_fit =
+            Some(SaStamp { shape: e.shape_hash(), gas_constant: e.gas_constant, rho_reducing: e.rho_reducing });
+        r.melting = vec![MeltingSegment { t0: 251.165, p0: 208.566e6, t_min: 251.165, t_max: 256.164 }];
+        r.corrections = vec![
+            Patch { divergence: "DIV-0001".into(), edit: Edit::GasConstant(8.314_462_1) },
+            Patch { divergence: "DIV-0003".into(), edit: Edit::ReducingDensity(11_183.9) },
+            Patch { divergence: "DIV-0006".into(), edit: Edit::MolarMass(0.028) },
+            Patch { divergence: "DIV-0002".into(), edit: Edit::MeltingP0 { segment: 0, p0: 632.4e6 } },
+        ];
+        r
+    }
+
+    /// PLAN.md M2.4: a record with every field a blob carries round-trips bitwise, and re-encoding gives the same
+    /// bytes; restricted metadata and the `applied` list are not written.
+    #[test]
+    fn a_record_with_every_field_round_trips() {
+        let record = every_field();
+        let blob = record.encode();
+        assert_eq!(&blob[..8], b"PKITBLOB");
+        assert_eq!(FluidRecord::decode(&blob), Ok(record.clone()));
+        assert_eq!(FluidRecord::decode(&blob).unwrap().encode(), blob);
+        let mut restricted = record.clone();
+        let terms = DataTerms::Restricted;
+        restricted.environmental = Some(Environmental::new(Source { bibkey: "dtu".into(), doi: None, terms }));
+        restricted.applied = vec!["DIV-0001".into()];
+        assert_eq!(restricted.encode(), blob);
+    }
+
+    /// The blob of `record` with its checksum recomputed after `edit` (a table or header that lies consistently).
+    fn resealed(blob: &[u8], edit: impl FnOnce(&mut Vec<u8>)) -> Vec<u8> {
+        let mut b = blob.to_vec();
+        edit(&mut b);
+        let length = (b.len() as u64).to_le_bytes();
+        b[16..24].copy_from_slice(&length);
+        let checksum = ModelKey::from_content(&b[32..]).get().to_le_bytes();
+        b[24..32].copy_from_slice(&checksum);
+        b
+    }
+
+    fn format_error(bytes: &[u8]) -> String {
+        match FluidRecord::decode(bytes) {
+            Err(LoadError::Format(m)) => m.into(),
+            other => panic!("not a format error: {other:?}"),
+        }
+    }
+
+    /// Rot: ROT-040, ROT-055. A blob is validated whole before anything is decoded. Every truncation and every
+    /// single-bit flip is a `LoadError::Format`, never a panic or a different record; so are another version, a
+    /// section table that lies under a recomputed checksum, a section with bytes left over and bytes after the last
+    /// section.
+    #[test]
+    fn truncated_or_corrupt_blob_is_a_load_error() {
+        let blob = every_field().encode();
+        for len in 0..blob.len() {
+            format_error(&blob[..len]);
+        }
+        for i in 0..blob.len() {
+            for bit in 0..8 {
+                let mut flipped = blob.clone();
+                flipped[i] ^= 1 << bit;
+                format_error(&flipped);
+            }
+        }
+        type Edit = fn(&mut Vec<u8>);
+        let cases: [(Edit, &str); 5] = [
+            (|b| b[8] = 2, "blob version 2; this build reads version 1"),
+            (|b| b[12] = 9, "blob lists 9 sections; version 1 has 10"),
+            (|b| b[32] = 2, "section table: entry 2 at"),
+            (|b| b[40] += 8, "where section 1 (metadata) belongs"),
+            (|b| b.extend([0; 8]), "blob has 8 bytes after its last section"),
+        ];
+        for (edit, why) in cases {
+            let err = format_error(&resealed(&blob, edit));
+            assert!(err.contains(why), "{err}");
+        }
+        assert_eq!(format_error(&blob[..8]), "blob of 8 bytes has no header");
+        assert_eq!(format_error(b"PKIT\0v2"), "not a phasekit blob");
+    }
+
+    /// v1 reserves every planned section; one the decoder cannot read yet must be empty, and a section's bytes are
+    /// read exactly.
+    #[test]
+    fn unfilled_sections_are_refused_until_their_step() {
+        let record = every_field();
+        let blob_with = |i: usize, edit: fn(&mut Vec<u8>)| {
+            let mut bodies = crate::blob::sections(&record);
+            edit(&mut bodies[i]);
+            crate::blob::assemble(&bodies)
+        };
+        let steps = [(3, "superancillary", "M5.2"), (4, "caloric curves", "M2.11"), (5, "ancillaries", "M6.3")];
+        let more = [(6, "transport", "M8.1"), (7, "surface tension", "M8.4")];
+        for (i, name, step) in steps.into_iter().chain(more) {
+            let err = format_error(&blob_with(i, |b| b.extend([0; 8])));
+            assert_eq!(err, format!("the {name} section lands at {step}"));
+        }
+        assert_eq!(format_error(&blob_with(0, |b| b.push(0))), "metadata section has bytes left over (1)");
+        assert_eq!(format_error(&blob_with(0, |b| _ = b.pop())), "metadata section is truncated");
+        assert_eq!(format_error(&blob_with(1, |b| b.push(99))), "eos section: unknown tag 99");
+        assert_eq!(format_error(&blob_with(9, |b| b.push(1))), "corrections section is truncated");
+        assert_eq!(FluidRecord::decode(&blob_with(4, |_| {})), Ok(record.clone()));
+        // The first power term's d (tag 1 after R, ρ_r, ρ_max and the tag-0 T_r): an exponent is an integer within
+        // MAX_POW.
+        let d_at = 3 * 8 + 9 + 1 + 2 * 8;
+        for (d, why) in
+            [(1.5, "eos section: d = 1.5 is not an exponent"), (17.0, "eos section: d = 17 is not an exponent")]
+        {
+            let mut bodies = crate::blob::sections(&record);
+            bodies[1][d_at..d_at + 8].copy_from_slice(&f64::to_le_bytes(d));
+            assert_eq!(format_error(&crate::blob::assemble(&bodies)), why);
+        }
+    }
+
+    /// PLAN.md M2.4: a source whose index names a fluid its blob does not hold is refused at first use: the registry
+    /// compares the decoded record's name with its index entry.
+    #[test]
+    fn record_name_must_match_the_index() {
+        #[derive(Debug)]
+        struct One(Vec<u8>, &'static str);
+        impl DataSource for One {
+            fn names(&self) -> Vec<Vec<String>> {
+                vec![vec![self.1.into()]]
+            }
+            fn blob(&self, _: FluidId) -> Result<Blob, LoadError> {
+                Ok(Blob::Shared(self.0.clone().into()))
+            }
+        }
+        let blob = FluidRecord::toy("B").unwrap().encode();
+        let wrong = crate::Registry::empty().with_source(Box::new(One(blob.clone(), "A")), DataSet::Parity).unwrap();
+        let err = wrong.get("A").unwrap_err().to_string();
+        assert!(err.contains("record name does not match its index entry"), "{err}");
+        let right = crate::Registry::empty().with_source(Box::new(One(blob, "B")), DataSet::Parity).unwrap();
+        assert_eq!(right.get("b").unwrap().info().name(), "B");
     }
 
     /// A residual kind without an evaluator is refused when the record compiles, never dropped from α^r.
