@@ -21,7 +21,7 @@
 //!         let state = water.flash(input, &FlashOptions::default())?;
 //!         let _ = (state.h(Basis::Mass), state.path());
 //!     }
-//!     // The sketch's embedded blobs are placeholders: the v1 decoder lands at M2.
+//!     // Until M4.1 Water's NonAnalytic terms have no evaluator: a typed load error, never a wrong value.
 //!     Err(Error::Load(LoadError::Format(_))) => {}
 //!     Err(e) => return Err(e),
 //! }

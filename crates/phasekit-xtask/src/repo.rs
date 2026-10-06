@@ -51,6 +51,37 @@ impl Repo {
         std::fs::read_to_string(self.path(rel)).map_err(|e| format!("cannot read {rel}: {e}"))
     }
 
+    pub fn read_bytes(&self, rel: &str) -> Result<Vec<u8>, String> {
+        std::fs::read(self.path(rel)).map_err(|e| format!("cannot read {rel}: {e}"))
+    }
+
+    /// Writes `bytes` to `rel`, creating its directory.
+    pub fn write_bytes(&self, rel: &str, bytes: &[u8]) -> Result<(), String> {
+        let path = self.path(rel);
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("cannot create the directory of {rel}: {e}"))?;
+        }
+        std::fs::write(&path, bytes).map_err(|e| format!("cannot write {rel}: {e}"))
+    }
+
+    /// The names of the files directly in `dir` (relative to the root), sorted; none when it does not exist.
+    pub fn file_names(&self, dir: &str) -> Result<Vec<String>, String> {
+        let Ok(entries) = std::fs::read_dir(self.path(dir)) else { return Ok(Vec::new()) };
+        let mut names = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("cannot list {dir}: {e}"))?;
+            if entry.file_type().map_err(|e| format!("cannot stat in {dir}: {e}"))?.is_file() {
+                names.push(entry.file_name().to_string_lossy().into_owned());
+            }
+        }
+        names.sort();
+        Ok(names)
+    }
+
+    pub fn remove(&self, rel: &str) -> Result<(), String> {
+        std::fs::remove_file(self.path(rel)).map_err(|e| format!("cannot remove {rel}: {e}"))
+    }
+
     pub fn write(&self, rel: &str, text: &str) -> Result<(), String> {
         std::fs::write(self.root.join(rel), text).map_err(|e| format!("cannot write {rel}: {e}"))
     }
