@@ -2,7 +2,8 @@
 # changed code that no test catches fails the gate unless it is excluded here, and every exclusion says why no test
 # can catch it.
 
-# Never copy gitignored files (reference/, the CoolProp checkout) into cargo-mutants' scratch tree.
+# Never copy gitignored files (reference/, the CoolProp checkout) into cargo-mutants' scratch tree; `gates mutants`
+# names the checkout's own reference/ in PHASEKIT_REFERENCE_DIR, so tests that read the pinned data still run (M2.1).
 gitignore = true
 # A mutant in phasekit-core must be caught by any workspace test, phasekit-verify's corpus included.
 test_workspace = true

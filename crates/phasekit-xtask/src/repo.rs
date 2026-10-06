@@ -19,19 +19,36 @@ pub struct MutantsRun {
     pub output: String,
 }
 
+/// Where `reference/` is when it is not under the root: cargo-mutants tests a copy of the tree without gitignored
+/// files (`.cargo/mutants.toml`), so `gates mutants` names the checkout's own `reference/` here, and the tests that
+/// read the pinned CoolProp data (datagen, M2) still find it.
+const REFERENCE_DIR: &str = "PHASEKIT_REFERENCE_DIR";
+
 /// The checkout this xtask binary was built from.
 pub struct Repo {
     root: PathBuf,
+    /// The gitignored `reference/` directory (the CoolProp checkout, local papers).
+    reference: PathBuf,
 }
 
 impl Repo {
     /// The repository root: two levels above this crate's manifest.
     pub fn locate() -> Repo {
-        Repo { root: Path::new(env!("CARGO_MANIFEST_DIR")).join("../..") }
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let reference = std::env::var_os(REFERENCE_DIR).map_or_else(|| root.join("reference"), PathBuf::from);
+        Repo { root, reference }
+    }
+
+    /// The path of `rel` (relative to the root); `reference/...` resolves into the reference directory.
+    fn path(&self, rel: &str) -> PathBuf {
+        match rel.strip_prefix("reference/") {
+            Some(rest) => self.reference.join(rest),
+            None => self.root.join(rel),
+        }
     }
 
     pub fn read(&self, rel: &str) -> Result<String, String> {
-        std::fs::read_to_string(self.root.join(rel)).map_err(|e| format!("cannot read {rel}: {e}"))
+        std::fs::read_to_string(self.path(rel)).map_err(|e| format!("cannot read {rel}: {e}"))
     }
 
     pub fn write(&self, rel: &str, text: &str) -> Result<(), String> {
@@ -42,12 +59,12 @@ impl Repo {
     /// path. `recursive` descends into subdirectories, skipping `target` and hidden ones. A missing `dir` has none.
     pub fn files(&self, dir: &str, ext: &str, recursive: bool) -> Result<Vec<(String, String)>, String> {
         let mut found = Vec::new();
-        if !self.root.join(dir).is_dir() {
+        if !self.path(dir).is_dir() {
             return Ok(found);
         }
         let mut pending = vec![dir.to_string()];
         while let Some(rel) = pending.pop() {
-            let entries = std::fs::read_dir(self.root.join(&rel)).map_err(|e| format!("cannot list {rel}: {e}"))?;
+            let entries = std::fs::read_dir(self.path(&rel)).map_err(|e| format!("cannot list {rel}: {e}"))?;
             for entry in entries {
                 let entry = entry.map_err(|e| format!("cannot list {rel}: {e}"))?;
                 let name = entry.file_name().to_string_lossy().into_owned();
@@ -130,7 +147,7 @@ impl Repo {
 
     /// Runs `cargo mutants --in-diff` on `diff` (configured by `.cargo/mutants.toml`), its progress on the terminal.
     /// Builds happen in cargo-mutants' own copy of the tree outside the repository, so an inherited
-    /// `CARGO_TARGET_DIR` is dropped. The output is removed after a successful run and kept after a failed one.
+    /// `CARGO_TARGET_DIR` is dropped and `reference/` is named through `PHASEKIT_REFERENCE_DIR`. The output is removed after a successful run and kept after a failed one.
     pub fn cargo_mutants(&self, diff: &str) -> Result<MutantsRun, String> {
         let dir = std::env::temp_dir().join(format!("phasekit-mutants-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -146,6 +163,7 @@ impl Repo {
             .arg(&dir)
             .current_dir(&self.root)
             .env_remove("CARGO_TARGET_DIR")
+            .env(REFERENCE_DIR, &self.reference)
             .status()
             .map_err(|e| format!("cannot run cargo mutants (scripts/check-toolchain.sh): {e}"))?;
         let out = dir.join("mutants.out");

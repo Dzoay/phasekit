@@ -7,11 +7,12 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-# Real crate (tools tier T4): owns the one serde mirror of CoolProp's JSON (serde + serde_json, S-12) and
-# reaches core's records through `phasekit_core::internal`; nalgebra/faer only here (dependencies R7/R9).
+# Real crate (tools tier T4): owns the one serde mirror of CoolProp's JSON (serde + serde_json, S-12; M2.1) and,
+# from M2.3, reaches core's records through `phasekit_core::internal`; nalgebra/faer only here (dependencies R7/R9).
 [dependencies]
-phasekit-core.workspace = true
 phasekit-verify.workspace = true # `MILESTONE`, read by `gates rot`
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 
 [lints]
 workspace = true
