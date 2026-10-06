@@ -32,7 +32,7 @@ const HEADER: usize = 32;
 const ENTRY: usize = 24;
 
 /// The sections of v1 in id order: id, name, and the step that fills a section this decoder cannot read yet.
-const SECTIONS: [(u32, &str, Option<&str>); 10] = [
+pub(crate) const SECTIONS: [(u32, &str, Option<&str>); 10] = [
     (1, "metadata", None),
     (2, "eos", None),
     (3, "superancillary fit", None),

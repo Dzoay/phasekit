@@ -263,6 +263,25 @@ impl Repo {
         })
     }
 
+    /// The files directly in `dir` at git revision `rev`: (name, bytes), sorted by name.
+    pub fn git_files(&self, rev: &str, dir: &str) -> Result<Vec<(String, Vec<u8>)>, String> {
+        let listing = self.git(&["ls-tree", "--name-only", rev, &format!("{dir}/")])?;
+        let mut files = Vec::new();
+        for path in listing.lines() {
+            let output = Command::new("git")
+                .args(["show", &format!("{rev}:{path}")])
+                .current_dir(&self.root)
+                .output()
+                .map_err(|e| format!("cannot run git show: {e}"))?;
+            if !output.status.success() {
+                return Err(format!("git show {rev}:{path} failed"));
+            }
+            files.push((path.rsplit('/').next().unwrap_or(path).to_string(), output.stdout));
+        }
+        files.sort();
+        Ok(files)
+    }
+
     /// An environment variable, if set.
     pub fn var(&self, name: &str) -> Option<String> {
         std::env::var_os(name).map(|v| v.to_string_lossy().into_owned())

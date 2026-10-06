@@ -87,6 +87,15 @@ pub mod internal {
     pub fn pack(fluids: &[PackFluid]) -> Vec<u8> {
         crate::blob::pack(fluids)
     }
+
+    /// The sections of blob format v1: (id, name, the step that fills a section the decoder cannot read yet). The
+    /// readable dump (`cargo xtask fluid`) covers every section the decoder reads (PLAN.md §2.5, M2.9a).
+    pub const BLOB_SECTIONS: &[(u32, &str, Option<&str>)] = &crate::blob::SECTIONS;
+
+    /// A model key read back from its stored value (the readable dump's superancillary stamp).
+    pub const fn model_key(raw: u64) -> crate::ModelKey {
+        crate::ModelKey::from_raw(raw)
+    }
 }
 
 // D8 by construction: shared types are Send + Sync + 'static, and `State` stays a small `Copy` value
