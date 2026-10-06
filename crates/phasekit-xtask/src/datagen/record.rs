@@ -44,7 +44,7 @@ pub fn to_record(source: &super::Source) -> Result<FluidRecord, String> {
 
     let limits = Limits::new(eos.states.sat_min_liquid.t, eos.t_max, eos.p_max).map_err(|e| at(&e.to_string()))?;
     let limits = limits.with_t_triple(eos.t_triple);
-    let source = Source { bibkey: eos.bibtex_eos.as_str().into(), doi: None, terms: DataTerms::Published };
+    let source = Source::new(eos.bibtex_eos.as_str(), None, DataTerms::Published);
     let info = &fluid.info;
     let mut fluid_record = FluidRecord::new(&info.name, eos.molar_mass, source, record, limits);
     fluid_record.aliases.clone_from(&info.aliases);
@@ -261,7 +261,7 @@ fn ideal(block: &IdealBlock, terms: &mut Vec<IdealTerm>) -> Result<(), String> {
 /// −99 999 999 999 in v8.0.0), an NFPA rating outside 0-4 (−1, ±999 999 999, 99 999 999, 1e30), and the ASHRAE 34
 /// class "UNKNOWN" or "?".
 fn environmental(env: &mirror::Environmental) -> Result<Environmental, String> {
-    let source = Source { bibkey: "CoolProp:INFO.ENVIRONMENTAL".into(), doi: None, terms: DataTerms::Restricted };
+    let source = Source::new("CoolProp:INFO.ENVIRONMENTAL", None, DataTerms::Restricted);
     let potential = |x: f64| (x >= 0.0).then_some(x);
     let rating = |x: Num| {
         let v = x.value();

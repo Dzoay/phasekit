@@ -4,6 +4,7 @@
 //! stamp must recompute ([`fnv`], M2.2); each default EOS maps into core's record, every JSON quirk resolved and every
 //! value validated ([`record`], M2.3). Later steps add the blobs (M2.4) and the index and features (M2.5).
 
+pub mod citations;
 pub mod corrections;
 pub mod fnv;
 pub mod index;
@@ -149,6 +150,9 @@ pub fn generate(repo: &Repo) -> Result<(Vec<Source>, Vec<index::Entry>), Vec<Str
     let mut records = sources.iter().map(record::to_record).collect::<Result<Vec<_>, _>>().map_err(|e| vec![e])?;
     let rows = corrections::parse(&repo.read(corrections::CORRECTIONS).map_err(|e| vec![e])?).map_err(|e| vec![e])?;
     corrections::attach(&rows, &mut records)?;
+    let bib = citations::parse_bib(&repo.read(citations::BIB).map_err(|e| vec![e])?);
+    let reviewed = citations::parse(&repo.read(citations::CITATIONS).map_err(|e| vec![e])?).map_err(|e| vec![e])?;
+    citations::attach(&sources, &mut records, &bib, &reviewed)?;
     let mut fluids = Vec::with_capacity(sources.len());
     for (source, record) in sources.iter().zip(&records) {
         fluids.push((source, blob(record).map_err(|e| vec![e])?));
@@ -216,7 +220,7 @@ pub fn main(args: &[String]) -> ExitCode {
     let stamps = sources.iter().filter(|s| matches!(check_stamp(s), Ok(Some(_)))).count();
     let eos: usize = sources.iter().map(|s| s.fluid.eos.len()).sum();
     println!("datagen: {} fluids, {eos} EOS entries, {stamps} source_eos_hash stamps recomputed", sources.len());
-    println!("datagen: {keys} index keys; blob v1 bytes per fluid: min {min}, median {median}, max {max}");
+    println!("datagen: {keys} index keys; blob bytes per fluid: min {min}, median {median}, max {max}");
     println!("datagen: wrote {} files under {}", outputs.len(), index::DATA_CRATE);
     ExitCode::SUCCESS
 }

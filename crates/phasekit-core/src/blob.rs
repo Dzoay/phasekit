@@ -22,12 +22,15 @@ use std::sync::Arc;
 
 use crate::data::{Edit, EosRecord, FluidRecord, MeltingSegment, Patch, SaStamp};
 use crate::error::LoadError;
-use crate::model::{CriticalOrigin, CriticalPoint, DataTerms, Limits, ModelKey, Source};
+use crate::model::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataTerms, Limits, ModelKey, Source};
 
 /// The first eight bytes of every v1 blob.
 const MAGIC: &[u8; 8] = b"PKITBLOB";
-/// The format version this decoder reads and this encoder writes.
-pub(crate) const VERSION: u32 = 1;
+/// The blob format version this decoder reads and this encoder writes. Version 2 (M2.10) adds the role-tagged citations
+/// to the filled metadata section; packs keep their own version.
+pub(crate) const VERSION: u32 = 2;
+/// The pack format version.
+const PACK_VERSION: u32 = 1;
 const HEADER: usize = 32;
 const ENTRY: usize = 24;
 
@@ -140,6 +143,12 @@ fn put_opt<T>(out: &mut Vec<u8>, x: Option<T>, put: impl FnOnce(&mut Vec<u8>, T)
 const TERMS: [(DataTerms, u8); 3] =
     [(DataTerms::Published, 0), (DataTerms::Unpublished, 1), (DataTerms::Restricted, 2)];
 const ORIGINS: [(CriticalOrigin, u8); 2] = [(CriticalOrigin::Published, 0), (CriticalOrigin::Model, 1)];
+const ROLES: [(CitationRole, u8); 4] = [
+    (CitationRole::Coefficients, 0),
+    (CitationRole::IdealGas, 1),
+    (CitationRole::Erratum, 2),
+    (CitationRole::Related, 3),
+];
 
 fn tag_of<T: PartialEq + Copy>(table: &[(T, u8)], x: T) -> u8 {
     table.iter().find(|(t, _)| *t == x).map_or(u8::MAX, |(_, tag)| *tag)
@@ -168,6 +177,12 @@ fn metadata(r: &FluidRecord) -> Vec<u8> {
     put_str(&mut out, &r.source.bibkey);
     put_opt(&mut out, r.source.doi.as_deref(), put_str);
     out.push(tag_of(&TERMS, r.source.terms));
+    put_u32(&mut out, r.source.citations.len() as u32);
+    for c in &r.source.citations {
+        put_str(&mut out, &c.key);
+        put_opt(&mut out, c.doi.as_deref(), put_str);
+        out.push(tag_of(&ROLES, c.role));
+    }
     out
 }
 
@@ -188,11 +203,19 @@ fn read_metadata(bytes: &[u8], eos: EosRecord) -> Result<FluidRecord, LoadError>
         let (t, p, rho) = (r.f64()?, r.f64()?, r.f64()?);
         Ok(CriticalPoint { t, p, rho, origin: from_tag(&ORIGINS, r.u8()?, "critical-point origin")? })
     })?;
-    let bibkey = r.str()?.into();
-    let doi = r.opt(Reader::str)?.map(Into::into);
+    let bibkey: String = r.str()?;
+    let doi = r.opt(Reader::str)?;
     let terms = from_tag(&TERMS, r.u8()?, "data terms")?;
+    let citations = (0..r.u32()?)
+        .map(|_| {
+            let (key, doi) = (r.str()?.into(), r.opt(Reader::str)?.map(Into::into));
+            Ok(Citation { key, doi, role: from_tag(&ROLES, r.u8()?, "citation role")? })
+        })
+        .collect::<Result<Vec<_>, LoadError>>()?;
     r.done()?;
-    let mut record = FluidRecord::new(&name, molar_mass, Source { bibkey, doi, terms }, eos, limits);
+    let mut source = Source::new(&bibkey, doi.as_deref(), terms);
+    source.citations = citations;
+    let mut record = FluidRecord::new(&name, molar_mass, source, eos, limits);
     (record.aliases, record.cas, record.refprop_name, record.inchi_key) = (aliases, cas, refprop_name, inchi_key);
     record.critical = critical;
     Ok(record)
@@ -343,7 +366,7 @@ fn validated_sections(bytes: &[u8]) -> Result<Vec<&[u8]>, LoadError> {
         return Err(bad(format!("blob says {length} bytes, has {}", bytes.len())));
     }
     if count != SECTIONS.len() {
-        return Err(bad(format!("blob lists {count} sections; version 1 has {}", SECTIONS.len())));
+        return Err(bad(format!("blob lists {count} sections; version {VERSION} has {}", SECTIONS.len())));
     }
     let checked = bytes.get(HEADER..).unwrap_or_default();
     if ModelKey::from_content(checked).get() != checksum {
@@ -406,7 +429,7 @@ pub(crate) fn pack(fluids: &[PackFluid]) -> Vec<u8> {
     }
     let mut out = Vec::with_capacity(HEADER + body.len());
     out.extend_from_slice(PACK_MAGIC);
-    put_u32(&mut out, VERSION);
+    put_u32(&mut out, PACK_VERSION);
     put_u32(&mut out, fluids.len() as u32);
     out.extend_from_slice(&((HEADER + body.len()) as u64).to_le_bytes());
     out.extend_from_slice(&ModelKey::from_content(&body).get().to_le_bytes());
@@ -422,8 +445,10 @@ pub(crate) fn unpack(bytes: &[u8]) -> Result<Vec<PackFluid>, LoadError> {
         return Err(bad("not a phasekit pack".into()));
     }
     let version = h.u32()?;
-    if version != VERSION {
-        return Err(bad(format!("pack version {version}; this build reads version {VERSION} (regenerate the pack)")));
+    if version != PACK_VERSION {
+        return Err(bad(format!(
+            "pack version {version}; this build reads version {PACK_VERSION} (regenerate the pack)"
+        )));
     }
     let (count, length, checksum) = (h.u32()?, h.u64()?, h.u64()?);
     if length != bytes.len() as u64 {

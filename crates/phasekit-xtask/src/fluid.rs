@@ -15,7 +15,7 @@ use phasekit_core::internal::{
     DoubleExponentialTerm, Edit, EosRecord, FluidRecord, GaoBTerm, GaussianTerm, IdealTerm, Lemmon2005Term,
     MeltingSegment, NonAnalyticTerm, OffsetReference, Patch, PowerTerm, SaStamp,
 };
-use phasekit_core::{CriticalOrigin, CriticalPoint, DataSet, DataTerms, Limits, Source};
+use phasekit_core::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataSet, DataTerms, Limits, Source};
 use serde_json::{Map, Value, json};
 
 use crate::repo::Repo;
@@ -86,7 +86,12 @@ pub fn to_json(r: &FluidRecord) -> Value {
         "refprop_name": opt_str(r.refprop_name.as_deref()),
         "inchi_key": opt_str(r.inchi_key.as_deref()),
         "molar_mass": num(r.molar_mass),
-        "source": {"bibkey": &*r.source.bibkey, "doi": opt_str(r.source.doi.as_deref()), "terms": terms_name(r.source.terms)},
+        "source": {
+            "bibkey": &*r.source.bibkey,
+            "doi": opt_str(r.source.doi.as_deref()),
+            "terms": terms_name(r.source.terms),
+            "citations": r.source.citations.iter().map(|c| json!({"key": &*c.key, "doi": opt_str(c.doi.as_deref()), "role": role_name(c.role)})).collect::<Vec<_>>(),
+        },
         "limits": {"t_min": num(l.t_min()), "t_max": num(l.t_max()), "p_max": num(l.p_max()), "t_triple": l.t_triple().map_or(Value::Null, num)},
         "critical": r.critical.map_or(Value::Null, |c| json!({"t": num(c.t), "p": num(c.p), "rho": num(c.rho), "origin": if c.origin == CriticalOrigin::Model { "Model" } else { "Published" }})),
         "eos": Value::Object(eos),
@@ -94,6 +99,15 @@ pub fn to_json(r: &FluidRecord) -> Value {
         "melting": r.melting.iter().map(|s| json!({"t0": num(s.t0), "p0": num(s.p0), "t_min": num(s.t_min), "t_max": num(s.t_max)})).collect::<Vec<_>>(),
         "corrections": r.corrections.iter().map(patch_json).collect::<Vec<_>>(),
     })
+}
+
+fn role_name(r: CitationRole) -> &'static str {
+    match r {
+        CitationRole::IdealGas => "IdealGas",
+        CitationRole::Erratum => "Erratum",
+        CitationRole::Related => "Related",
+        _ => "Coefficients",
+    }
 }
 
 fn terms_name(t: DataTerms) -> &'static str {
@@ -219,7 +233,17 @@ pub fn from_json(v: &Value) -> Result<FluidRecord, String> {
         "Restricted" => DataTerms::Restricted,
         other => return Err(format!("unknown data terms {other}")),
     };
-    let source = Source { bibkey: s(src, "bibkey")?.into(), doi: os(src, "doi").map(Into::into), terms };
+    let mut source = Source::new(&s(src, "bibkey")?, os(src, "doi").as_deref(), terms);
+    for c in list(src, "citations")? {
+        let role = match s(&c, "role")?.as_str() {
+            "Coefficients" => CitationRole::Coefficients,
+            "IdealGas" => CitationRole::IdealGas,
+            "Erratum" => CitationRole::Erratum,
+            "Related" => CitationRole::Related,
+            other => return Err(format!("unknown citation role {other}")),
+        };
+        source.citations.push(Citation { key: s(&c, "key")?.into(), doi: os(&c, "doi").map(Into::into), role });
+    }
     let lim = v.get("limits").ok_or("no limits")?;
     let limits = Limits::new(f(lim, "t_min")?, f(lim, "t_max")?, f(lim, "p_max")?).map_err(|e| e.to_string())?;
     let limits = match lim.get("t_triple").and_then(Value::as_f64) {
@@ -310,6 +334,18 @@ pub fn diff(old: &[FluidRecord], new: &[FluidRecord]) -> Vec<String> {
     out
 }
 
+/// `fluid diff --base <rev>`: the blobs of `rev` against `records`. Blobs in another format version (the change itself
+/// bumped it) cannot be decoded field by field: that is reported as one line, not as a failure.
+pub fn diff_base(rev: &str, files: Vec<(String, Vec<u8>)>, records: &[FluidRecord]) -> Result<Vec<String>, String> {
+    match decode_all(files) {
+        Ok(old) => Ok(diff(&old, records)),
+        Err(e) if e.contains("bad data: blob version") => {
+            Ok(vec![format!("{rev}: the blob format changed ({e}); no field-by-field diff")])
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// The records of the blobs in `files` (name, bytes), sorted by name.
 fn decode_all(files: Vec<(String, Vec<u8>)>) -> Result<Vec<FluidRecord>, String> {
     let mut records = Vec::new();
@@ -360,10 +396,7 @@ pub fn main(args: &[String]) -> ExitCode {
                 Ok(vec![dump(&applied(std::slice::from_ref(record), set)?[0])])
             }
             ["diff"] => Ok(diff(&applied(&records, DataSet::Parity)?, &applied(&records, DataSet::Corrected)?)),
-            ["diff", "--base", rev] => {
-                let files = repo.git_files(rev, BLOBS)?;
-                Ok(diff(&decode_all(files)?, &records))
-            }
+            ["diff", "--base", rev] => diff_base(rev, repo.git_files(rev, BLOBS)?, &records),
             _ => Err("usage: cargo xtask fluid list | show <name> [--corrected] | diff [--base <rev>]".into()),
         }
     };
@@ -433,6 +466,32 @@ mod tests {
         );
         let reserved = phasekit_core::internal::BLOB_SECTIONS.len() - read.len();
         assert_eq!(reserved, 5, "superancillary, caloric curves, ancillaries, transport, surface tension");
+    }
+
+    /// A base revision whose blobs use another format version is reported in one line; any other decode failure
+    /// is an error.
+    #[test]
+    fn diff_against_another_format_version_is_one_line() {
+        let repo = Repo::locate();
+        let name = "water.bin".to_string();
+        let blob = repo.read_bytes(&format!("{BLOBS}/{name}")).unwrap();
+        let records = records(&repo).unwrap();
+        assert!(
+            diff_base("main", vec![(name.clone(), blob.clone())], &records).unwrap().len() > 100,
+            "the other fluids"
+        );
+        let mut old = blob.clone();
+        old[8] = 1;
+        let lines = diff_base("main", vec![(name.clone(), old)], &records).unwrap();
+        assert_eq!(lines.len(), 1);
+        assert!(
+            lines[0].starts_with("main: the blob format changed (water.bin: bad data: blob version 1;"),
+            "{}",
+            lines[0]
+        );
+        let mut corrupt = blob;
+        corrupt[40] ^= 1;
+        assert!(diff_base("main", vec![(name, corrupt)], &records).is_err());
     }
 
     /// Every data-terms value and edit kind survives the round trip (the shipped data uses only some of them).

@@ -28,7 +28,7 @@ const T0: f64 = 273.16;
 
 impl ToyIce {
     fn new() -> Self {
-        let source = Source { bibkey: "toy-solid".into(), doi: None, terms: DataTerms::Published };
+        let source = Source::new("toy-solid", None, DataTerms::Published);
         let info = FluidInfo::new("ToyIce", 0.018_015_268, source, ModelKey::from_content(b"toy ice")).unwrap();
         ToyIce { info }
     }

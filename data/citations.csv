@@ -1,0 +1,30 @@
+# data/citations.csv (PLAN.md M2.10; ROT-142..144): reviewed additions to CoolProp's bibliography
+# (reference/CoolProp/CoolPropBibTeXLibrary.bib) for the default models. One row per BibTeX key:
+# - doi: the work's DOI or report id when the .bib has none (map 13 R2, §4); empty with a "waived:" note when the work
+#   has none (a book, a thesis, proceedings) or is unpublished;
+# - role: the key's role when it follows the first key of a composite citation (Coefficients, IdealGas, Erratum,
+#   Related; map 13 R5). The first key of BibTeX_EOS is always Coefficients;
+# - unpublished: "unpublished" when the model has no published paper, so no paper can arbitrate it (map 13 R7).
+# The note is the last column and may hold commas.
+key,doi,role,unpublished,note
+Akasaka-JCED-2019,10.1021/acs.jced.9b00007,,,the .bib says "submitted"; DOI found by OpenAlex (map 13 R2)
+Beckmueller-IJT-2019-octane,,,,waived: map 13 §4 gives J. Phys. Chem. Ref. Data 51, 043103 (2022) without a verified DOI
+deReuck-BOOK-1990,,,,waived: IUPAC monograph (a book), no DOI (map 13 §4)
+deReuck-BOOK-1993,,,,waived: IUPAC monograph (a book), no DOI (map 13 §4)
+deVries-ICR-1995,,,,waived: conference proceedings (ICR 1995), no DOI (map 13 §4)
+Gao-JCED-2016,10.1021/acs.jced.6b00195,,,DOI found by OpenAlex (map 13 §4)
+Gao-JPCRD-2020,10.1063/5.0128269,,,published as J. Phys. Chem. Ref. Data 52, 013102 (2023); the .bib holds a working title (map 13 R2)
+Herrig-JPCRD-2019,10.1063/1.5053993,,,published 2018 (map 13 R2)
+Lemmon-PROPYLENE-2013,,,unpublished,waived: a 2010 personal communication, never published (map 13 R7)
+Marx-BOOK-1992,,,,waived: a book, no DOI (map 13 §4)
+OrtizVega-JPCRD-2019,NIST IR 8474,,,published as NIST IR 8474 (2023), doi 10.6028/NIST.IR.8474; the .bib says unpublished (map 13 R2)
+Polt-CT-1992,,,,waived: Chem. Tech. (Leipzig) 1992 predates DOIs for the journal (map 13 §4)
+Stewart-JPCRD-1991,,Related,,cited beside Schmidt & Wagner 1985 for Oxygen; its role is not reviewed yet (map 13 R5)
+Thol-2012,,,unpublished,waived: unpublished (map 13 R7)
+Thol-CES-2015-CORR,,Erratum,,the erratum to Thol-CES-2015 (EthyleneOxide; map 13 R5)
+Thol-FPE-2019-alkanes-hexane,,,,waived: no DOI found (map 13 §4)
+Thol-FPE-2019-alkanes-pentane,,,,waived: no DOI found (map 13 §4)
+Thol-FPE-2019-siloxanes,10.1021/acs.iecr.9b00608,,,published in Ind. Eng. Chem. Res. (2019) (map 13 R2)
+Thol-HTHP-2012,,,,waived: High Temp.-High Press. (2012), no DOI found (map 13 §4)
+Thol-JPCRD-2019-Neon,,,unpublished,waived: "submitted" in 2019, no publication found (map 13 R7)
+Thol-THESIS-2015,,Related,,waived: a PhD thesis (Ruhr-Universität Bochum repository), cited beside the papers (map 13 §4)
