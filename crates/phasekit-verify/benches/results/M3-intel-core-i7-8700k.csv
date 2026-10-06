@@ -1,0 +1,11 @@
+# fixture: phasekit-bench/v1 (VERIFICATION.md §12; written by `cargo xtask bench --record`)
+# machine: intel-core-i7-8700k
+# columns: date,commit,step,bench,fluid,median,unit,cpu,os,rustc,governor
+2026-10-06,adc2073,M3.8,alphar_order2/residual,Methane,688.878,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-06,adc2073,M3.8,alphar_order2/residual,R134a,353.089,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-06,adc2073,M3.8,alphar_order2/residual,n-Heptane,222.504,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-06,adc2073,M3.8,alphar_order2/residual,n-Propane,389.632,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-06,adc2073,M3.8,alphar_order2/residual,overhead,31.270,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-06,adc2073,M3.8,lookup_by_name/alias,R134a,39.261,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-06,adc2073,M3.8,lookup_by_name/cas,R134a,32.172,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-06,adc2073,M3.8,lookup_by_name/name,R134a,39.006,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
