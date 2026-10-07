@@ -1059,7 +1059,10 @@ mod tests {
     #[test]
     fn caloric_section_round_trips() {
         let mut record = every_field();
-        assert_eq!(record.caloric_curves(), Err(LoadError::Format("no caloric curves: the fluid has no superancillary".into())));
+        assert_eq!(
+            record.caloric_curves(),
+            Err(LoadError::Format("no caloric curves: the fluid has no superancillary".into()))
+        );
         record.caloric = Some(curves(&record));
         let blob = record.encode();
         assert_eq!(FluidRecord::decode(&blob), Ok(record.clone()));

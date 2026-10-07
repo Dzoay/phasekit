@@ -15,6 +15,11 @@ use super::superanc::{DEGREE, lobatto_fit};
 /// Class `CaloricFit` (VERIFICATION.md §5): 2e-6 of max(|value|, floor), floor R·T for h and u, R for s.
 pub const FIT_TOL: f64 = 2e-6;
 
+/// Class `CaloricFit`'s floors at temperature `t` for gas constant `r`: R·T for h and u, R for s.
+fn floors(r: f64, t: f64) -> (f64, f64) {
+    (r * t, r)
+}
+
 /// x of the Chebyshev-Lobatto node k on [−1, 1].
 fn node(k: usize) -> f64 {
     math::cos(std::f64::consts::PI * k as f64 / DEGREE as f64)
@@ -70,7 +75,7 @@ pub fn curves(record: &FluidRecord, sa: &Superancillary) -> Result<CaloricCurves
             Ok([l.h(m), v.h(m), l.s(m), v.s(m), l.u(m), v.u(m)])
         };
         let rows =
-            fit_piece(values, |x| (r * t_of(x), r)).map_err(|e| format!("caloric piece {i} [{a}, {b}] K: {e}"))?;
+            fit_piece(values, |x| floors(r, t_of(x))).map_err(|e| format!("caloric piece {i} [{a}, {b}] K: {e}"))?;
         for (curve, row) in curves.iter_mut().zip(rows) {
             curve.push(row);
         }
@@ -98,5 +103,31 @@ mod tests {
         assert!(err.starts_with("the s'' fit misses the EOS by "), "{err}");
         let failing = |_: f64| Err::<[f64; 6], String>("no state".into());
         assert_eq!(fit_piece(failing, |_| (1.0, 1.0)), Err("no state".into()));
+    }
+
+    /// The fit is checked at the 12 midpoints between the 13 nodes and nowhere else, each column against its own floor
+    /// (R for s′ and s″, R·T for the rest), and a miss of exactly `FIT_TOL` passes.
+    #[test]
+    fn fit_check_points_floors_and_boundary() {
+        let nodes: Vec<f64> = (0..=DEGREE).map(node).collect();
+        let midpoints: Vec<f64> = nodes.windows(2).map(|w| (w[0] + w[1]) / 2.0).collect();
+        let only_there = |x: f64| {
+            if nodes.contains(&x) || midpoints.contains(&x) { Ok([0.0; 6]) } else { Err(format!("evaluated at {x}")) }
+        };
+        assert_eq!(fit_piece(only_there, |_| (1.0, 1.0)).map(|rows| rows[0]), Ok([0.0; 13]));
+        // A kink of 1e-7·|x| misses the degree-12 fit by ~1e-9: within 2e-6 of a floor of 1, far outside it of 1e-9.
+        let kink = |columns: [bool; 6]| move |x: f64| Ok(columns.map(|on| if on { 1e-7 * x.abs() } else { 0.0 }));
+        let entropy = [false, false, true, true, false, false];
+        let energy = entropy.map(|on| !on);
+        assert!(fit_piece(kink(entropy), |_| (1e-9, 1.0)).is_ok(), "s′ and s″ take the entropy floor");
+        assert!(fit_piece(kink(energy), |_| (1.0, 1e-9)).is_ok(), "h and u take the energy floor");
+        assert!(fit_piece(kink(entropy), |_| (1.0, 1e-9)).is_err());
+        assert!(fit_piece(kink(energy), |_| (1e-9, 1.0)).is_err());
+        // Zero at the nodes (so the fit is zero) and FIT_TOL between them: a miss of exactly FIT_TOL × floor 1.
+        let edge = |x: f64| Ok([if nodes.contains(&x) { 0.0 } else { FIT_TOL }; 6]);
+        assert!(fit_piece(edge, |_| (1.0, 1.0)).is_ok());
+        let over = |x: f64| Ok([if nodes.contains(&x) { 0.0 } else { 2.0 * FIT_TOL }; 6]);
+        assert!(fit_piece(over, |_| (1.0, 1.0)).is_err());
+        assert_eq!(floors(8.0, 300.0), (2400.0, 8.0));
     }
 }
