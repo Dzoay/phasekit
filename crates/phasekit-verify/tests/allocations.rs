@@ -64,3 +64,49 @@ fn first_caloric_query_builds_nothing() {
     assert_eq!(counted.count_total, 0, "{counted:?}");
     assert!(first.is_some_and(|values| values.iter().all(|v| v.is_finite())));
 }
+
+/// ARCHITECTURE.md §7, ROT-014 (PLAN.md M5.8): once Water is decoded and its saturation curve materialised, a DT flash
+/// allocates nothing, single-phase or two-phase, nor does reading its properties.
+#[test]
+fn dt_flash_allocates_nothing() {
+    let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+    let water = registry.get("Water").unwrap();
+    let inputs = [(10.0, 700.0), (55_400.0, 300.0), (1_000.0, 400.0)].map(|(rho, t)| {
+        phasekit_core::Input::dt(
+            phasekit_core::Density::molar(rho).unwrap(),
+            phasekit_core::Temperature::new(t).unwrap(),
+        )
+    });
+    water.state(inputs[2]).unwrap(); // decodes the superancillary
+    let counted = allocation_counter::measure(|| {
+        for input in inputs {
+            let state = water.state(std::hint::black_box(input)).unwrap();
+            std::hint::black_box((
+                state.p(),
+                state.h(phasekit_core::Basis::Molar),
+                state.cp(phasekit_core::Basis::Molar).ok(),
+            ));
+        }
+    });
+    assert_eq!(counted.count_total, 0, "{counted:?}");
+}
+
+/// ARCHITECTURE.md §7 (PLAN.md M5.8): after the first point has materialised what it needs, a batch of DT points into
+/// caller-owned buffers allocates nothing per point, refusals (`Undefined` Q, cp in the dome) included.
+#[test]
+fn batch_point_allocates_nothing() {
+    use phasekit_core::batch::{self, BatchRequest, Status};
+    use phasekit_core::{Basis, Pair, Prop};
+    let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+    let water = registry.get("Water").unwrap();
+    let (x, y) = ([10.0, 55_400.0, 1_000.0, 20.0], [700.0, 300.0, 400.0, 500.0]);
+    let outputs = [Prop::P, Prop::Hmolar, Prop::Cpmolar, Prop::Q];
+    let req = BatchRequest::new(Pair::DT, Basis::Molar, &x, &y, &outputs);
+    let (mut out, mut status) = ([0.0; 16], [Status::Other; 16]);
+    batch::evaluate(water, &req, &mut out, &mut status).unwrap(); // warm-up: decodes the superancillary
+    let counted = allocation_counter::measure(|| {
+        std::hint::black_box(batch::evaluate(water, &req, &mut out, &mut status).unwrap());
+    });
+    assert_eq!(counted.count_total, 0, "{counted:?}");
+    assert!(status.contains(&Status::Undefined) && status.contains(&Status::Ok), "{status:?}");
+}
