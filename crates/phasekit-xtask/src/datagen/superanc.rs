@@ -100,7 +100,7 @@ pub fn extrema(breaks: &[f64], curve: &[[f64; 13]]) -> Vec<f64> {
                 zero = zero.or(Some(t_of(x)));
                 continue;
             }
-            if let Some((j, x0, _)) = last.filter(|&(_, _, s0)| s0 * s < 0.0) {
+            if let Some((j, x0, _)) = last.filter(|&(_, _, s0): &(usize, f64, f64)| s0.signum() != s.signum()) {
                 found.push(match zero {
                     Some(t) => t,
                     None if j == i => t_of(bisect(&slope, x0, x)),
@@ -110,7 +110,7 @@ pub fn extrema(breaks: &[f64], curve: &[[f64; 13]]) -> Vec<f64> {
             (last, zero) = (Some((i, x, s)), None);
         }
     }
-    found.retain(|&t| breaks[0] < t && t < breaks[breaks.len() - 1]);
+    // Strictly inside the range: a change of sign needs a nonzero sample on each side of it.
     found
 }
 
@@ -238,6 +238,48 @@ mod tests {
         let mut line = [0.0; 13];
         line[1] = 1.0;
         assert!(extrema(&breaks, &[line, line]).is_empty());
+    }
+
+    /// A file's superancillary from JSON pieces: `p` is given per piece as (T − 3)² + 1, written in each piece's x.
+    fn json(breaks: &[f64], p_breaks: &[f64]) -> mirror::Superancillary {
+        let pieces = |breaks: &[f64], f: &dyn Fn(f64, f64) -> [f64; 13]| {
+            let list: Vec<serde_json::Value> = breaks
+                .windows(2)
+                .map(|w| serde_json::json!({"xmin": w[0], "xmax": w[1], "coef": f(w[0], w[1]).to_vec()}))
+                .collect();
+            serde_json::Value::Array(list)
+        };
+        let constant = |value: f64| {
+            move |_: f64, _: f64| -> [f64; 13] { std::array::from_fn(|j| if j == 0 { value } else { 0.0 }) }
+        };
+        let parabola = |a: f64, b: f64| -> [f64; 13] {
+            let (m, h) = ((a + b) / 2.0, (b - a) / 2.0);
+            std::array::from_fn(|j| match j {
+                0 => (m - 3.0) * (m - 3.0) + h * h / 2.0 + 1.0,
+                1 => 2.0 * h * (m - 3.0),
+                2 => h * h / 2.0,
+                _ => 0.0,
+            })
+        };
+        let value = serde_json::json!({
+            "jexpansions_rhoL": pieces(breaks, &constant(1000.0)),
+            "jexpansions_rhoV": pieces(breaks, &constant(1.0)),
+            "jexpansions_p": pieces(p_breaks, &parabola),
+            "crit_anc": {}, "meta": {},
+        });
+        serde_json::from_value(value).unwrap()
+    }
+
+    /// The three curves must share their pieces; p's extremum at the boundary 3 K starts the inverse at the next
+    /// boundary, 4 K, where T(ln p) is smooth (at 3 K it is not, and no fit would pass).
+    #[test]
+    fn pieces_are_shared_and_the_inverse_starts_above_p_extrema() {
+        let breaks = [2.0, 3.0, 4.0, 5.0];
+        let sa = superancillary(&json(&breaks, &breaks)).unwrap();
+        assert_eq!(sa.extrema[2], vec![3.0]);
+        assert_eq!(sa.ln_p_breaks[0], math::ln(2.0)); // p(4 K) = 1 + 1
+        let shared = "SUPERANCILLARY: the rhoL, rhoV and p expansions must share their pieces";
+        assert_eq!(superancillary(&json(&breaks, &[2.0, 3.5, 4.0, 5.0])).unwrap_err(), shared);
     }
 
     /// The 130 v8.0.0 superancillaries (PLAN.md M5.2): the extrema found are the density maxima of liquid water and

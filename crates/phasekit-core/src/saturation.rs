@@ -153,11 +153,13 @@ impl SaturationCurve for SuperancillaryCurve {
     /// ρ′, ρ″ and p at T from one piece lookup (the three curves share their pieces); refused outside the fit.
     fn at_t(&self, t: f64) -> Result<SatPair, Error> {
         let (t_min, t_max) = self.t_range();
-        let i = piece(&self.data.breaks, t).ok_or(match t {
-            _ if t < t_min => Error::Domain(DomainError::BelowMinTemperature { t, t_min }),
-            _ if t > t_max => Error::Domain(DomainError::AboveMaxTemperature { t, t_max }),
-            _ => Error::InvalidInput { quantity: "T", value: t },
-        })?;
+        if t < t_min {
+            return Err(DomainError::BelowMinTemperature { t, t_min }.into());
+        }
+        if t > t_max {
+            return Err(DomainError::AboveMaxTemperature { t, t_max }.into());
+        }
+        let i = piece(&self.data.breaks, t).ok_or(Error::InvalidInput { quantity: "T", value: t })?;
         let (a, b) = (self.data.breaks.get(i).copied(), self.data.breaks.get(i + 1).copied());
         let x = scaled(t, a.unwrap_or(t_min), b.unwrap_or(t_max));
         let [rho_l, rho_v, p] =
@@ -229,6 +231,7 @@ mod tests {
             assert_eq!(piece(&breaks, x), None, "x = {x}");
         }
         assert_eq!((piece(&[1.0], 1.0), piece(&[], 1.0)), (None, None));
+        assert_eq!((piece(&[1.0, 2.0], 1.5), piece(&[1.0, 2.0], 2.0)), (Some(0), Some(0)));
         assert_eq!(scaled(3.0, 2.0, 4.0), 0.0);
         assert_eq!((scaled(2.0, 2.0, 4.0), scaled(4.0, 2.0, 4.0)), (-1.0, 1.0));
     }
@@ -269,6 +272,7 @@ mod tests {
         assert_eq!(sat.dew, SatSide { t: 250.0, p: 2500.0, rho: 25.0 });
         assert!(sat.is_pure());
         assert_eq!(curve.at_t(400.0).unwrap().dew.rho, 40.0);
+        assert_eq!(curve.at_t(200.0).unwrap().bubble.rho, 800.0);
         let rescaled = SuperancillaryCurve::new(synthetic(), SaFreshness::Rescaled { p: 1.5, rho: 0.5 });
         let r = rescaled.at_t(350.0).unwrap();
         let f = curve.at_t(350.0).unwrap();
