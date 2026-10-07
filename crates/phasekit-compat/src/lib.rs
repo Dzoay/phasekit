@@ -184,4 +184,74 @@ mod tests {
         assert_eq!(format!("{}", CompatError::UnknownOutput("X".into())), "unknown output key `X`");
         assert_eq!(props_si("P", "T", 700.0, "Dmolar", 10.0, "Water"), call("P", "T", "Dmolar"));
     }
+
+    /// Every key of the grammar reaches its kernel name, CoolProp's spellings and one-letter aliases (map 01 §4a): an
+    /// output key through `props_si_in` is `Fluid::prop` of the same DT state, bit for bit or the same refusal; an
+    /// input key builds its own pair (refused by name where the kernel has no flash for it yet) and basis.
+    #[test]
+    fn every_key_reaches_its_kernel_name() {
+        use phasekit_core::{Density, Temperature};
+        let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+        let water = registry.get("Water").unwrap();
+        let dt = |rho| Input::dt(rho, Temperature::new(700.0).unwrap());
+        let state = water.state(dt(Density::molar(10.0).unwrap())).unwrap();
+        let outputs = [
+            ("T", Prop::T),
+            ("P", Prop::P),
+            ("Q", Prop::Q),
+            ("D", Prop::Dmass),
+            ("Dmass", Prop::Dmass),
+            ("Dmolar", Prop::Dmolar),
+            ("H", Prop::Hmass),
+            ("Hmass", Prop::Hmass),
+            ("Hmolar", Prop::Hmolar),
+            ("S", Prop::Smass),
+            ("Smass", Prop::Smass),
+            ("Smolar", Prop::Smolar),
+            ("U", Prop::Umass),
+            ("Umass", Prop::Umass),
+            ("Umolar", Prop::Umolar),
+            ("C", Prop::Cpmass),
+            ("Cpmass", Prop::Cpmass),
+            ("Cpmolar", Prop::Cpmolar),
+            ("O", Prop::Cvmass),
+            ("Cvmass", Prop::Cvmass),
+            ("Cvmolar", Prop::Cvmolar),
+            ("A", Prop::SpeedOfSound),
+            ("speed_of_sound", Prop::SpeedOfSound),
+            ("Z", Prop::Z),
+            ("Cp0molar", Prop::Cp0molar),
+            ("Cp0mass", Prop::Cp0mass),
+            ("M", Prop::MolarMass),
+            ("molar_mass", Prop::MolarMass),
+            ("V", Prop::Viscosity),
+            ("viscosity", Prop::Viscosity),
+            ("L", Prop::Conductivity),
+            ("conductivity", Prop::Conductivity),
+            ("I", Prop::SurfaceTension),
+            ("surface_tension", Prop::SurfaceTension),
+        ];
+        for (key, prop) in outputs {
+            let got = props_si_in(&registry, key, "T", 700.0, "Dmolar", 10.0, "Water").map(f64::to_bits);
+            assert_eq!(got, water.prop(&state, prop).map(f64::to_bits).map_err(CompatError::Core), "{key}");
+        }
+        // A density key's basis reaches the flash.
+        let mass = water.state(dt(Density::mass(0.18).unwrap())).unwrap().p();
+        for key in ["D", "Dmass"] {
+            assert_eq!(props_si_in(&registry, "P", "T", 700.0, key, 0.18, "Water"), Ok(mass), "{key}");
+        }
+        // The other inputs with T: their pair, which the kernel refuses by name until its flash lands (M6, M7).
+        let others = [("P", Var::P), ("Q", Var::Q), ("H", Var::H), ("Hmass", Var::H), ("Hmolar", Var::H)];
+        let others = others.into_iter().chain([("S", Var::S), ("Smass", Var::S), ("Smolar", Var::S)]);
+        for (key, var) in others.chain([("U", Var::U), ("Umass", Var::U), ("Umolar", Var::U)]) {
+            let (pair, _) = Pair::from_vars(Var::T, var).unwrap();
+            let refused = props_si_in(&registry, "P", "T", 700.0, key, 0.5, "Water");
+            assert_eq!(refused, Err(CompatError::Core(Error::Unsupported { pair })), "{key}");
+        }
+        // Two keys of one basis pass the basis check; two of different bases do not.
+        let same = props_si_in(&registry, "P", "Dmolar", 10.0, "Hmolar", 1.0, "Water");
+        assert_eq!(same, Err(CompatError::Core(Error::Unsupported { pair: Pair::DH })));
+        let mixed = props_si_in(&registry, "P", "Dmass", 0.18, "Hmolar", 1.0, "Water");
+        assert_eq!(mixed, Err(CompatError::InvalidPair("Dmass".into(), "Hmolar".into())));
+    }
 }
