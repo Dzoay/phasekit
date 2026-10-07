@@ -244,6 +244,20 @@ mod tests {
         }
     }
 
+    /// The scales are `majorant::eos` at τ = T_r/T and δ = ρ/ρ_r plus the ideal part's, entry by entry (Water at 400 K
+    /// and 2ρ_r, where T_r/T, T_r·T and T_r mod T, or ρ/ρ_r, ρ·ρ_r and ρ mod ρ_r, give different scales).
+    #[test]
+    fn majorants_are_the_term_scales_at_tau_and_delta() {
+        let record = phasekit_core::internal::record(phasekit_core::Registry::embedded().unwrap(), "Water").unwrap();
+        let ideal = IdealScale::new(&record).unwrap();
+        let (e, t) = (&record.eos, 400.0);
+        let rho = 2.0 * e.rho_reducing;
+        let m = Majorants::at(&record, &ideal, t, rho);
+        let want = |i, j| majorant::eos(e, e.t_reducing / t, 2.0, i, j) + ideal.get(t, rho, i, j);
+        let got = [m.m00, m.m10, m.m01, m.m20, m.m11, m.m02];
+        assert_eq!(got, [want(0, 0), want(1, 0), want(0, 1), want(2, 0), want(1, 1), want(0, 2)]);
+    }
+
     /// Every relation's carried scale by hand, at a bundle with x = A01 − A11 = 1, D = 2·A01 + A02 = 2, A20 = −4 and
     /// distinct M_ij (R = 2, T = 3, RT = 6, ρ = 5, M = 0.5): w² = RT·(D + x²/4)/M = 27.
     #[test]
