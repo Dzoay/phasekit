@@ -33,6 +33,12 @@ pub enum Prop {
     /// Ideal-gas isobaric heat capacity: needs the model's ideal part (`ThermoModel::derivs`).
     Cp0molar,
     Cp0mass,
+    /// Residual enthalpy RT·(A10^r + A01^r): needs the model's residual part (`ThermoModel::derivs`).
+    HmolarResidual,
+    /// Residual entropy R·(A10^r − A00^r).
+    SmolarResidual,
+    /// Residual Gibbs energy RT·(A00^r + A01^r).
+    GmolarResidual,
     MolarMass,
     Viscosity,
     Conductivity,

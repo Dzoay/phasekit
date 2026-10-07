@@ -560,6 +560,21 @@ EOS_OUTPUTS = [
     ("Cvirial", "m6/mol2", lambda CP, s: s.Cvirial()),
     ("dBvirial_dT", "m3/mol/K", lambda CP, s: s.dBvirial_dT()),
     ("dCvirial_dT", "m6/mol2/K", lambda CP, s: s.dCvirial_dT()),
+    ("cp0molar", "J/mol/K", lambda CP, s: s.cp0molar()),
+    ("hmolar_residual", "J/mol", lambda CP, s: s.hmolar_residual()),
+    ("smolar_residual", "J/mol/K", lambda CP, s: s.smolar_residual()),
+    ("gmolar_residual", "J/mol", lambda CP, s: s.gibbsmolar_residual()),
+]
+# Since M5.5, 12 first partials (∂of/∂wrt)_at: of = v[i], wrt = v[i + 2], at = v[i + 5] (mod 12) over CoolProp's 12
+# first-order variables, so each is once differentiated, once the variable and once held constant, and no partial
+# holds the quantity it differentiates by (map 01 section 4a).
+EOS_PARTIAL_VARS = ["T", "P", "Dmolar", "Dmass", "Hmolar", "Hmass", "Smolar", "Smass", "Umolar", "Umass", "Gmolar",
+                    "Gmass"]
+EOS_PARTIALS = [(EOS_PARTIAL_VARS[i], EOS_PARTIAL_VARS[(i + 2) % 12], EOS_PARTIAL_VARS[(i + 5) % 12]) for i in range(12)]
+EOS_OUTPUTS += [
+    (f"d{of}_d{wrt}_{at}", "-",
+     lambda CP, s, of=of, wrt=wrt, at=at: s.first_partial_deriv(*(getattr(CP, f"i{v}") for v in (of, wrt, at))))
+    for of, wrt, at in EOS_PARTIALS
 ]
 EOS_COLUMNS = ["T", "rhomolar", "region", "status", *(name for name, _, _ in EOS_OUTPUTS)]
 EOS_UNITS = ["K", "mol/m3", "-", "-", *(unit for _, unit, _ in EOS_OUTPUTS)]

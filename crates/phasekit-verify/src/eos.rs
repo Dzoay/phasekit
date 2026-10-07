@@ -5,8 +5,8 @@
 
 use phasekit_core::internal::FluidRecord;
 use phasekit_core::{
-    Basis, Bundle, Density, DerivVar, DomainPolicy, Error, FlashOptions, Fluid, Input, Order, Partial, Phase, State,
-    Temperature, math,
+    Basis, Bundle, Density, DerivVar, DomainPolicy, Error, FlashOptions, Fluid, Input, ModelKey, Order, Partial, Phase,
+    Prop, State, Temperature, math,
 };
 
 use crate::term::{IdealScale, report};
@@ -37,6 +37,99 @@ pub const COLUMNS: [(&str, Floor); 10] = [
     ("Z", Floor::Value),
     ("dpdrho_T", Floor::PressureOver(DerivVar::Dmolar)),
     ("dpdT_rho", Floor::PressureOver(DerivVar::T)),
+];
+
+/// CoolProp's 12 first-order variables in the order of `first_partial_deriv` (map 01 §4a).
+pub const VARIABLES: [DerivVar; 12] = [
+    DerivVar::T,
+    DerivVar::P,
+    DerivVar::Dmolar,
+    DerivVar::Dmass,
+    DerivVar::Hmolar,
+    DerivVar::Hmass,
+    DerivVar::Smolar,
+    DerivVar::Smass,
+    DerivVar::Umolar,
+    DerivVar::Umass,
+    DerivVar::Gmolar,
+    DerivVar::Gmass,
+];
+
+/// The 12 first partials of an `eos` fixture since M5.5: (∂v_i/∂v_(i+2))_(v_(i+5)), indices mod 12, so each variable is
+/// once differentiated, once the variable and once held constant (gen.py `EOS_PARTIALS`).
+pub fn partials() -> [Partial; 12] {
+    core::array::from_fn(|i| Partial { of: VARIABLES[i], wrt: VARIABLES[(i + 2) % 12], at: VARIABLES[(i + 5) % 12] })
+}
+
+/// The fixture column of a partial: `d{of}_d{wrt}_{at}` with CoolProp's names.
+pub fn partial_column(p: Partial) -> String {
+    let name = |v: DerivVar| format!("{v:?}");
+    format!("d{}_d{}_{}", name(p.of), name(p.wrt), name(p.at))
+}
+
+/// A first-order variable's value at `state`.
+pub fn variable(state: &State, v: DerivVar) -> f64 {
+    let (m, k) = (Basis::Molar, Basis::Mass);
+    match v {
+        DerivVar::T => state.t(),
+        DerivVar::P => state.p(),
+        DerivVar::Dmolar => state.rho(m),
+        DerivVar::Dmass => state.rho(k),
+        DerivVar::Hmolar => state.h(m),
+        DerivVar::Hmass => state.h(k),
+        DerivVar::Smolar => state.s(m),
+        DerivVar::Smass => state.s(k),
+        DerivVar::Umolar => state.u(m),
+        DerivVar::Umass => state.u(k),
+        DerivVar::Gmolar => state.g(m),
+        DerivVar::Gmass => state.g(k),
+        _ => f64::NAN,
+    }
+}
+
+/// One entry of a bundle, by reference.
+type Entry = fn(&mut Bundle) -> &mut f64;
+
+/// Σ_ij |∂P/∂A_ij|·M_ij of the first partial `p` at the bundle `b`: the `Term` scales carried through the Jacobian
+/// ratio, each sensitivity the largest central difference of the ratio in that entry over steps of 1e-8 to 1e-12 of its
+/// scale. A partial can be nearly singular, (∂ρ/∂h)_u of a dilute gas (its Jacobian denominator ≈ 1e-10 of its
+/// summands), where a wider step crosses the singularity and underestimates the slope; the rounding noise of the narrowest
+/// step adds at most about 2e-4·|P| to the carried scale, which `Term`'s 1e-13 turns into 2e-17·|P|. NaN if the state
+/// cannot be built.
+pub fn carried_partial(p: Partial, b: &Bundle, m: &Majorants, r: f64, t: f64, rho: f64, molar_mass: f64) -> f64 {
+    let key = ModelKey::from_content(b"carried");
+    let at = |b: &Bundle| {
+        State::from_total(key, t, rho, r, molar_mass, Phase::Gas, b).and_then(|s| s.partial(p)).unwrap_or(f64::NAN)
+    };
+    let entries: [(Entry, f64); 6] = [
+        (|b| &mut b.a00, m.m00),
+        (|b| &mut b.a10, m.m10),
+        (|b| &mut b.a01, m.m01),
+        (|b| &mut b.a20, m.m20),
+        (|b| &mut b.a11, m.m11),
+        (|b| &mut b.a02, m.m02),
+    ];
+    entries
+        .iter()
+        .map(|(entry, scale)| {
+            let size = scale.max(entry(&mut b.clone()).abs());
+            let slope = |step: f64| {
+                let (mut up, mut down) = (*b, *b);
+                *entry(&mut up) += step;
+                *entry(&mut down) -= step;
+                ((at(&up) - at(&down)) / (2.0 * step)).abs()
+            };
+            (8..=12).map(|k| slope(size * math::powi(10.0, -k))).fold(0.0, f64::max) * scale
+        })
+        .sum()
+}
+
+/// cp⁰ and the residual parts of an `eos` fixture since M5.5, with their `Prop` floors and their keys.
+pub const PARTS: [(&str, Floor, Prop); 4] = [
+    ("cp0molar", Floor::Entropy, Prop::Cp0molar),
+    ("hmolar_residual", Floor::Energy, Prop::HmolarResidual),
+    ("smolar_residual", Floor::Entropy, Prop::SmolarResidual),
+    ("gmolar_residual", Floor::Energy, Prop::GmolarResidual),
 ];
 
 /// The `Prop` scale max(|want|, floor) of an output whose oracle value is `want`, at (T, ρ) where the oracle's pressure
@@ -176,6 +269,72 @@ impl EosCheck {
                 let bound = ToleranceClass::Prop.bound_carried(scale(floor, want, r, t, rho, p), window, carried);
                 self.checked += 1;
                 match fixture.check_bound(row, column, output(&state, column), bound.unwrap_or(0.0)) {
+                    Ok(ratio) => self.headroom = self.headroom.max(ratio),
+                    Err(CheckError::Mismatch(m)) => self.failures.push(m.to_string()),
+                    Err(e) => self.failures.push(format!("row {row}, {column}: {e:?}")),
+                }
+            }
+        }
+    }
+
+    /// Checks the 12 first partials (`parts` false) or cp⁰ and the residual parts (`parts` true; M5.5) of `rows` against
+    /// `fluid`: class `Prop`, a partial ∂X/∂Y floored at |X|/|Y| at the state and with `Term` carried through its
+    /// Jacobian ratio ([`carried_partial`]; VERIFICATION.md §5).
+    pub fn partial_rows(
+        &mut self,
+        fixture: &Fixture<'_>,
+        rows: &[usize],
+        fluid: &Fluid,
+        record: &FluidRecord,
+        parts: bool,
+    ) {
+        let (Some(eos), Ok(ideal)) = (fluid.model().helmholtz(), IdealScale::new(record)) else {
+            self.failures.push(format!("{}: not a Helmholtz fluid", record.name));
+            return;
+        };
+        let (r, molar_mass) = (eos.gas_constant(), fluid.info().molar_mass());
+        let critical = fluid.model().critical_point();
+        for &row in rows {
+            let number = |column: &str| fixture.value(row, column);
+            let (Some(t), Some(rho)) = (number("T"), number("rhomolar")) else {
+                self.failures.push(format!("row {row}: T or rhomolar is missing"));
+                continue;
+            };
+            let Ok(state) = state(fluid, t, rho) else {
+                self.failures.push(format!("row {row} (T = {t}, ρ = {rho}): the flash failed"));
+                continue;
+            };
+            let window = critical.map_or(Window::Regular, |c| Window::at(t, rho, c.t, c.rho));
+            let bundle = (eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two)).bundle();
+            let majorants = Majorants::at(record, &ideal, t, rho);
+            let mut entries: Vec<(String, f64, f64, f64)> = partials()
+                .into_iter()
+                .filter(|_| !parts)
+                .map(|p| {
+                    let floor = (variable(&state, p.of) / variable(&state, p.wrt)).abs();
+                    let spread =
+                        bundle.as_ref().map_or(f64::NAN, |b| carried_partial(p, b, &majorants, r, t, rho, molar_mass));
+                    (partial_column(p), state.partial(p).unwrap_or(f64::NAN), floor, spread)
+                })
+                .collect();
+            // c_p⁰ = R·(1 − A20⁰) and the residual parts: the ideal or the residual `Term` scales through each relation.
+            let e = &record.eos;
+            let residual = |i, j| majorant::eos(e, e.t_reducing / t, rho / e.rho_reducing, i, j);
+            let spreads = [
+                r * ideal.get(t, rho, 2, 0),
+                r * t * (residual(1, 0) + residual(0, 1)),
+                r * (residual(1, 0) + residual(0, 0)),
+                r * t * (residual(0, 0) + residual(0, 1)),
+            ];
+            for ((column, floor, prop), spread) in PARTS.into_iter().zip(spreads).filter(|_| parts) {
+                let floor = scale(floor, 0.0, r, t, rho, state.p());
+                entries.push((column.to_string(), fluid.prop(&state, prop).unwrap_or(f64::NAN), floor, spread));
+            }
+            for (column, got, floor, spread) in entries {
+                let Some(want) = number(&column) else { continue };
+                self.checked += 1;
+                let bound = ToleranceClass::Prop.bound_carried(want.abs().max(floor), window, spread).unwrap_or(0.0);
+                match fixture.check_bound(row, &column, got, bound) {
                     Ok(ratio) => self.headroom = self.headroom.max(ratio),
                     Err(CheckError::Mismatch(m)) => self.failures.push(m.to_string()),
                     Err(e) => self.failures.push(format!("row {row}, {column}: {e:?}")),

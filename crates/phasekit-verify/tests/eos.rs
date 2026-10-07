@@ -7,7 +7,7 @@
 use phasekit_core::internal::FluidRecord;
 use phasekit_core::{Basis, DataSet, DerivVar, Partial, Registry, State};
 use phasekit_verify::eos::{self, EosCheck, IdentityCheck};
-use phasekit_verify::{Cell, Fixture, Window, fixture};
+use phasekit_verify::{Cell, Fixture, ToleranceClass, Window, fixture};
 
 /// The core subset's `eos` files (VERIFICATION.md §3.6).
 const EOS_CORE: [(&str, &str); 14] = [
@@ -163,4 +163,75 @@ fn eos_fixtures_name_the_pinned_generator_environment() {
     for file in EOS_CORE.into_iter().chain([fixture!("coolprop-8.0.0/all/eos.csv")]) {
         assert_eq!(environment(file), smoke, "{}", file.0);
     }
+}
+
+/// The `eos` fixtures' M5.5 columns of the core subset and the all-fluid tier against the `Parity` data: the partials,
+/// or cp⁰ and the residual parts.
+fn m5_5_columns(parts: bool) -> EosCheck {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut check = EosCheck::default();
+    for (path, text) in EOS_CORE {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
+        let rows: Vec<usize> = (0..fixture.rows().len()).collect();
+        check.partial_rows(&fixture, &rows, registry.get(name).unwrap(), &record(&registry, name), parts);
+    }
+    let (path, text) = fixture!("coolprop-8.0.0/all/eos.csv");
+    let fixture = Fixture::parse(path, text).unwrap();
+    for (name, rows) in &by_fluid(&fixture) {
+        check.partial_rows(&fixture, rows, registry.get(name).unwrap(), &record(&registry, name), parts);
+    }
+    check
+}
+
+/// Oracle: CoolProp 8.0.0, the `eos` fixtures' partial columns (PLAN.md M5.5): 12 first partials, each of CoolProp's 12
+/// first-order variables once differentiated, once the variable and once held constant, against `first_partial_deriv`
+/// at 8,088 states. Class `Prop`, floor |X|/|Y|, with `Term` carried through the Jacobian ratio (user decision TC1:
+/// (∂ρ_mass/∂h_mass)_u cancels in h_T·u_ρ − h_ρ·u_T, 1,787 entries need it).
+#[test]
+fn first_partials_match_oracle() {
+    let check = m5_5_columns(false);
+    assert_eq!(check.checked, (14 * 500 + 136 * 8) * 12);
+    assert_eq!(check.report(30), None);
+}
+
+/// Oracle: CoolProp 8.0.0, the `eos` fixtures' `cp0molar` and `*_residual` columns (PLAN.md M5.5): c_p⁰ = R·(1 − A20⁰)
+/// and the residual h, s, g from the model's residual part (`ThermoModel::derivs`, E1). Class `Prop`.
+#[test]
+fn cp0_and_residual_parts_match_oracle() {
+    let check = m5_5_columns(true);
+    assert_eq!(check.checked, (14 * 500 + 136 * 8) * 4);
+    assert_eq!(check.report(30), None);
+}
+
+/// VERIFICATION.md §8.3, class `Fd` (1e-7, relative step 1e-5): A10 and A01 of every core fluid's residual part against
+/// central differences in the dimensional T and ρ, so a family's reducing choice cannot hide an error, at its `eos`
+/// grid's stable states where α^r is not negligible (|A01^r| > 1e-6; below that the differences lose the digits). Inside
+/// the dome a multiparameter EOS oscillates (Water near 440 K and 29,000 mol/m³: p ≈ 1e11 Pa), and a step of 1e-5
+/// cannot resolve its curvature.
+#[test]
+fn fd_first_order_on_every_core_fluid() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let tol = ToleranceClass::Fd.bound(1.0).unwrap();
+    let mut checked = 0;
+    for (path, text) in EOS_CORE {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
+        let eos = registry.get(name).unwrap().model().helmholtz().unwrap();
+        let region = fixture.columns().iter().position(|c| *c == "region").unwrap();
+        for row in 0..fixture.rows().len() {
+            let (t, rho) = (fixture.value(row, "T").unwrap(), fixture.value(row, "rhomolar").unwrap());
+            let stable = fixture.rows()[row].cells[region] == Cell::Text("stable");
+            if !stable || eos.residual(t, rho, phasekit_core::Order::One).get(0, 1).unwrap().abs() <= 1e-6 {
+                continue;
+            }
+            assert_eq!(
+                phasekit_verify::fd_first_order(eos, t, rho, 1e-5, tol),
+                Ok(()),
+                "{name} at {t} K, {rho} mol/m³"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 14 * 300, "{checked}");
 }
