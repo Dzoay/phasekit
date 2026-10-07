@@ -12,6 +12,24 @@ use phasekit_core::{
 use crate::term::{IdealScale, report};
 use crate::{CheckError, Fixture, ToleranceClass, Window, majorant};
 
+/// The core subset's `eos` files (VERIFICATION.md §3.6), compiled in.
+pub const CORE_FILES: [(&str, &str); 14] = [
+    crate::fixture!("coolprop-8.0.0/eos/Air.csv"),
+    crate::fixture!("coolprop-8.0.0/eos/Ammonia.csv"),
+    crate::fixture!("coolprop-8.0.0/eos/CarbonDioxide.csv"),
+    crate::fixture!("coolprop-8.0.0/eos/HFE143m.csv"),
+    crate::fixture!("coolprop-8.0.0/eos/Helium.csv"),
+    crate::fixture!("coolprop-8.0.0/eos/Methanol.csv"),
+    crate::fixture!("coolprop-8.0.0/eos/Nitrogen.csv"),
+    crate::fixture!("coolprop-8.0.0/eos/R1130(E).csv"),
+    crate::fixture!("coolprop-8.0.0/eos/R1234yf.csv"),
+    crate::fixture!("coolprop-8.0.0/eos/R1234ze(E).csv"),
+    crate::fixture!("coolprop-8.0.0/eos/R125.csv"),
+    crate::fixture!("coolprop-8.0.0/eos/R410A.csv"),
+    crate::fixture!("coolprop-8.0.0/eos/Water.csv"),
+    crate::fixture!("coolprop-8.0.0/eos/n-Heptane.csv"),
+];
+
 /// What an output's `Prop` scale is floored at (VERIFICATION.md §5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Floor {
