@@ -11,6 +11,12 @@ test_workspace = true
 # (`.config/nextest.toml`, profile `default`): a caught mutant ends with its first failing test instead of waiting for
 # every earlier test binary. nextest does not run doctests; G3 does.
 test_tool = "nextest"
+# cargo-mutants times its baseline on the mutated packages only, yet tests every mutant against the whole workspace
+# (`test_workspace`), so the timeout it derives (a multiple of the baseline) is shorter than one full run: a mutant no
+# test catches ran out of time and counted as caught (measured 2026-10-07 on M5.4: a 12 s baseline, a 38 s timeout, a
+# 55 s workspace run). This floor covers a full run with room to spare: 57 s here, 610 s of test time over 4 vCPU on
+# CI, about 153 s. A mutant that really hangs (a loop that never ends) costs this much.
+minimum_test_timeout = 600
 
 exclude_globs = [
     # Process glue (runs cargo, git and rustc; reads and writes files): G8 itself exercises it, unit tests cannot.
