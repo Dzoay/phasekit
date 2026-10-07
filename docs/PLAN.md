@@ -1057,6 +1057,15 @@ the reference machine (section 6, P3).
   dev box's i7-8700K: 6 cores, 12 hardware threads); it records throughput relative to one thread, it asserts nothing
   (K19 targets are estimates). *Done when:* recorded on the reference machine and CI runners; a result below 0.9·N at N
   threads opens a re-plan issue with the measurement.
+- **M9.2a Non-analytic terms at the requested order** (user decision NA1). *Failing test:*
+  `non_analytic_order_two_equals_jet4` (the block's order-2 bundle against the order ≤ 2 entries of today's `Jet4`
+  evaluation at the `term` fixtures' (τ, δ) for Water and CarbonDioxide, the critical point's limits included: bitwise
+  for a truncated jet, which forms those entries with the same operations in the same order; class `Term` for
+  derivatives written out by hand).
+  *Do:* `NonAnalyticBlock::accumulate` takes the requested `Order` and evaluates at that order (a truncated jet whose
+  products keep `Jet4`'s accumulation order, or derivatives written out by hand as CoolProp does); `alphar_order2`
+  recorded. M5.11 measured Water's 2 non-analytic terms at 4.65 µs of 5.65 µs, at order 2 and order 4 alike (C++
+  CoolProp: 2.7 µs for all 56 terms). *Done when:* green and Water's `alphar_order2` recorded.
 - **M9.3 `libm` backend.** *Failing tests:* `libm_backend_matches_the_libm_crate_bitwise` (every `math` function on
   10⁶ random and edge inputs: subnormals, ±709.78, NaN, ±∞), `std_vs_libm_ulp_report` (recorded per target, not
   asserted across targets). *Do:* the opt-in `libm` feature routing `math` (R14); the feature is the documented
@@ -1095,7 +1104,8 @@ the reference machine (section 6, P3).
 **Exit gate.** G1-G8 incl. `perf`; `policy_equivalence` bitwise for 1..N threads; scaling recorded (0.9·N target);
 cross-target hashes recorded; the `libm` rule applied and documented; §7 targets met or re-planned; memory budgets.
 **ROT rows.** M9.1: ROT-135. M9.2: ROT-031. M9.6: ROT-064.
-**User decisions implemented.** 12 (`libm` decided on evidence), 11 (point-major chunks).
+**User decisions implemented.** 12 (`libm` decided on evidence), 11 (point-major chunks), NA1 (non-analytic terms
+at the requested order).
 
 ### M10 Facades and v0.1
 

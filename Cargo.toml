@@ -43,6 +43,17 @@ panic = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
 
+# User decision BP1 (2026-10-07): whole-program optimisation for what this workspace builds itself (the benches, and
+# later the C library, the wheel and the wasm module). Crates that depend on phasekit build with their own profile.
+# No `target-cpu`: artifacts stay generic x86-64, like the C++ baseline (VERIFICATION.md §12).
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+[profile.bench]
+lto = "fat"
+codegen-units = 1
+
 # The mutants gate's build (`.cargo/mutants.toml`, `profile = "mutants"`): the test profile, optimised. The same tests
 # and assertions, overflow checks and debug assertions included (inherited from `test`), and the same floating-point
 # results (Rust does not reorder or contract floating-point arithmetic at any opt-level); the numeric tests run about

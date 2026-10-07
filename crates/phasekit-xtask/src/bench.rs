@@ -85,6 +85,15 @@ pub fn step_of_branch(branch: &str) -> Option<String> {
         .then(|| format!("M{major}.{minor}"))
 }
 
+/// The results file's milestone: `M5.11` → `M5`, so the step that closes a milestone (and raises `MILESTONE`) still
+/// records into that milestone's file.
+pub fn milestone_of_step(step: &str) -> Option<&str> {
+    let (milestone, minor) = step.split_once('.')?;
+    let number = milestone.strip_prefix('M')?;
+    let valid = !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()) && !minor.is_empty();
+    valid.then_some(milestone)
+}
+
 pub fn main(args: &[String]) -> ExitCode {
     let repo = Repo::locate();
     let step = match args {
@@ -94,7 +103,7 @@ pub fn main(args: &[String]) -> ExitCode {
         [record, flag, step] if record == "--record" && flag == "--step" => Some(step.clone()),
         _ => None,
     };
-    let Some(step) = step else {
+    let Some((step, milestone)) = step.as_deref().and_then(|s| Some((s, milestone_of_step(s)?))) else {
         eprintln!("usage: cargo xtask bench --record [--step M<n>.<k>] (the step comes from an m<n>.<k>-... branch)");
         return ExitCode::FAILURE;
     };
@@ -102,9 +111,9 @@ pub fn main(args: &[String]) -> ExitCode {
         repo.bench()?;
         let rows = repo.criterion_results()?.iter().map(|(b, e)| criterion_row(b, e)).collect::<Result<Vec<_>, _>>()?;
         let machine = repo.machine()?;
-        let file = format!("{RESULTS}/M{}-{}.csv", phasekit_verify::MILESTONE, slug(&machine.cpu));
+        let file = format!("{RESULTS}/{milestone}-{}.csv", slug(&machine.cpu));
         let existing = repo.read(&file).unwrap_or_default();
-        repo.write_bytes(&file, merge(&existing, &machine, &step, &rows).as_bytes())?;
+        repo.write_bytes(&file, merge(&existing, &machine, step, &rows).as_bytes())?;
         Ok(format!("bench: recorded {} rows in {file}", rows.len()))
     };
     match run() {
@@ -133,6 +142,11 @@ mod tests {
         assert_eq!(step_of_branch("m12.3a-x"), Some("M12.3a".into()));
         assert_eq!(step_of_branch("main"), None);
         assert_eq!(step_of_branch("mx.1-y"), None);
+        assert_eq!(milestone_of_step("M5.11"), Some("M5"));
+        assert_eq!(milestone_of_step("M12.3a"), Some("M12"));
+        for refused in ["M5", "M5.", "M.1", "Mx.1", "5.11", "m5.11"] {
+            assert_eq!(milestone_of_step(refused), None, "{refused}");
+        }
     }
 
     /// A criterion result becomes (group/case, fluid, median ns); a missing or non-positive median is an error.
