@@ -123,6 +123,68 @@ impl FlashCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use phasekit_core::{DataSet, Registry, State};
+
+    /// Hand-made DT rows in a `flash/v1` file (source `mp:` only so that no oracle header is required).
+    fn file(fluid: &str, rows: &[String]) -> String {
+        let head = "# fixture: flash/v1\n# fluid: FLUID\n# source: mp:hand-made rows\n\
+                    # columns: pair,x1,x2,truth,status,T,rho,p,h,s,u,Q,phase\n\
+                    # units: -,mol/m3,K,-,-,K,mol/m3,Pa,J/mol,J/mol/K,J/mol,-,-\n\
+                    # tol: label,in,in,label,label,flash,flash,flash,flash,flash,flash,flash,label\n";
+        format!("{}{}\n", head.replace("FLUID", fluid), rows.join("\n"))
+    }
+
+    /// The row of `state` as the oracle would write it, with h and u moved by `dh` and Q set to `q`.
+    fn row(state: &State, dh: f64, q: f64) -> String {
+        let b = Basis::Molar;
+        let cells = [state.rho(b), state.t(), state.p(), state.h(b) + dh, state.s(b), state.u(b) + dh, q];
+        let [rho, t, p, h, s, u, q] = cells.map(|v| if v.is_nan() { "nan".to_string() } else { format!("{v:?}") });
+        format!("DT,{rho},{t},QT,ok,{t},{rho},{p},{h},{s},{u},{q},{}", coolprop_name(state.phase()))
+    }
+
+    /// `rows` of `name` through `dt_rows`, against the `Parity` data.
+    fn check(name: &str, rows: &[String]) -> FlashCheck {
+        let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+        let record = phasekit_core::internal::record(&registry, name).unwrap();
+        let text = file(name, rows);
+        let fixture = Fixture::parse("hand-made", &text).unwrap();
+        let mut check = FlashCheck::default();
+        check.dt_rows(&fixture, registry.get(name).unwrap(), &record);
+        check
+    }
+
+    /// What `dt_rows` (M5.3) accepts and refuses, on rows built around real states:
+    /// - Water's liquid by its reference state, where |h| and |u| are far below R·T, so the floor R·T sets their
+    ///   bound (`Flash`, 1e-9 of it, 2.27e-6 J/mol; the bound carried through h's relation is about 1.4e-6 there):
+    ///   2e-6 J/mol off is within, 2e-5 is not;
+    /// - a two-phase state whose Q is 1e-6 off, and a single phase where the oracle has a Q, are failures;
+    /// - a pseudo-pure fluid (R410A) is compared from its critical temperature up, at T_c itself too, and is expected
+    ///   `Unsupported` below it.
+    #[test]
+    fn dt_rows_floors_qualities_and_the_pseudo_pure_boundary() {
+        let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+        let state = |name: &str, rho: f64, t: f64| {
+            let input = Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap());
+            registry.get(name).unwrap().state(input).unwrap()
+        };
+        let liquid = state("Water", 55_500.0, 273.16);
+        assert!(liquid.h(Basis::Molar).abs() < 10.0 && liquid.quality().is_none(), "{}", liquid.h(Basis::Molar));
+        let within = check("Water", &[row(&liquid, 2e-6, f64::NAN)]);
+        assert_eq!((within.compared, within.failures.len()), (1, 0), "{:?}", within.failures);
+        assert_eq!(check("Water", &[row(&liquid, 2e-5, f64::NAN)]).failures.len(), 2, "h and u");
+        assert_eq!(check("Water", &[row(&liquid, 0.0, 0.5)]).failures.len(), 1, "a single phase with a Q");
+        let wet = state("Water", 1_000.0, 400.0);
+        let q = wet.quality().unwrap();
+        let two_phase = check("Water", &[row(&wet, 0.0, q)]);
+        assert_eq!((two_phase.two_phase, two_phase.failures.len()), (1, 0), "{:?}", two_phase.failures);
+        assert_eq!(check("Water", &[row(&wet, 0.0, q + 1e-6)]).failures.len(), 1, "Q 1e-6 off");
+        let record = phasekit_core::internal::record(&registry, "R410A").unwrap();
+        let critical = record.critical.unwrap();
+        let at_tc = check("R410A", &[row(&state("R410A", critical.rho / 2.0, critical.t), 0.0, f64::NAN)]);
+        assert_eq!((at_tc.compared, at_tc.unsupported, at_tc.failures.len()), (1, 0, 0), "{:?}", at_tc.failures);
+        let below = format!("DT,{:?},{:?},QT,ok,{:?},{:?},1.0,1.0,1.0,1.0,nan,gas", 100.0, 300.0, 300.0, 100.0);
+        assert_eq!(check("R410A", &[below]).unsupported, 1);
+    }
 
     /// CoolProp's phase names, one per label.
     #[test]

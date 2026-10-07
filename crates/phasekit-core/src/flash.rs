@@ -231,6 +231,8 @@ mod tests {
     use crate::input::Input;
     use crate::model::Limits;
     use crate::prop::Prop;
+    #[cfg(feature = "fluids-all")]
+    use crate::prop::{DerivVar, Partial};
     use crate::saturation::{SatSide, SaturationCurve};
     use crate::units::{Basis, Density, Temperature};
 
@@ -413,6 +415,98 @@ mod tests {
         let state = embedded("R114").state(dt((sat.bubble.rho + sat.dew.rho) / 2.0, t)).unwrap();
         assert_eq!(state.phase(), Phase::TwoPhase);
         assert_eq!(embedded("R114").state(dt(sat.dew.rho / 2.0, t)).unwrap().phase(), Phase::Gas);
+    }
+
+    /// The critical point labels a state only at both of the model's coordinates, the top of Water's exact curve; off
+    /// it, at T_c or on the critical isochore, the pressure decides between supercritical and supercritical gas.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn critical_point_needs_both_coordinates() {
+        let curve = record_of("Water").superancillary_curve().unwrap();
+        let t_c = curve.t_range().1;
+        let rho_c = curve.at_t(t_c).unwrap().bubble.rho;
+        let water = embedded("Water");
+        let at = |rho: f64, t: f64| water.state(dt(rho, t)).map(|s| s.phase());
+        assert_eq!(at(rho_c, t_c), Ok(Phase::CriticalPoint));
+        assert_eq!(at(1.2 * rho_c, t_c), Ok(Phase::Supercritical));
+        assert_eq!(at(0.8 * rho_c, t_c), Ok(Phase::SupercriticalGas));
+        assert_eq!(at(rho_c, 1.01 * t_c), Ok(Phase::Supercritical));
+    }
+
+    /// An exact curve over [300 K, `t`] whose top, the model's critical point, is (`t`, `p`, `rho`), with liquid at
+    /// `rho_l` and vapour at `rho_v` below it: it puts Water's critical point where a test needs it.
+    #[cfg(feature = "fluids-all")]
+    #[derive(Debug)]
+    struct Top {
+        t: f64,
+        p: f64,
+        rho: f64,
+        rho_l: f64,
+        rho_v: f64,
+    }
+
+    #[cfg(feature = "fluids-all")]
+    impl SaturationCurve for Top {
+        fn accuracy(&self) -> SatAccuracy {
+            SatAccuracy::Exact
+        }
+        fn t_range(&self) -> (f64, f64) {
+            (300.0, self.t)
+        }
+        fn at_t(&self, t: f64) -> Result<SatPair, Error> {
+            let (bubble, dew) = if t == self.t { (self.rho, self.rho) } else { (self.rho_l, self.rho_v) };
+            Ok(SatPair { bubble: SatSide { t, p: self.p, rho: bubble }, dew: SatSide { t, p: self.p, rho: dew } })
+        }
+        fn at_p(&self, _p: f64) -> Result<SatPair, Error> {
+            Err(Error::Unsupported { pair: Pair::PQ })
+        }
+    }
+
+    /// Water's EOS under the curve `top`.
+    #[cfg(feature = "fluids-all")]
+    fn water_under(top: Top) -> Fluid {
+        Fluid::new(Arc::new(record_of("Water").builder().unwrap().saturation(top).build()))
+    }
+
+    /// Water's pressure at (T, ρ) with the phase imposed: no phase rule, no acceptance gate.
+    #[cfg(feature = "fluids-all")]
+    fn imposed(rho: f64, t: f64) -> State {
+        embedded("Water").flash(dt(rho, t), &FlashOptions::new().with_phase(Phase::Gas)).unwrap()
+    }
+
+    /// D6: the acceptance gate runs on every single-phase state the phase rule chose but the critical point, where
+    /// (∂p/∂ρ)_T = 0 by definition. Under a curve whose top is 600 K, at 610 K the rule says supercritical, yet inside
+    /// Water's own spinodal there (∂p/∂ρ)_T < 0 and the state is refused; the curve's top, put inside the spinodal at
+    /// 600 K, is the critical point and a state.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn acceptance_gate_skips_only_the_critical_point() {
+        let dp_drho = |rho: f64, t: f64| {
+            imposed(rho, t).partial(Partial { of: DerivVar::P, wrt: DerivVar::Dmolar, at: DerivVar::T }).unwrap()
+        };
+        let spinodal = |t: f64| (20..160).map(|k| 250.0 * f64::from(k)).find(|&rho| dp_drho(rho, t) < 0.0).unwrap();
+        let (rho_600, rho_610) = (spinodal(600.0), spinodal(610.0));
+        let top = Top { t: 600.0, p: imposed(rho_600, 600.0).p(), rho: rho_600, rho_l: 40_000.0, rho_v: 1_000.0 };
+        let fluid = water_under(top);
+        assert_eq!(fluid.state(dt(rho_600, 600.0)).map(|s| s.phase()), Ok(Phase::CriticalPoint));
+        assert_eq!(fluid.state(dt(rho_610, 610.0)), Err(DomainError::MechanicallyUnstable.into()));
+    }
+
+    /// The pressure that splits supercritical from supercritical gas, and liquid from supercritical liquid, is the
+    /// critical pressure itself: a state exactly at p_c is not above it. Water under curves whose top pressure is a
+    /// chosen state's own.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn a_state_at_the_critical_pressure_is_not_above_it() {
+        let top = |p| Top { t: 650.0, p, rho: 17_000.0, rho_l: 50_000.0, rho_v: 100.0 };
+        let (rho, t) = (5_000.0, 700.0);
+        let fluid = water_under(top(imposed(rho, t).p()));
+        assert_eq!(fluid.state(dt(rho, t)).map(|s| s.phase()), Ok(Phase::SupercriticalGas));
+        assert_eq!(fluid.state(dt(1.01 * rho, t)).map(|s| s.phase()), Ok(Phase::Supercritical));
+        let (rho, t) = (54_000.0, 400.0);
+        let fluid = water_under(top(imposed(rho, t).p()));
+        assert_eq!(fluid.state(dt(rho, t)).map(|s| s.phase()), Ok(Phase::Liquid));
+        assert_eq!(fluid.state(dt(1.001 * rho, t)).map(|s| s.phase()), Ok(Phase::SupercriticalLiquid));
     }
 
     /// The acceptance gate (D6): a single-phase state needs (∂p/∂ρ)_T > 0 and cv > 0; an infinite cv passes.
