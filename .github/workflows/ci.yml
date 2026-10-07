@@ -136,7 +136,7 @@ jobs:
       - name: Install cargo-nextest
         if: steps.tools.outputs.cache-hit != 'true'
         run: cargo install --locked --root ~/.tools "cargo-nextest@$CARGO_NEXTEST_VERSION"
-      - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
+      - run: cygpath -w "$HOME/.tools/bin" >> "$GITHUB_PATH" # Git Bash writes /c/...; PATH needs C:\...
       - name: G3 cargo nextest run --workspace --exclude phasekit-xtask --profile ci
         run: cargo nextest run --workspace --exclude phasekit-xtask --profile ci
       - name: G3 cargo test --doc --workspace --exclude phasekit-xtask
