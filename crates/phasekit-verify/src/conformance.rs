@@ -46,11 +46,22 @@ pub fn fd_first_order<M: HelmholtzModel + ?Sized>(
 /// Map 15 §8 at every input: the handle in `gauge` and the handle as given flash the same state, except that h and u
 /// move by exactly Δh, s by Δs and g and a by Δh − TΔs (the difference of the two gauges); see [`gauged_pair`].
 pub fn gauge_invariance(fluid: &Fluid, gauge: Gauge, inputs: &[Input]) -> Result<(), Mismatch> {
+    pairs_hold(fluid, gauge, inputs, gauged_pair)
+}
+
+/// [`gauge_invariance`] with the pair check `check`, a parameter so that a failing pair's index can be tested: with a
+/// correct kernel [`gauged_pair`] never fails here.
+fn pairs_hold(
+    fluid: &Fluid,
+    gauge: Gauge,
+    inputs: &[Input],
+    check: impl Fn(&State, &State, f64, f64) -> Result<(), Mismatch>,
+) -> Result<(), Mismatch> {
     let shifted = fluid.with_gauge(gauge);
     let (dh, ds) = (gauge.dh() - fluid.gauge().dh(), gauge.ds() - fluid.gauge().ds());
     for (i, input) in inputs.iter().enumerate() {
         match (fluid.state(*input), shifted.state(*input)) {
-            (Ok(a), Ok(b)) => gauged_pair(&a, &b, dh, ds).map_err(|m| Mismatch { at: i, ..m })?,
+            (Ok(a), Ok(b)) => check(&a, &b, dh, ds).map_err(|m| Mismatch { at: i, ..m })?,
             _ => return Err(Mismatch { what: "flash", at: i, got: f64::NAN, want: 0.0 }),
         }
     }
@@ -119,7 +130,7 @@ mod tests {
     use std::sync::Arc;
 
     use phasekit_core::internal::FluidRecord;
-    use phasekit_core::{Density, FlashOptions, Phase, Temperature};
+    use phasekit_core::{Density, Enthalpy, Entropy, FlashOptions, Phase, ReferenceState, Temperature};
 
     use super::*;
 
@@ -137,10 +148,40 @@ mod tests {
         let gauge = Gauge::new(1_500.0, 4.0).unwrap();
         let (a, b) = (liquid(&fluid, 300.0), liquid(&fluid.with_gauge(gauge), 300.0));
         assert_eq!(gauged_pair(&a, &b, 1_500.0, 4.0), Ok(()));
-        assert_eq!(gauged_pair(&a, &b, 1_500.5, 4.0).map_err(|m| m.what), Err("h"));
+        let (got, m) = (b.h(Basis::Molar) - a.h(Basis::Molar), Mismatch { what: "h", at: 0, got: 0.0, want: 1_500.5 });
+        assert_eq!(gauged_pair(&a, &b, 1_500.5, 4.0), Err(Mismatch { got, ..m }), "the difference and the shift");
         assert_eq!(gauged_pair(&a, &b, 1_500.0, 4.001).map_err(|m| m.what), Err("s"));
         assert_eq!(gauged_pair(&a, &liquid(&fluid, 301.0), 0.0, 0.0).map_err(|m| m.what), Err("T"));
         let inputs = [Input::dt(Density::molar(5_000.0).unwrap(), Temperature::new(300.0).unwrap())];
         assert_eq!(gauge_invariance(&fluid, gauge, &inputs).map_err(|m| m.what), Err("flash"));
+    }
+
+    /// A quantity that is exactly 0 in both gauges with no shift has a bound of 0 and a miss of 0, which is within it:
+    /// Water at a custom reference state's anchor (supercritical), whose h is set to 0 there.
+    #[test]
+    fn a_zero_miss_is_within_a_zero_bound() {
+        let registry = phasekit_core::Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+        let at = Input::dt(Density::molar(5_000.0).unwrap(), Temperature::new(700.0).unwrap());
+        let zero = (Enthalpy::molar(0.0).unwrap(), Entropy::molar(0.0).unwrap());
+        let reference = ReferenceState::Custom { at, h: zero.0, s: zero.1 };
+        let state = registry.get("Water").unwrap().with_reference(reference).unwrap().state(at).unwrap();
+        assert_eq!(state.h(Basis::Molar), 0.0, "exactly 0 at the anchor");
+        assert_eq!(gauged_pair(&state, &state, 0.0, 0.0), Ok(()));
+    }
+
+    /// The index of the first input whose pair fails reaches the mismatch: Water above its critical temperature at
+    /// three inputs, and a check that fails from the second pair on.
+    #[test]
+    fn a_failing_pair_names_its_input() {
+        let registry = phasekit_core::Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+        let water = registry.get("Water").unwrap();
+        let gauge = Gauge::new(1_500.0, 4.0).unwrap();
+        let dt = |t| Input::dt(Density::molar(5_000.0).unwrap(), Temperature::new(t).unwrap());
+        let inputs = [dt(700.0), dt(710.0), dt(720.0)];
+        let late = |a: &State, _: &State, _: f64, _: f64| {
+            if a.t() > 705.0 { Err(Mismatch { what: "late", at: 0, got: a.t(), want: 0.0 }) } else { Ok(()) }
+        };
+        assert_eq!(pairs_hold(water, gauge, &inputs, late).map_err(|m| (m.what, m.at)), Err(("late", 1)));
+        assert_eq!(pairs_hold(water, gauge, &inputs, gauged_pair), Ok(()));
     }
 }
