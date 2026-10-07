@@ -55,12 +55,14 @@ reference/   gitignored: the pinned CoolProp checkout and local papers
 
 Requirements: stable Rust (1.99 or newer; the targets `wasm32-unknown-unknown`, `wasm32-wasip2` and
 `x86_64-pc-windows-msvc`), [uv](https://docs.astral.sh/uv/) for the CoolProp oracle, and `wasmtime`, `cargo-deny`,
-`cargo-shear` and `cargo-mutants` (`cargo install --locked wasmtime-cli cargo-deny cargo-shear cargo-mutants`).
+`cargo-shear`, `cargo-mutants` and `cargo-nextest` (`cargo install --locked wasmtime-cli cargo-deny cargo-shear cargo-mutants
+cargo-nextest`).
 
 ```sh
 scripts/check-toolchain.sh         # reports which of the tools above are missing
 scripts/fetch-coolprop.sh          # pinned, read-only CoolProp v8.0.0 checkout in reference/
-cargo test --workspace             # the workspace
+cargo nextest run --workspace      # the workspace's tests
+cargo test --doc --workspace       # and its doctests
 uv run --no-project --python 3.12 --with CoolProp==8.0.0 \
   python -c "import CoolProp.CoolProp as CP; print(CP.PropsSI('H', 'T', 300, 'P', 101325, 'Water'))"
 ```

@@ -7,6 +7,10 @@
 gitignore = true
 # A mutant in phasekit-core must be caught by any workspace test, phasekit-verify's corpus included.
 test_workspace = true
+# Every workspace test in one parallel pool, each in its own process, stopping at the first failure
+# (`.config/nextest.toml`, profile `default`): a caught mutant ends with its first failing test instead of waiting for
+# every earlier test binary. nextest does not run doctests; G3 does.
+test_tool = "nextest"
 
 exclude_globs = [
     # Process glue (runs cargo, git and rustc; reads and writes files): G8 itself exercises it, unit tests cannot.

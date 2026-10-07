@@ -1,6 +1,8 @@
-//! `gates counts`: the executed-test count (map 10 R1; ROT-127). Runs the workspace tests, sums `test result: ok. N
-//! passed` per test binary (doctests included) and compares it with `ci/test-counts.txt`. A listed binary that is
-//! missing, runs 0 tests or runs fewer than its minimum fails; so does a binary that runs tests but is not listed.
+//! `gates counts`: the executed-test count (map 10 R1; ROT-127). Runs the workspace tests with cargo-nextest (profile
+//! `counts`, `.config/nextest.toml`) and the doctests with `cargo test --doc`, counts the passed tests per test binary
+//! from nextest's JUnit report and libtest's `test result: ok. N passed` lines, and compares them with
+//! `ci/test-counts.txt`. A listed binary that is missing, runs 0 tests or runs fewer than its minimum fails; so does a
+//! binary that runs tests but is not listed.
 
 use super::{Verdict, package_name};
 use crate::repo::Repo;
@@ -19,8 +21,8 @@ const HEADER: &str = "\
 /// tool and their runs leave it out (PLAN.md §2.5).
 const CROSS: [&str; 1] = ["wasm32-wasip2"];
 
-/// A test binary's owner: a package name and its integration-test files relative to the package (`tests/eos.rs`).
-type Owner = (String, Vec<String>);
+/// The nextest profile the gate runs: G3's `ci` plus the JUnit report it reads.
+const PROFILE: &str = "counts";
 
 /// One manifest line.
 #[derive(Debug, PartialEq)]
@@ -46,19 +48,22 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
     if let Some(other) = manifest.iter().find(|entry| test_command(&entry.target, &host).is_none()) {
         return Err(vec![format!("{MANIFEST}: no test runner for target {} on {host}", other.target)]);
     }
-    let owners = owners(repo).map_err(|e| vec![e])?;
+    let members = repo.members().map_err(|e| vec![e])?;
+    let package =
+        |dir: &str, manifest: &str| package_name(manifest).map(str::to_string).ok_or(format!("{dir}: no package name"));
+    let packages =
+        members.iter().map(|m| package(&m.dir, &m.manifest)).collect::<Result<Vec<_>, _>>().map_err(|e| vec![e])?;
     let (mut updated, mut errors, mut summary) = (text.clone(), Vec::new(), Vec::new());
     for target in std::iter::once(host.as_str()).chain(CROSS) {
-        let args = test_command(target, &host).unwrap_or_default();
-        let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let (ok, output) = repo.cargo_merged(&format!("test-{target}"), &args).map_err(|e| vec![e])?;
-        if !ok {
-            let tail: Vec<String> = output.lines().rev().take(20).map(str::to_string).collect();
-            return Err(std::iter::once(format!("cargo {} failed:", args.join(" ")))
-                .chain(tail.into_iter().rev())
-                .collect());
-        }
-        let executed = executed(&output, &owners).map_err(|e| vec![e])?;
+        let (nextest, doc) = test_command(target, &host).unwrap_or_default();
+        let nextest: Vec<&str> = nextest.iter().map(String::as_str).collect();
+        let (ok, output, junit) = repo.nextest(&format!("nextest-{target}"), &nextest, PROFILE).map_err(|e| vec![e])?;
+        failed(ok, &nextest, &output)?;
+        let mut executed = junit_counts(&junit.map_err(|e| vec![e])?).map_err(|e| vec![e])?;
+        let doc: Vec<&str> = doc.iter().map(String::as_str).collect();
+        let (ok, output) = repo.cargo_merged(&format!("doc-{target}"), &doc).map_err(|e| vec![e])?;
+        failed(ok, &doc, &output)?;
+        executed.extend(doc_counts(&output, &packages).map_err(|e| vec![e])?);
         updated = update(&updated, target, &executed);
         errors.extend(check(&manifest, target, &executed).into_iter().map(|e| format!("{target}: {e}")));
         let total: usize = executed.iter().map(|(_, n)| n).sum();
@@ -72,43 +77,75 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
     if errors.is_empty() { Ok(format!("{} binaries; {}", manifest.len(), summary.join(", "))) } else { Err(errors) }
 }
 
-/// The `cargo test` arguments that measure `target`: everything on the host, everything but xtask on a cross target
-/// (run by the runner in `.cargo/config.toml`), and `None` for a target this machine cannot run.
-fn test_command(target: &str, host: &str) -> Option<Vec<String>> {
-    let args: &[&str] = if target == host {
-        &["test", "--workspace"]
+/// A failed run's last 20 lines, as the gate's violations.
+fn failed(ok: bool, args: &[&str], output: &str) -> Result<(), Vec<String>> {
+    if ok {
+        return Ok(());
+    }
+    let tail: Vec<String> = output.lines().rev().take(20).map(str::to_string).collect();
+    Err(std::iter::once(format!("cargo {} failed:", args.join(" "))).chain(tail.into_iter().rev()).collect())
+}
+
+/// The commands that measure `target`, as (`cargo nextest` arguments, `cargo test --doc` arguments): everything on the
+/// host, everything but xtask on a cross target (run by the runner in `.cargo/config.toml`), and `None` for a target
+/// this machine cannot run. The nextest profile is added by [`Repo::nextest`].
+fn test_command(target: &str, host: &str) -> Option<(Vec<String>, Vec<String>)> {
+    let (nextest, doc): (&[&str], &[&str]) = if target == host {
+        (&["nextest", "run", "--workspace"], &["test", "--doc", "--workspace"])
     } else if CROSS.contains(&target) {
-        &["test", "--workspace", "--exclude", "phasekit-xtask", "--target", target]
+        (
+            &["nextest", "run", "--workspace", "--exclude", "phasekit-xtask", "--target", target],
+            &["test", "--doc", "--workspace", "--exclude", "phasekit-xtask", "--target", target],
+        )
     } else {
         return None;
     };
-    Some(args.iter().map(|arg| arg.to_string()).collect())
+    let words = |args: &[&str]| args.iter().map(|arg| arg.to_string()).collect();
+    Some((words(nextest), words(doc)))
 }
 
-/// Each member's package name and integration-test files.
-fn owners(repo: &Repo) -> Result<Vec<Owner>, String> {
-    let mut owners = Vec::new();
-    for member in repo.members()? {
-        let name = package_name(&member.manifest).ok_or(format!("{}/Cargo.toml: no package name", member.dir))?;
-        let prefix = format!("{}/", member.dir);
-        let tests = repo.files(&format!("{}/tests", member.dir), ".rs", true)?;
-        let tests = tests.into_iter().filter_map(|(path, _)| path.strip_prefix(&prefix).map(str::to_string)).collect();
-        owners.push((name.to_string(), tests));
+/// Passed tests per binary from a nextest JUnit report, in report order. A test case is one `<testcase .../>`
+/// element; one with a `<failure>`, `<error>` or `<skipped>` child did not pass. The `classname` is nextest's binary
+/// id, named as the manifest names binaries ([`binary_of`]).
+fn junit_counts(xml: &str) -> Result<Vec<(String, usize)>, String> {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for case in xml.split("<testcase ").skip(1) {
+        let (head, rest) = case.split_once('>').ok_or("junit: an unterminated <testcase>")?;
+        let id = head
+            .split_once("classname=\"")
+            .and_then(|(_, tail)| tail.split_once('"'))
+            .map(|(id, _)| id)
+            .ok_or("junit: a <testcase> without a classname")?;
+        let body = if head.ends_with('/') { "" } else { rest.split("</testcase>").next().unwrap_or_default() };
+        let passed = !["<failure", "<error", "<skipped"].iter().any(|tag| body.contains(tag));
+        let binary = binary_of(id);
+        match counts.iter_mut().find(|(b, _)| *b == binary) {
+            Some((_, n)) => *n += usize::from(passed),
+            None => counts.push((binary, usize::from(passed))),
+        }
     }
-    Ok(owners)
+    Ok(counts)
 }
 
-/// Executed tests per binary, `<package>::<binary>`, in the order of `cargo test` output (stdout and stderr merged).
-fn executed(output: &str, owners: &[Owner]) -> Result<Vec<(String, usize)>, String> {
+/// The manifest's `<package>::<binary>` for a nextest binary id: `phasekit-core` (unit tests of a library) is
+/// `phasekit-core::lib`, `phasekit-xtask::bin/phasekit-xtask` (the package's main binary) is `phasekit-xtask::main`,
+/// and an integration test keeps its name (`phasekit-verify::eos`).
+fn binary_of(id: &str) -> String {
+    match id.split_once("::") {
+        None => format!("{id}::lib"),
+        Some((package, binary)) if binary.strip_prefix("bin/") == Some(package) => format!("{package}::main"),
+        Some(_) => id.to_string(),
+    }
+}
+
+/// Executed doctests per crate, `<package>::doc`, from `cargo test --doc` output (stdout and stderr merged).
+fn doc_counts(output: &str, packages: &[String]) -> Result<Vec<(String, usize)>, String> {
     let mut counts: Vec<(String, usize)> = Vec::new();
     let mut current: Option<String> = None;
     for line in output.lines().map(str::trim) {
-        let next = if let Some(running) = line.strip_prefix("Running ") {
-            Some(binary(running, owners)?)
-        } else if let Some(krate) = line.strip_prefix("Doc-tests ") {
-            Some(format!("{}::doc", package_of(krate, owners)?))
-        } else {
-            None
+        let next = match line.strip_prefix("Doc-tests ") {
+            Some(krate) => Some(format!("{}::doc", package_of(krate, packages)?)),
+            None => None,
         };
         if let Some(next) = next {
             if let Some(unfinished) = current.replace(next) {
@@ -133,33 +170,11 @@ fn executed(output: &str, owners: &[Owner]) -> Result<Vec<(String, usize)>, Stri
     }
 }
 
-/// `<package>::<binary>` for a `Running <src> (<executable>)` line: `lib`, `main` or `bin/<name>` for unit tests
-/// (the executable is named after the crate), the file stem for an integration test (found among the owners' files).
-fn binary(running: &str, owners: &[Owner]) -> Result<String, String> {
-    let running = running.strip_prefix("unittests ").unwrap_or(running);
-    let (src, executable) = running.split_once(" (").ok_or(format!("unreadable `Running {running}`"))?;
-    let stem = src.strip_suffix(".rs").unwrap_or(src);
-    if let Some(target) = stem.strip_prefix("src/") {
-        let file = executable.trim_end_matches(')').rsplit('/').next().unwrap_or_default();
-        let krate = file.rsplit_once('-').map_or(file, |(krate, _hash)| krate);
-        return Ok(format!("{}::{target}", package_of(krate, owners)?));
-    }
-    let mut found = owners.iter().filter(|(_, tests)| tests.iter().any(|test| test == src));
-    match (found.next(), found.next()) {
-        (Some((package, _)), None) => {
-            let test = stem.strip_prefix("tests/").unwrap_or(stem);
-            Ok(format!("{package}::{}", test.strip_suffix("/main").unwrap_or(test)))
-        }
-        (None, _) => Err(format!("no workspace member has {src}")),
-        _ => Err(format!("more than one workspace member has {src}")),
-    }
-}
-
 /// The package that builds `krate` (`phasekit_core` → `phasekit-core`).
-fn package_of<'a>(krate: &str, owners: &'a [Owner]) -> Result<&'a str, String> {
-    owners
+fn package_of<'a>(krate: &str, packages: &'a [String]) -> Result<&'a str, String> {
+    packages
         .iter()
-        .map(|(package, _)| package.as_str())
+        .map(String::as_str)
         .find(|package| package.replace('-', "_") == krate)
         .ok_or(format!("no workspace member builds crate {krate}"))
 }
@@ -261,64 +276,78 @@ mod tests {
 
     const HOST: &str = "x86_64-unknown-linux-gnu";
 
-    /// `cargo test --workspace` output, stdout and stderr merged (trimmed from a real run).
-    const OUTPUT: &str = "   Compiling phasekit-core v0.0.0 (/w/crates/phasekit-core)
+    /// A nextest JUnit report (profile `counts`; trimmed from a real run): a library's unit tests, an integration test
+    /// with one failure, and the xtask binary's unit tests. Ignored tests are not in the report.
+    const JUNIT: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="5" skipped="0" failures="1" errors="0">
+    <testsuite name="phasekit-core" tests="2" skipped="0" errors="0" failures="0">
+        <testcase name="input::tests::typed" classname="phasekit-core" time="0.002"/>
+        <testcase name="flash::tests::dt" classname="phasekit-core" time="0.004"/>
+    </testsuite>
+    <testsuite name="phasekit-verify::lazy_load" tests="2" skipped="0" errors="0" failures="1">
+        <testcase name="first_touch" classname="phasekit-verify::lazy_load" time="0.011"/>
+        <testcase name="released" classname="phasekit-verify::lazy_load" time="0.020">
+            <failure type="test failure">thread panicked</failure>
+        </testcase>
+    </testsuite>
+    <testsuite name="phasekit-xtask::bin/phasekit-xtask" tests="1" skipped="0" errors="0" failures="0">
+        <testcase name="gates::counts::tests::x" classname="phasekit-xtask::bin/phasekit-xtask" time="0.1"/>
+    </testsuite>
+</testsuites>
+"#;
+
+    /// `cargo test --doc --workspace` output, stdout and stderr merged (trimmed from a real run).
+    const DOC: &str = "   Compiling phasekit-core v0.0.0 (/w/crates/phasekit-core)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 1.00s
-     Running unittests src/lib.rs (/t/debug/deps/phasekit_core-a5df2cc20558210d)
+   Doc-tests phasekit_core
 
-running 24 tests
-test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 2 tests
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-     Running unittests src/lib.rs (/t/debug/deps/phasekit_data-ea5cd5166d2a4d9b)
+   Doc-tests phasekit_data
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-     Running tests/lazy_load.rs (/t/debug/deps/lazy_load-4a2343a918e5373e)
-
-running 9 tests
-test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-     Running unittests src/main.rs (/t/debug/deps/phasekit_xtask-1af9db83006fce99)
-
-running 1 test
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
-
-   Doc-tests phasekit_core
-
-running 1 test
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 ";
 
-    fn owners() -> Vec<Owner> {
-        let owner = |name: &str, tests: &[&str]| (name.to_string(), tests.iter().map(|t| t.to_string()).collect());
-        vec![
-            owner("phasekit-core", &[]),
-            owner("phasekit-data", &[]),
-            owner("phasekit-verify", &["tests/lazy_load.rs"]),
-            owner("phasekit-xtask", &[]),
-        ]
+    fn packages() -> Vec<String> {
+        ["phasekit-core", "phasekit-data", "phasekit-verify", "phasekit-xtask"].map(String::from).to_vec()
     }
 
     fn ran(counts: &[(&str, usize)]) -> Vec<(String, usize)> {
         counts.iter().map(|&(binary, n)| (binary.to_string(), n)).collect()
     }
 
+    /// Passed tests per binary from nextest's JUnit report, named as the manifest names them; a failed test case
+    /// does not count, and a case without a binary id is an error, never a count.
     #[test]
-    fn count_executed_parses_libtest_summary() {
-        let want = ran(&[
-            ("phasekit-core::lib", 24),
-            ("phasekit-data::lib", 0),
-            ("phasekit-verify::lazy_load", 8),
-            ("phasekit-xtask::main", 1),
-            ("phasekit-core::doc", 1),
-        ]);
-        assert_eq!(executed(OUTPUT, &owners()), Ok(want));
-        // A binary without a result line, a failed binary or an owner nobody declares is an error, never a count.
-        assert!(executed("     Running tests/lazy_load.rs (/t/lazy_load-0)\n", &owners()).is_err());
-        assert!(executed(&OUTPUT.replace("ok. 8 passed; 0 failed", "FAILED. 7 passed; 1 failed"), &owners()).is_err());
-        assert!(executed(&OUTPUT.replace("tests/lazy_load.rs", "tests/eos.rs"), &owners()).is_err());
+    fn junit_report_counts_passed_tests_per_binary() {
+        let want = ran(&[("phasekit-core::lib", 2), ("phasekit-verify::lazy_load", 1), ("phasekit-xtask::main", 1)]);
+        assert_eq!(junit_counts(JUNIT), Ok(want));
+        let errored = JUNIT.replace("<failure type=\"test failure\">thread panicked</failure>", "<error/>");
+        assert_eq!(junit_counts(&errored).unwrap()[1], ("phasekit-verify::lazy_load".to_string(), 1));
+        let skipped = JUNIT.replace(r#"time="0.004"/>"#, r#"time="0.004"><skipped/></testcase>"#);
+        assert_eq!(junit_counts(&skipped).unwrap()[0], ("phasekit-core::lib".to_string(), 1));
+        assert_eq!(junit_counts("<testsuites/>"), Ok(Vec::new()));
+        assert!(junit_counts(r#"<testcase name="x" time="0.1"/>"#).is_err(), "no classname");
+        assert!(junit_counts("<testcase name=\"x\"").is_err(), "unterminated");
+        assert_eq!(
+            binary_of("phasekit-xtask::bin/other"),
+            "phasekit-xtask::bin/other",
+            "a second binary keeps its name"
+        );
+    }
+
+    /// Doctests per crate from libtest's summary lines; a crate with no result line, a failed run or a crate no
+    /// member builds is an error, never a count.
+    #[test]
+    fn doctests_are_counted_from_libtest_summaries() {
+        assert_eq!(doc_counts(DOC, &packages()), Ok(ran(&[("phasekit-core::doc", 2), ("phasekit-data::doc", 0)])));
+        assert!(doc_counts("   Doc-tests phasekit_core\n", &packages()).is_err());
+        assert!(doc_counts(&DOC.replace("ok. 2 passed; 0 failed", "FAILED. 1 passed; 1 failed"), &packages()).is_err());
+        assert!(doc_counts(&DOC.replace("phasekit_data", "phasekit_mix"), &packages()).is_err());
+        assert!(doc_counts("test result: ok. 1 passed;\n", &packages()).is_err(), "a result before any crate");
     }
 
     /// Rot: ROT-127. Map 10 R1: a gate that passes with zero tests executed is fail-open.
@@ -341,13 +370,28 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
         assert!(parse_manifest(&format!("{HOST} phasekit-core 24\n")).is_err());
     }
 
-    /// G3 and G4 (PLAN.md §2.4): the host runs every crate; wasip2 runs all but the host-only xtask under wasmtime.
+    /// A failed run is the gate's verdict, its command and the last 20 lines of its output; a passed one is nothing.
+    #[test]
+    fn a_failed_run_reports_its_command_and_tail() {
+        let output: String = (1..=25).map(|i| format!("line {i}\n")).collect();
+        assert_eq!(failed(true, &["nextest", "run"], &output), Ok(()));
+        let errors = failed(false, &["nextest", "run"], &output).unwrap_err();
+        assert_eq!(errors.len(), 21);
+        let ends = (errors[0].as_str(), errors[1].as_str(), errors[20].as_str());
+        assert_eq!(ends, ("cargo nextest run failed:", "line 6", "line 25"));
+    }
+
+    /// G3 and G4 (PLAN.md §2.4): the host runs every crate; wasip2 runs all but the host-only xtask under wasmtime;
+    /// nextest runs the tests and `cargo test --doc` the doctests.
     #[test]
     fn each_target_is_measured_by_its_own_test_command() {
-        let words = |args: &[&str]| Some(args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>());
-        assert_eq!(test_command(HOST, HOST), words(&["test", "--workspace"]));
-        let wasip2 = words(&["test", "--workspace", "--exclude", "phasekit-xtask", "--target", "wasm32-wasip2"]);
-        assert_eq!(test_command("wasm32-wasip2", HOST), wasip2);
+        let words = |args: &[&str]| args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+        let host = (words(&["nextest", "run", "--workspace"]), words(&["test", "--doc", "--workspace"]));
+        assert_eq!(test_command(HOST, HOST), Some(host));
+        let cross = ["--workspace", "--exclude", "phasekit-xtask", "--target", "wasm32-wasip2"];
+        let wasip2 =
+            (words(&[&["nextest", "run"][..], &cross].concat()), words(&[&["test", "--doc"][..], &cross].concat()));
+        assert_eq!(test_command("wasm32-wasip2", HOST), Some(wasip2));
         assert_eq!(test_command("x86_64-pc-windows-msvc", HOST), None, "no runner for Windows on this host");
     }
 
