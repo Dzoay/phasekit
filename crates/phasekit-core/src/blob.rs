@@ -501,18 +501,20 @@ fn validated_sections(bytes: &[u8]) -> Result<Vec<&[u8]>, LoadError> {
 /// Validates a v1 blob whole (header, checksum, section table), then decodes every section.
 pub(crate) fn decode(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
     let mut record = decode_eager_parts(bytes)?;
-    record.superancillary = read_superancillary(validated_sections(bytes)?[3])?;
+    let sections = validated_sections(bytes)?;
+    record.superancillary = read_superancillary(sections[3])?;
+    record.caloric = read_caloric(sections[4], record.superancillary_fit)?;
     Ok(record)
 }
 
 /// [`decode`] without the superancillary, which the registry decodes on first saturation use
-/// ([`decode_superancillary`]); the superancillary is most of a fluid's bytes (map 09).
+/// ([`decode_superancillary`]), and without the caloric curves, which nothing reads at run time before the
+/// saturation-based flashes (M7.7); together they are most of a fluid's bytes (map 09).
 pub(crate) fn decode_eager_parts(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
     let sections = validated_sections(bytes)?;
     let eos = EosRecord::decode(sections[1])?;
     let mut record = read_metadata(sections[0], eos)?;
     record.superancillary_fit = read_fit(sections[2])?;
-    record.caloric = read_caloric(sections[4], record.superancillary_fit)?;
     record.melting = read_melting(sections[8])?;
     record.corrections = read_corrections(sections[9])?;
     Ok(record)

@@ -76,8 +76,8 @@ pub use units::{Basis, Density, Enthalpy, Entropy, InternalEnergy, Pressure, Qua
 #[doc(hidden)]
 pub mod internal {
     pub use crate::data::{
-        CaloricCurves, CaloricFreshness, CaloricStamp, Edit, Environmental, EosRecord, FluidRecord, MeltingSegment,
-        Patch, SaFreshness, SaStamp, Superancillary,
+        CaloricCurves, CaloricFreshness, CaloricStamp, CaloricView, Edit, Environmental, EosRecord, FluidRecord,
+        MeltingSegment, Patch, SaFreshness, SaStamp, Superancillary,
     };
     pub use crate::helmholtz::{
         DoubleExponentialTerm, GaoBTerm, GaussianTerm, IdealTerm, Lemmon2005Term, MAX_POW, NonAnalyticTerm,

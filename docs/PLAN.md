@@ -752,17 +752,22 @@ subcritical point (D5, D6, E18). **Prerequisites.** M4; M1.9-M1.12 transcription
   NIST/fastchebpure; if any CoolProp SA code is translated, the NIST disclaimer goes into NOTICE; user decision 3a);
   datagen fills the reserved SA section, with extrema and the T(ln p) inverse precomputed (map 03 §9). *Done when:*
   130 fluids green.
-- **M5.2a Caloric curves** (user decision CC1). *Failing tests:* `caloric_curves_match_the_eos_between_nodes` (h, s, u
-  of each curve against the EOS at (T, ρ_SA(T)) at piece midpoints, where a fit has no node, for 130 fluids; class
-  `SaCoeff`), `caloric_fit_error_is_checked` (datagen refuses a piece whose midpoint error exceeds the class; CoolProp
-  has no fit-error check, map 03 §6), `caloric_curves_match_oracle_sat_rows` (hL, hV, sL, sV of the `sat` kind's QT rows
-  on the all-fluid tier; class `Prop`), `gauge_shift_is_exact` (an IIR or NBP reference state shifts the curves by the
-  M2.11 formula, against the EOS), `corrected_curves_rescale_or_go_stale` (DIV-0001's R correction rescales them by
-  R′/R, checked against the Corrected EOS; a synthetic shape edit reports stale and the EOS answers instead), and
-  `first_caloric_query_builds_nothing` (counting allocator: 0 allocations; ROT-027). *Do:* datagen samples h, s, u from
-  the compiled Parity record at the 13 Chebyshev-Lobatto nodes of every SA piece, at the M5.2 SA densities, in the
-  native gauge, fits degree 12 (the Lobatto L matrix), and fills the M2.11 section; bytes per fluid recorded. Consumed
-  by the SA-based Q pairs and HS (M7.7, M7.8). *Done when:* 130 fluids green.
+- **M5.2a Caloric curves** (user decisions CC1, CC2). The curves are starting points: M7.7 and M7.8 polish every
+  answer with the EOS at (T, ρ_SA(T)), so their fit class is the measured `CaloricFit`, not `SaCoeff` (CC2: a
+  degree-12 fit on the SA pieces misses the EOS by up to 1.1e-6 next to Tc, where h, s, u go like (Tc − T)^β; measured
+  at M5.2a). *Failing tests:* `caloric_curves_match_the_eos_between_nodes` (h, s, u of each curve against the EOS at
+  (T, ρ_SA(T)) at piece midpoints, where a fit has no node, for 130 fluids; class `CaloricFit`),
+  `caloric_fit_error_is_checked` (datagen refuses a piece whose midpoint error exceeds the class; CoolProp has no
+  fit-error check, map 03 §6), `caloric_curves_match_oracle_sat_rows` (hL, hV, sL, sV of the `sat` kind's QT rows on
+  the all-fluid tier: the EOS at the SA densities, the values the polish converges to, at class `Prop`, and the curves at
+  `CaloricFit`), `gauge_shift_is_exact` (another α⁰ offset, as CoolProp's IIR and NBP reference states write one, shifts
+  the curves by the M2.11 formula, against the EOS), `corrected_curves_rescale_or_go_stale` (DIV-0001's R correction
+  rescales them by R′/R, checked against the Corrected EOS; a synthetic shape edit reports them stale and the curve
+  refuses to answer, so M7.7 falls back to the EOS), and `first_caloric_query_builds_nothing` (counting allocator: 0
+  allocations; ROT-027). *Do:* datagen samples h, s, u from the compiled Parity record at the 13 Chebyshev-Lobatto
+  nodes of every SA piece, at the M5.2 SA densities, in the native gauge, fits degree 12 (the Lobatto L matrix), and
+  fills the M2.11 section; the `sat` kind's QT rows on the all-fluid tier; bytes per fluid recorded. Consumed by the
+  SA-based Q pairs and HS (M7.7, M7.8). *Done when:* 130 fluids green.
 - **M5.3 DT below the critical temperature.** *Failing tests:* `dt_two_phase_matches_oracle` (lever rule through
   `State::from_split`; `flash` kind DT rows), `two_phase_cp_cv_w_are_undefined` (`Undefined { prop, TwoPhase }`; the
   DIV-0004 c_p/c_v proof part due at M5), `dt_below_the_triple_point_is_refused` (Water DT(55018.5 mol/m³, 250 K) →
@@ -870,8 +875,8 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
 - **M6.8 QT and PQ.** *Failing tests:* `sat_fixtures_match_oracle` (QT, PQ, both Q; class `SaCoeff` where the oracle
   path is `superanc`, `Prop` for `ancillary`; core subset and all-fluid tier), `q_pairs_report_their_saturation_source`
   (`State::path()`), `r134a_qt_smoke` (h = 413265.6843372975 J/kg at 300 K, Q = 1; map 11 §8),
-  `water_normal_boiling_point` (PQ at 101325 Pa in [373.124, 373.125] K; map 11 §8). *Do:* the `sat` kind's QT/PQ
-  rows; QT/PQ strategies via `SaturationCurve` then VLE. *Done when:* green for 136 fluids.
+  `water_normal_boiling_point` (PQ at 101325 Pa in [373.124, 373.125] K; map 11 §8). *Do:* the `sat` kind's PQ rows
+  and core files (the all-fluid tier's QT rows land at M5.2a); QT/PQ strategies via `SaturationCurve` then VLE. *Done when:* green for 136 fluids.
 - **M6.9 Pseudo-pure rules.** *Failing test:* `r410a_pseudo_pure_rows` (oracle, 03-decision-log: p(280 K, Q=0) =
   990480.516605891 Pa, Q=1: 987288.0717853763 Pa; QT at Q = 0.5 refused; T(1 MPa, Q = 0/0.5/1) = 280.31657 /
   280.37003 / 280.42348 K), plus `pseudo_pure_in_dome_dt_follows_the_oracle_rule` for all 6 blends. *Do:*

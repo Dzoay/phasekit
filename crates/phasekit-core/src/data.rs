@@ -540,6 +540,31 @@ impl CaloricCurves {
     }
 }
 
+impl CaloricCurves {
+    /// h′, h″, s′, s″, u′, u″ at T from one piece lookup, in the gauge they were sampled in; `None` outside the pieces.
+    /// Evaluation only: nothing is built on first use (ROT-027).
+    pub fn at(&self, t: f64) -> Option<[f64; 6]> {
+        let i = crate::saturation::piece(&self.breaks, t)?;
+        let (a, b) = (*self.breaks.get(i)?, *self.breaks.get(i + 1)?);
+        let x = (2.0 * t - (b + a)) / (b - a);
+        Some(self.curves.each_ref().map(|curve| curve.get(i).map_or(f64::NAN, |c| crate::saturation::clenshaw(c, x))))
+    }
+}
+
+/// Caloric curves that passed their freshness gate ([`FluidRecord::caloric_view`]), with the factor it found.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CaloricView<'a> {
+    curves: &'a CaloricCurves,
+    factor: f64,
+}
+
+impl CaloricView<'_> {
+    /// h′, h″, s′, s″, u′, u″ at T (molar, the record's gauge); `None` outside the pieces. Allocates nothing (ROT-027).
+    pub fn at(&self, t: f64) -> Option<[f64; 6]> {
+        Some(self.curves.at(t)?.map(|v| v * self.factor))
+    }
+}
+
 /// How a record's EOS relates to the caloric curves shipped with it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CaloricFreshness {
@@ -612,9 +637,21 @@ impl FluidRecord {
         }
     }
 
-    /// The caloric curves, or the typed "not yet" error until datagen computes them (M5.2a).
+    /// The caloric curves; a typed error for a fluid without (no superancillary, so no pieces to fit them on).
     pub fn caloric_curves(&self) -> Result<&CaloricCurves, LoadError> {
-        self.caloric.as_ref().ok_or(LoadError::Format("caloric curves land at M5.2a".into()))
+        self.caloric.as_ref().ok_or(LoadError::Format("no caloric curves: the fluid has no superancillary".into()))
+    }
+
+    /// The caloric curves under their freshness gate, decided once (it hashes the EOS): as stored when fresh, times R′/R
+    /// when only R changed. `None` when they are stale or absent: the saturation-based flashes then start from the EOS
+    /// at (T, ρ_SA(T)) (M7.7). The curves are starting points (user decision CC2).
+    pub fn caloric_view(&self) -> Option<CaloricView<'_>> {
+        let factor = match self.caloric_freshness()? {
+            CaloricFreshness::Fresh => 1.0,
+            CaloricFreshness::Rescaled { factor } => factor,
+            CaloricFreshness::Stale => return None,
+        };
+        Some(CaloricView { curves: self.caloric.as_ref()?, factor })
     }
 
     /// The caloric curves' freshness gate, beside [`FluidRecord::superancillary_freshness`]; `None` without curves.
@@ -1022,7 +1059,7 @@ mod tests {
     #[test]
     fn caloric_section_round_trips() {
         let mut record = every_field();
-        assert_eq!(record.caloric_curves(), Err(LoadError::Format("caloric curves land at M5.2a".into())));
+        assert_eq!(record.caloric_curves(), Err(LoadError::Format("no caloric curves: the fluid has no superancillary".into())));
         record.caloric = Some(curves(&record));
         let blob = record.encode();
         assert_eq!(FluidRecord::decode(&blob), Ok(record.clone()));

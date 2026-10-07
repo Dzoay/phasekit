@@ -87,6 +87,7 @@ pub enum ToleranceClass {
     Prop,
     SaCoeff,
     SaFit,
+    CaloricFit,
     SatMp,
     Flash,
     TransportDirect,
@@ -101,12 +102,13 @@ pub enum ToleranceClass {
 
 impl ToleranceClass {
     /// Every class with its name in fixture `tol:` lines (VERIFICATION.md §3.3, §5).
-    const NAMES: [(ToleranceClass, &'static str); 15] = [
+    const NAMES: [(ToleranceClass, &'static str); 16] = [
         (ToleranceClass::Exact, "exact"),
         (ToleranceClass::Term, "term"),
         (ToleranceClass::Prop, "prop"),
         (ToleranceClass::SaCoeff, "sa_coeff"),
         (ToleranceClass::SaFit, "sa_fit"),
+        (ToleranceClass::CaloricFit, "caloric_fit"),
         (ToleranceClass::SatMp, "sat_mp"),
         (ToleranceClass::Flash, "flash"),
         (ToleranceClass::TransportDirect, "transport_direct"),
@@ -144,6 +146,7 @@ impl ToleranceClass {
             ToleranceClass::Term => Some(1e-13 * scale.max(TERM_FLOOR)),
             ToleranceClass::Prop | ToleranceClass::Identity => Some(if near { 1e-8 } else { 1e-12 } * scale),
             ToleranceClass::SaCoeff => Some(1e-14 * scale),
+            ToleranceClass::CaloricFit => Some(2e-6 * scale),
             _ => None,
         }
     }
@@ -167,12 +170,13 @@ impl ToleranceClass {
     }
 
     /// VERIFICATION.md §5, the "Bound" column verbatim: a class changes here and there together.
-    const BOUNDS: [(ToleranceClass, &'static str); 15] = [
+    const BOUNDS: [(ToleranceClass, &'static str); 16] = [
         (ToleranceClass::Exact, "bitwise (`to_bits`), statuses equal"),
         (ToleranceClass::Term, "1e-13 · Σ_k abs(φ_k), floor 1e-300"),
         (ToleranceClass::Prop, "1e-12; nc 1e-8; or `Term` carried through the relation, if larger"),
         (ToleranceClass::SaCoeff, "1e-14"),
         (ToleranceClass::SaFit, "4 · abs(SA/mp − 1) of that point, floor 1e-14"),
+        (ToleranceClass::CaloricFit, "2e-6 of max(abs(value), floor)"),
         (ToleranceClass::SatMp, "p, ρ 1e-11; ρ 1e-6 if Θ < 1e-3"),
         (ToleranceClass::Flash, "T, ρ, p, h, s, u 1e-9; Q 1e-8 abs; nc: ρ 1e-6, T 1e-8"),
         (ToleranceClass::TransportDirect, "1e-12"),
@@ -229,7 +233,7 @@ mod tests {
             .map(|(class, bound)| (format!("{class:?}"), bound.to_string()))
             .collect();
         assert_eq!(code, documented());
-        assert_eq!(code.len(), 15);
+        assert_eq!(code.len(), 16);
         for (class, _) in ToleranceClass::table() {
             assert_eq!(ToleranceClass::from_name(class.name()), Some(class), "{class:?} has a tol: name");
         }
@@ -279,6 +283,7 @@ mod tests {
         assert_eq!(ToleranceClass::Flash.bound_carried(2.0, Window::Regular, 1.0), None);
         // `SaCoeff` is 1e-14 relative; `SaFit` 4 times the point's own SA/mp misfit, never below 1e-14.
         assert_eq!(ToleranceClass::SaCoeff.bound_in(3.0, Window::NearCritical), Some(3e-14));
+        assert_eq!(ToleranceClass::CaloricFit.bound(4.0), Some(8e-6));
         let misfit = 1.0 / 1_073_741_824.0; // SA/mp − 1 = 2^-30, exact
         assert_eq!(ToleranceClass::sa_fit(1.0 + misfit, -2.0), 8.0 * misfit);
         assert_eq!(ToleranceClass::sa_fit(1.0 - misfit, 2.0), 8.0 * misfit);

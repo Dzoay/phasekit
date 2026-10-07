@@ -520,16 +520,25 @@ mod tests {
         assert!(parity >= MIN_COMPILABLE, "{parity} compile, fewer than {MIN_COMPILABLE}");
     }
 
-    /// PLAN.md M2.11: until M5.2a computes them, every shipped blob carries the caloric section empty, and asking for
-    /// the curves is the typed "not yet" error.
+    /// PLAN.md M2.11, M5.2a: the caloric curves ship with exactly the 130 superancillaries, on their pieces; the six
+    /// pseudo-pure fluids have none, and asking for theirs is a typed error.
     #[test]
-    fn caloric_section_is_empty_until_m5_2a() {
+    fn caloric_sections_ship_with_every_superancillary() {
+        let mut with = 0;
         for f in phasekit_data::FLUIDS {
             let record = FluidRecord::decode(f.blob).unwrap();
-            assert_eq!(record.caloric, None, "{}", f.name);
-            assert_eq!(record.caloric_curves(), Err(LoadError::Format("caloric curves land at M5.2a".into())));
+            match (&record.superancillary, record.caloric_curves()) {
+                (Some(sa), Ok(curves)) => {
+                    assert_eq!(curves.breaks, sa.breaks, "{}", f.name);
+                    with += 1;
+                }
+                (None, Err(e)) => {
+                    assert_eq!(e, LoadError::Format("no caloric curves: the fluid has no superancillary".into()))
+                }
+                (sa, curves) => panic!("{}: superancillary {}, curves {curves:?}", f.name, sa.is_some()),
+            }
         }
-        assert_eq!(phasekit_data::FLUIDS.len(), 136);
+        assert_eq!((phasekit_data::FLUIDS.len(), with), (136, 130));
     }
 
     /// Map 09 §4.5: the shipped index has 556 ASCII case-folded keys over 136 fluids, none shared between fluids;

@@ -51,3 +51,16 @@ fn compiled_residual_parts_fit_25_kib() {
     }
     assert!(largest.0 <= 25 * 1024, "{} keeps {} bytes", largest.1, largest.0);
 }
+
+/// ROT-027 (caloric part), PLAN.md M5.2a: the caloric curves are datagen output, so the first query of a decoded record
+/// evaluates them and builds nothing: zero allocations, where CoolProp builds them at first use (45-63 ms per fluid
+/// behind a mutex, map 03 §6).
+#[test]
+fn first_caloric_query_builds_nothing() {
+    let record = phasekit_core::internal::record(Registry::embedded().unwrap(), "Water").unwrap();
+    let curves = record.caloric_view().unwrap(); // the freshness gate, decided once
+    let mut first = None;
+    let counted = allocation_counter::measure(|| first = curves.at(std::hint::black_box(400.0)));
+    assert_eq!(counted.count_total, 0, "{counted:?}");
+    assert!(first.is_some_and(|values| values.iter().all(|v| v.is_finite())));
+}

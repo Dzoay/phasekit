@@ -4,6 +4,7 @@
 //! stamp must recompute ([`fnv`], M2.2); each default EOS maps into core's record, every JSON quirk resolved and every
 //! value validated ([`record`], M2.3). Later steps add the blobs (M2.4) and the index and features (M2.5).
 
+pub mod caloric;
 pub mod citations;
 pub mod corrections;
 pub mod fnv;
@@ -240,6 +241,47 @@ mod tests {
     /// The text of one pinned fluid file.
     fn text(file: &str) -> String {
         Repo::locate().read(&format!("{FLUIDS_DIR}/{file}")).unwrap()
+    }
+
+    /// PLAN.md M5.2a (ROT-027; user decision CC2): the shipped caloric curves of the 130 fluids with a superancillary,
+    /// decoded from their blobs, against the `Parity` EOS at (T, ρ_SA(T)) at two points of every piece where the fit
+    /// has no node (between Chebyshev-Lobatto nodes 2 and 3, and 8 and 9). Class `CaloricFit`: 2e-6 of max(|v|, floor),
+    /// floor R·T for h and u, R for s.
+    #[test]
+    fn caloric_curves_match_the_eos_between_nodes() {
+        use phasekit_core::{Basis, Density, DomainPolicy, FlashOptions, Fluid, Input, Phase, Temperature};
+        let side = |phase| FlashOptions::new().with_phase(phase).with_domain(DomainPolicy::Extrapolate);
+        let (mut fluids, mut worst) = (0, 0.0_f64);
+        for source in sources().iter().filter(|s| s.fluid.eos[0].superancillary.is_some()) {
+            let shipped = FluidRecord::decode(&record::to_record(source).unwrap().encode()).unwrap();
+            let (sa, r) = (shipped.superancillary_curve().unwrap(), shipped.eos.gas_constant);
+            let breaks = shipped.caloric.as_ref().unwrap().breaks.clone();
+            let fluid = Fluid::new(std::sync::Arc::new(shipped.clone().compile().unwrap()));
+            let node = |k: f64| math::cos(std::f64::consts::PI * k / 12.0);
+            for w in breaks.windows(2) {
+                for x in [(node(2.0) + node(3.0)) / 2.0, (node(8.0) + node(9.0)) / 2.0] {
+                    let t = w[0] + (x + 1.0) * (w[1] - w[0]) / 2.0;
+                    let sat = sa.at_t(t).unwrap();
+                    let at = |rho: f64, phase| {
+                        let input = Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap());
+                        fluid.flash(input, &side(phase)).unwrap()
+                    };
+                    let (l, v) = (at(sat.bubble.rho, Phase::Liquid), at(sat.dew.rho, Phase::Gas));
+                    let m = Basis::Molar;
+                    let exact = [l.h(m), v.h(m), l.s(m), v.s(m), l.u(m), v.u(m)];
+                    let curves = shipped.caloric_view().unwrap().at(t).unwrap();
+                    for (c, (got, want)) in curves.iter().zip(exact).enumerate() {
+                        let floor = if c == 2 || c == 3 { r } else { r * t };
+                        let miss = (got - want).abs() / want.abs().max(floor);
+                        assert!(miss <= caloric::FIT_TOL, "{} curve {c} at {t} K: {got} against {want}", source.file);
+                        worst = worst.max(miss);
+                    }
+                }
+            }
+            fluids += 1;
+        }
+        assert_eq!(fluids, 130);
+        assert!(worst > 1e-7, "the measured worst, 1.1e-6, sets CaloricFit: {worst:e}");
     }
 
     /// PLAN.md M2.1: every v8.0.0 fluid parses into the closed mirror, after the lock check. 136 files, 136 distinct
