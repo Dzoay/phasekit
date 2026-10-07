@@ -926,9 +926,9 @@ the steps that record each row.
 | Bench (one x86-64 core) | Target (ARCHITECTURE.md §7) | Recorded | Enforced | CoolProp 8.0.0 |
 |---|---|---|---|---|
 | Hot lookup by name | ≤ 50 ns *(inference)* | M2 | M9 | `PropsSI` rebuilds a backend: 76.5 µs; C++ 62-88 µs (M1.15a run) |
-| α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs | M3: 0.22 µs (n-Heptane, 12 terms), 0.35-0.39 µs (R134a 21, n-Propane 18), 0.69 µs (Methane 40); 31 ns of it fixed per call (M3.8, `alphar_order2`) | M9 | C++ (M1.15a run): 0.37 µs (12 terms), 0.55-0.60 µs (18-21), 1.2 µs (40), 2.7 µs (56) |
-| Properties at (T, ρ) | ≤ 0.5 µs | M5 | M9 | update(D,T) + h + c_p: 1.5-10.7 µs; C++ 0.76-3.2 µs (M1.15a run) |
-| Heap allocations per flash or batch point | 0 | M5 | M5 (test) | n/a |
+| α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs | M3: 0.22 µs (n-Heptane, 12 terms), 0.35-0.39 µs (R134a 21, n-Propane 18), 0.69 µs (Methane 40); 31 ns of it fixed per call (M3.8, `alphar_order2`). M5.11: Water (56 terms) 5.6 µs, 2.1× the C++, of which its 2 non-analytic terms take 4.65 µs: `NonAnalyticBlock` evaluates them on `Jet4` at order 4 whatever order is asked; the other 54 terms take 1.02 µs, 2.6× faster than the C++ | M9 | C++ (M1.15a run): 0.37 µs (12 terms), 0.55-0.60 µs (18-21), 1.2 µs (40), 2.7 µs (56) |
+| Properties at (T, ρ) | ≤ 0.5 µs | M5.11 (`properties_at_t_rho`, DT + h + c_p): 0.48 µs (n-Heptane), 0.55 µs (R134a), 0.73 µs (n-Propane), 1.08 µs (Methane), 5.95 µs (Water). α^r is 50-70 % of it (Water 94 %), α⁰ 58-200 ns, and the flash ~50-80 ns plus ~65 ns re-evaluating the superancillary's top as the critical point on every call. `dt_flash` inside the dome (curve + two bundles): 1.3-3.0 µs, Water 17.8 µs | M9 | update(D,T) + h + c_p: 1.5-10.7 µs; C++ 0.76-3.2 µs (M1.15a run) |
+| Heap allocations per flash or batch point | 0 | M5: 0 (`dt_flash_allocates_nothing`, `batch_point_allocates_nothing`, M5.8) | M5 (test) | n/a |
 | QT / PQ via superancillary | ≤ 0.1 µs | M6 | M9 | 0.45 / 0.64 µs; C++ 0.21 / 0.22-0.23 µs (M1.15a run) |
 | PT / PH single phase | ≤ 3 / ≤ 15 µs | M7 | M9 | 19-27 / 119-376 µs; C++ 3.4-25 / 37-255 µs (M1.15a run) |
 | Thread scaling, same and different fluids (N = physical cores) | ≥ 0.9·N | M9 | recorded, a miss is re-planned | GIL-bound 0.97× on 4 threads; C++ (M1.15a) 3.0-3.8× at 4, 3.1-5.4× at 6 (mixed 4.2×), 3.4-6.5× at 12 threads |

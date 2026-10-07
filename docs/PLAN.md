@@ -820,7 +820,7 @@ subcritical point (D5, D6, E18). **Prerequisites.** M4; M1.9-M1.12 transcription
 
 **Exit gate.** G1-G8 (G7 with compat; `features`); eos fixtures at `Prop` for the core subset and all-fluid tier, full
 grid *(nightly)*; SA within `SaCoeff` for 130 fluids (all-fluid tier; 200 T *(nightly)*) and within `SaFit` at the 390
-check points; caloric curves within `SaCoeff` of the EOS for 130 fluids; Lemmon 2016 Table 7 (12 states), IAPWS-95 Table
+check points; caloric curves within `CaloricFit` of the EOS for 130 fluids (CC2); Lemmon 2016 Table 7 (12 states), IAPWS-95 Table
 7 and the CoolProp paper rows within printed digits; proofs due at M5: DIV-0001 (three parts), DIV-0004 (c_p, c_v),
 DIV-0005 (Table 3), DIV-0011, DIV-0012, DIV-0014; 0 allocations per DT flash and batch point; seam tests green.
 **ROT rows.** M5.1: ROT-062. M5.2: ROT-035, ROT-087, ROT-093. M5.2a: ROT-027 (caloric part). M5.3: ROT-010 (c_p, c_v, w
