@@ -3,7 +3,8 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::Registry;
+use phasekit_core::{DataSet, Registry};
+use phasekit_verify::eos::EosCheck;
 use phasekit_verify::term::{self, TermCheck};
 use phasekit_verify::{Cell, Fixture};
 
@@ -43,5 +44,27 @@ fn alphar_totals_match_oracle_on_the_nightly_grid() {
         fluids += 1;
     }
     assert_eq!((fluids, check.checked), (136, 136 * 64 * (15 + 10)));
+    assert_eq!(check.report(20), None);
+}
+
+/// Oracle: CoolProp 8.0.0, fixtures-full/coolprop-8.0.0/eos/<Fluid>.csv (PLAN.md M5.1, the M5 exit gate's nightly part):
+/// p, h, s, u, cv, cp, w, Z, (∂p/∂ρ)_T and (∂p/∂T)_ρ at 10,000 (T, ρ) per fluid, phase imposed, against the DT flash of
+/// the `Parity` data; class `Prop` with the floors of VERIFICATION.md §5, or `Term` carried through the relation where a
+/// relation cancels (M5.1: 584 entries at Z ≈ 1e-4, next to a spinodal or in deep metastable liquid need it).
+#[test]
+#[ignore = "nightly: reads the full eos set (cargo xtask oracle --kind eos --tier full)"]
+fn eos_fixtures_match_oracle_on_the_nightly_grid() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut check = EosCheck::default();
+    for f in phasekit_data::FLUIDS {
+        let path = format!("{FULL}/eos/{}.csv", f.name);
+        let text = read(&path);
+        let fixture = Fixture::parse(&path, &text).unwrap();
+        let rows: Vec<usize> = (0..fixture.rows().len()).collect();
+        assert_eq!(rows.len(), 10_000, "{path}");
+        let record = phasekit_core::internal::record(&registry, f.name).unwrap();
+        check.rows(&fixture, &rows, registry.get(f.name).unwrap(), &record);
+    }
+    assert_eq!(check.checked, 136 * 10_000 * 10);
     assert_eq!(check.report(20), None);
 }

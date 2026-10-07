@@ -3,6 +3,7 @@
 
 pub mod arbiters;
 pub mod conformance;
+pub mod eos;
 pub mod fixture;
 pub mod lock;
 pub mod majorant;
@@ -22,7 +23,7 @@ pub use register::{
 };
 pub use sample::SplitMix64;
 pub use sha256::{sha256, sha256_hex};
-pub use tolerance::{Provenance, Tolerance, ToleranceClass, from_printed};
+pub use tolerance::{Provenance, Tolerance, ToleranceClass, Window, from_printed};
 
 /// The first milestone that is not closed (PLAN.md §0.2). The step that closes milestone n sets it to n + 1, which
 /// arms the fail-closed checks for everything due by n: `cargo xtask gates rot` (VERIFICATION.md §11.2) and, from M1.6,

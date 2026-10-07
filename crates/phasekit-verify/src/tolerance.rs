@@ -47,6 +47,27 @@ impl Provenance {
 /// The floor of class `Term` (VERIFICATION.md §5): the smallest Σ_k |φ_k| an entry is compared against.
 pub const TERM_FLOOR: f64 = 1e-300;
 
+/// Where an entry lies, for the classes whose bound differs in the near-critical window "nc" (VERIFICATION.md §5):
+/// |T/Tc − 1| < 1e-3 and |ρ/ρc − 1| < 0.1 at the published Tc and ρc (map 10 §8.3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Window {
+    /// Outside the near-critical window.
+    Regular,
+    /// Inside it.
+    NearCritical,
+}
+
+impl Window {
+    /// The window of (T, ρ) for a fluid whose published critical point is (Tc, ρc).
+    pub fn at(t: f64, rho: f64, tc: f64, rhoc: f64) -> Window {
+        if (t / tc - 1.0).abs() < 1e-3 && (rho / rhoc - 1.0).abs() < 0.1 {
+            Window::NearCritical
+        } else {
+            Window::Regular
+        }
+    }
+}
+
 /// An absolute or relative bound.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Tolerance {
@@ -108,14 +129,29 @@ impl ToleranceClass {
         Self::NAMES.iter().find(|(_, n)| *n == name).map(|(class, _)| *class)
     }
 
-    /// The absolute bound for an entry of magnitude `scale`, the class's floor applied (VERIFICATION.md §5), for the
-    /// classes compared numerically so far; `None` for the others until the first fixture kind compared under each
-    /// lands (PLAN.md M3 on). `Term` takes Σ_k |φ_k| from [`crate::majorant`].
+    /// The absolute bound for an entry of magnitude `scale` outside the near-critical window: [`Self::bound_in`].
     pub fn bound(self, scale: f64) -> Option<f64> {
+        self.bound_in(scale, Window::Regular)
+    }
+
+    /// The absolute bound for an entry of magnitude `scale` in `window` (VERIFICATION.md §5), for the classes compared
+    /// numerically so far; `None` for the others until the first fixture kind compared under each lands (PLAN.md M3
+    /// on). `Term` takes Σ_k |φ_k| from [`crate::majorant`] and applies its floor; `Prop` takes max(|value|, floor)
+    /// with the floors of §5 (the caller's, since they depend on the quantity) and `Identity` the largest term.
+    pub fn bound_in(self, scale: f64, window: Window) -> Option<f64> {
+        let near = window == Window::NearCritical;
         match self {
             ToleranceClass::Term => Some(1e-13 * scale.max(TERM_FLOOR)),
+            ToleranceClass::Prop | ToleranceClass::Identity => Some(if near { 1e-8 } else { 1e-12 } * scale),
             _ => None,
         }
+    }
+
+    /// The bound of an output a relation computes from the α derivatives (`Prop`, VERIFICATION.md §5): the class's own
+    /// bound on `scale` in `window`, or `Term`'s bound on `carried` = Σ_ij |∂X/∂A_ij|·M_ij (the entries' `Term` scales
+    /// carried through the relation to first order) where that is larger. A NaN `carried` leaves the own bound.
+    pub fn bound_carried(self, scale: f64, window: Window, carried: f64) -> Option<f64> {
+        Some(self.bound_in(scale, window)?.max(ToleranceClass::Term.bound(carried)?))
     }
 
     /// Every class with its bound as VERIFICATION.md §5 states it, in that table's order.
@@ -127,7 +163,7 @@ impl ToleranceClass {
     const BOUNDS: [(ToleranceClass, &'static str); 15] = [
         (ToleranceClass::Exact, "bitwise (`to_bits`), statuses equal"),
         (ToleranceClass::Term, "1e-13 · Σ_k abs(φ_k), floor 1e-300"),
-        (ToleranceClass::Prop, "1e-12; nc 1e-8"),
+        (ToleranceClass::Prop, "1e-12; nc 1e-8; or `Term` carried through the relation, if larger"),
         (ToleranceClass::SaCoeff, "1e-14"),
         (ToleranceClass::SaFit, "4 · abs(SA/mp − 1) of that point, floor 1e-14"),
         (ToleranceClass::SatMp, "p, ρ 1e-11; ρ 1e-6 if Θ < 1e-3"),
@@ -216,6 +252,31 @@ mod tests {
         assert!(Provenance::Paper { citation: "lemmon2016", table: "7" }.is_arbiter());
         assert!(Provenance::Iapws { release: "R6-95(2018)" }.is_arbiter());
         assert!(Provenance::MultiPrecision { source: "coolprop-json" }.is_arbiter());
+    }
+
+    /// `Prop` and `Identity` bound 1e-12 of their scale, 1e-8 in the near-critical window, whose edges are strict (the
+    /// window of map 10 §8.3: |T/Tc − 1| < 1e-3 and |ρ/ρc − 1| < 0.1); `Prop` also takes `Term` on a carried scale.
+    #[test]
+    fn prop_and_identity_relax_only_near_critical() {
+        use ToleranceClass::{Identity, Prop, Term};
+        for class in [Prop, Identity] {
+            assert_eq!(class.bound(2.0), Some(2e-12));
+            assert_eq!(class.bound_in(2.0, Window::NearCritical), Some(2e-8));
+        }
+        assert_eq!(Term.bound_in(1.0, Window::NearCritical), Term.bound(1.0));
+        // `Prop` keeps its own bound unless `Term` on the carried scale is larger; a NaN carried scale changes nothing.
+        assert_eq!(Prop.bound_carried(2.0, Window::Regular, 10.0), Some(2e-12));
+        assert_eq!(Prop.bound_carried(2.0, Window::Regular, 30.0), Some(3e-12));
+        assert_eq!(Prop.bound_carried(2.0, Window::NearCritical, 1e5), Some(2e-8));
+        assert_eq!(Prop.bound_carried(2.0, Window::Regular, f64::NAN), Some(2e-12));
+        assert_eq!(ToleranceClass::Flash.bound_carried(2.0, Window::Regular, 1.0), None);
+        assert_eq!(Term.bound(0.0), Some(1e-313));
+        let (tc, rhoc) = (600.0, 10_000.0);
+        assert_eq!(Window::at(600.5, 10_900.0, tc, rhoc), Window::NearCritical);
+        assert_eq!(Window::at(599.5, 9_100.0, tc, rhoc), Window::NearCritical);
+        for (t, rho) in [(600.6, 10_000.0), (599.4, 10_000.0), (600.0, 11_000.0), (600.0, 8_990.0)] {
+            assert_eq!(Window::at(t, rho, tc, rhoc), Window::Regular, "{t} {rho}");
+        }
     }
 
     #[test]

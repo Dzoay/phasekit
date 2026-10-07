@@ -543,7 +543,121 @@ def term(CP, lock, config, files, args):
     return out
 
 
-GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term}
+# The `eos` kind (section 3.5): properties at (T, rho) with the phase imposed, molar SI. Each output is one
+# `AbstractState` call; `speed_sound` is nan where (dp/drho)_T < 0 (map 10 R18), which is not a failure.
+EOS_OUTPUTS = [
+    ("p", "Pa", lambda CP, s: s.p()),
+    ("hmolar", "J/mol", lambda CP, s: s.hmolar()),
+    ("smolar", "J/mol/K", lambda CP, s: s.smolar()),
+    ("umolar", "J/mol", lambda CP, s: s.umolar()),
+    ("cvmolar", "J/mol/K", lambda CP, s: s.cvmolar()),
+    ("cpmolar", "J/mol/K", lambda CP, s: s.cpmolar()),
+    ("speed_sound", "m/s", lambda CP, s: s.speed_sound()),
+    ("Z", "-", lambda CP, s: s.compressibility_factor()),
+    ("dpdrho_T", "Pa*m3/mol", lambda CP, s: s.first_partial_deriv(CP.iP, CP.iDmolar, CP.iT)),
+    ("dpdT_rho", "Pa/K", lambda CP, s: s.first_partial_deriv(CP.iP, CP.iT, CP.iDmolar)),
+    ("Bvirial", "m3/mol", lambda CP, s: s.Bvirial()),
+    ("Cvirial", "m6/mol2", lambda CP, s: s.Cvirial()),
+    ("dBvirial_dT", "m3/mol/K", lambda CP, s: s.dBvirial_dT()),
+    ("dCvirial_dT", "m6/mol2/K", lambda CP, s: s.dCvirial_dT()),
+]
+EOS_COLUMNS = ["T", "rhomolar", "region", "status", *(name for name, _, _ in EOS_OUTPUTS)]
+EOS_UNITS = ["K", "mol/m3", "-", "-", *(unit for _, unit, _ in EOS_OUTPUTS)]
+EOS_TOL = ["in", "in", "label", "label", *["prop"] * len(EOS_OUTPUTS)]
+EOS_ROWS = {"core": 500, "all": 8, "full": 10000}
+EOS_RHO_SPAN = 1e-6  # rho ~ logU[EOS_RHO_SPAN * rhoL(T_low), rhoL(T_low)]
+
+
+def saturated_density(CP, name, q, t):
+    """rho' (q = 0) or rho'' (q = 1) at T from QT, or from the fluid's saturated-density ancillary where CoolProp's QT
+    solver finds no root: a pseudo-pure fluid within about 2 K of Tc (R410A, R507A, SES36; measured at M5.1)."""
+    state = CP.AbstractState("HEOS", name)
+    try:
+        state.update(CP.QT_INPUTS, q, t)
+        return state.rhomolar()
+    except Exception:  # only the region label needs it; the ancillary never fails below Tc
+        return state.saturation_ancillary(CP.iDmolar, q, CP.iT, t)
+
+
+def eos_region(CP, name, t, rho, tc):
+    """`stable` above the critical temperature and outside the saturated densities at T (bubble and dew of a
+    pseudo-pure fluid), else `metastable` where (dp/drho)_T > 0 and `unstable` where it is not (map 10 section 8.5)."""
+    if t >= tc:
+        return "stable"
+    if rho >= saturated_density(CP, name, 0, t) or rho <= saturated_density(CP, name, 1, t):
+        return "stable"
+    state = CP.AbstractState("HEOS", name)
+    state.specify_phase(CP.iphase_gas)
+    state.update(CP.DmolarT_INPUTS, rho, t)
+    return "metastable" if state.first_partial_deriv(CP.iP, CP.iDmolar, CP.iT) > 0 else "unstable"
+
+
+def eos_rows(job):
+    """One fluid's rows, in a pool child: each a fresh `AbstractState` with the phase imposed (gas) at (T, rho). An
+    exception in any output makes the row `err:<class>` with nan outputs; a nan output in an `ok` row is the oracle's."""
+    import CoolProp.CoolProp as CP  # the parent's module, inherited through fork
+
+    name, tc, points = job
+    lines, floats = [], []
+    for t, rho in points:
+        try:
+            region = eos_region(CP, name, t, rho, tc)
+        except Exception as exception:  # the region needs the saturated densities, which every fluid has below Tc
+            raise RuntimeError(f"eos: {name}: no region at T = {t!r}, rho = {rho!r}: {exception}") from None
+        try:
+            state = CP.AbstractState("HEOS", name)
+            state.specify_phase(CP.iphase_gas)
+            state.update(CP.DmolarT_INPUTS, rho, t)
+            values, status = [get(CP, state) for _, _, get in EOS_OUTPUTS], "ok"
+        except Exception as exception:  # every oracle failure becomes a status, never a crash
+            values, status = [math.nan] * len(EOS_OUTPUTS), f"err:{error_class(exception)}"
+        row = [t, rho, *values]
+        floats.extend(row)
+        lines.append(",".join([cell(t), cell(rho), region, status, *map(cell, values)]) + "\n")
+    return lines, floats
+
+
+def eos(CP, lock, config, files, args):
+    """The `eos` kind (section 3.5): T ~ U[T_low, Tmax] and rho ~ logU[1e-6 rhoL(T_low), rhoL(T_low)] with T_low =
+    max(Tmin, Ttriple) (map 09 R8) and rhoL(T_low) the saturated liquid there, from one SplitMix64 stream per fluid (T
+    then rho per row), so the all-fluid tier's rows are the first of the core grid. 500 rows per core fluid in
+    eos/<Fluid>.csv, 8 per fluid in all/eos.csv, 10,000 per fluid in the full set."""
+    rows = args.rows or EOS_ROWS[args.tier]
+    jobs, shas = [], {}
+    for name in tier_fluids(args, files):
+        shas[name] = assert_fluid(CP, files, name)
+        state = CP.AbstractState("HEOS", name)
+        t_low, t_max, tc = max(state.Tmin(), state.Ttriple()), state.Tmax(), state.T_critical()
+        state.update(CP.QT_INPUTS, 0, t_low)
+        rho_l = state.rhomolar()
+        rng = splitmix64(args.seed)
+        points = []
+        for _ in range(rows):
+            t = uniform(rng, t_low, t_max)
+            points.append((t, log_uniform(rng, EOS_RHO_SPAN * rho_l, rho_l)))
+        jobs.append((name, tc, points))
+    grid = (f"T~U[Tlow,Tmax] rho~logU[{EOS_RHO_SPAN!r}*rhoL(Tlow),rhoL(Tlow)] Tlow=max(Tmin,Ttriple) n={rows} "
+            f"seed={args.seed} phase=imposed:gas")
+    try:
+        results = pool_map(eos_rows, jobs, args.jobs)
+    except RuntimeError as exception:  # a generator bug, not an oracle failure
+        fail(str(exception))
+    if args.tier == "all":
+        floats = [value for _, values in results for value in values]
+        fluids = f"{len(jobs)} fluids, fluids_sha256={lock['fluids_sha256']}"
+        columns, tol, units = ["fluid", *EOS_COLUMNS], ["label", *EOS_TOL], ["-", *EOS_UNITS]
+        text = header("eos", lock, config, fluids, columns, tol, floats, units=units, grid=grid)
+        lines = [f"{name},{line}" for (name, _, _), (rows_, _) in zip(jobs, results) for line in rows_]
+        return {"all/eos.csv": text + "".join(lines)}
+    out = {}
+    for (name, _, _), (lines, floats) in zip(jobs, results):
+        text = header("eos", lock, config, [(name, shas[name])], EOS_COLUMNS, EOS_TOL, floats, units=EOS_UNITS,
+                      grid=grid)
+        out[f"eos/{name}.csv"] = text + "".join(lines)
+    return out
+
+
+GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos}
 
 
 def write(out, files):
