@@ -1,9 +1,11 @@
 # cargo-nextest (PLAN.md §2.4 G3, G4; VERIFICATION.md §11.2): every test in its own process, all test binaries in one
 # parallel pool. Doctests are not nextest's: G3 and G4 run them with `cargo test --doc`.
 
-# `cargo nextest run` and the mutants gate (`.cargo/mutants.toml`, `test_tool = "nextest"`): stop at the first failure.
+# `cargo nextest run` and the mutants gate (`.cargo/mutants.toml`, `test_tool = "nextest"`): stop at the first failure
+# and end the tests still running, so a caught mutant does not wait for the slowest in-flight test (the datagen tests
+# take about 20 s each).
 [profile.default]
-fail-fast = true
+fail-fast = { max-fail = 1, terminate = "immediate" }
 
 # G3, G4 and CI: run everything and report every failure.
 [profile.ci]
