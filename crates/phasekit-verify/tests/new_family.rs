@@ -7,13 +7,14 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use phasekit_compat::{CompatError, props_si_in};
 use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
 use phasekit_core::{
-    Basis, CriticalOrigin, CriticalPoint, DataTerms, Density, DerivVar, Derivs, Error, FlashOptions, FluidInfo,
-    HelmholtzModel, Input, Limits, ModelKey, Order, Pair, Partial, Phase, Prop, PureFluid, Registry, Source, Strategy,
-    Temperature, ThermoModel, Virials, math,
+    Basis, CriticalOrigin, CriticalPoint, DataTerms, Density, DerivVar, Derivs, Enthalpy, Entropy, Error, FlashOptions,
+    FluidInfo, HelmholtzModel, Input, Limits, ModelKey, Order, Pair, Partial, Phase, Prop, PureFluid, ReferenceState,
+    Registry, Source, Strategy, Temperature, ThermoModel, Virials, math,
 };
-use phasekit_verify::{fd_first_order, policy_equivalence};
+use phasekit_verify::{fd_first_order, gauge_invariance, policy_equivalence};
 
 const R: f64 = 8.314_462_618;
 
@@ -180,4 +181,36 @@ fn sixteen_threads_share_one_fluid_bitwise() {
             assert_eq!(h.join().unwrap(), sequential);
         }
     });
+}
+
+#[test]
+fn compat_strings_reach_the_new_family() {
+    let (model, crit) = vdw();
+    let reg = Registry::empty().with_model(model).unwrap();
+    let (t, rho) = (2.0 * crit.t, 100.0);
+    let p = reg.get("vdW-Argon").unwrap().state(dt(rho, t)).unwrap().p();
+    assert_eq!(props_si_in(&reg, "P", "T", t, "Dmolar", rho, "vdW-Argon").unwrap(), p);
+    assert_eq!(props_si_in(&reg, "P", "Dmolar", rho, "T", t, "HEOS::vdw").unwrap(), p);
+    let refused = props_si_in(&reg, "P", "P", 1e5, "T", t, "vdw");
+    assert_eq!(refused, Err(CompatError::Core(Error::Unsupported { pair: Pair::PT })));
+}
+
+#[test]
+fn reference_states_work_for_any_family() {
+    let (model, crit) = vdw();
+    let reg = Registry::empty().with_model(model).unwrap();
+    let fluid = reg.get("vdw").unwrap();
+    let (t, rho) = (2.0 * crit.t, 100.0);
+    let anchor = dt(rho, t);
+    let at_zero =
+        ReferenceState::Custom { at: anchor, h: Enthalpy::molar(0.0).unwrap(), s: Entropy::molar(0.0).unwrap() };
+    let shifted = fluid.with_reference(at_zero).unwrap();
+    assert!(shifted.state(anchor).unwrap().h(Basis::Molar).abs() < 1e-9);
+    gauge_invariance(fluid, shifted.gauge(), &[anchor, dt(300.0, 1.5 * crit.t)]).unwrap();
+    // IIR anchors on saturated liquid (QT): refused until the family declares QT, never a panic.
+    assert_eq!(fluid.with_reference(ReferenceState::Iir).unwrap_err(), Error::Unsupported { pair: Pair::QT });
+    // E10: the registry form reaches strings (and so C and JS) under every alias.
+    let gauged = reg.with_reference("VDW-ARGON", at_zero).unwrap();
+    assert!(props_si_in(&gauged, "Hmolar", "T", t, "Dmolar", rho, "vdw").unwrap().abs() < 1e-9);
+    assert!(props_si_in(&reg, "Hmolar", "T", t, "Dmolar", rho, "vdw").unwrap().abs() > 1.0);
 }

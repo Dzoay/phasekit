@@ -1,0 +1,23 @@
+[package]
+name = "phasekit-compat"
+description = "PropsSI-style string API, CoolProp names and legacy fill policies over any registry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# E7: the fluid set is forwarded, never implied. phasekit-capi and phasekit-py (default `fluids-all`) and
+# phasekit-wasm (`default-features = false, features = ["fluids-core"]`) forward the same three features, and
+# CI gates `cargo tree -e features -p phasekit-wasm --target wasm32-unknown-unknown` plus a .wasm size budget.
+[features]
+default = ["fluids-all"]
+embedded = ["phasekit-core/embedded"]
+fluids-all = ["embedded", "phasekit-core/fluids-all"]
+fluids-core = ["embedded", "phasekit-core/fluids-core"]
+
+[dependencies]
+phasekit-core.workspace = true
+
+[lints]
+workspace = true
