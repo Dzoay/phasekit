@@ -20,6 +20,7 @@ env:
   CARGO_INCREMENTAL: "0"
   WASMTIME_VERSION: "49.0.2"
   CARGO_MUTANTS_VERSION: "27.1.0"
+  CARGO_NEXTEST_VERSION: "0.9.146"
   CARGO_DENY_VERSION: "0.20.2"
   CARGO_SHEAR_VERSION: "1.14.0"
   REUSE_VERSION: "6.2.0"
@@ -69,12 +70,12 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.tools
-          key: tools-${{ runner.os }}-${{ runner.arch }}-wasmtime-${{ env.WASMTIME_VERSION }}-mutants-${{ env.CARGO_MUTANTS_VERSION }}-deny-${{ env.CARGO_DENY_VERSION }}-shear-${{ env.CARGO_SHEAR_VERSION }}
-      - name: Install wasmtime, cargo-mutants, cargo-deny and cargo-shear
+          key: tools-${{ runner.os }}-${{ runner.arch }}-wasmtime-${{ env.WASMTIME_VERSION }}-mutants-${{ env.CARGO_MUTANTS_VERSION }}-nextest-${{ env.CARGO_NEXTEST_VERSION }}-deny-${{ env.CARGO_DENY_VERSION }}-shear-${{ env.CARGO_SHEAR_VERSION }}
+      - name: Install wasmtime, cargo-mutants, cargo-nextest, cargo-deny and cargo-shear
         if: steps.tools.outputs.cache-hit != 'true'
         run: >-
           cargo install --locked --root ~/.tools "wasmtime-cli@$WASMTIME_VERSION" "cargo-mutants@$CARGO_MUTANTS_VERSION"
-          "cargo-deny@$CARGO_DENY_VERSION" "cargo-shear@$CARGO_SHEAR_VERSION"
+          "cargo-nextest@$CARGO_NEXTEST_VERSION" "cargo-deny@$CARGO_DENY_VERSION" "cargo-shear@$CARGO_SHEAR_VERSION"
       - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
       - name: CoolProp checkout cache
         id: coolprop
@@ -85,8 +86,10 @@ jobs:
       - name: Fetch CoolProp (anonymous clone of the pinned commit)
         if: steps.coolprop.outputs.cache-hit != 'true'
         run: scripts/fetch-coolprop.sh
-      - name: G3 cargo test --workspace
-        run: cargo test --workspace
+      - name: G3 cargo nextest run --workspace --profile ci
+        run: cargo nextest run --workspace --profile ci
+      - name: G3 cargo test --doc --workspace
+        run: cargo test --doc --workspace
       - name: G8 cargo xtask gates all
         run: cargo xtask gates all
       - name: Fluid data changes (job summary; PRs that change data; PLAN.md M2.9a)
@@ -124,8 +127,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/rust
-      - name: G3 cargo test --workspace --exclude phasekit-xtask
-        run: cargo test --workspace --exclude phasekit-xtask
+      - name: Tool cache
+        id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-nextest-${{ env.CARGO_NEXTEST_VERSION }}
+      - name: Install cargo-nextest
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: cargo install --locked --root ~/.tools "cargo-nextest@$CARGO_NEXTEST_VERSION"
+      - run: cygpath -w "$HOME/.tools/bin" >> "$GITHUB_PATH" # Git Bash writes /c/...; PATH needs C:\...
+      - name: G3 cargo nextest run --workspace --exclude phasekit-xtask --profile ci
+        run: cargo nextest run --workspace --exclude phasekit-xtask --profile ci
+      - name: G3 cargo test --doc --workspace --exclude phasekit-xtask
+        run: cargo test --doc --workspace --exclude phasekit-xtask
 
   aarch64:
     name: aarch64
@@ -133,8 +148,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/rust
-      - name: G3 cargo test --workspace --exclude phasekit-xtask
-        run: cargo test --workspace --exclude phasekit-xtask
+      - name: Tool cache
+        id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-nextest-${{ env.CARGO_NEXTEST_VERSION }}
+      - name: Install cargo-nextest
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: cargo install --locked --root ~/.tools "cargo-nextest@$CARGO_NEXTEST_VERSION"
+      - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
+      - name: G3 cargo nextest run --workspace --exclude phasekit-xtask --profile ci
+        run: cargo nextest run --workspace --exclude phasekit-xtask --profile ci
+      - name: G3 cargo test --doc --workspace --exclude phasekit-xtask
+        run: cargo test --doc --workspace --exclude phasekit-xtask
 
   wasip2:
     name: wasip2
@@ -149,13 +176,15 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.tools
-          key: tools-${{ runner.os }}-${{ runner.arch }}-wasmtime-${{ env.WASMTIME_VERSION }}
-      - name: Install wasmtime
+          key: tools-${{ runner.os }}-${{ runner.arch }}-wasmtime-${{ env.WASMTIME_VERSION }}-nextest-${{ env.CARGO_NEXTEST_VERSION }}
+      - name: Install wasmtime and cargo-nextest
         if: steps.tools.outputs.cache-hit != 'true'
-        run: cargo install --locked --root ~/.tools "wasmtime-cli@$WASMTIME_VERSION"
+        run: cargo install --locked --root ~/.tools "wasmtime-cli@$WASMTIME_VERSION" "cargo-nextest@$CARGO_NEXTEST_VERSION"
       - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
-      - name: G4 cargo test --workspace --exclude phasekit-xtask --target wasm32-wasip2
-        run: cargo test --workspace --exclude phasekit-xtask --target wasm32-wasip2
+      - name: G4 cargo nextest run --workspace --exclude phasekit-xtask --target wasm32-wasip2 --profile ci
+        run: cargo nextest run --workspace --exclude phasekit-xtask --target wasm32-wasip2 --profile ci
+      - name: G4 cargo test --doc --workspace --exclude phasekit-xtask --target wasm32-wasip2
+        run: cargo test --doc --workspace --exclude phasekit-xtask --target wasm32-wasip2
 
   wasm-browser:
     name: wasm-browser

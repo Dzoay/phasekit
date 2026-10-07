@@ -155,6 +155,36 @@ impl Repo {
         Ok((status?.success(), text?))
     }
 
+    /// Runs `cargo <args> --profile <profile>` (a `cargo nextest run` command) like [`Self::cargo_merged`], with
+    /// nextest's store in the cargo target directory: nextest keeps it under the workspace's `target/` otherwise, even
+    /// when CARGO_TARGET_DIR points elsewhere. Returns (success, output, the run's JUnit report if the profile writes
+    /// one to `junit.xml`).
+    pub fn nextest(
+        &self,
+        label: &str,
+        args: &[&str],
+        profile: &str,
+    ) -> Result<(bool, String, Result<String, String>), String> {
+        let (ok, metadata) = self.cargo(&["metadata", "--format-version", "1", "--no-deps"])?;
+        let metadata: serde_json::Value =
+            serde_json::from_str(&metadata).map_err(|e| format!("cargo metadata (ok: {ok}): {e}"))?;
+        let target = metadata["target_directory"].as_str().ok_or("cargo metadata: no target_directory")?;
+        let store = Path::new(target).join("nextest");
+        let junit = store.join(profile).join("junit.xml");
+        let _ = std::fs::remove_file(&junit); // never count a stale report
+        let config = std::env::temp_dir().join(format!("phasekit-xtask-{}-nextest.toml", std::process::id()));
+        std::fs::write(&config, format!("[store]\ndir = '{}'\n", store.display()))
+            .map_err(|e| format!("cannot write {}: {e}", config.display()))?;
+        let tool = format!("phasekit-xtask:{}", config.display());
+        let mut all = args.to_vec();
+        all.extend(["--profile", profile, "--tool-config-file", &tool]);
+        let run = self.cargo_merged(label, &all);
+        let _ = std::fs::remove_file(&config);
+        let (ok, output) = run?;
+        let report = std::fs::read_to_string(&junit).map_err(|e| format!("cannot read {}: {e}", junit.display()));
+        Ok((ok, output, report))
+    }
+
     /// `cargo <args>` in the root with the toolchain that built xtask, uncoloured: its output is parsed, and an
     /// inherited `CARGO_TERM_COLOR=always` (as in CI) would put escape codes in front of every line.
     fn cargo_command(&self, args: &[&str]) -> Command {

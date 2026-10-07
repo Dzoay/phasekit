@@ -255,8 +255,8 @@ use the gitignored `target/`.
 |---|---|---|---|
 | G1 | `cargo fmt --all --check` | local; CI linux | M0.2 |
 | G2 | `cargo clippy --workspace --all-targets -- -D warnings` | local; CI linux | M0.2 |
-| G3 | `cargo test --workspace` | local (every crate); CI linux (every crate), windows and aarch64 (`--exclude phasekit-xtask`) | M0.2 |
-| G4 | `cargo test --workspace --exclude phasekit-xtask --target wasm32-wasip2` (runner `wasmtime`) | local; CI wasip2 | M0.5 |
+| G3 | `cargo nextest run --workspace --profile ci` and `cargo test --doc --workspace` (nextest runs every test in its own process, all binaries in one parallel pool, and runs no doctests; `.config/nextest.toml`) | local (every crate); CI linux (every crate), windows and aarch64 (`--exclude phasekit-xtask`) | M0.2; nextest since 2026-10-07 |
+| G4 | `cargo nextest run --workspace --exclude phasekit-xtask --target wasm32-wasip2 --profile ci` and `cargo test --doc` with the same arguments (runner `wasmtime`) | local; CI wasip2 | M0.5; nextest since 2026-10-07 |
 | G5 | `cargo check --workspace --target wasm32-unknown-unknown` | local; CI wasm-browser | M0.2 |
 | G6 | `cargo check --workspace --all-targets --target x86_64-pc-windows-msvc` | local (check only: no MSVC linker); CI windows runs G3 | M0.2 |
 | G7 | `cargo clippy -p phasekit-core --no-default-features --all-targets -- -D warnings` (+ `-p phasekit-compat` from M5.9) | local; CI linux | M0.2 |

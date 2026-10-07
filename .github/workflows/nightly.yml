@@ -22,6 +22,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_DENY_VERSION: "0.20.2"
+  CARGO_NEXTEST_VERSION: "0.9.146"
 
 defaults:
   run:
@@ -55,6 +56,16 @@ jobs:
         run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git curl ca-certificates gcc libc6-dev
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/rust
+      - name: Tool cache
+        id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-pinned-image-nextest-${{ env.CARGO_NEXTEST_VERSION }}
+      - name: Install cargo-nextest
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: cargo install --locked --root ~/.tools "cargo-nextest@$CARGO_NEXTEST_VERSION"
+      - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
       - name: CoolProp checkout cache
         id: coolprop
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -117,8 +128,8 @@ jobs:
           cargo xtask oracle --kind crit --tier full --out crates/phasekit-verify/fixtures-full/coolprop-8.0.0
           cargo xtask oracle --kind term --tier full --out crates/phasekit-verify/fixtures-full/coolprop-8.0.0
           cargo xtask oracle --kind eos --tier full --out crates/phasekit-verify/fixtures-full/coolprop-8.0.0
-      - name: cargo test -p phasekit-verify --release -- --ignored (L5)
-        run: cargo test -p phasekit-verify --release -- --ignored 2>&1 | tee sweep.log
+      - name: cargo nextest run -p phasekit-verify --cargo-profile release --run-ignored only (L5)
+        run: cargo nextest run -p phasekit-verify --cargo-profile release --run-ignored only --profile ci 2>&1 | tee sweep.log
       - name: Report
         if: always()
         run: |
@@ -136,7 +147,7 @@ jobs:
             echo
             echo "Generator: $(grep -m1 '^# generator:' "$FIXTURES/coolprop-8.0.0/facts/smoke.csv" | cut -c3-)"
             echo
-            echo "Sweep: $(grep -E '^test result' sweep.log 2>/dev/null | tr '\n' ' ' || echo 'not run')"
+            echo "Sweep: $(grep -E '^ *Summary' sweep.log 2>/dev/null | tr '\n' ' ' || echo 'not run')"
           } >> "$GITHUB_STEP_SUMMARY"
 
   advisories:

@@ -1,0 +1,18 @@
+# cargo-nextest (PLAN.md §2.4 G3, G4; VERIFICATION.md §11.2): every test in its own process, all test binaries in one
+# parallel pool. Doctests are not nextest's: G3 and G4 run them with `cargo test --doc`.
+
+# `cargo nextest run` and the mutants gate (`.cargo/mutants.toml`, `test_tool = "nextest"`): stop at the first failure.
+[profile.default]
+fail-fast = true
+
+# G3, G4 and CI: run everything and report every failure.
+[profile.ci]
+fail-fast = false
+
+# `gates counts` only: `ci` plus the JUnit report it reads. The gate points nextest's store at the cargo target
+# directory (`--tool-config-file`), so the report lands outside the repository when CARGO_TARGET_DIR is set.
+[profile.counts]
+fail-fast = false
+
+[profile.counts.junit]
+path = "junit.xml"
