@@ -147,6 +147,8 @@ impl ToleranceClass {
             ToleranceClass::Prop | ToleranceClass::Identity => Some(if near { 1e-8 } else { 1e-12 } * scale),
             ToleranceClass::SaCoeff => Some(1e-14 * scale),
             ToleranceClass::CaloricFit => Some(2e-6 * scale),
+            // T, ρ, p, h, s, u; the near-critical values for ρ and T apply to solved inputs (M7), not to DT's.
+            ToleranceClass::Flash => Some(1e-9 * scale),
             _ => None,
         }
     }
@@ -157,6 +159,9 @@ impl ToleranceClass {
     pub fn bound_carried(self, scale: f64, window: Window, carried: f64) -> Option<f64> {
         Some(self.bound_in(scale, window)?.max(ToleranceClass::Term.bound(carried)?))
     }
+
+    /// `Flash`'s bound on a vapour quality (VERIFICATION.md §5): 1e-8, absolute.
+    pub const FLASH_QUALITY: f64 = 1e-8;
 
     /// `SaFit`'s bound at one multiprecision point (VERIFICATION.md §5): 4 · |SA/mp − 1| of that point, floor 1e-14,
     /// relative to the multiprecision `value` (CoolProp's own acceptance rule, map 10 §3).
@@ -280,10 +285,11 @@ mod tests {
         assert_eq!(Prop.bound_carried(2.0, Window::Regular, 30.0), Some(3e-12));
         assert_eq!(Prop.bound_carried(2.0, Window::NearCritical, 1e5), Some(2e-8));
         assert_eq!(Prop.bound_carried(2.0, Window::Regular, f64::NAN), Some(2e-12));
-        assert_eq!(ToleranceClass::Flash.bound_carried(2.0, Window::Regular, 1.0), None);
+        assert_eq!(ToleranceClass::SatMp.bound_carried(2.0, Window::Regular, 1.0), None);
         // `SaCoeff` is 1e-14 relative; `SaFit` 4 times the point's own SA/mp misfit, never below 1e-14.
         assert_eq!(ToleranceClass::SaCoeff.bound_in(3.0, Window::NearCritical), Some(3e-14));
         assert_eq!(ToleranceClass::CaloricFit.bound(4.0), Some(8e-6));
+        assert_eq!(ToleranceClass::Flash.bound_in(2.0, Window::NearCritical), Some(2e-9));
         let misfit = 1.0 / 1_073_741_824.0; // SA/mp − 1 = 2^-30, exact
         assert_eq!(ToleranceClass::sa_fit(1.0 + misfit, -2.0), 8.0 * misfit);
         assert_eq!(ToleranceClass::sa_fit(1.0 - misfit, 2.0), 8.0 * misfit);

@@ -5,6 +5,7 @@
 
 use phasekit_core::{DataSet, Registry};
 use phasekit_verify::eos::EosCheck;
+use phasekit_verify::flash::FlashCheck;
 use phasekit_verify::term::{self, TermCheck};
 use phasekit_verify::{Cell, Fixture};
 
@@ -98,4 +99,22 @@ fn superancillary_matches_oracle_on_the_nightly_grid() {
     }
     assert_eq!((fluids, checked), (130, 130 * 200 * 3));
     assert_eq!(failures.iter().take(20).collect::<Vec<_>>(), Vec::<&String>::new(), "{} failures", failures.len());
+}
+
+/// Oracle: CoolProp 8.0.0, fixtures-full/coolprop-8.0.0/flash/<Fluid>.csv (PLAN.md M5.3): DT read off 40 × 40 (p, T)
+/// and 20 × 20 (T, Q) truth states of every fluid, against CoolProp's DT flash; as `dt_two_phase_matches_oracle`.
+#[test]
+#[ignore = "nightly: reads the full flash set (cargo xtask oracle --kind flash --tier full)"]
+fn dt_flash_matches_oracle_on_the_nightly_grid() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut check = FlashCheck::default();
+    for f in phasekit_data::FLUIDS {
+        let path = format!("{FULL}/flash/{}.csv", f.name);
+        let text = read(&path);
+        let fixture = Fixture::parse(&path, &text).unwrap();
+        let record = phasekit_core::internal::record(&registry, f.name).unwrap();
+        check.dt_rows(&fixture, registry.get(f.name).unwrap(), &record);
+    }
+    assert_eq!(check.report(50), None);
+    assert!(check.two_phase > 130 * 300, "{check:?}");
 }

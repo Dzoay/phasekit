@@ -5,15 +5,17 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::internal::{FluidRecord, IdealTerm};
-use phasekit_core::{DataSet, Order, Registry};
+use phasekit_core::{Basis, DataSet, Density, DomainError, Error, Input, Order, Phase, Prop, Registry, Temperature};
 use phasekit_verify::{Cell, DIVERGENCES, Fixture, MILESTONE, fixture, missing_proofs, unregistered_proofs};
 
 /// Every proof function, by register id.
 const PROOFS: &[(&str, fn())] = &[
     ("DIV-0003", div_0003),
+    ("DIV-0004", div_0004),
     ("DIV-0006", div_0006),
     ("DIV-0007", div_0007),
     ("DIV-0008", div_0008),
+    ("DIV-0012", div_0012),
     ("DIV-0015", div_0015),
 ];
 
@@ -30,6 +32,32 @@ fn record(fluid: &str, set: DataSet) -> FluidRecord {
     let mut record = phasekit_core::internal::record(Registry::embedded().unwrap(), fluid).unwrap();
     record.apply(set).unwrap();
     record
+}
+
+/// DIV-0004, part M5 (`SkipOracle`; map 10 R18): c_p and c_v inside the dome are `Undefined { prop, TwoPhase }`, a
+/// DT state there as for any two-phase state, where CoolProp returns numbers (Water QT(0.5, 400 K): c_p 4056.47,
+/// c_v 2913.73 J/kg/K, measured 2026-10-05). The oracle's two-phase viscosity, the M8 part, is in the register's facts.
+fn div_0004() {
+    let water = Registry::embedded().unwrap().get("Water").unwrap();
+    let state = water.state(Input::dt(Density::molar(1_000.0).unwrap(), Temperature::new(400.0).unwrap())).unwrap();
+    assert_eq!(state.phase(), Phase::TwoPhase);
+    for prop in [Prop::Cpmolar, Prop::Cpmass, Prop::Cvmolar, Prop::Cvmass, Prop::SpeedOfSound] {
+        let undefined = water.prop(&state, prop).unwrap_err();
+        assert!(matches!(undefined, Error::Undefined { phase: Phase::TwoPhase, .. }), "{prop:?}: {undefined:?}");
+    }
+    assert!(state.h(Basis::Mass).is_finite());
+    assert!(fact("div0004_eta_t500_q0.5") > 0.0, "the oracle answers a two-phase viscosity (part M8)");
+}
+
+/// DIV-0012 (`SkipOracle`; map 12 §6.3, #3394; ROT-078): Water DT(55018.5 mol/m³, 250 K) lies below the 273.16 K
+/// triple point and is refused; the oracle accepts it and returns a negative pressure, −5.93 Pa.
+fn div_0012() {
+    let water = Registry::embedded().unwrap().get("Water").unwrap();
+    let input = Input::dt(Density::molar(55_018.5).unwrap(), Temperature::new(250.0).unwrap());
+    let below = DomainError::BelowMinTemperature { t: 250.0, t_min: 273.16 };
+    assert_eq!(water.state(input), Err(below.into()));
+    let oracle = fact("div0012_p_t250_rho55018.5");
+    assert_eq!(oracle.to_bits(), (-5.927_712_393_567_710_5_f64).to_bits(), "a negative pressure");
 }
 
 /// DIV-0003, part M2 (`UsePaper`): Corrected's ρ_r is Span et al. 2000's 11183.9 mol/m³; the oracle's

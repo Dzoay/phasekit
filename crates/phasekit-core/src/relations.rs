@@ -186,8 +186,9 @@ mod tests {
     #[cfg(feature = "fluids-all")]
     #[test]
     fn mu_equals_molar_gibbs() {
-        use crate::{Basis, Density, DomainPolicy, FlashOptions, Input, Order, Phase, Registry, Temperature};
-        let registry = Registry::embedded().unwrap();
+        use crate::{Basis, DataSet, Density, DomainPolicy, FlashOptions, Input, Order, Phase, Registry, Temperature};
+        // A private registry: the process-wide one must stay unloaded for a registry test.
+        let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
         let opts = FlashOptions::new().with_phase(Phase::Gas).with_domain(DomainPolicy::Extrapolate);
         for name in ["Methanol", "MDM", "Air", "R134a", "Helium"] {
             let fluid = registry.get(name).unwrap();

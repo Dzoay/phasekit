@@ -5,6 +5,7 @@ pub mod arbiters;
 pub mod conformance;
 pub mod eos;
 pub mod fixture;
+pub mod flash;
 pub mod lock;
 pub mod majorant;
 pub mod register;
