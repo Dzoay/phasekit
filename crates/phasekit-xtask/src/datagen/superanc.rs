@@ -163,6 +163,17 @@ const MAX_SPLITS: u32 = 26;
 /// midpoint between nodes by more than [`INVERSE_TOL`] relative is halved in ln p, up to [`MAX_SPLITS`] times
 /// (near the triple point a p piece can span several decades of p).
 pub fn inverse(breaks: &[f64], p: &[[f64; 13]], t_lo: f64) -> Result<(Vec<f64>, Vec<[f64; 13]>), String> {
+    inverse_within(breaks, p, t_lo, INVERSE_TOL, MAX_SPLITS)
+}
+
+/// [`inverse`] to relative error `tol` with at most `max_splits` halvings of a piece.
+fn inverse_within(
+    breaks: &[f64],
+    p: &[[f64; 13]],
+    t_lo: f64,
+    tol: f64,
+    max_splits: u32,
+) -> Result<(Vec<f64>, Vec<[f64; 13]>), String> {
     let t_hi = breaks[breaks.len() - 1];
     let ln_p = |t: f64| math::ln(eval(breaks, p, t));
     let interior = breaks[..breaks.len() - 1].iter().filter(|&&t| t > t_lo);
@@ -185,10 +196,10 @@ pub fn inverse(breaks: &[f64], p: &[[f64; 13]], t_lo: f64) -> Result<(Vec<f64>, 
     let mut pending: Vec<(f64, f64, u32)> = starts.windows(2).rev().map(|w| (w[0], w[1], 0)).collect();
     while let Some((a, b, depth)) = pending.pop() {
         let (row, miss) = fit(a, b);
-        if miss <= INVERSE_TOL {
+        if miss <= tol {
             ln_p_breaks.push(b);
             rows.push(row);
-        } else if depth < MAX_SPLITS {
+        } else if depth < max_splits {
             let mid = a + (b - a) / 2.0;
             pending.extend([(mid, b, depth + 1), (a, mid, depth + 1)]);
         } else {
@@ -280,6 +291,20 @@ mod tests {
         assert_eq!(sa.ln_p_breaks[0], math::ln(2.0)); // p(4 K) = 1 + 1
         let shared = "SUPERANCILLARY: the rhoL, rhoV and p expansions must share their pieces";
         assert_eq!(superancillary(&json(&breaks, &[2.0, 3.5, 4.0, 5.0])).unwrap_err(), shared);
+        // p = T² on [1, 148.4]: T(ln p) = e^(ln p / 2), which one degree-12 piece over ln p in [0, 10] misses by 5e-8,
+        // halves of it by 2.3e-12 and quarters by 4.3e-13 (measured): at 1e-12 it takes exactly two levels of splits.
+        let (a, b) = (1.0, 148.4);
+        let (m, h) = ((a + b) / 2.0, (b - a) / 2.0);
+        let square: [f64; 13] =
+            std::array::from_fn(|j| [m * m + h * h / 2.0, 2.0 * m * h, h * h / 2.0].get(j).copied().unwrap_or(0.0));
+        let within =
+            |max_splits| inverse_within(&[a, b], &[square], a, 1e-12, max_splits).map(|(breaks, _)| breaks.len() - 1);
+        assert!(within(1).unwrap_err().starts_with("SUPERANCILLARY: the T(ln p) inverse misses by "));
+        assert!(within(2).is_ok_and(|pieces| pieces >= 3), "{:?}", within(2));
+        // A flat p has no extremum, but its ln p boundaries do not increase, so no inverse exists.
+        let flat: [f64; 13] = std::array::from_fn(|j| if j == 0 { 5.0 } else { 0.0 });
+        let err = inverse(&breaks, &[flat; 3], breaks[0]).unwrap_err();
+        assert_eq!(err, "SUPERANCILLARY: ln p at the piece boundaries does not increase");
     }
 
     /// The 130 v8.0.0 superancillaries (PLAN.md M5.2): the extrema found are the density maxima of liquid water and
