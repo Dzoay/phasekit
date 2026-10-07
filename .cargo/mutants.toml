@@ -29,4 +29,7 @@ exclude_re = [
     # Equivalent: at x = θτ = 0 both branches of the generalized Planck-Einstein term evaluate c + d, d/(c + d) and
     # c/(c + d) bit for bit, so moving 0 from one branch to the other changes nothing.
     "ideal\\.rs:[0-9]+:[0-9]+: replace > with >= in planck_einstein_generalized",
+    # Equivalent: for a double q >= 0.5, q - 1 is exact (Sterbenz) and |q - 1| a multiple of 2^-53, which neither
+    # fl(1e-3) nor fl(0.1) is; below 0.5, |q - 1| > 0.5. So `<` and `<=` agree on every input of the near-critical window.
+    "tolerance\\.rs:[0-9]+:[0-9]+: replace < with <= in Window::at",
 ]

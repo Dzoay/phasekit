@@ -286,6 +286,15 @@ mod tests {
         assert!(carried("speed_sound", &unstable, &m, 2.0, 3.0, 5.0, 0.5).is_nan());
     }
 
+    /// No failures, no report; with failures, the count, the class, the headroom and the first lines only.
+    #[test]
+    fn eos_report_names_the_failures() {
+        let mut check = EosCheck { checked: 40, failures: vec![], headroom: 0.5 };
+        assert_eq!(check.report(5), None);
+        check.failures = vec!["a".into(), "b".into()];
+        assert_eq!(check.report(1), Some("2 of 40 entries outside Prop (headroom 0.500):\na".into()));
+    }
+
     /// An identity holds up to and including its bound, 1e-12 of its largest term (1e-8 near critical), and the
     /// headroom is the largest error / bound that held.
     #[test]
