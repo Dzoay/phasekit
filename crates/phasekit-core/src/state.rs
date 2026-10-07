@@ -248,6 +248,17 @@ impl State {
     pub fn u(&self, basis: Basis) -> f64 {
         (self.mix(|pt| relations::internal_energy(self.r, pt.t, &pt.b)) + self.gauge.dh()) * self.per(basis)
     }
+    /// Gibbs energy in the handle's reference state (shifted by Δh − TΔs); for a pure fluid also its chemical
+    /// potential.
+    pub fn g(&self, basis: Basis) -> f64 {
+        let (dh, ds) = (self.gauge.dh(), self.gauge.ds());
+        (self.mix(|pt| relations::gibbs_energy(self.r, pt.t, &pt.b) - pt.t * ds) + dh) * self.per(basis)
+    }
+    /// Helmholtz energy in the handle's reference state (shifted by Δh − TΔs).
+    pub fn a(&self, basis: Basis) -> f64 {
+        let (dh, ds) = (self.gauge.dh(), self.gauge.ds());
+        (self.mix(|pt| relations::helmholtz_energy(self.r, pt.t, &pt.b) - pt.t * ds) + dh) * self.per(basis)
+    }
     /// Compressibility factor Z = p/(ρRT).
     pub fn z(&self) -> f64 {
         self.p / (self.rho(Basis::Molar) * self.r * self.t)
@@ -328,6 +339,30 @@ mod tests {
             State::from_total(KEY, 300.0, 1.0, R, 0.018, Phase::Gas, &bad_p),
             Err(Error::InvalidState { .. })
         ));
+    }
+
+    /// g = RT·(A00 + A01) and a = RT·A00 in the native gauge; a gauge (Δh, Δs) shifts both by Δh − TΔs, as it shifts
+    /// h − Ts and u − Ts; mass values are the molar ones over M.
+    #[test]
+    fn gibbs_and_helmholtz_energies_shift_with_the_gauge() {
+        let b = Bundle { a00: -0.4, a10: 1.5, a01: 0.9, a20: -1.5, a11: 0.1, a02: -0.7 };
+        let (t, m) = (300.0, 0.04);
+        let s = State::from_total(KEY, t, 40.0, R, m, Phase::Gas, &b).unwrap();
+        assert_eq!(s.g(Basis::Molar), R * t * (b.a00 + b.a01));
+        assert_eq!(s.a(Basis::Molar), R * t * b.a00);
+        let gauged = s.with_gauge(Gauge::new(1_000.0, 2.0).unwrap());
+        let shift = 1_000.0 - t * 2.0;
+        for (shifted, native) in
+            [(gauged.g(Basis::Molar), s.g(Basis::Molar)), (gauged.a(Basis::Molar), s.a(Basis::Molar))]
+        {
+            assert!((shifted - native - shift).abs() < 1e-12 * shift, "{shifted} {native}");
+        }
+        let g = gauged.g(Basis::Molar);
+        assert!((gauged.g(Basis::Mass) - g / m).abs() < 1e-15 * (g / m).abs());
+        assert!((gauged.a(Basis::Mass) - gauged.a(Basis::Molar) / m).abs() < 1e-15 * (g / m).abs());
+        assert!(
+            (gauged.g(Basis::Molar) - (gauged.h(Basis::Molar) - t * gauged.s(Basis::Molar))).abs() < 1e-12 * g.abs()
+        );
     }
 
     #[test]

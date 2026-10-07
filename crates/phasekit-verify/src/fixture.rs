@@ -3,7 +3,7 @@
 //! the reader recomputes (the M1 "fixture round trip bit-exact" gate). A violation of any rule is an error, never a
 //! skipped row. Committed fixtures are read with `include_str!`, so `Fixture<'static>` borrows from the binary.
 
-use crate::tolerance::{Provenance, ToleranceClass};
+use crate::tolerance::{Provenance, ToleranceClass, Window};
 
 /// The header keys in the only order they may appear (VERIFICATION.md §3.3).
 const KEYS: [&str; 12] =
@@ -322,13 +322,21 @@ impl<'a> Fixture<'a> {
     /// scales with a magnitude the caller supplies (`Term`: Σ_k |φ_k|, see [`crate::majorant`]; VERIFICATION.md §5).
     /// Returns the headroom, error / bound, which a passing fixture reports (VERIFICATION.md §5). Two NaNs agree.
     pub fn check_scaled(&self, row: usize, column: &str, got: f64, scale: f64) -> Result<f64, CheckError> {
-        let no_number = || CheckError::NoNumber { row, column: column.to_string() };
-        let want = self.value(row, column).ok_or_else(no_number)?;
-        let class = match self.columns.iter().position(|c| *c == column).and_then(|i| self.roles.get(i)) {
-            Some(ColumnRole::Output(class)) => *class,
-            _ => return Err(no_number()),
-        };
-        let bound = class.bound(scale).ok_or(CheckError::NoBound { class })?;
+        self.check_in(row, column, got, scale, Window::Regular)
+    }
+
+    /// [`Self::check_scaled`] in `window`: classes with a near-critical bound use it there (VERIFICATION.md §5).
+    pub fn check_in(&self, row: usize, column: &str, got: f64, scale: f64, window: Window) -> Result<f64, CheckError> {
+        let class = self.output_class(row, column)?;
+        self.check_bound(row, column, got, class.bound_in(scale, window).ok_or(CheckError::NoBound { class })?)
+    }
+
+    /// Compares `got` with the fixture's value in `row` (0-based) and `column` within the absolute `bound` the caller
+    /// derived from the column's class (`Prop` carries `Term` through a relation: [`ToleranceClass::bound_carried`]).
+    /// Returns the headroom, error / bound; two NaNs agree.
+    pub fn check_bound(&self, row: usize, column: &str, got: f64, bound: f64) -> Result<f64, CheckError> {
+        let class = self.output_class(row, column)?;
+        let want = self.value(row, column).ok_or_else(|| CheckError::NoNumber { row, column: column.to_string() })?;
         let error = (got - want).abs();
         if error <= bound {
             return Ok(error / bound);
@@ -346,6 +354,14 @@ impl<'a> Fixture<'a> {
             want,
             error,
         }))
+    }
+
+    /// The tolerance class of an output column; `NoNumber` for inputs, labels and unknown columns.
+    fn output_class(&self, row: usize, column: &str) -> Result<ToleranceClass, CheckError> {
+        match self.columns.iter().position(|c| *c == column).and_then(|i| self.roles.get(i)) {
+            Some(ColumnRole::Output(class)) => Ok(*class),
+            _ => Err(CheckError::NoNumber { row, column: column.to_string() }),
+        }
     }
 }
 

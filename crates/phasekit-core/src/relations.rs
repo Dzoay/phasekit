@@ -21,6 +21,16 @@ pub(crate) fn enthalpy(r: f64, t: f64, b: &Bundle) -> f64 {
     r * t * (b.a10 + b.a01)
 }
 
+/// g = RT·(A00 + A01): for a pure fluid also the chemical potential μ = (∂(nA)/∂n)_{T,V} = a + p/ρ (ROT-062).
+pub(crate) fn gibbs_energy(r: f64, t: f64, b: &Bundle) -> f64 {
+    r * t * (b.a00 + b.a01)
+}
+
+/// a = RT·A00.
+pub(crate) fn helmholtz_energy(r: f64, t: f64, b: &Bundle) -> f64 {
+    r * t * b.a00
+}
+
 /// s = R·(A10 − A00).
 pub(crate) fn entropy(r: f64, b: &Bundle) -> f64 {
     r * (b.a10 - b.a00)
@@ -42,9 +52,15 @@ pub(crate) fn cp(r: f64, b: &Bundle) -> f64 {
     cv(r, b) + r * x * x / (2.0 * b.a01 + b.a02)
 }
 
-/// w² in (m/s)² = (cp/cv)·(∂p/∂ρ)_T / M, with M in kg/mol.
+/// w² in (m/s)² = (cp/cv)·(∂p/∂ρ)_T / M = RT·(2·A01 + A02 + (A01 − A11)²/(−A20)) / M, with M in kg/mol. The sum
+/// never divides by (∂p/∂ρ)_T, so it keeps its digits near the spinodal, where (cp/cv)·(∂p/∂ρ)_T loses them (M5.1).
+/// Non-finite where cv diverges (the caller reports `Undefined`).
 pub(crate) fn speed_of_sound_squared(r: f64, t: f64, molar_mass: f64, b: &Bundle) -> f64 {
-    cp(r, b) / cv(r, b) * dp_drho_t(r, t, b) / molar_mass
+    if !b.a20.is_finite() {
+        return f64::NAN;
+    }
+    let x = b.a01 - b.a11;
+    r * t * (2.0 * b.a01 + b.a02 - x * x / b.a20) / molar_mass
 }
 
 /// One phase point as the derivative engine sees it.
@@ -148,5 +164,47 @@ mod tests {
         assert!((d(Dmolar, P, T) - 1.0 / (r * t)).abs() < 1e-18); // ideal gas: (∂ρ/∂p)_T = 1/RT
         assert!((d(Gmolar, P, T) - 1.0 / rho).abs() < 1e-15); // (∂g/∂p)_T = v
         assert_eq!(first_partial(T, T, T, &at), None);
+    }
+
+    /// On the spinodal, (∂p/∂ρ)_T = 0: cp diverges, but w² = RT·(2·A01 + A02 + (A01 − A11)²/(−A20))/M stays finite,
+    /// where (cp/cv)·(∂p/∂ρ)_T would be ∞·0. A divergent cv leaves it undefined (E17).
+    #[test]
+    fn speed_of_sound_is_finite_on_the_spinodal() {
+        let b = Bundle { a00: -0.5, a10: 1.2, a01: 0.4, a20: -3.0, a11: 0.1, a02: -0.8 };
+        let (r, t, m) = (8.314462618, 300.0, 0.04);
+        assert_eq!(dp_drho_t(r, t, &b), 0.0);
+        assert!(cp(r, &b).is_infinite());
+        let w2 = r * t * 0.09 / 3.0 / m;
+        assert!((speed_of_sound_squared(r, t, m, &b) - w2).abs() < 1e-15 * w2);
+        assert!(speed_of_sound_squared(r, t, m, &Bundle { a20: f64::NEG_INFINITY, ..b }).is_nan());
+    }
+
+    /// ROT-062 (map 02 §6 row 1): CoolProp takes a pure fluid's chemical potential through its mixture code at the
+    /// critical, not the reducing, constants (Methanol +83 J/mol against g). Here μ = (∂(nA)/∂n)_{T,V}, by central
+    /// differences of n·a(T, nρ) from the model's own α⁰ + α^r (relative step 1e-5), equals the state's g = RT(A00 +
+    /// A01) within the FD class (1e-7 of max(|g|, RT)), for fluids whose reducing state is not their critical point.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn mu_equals_molar_gibbs() {
+        use crate::{Basis, Density, DomainPolicy, FlashOptions, Input, Order, Phase, Registry, Temperature};
+        let registry = Registry::embedded().unwrap();
+        let opts = FlashOptions::new().with_phase(Phase::Gas).with_domain(DomainPolicy::Extrapolate);
+        for name in ["Methanol", "MDM", "Air", "R134a", "Helium"] {
+            let fluid = registry.get(name).unwrap();
+            let eos = fluid.model().helmholtz().unwrap();
+            let c = fluid.model().critical_point().unwrap();
+            let r = eos.gas_constant();
+            for (t, rho) in [(1.1 * c.t, 0.5 * c.rho), (1.1 * c.t, 1.5 * c.rho), (0.9 * c.t, 1e-3 * c.rho)] {
+                let input = Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap());
+                let g = fluid.flash(input, &opts).unwrap().g(Basis::Molar);
+                let a = |n: f64| {
+                    let alpha = eos.ideal(t, n * rho, Order::One) + eos.residual(t, n * rho, Order::One);
+                    n * r * t * alpha.get(0, 0).unwrap()
+                };
+                let h = 1e-5;
+                let mu = (a(1.0 + h) - a(1.0 - h)) / (2.0 * h);
+                assert!((mu - g).abs() <= 1e-7 * g.abs().max(r * t), "{name} at {t} K, {rho} mol/m³: μ {mu}, g {g}");
+            }
+        }
     }
 }

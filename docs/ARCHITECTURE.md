@@ -1145,7 +1145,7 @@ sha, all 38 config keys and the scrubbed environment (map 10 §8.3, map 01 §8).
     PLAN.md sets.
   - Fixtures are generated on x86-64 Linux only (K18).
 - **Tolerances** (classes of map 10 §8.3, values in `docs/VERIFICATION.md`):
-  - `Exact` for executors and threads; `Term` ~1e-13·Σ|terms|; `Prop` 1e-12 (looser near critical); `SaCoeff` 1e-14;
+  - `Exact` for executors and threads; `Term` ~1e-13·Σ|terms|; `Prop` 1e-12 (looser near critical, and `Term` carried through a relation that cancels); `SaCoeff` 1e-14;
     `SatMp`; `Flash` 1e-9; `TransportDirect` / `TransportEcs`.
   - `Paper` = `from_printed`: half a unit in the last printed digit.
   - Never widened to make CoolProp pass (map 10 R4/R5). Bitwise asserts only within one code path (map 10 R16).

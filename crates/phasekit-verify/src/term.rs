@@ -94,10 +94,16 @@ impl TermCheck {
 
     /// `None` when every entry passed, else a report of the first `shown` failures.
     pub fn report(&self, shown: usize) -> Option<String> {
-        let lines = self.failures.iter().take(shown).cloned().collect::<Vec<_>>().join("\n");
-        let (n, checked, headroom) = (self.failures.len(), self.checked, self.headroom);
-        (n > 0).then(|| format!("{n} of {checked} entries outside Term (headroom {headroom:.3}):\n{lines}"))
+        report(&self.failures, self.checked, self.headroom, "Term", shown)
     }
+}
+
+/// `None` without failures, else their count, the entries checked, the headroom of those that passed and the first
+/// `shown` failure lines (map 10 U1).
+pub(crate) fn report(failures: &[String], checked: usize, headroom: f64, class: &str, shown: usize) -> Option<String> {
+    let lines = failures.iter().take(shown).cloned().collect::<Vec<_>>().join("\n");
+    let n = failures.len();
+    (n > 0).then(|| format!("{n} of {checked} entries outside {class} (headroom {headroom:.3}):\n{lines}"))
 }
 
 /// The `Term` scale of the α⁰ entries of one fluid (VERIFICATION.md §5): every ideal term's own contribution in
