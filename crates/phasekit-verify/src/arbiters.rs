@@ -210,6 +210,38 @@ pub fn violations(arbiters: &[Arbiter], committed: &dyn Fn(&str) -> bool, milest
     errors
 }
 
+/// The text of every committed printed table (its first transcription), by its file under `fixtures/`, compiled in.
+pub const TABLES: &[(&str, &str)] = &[
+    crate::fixture!("paper/R1234ze(E)/Thol-IJT-2016-R1234zeE.3.csv"),
+    crate::fixture!("paper/Helium/OrtizVega-JPCRD-2019.3.csv"),
+    crate::fixture!("paper/Helium/OrtizVega-JPCRD-2019.4.csv"),
+    crate::fixture!("paper/Water/IAPWS-R6-95-2018.6.csv"),
+    crate::fixture!("paper/Water/IAPWS-R6-95-2018.7.csv"),
+    crate::fixture!("paper/Water/IAPWS-R6-95-2018.8.csv"),
+    crate::fixture!("paper/R227EA/Lemmon-JCED-2016-365227.7.csv"),
+    crate::fixture!("paper/R365MFC/Lemmon-JCED-2016-365227.7.csv"),
+    crate::fixture!("paper/R115/Lemmon-JCED-2016-365227.7.csv"),
+    crate::fixture!("paper/R13I1/Lemmon-JCED-2016-365227.7.csv"),
+    crate::fixture!("paper/R1234yf/Lemmon-IJT-2022.7.csv"),
+    crate::fixture!("paper/R1224YDZ/Akasaka-IJT-2023-R1224ydZ.7.csv"),
+    crate::fixture!("paper/R1132(E)/Akasaka-IJT-2024-R1132E.6.csv"),
+    crate::fixture!("paper/Tetrahydrofuran/Fiedler-IJT-2023-THF.11.csv"),
+    crate::fixture!("paper/PropyleneGlycol/Eisenbach-JPCRD-2021.8.csv"),
+    crate::fixture!("paper/VinylChloride/Thol-IJT-2022-VinylChloride.5.csv"),
+    crate::fixture!("paper/R1123/Akasaka-IJR-2020-R1123.8.csv"),
+    crate::fixture!("paper/n-Perfluorobutane/Gao-2022-CxFy.14.csv"),
+    crate::fixture!("paper/n-Perfluoropentane/Gao-2022-CxFy.14.csv"),
+    crate::fixture!("paper/n-Perfluorohexane/Gao-2022-CxFy.14.csv"),
+    crate::fixture!("paper/R1233zd(E)/Akasaka-JPCRD-2022-R1233zdE.IX.csv"),
+    crate::fixture!("paper/R1130(E)/Huber-IJT-2025-R1130E.4.csv"),
+    crate::fixture!("paper/R1243zf/Akasaka-IJT-2025-R1243zf.6.csv"),
+];
+
+/// The committed text of the printed table `file` (a [`Table::file`]).
+pub fn table_text(file: &str) -> Option<&'static str> {
+    TABLES.iter().find(|(path, _)| *path == file).map(|(_, text)| *text)
+}
+
 /// Every arbiter record of VERIFICATION.md §4.4's core set, the 13 CoolProp-test fluids among them (M1.12); the
 /// n-Heptane and D6 c_p⁰ equation checks with M4, the mp check points and transport rows with their files.
 pub static ARBITERS: &[Arbiter] = &[
@@ -274,7 +306,7 @@ pub static ARBITERS: &[Arbiter] = &[
         },
         tables: &[Table { file: "paper/R227EA/Lemmon-JCED-2016-365227.7.csv", kind: TableKind::K2, rows: Some(3) }],
         constants: Some(LEMMON_R227EA),
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "R365MFC",
@@ -286,7 +318,7 @@ pub static ARBITERS: &[Arbiter] = &[
         },
         tables: &[Table { file: "paper/R365MFC/Lemmon-JCED-2016-365227.7.csv", kind: TableKind::K2, rows: Some(3) }],
         constants: Some(LEMMON_R365MFC),
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "R115",
@@ -298,7 +330,7 @@ pub static ARBITERS: &[Arbiter] = &[
         },
         tables: &[Table { file: "paper/R115/Lemmon-JCED-2016-365227.7.csv", kind: TableKind::K2, rows: Some(3) }],
         constants: Some(LEMMON_R115),
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "R13I1",
@@ -310,7 +342,7 @@ pub static ARBITERS: &[Arbiter] = &[
         },
         tables: &[Table { file: "paper/R13I1/Lemmon-JCED-2016-365227.7.csv", kind: TableKind::K2, rows: Some(3) }],
         constants: Some(LEMMON_R13I1),
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "R1234ze(E)",
@@ -322,7 +354,7 @@ pub static ARBITERS: &[Arbiter] = &[
         },
         tables: &[Table { file: "paper/R1234ze(E)/Thol-IJT-2016-R1234zeE.3.csv", kind: TableKind::K2, rows: Some(6) }],
         constants: Some(THOL_R1234ZEE),
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "Helium",
@@ -330,7 +362,7 @@ pub static ARBITERS: &[Arbiter] = &[
         citation: Citation { key: "OrtizVega-JPCRD-2019", doi_or_report: Some("NIST IR 8474"), role: Role::EosPaper },
         tables: &[Table { file: "paper/Helium/OrtizVega-JPCRD-2019.3.csv", kind: TableKind::K2, rows: Some(6) }],
         constants: Some(NIST_IR_8474),
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::Inconsistent { residual: 1.4e-6 },
     },
     Arbiter {
         fluid: "Helium",
@@ -362,7 +394,7 @@ pub static ARBITERS: &[Arbiter] = &[
         },
         tables: &[Table { file: "paper/R1130(E)/Huber-IJT-2025-R1130E.4.csv", kind: TableKind::K2, rows: Some(1) }],
         constants: Some(HUBER_R1130E),
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "R1224YDZ",
@@ -402,7 +434,7 @@ pub static ARBITERS: &[Arbiter] = &[
             rows: Some(1),
         }],
         constants: Some(FIEDLER_THF),
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::Inconsistent { residual: 1.4e-7 },
     },
     Arbiter {
         fluid: "PropyleneGlycol",

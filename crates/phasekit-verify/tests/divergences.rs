@@ -5,18 +5,23 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::internal::{FluidRecord, IdealTerm};
-use phasekit_core::{Basis, DataSet, Density, DomainError, Error, Input, Order, Phase, Prop, Registry, Temperature};
+use phasekit_core::{
+    Basis, DataSet, Density, DomainError, Error, Input, Order, Phase, Prop, Registry, Temperature, ThermoModel,
+};
 use phasekit_verify::{Cell, DIVERGENCES, Fixture, MILESTONE, fixture, missing_proofs, unregistered_proofs};
 
 /// Every proof function, by register id.
 const PROOFS: &[(&str, fn())] = &[
+    ("DIV-0001", div_0001),
     ("DIV-0003", div_0003),
     ("DIV-0004", div_0004),
+    ("DIV-0005", div_0005),
     ("DIV-0006", div_0006),
     ("DIV-0007", div_0007),
     ("DIV-0008", div_0008),
     ("DIV-0011", div_0011),
     ("DIV-0012", div_0012),
+    ("DIV-0014", div_0014),
     ("DIV-0015", div_0015),
 ];
 
@@ -76,6 +81,97 @@ fn div_0012() {
     assert_eq!(water.state(input), Err(below.into()));
     let oracle = fact("div0012_p_t250_rho55018.5");
     assert_eq!(oracle.to_bits(), (-5.927_712_393_567_710_5_f64).to_bits(), "a negative pressure");
+}
+
+/// p, c_v and w of `record`'s compiled model at (T, ρ), ρ in mol/m³, from the order-2 bundle.
+fn p_cv_w(record: &FluidRecord, t: f64, rho: f64) -> (f64, f64, f64) {
+    let model = record.clone().compile().unwrap();
+    let eos = model.eos();
+    let total = (eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two)).bundle().unwrap();
+    let r = eos.gas_constant();
+    let state = phasekit_core::State::from_total(model.info().key(), t, rho, r, record.molar_mass, Phase::Gas, &total);
+    let state = state.unwrap();
+    (state.p(), state.cv(Basis::Molar).unwrap(), state.speed_of_sound().unwrap())
+}
+
+/// Half a unit in the last digit of a printed value; NaN, which fails every comparison, if it is not a number.
+fn half_unit_of(printed: &str) -> f64 {
+    match phasekit_verify::from_printed(printed) {
+        Some(phasekit_verify::Tolerance::Absolute(half)) => half,
+        _ => f64::NAN,
+    }
+}
+
+/// A printed table value's half unit in the last digit, in the table's units.
+fn half_unit(table: &Fixture<'_>, row: usize, column: &str) -> f64 {
+    half_unit_of(table.printed(row, column).unwrap())
+}
+
+/// The relative bound a register entry records; NaN, which fails every comparison, if it records none.
+fn registered_bound(id: &str) -> f64 {
+    match DIVERGENCES.iter().find(|d| d.id == id).and_then(|d| d.tolerance) {
+        Some(phasekit_verify::Tolerance::Relative(bound)) => bound,
+        _ => f64::NAN,
+    }
+}
+
+/// DIV-0001, parts M5 (`UsePaper`; map 13 §3; ROT-043): Thol & Lemmon 2016 Table 3 fits R-1234ze(E) with R = 8.3144621.
+/// (1) `Corrected`, which ships that R, has p within the table's printed digits; (2) the oracle, with v8.0.0's
+/// 8.314472, is still 1.0e-6 to 1.4e-6 above it; (3) `Parity` is the oracle within `Prop`. (Part M6: the rescaled
+/// superancillary.)
+fn div_0001() {
+    let (path, text) = fixture!("paper/R1234ze(E)/Thol-IJT-2016-R1234zeE.3.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let (parity, corrected) = (record("R1234ze(E)", DataSet::Parity), record("R1234ze(E)", DataSet::Corrected));
+    for row in [0, 1, 2, 4, 5] {
+        let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rho").unwrap() * 1e3);
+        let (p_corrected, p_parity) = (p_cv_w(&corrected, t, rho).0, p_cv_w(&parity, t, rho).0);
+        let printed = table.value(row, "p").unwrap() * 1e6;
+        assert!((p_corrected - printed).abs() <= half_unit(&table, row, "p") * 1e6, "row {row}: {p_corrected}");
+        let oracle = fact(&format!("div0001_p_row{row}"));
+        let high = oracle / p_corrected - 1.0;
+        assert!((0.95e-6..=1.45e-6).contains(&high), "row {row}: the oracle is {high:e} above Corrected");
+        let prop = phasekit_verify::ToleranceClass::Prop.bound(oracle.abs()).unwrap();
+        assert!((p_parity - oracle).abs() <= prop, "row {row}: Parity {p_parity} against the oracle {oracle}");
+    }
+}
+
+/// DIV-0005, part M5 (`KeepOracle`; map 13 §3 item 4; ROT-044): NIST IR 8474 Table 3 does not reproduce with its own R
+/// (`Inconsistent`, tests/arbiters.rs), so no patch ships: `Corrected` is `Parity`, model key and all. Helium's p, c_v
+/// and w at the table's 6 states are then within the registered 5e-7 of it (class `Measured`) and equal to the
+/// oracle's within `Prop`.
+fn div_0005() {
+    let (parity, corrected) = (record("Helium", DataSet::Parity), record("Helium", DataSet::Corrected));
+    assert_eq!(parity.model_key(), corrected.model_key());
+    let measured = registered_bound("DIV-0005");
+    let (path, text) = fixture!("paper/Helium/OrtizVega-JPCRD-2019.3.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let prop = |x: f64| phasekit_verify::ToleranceClass::Prop.bound(x.abs()).unwrap();
+    for row in 0..table.rows().len() {
+        let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rho").unwrap() * 1e3);
+        let (p, cv, w) = p_cv_w(&parity, t, rho);
+        for (column, got, unit) in [("p", p, 1e6), ("cv", cv, 1.0), ("w", w, 1.0)] {
+            let printed = table.value(row, column).unwrap() * unit;
+            assert!((got / printed - 1.0).abs() <= measured, "row {row} {column}: {got} against {printed}");
+            let oracle = fact(&format!("div0005_{column}_row{row}"));
+            assert!((got - oracle).abs() <= prop(oracle), "row {row} {column}: {got} against the oracle {oracle}");
+        }
+    }
+}
+
+/// DIV-0014 (`Investigate`; map 10 §8.4; ROT-132): R1224YDZ's p at (400 K, 8000 mol/m³) is 3.3 half-units of the
+/// printed 21.17909 MPa away from Akasaka & Lemmon 2023 Table 7, for phasekit and the oracle alike: asserted at the
+/// registered 8e-7 (class `Measured`), the oracle's value pinned. Resolution: re-check the paper's Table 7.
+fn div_0014() {
+    let r1224ydz = record("R1224YDZ", DataSet::Corrected);
+    let p = p_cv_w(&r1224ydz, 400.0, 8000.0).0;
+    let (measured, half) = (registered_bound("DIV-0014"), half_unit_of("21.17909"));
+    let printed = 21.179_09e6;
+    assert!((p / printed - 1.0).abs() <= measured, "{p}");
+    assert!((p - printed).abs() > 3.0 * half * 1e6, "outside the printed digits by more than 3 half-units: {p}");
+    let oracle = fact("div0014_p_t400_rho8000");
+    assert_eq!(oracle.to_bits(), 21_179_073.530_740_43_f64.to_bits());
+    assert!((p - oracle).abs() <= phasekit_verify::ToleranceClass::Prop.bound(oracle).unwrap(), "{p} against {oracle}");
 }
 
 /// DIV-0003, part M2 (`UsePaper`): Corrected's ρ_r is Span et al. 2000's 11183.9 mol/m³; the oracle's

@@ -24,8 +24,11 @@ fn arbiter_statuses_are_asserted() {
             ArbiterStatus::Expected | ArbiterStatus::Transcribed | ArbiterStatus::None | ArbiterStatus::Unpublished
         )
     };
-    // The records evaluated so far, each by its own test in this file (PLAN.md M4.5 on).
-    let evaluated = [("Water", ArbiterPart::AlphaR)];
+    // The records evaluated so far, each by its own test in this file (PLAN.md M4.5 on; the paper constants of the
+    // other α^r records at M5.7).
+    let alpha_r =
+        ["Water", "R227EA", "R365MFC", "R115", "R13I1", "R1234ze(E)", "Helium", "R1130(E)", "Tetrahydrofuran"];
+    let evaluated = alpha_r.map(|fluid| (fluid, ArbiterPart::AlphaR));
     for a in ARBITERS {
         let is_evaluated = evaluated.contains(&(a.fluid, a.part));
         assert_eq!(!allowed(&a.status), is_evaluated, "{} {:?}: {:?}", a.fluid, a.part, a.status);
@@ -214,4 +217,156 @@ fn stored_constants_match_their_arbiter_records() {
     audited.sort_unstable();
     audited.dedup();
     assert_eq!(audited.len(), 9 * 4 - 1, "9 fluids, M printed for all but Water");
+}
+
+/// `record` with a paper's printed constants in place of its own: R, M where printed, T_r and ρ_r.
+fn paper_model(
+    record: &phasekit_core::internal::FluidRecord,
+    c: &phasekit_verify::arbiters::Constants,
+) -> (PureFluid, f64) {
+    let mut paper = record.clone();
+    let m = c.molar_mass.map_or(record.molar_mass, |text| printed_si(text, record.molar_mass).unwrap().0);
+    paper.molar_mass = m;
+    paper.eos.gas_constant = printed_si(c.r, m).unwrap().0;
+    paper.eos.t_reducing = printed_si(c.t_reducing, m).unwrap().0;
+    paper.eos.rho_reducing = printed_si(c.rho_reducing, m).unwrap().0;
+    (paper.compile().unwrap(), m)
+}
+
+/// A K2 table's p, c_v, c_p and w at `row` from `model` (molar mass `m`), in the table's units (mol/dm³ and MPa, or
+/// mol/m³ and Pa). A row at ρ = 0 is the ideal-gas limit, from the ideal part alone.
+fn k2_values(table: &Fixture<'_>, row: usize, model: &PureFluid, m: f64) -> [(&'static str, f64); 4] {
+    let (rho_factor, p_factor) =
+        if table.header("units").unwrap().contains("mol/dm3") { (1e3, 1e-6) } else { (1.0, 1.0) };
+    let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rho").unwrap() * rho_factor);
+    let eos = model.eos();
+    let r = eos.gas_constant();
+    if rho == 0.0 {
+        let cv = -r * eos.ideal(t, 1.0, Order::Two).get(2, 0).unwrap();
+        let cp = cv + r;
+        return [("p", 0.0), ("cv", cv), ("cp", cp), ("w", math::sqrt(cp / cv * r * t / m))];
+    }
+    let total = (eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two)).bundle().unwrap();
+    let state = State::from_total(model.info().key(), t, rho, r, m, Phase::Gas, &total).unwrap();
+    let molar = Basis::Molar;
+    [
+        ("p", state.p() * p_factor),
+        ("cv", state.cv(molar).unwrap()),
+        ("cp", state.cp(molar).unwrap()),
+        ("w", state.speed_of_sound().unwrap()),
+    ]
+}
+
+/// The cells of a K2 table outside their printed digits for `model` (class `Paper`), except the `exempt` (row, column)
+/// cells, and the largest relative residual of all cells.
+fn k2_check(table: &Fixture<'_>, model: &PureFluid, m: f64, exempt: &[(usize, &str)]) -> (Vec<String>, f64) {
+    let (mut failures, mut worst) = (Vec::new(), 0.0_f64);
+    for row in 0..table.rows().len() {
+        for (column, got) in k2_values(table, row, model, m) {
+            let Some(want) = table.value(row, column) else { continue }; // a blank the paper leaves
+            if want != 0.0 {
+                worst = worst.max((got - want).abs() / want.abs());
+            }
+            if !exempt.contains(&(row, column)) {
+                if let Err(e) = within_printed(table, row, column, got) {
+                    failures.push(e);
+                }
+            }
+        }
+    }
+    (failures, worst)
+}
+
+/// The arbiter record of `fluid`'s α^r (or the CoolProp tests' row for it) and its first table, parsed.
+fn arbiter_table(fluid: &str) -> (&'static phasekit_verify::Arbiter, Fixture<'static>) {
+    let a = ARBITERS.iter().find(|a| a.fluid == fluid && a.part == ArbiterPart::AlphaR).unwrap();
+    let file = a.tables[0].file;
+    let text = phasekit_verify::arbiters::table_text(file).unwrap();
+    (a, Fixture::parse(file, text).unwrap())
+}
+
+/// `fluid`'s model with its α^r record's printed constants, and the record.
+fn paper_model_of(registry: &Registry, fluid: &str) -> (PureFluid, f64) {
+    let (a, _) = arbiter_table(fluid);
+    let record = phasekit_core::internal::record(registry, fluid).unwrap();
+    paper_model(&record, &a.constants.unwrap())
+}
+
+/// `fluid` as phasekit ships it (`Corrected`), and its molar mass.
+fn shipped_model(registry: &Registry, fluid: &str) -> (PureFluid, f64) {
+    let mut record = phasekit_core::internal::record(registry, fluid).unwrap();
+    record.apply(phasekit_core::DataSet::Corrected).unwrap();
+    let m = record.molar_mass;
+    (record.compile().unwrap(), m)
+}
+
+/// Arbiter: Lemmon et al. 2016 Table 7 (PLAN.md M5.7; map 13 §3): p, c_v, c_p and w of R-227ea, R-365mfc, R-115 and
+/// R-13I1 at 3 states each, the ideal-gas limit among them, within half a unit of their last printed digit, with the
+/// paper's constants and as shipped (the oracle is within 4.3e-7 of them).
+#[test]
+fn lemmon2016_table7_within_printed_digits() {
+    let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+    let (mut failures, mut states) = (Vec::new(), 0);
+    for fluid in ["R227EA", "R365MFC", "R115", "R13I1"] {
+        let (_, table) = arbiter_table(fluid);
+        states += table.rows().len();
+        for (label, (model, m)) in
+            [("paper", paper_model_of(&registry, fluid)), ("shipped", shipped_model(&registry, fluid))]
+        {
+            failures.extend(k2_check(&table, &model, m, &[]).0.into_iter().map(|e| format!("{fluid} {label}: {e}")));
+        }
+    }
+    assert_eq!(states, 12);
+    assert_eq!(failures, Vec::<String>::new());
+}
+
+/// VERIFICATION.md §4.3 steps 2 and 4 (PLAN.md M5.7): every α^r record with printed constants is evaluated with them,
+/// all its rows within `Paper` making it `SelfConsistent`, else `Inconsistent` with the largest relative residual
+/// (rounded up to two significant digits). Water's is M4.5's test. NIST IR 8474 Table 3 misses with its own R by up
+/// to 1.4e-6 (map 13 §3 item 4); Tetrahydrofuran's printed (rounded) constants miss one cell by 1.4e-7, though its
+/// stored ones, equal to them within their digits, reproduce the table.
+#[test]
+fn paper_constants_decide_the_arbiter_status() {
+    let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+    let records =
+        ARBITERS.iter().filter(|a| a.part == ArbiterPart::AlphaR && a.constants.is_some() && a.fluid != "Water");
+    let mut evaluated = Vec::new();
+    for a in records {
+        let (_, table) = arbiter_table(a.fluid);
+        let (model, m) = paper_model_of(&registry, a.fluid);
+        let (failures, worst) = k2_check(&table, &model, m, &[]);
+        let expected = if failures.is_empty() {
+            ArbiterStatus::SelfConsistent
+        } else {
+            // Two significant digits, rounded up, parsed from the decimal so the value is the one written in ARBITERS.
+            let exponent = math::ln(worst) / math::ln(10.0);
+            let exponent = exponent.floor() as i32 - 1;
+            let digits = (worst / math::powi(10.0, exponent)).ceil();
+            ArbiterStatus::Inconsistent { residual: format!("{digits}e{exponent}").parse().unwrap() }
+        };
+        assert_eq!(a.status, expected, "{} ({} cells off)", a.fluid, failures.len());
+        evaluated.push(a.fluid);
+    }
+    assert_eq!(
+        evaluated,
+        ["R227EA", "R365MFC", "R115", "R13I1", "R1234ze(E)", "Helium", "R1130(E)", "Tetrahydrofuran"]
+    );
+}
+
+/// Arbiter: the 18 states of CoolProp's own EOS tests (PLAN.md M1.12, M5.7; map 10 §8.1), one or more per fluid of 13,
+/// each traced to its paper: p, c_v, c_p and w of the shipped model within half a unit of their last printed digit,
+/// except R1224YDZ's p (DIV-0014: 3.3 half-units off, as is the oracle).
+#[test]
+fn coolprop_test_rows_within_printed_digits() {
+    let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+    let (mut failures, mut states) = (Vec::new(), 0);
+    for a in ARBITERS.iter().filter(|a| a.citation.role == Role::CoolPropTests) {
+        let (_, table) = arbiter_table(a.fluid);
+        let (model, m) = shipped_model(&registry, a.fluid);
+        let exempt: &[(usize, &str)] = if a.fluid == "R1224YDZ" { &[(0, "p")] } else { &[] };
+        failures.extend(k2_check(&table, &model, m, exempt).0.into_iter().map(|e| format!("{}: {e}", a.fluid)));
+        states += table.rows().len();
+    }
+    assert_eq!(states, 18);
+    assert_eq!(failures, Vec::<String>::new());
 }
