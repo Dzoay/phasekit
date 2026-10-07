@@ -14,6 +14,7 @@ use crate::data::{DataSet, DataSource, FluidId, FluidRecord};
 use crate::error::{Error, LoadError};
 use crate::fluid::{Fluid, ReferenceState};
 use crate::model::ThermoModel;
+use crate::saturation::{SaturationCurve, SuperancillaryCurve};
 use crate::transport::{TransportSet, ViscosityModel};
 
 /// Case-insensitive (ASCII) comparison without allocating; keys are stored lower-case.
@@ -60,16 +61,24 @@ impl Slot {
     /// (and, in the real decoder, the blob), so it needs nothing from the registry later.
     fn load(&self) -> Result<Fluid, LoadError> {
         let blob = self.source.blob(self.id)?;
-        let mut record = FluidRecord::decode(blob.bytes())?;
+        let mut record = crate::blob::decode_eager_parts(blob.bytes())?;
         if record.name != *self.name {
             return Err(LoadError::Format("record name does not match its index entry".into()));
         }
         record.apply(self.data_set)?;
         let deps = self.deps.clone();
+        let freshness = record.superancillary_freshness();
         let builder = record.builder().map_err(|e| match e {
             Error::Load(l) => l,
             other => LoadError::Format(other.to_string().into()),
         })?;
+        // The superancillary stays in the blob until saturation is first needed (ROT-035); the closure owns the blob.
+        let builder = builder.lazy_saturation(move || {
+            let Some(freshness) = freshness else { return Ok(None) };
+            let curve = crate::blob::decode_superancillary(blob.bytes())?
+                .map(|sa| Box::new(SuperancillaryCurve::new(sa, freshness)) as Box<dyn SaturationCurve>);
+            Ok(curve)
+        });
         let package = if deps.is_empty() {
             builder.build()
         } else {

@@ -143,6 +143,7 @@ impl ToleranceClass {
         match self {
             ToleranceClass::Term => Some(1e-13 * scale.max(TERM_FLOOR)),
             ToleranceClass::Prop | ToleranceClass::Identity => Some(if near { 1e-8 } else { 1e-12 } * scale),
+            ToleranceClass::SaCoeff => Some(1e-14 * scale),
             _ => None,
         }
     }
@@ -152,6 +153,12 @@ impl ToleranceClass {
     /// carried through the relation to first order) where that is larger. A NaN `carried` leaves the own bound.
     pub fn bound_carried(self, scale: f64, window: Window, carried: f64) -> Option<f64> {
         Some(self.bound_in(scale, window)?.max(ToleranceClass::Term.bound(carried)?))
+    }
+
+    /// `SaFit`'s bound at one multiprecision point (VERIFICATION.md §5): 4 · |SA/mp − 1| of that point, floor 1e-14,
+    /// relative to the multiprecision `value` (CoolProp's own acceptance rule, map 10 §3).
+    pub fn sa_fit(ratio: f64, value: f64) -> f64 {
+        (4.0 * (ratio - 1.0).abs()).max(1e-14) * value.abs()
     }
 
     /// Every class with its bound as VERIFICATION.md §5 states it, in that table's order.
@@ -270,6 +277,12 @@ mod tests {
         assert_eq!(Prop.bound_carried(2.0, Window::NearCritical, 1e5), Some(2e-8));
         assert_eq!(Prop.bound_carried(2.0, Window::Regular, f64::NAN), Some(2e-12));
         assert_eq!(ToleranceClass::Flash.bound_carried(2.0, Window::Regular, 1.0), None);
+        // `SaCoeff` is 1e-14 relative; `SaFit` 4 times the point's own SA/mp misfit, never below 1e-14.
+        assert_eq!(ToleranceClass::SaCoeff.bound_in(3.0, Window::NearCritical), Some(3e-14));
+        let misfit = 1.0 / 1_073_741_824.0; // SA/mp − 1 = 2^-30, exact
+        assert_eq!(ToleranceClass::sa_fit(1.0 + misfit, -2.0), 8.0 * misfit);
+        assert_eq!(ToleranceClass::sa_fit(1.0 - misfit, 2.0), 8.0 * misfit);
+        assert_eq!((ToleranceClass::sa_fit(1.0, 3.0), ToleranceClass::sa_fit(1.0 + 1e-16, 1.0)), (3e-14, 1e-14));
         assert_eq!(Term.bound(0.0), Some(1e-313));
         let (tc, rhoc) = (600.0, 10_000.0);
         assert_eq!(Window::at(600.5, 10_900.0, tc, rhoc), Window::NearCritical);

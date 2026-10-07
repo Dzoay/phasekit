@@ -20,7 +20,9 @@
 
 use std::sync::Arc;
 
-use crate::data::{CaloricCurves, CaloricStamp, Edit, EosRecord, FluidRecord, MeltingSegment, Patch, SaStamp};
+use crate::data::{
+    CaloricCurves, CaloricStamp, Edit, EosRecord, FluidRecord, MeltingSegment, Patch, SaStamp, Superancillary,
+};
 use crate::error::LoadError;
 use crate::model::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataTerms, Limits, ModelKey, Source};
 
@@ -39,7 +41,7 @@ pub(crate) const SECTIONS: [(u32, &str, Option<&str>); 10] = [
     (1, "metadata", None),
     (2, "eos", None),
     (3, "superancillary fit", None),
-    (4, "superancillary", Some("M5.2")),
+    (4, "superancillary", None),
     (5, "caloric curves", None),
     (6, "ancillaries", Some("M6.3")),
     (7, "transport", Some("M8.1")),
@@ -241,6 +243,55 @@ fn read_fit(bytes: &[u8]) -> Result<Option<SaStamp>, LoadError> {
     Ok(Some(stamp))
 }
 
+/// The superancillary section (M5.2): the T boundaries (count, values), ρ′, ρ″ and p (each a piece count, then 13
+/// coefficients per piece), the extrema of each curve (count, values), the ln p boundaries and the T(ln p) pieces.
+fn superancillary(sa: Option<&Superancillary>) -> Vec<u8> {
+    let mut out = Vec::new();
+    let list = |out: &mut Vec<u8>, values: &[f64]| {
+        put_u32(out, values.len() as u32);
+        values.iter().for_each(|x| put_f64(out, *x));
+    };
+    let pieces = |out: &mut Vec<u8>, pieces: &[[f64; 13]]| {
+        put_u32(out, pieces.len() as u32);
+        pieces.iter().flatten().for_each(|x| put_f64(out, *x));
+    };
+    if let Some(sa) = sa {
+        list(&mut out, &sa.breaks);
+        sa.curves.iter().for_each(|curve| pieces(&mut out, curve));
+        sa.extrema.iter().for_each(|extrema| list(&mut out, extrema));
+        list(&mut out, &sa.ln_p_breaks);
+        pieces(&mut out, &sa.t_of_ln_p);
+    }
+    out
+}
+
+fn read_superancillary(bytes: &[u8]) -> Result<Option<Superancillary>, LoadError> {
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    let mut r = Reader::new(bytes, "superancillary");
+    let list = |r: &mut Reader<'_>| (0..r.u32()?).map(|_| r.f64()).collect::<Result<Vec<_>, _>>();
+    let pieces = |r: &mut Reader<'_>| {
+        (0..r.u32()?)
+            .map(|_| {
+                let mut piece = [0.0; 13];
+                for c in &mut piece {
+                    *c = r.f64()?;
+                }
+                Ok(piece)
+            })
+            .collect::<Result<Vec<_>, LoadError>>()
+    };
+    let breaks = list(&mut r)?;
+    let curves = [pieces(&mut r)?, pieces(&mut r)?, pieces(&mut r)?];
+    let extrema = [list(&mut r)?, list(&mut r)?, list(&mut r)?];
+    let (ln_p_breaks, t_of_ln_p) = (list(&mut r)?, pieces(&mut r)?);
+    r.done()?;
+    let sa = Superancillary { breaks, curves, extrema, ln_p_breaks, t_of_ln_p };
+    sa.check()?;
+    Ok(Some(sa))
+}
+
 /// The caloric section (M2.11 layout, filled from M5.2a): the stamp (superancillary shape, R, ρ_r; α⁰ a1, a2), the
 /// piece boundaries (count, values), then each of the six curves (piece count, 13 coefficients per piece).
 fn caloric(curves: Option<&CaloricCurves>) -> Vec<u8> {
@@ -366,6 +417,7 @@ pub(crate) fn sections(record: &FluidRecord) -> [Vec<u8>; SECTION_COUNT] {
     bodies[0] = metadata(record);
     bodies[1] = eos;
     bodies[2] = fit(record.superancillary_fit);
+    bodies[3] = superancillary(record.superancillary.as_ref());
     bodies[4] = caloric(record.caloric.as_ref());
     bodies[8] = melting(&record.melting);
     bodies[9] = corrections(&record.corrections);
@@ -446,8 +498,16 @@ fn validated_sections(bytes: &[u8]) -> Result<Vec<&[u8]>, LoadError> {
     Ok(sections)
 }
 
-/// Validates a v1 blob whole (header, checksum, section table), then decodes it.
+/// Validates a v1 blob whole (header, checksum, section table), then decodes every section.
 pub(crate) fn decode(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
+    let mut record = decode_eager_parts(bytes)?;
+    record.superancillary = read_superancillary(validated_sections(bytes)?[3])?;
+    Ok(record)
+}
+
+/// [`decode`] without the superancillary, which the registry decodes on first saturation use
+/// ([`decode_superancillary`]); the superancillary is most of a fluid's bytes (map 09).
+pub(crate) fn decode_eager_parts(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
     let sections = validated_sections(bytes)?;
     let eos = EosRecord::decode(sections[1])?;
     let mut record = read_metadata(sections[0], eos)?;
@@ -456,6 +516,11 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
     record.melting = read_melting(sections[8])?;
     record.corrections = read_corrections(sections[9])?;
     Ok(record)
+}
+
+/// The superancillary of a v1 blob, validated whole again; `None` for a fluid without one.
+pub(crate) fn decode_superancillary(bytes: &[u8]) -> Result<Option<Superancillary>, LoadError> {
+    read_superancillary(validated_sections(bytes)?[3])
 }
 
 /// The first eight bytes of every pack.

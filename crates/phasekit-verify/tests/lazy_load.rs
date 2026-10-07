@@ -301,3 +301,36 @@ fn embedded_water_initialises_once_under_16_threads() {
     assert!(results.iter().all(|r| *r == results[0]), "{results:?}");
     assert_eq!(reg.loaded().collect::<Vec<_>>(), ["Water"]);
 }
+
+/// ROT-035 (map 02 §5, map 09 §5): Water's superancillary stays in its blob until saturation is first needed, then
+/// materialises once under 16 racing threads. The blob is shared through an `Arc`: decoding the fluid keeps no handle
+/// to it, the package's lazy saturation keeps one until its single run (std's `LazyLock` drops the initialiser after
+/// it, S-08), and every thread's DT state inside the dome, whose phase needs the curve, has the same bits.
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn saturation_materialises_once_under_contention() {
+    #[derive(Debug)]
+    struct SharedWater(Arc<[u8]>);
+    impl DataSource for SharedWater {
+        fn names(&self) -> Vec<Vec<String>> {
+            let water = phasekit_data::FLUIDS.iter().find(|f| f.name == "Water").unwrap();
+            vec![std::iter::once(water.name).chain(water.aliases.iter().copied()).map(str::to_string).collect()]
+        }
+        fn blob(&self, _: FluidId) -> Result<Blob, LoadError> {
+            Ok(Blob::Shared(Arc::clone(&self.0)))
+        }
+        fn references(&self, _: FluidId) -> Vec<String> {
+            Vec::new()
+        }
+    }
+    let bytes: Arc<[u8]> = phasekit_data::FLUIDS.iter().find(|f| f.name == "Water").unwrap().blob.into();
+    let reg = Registry::empty().with_source(Box::new(SharedWater(Arc::clone(&bytes))), DataSet::Corrected).unwrap();
+    let water = reg.get("Water").unwrap();
+    assert_eq!(Arc::strong_count(&bytes), 3, "the test, the source and the lazy saturation hold the blob");
+    // Inside the dome near its vapour side (ρ″ ≈ 76 mol/m³ at 400 K), where the single-phase p stays below pmax.
+    let input = Input::dt(Density::molar(100.0).unwrap(), Temperature::new(400.0).unwrap());
+    let states = race(|_| water.state(input).map(|s| (s.phase(), s.quality().map(f64::to_bits), s.p().to_bits())));
+    assert_eq!(Arc::strong_count(&bytes), 2, "the lazy saturation ran once and let go of the blob");
+    assert!(states.iter().all(|s| *s == states[0]), "{states:?}");
+    assert_eq!(states[0].as_ref().map(|s| s.0), Ok(Phase::TwoPhase));
+}

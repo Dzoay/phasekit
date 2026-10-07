@@ -130,6 +130,8 @@ pub mod math {
         cosh => cosh;
         /// Arctangent.
         atan => atan;
+        /// Cosine (datagen's Chebyshev-Lobatto nodes).
+        cos => cos;
     }
 
     /// x^y.

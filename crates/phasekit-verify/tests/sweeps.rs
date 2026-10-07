@@ -68,3 +68,33 @@ fn eos_fixtures_match_oracle_on_the_nightly_grid() {
     assert_eq!(check.checked, 136 * 10_000 * 10);
     assert_eq!(check.report(20), None);
 }
+
+/// Oracle: CoolProp 8.0.0, fixtures-full/coolprop-8.0.0/sat/<Fluid>.csv (PLAN.md M5.2, the M5 exit gate's nightly part):
+/// the superancillary's p, ρ′ and ρ″ at 200 temperatures per fluid of the 130 with one, Θ = 1 − T/Tc log-spaced from
+/// 1e-7 to the triple point, against `CP.SuperAncillary(json).eval_sat`; class `SaCoeff`.
+#[test]
+#[ignore = "nightly: reads the full sat set (cargo xtask oracle --kind sat --tier full)"]
+fn superancillary_matches_oracle_on_the_nightly_grid() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let (mut failures, mut checked, mut fluids) = (Vec::new(), 0, 0);
+    for f in phasekit_data::FLUIDS {
+        let record = phasekit_core::internal::record(&registry, f.name).unwrap();
+        let Some(curve) = record.superancillary_curve() else { continue };
+        let path = format!("{FULL}/sat/{}.csv", f.name);
+        let text = read(&path);
+        let fixture = Fixture::parse(&path, &text).unwrap();
+        assert_eq!(fixture.rows().len(), 200, "{path}");
+        for row in 0..fixture.rows().len() {
+            let sat = curve.at_t(fixture.value(row, "T").unwrap()).unwrap();
+            for (column, got) in [("p", sat.bubble.p), ("rhoL", sat.bubble.rho), ("rhoV", sat.dew.rho)] {
+                checked += 1;
+                if let Err(e) = fixture.check_scaled(row, column, got, fixture.value(row, column).unwrap().abs()) {
+                    failures.push(format!("{e:?}"));
+                }
+            }
+        }
+        fluids += 1;
+    }
+    assert_eq!((fluids, checked), (130, 130 * 200 * 3));
+    assert_eq!(failures.iter().take(20).collect::<Vec<_>>(), Vec::<&String>::new(), "{} failures", failures.len());
+}
