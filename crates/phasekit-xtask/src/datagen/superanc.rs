@@ -200,8 +200,8 @@ fn inverse_within(
             ln_p_breaks.push(b);
             rows.push(row);
         } else if depth < max_splits {
-            let mid = a + (b - a) / 2.0;
-            pending.extend([(mid, b, depth + 1), (a, mid, depth + 1)]);
+            let (mid, deeper) = (a + (b - a) / 2.0, depth + 1);
+            pending.extend([(mid, b, deeper), (a, mid, deeper)]);
         } else {
             return Err(format!("SUPERANCILLARY: the T(ln p) inverse misses by {miss:e} on ln p in [{a}, {b}]"));
         }
