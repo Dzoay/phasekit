@@ -92,6 +92,16 @@ check_tool cargo-mutants "$INSTALL_CMD" cargo mutants --version
 check_tool cargo-nextest "$INSTALL_CMD" cargo nextest --version
 check_tool uv "https://docs.astral.sh/uv/" uv --version
 
+# `cargo xtask fetch-fastchebpure` (PLAN.md M6.1) downloads and unpacks NIST's fastchebpure release: warn only.
+for tool in "curl --version" "unzip -v"; do
+  bin=${tool%% *}
+  if command -v "$bin" >/dev/null 2>&1; then
+    ok "$($tool 2>&1 | head -n 1 | cut -c1-60)"
+  else
+    warn "$bin: not found (needed by cargo xtask fetch-fastchebpure)"
+  fi
+done
+
 # Not needed until the C++ baseline (M1.15): warn only.
 for bin in cmake g++; do
   if command -v "$bin" >/dev/null 2>&1; then

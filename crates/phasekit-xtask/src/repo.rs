@@ -193,6 +193,62 @@ impl Repo {
         command
     }
 
+    /// Downloads `url` to `dest` anonymously with curl (no cookies, credentials or identifying headers; the only
+    /// network access in xtask besides git), creating its directory; returns `dest`.
+    pub fn download(&self, url: &str, dest: &Path) -> Result<PathBuf, String> {
+        if let Some(dir) = dest.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+        }
+        let status = Command::new("curl")
+            .args(["--silent", "--show-error", "--fail", "--location", "--proto", "=https", "--output"])
+            .arg(dest)
+            .arg(url)
+            .status()
+            .map_err(|e| format!("cannot run curl: {e}"))?;
+        if status.success() { Ok(dest.to_path_buf()) } else { Err(format!("curl {url} failed: {status}")) }
+    }
+
+    /// The text of a file outside the repository (a download or an extracted archive).
+    pub fn read_outside(&self, path: &Path) -> Result<String, String> {
+        std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))
+    }
+
+    /// The bytes of a file outside the repository.
+    pub fn read_outside_bytes(&self, path: &Path) -> Result<Vec<u8>, String> {
+        std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))
+    }
+
+    /// The names of the files directly in a directory outside the repository, sorted.
+    pub fn names_outside(&self, dir: &Path) -> Result<Vec<String>, String> {
+        let entries = std::fs::read_dir(dir).map_err(|e| format!("cannot list {}: {e}", dir.display()))?;
+        let mut names = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("cannot list {}: {e}", dir.display()))?;
+            names.push(entry.file_name().to_string_lossy().into_owned());
+        }
+        names.sort();
+        Ok(names)
+    }
+
+    /// Removes a scratch directory outside the repository, if it exists.
+    pub fn remove_scratch(&self, dir: &Path) {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Extracts the members of `zip` that match `patterns` into `dest` with `unzip`; returns `dest`.
+    pub fn unzip(&self, zip: &Path, patterns: &[&str], dest: &Path) -> Result<PathBuf, String> {
+        std::fs::create_dir_all(dest).map_err(|e| format!("cannot create {}: {e}", dest.display()))?;
+        let status = Command::new("unzip")
+            .args(["-q", "-o"])
+            .arg(zip)
+            .args(patterns)
+            .arg("-d")
+            .arg(dest)
+            .status()
+            .map_err(|e| format!("cannot run unzip: {e}"))?;
+        if status.success() { Ok(dest.to_path_buf()) } else { Err(format!("unzip {} failed: {status}", zip.display())) }
+    }
+
     /// Runs `git <args>` in the root; returns stdout.
     pub fn git(&self, args: &[&str]) -> Result<String, String> {
         let output = Command::new("git")

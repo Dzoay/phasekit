@@ -23,6 +23,7 @@
 mod baseline;
 mod bench;
 mod datagen;
+mod fastchebpure;
 mod fluid;
 mod gates;
 mod oracle;
@@ -39,8 +40,9 @@ fn main() -> ExitCode {
         Some((task, rest)) if task == "bench" => bench::main(rest),
         Some((task, rest)) if task == "fluid" => fluid::main(rest),
         Some((task, rest)) if task == "datagen" => datagen::main(rest),
+        Some((task, rest)) if task == "fetch-fastchebpure" => fastchebpure::main(rest),
         _ => {
-            eprintln!("usage: cargo xtask <baseline|bench|datagen|fluid|oracle|gates>");
+            eprintln!("usage: cargo xtask <baseline|bench|datagen|fetch-fastchebpure|fluid|oracle|gates>");
             ExitCode::FAILURE
         }
     }
