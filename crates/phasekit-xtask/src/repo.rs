@@ -224,6 +224,9 @@ impl Repo {
             .arg(&dir)
             .current_dir(&self.root)
             .env_remove("CARGO_TARGET_DIR")
+            // Incremental builds: each mutant changes one crate of a tree cargo-mutants has already built (CI turns
+            // them off for its own builds; measured on a core edit: 1.6 s incremental, 10 s not).
+            .env("CARGO_INCREMENTAL", "1")
             .env(REFERENCE_DIR, &self.reference)
             .status()
             .map_err(|e| format!("cannot run cargo mutants (scripts/check-toolchain.sh): {e}"))?;
