@@ -890,7 +890,9 @@ the steps that record each row.
   `cfg(target_os = "linux")` dev-dependency whose bench file compiles to an empty `main` elsewhere, so G6
   `--all-targets` still builds *(inference)*; allocation-counter's counting global allocator for allocations (a T3
   dev-dependency, user decision AC1: implementing `GlobalAlloc` would need `unsafe`, which the workspace forbids;
-  dependencies §2.12, R18). `cargo test` never builds the benches.
+  dependencies §2.12, R18). `cargo test` never builds the benches. Benches build with the workspace's `[profile.bench]`
+  (user decision BP1, from M5.11): `lto = "fat"`, `codegen-units = 1`, no `target-cpu`; the M2 and M3 rows were
+  measured with cargo's defaults (16 codegen units, no LTO). The C++ baseline is a static library without LTO.
 - **Bench fluids:** Water (56 terms), Methane (40), R134a (21), n-Propane (18) and n-Heptane (12 power terms, chosen at
   M1.15 from the JSON term counts: one of 28 twelve-term fluids, with a superancillary and in the core subset;
   kernel-performance §3.3), on SplitMix64 grids shared with the C++ baseline.
@@ -926,9 +928,9 @@ the steps that record each row.
 | Bench (one x86-64 core) | Target (ARCHITECTURE.md §7) | Recorded | Enforced | CoolProp 8.0.0 |
 |---|---|---|---|---|
 | Hot lookup by name | ≤ 50 ns *(inference)* | M2 | M9 | `PropsSI` rebuilds a backend: 76.5 µs; C++ 62-88 µs (M1.15a run) |
-| α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs | M3: 0.22 µs (n-Heptane, 12 terms), 0.35-0.39 µs (R134a 21, n-Propane 18), 0.69 µs (Methane 40); 31 ns of it fixed per call (M3.8, `alphar_order2`) | M9 | C++ (M1.15a run): 0.37 µs (12 terms), 0.55-0.60 µs (18-21), 1.2 µs (40), 2.7 µs (56) |
-| Properties at (T, ρ) | ≤ 0.5 µs | M5 | M9 | update(D,T) + h + c_p: 1.5-10.7 µs; C++ 0.76-3.2 µs (M1.15a run) |
-| Heap allocations per flash or batch point | 0 | M5 | M5 (test) | n/a |
+| α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs | M3: 0.22 µs (n-Heptane, 12 terms), 0.35-0.39 µs (R134a 21, n-Propane 18), 0.69 µs (Methane 40); 31 ns of it fixed per call (M3.8, `alphar_order2`). M5.11 (fat LTO, BP1): 0.17 µs (n-Heptane), 0.27-0.37 µs (R134a, n-Propane), 0.57 µs (Methane), 5.3 µs (Water, 2.0× the C++): Water's 2 non-analytic terms take 4.6 µs of it, evaluated on `Jet4` at order 4 whatever order is asked (M9.2a, NA1); its other 54 terms take 0.71 µs, 3.8× faster than the C++ | M9 | C++ (M1.15a run): 0.37 µs (12 terms), 0.55-0.60 µs (18-21), 1.2 µs (40), 2.7 µs (56) |
+| Properties at (T, ρ) | ≤ 0.5 µs | M5.11 (`properties_at_t_rho`, DT + h + c_p; fat LTO, BP1): 0.40 µs (n-Heptane), 0.43 µs (R134a), 0.65 µs (n-Propane), 0.87 µs (Methane), 5.68 µs (Water, its non-analytic terms; M9.2a). α^r is most of it; the flash also re-evaluates the superancillary's top as the critical point on every call (~65 ns). `dt_flash` inside the dome (curve + two bundles): 1.0-2.4 µs, Water 17.1 µs | M9 | update(D,T) + h + c_p: 1.5-10.7 µs; C++ 0.76-3.2 µs (M1.15a run) |
+| Heap allocations per flash or batch point | 0 | M5: 0 (`dt_flash_allocates_nothing`, `batch_point_allocates_nothing`, M5.8) | M5 (test) | n/a |
 | QT / PQ via superancillary | ≤ 0.1 µs | M6 | M9 | 0.45 / 0.64 µs; C++ 0.21 / 0.22-0.23 µs (M1.15a run) |
 | PT / PH single phase | ≤ 3 / ≤ 15 µs | M7 | M9 | 19-27 / 119-376 µs; C++ 3.4-25 / 37-255 µs (M1.15a run) |
 | Thread scaling, same and different fluids (N = physical cores) | ≥ 0.9·N | M9 | recorded, a miss is re-planned | GIL-bound 0.97× on 4 threads; C++ (M1.15a) 3.0-3.8× at 4, 3.1-5.4× at 6 (mixed 4.2×), 3.4-6.5× at 12 threads |

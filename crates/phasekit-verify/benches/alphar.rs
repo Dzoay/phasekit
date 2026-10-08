@@ -2,7 +2,7 @@
 //! fluids, through `HelmholtzModel::residual` (one virtual call, one `match` per block, D3), on the C++ baseline's grid:
 //! SplitMix64 seed 1, T ~ U[1.05·T_c, min(1.5·T_c, T_max)], ρ ~ U[0.1, 2]·ρ_c (published critical point). Target
 //! ≤ 0.3 µs for 16-20 terms (ARCHITECTURE.md §7); the baseline's C++ CoolProp: 0.37 µs (n-Heptane, 12 terms) to
-//! 1.2 µs (Methane, 40). Water (56 terms) waits for its NonAnalytic block (M4.1). `overhead` evaluates a residual part
+//! 1.2 µs (Methane, 40), 2.7 µs (Water, 56; recorded from M5.11). `overhead` evaluates a residual part
 //! with no terms: the fixed cost of a call (virtual dispatch, the per-block `match`, the per-state τ and δ tables),
 //! which bounds the dispatch share. Recorded by `cargo xtask bench --record`.
 
@@ -13,8 +13,8 @@ mod bench {
     use phasekit_core::{HelmholtzModel, Order, Registry};
     use phasekit_verify::{SplitMix64, term};
 
-    /// The bench fluids that compile today (VERIFICATION.md §12; Water at M4.1).
-    const FLUIDS: [&str; 4] = ["Methane", "R134a", "n-Propane", "n-Heptane"];
+    /// The bench fluids (VERIFICATION.md §12).
+    const FLUIDS: [&str; 5] = ["Water", "Methane", "R134a", "n-Propane", "n-Heptane"];
 
     /// States per fluid, cycled through one per iteration.
     const STATES: usize = 1024;
