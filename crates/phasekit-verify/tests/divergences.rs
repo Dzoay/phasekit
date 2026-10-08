@@ -15,6 +15,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0006", div_0006),
     ("DIV-0007", div_0007),
     ("DIV-0008", div_0008),
+    ("DIV-0011", div_0011),
     ("DIV-0012", div_0012),
     ("DIV-0015", div_0015),
 ];
@@ -47,6 +48,23 @@ fn div_0004() {
     }
     assert!(state.h(Basis::Mass).is_finite());
     assert!(fact("div0004_eta_t500_q0.5") > 0.0, "the oracle answers a two-phase viscosity (part M8)");
+}
+
+/// DIV-0011 (`SkipOracle`; map 12 §6.3, R8; ROT-063): phasekit's third virial coefficient is the exact Taylor
+/// coefficient (`zero_density`, proved against the δ-series in tests/virials.rs); the oracle's, from α^r_δδ at δ = 1e-12,
+/// differs beyond `Prop` for propane and nitrogen at 300 K and water at 600 K (measured at M1.13: −6.7e-5, −7.1e-5,
+/// +1.9e-5).
+fn div_0011() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    for (label, fluid, t) in
+        [("propane", "n-Propane", 300.0), ("nitrogen", "Nitrogen", 300.0), ("water", "Water", 600.0)]
+    {
+        let exact = registry.get(fluid).unwrap().model().helmholtz().unwrap().zero_density(t).unwrap().c;
+        let oracle = fact(&format!("div0011_cvirial_{label}"));
+        let off = (oracle - exact) / exact.abs();
+        let beyond = phasekit_verify::ToleranceClass::Prop.bound(1.0).unwrap();
+        assert!(off.abs() > beyond, "{fluid}: the oracle's C is off by only {off:e}");
+    }
 }
 
 /// DIV-0012 (`SkipOracle`; map 12 §6.3, #3394; ROT-078): Water DT(55018.5 mol/m³, 250 K) lies below the 273.16 K

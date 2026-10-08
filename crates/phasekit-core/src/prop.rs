@@ -39,6 +39,15 @@ pub enum Prop {
     SmolarResidual,
     /// Residual Gibbs energy RT·(A00^r + A01^r).
     GmolarResidual,
+    /// Second virial coefficient B, m³/mol: the exact Taylor coefficient of α^r at δ = 0
+    /// (`HelmholtzModel::zero_density`), never a small-δ estimate (ROT-063).
+    Bvirial,
+    /// Third virial coefficient C, m⁶/mol².
+    Cvirial,
+    /// dB/dT, m³/(mol K).
+    DBvirialDT,
+    /// dC/dT, m⁶/(mol² K).
+    DCvirialDT,
     MolarMass,
     Viscosity,
     Conductivity,

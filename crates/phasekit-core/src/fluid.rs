@@ -311,6 +311,16 @@ impl Fluid {
                     _ => r * t * (a00 + a01),
                 }
             }
+            Prop::Bvirial | Prop::Cvirial | Prop::DBvirialDT | Prop::DCvirialDT => {
+                let v =
+                    self.model.helmholtz().and_then(|h| h.zero_density(state.t())).ok_or(Error::NoModel { prop })?;
+                match prop {
+                    Prop::Bvirial => v.b,
+                    Prop::Cvirial => v.c,
+                    Prop::DBvirialDT => v.db_dt,
+                    _ => v.dc_dt,
+                }
+            }
             Prop::MolarMass => m,
             Prop::Viscosity => self.model.viscosity(state)?,
             Prop::Conductivity => self.model.conductivity(state)?,

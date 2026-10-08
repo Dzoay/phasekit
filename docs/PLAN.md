@@ -787,8 +787,8 @@ subcritical point (D5, D6, E18). **Prerequisites.** M4; M1.9-M1.12 transcription
   when:* green.
 - **M5.6 Exact virials.** *Failing tests:* `virials_equal_the_delta_series_for_every_fluid` (B, C, dB/dT, dC/dT from
   `zero_density` vs an independent δ → 0 extrapolation; class `Identity`), `bvirial_matches_oracle_within_the_registered_bound`
-  (B and dB/dT at class `Measured`, the DIV-0011 tolerance 1e-10: the oracle evaluates at δ = 1e-12, so its own
-  truncation is about 1e-12 and `Prop` would leave no margin; map 12 §6.3), and `div_0011`
+  (B and dB/dT at class `Measured`, the DIV-0011 tolerance: the oracle evaluates at δ = 1e-12 and divides by δ, so
+  `Prop` would leave no margin; map 12 §6.3; measured at M5.6 as 9e-8, Methanol's dB/dT), and `div_0011`
   (`SkipOracle`: our C is exact; the oracle's C still differs beyond `Prop`, e.g. −7.1e-5 for N₂ at 300 K). *Do:*
   `MultiParameterEos::zero_density` on real data; `Prop` virial outputs. *Done when:* green.
 - **M5.7 Paper arbiters.** *Failing tests:* `lemmon2016_table7_within_printed_digits` (R227EA, R365MFC, R115, R13I1;
