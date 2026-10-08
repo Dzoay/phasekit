@@ -7,7 +7,7 @@ x86_64-unknown-linux-gnu phasekit-core::lib 85
 x86_64-unknown-linux-gnu phasekit-verify::lib 44
 x86_64-unknown-linux-gnu phasekit-verify::gibbs_seam 3
 x86_64-unknown-linux-gnu phasekit-verify::lazy_load 12
-x86_64-unknown-linux-gnu phasekit-verify::new_family 7
+x86_64-unknown-linux-gnu phasekit-verify::new_family 8
 x86_64-unknown-linux-gnu phasekit-verify::register 12
 x86_64-unknown-linux-gnu phasekit-xtask::main 97
 x86_64-unknown-linux-gnu phasekit-core::doc 2
@@ -15,7 +15,7 @@ wasm32-wasip2 phasekit-core::lib 85
 wasm32-wasip2 phasekit-verify::lib 44
 wasm32-wasip2 phasekit-verify::gibbs_seam 3
 wasm32-wasip2 phasekit-verify::lazy_load 8
-wasm32-wasip2 phasekit-verify::new_family 6
+wasm32-wasip2 phasekit-verify::new_family 7
 wasm32-wasip2 phasekit-verify::register 12
 wasm32-wasip2 phasekit-core::doc 2
 x86_64-unknown-linux-gnu phasekit-verify::fixtures 4
