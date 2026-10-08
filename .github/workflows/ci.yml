@@ -51,8 +51,8 @@ jobs:
           components: clippy
       - name: G2 cargo clippy --workspace --all-targets -- -D warnings
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: G7 cargo clippy -p phasekit-core --no-default-features --all-targets -- -D warnings
-        run: cargo clippy -p phasekit-core --no-default-features --all-targets -- -D warnings
+      - name: G7 cargo clippy -p phasekit-core -p phasekit-compat --no-default-features --all-targets -- -D warnings
+        run: cargo clippy -p phasekit-core -p phasekit-compat --no-default-features --all-targets -- -D warnings
 
   linux:
     name: linux
@@ -118,8 +118,8 @@ jobs:
       - uses: ./.github/actions/rust
         with:
           toolchain: "1.85.0" # the workspace rust-version (D17); tests need newer dev-dependencies, so check only
-      - name: cargo check --lib -p phasekit-core -p phasekit-data
-        run: cargo check --lib -p phasekit-core -p phasekit-data
+      - name: cargo check --lib -p phasekit-core -p phasekit-data -p phasekit-compat
+        run: cargo check --lib -p phasekit-core -p phasekit-data -p phasekit-compat
 
   windows:
     name: windows

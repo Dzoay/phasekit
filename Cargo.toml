@@ -17,6 +17,7 @@ publish = false
 # E7: default features are OFF on every internal dependency, so feature unification can never make a
 # facade embed more fluids than it asked for. Each consumer names its fluid set explicitly.
 [workspace.dependencies]
+phasekit-compat = { path = "crates/phasekit-compat", default-features = false }
 phasekit-core = { path = "crates/phasekit-core", default-features = false }
 phasekit-data = { path = "crates/phasekit-data", default-features = false }
 phasekit-verify = { path = "crates/phasekit-verify" }

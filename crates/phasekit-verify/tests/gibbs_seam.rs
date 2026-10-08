@@ -7,11 +7,14 @@
 
 use std::sync::Arc;
 
+use phasekit_compat::props_si_in;
+use phasekit_core::batch::{self, BatchRequest, Status};
 use phasekit_core::{
-    Basis, Capabilities, DataTerms, DerivVar, Error, FlashOptions, Fluid, FluidInfo, GibbsDerivs, Input, ModelKey,
-    NativeInput, Pair, Partial, Phase, Pressure, Prop, Quality, Source, State, Temperature, ThermoModel,
-    bundle_from_gibbs, math,
+    Basis, Capabilities, DataTerms, DerivVar, Enthalpy, Entropy, Error, FlashOptions, Fluid, FluidInfo, GibbsDerivs,
+    Input, ModelKey, NativeInput, Pair, Partial, Phase, Pressure, Prop, Quality, ReferenceState, Registry, Source,
+    State, Temperature, ThermoModel, bundle_from_gibbs, math,
 };
+use phasekit_verify::gauge_invariance;
 
 /// Any positive scale works: the transform's R cancels in every property.
 const R: f64 = 8.314_462_618;
@@ -92,6 +95,10 @@ fn pt(p: f64, t: f64) -> Input {
     Input::pt(Pressure::new(p).unwrap(), Temperature::new(t).unwrap())
 }
 
+fn qt(q: f64, t: f64) -> Input {
+    Input::qt(Quality::new(q).unwrap(), Temperature::new(t).unwrap())
+}
+
 #[test]
 fn solid_properties_come_from_the_shared_relations() {
     let ice = Fluid::new(Arc::new(ToyIce::new()));
@@ -112,4 +119,51 @@ fn solid_properties_come_from_the_shared_relations() {
     assert!(close(ice.prop(&s, dvdp).unwrap(), -g.g_pp / (g.g_p * g.g_p)));
     // Cp0 needs an ideal-gas part this family does not have (no `derivs` override): typed refusal.
     assert_eq!(ice.prop(&s, Prop::Cp0molar), Err(Error::NoModel { prop: Prop::Cp0molar }));
+}
+
+#[test]
+fn solid_reaches_registry_batch_compat_and_reference_states() {
+    let reg = Registry::embedded().unwrap().with_model(Arc::new(ToyIce::new())).unwrap();
+    let ice = reg.get("toyice").unwrap();
+    let h = ice.state(pt(101_325.0, 250.0)).unwrap().h(Basis::Mass);
+    assert_eq!(props_si_in(&reg, "Hmass", "P", 101_325.0, "T", 250.0, "ToyIce").unwrap(), h);
+
+    let (x, y, outputs) = ([101_325.0, 2e8], [250.0, 260.0], [Prop::Dmass, Prop::Cpmass, Prop::Q]);
+    let req = BatchRequest::new(Pair::PT, Basis::Mass, &x, &y, &outputs);
+    let (mut out, mut status) = ([0.0; 6], [Status::Ok; 6]);
+    batch::evaluate(ice, &req, &mut out, &mut status).unwrap();
+    assert_eq!(status, [Status::Ok, Status::Ok, Status::Undefined, Status::Ok, Status::Ok, Status::Undefined]);
+
+    // IAPWS-like anchor: h = −333.43 kJ/kg, s = −1.22 kJ/(kg K) at the normal melting point.
+    let anchor = pt(101_325.0, 273.15);
+    let h0 = Enthalpy::mass(-333_430.0).unwrap();
+    let s0 = Entropy::mass(-1220.0).unwrap();
+    let shifted = ice.with_reference(ReferenceState::Custom { at: anchor, h: h0, s: s0 }).unwrap();
+    assert!((shifted.state(anchor).unwrap().h(Basis::Mass) + 333_430.0).abs() < 1e-6);
+    gauge_invariance(ice, shifted.gauge(), &[anchor, pt(5e7, 200.0)]).unwrap();
+}
+
+/// E2: an out-of-tree family builds a two-phase state (here ice + vapour) that flows through the registry,
+/// batch and compat exactly like the core's own vapour-liquid states.
+#[test]
+fn two_phase_states_from_outside_the_core() {
+    let reg = Registry::empty().with_model(Arc::new(ToyIce::new())).unwrap();
+    let ice = reg.get("ToyIce").unwrap();
+    let (t, q) = (250.0, 0.25);
+    let s = ice.state(qt(q, t)).unwrap();
+    let p = ToyIce::sublimation_pressure(t);
+    let (hs, hv) = (ice.state(pt(p, t)).unwrap().h(Basis::Molar), ToyIce::vapour(t, p));
+    let hv = hv.g - t * hv.g_t;
+    assert_eq!((s.phase(), s.quality(), s.p(), s.t()), (Phase::TwoPhase, Some(q), p, t));
+    assert!((s.h(Basis::Molar) / ((1.0 - q) * hs + q * hv) - 1.0).abs() < 1e-12);
+    assert_eq!(s.cp(Basis::Molar), Err(Error::Undefined { prop: Prop::Cpmolar, phase: Phase::TwoPhase }));
+    let h = props_si_in(&reg, "Hmass", "Q", q, "T", t, "toyice").unwrap();
+    assert_eq!(h, s.h(Basis::Mass));
+
+    let (x, y, outputs) = ([0.0, 0.5, 1.0], [t; 3], [Prop::Q, Prop::Hmass, Prop::Cpmass]);
+    let req = BatchRequest::new(Pair::QT, Basis::Mass, &x, &y, &outputs);
+    let (mut out, mut status) = ([0.0; 9], [Status::Ok; 9]);
+    batch::evaluate(ice, &req, &mut out, &mut status).unwrap();
+    assert_eq!((out[0], out[3], out[6]), (0.0, 0.5, 1.0));
+    assert!(status.chunks(3).all(|row| row == [Status::Ok, Status::Ok, Status::Undefined]));
 }

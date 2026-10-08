@@ -5,21 +5,17 @@
 # <test>` lines name tests held back until that step; they fail the gate once milestone n has closed.
 x86_64-unknown-linux-gnu phasekit-core::lib 85
 x86_64-unknown-linux-gnu phasekit-verify::lib 44
-x86_64-unknown-linux-gnu phasekit-verify::gibbs_seam 1
-# pending M5.9: gibbs_seam.rs::solid_reaches_registry_batch_compat_and_reference_states
-# pending M5.9: gibbs_seam.rs::two_phase_states_from_outside_the_core
+x86_64-unknown-linux-gnu phasekit-verify::gibbs_seam 3
 x86_64-unknown-linux-gnu phasekit-verify::lazy_load 12
-x86_64-unknown-linux-gnu phasekit-verify::new_family 5
-# pending M5.9: new_family.rs::compat_strings_reach_the_new_family
-# pending M5.9: new_family.rs::reference_states_work_for_any_family
+x86_64-unknown-linux-gnu phasekit-verify::new_family 7
 x86_64-unknown-linux-gnu phasekit-verify::register 12
-x86_64-unknown-linux-gnu phasekit-xtask::main 95
+x86_64-unknown-linux-gnu phasekit-xtask::main 97
 x86_64-unknown-linux-gnu phasekit-core::doc 2
 wasm32-wasip2 phasekit-core::lib 85
 wasm32-wasip2 phasekit-verify::lib 44
-wasm32-wasip2 phasekit-verify::gibbs_seam 1
+wasm32-wasip2 phasekit-verify::gibbs_seam 3
 wasm32-wasip2 phasekit-verify::lazy_load 8
-wasm32-wasip2 phasekit-verify::new_family 4
+wasm32-wasip2 phasekit-verify::new_family 6
 wasm32-wasip2 phasekit-verify::register 12
 wasm32-wasip2 phasekit-core::doc 2
 x86_64-unknown-linux-gnu phasekit-verify::fixtures 4
@@ -52,3 +48,7 @@ x86_64-unknown-linux-gnu phasekit-verify::virials 2
 wasm32-wasip2 phasekit-verify::virials 2
 x86_64-unknown-linux-gnu phasekit-verify::batch 2
 wasm32-wasip2 phasekit-verify::batch 2
+x86_64-unknown-linux-gnu phasekit-compat::lib 3
+x86_64-unknown-linux-gnu phasekit-verify::compat 1
+wasm32-wasip2 phasekit-compat::lib 3
+wasm32-wasip2 phasekit-verify::compat 1
