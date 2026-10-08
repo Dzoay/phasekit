@@ -32,6 +32,9 @@ exclude_re = [
     # applies live in the module's pure functions, which are mutated.
     "replace run -> Verdict",
     "in run$",
+    # `fetch-fastchebpure`'s `run` downloads, unpacks and writes through `repo`, like a gate's `run`; the nightly runs it,
+    # and what it applies (the conversion, the lock and the manifest lines) is the module's pure functions, mutated.
+    "fastchebpure\\.rs:.*replace run -> Result<String, String>",
     # `gates::main` and `usage` dispatch the subcommands and print the verdicts: G8 runs them on every PR.
     "replace (main|usage) -> ExitCode",
     "in (main|usage)$",
