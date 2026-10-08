@@ -58,6 +58,10 @@ pub fn to_record(source: &super::Source) -> Result<FluidRecord, String> {
         let (shape, gas_constant, rho_reducing) = (e.shape_hash(), e.gas_constant, e.rho_reducing);
         fluid_record.superancillary_fit = Some(SaStamp { shape, gas_constant, rho_reducing });
     }
+    if let Some(sa) = &eos.superancillary {
+        fluid_record.superancillary =
+            Some(super::superanc::superancillary(sa).map_err(|e| at(&format!("EOS[0].{e}")))?);
+    }
     let c = &fluid.states.critical;
     fluid_record.critical = Some(CriticalPoint { t: c.t, p: c.p, rho: c.rhomolar, origin: CriticalOrigin::Published });
     fluid_record.environmental = info.environmental.as_ref().map(environmental).transpose().map_err(|e| at(&e))?;

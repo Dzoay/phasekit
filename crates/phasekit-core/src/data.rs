@@ -437,6 +437,52 @@ impl Environmental {
     }
 }
 
+/// A superancillary as datagen ships it (map 03 §3.3; PLAN.md M5.2): ρ′(T), ρ″(T) and p(T) as Chebyshev expansions of
+/// degree 12 on one set of pieces (all 130 v8.0.0 superancillaries share them across the three curves), plus what
+/// CoolProp builds at load or first use, under a mutex (map 11 F7), precomputed and validated by datagen (map 03 §9):
+/// each curve's extrema and the T(ln p) inverse on pieces in ln p.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Superancillary {
+    /// Piece boundaries in T, strictly increasing: the triple point to the numerical critical point.
+    pub breaks: Vec<f64>,
+    /// ρ′ (mol/m³), ρ″ (mol/m³) and p (Pa), in that order: per piece, the 13 Chebyshev coefficients.
+    pub curves: [Vec<[f64; 13]>; 3],
+    /// Per curve, the temperatures where its derivative changes sign, increasing (Water's ρ′ peaks near 277 K).
+    pub extrema: [Vec<f64>; 3],
+    /// Piece boundaries of the inverse in ln(p / Pa), strictly increasing.
+    pub ln_p_breaks: Vec<f64>,
+    /// T(ln p) per inverse piece: the 13 Chebyshev coefficients.
+    pub t_of_ln_p: Vec<[f64; 13]>,
+}
+
+impl Superancillary {
+    /// The checks a blob's superancillary passes before it is used: at least one piece per curve set, finite strictly
+    /// increasing boundaries, one coefficient row per piece, finite coefficients, extrema inside the range.
+    pub fn check(&self) -> Result<(), LoadError> {
+        let bad = |m: String| LoadError::Format(format!("superancillary: {m}").into());
+        let increasing =
+            |b: &[f64]| b.len() >= 2 && b.windows(2).all(|w| w[0].is_finite() && w[0] < w[1] && w[1].is_finite());
+        if !increasing(&self.breaks) || !increasing(&self.ln_p_breaks) {
+            return Err(bad("boundaries must be finite and strictly increasing, at least two".into()));
+        }
+        let rows = |curve: &[[f64; 13]], breaks: &[f64]| curve.len() + 1 == breaks.len();
+        let finite = |curve: &[[f64; 13]]| curve.iter().flatten().all(|c| c.is_finite());
+        for (name, curve) in ["rho'", "rho''", "p"].iter().zip(&self.curves) {
+            if !rows(curve, &self.breaks) || !finite(curve) {
+                return Err(bad(format!("{name} needs one row of finite coefficients per piece")));
+            }
+        }
+        if !rows(&self.t_of_ln_p, &self.ln_p_breaks) || !finite(&self.t_of_ln_p) {
+            return Err(bad("T(ln p) needs one row of finite coefficients per piece".into()));
+        }
+        let (lo, hi) = (self.breaks[0], self.breaks[self.breaks.len() - 1]);
+        if self.extrema.iter().flatten().any(|t| !(lo < *t && *t < hi)) || !self.extrema.iter().all(|e| e.is_sorted()) {
+            return Err(bad("extrema must lie inside the range, increasing".into()));
+        }
+        Ok(())
+    }
+}
+
 /// What precomputed caloric curves were sampled on (PLAN.md M2.11, M5.2a): the superancillary whose pieces they share
 /// and the α⁰ offset (a1, a2) of the record's `Offset` terms at sampling, which fixes their gauge.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -530,6 +576,8 @@ pub struct FluidRecord {
     pub melting: Vec<MeltingSegment>,
     /// What the shipped superancillary was fitted to, if the fluid has one.
     pub superancillary_fit: Option<SaStamp>,
+    /// The superancillary itself (M5.2). The registry leaves it in the blob and decodes it on first saturation use.
+    pub superancillary: Option<Superancillary>,
     /// Corrections shipped with this fluid; applied only under [`DataSet::Corrected`].
     pub corrections: Vec<Patch>,
     /// Divergence ids actually applied.
@@ -556,6 +604,7 @@ impl FluidRecord {
             critical: None,
             melting: Vec::new(),
             superancillary_fit: None,
+            superancillary: None,
             corrections: Vec::new(),
             applied: Vec::new(),
             environmental: None,
@@ -622,6 +671,14 @@ impl FluidRecord {
             self.applied.push(patch.divergence.clone());
         }
         Ok(())
+    }
+
+    /// The decoded superancillary as a saturation curve, under the hash gate: `Exact` when fresh or exactly rescaled,
+    /// `Guess` when stale. `None` without one (the registry builds the same curve lazily from the blob).
+    pub fn superancillary_curve(&self) -> Option<Box<dyn crate::saturation::SaturationCurve>> {
+        let curve =
+            crate::saturation::SuperancillaryCurve::new(self.superancillary.clone()?, self.superancillary_freshness()?);
+        Some(Box::new(curve))
     }
 
     /// The hash gate. `None` when the fluid ships no superancillary.
@@ -769,6 +826,7 @@ mod tests {
         let e = &r.eos;
         r.superancillary_fit =
             Some(SaStamp { shape: e.shape_hash(), gas_constant: e.gas_constant, rho_reducing: e.rho_reducing });
+        r.superancillary = Some(superancillary());
         r.melting = vec![MeltingSegment { t0: 251.165, p0: 208.566e6, t_min: 251.165, t_max: 256.164 }];
         r.corrections = vec![
             Patch { divergence: "DIV-0001".into(), edit: Edit::GasConstant(8.314_462_1) },
@@ -777,6 +835,53 @@ mod tests {
             Patch { divergence: "DIV-0002".into(), edit: Edit::MeltingP0 { segment: 0, p0: 632.4e6 } },
         ];
         r
+    }
+
+    /// Two pieces with distinct coefficients, an extremum per curve and a two-piece inverse.
+    fn superancillary() -> Superancillary {
+        let row = |k: f64| core::array::from_fn(|j| k + j as f64 / 16.0);
+        Superancillary {
+            breaks: vec![200.0, 250.0, 300.0],
+            curves: [vec![row(1.0), row(2.0)], vec![row(3.0), row(4.0)], vec![row(5.0), row(6.0)]],
+            extrema: [vec![210.0], vec![], vec![220.0, 290.0]],
+            ln_p_breaks: vec![1.0, 2.0, 3.0],
+            t_of_ln_p: vec![row(7.0), row(8.0)],
+        }
+    }
+
+    /// A blob's superancillary is refused unless its boundaries increase, every curve has one finite row per piece and
+    /// its extrema lie inside the range in order; each defect names itself.
+    #[test]
+    fn superancillary_check_refuses_each_defect() {
+        assert_eq!(superancillary().check(), Ok(()));
+        let refused = |edit: fn(&mut Superancillary)| {
+            let mut sa = superancillary();
+            edit(&mut sa);
+            match sa.check() {
+                Err(LoadError::Format(m)) => m.to_string(),
+                other => format!("{other:?}"),
+            }
+        };
+        let boundaries = "superancillary: boundaries must be finite and strictly increasing, at least two";
+        assert_eq!(refused(|sa| sa.breaks[1] = 300.0), boundaries);
+        assert_eq!(refused(|sa| sa.breaks.truncate(1)), boundaries);
+        assert_eq!(refused(|sa| sa.ln_p_breaks[2] = f64::INFINITY), boundaries);
+        assert_eq!(refused(|sa| sa.ln_p_breaks[0] = f64::NAN), boundaries);
+        assert_eq!(
+            refused(|sa| sa.curves[1].pop().map_or((), drop)),
+            "superancillary: rho'' needs one row of finite coefficients per piece"
+        );
+        assert_eq!(
+            refused(|sa| sa.curves[2][1][12] = f64::NAN),
+            "superancillary: p needs one row of finite coefficients per piece"
+        );
+        let inverse = "superancillary: T(ln p) needs one row of finite coefficients per piece";
+        assert_eq!(refused(|sa| sa.t_of_ln_p.push([0.0; 13])), inverse);
+        assert_eq!(refused(|sa| sa.t_of_ln_p[0][0] = f64::INFINITY), inverse);
+        let extrema = "superancillary: extrema must lie inside the range, increasing";
+        assert_eq!(refused(|sa| sa.extrema[0] = vec![200.0]), extrema);
+        assert_eq!(refused(|sa| sa.extrema[1] = vec![300.0]), extrema);
+        assert_eq!(refused(|sa| sa.extrema[2] = vec![290.0, 220.0]), extrema);
     }
 
     /// PLAN.md M2.4: a record with every field a blob carries round-trips bitwise, and re-encoding gives the same
@@ -857,12 +962,14 @@ mod tests {
             edit(&mut bodies[i]);
             crate::blob::assemble(&bodies)
         };
-        let steps = [(3, "superancillary", "M5.2"), (5, "ancillaries", "M6.3")];
-        let more = [(6, "transport", "M8.1"), (7, "surface tension", "M8.4")];
-        for (i, name, step) in steps.into_iter().chain(more) {
+        let steps = [(5, "ancillaries", "M6.3"), (6, "transport", "M8.1"), (7, "surface tension", "M8.4")];
+        for (i, name, step) in steps {
             let err = format_error(&blob_with(i, |b| b.extend([0; 8])));
             assert_eq!(err, format!("the {name} section lands at {step}"));
         }
+        // Filled at M5.2: a superancillary section is read, so stray bytes there are a format error, not a refusal.
+        assert_eq!(format_error(&blob_with(3, |b| b.extend([0; 8]))), "superancillary section has bytes left over (8)");
+        assert_eq!(format_error(&blob_with(3, |b| _ = b.pop())), "superancillary section is truncated");
         assert_eq!(format_error(&blob_with(0, |b| b.push(0))), "metadata section has bytes left over (1)");
         assert_eq!(format_error(&blob_with(0, |b| _ = b.pop())), "metadata section is truncated");
         assert_eq!(format_error(&blob_with(1, |b| b.push(99))), "eos section: unknown tag 99");

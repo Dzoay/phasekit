@@ -14,6 +14,7 @@ use std::process::ExitCode;
 use phasekit_core::internal::{
     CaloricCurves, CaloricStamp, DoubleExponentialTerm, Edit, EosRecord, FluidRecord, GaoBTerm, GaussianTerm,
     IdealTerm, Lemmon2005Term, MeltingSegment, NonAnalyticTerm, OffsetReference, Patch, PowerTerm, SaStamp,
+    Superancillary,
 };
 use phasekit_core::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataSet, DataTerms, Limits, Source};
 use serde_json::{Map, Value, json};
@@ -96,6 +97,17 @@ pub fn to_json(r: &FluidRecord) -> Value {
         "critical": r.critical.map_or(Value::Null, |c| json!({"t": num(c.t), "p": num(c.p), "rho": num(c.rho), "origin": if c.origin == CriticalOrigin::Model { "Model" } else { "Published" }})),
         "eos": Value::Object(eos),
         "superancillary_fit": r.superancillary_fit.map_or(Value::Null, |s| json!({"shape": format!("{:016x}", s.shape.get()), "gas_constant": num(s.gas_constant), "rho_reducing": num(s.rho_reducing)})),
+        "superancillary": r.superancillary.as_ref().map_or(Value::Null, |sa| {
+            let list = |v: &[f64]| v.iter().map(|x| num(*x)).collect::<Vec<_>>();
+            let pieces = |c: &[[f64; 13]]| c.iter().map(|p| list(p)).collect::<Vec<_>>();
+            json!({
+                "breaks": list(&sa.breaks),
+                "curves": {"rho_l": pieces(&sa.curves[0]), "rho_v": pieces(&sa.curves[1]), "p": pieces(&sa.curves[2])},
+                "extrema": {"rho_l": list(&sa.extrema[0]), "rho_v": list(&sa.extrema[1]), "p": list(&sa.extrema[2])},
+                "ln_p_breaks": list(&sa.ln_p_breaks),
+                "t_of_ln_p": pieces(&sa.t_of_ln_p),
+            })
+        }),
         "melting": r.melting.iter().map(|s| json!({"t0": num(s.t0), "p0": num(s.p0), "t_min": num(s.t_min), "t_max": num(s.t_max)})).collect::<Vec<_>>(),
         "corrections": r.corrections.iter().map(patch_json).collect::<Vec<_>>(),
         "caloric": r.caloric.as_ref().map_or(Value::Null, |c| {
@@ -281,6 +293,34 @@ pub fn from_json(v: &Value) -> Result<FluidRecord, String> {
             p0: f(&m, "p0")?,
             t_min: f(&m, "t_min")?,
             t_max: f(&m, "t_max")?,
+        });
+    }
+    if let Some(sa) = v.get("superancillary").filter(|x| !x.is_null()) {
+        let floats = |x: &Value| -> Result<Vec<f64>, String> {
+            let items = x.as_array().ok_or("superancillary: not a list")?;
+            items.iter().map(|x| x.as_f64().ok_or_else(|| "superancillary: not a number".to_string())).collect()
+        };
+        let pieces = |x: &Value| -> Result<Vec<[f64; 13]>, String> {
+            let items = x.as_array().ok_or("superancillary: not a list of pieces")?;
+            items
+                .iter()
+                .map(|p| floats(p)?.try_into().map_err(|_| "superancillary: a piece needs 13 coefficients".to_string()))
+                .collect()
+        };
+        let field = |x: &Value, key: &str| x.get(key).cloned().ok_or_else(|| format!("superancillary without {key}"));
+        let named = |x: &Value, key: &str| {
+            field(x, key)
+                .and_then(|v| ["rho_l", "rho_v", "p"].map(|k| field(&v, k)).into_iter().collect::<Result<Vec<_>, _>>())
+        };
+        let [l, v_, p] = <[Value; 3]>::try_from(named(sa, "curves")?).map_err(|_| "superancillary: three curves")?;
+        let [el, ev, ep] =
+            <[Value; 3]>::try_from(named(sa, "extrema")?).map_err(|_| "superancillary: three extrema lists")?;
+        r.superancillary = Some(Superancillary {
+            breaks: floats(&field(sa, "breaks")?)?,
+            curves: [pieces(&l)?, pieces(&v_)?, pieces(&p)?],
+            extrema: [floats(&el)?, floats(&ev)?, floats(&ep)?],
+            ln_p_breaks: floats(&field(sa, "ln_p_breaks")?)?,
+            t_of_ln_p: pieces(&field(sa, "t_of_ln_p")?)?,
         });
     }
     if let Some(c) = v.get("caloric").filter(|x| !x.is_null()) {
@@ -483,7 +523,8 @@ mod tests {
     }
 
     /// The blob sections the dump covers, by their names in `BLOB_SECTIONS` (PLAN.md §2.5).
-    const DUMPED: [&str; 6] = ["metadata", "eos", "superancillary fit", "caloric curves", "melting", "corrections"];
+    const DUMPED: [&str; 7] =
+        ["metadata", "eos", "superancillary fit", "superancillary", "caloric curves", "melting", "corrections"];
 
     /// PLAN.md §2.5: every section the blob decoder reads has a readable form here; a step that fills a reserved
     /// section (its decoder no longer refuses it) must extend the dump in the same PR, or this fails.
@@ -499,7 +540,7 @@ mod tests {
             "a section the decoder reads is missing from the dump, or the dump lists one it does not"
         );
         let reserved = phasekit_core::internal::BLOB_SECTIONS.len() - read.len();
-        assert_eq!(reserved, 4, "superancillary, ancillaries, transport, surface tension");
+        assert_eq!(reserved, 3, "ancillaries, transport, surface tension");
     }
 
     /// Caloric curves survive the dump (no shipped blob has them before M5.2a).

@@ -657,7 +657,71 @@ def eos(CP, lock, config, files, args):
     return out
 
 
-GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos}
+# The `sat` kind (section 3.5). Since M5.2 it holds the `sa` rows: p, rho' and rho'' straight from
+# `CP.SuperAncillary(json).eval_sat` (map 03 section 8), the QT/PQ rows join at M6.8 with the same columns.
+SAT_COLUMNS = ["input", "Q", "T", "status", "p", "rhoL", "rhoV", "hL", "hV", "sL", "sV", "path"]
+SAT_UNITS = ["-", "-", "K", "-", "Pa", "mol/m3", "mol/m3", "J/mol", "J/mol", "J/mol/K", "J/mol/K", "-"]
+SAT_TOL = ["label", "in", "in", "label", "sa_coeff", "sa_coeff", "sa_coeff", "prop", "prop", "prop", "prop", "label"]
+SAT_SA_ROWS = {"core": 0, "all": 8, "full": 200}
+SAT_THETA_MIN = 1e-7  # Theta = 1 - T/Tc log-spaced from here to 1 - Tt/Tc
+
+
+def sat_sa_temperatures(t_min, t_max, rows):
+    """`rows` temperatures with Theta = 1 - T/Tc log-spaced from SAT_THETA_MIN to 1 - Tt/Tc, Tt and Tc the
+    superancillary's range, coldest first; each clamped into the range against rounding."""
+    theta_max = 1.0 - t_min / t_max
+    if rows == 1:
+        return [t_min]
+    thetas = [math.exp(math.log(theta_max) + (math.log(SAT_THETA_MIN) - math.log(theta_max)) * k / (rows - 1))
+              for k in range(rows)]
+    return [min(max(t_max * (1.0 - theta), t_min), t_max) for theta in thetas]
+
+
+def sat_sa_rows(CP, superancillary, rows):
+    """The `sa` rows of one fluid: (floats, lines)."""
+    sa = CP.SuperAncillary(json.dumps(superancillary))
+    pieces = superancillary["jexpansions_p"]
+    lines, floats = [], []
+    for t in sat_sa_temperatures(pieces[0]["xmin"], pieces[-1]["xmax"], rows):
+        try:
+            values, status = [sa.eval_sat(t, "P", 0), sa.eval_sat(t, "D", 0), sa.eval_sat(t, "D", 1)], "ok"
+        except Exception as exception:  # every oracle failure becomes a status, never a crash
+            values, status = [math.nan] * 3, f"err:{error_class(exception)}"
+        row = [math.nan, t, *values, *[math.nan] * 4]
+        floats.extend(row)
+        lines.append(",".join(["sa", "nan", cell(t), status, *map(cell, row[2:]), "superanc"]) + "\n")
+    return floats, lines
+
+
+def sat(CP, lock, config, files, args):
+    """The `sat` kind (section 3.5), `sa` rows: 8 temperatures per fluid with a superancillary in all/sat.csv, 200
+    per fluid in the full set (sat/<Fluid>.csv); the core subset's files arrive with the QT/PQ rows (M6.8)."""
+    rows = args.rows or SAT_SA_ROWS[args.tier]
+    if rows == 0:
+        fail("--kind sat: the core subset has no sat rows before M6.8 (use --tier all or full)")
+    results, shas = [], {}
+    for name in tier_fluids(args, files):
+        superancillary = json.loads(files[name].read_text(encoding="utf-8"))["EOS"][0].get("SUPERANCILLARY")
+        if superancillary is None:
+            continue
+        shas[name] = assert_fluid(CP, files, name)
+        results.append((name, *sat_sa_rows(CP, superancillary, rows)))
+    grid = f"input=sa Theta=1-T/Tc logspace[{SAT_THETA_MIN!r},1-Tt/Tc] n={rows} Tt,Tc=superancillary range"
+    if args.tier == "all":
+        floats = [value for _, values, _ in results for value in values]
+        fluids = f"{len(results)} with a superancillary, fluids_sha256={lock['fluids_sha256']}"
+        columns, tol, units = ["fluid", *SAT_COLUMNS], ["label", *SAT_TOL], ["-", *SAT_UNITS]
+        text = header("sat", lock, config, fluids, columns, tol, floats, units=units, grid=grid)
+        return {"all/sat.csv": text + "".join(f"{name},{line}" for name, _, lines in results for line in lines)}
+    out = {}
+    for name, floats, lines in results:
+        text = header("sat", lock, config, [(name, shas[name])], SAT_COLUMNS, SAT_TOL, floats, units=SAT_UNITS,
+                      grid=grid)
+        out[f"sat/{name}.csv"] = text + "".join(lines)
+    return out
+
+
+GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "sat": sat}
 
 
 def write(out, files):

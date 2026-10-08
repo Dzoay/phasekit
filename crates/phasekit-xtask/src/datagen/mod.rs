@@ -11,6 +11,7 @@ pub mod index;
 pub mod json;
 pub mod mirror;
 pub mod record;
+pub mod superanc;
 
 use std::process::ExitCode;
 

@@ -77,12 +77,13 @@ pub use units::{Basis, Density, Enthalpy, Entropy, InternalEnergy, Pressure, Qua
 pub mod internal {
     pub use crate::data::{
         CaloricCurves, CaloricFreshness, CaloricStamp, Edit, Environmental, EosRecord, FluidRecord, MeltingSegment,
-        Patch, SaFreshness, SaStamp,
+        Patch, SaFreshness, SaStamp, Superancillary,
     };
     pub use crate::helmholtz::{
         DoubleExponentialTerm, GaoBTerm, GaussianTerm, IdealTerm, Lemmon2005Term, MAX_POW, NonAnalyticTerm,
         OffsetReference, PowerTerm,
     };
+    pub use crate::saturation::{chebyshev_derivative, clenshaw, piece};
 
     /// The decoded, uncorrected record of a data-backed fluid.
     pub fn record(registry: &crate::Registry, name: &str) -> Result<FluidRecord, crate::Error> {
