@@ -150,6 +150,7 @@ impl ToleranceClass {
             // T, ρ, p, h, s, u; the near-critical values for ρ and T apply to solved inputs (M7), not to DT's.
             ToleranceClass::Flash => Some(1e-9 * scale),
             ToleranceClass::RefAnchor => Some(1e-8), // absolute, SI mass units: the scale does not enter
+            ToleranceClass::Fd => Some(1e-7 * scale),
             _ => None,
         }
     }
@@ -291,6 +292,7 @@ mod tests {
         assert_eq!(ToleranceClass::SaCoeff.bound_in(3.0, Window::NearCritical), Some(3e-14));
         assert_eq!(ToleranceClass::CaloricFit.bound(4.0), Some(8e-6));
         assert_eq!(ToleranceClass::Flash.bound_in(2.0, Window::NearCritical), Some(2e-9));
+        assert_eq!(ToleranceClass::Fd.bound_in(3.0, Window::NearCritical), Some(3e-7));
         assert_eq!(
             (ToleranceClass::RefAnchor.bound(1e9), ToleranceClass::RefAnchor.bound(0.0)),
             (Some(1e-8), Some(1e-8))

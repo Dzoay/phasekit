@@ -49,7 +49,8 @@ fn alphar_totals_match_oracle_on_the_nightly_grid() {
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures-full/coolprop-8.0.0/eos/<Fluid>.csv (PLAN.md M5.1, the M5 exit gate's nightly part):
-/// p, h, s, u, cv, cp, w, Z, (∂p/∂ρ)_T and (∂p/∂T)_ρ at 10,000 (T, ρ) per fluid, phase imposed, against the DT flash of
+/// p, h, s, u, cv, cp, w, Z, (∂p/∂ρ)_T and (∂p/∂T)_ρ, and since M5.5 the 12 partials, c_p⁰ and the residual parts, at
+/// 10,000 (T, ρ) per fluid, phase imposed, against the DT flash of
 /// the `Parity` data; class `Prop` with the floors of VERIFICATION.md §5, or `Term` carried through the relation where a
 /// relation cancels (M5.1: 584 entries at Z ≈ 1e-4, next to a spinodal or in deep metastable liquid need it).
 #[test]
@@ -64,10 +65,13 @@ fn eos_fixtures_match_oracle_on_the_nightly_grid() {
         let rows: Vec<usize> = (0..fixture.rows().len()).collect();
         assert_eq!(rows.len(), 10_000, "{path}");
         let record = phasekit_core::internal::record(&registry, f.name).unwrap();
-        check.rows(&fixture, &rows, registry.get(f.name).unwrap(), &record);
+        let fluid = registry.get(f.name).unwrap();
+        check.rows(&fixture, &rows, fluid, &record);
+        check.partial_rows(&fixture, &rows, fluid, &record, false);
+        check.partial_rows(&fixture, &rows, fluid, &record, true);
     }
-    assert_eq!(check.checked, 136 * 10_000 * 10);
-    assert_eq!(check.report(20), None);
+    assert_eq!(check.checked, 136 * 10_000 * (10 + 12 + 4));
+    assert_eq!(check.report(60), None);
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures-full/coolprop-8.0.0/sat/<Fluid>.csv (PLAN.md M5.2, the M5 exit gate's nightly part):

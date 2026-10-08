@@ -297,6 +297,20 @@ impl Fluid {
                 let cp0 = state.gas_constant() * (1.0 - a20);
                 if prop == Prop::Cp0mass { cp0 / m } else { cp0 }
             }
+            Prop::HmolarResidual | Prop::SmolarResidual | Prop::GmolarResidual => {
+                if state.quality().is_some() {
+                    return Err(Error::Undefined { prop, phase: state.phase() });
+                }
+                let residual = self.model.derivs(state, Order::One).and_then(|d| d.residual());
+                let entry = |i, j| residual.and_then(|d| d.get(i, j)).ok_or(Error::NoModel { prop });
+                let (a00, a10, a01) = (entry(0, 0)?, entry(1, 0)?, entry(0, 1)?);
+                let (r, t) = (state.gas_constant(), state.t());
+                match prop {
+                    Prop::HmolarResidual => r * t * (a10 + a01),
+                    Prop::SmolarResidual => r * (a10 - a00),
+                    _ => r * t * (a00 + a01),
+                }
+            }
             Prop::MolarMass => m,
             Prop::Viscosity => self.model.viscosity(state)?,
             Prop::Conductivity => self.model.conductivity(state)?,
