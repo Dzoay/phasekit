@@ -12,7 +12,8 @@ use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
 use phasekit_core::{
     Basis, CriticalOrigin, CriticalPoint, DataTerms, Density, DerivVar, Derivs, Enthalpy, Entropy, Error, FlashOptions,
     FluidInfo, HelmholtzModel, Input, Limits, ModelKey, Order, Pair, Partial, Phase, Prop, PureFluid, ReferenceState,
-    Registry, Source, Strategy, Temperature, ThermoModel, Virials, math,
+    Registry, SatAccuracy, SatPair, SatSide, SaturationCurve, Source, Strategy, Temperature, ThermoModel, Virials,
+    math,
 };
 use phasekit_verify::{fd_first_order, gauge_invariance, policy_equivalence};
 
@@ -123,6 +124,136 @@ fn subcritical_without_a_curve_is_unsupported_until_m6() {
     assert_eq!(gas.phase(), Phase::Gas);
     let two_phase = FlashOptions::new().with_phase(Phase::TwoPhase);
     assert_eq!(fluid.flash(input, &two_phase).unwrap_err(), Error::Unsupported { pair: Pair::DT });
+}
+
+/// The van der Waals saturation curve by a Maxwell construction, as the family crate would ship it: p and the molar
+/// Gibbs energy equal on both sides. p_sat bisects on g′ − g″ between the spinodal pressures, and each side's density
+/// bisects p(ρ) = p_sat between its spinodal and its bound, every bisection down to adjacent floats.
+#[derive(Debug)]
+struct Maxwell {
+    a: f64,
+    b: f64,
+}
+
+impl Maxwell {
+    fn p(&self, t: f64, rho: f64) -> f64 {
+        rho * R * t / (1.0 - self.b * rho) - self.a * rho * rho
+    }
+    /// g/(RT) up to a function of T alone: ln ρ + α^r + p/(ρRT).
+    fn g(&self, t: f64, rho: f64) -> f64 {
+        let x = self.b * rho;
+        math::ln(rho / (1.0 - x)) + 1.0 / (1.0 - x) - 2.0 * self.a * rho / (R * t)
+    }
+}
+
+/// The root of `f` between `lo` (f < 0) and `hi` (f ≥ 0), bisected to adjacent floats.
+fn bisect(f: impl Fn(f64) -> f64, mut lo: f64, mut hi: f64) -> f64 {
+    loop {
+        let mid = 0.5 * (lo + hi);
+        if mid <= lo || mid >= hi {
+            return mid;
+        }
+        if f(mid) < 0.0 { lo = mid } else { hi = mid }
+    }
+}
+
+impl SaturationCurve for Maxwell {
+    fn accuracy(&self) -> SatAccuracy {
+        SatAccuracy::Exact
+    }
+    fn t_range(&self) -> (f64, f64) {
+        let t_c = 8.0 * self.a / (27.0 * R * self.b);
+        (0.5 * t_c, t_c)
+    }
+    fn at_t(&self, t: f64) -> Result<SatPair, Error> {
+        let (t_lo, t_c) = self.t_range();
+        assert!((t_lo..=t_c).contains(&t), "the core evaluated the curve outside its range at {t} K");
+        let (b, rho_c) = (self.b, 1.0 / (3.0 * self.b));
+        let side = |p, rho| SatSide { t, p, rho };
+        if t == t_c {
+            let p_c = self.a / (27.0 * b * b);
+            return Ok(SatPair { bubble: side(p_c, rho_c), dew: side(p_c, rho_c) });
+        }
+        // (1 − bρ)²·(∂p/∂ρ)_T = RT − 2aρ(1 − bρ)²: positive at 0 and 1/b, negative at ρc below Tc.
+        let stiffness = |rho: f64| R * t - 2.0 * self.a * rho * (1.0 - b * rho) * (1.0 - b * rho);
+        let (spin_v, spin_l) = (bisect(|rho| -stiffness(rho), 0.0, rho_c), bisect(stiffness, rho_c, 1.0 / b));
+        let densities = |p: f64| {
+            let (dew, bubble) = (
+                bisect(|rho| self.p(t, rho) - p, 0.0, spin_v),
+                bisect(|rho| self.p(t, rho) - p, spin_l, (1.0 - 1e-12) / b),
+            );
+            (bubble, dew)
+        };
+        // g′ − g″ falls through zero as p rises from the liquid spinodal (or 0) to the vapour spinodal.
+        let p_lo = self.p(t, spin_l).max(0.0);
+        let p = bisect(
+            |p| {
+                let (l, v) = densities(p);
+                self.g(t, v) - self.g(t, l)
+            },
+            p_lo,
+            self.p(t, spin_v),
+        );
+        let (rho_l, rho_v) = densities(p);
+        Ok(SatPair { bubble: side(p, rho_l), dew: side(p, rho_v) })
+    }
+    fn at_p(&self, _p: f64) -> Result<SatPair, Error> {
+        Err(Error::Unsupported { pair: Pair::PQ })
+    }
+}
+
+/// E18 / D6 (S-10): below Tc the out-of-tree family supplies its own `SaturationCurve` (a Maxwell construction, above)
+/// and the core's phase rule does the rest with no core edit: the curve's top is the critical point, a state inside the
+/// dome splits by the lever rule at the curve's pressure, either side is single-phase and stable, and below the
+/// curve's range the generic VLE (M6) is still `Unsupported`. Arbiter: the Maxwell conditions themselves, p′ = p″ and
+/// g′ = g″, at the curve's densities through the core's own states (the bisection resolves them to a few ulp).
+#[test]
+fn new_family_subcritical_dt_goes_through_the_core_phase_rule() {
+    let (a, b) = (0.1355, 3.2e-5);
+    let model = VanDerWaals { a, b };
+    let crit = model.critical();
+    let source = Source::new("vanderWaals-1873", None, DataTerms::Published);
+    let info = FluidInfo::new("vdW-Argon", 0.039_948, source, ModelKey::from_content(b"vdw a=0.1355 b=3.2e-5 maxwell"));
+    let limits = Limits::new(50.0, 2000.0, 1e9).unwrap();
+    let package = PureFluid::builder(info.unwrap(), model, limits).critical(crit).saturation(Maxwell { a, b }).build();
+    let reg = Registry::empty().with_model(Arc::new(package)).unwrap();
+    let fluid = reg.get("vdW-Argon").unwrap();
+    let t = 0.8 * crit.t;
+    let sat = Maxwell { a, b }.at_t(t).unwrap();
+    let (p_sat, rho_l, rho_v) = (sat.bubble.p, sat.bubble.rho, sat.dew.rho);
+    // The Maxwell conditions through the core: one pressure and one Gibbs energy on both sides.
+    let imposed = |rho, phase| fluid.flash(dt(rho, t), &FlashOptions::new().with_phase(phase)).unwrap();
+    let (liquid, vapour) = (imposed(rho_l, Phase::Liquid), imposed(rho_v, Phase::Gas));
+    assert!((liquid.p() / p_sat - 1.0).abs() < 1e-12 && (vapour.p() / p_sat - 1.0).abs() < 1e-12, "{p_sat} Pa");
+    let (g_l, g_v) = (liquid.g(Basis::Molar), vapour.g(Basis::Molar));
+    assert!((g_l - g_v).abs() < 1e-12 * R * t, "g′ − g″ = {} J/mol", g_l - g_v);
+    // Inside the dome: two phases at the curve's pressure, the quality by the lever rule on molar volume.
+    let rho = 1.0 / (0.75 / rho_l + 0.25 / rho_v);
+    let state = fluid.state(dt(rho, t)).unwrap();
+    assert_eq!((state.phase(), state.path().strategy), (Phase::TwoPhase, Strategy::Superancillary));
+    assert_eq!(state.p(), p_sat);
+    assert!((state.quality().unwrap() - 0.25).abs() < 1e-12, "{:?}", state.quality());
+    assert!((state.h(Basis::Molar) - (0.75 * liquid.h(Basis::Molar) + 0.25 * vapour.h(Basis::Molar))).abs() < 1e-9);
+    // Either side of the curve: single phase and stable, labelled by the curve.
+    let compressed = fluid.state(dt(1.01 * rho_l, t)).unwrap();
+    assert_eq!((compressed.phase(), compressed.path().strategy), (Phase::Liquid, Strategy::Direct));
+    assert_eq!(fluid.state(dt(0.99 * rho_v, t)).unwrap().phase(), Phase::Gas);
+    // The curve's top is the model's critical point.
+    let critical = fluid.state(dt(crit.rho, crit.t)).unwrap();
+    assert_eq!(critical.phase(), Phase::CriticalPoint);
+    assert_eq!(fluid.state(dt(0.5 * crit.rho, 1.01 * crit.t)).unwrap().phase(), Phase::SupercriticalGas);
+    // Below the curve's range the generic VLE decides, and it lands at M6.
+    assert_eq!(fluid.state(dt(100.0, 0.4 * crit.t)).unwrap_err(), Error::Unsupported { pair: Pair::DT });
+    // The batch driver and the strings reach the dome through the same flash.
+    assert_eq!(props_si_in(&reg, "Q", "T", t, "Dmolar", rho, "vdW-Argon").unwrap(), state.quality().unwrap());
+    let (x, y, outputs) = ([rho, 1.01 * rho_l], [t, t], [Prop::P, Prop::Q]);
+    let request = BatchRequest::new(Pair::DT, Basis::Molar, &x, &y, &outputs);
+    let (mut out, mut status) = ([0.0; 4], [Status::Ok; 4]);
+    batch::evaluate(fluid, &request, &mut out, &mut status).unwrap();
+    assert_eq!(out[..2], [p_sat, state.quality().unwrap()]);
+    // A single-phase state has no quality: `Undefined`, never a sentinel (ROT-013).
+    assert_eq!(status, [Status::Ok, Status::Ok, Status::Ok, Status::Undefined]);
+    assert!(out[3].is_nan());
 }
 
 /// E1 / E4: first partial derivatives, Z and Cp0 for a family the core has never seen; exact virials.
