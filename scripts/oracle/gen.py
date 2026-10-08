@@ -745,7 +745,88 @@ def sat(CP, lock, config, files, args):
     return out
 
 
-GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "sat": sat}
+# The `flash` kind (section 3.5): pairs read off truth states, never density bands (map 12 section 6.4). Since M5.3
+# the DT rows: a truth state on the (log p, T) grid or the (T, Q) grid, its density and T, and CoolProp's DT flash of
+# them with no phase imposed. Q is nan for a single phase (CoolProp's -1 sentinel, ROT-013); `phase` is CoolProp's name.
+FLASH_COLUMNS = ["pair", "x1", "x2", "truth", "status", "T", "rho", "p", "h", "s", "u", "Q", "phase"]
+FLASH_UNITS = ["-", "mol/m3", "K", "-", "-", "K", "mol/m3", "Pa", "J/mol", "J/mol/K", "J/mol", "-", "-"]
+FLASH_TOL = ["label", "in", "in", "label", "label", *["flash"] * 7, "label"]
+FLASH_GRID = {"core": (6, 4), "all": (0, 0), "full": (40, 20)}  # PT points per axis, QT points per axis
+FLASH_PHASES = {"phase_liquid": "liquid", "phase_gas": "gas", "phase_twophase": "twophase",
+                "phase_supercritical": "supercritical", "phase_supercritical_gas": "supercritical_gas",
+                "phase_supercritical_liquid": "supercritical_liquid", "phase_critical_point": "critical_point"}
+
+
+def flash_truths(CP, name, n_pt, n_qt):
+    """The truth states of one fluid: n_pt x n_pt (p, T) at cell centres of T in [T_low, Tmax] and log p in
+    [max(ptriple, 1 Pa), pmax], then n_qt x n_qt (T, Q) at cell centres of T in [T_low, Tc] and Q in (0, 1); T_low =
+    max(Tmin, Ttriple) (map 09 R8). Each is (label, CoolProp input pair, value 1, value 2)."""
+    state = CP.AbstractState("HEOS", name)
+    t_low, t_max, tc = max(state.Tmin(), state.Ttriple()), state.Tmax(), state.T_critical()
+    p_low, p_max = max(state.p_triple(), 1.0), state.pmax()
+    centre = lambda k, n: (k + 0.5) / n  # noqa: E731
+    truths = []
+    for i in range(n_pt):
+        t = t_low + (t_max - t_low) * centre(i, n_pt)
+        for j in range(n_pt):
+            p = math.exp(math.log(p_low) + (math.log(p_max) - math.log(p_low)) * centre(j, n_pt))
+            truths.append(("PT", CP.PT_INPUTS, p, t))
+    for i in range(n_qt):
+        t = t_low + (tc - t_low) * centre(i, n_qt)
+        for j in range(n_qt):
+            truths.append(("QT", CP.QT_INPUTS, centre(j, n_qt), t))
+    return truths
+
+
+def flash_rows(job):
+    """One fluid's DT rows, in a pool child: each truth state's (rho, T), then a fresh `AbstractState` DT flash. A truth
+    the oracle cannot make (a PT point below the melting line, say) is skipped; a failed DT flash is a status."""
+    import CoolProp.CoolProp as CP  # the parent's module, inherited through fork
+
+    name, n_pt, n_qt = job
+    lines, floats = [], []
+    for truth, pair, v1, v2 in flash_truths(CP, name, n_pt, n_qt):
+        try:
+            state = CP.AbstractState("HEOS", name)
+            state.update(pair, v1, v2)
+            rho, t = state.rhomolar(), state.T()
+        except Exception:  # noqa: BLE001 - no truth state there; nothing to read off
+            continue
+        try:
+            state = CP.AbstractState("HEOS", name)
+            state.update(CP.DmolarT_INPUTS, rho, t)
+            q = state.Q() if 0.0 <= state.Q() <= 1.0 else math.nan
+            values = [state.T(), state.rhomolar(), state.p(), state.hmolar(), state.smolar(), state.umolar(), q]
+            phase = next((v for k, v in FLASH_PHASES.items() if CP.get_phase_index(k) == state.phase()), "other")
+            status = "ok"
+        except Exception as exception:  # every oracle failure becomes a status, never a crash
+            values, phase, status = [math.nan] * 7, "none", f"err:{error_class(exception)}"
+        floats.extend([rho, t, *values])
+        lines.append(",".join(["DT", cell(rho), cell(t), truth, status, *map(cell, values), phase]) + "\n")
+    return lines, floats
+
+
+def flash(CP, lock, config, files, args):
+    """The `flash` kind (section 3.5), DT rows (M5.3): flash/<Fluid>.csv for each core fluid (6 x 6 PT + 4 x 4 QT
+    truths) and the full set (40 x 40 + 20 x 20); the all-fluid tier has none."""
+    n_pt, n_qt = FLASH_GRID[args.tier]
+    if n_pt == 0:
+        fail("--kind flash: the all-fluid tier has no flash rows (section 3.6)")
+    names = tier_fluids(args, files)
+    shas = {name: assert_fluid(CP, files, name) for name in names}
+    results = pool_map(flash_rows, [(name, n_pt, n_qt) for name in names], args.jobs)
+    grid = (f"truth PT {n_pt}x{n_pt} T~[Tlow,Tmax] log p~[max(ptriple,1 Pa),pmax]; truth QT {n_qt}x{n_qt} "
+            "T~[Tlow,Tc] Q~(0,1); cell centres; pair DT read off each truth, no phase imposed")
+    out = {}
+    for name, (lines, floats) in zip(names, results):
+        text = header("flash", lock, config, [(name, shas[name])], FLASH_COLUMNS, FLASH_TOL, floats, units=FLASH_UNITS,
+                      grid=grid)
+        out[f"flash/{name}.csv"] = text + "".join(lines)
+    return out
+
+
+GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "sat": sat,
+              "flash": flash}
 
 
 def write(out, files):

@@ -365,6 +365,38 @@ mod tests {
         );
     }
 
+    /// ROT-010, DIV-0004 (c_p, c_v part; map 10 R18): inside the dome cv, cp, w and every partial are
+    /// `Undefined { prop, TwoPhase }`, where CoolProp returns numbers (Water QT(0.5, 400 K): c_p 4056.47 J/kg/K); h, s,
+    /// u and ρ are the quality-weighted mixture.
+    #[test]
+    fn two_phase_cp_cv_w_are_undefined() {
+        let b = Bundle { a00: 0.0, a10: 1.5, a01: 1.0, a20: -1.5, a11: 0.0, a02: -1.0 };
+        let gas = State::from_total(KEY, 300.0, 40.0, R, 0.04, Phase::Gas, &b).unwrap();
+        let liquid = State::from_total(KEY, 300.0, 4_000.0, R, 0.04, Phase::Liquid, &b).unwrap();
+        let s = State::from_split(liquid, gas, Quality::new(0.5).unwrap(), 300.0, gas.p()).unwrap();
+        let undefined = |prop| Err(Error::Undefined { prop, phase: Phase::TwoPhase });
+        assert_eq!(s.cv(Basis::Molar), undefined(Prop::Cvmolar));
+        assert_eq!(s.cp(Basis::Mass), undefined(Prop::Cpmolar));
+        assert_eq!(s.speed_of_sound(), undefined(Prop::SpeedOfSound));
+        let partial =
+            Partial { of: crate::prop::DerivVar::Hmolar, wrt: crate::prop::DerivVar::T, at: crate::prop::DerivVar::P };
+        assert_eq!(s.partial(partial), undefined(Prop::Partial(partial)));
+        assert_eq!(s.h(Basis::Molar), (liquid.h(Basis::Molar) + gas.h(Basis::Molar)) / 2.0);
+        assert_eq!(s.rho(Basis::Molar), 1.0 / ((1.0 / 4_000.0 + 1.0 / 40.0) / 2.0));
+    }
+
+    /// ROT-013 (map 01 U4): a single phase has no quality, `None` rather than CoolProp's −1 sentinel; a split's is its
+    /// value.
+    #[test]
+    fn single_phase_quality_is_undefined() {
+        let b = Bundle { a00: 0.0, a10: 1.5, a01: 1.0, a20: -1.5, a11: 0.0, a02: -1.0 };
+        let gas = State::from_total(KEY, 300.0, 40.0, R, 0.04, Phase::Gas, &b).unwrap();
+        assert_eq!(gas.quality(), None);
+        let liquid = State::from_total(KEY, 300.0, 4_000.0, R, 0.04, Phase::Liquid, &b).unwrap();
+        let split = State::from_split(liquid, gas, Quality::new(0.25).unwrap(), 300.0, gas.p()).unwrap();
+        assert_eq!(split.quality(), Some(0.25));
+    }
+
     #[test]
     fn split_validates_its_phases() {
         let b = Bundle { a00: 0.0, a10: 1.5, a01: 1.0, a20: -1.5, a11: 0.0, a02: -1.0 };
