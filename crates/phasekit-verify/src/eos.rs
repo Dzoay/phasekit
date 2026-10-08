@@ -87,6 +87,25 @@ pub fn variable(state: &State, v: DerivVar) -> f64 {
     }
 }
 
+/// The `Prop` floor of a first partial (∂X/∂Y)_Z (VERIFICATION.md §5): |X|/|Y| at the state.
+pub fn partial_floor(x: f64, y: f64) -> f64 {
+    (x / y).abs()
+}
+
+/// The `Term` scales carried through c_p⁰ = R·(1 − A20⁰) and the residual h, s and g (VERIFICATION.md §5; user
+/// decision TC1), in [`PARTS`]' order: R·M20⁰, RT·(M10^r + M01^r), R·(M10^r + M00^r) and RT·(M00^r + M01^r), from the
+/// ideal part's scales `ideal` and `record`'s residual majorants at (T, ρ).
+pub fn part_spreads(record: &FluidRecord, ideal: &IdealScale, r: f64, t: f64, rho: f64) -> [f64; 4] {
+    let e = &record.eos;
+    let residual = |i, j| majorant::eos(e, e.t_reducing / t, rho / e.rho_reducing, i, j);
+    [
+        r * ideal.get(t, rho, 2, 0),
+        r * t * (residual(1, 0) + residual(0, 1)),
+        r * (residual(1, 0) + residual(0, 0)),
+        r * t * (residual(0, 0) + residual(0, 1)),
+    ]
+}
+
 /// One entry of a bundle, by reference.
 type Entry = fn(&mut Bundle) -> &mut f64;
 
@@ -311,21 +330,14 @@ impl EosCheck {
                 .into_iter()
                 .filter(|_| !parts)
                 .map(|p| {
-                    let floor = (variable(&state, p.of) / variable(&state, p.wrt)).abs();
+                    let floor = partial_floor(variable(&state, p.of), variable(&state, p.wrt));
                     let spread =
                         bundle.as_ref().map_or(f64::NAN, |b| carried_partial(p, b, &majorants, r, t, rho, molar_mass));
                     (partial_column(p), state.partial(p).unwrap_or(f64::NAN), floor, spread)
                 })
                 .collect();
             // c_p⁰ = R·(1 − A20⁰) and the residual parts: the ideal or the residual `Term` scales through each relation.
-            let e = &record.eos;
-            let residual = |i, j| majorant::eos(e, e.t_reducing / t, rho / e.rho_reducing, i, j);
-            let spreads = [
-                r * ideal.get(t, rho, 2, 0),
-                r * t * (residual(1, 0) + residual(0, 1)),
-                r * (residual(1, 0) + residual(0, 0)),
-                r * t * (residual(0, 0) + residual(0, 1)),
-            ];
+            let spreads = part_spreads(record, &ideal, r, t, rho);
             for ((column, floor, prop), spread) in PARTS.into_iter().zip(spreads).filter(|_| parts) {
                 let floor = scale(floor, 0.0, r, t, rho, state.p());
                 entries.push((column.to_string(), fluid.prop(&state, prop).unwrap_or(f64::NAN), floor, spread));
@@ -385,6 +397,62 @@ impl IdentityCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Water at 700 K and 5000 mol/m³ (supercritical), its decoded record and its order-2 bundle there.
+    fn water() -> (State, FluidRecord, Bundle) {
+        let registry = phasekit_core::Registry::from_embedded(phasekit_core::DataSet::Parity).unwrap();
+        let fluid = registry.get("Water").unwrap();
+        let record = phasekit_core::internal::record(&registry, "Water").unwrap();
+        let eos = fluid.model().helmholtz().unwrap();
+        let bundle =
+            (eos.ideal(700.0, 5_000.0, Order::Two) + eos.residual(700.0, 5_000.0, Order::Two)).bundle().unwrap();
+        (state(fluid, 700.0, 5_000.0).unwrap(), record, bundle)
+    }
+
+    /// Each first-order variable reads its own value off the state, in the basis its name says.
+    #[test]
+    fn variable_reads_each_first_order_variable() {
+        let (s, ..) = water();
+        let (m, k) = (Basis::Molar, Basis::Mass);
+        let want = [s.t(), s.p(), s.rho(m), s.rho(k), s.h(m), s.h(k), s.s(m), s.s(k), s.u(m), s.u(k), s.g(m), s.g(k)];
+        let got = VARIABLES.map(|v| variable(&s, v));
+        assert_eq!(got.map(f64::to_bits), want.map(f64::to_bits), "{VARIABLES:?}");
+    }
+
+    /// TC1: the carried scale of a partial linear in the bundle is exact. (∂p/∂T)_ρ = ρR(1 + A01 − A11) and (∂p/∂ρ)_T =
+    /// RT(1 + 2A01 + A02), so with the scales M01 = 3, M11 = 5, M02 = 6 they carry ρR(3 + 5) and RT(2·3 + 6); the
+    /// central differences' rounding is within 1e-3 of that.
+    #[test]
+    fn carried_partial_of_a_linear_partial_is_its_sensitivities() {
+        let (state, record, b) = water();
+        let (r, m) = (record.eos.gas_constant, record.molar_mass);
+        let scales = Majorants { m00: 1.0, m10: 2.0, m01: 3.0, m20: 4.0, m11: 5.0, m02: 6.0 };
+        let (t, rho) = (state.t(), state.rho(Basis::Molar));
+        let carried = |of, wrt, at| carried_partial(Partial { of, wrt, at }, &b, &scales, r, t, rho, m);
+        let dp_dt = carried(DerivVar::P, DerivVar::T, DerivVar::Dmolar);
+        assert!((dp_dt / (8.0 * rho * r) - 1.0).abs() < 1e-3, "{dp_dt} against {}", 8.0 * rho * r);
+        let dp_drho = carried(DerivVar::P, DerivVar::Dmolar, DerivVar::T);
+        assert!((dp_drho / (12.0 * r * t) - 1.0).abs() < 1e-3, "{dp_drho} against {}", 12.0 * r * t);
+    }
+
+    /// VERIFICATION.md §5: a partial's floor is |X|/|Y|; the scales carried through c_p⁰ and the residual parts are the
+    /// ideal and residual `Term` scales through each relation, at Water's reduced (τ, δ).
+    #[test]
+    fn partial_floors_and_part_spreads_follow_their_relations() {
+        assert_eq!((partial_floor(6.0, -3.0), partial_floor(-1.0, 4.0)), (2.0, 0.25));
+        let (_, record, _) = water();
+        let ideal = IdealScale::new(&record).unwrap();
+        let (r, t, rho, e) = (8.0, 700.0, 5_000.0, &record.eos);
+        let res = |i, j| majorant::eos(e, e.t_reducing / t, rho / e.rho_reducing, i, j);
+        let want = [
+            r * ideal.get(t, rho, 2, 0),
+            r * t * (res(1, 0) + res(0, 1)),
+            r * (res(1, 0) + res(0, 0)),
+            r * t * (res(0, 0) + res(0, 1)),
+        ];
+        assert_eq!(part_spreads(&record, &ideal, r, t, rho).map(f64::to_bits), want.map(f64::to_bits));
+        assert!(want.iter().all(|w| w.is_finite() && *w > 0.0), "{want:?}");
+    }
 
     /// Each floor of VERIFICATION.md §5 as a number (R = 8, T = 300, ρ = 1000, p = 2e6), and |want| where that is
     /// larger.
