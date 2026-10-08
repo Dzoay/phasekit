@@ -83,8 +83,9 @@ fn superancillary_matches_oracle_on_the_nightly_grid() {
         let path = format!("{FULL}/sat/{}.csv", f.name);
         let text = read(&path);
         let fixture = Fixture::parse(&path, &text).unwrap();
-        assert_eq!(fixture.rows().len(), 200, "{path}");
-        for row in 0..fixture.rows().len() {
+        assert_eq!(fixture.rows().len(), 400, "{path}: 200 sa rows, then 200 QT rows (M5.2a)");
+        let sa = |row: &usize| fixture.rows()[*row].cells.first() == Some(&Cell::Text("sa"));
+        for row in (0..fixture.rows().len()).filter(sa) {
             let sat = curve.at_t(fixture.value(row, "T").unwrap()).unwrap();
             for (column, got) in [("p", sat.bubble.p), ("rhoL", sat.bubble.rho), ("rhoV", sat.dew.rho)] {
                 checked += 1;

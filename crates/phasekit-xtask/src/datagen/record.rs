@@ -67,6 +67,9 @@ pub fn to_record(source: &super::Source) -> Result<FluidRecord, String> {
     fluid_record.environmental = info.environmental.as_ref().map(environmental).transpose().map_err(|e| at(&e))?;
     fluid_record.melting = melting(&fluid.ancillaries).map_err(|e| at(&format!("ANCILLARIES.melting_line: {e}")))?;
     check_constants(&fluid_record).map_err(|e| at(&e))?;
+    if let Some(sa) = fluid_record.superancillary.clone() {
+        fluid_record.caloric = Some(super::caloric::curves(&fluid_record, &sa).map_err(|e| at(&e))?);
+    }
     Ok(fluid_record)
 }
 

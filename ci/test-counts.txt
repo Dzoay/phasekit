@@ -13,7 +13,7 @@ x86_64-unknown-linux-gnu phasekit-verify::new_family 5
 # pending M5.9: new_family.rs::compat_strings_reach_the_new_family
 # pending M5.9: new_family.rs::reference_states_work_for_any_family
 x86_64-unknown-linux-gnu phasekit-verify::register 12
-x86_64-unknown-linux-gnu phasekit-xtask::main 90
+x86_64-unknown-linux-gnu phasekit-xtask::main 95
 x86_64-unknown-linux-gnu phasekit-core::doc 2
 wasm32-wasip2 phasekit-core::lib 73
 wasm32-wasip2 phasekit-verify::lib 36
@@ -34,13 +34,13 @@ x86_64-unknown-linux-gnu phasekit-verify::papers 4
 wasm32-wasip2 phasekit-verify::papers 4
 x86_64-unknown-linux-gnu phasekit-core::properties 2
 wasm32-wasip2 phasekit-core::properties 2
-x86_64-unknown-linux-gnu phasekit-verify::allocations 2
-wasm32-wasip2 phasekit-verify::allocations 2
+x86_64-unknown-linux-gnu phasekit-verify::allocations 3
+wasm32-wasip2 phasekit-verify::allocations 3
 x86_64-unknown-linux-gnu phasekit-verify::oracle_term 10
 wasm32-wasip2 phasekit-verify::oracle_term 10
 x86_64-unknown-linux-gnu phasekit-verify::terms 12
 wasm32-wasip2 phasekit-verify::terms 12
 x86_64-unknown-linux-gnu phasekit-verify::eos 3
 wasm32-wasip2 phasekit-verify::eos 3
-x86_64-unknown-linux-gnu phasekit-verify::sat 4
-wasm32-wasip2 phasekit-verify::sat 4
+x86_64-unknown-linux-gnu phasekit-verify::sat 7
+wasm32-wasip2 phasekit-verify::sat 7

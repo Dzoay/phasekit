@@ -658,7 +658,8 @@ def eos(CP, lock, config, files, args):
 
 
 # The `sat` kind (section 3.5). Since M5.2 it holds the `sa` rows: p, rho' and rho'' straight from
-# `CP.SuperAncillary(json).eval_sat` (map 03 section 8), the QT/PQ rows join at M6.8 with the same columns.
+# `CP.SuperAncillary(json).eval_sat` (map 03 section 8); since M5.2a a QT row at Q = 0 at each `sa` temperature; the
+# PQ rows and the core files join at M6.8 with the same columns.
 SAT_COLUMNS = ["input", "Q", "T", "status", "p", "rhoL", "rhoV", "hL", "hV", "sL", "sV", "path"]
 SAT_UNITS = ["-", "-", "K", "-", "Pa", "mol/m3", "mol/m3", "J/mol", "J/mol", "J/mol/K", "J/mol/K", "-"]
 SAT_TOL = ["label", "in", "in", "label", "sa_coeff", "sa_coeff", "sa_coeff", "prop", "prop", "prop", "prop", "label"]
@@ -677,12 +678,30 @@ def sat_sa_temperatures(t_min, t_max, rows):
     return [min(max(t_max * (1.0 - theta), t_min), t_max) for theta in thetas]
 
 
-def sat_sa_rows(CP, superancillary, rows):
-    """The `sa` rows of one fluid: (floats, lines)."""
+def sat_qt_row(CP, name, t):
+    """One QT row at Q = 0 (map 03 section 8): p, rho', rho'', h', h'', s', s'' of a fresh `AbstractState`; CoolProp
+    takes the densities from the superancillary and h, s from the EOS there (PLAN.md M5.2a)."""
+    try:
+        state = CP.AbstractState("HEOS", name)
+        state.update(CP.QT_INPUTS, 0, t)
+        liquid, vapour = state.saturated_liquid_keyed_output, state.saturated_vapor_keyed_output
+        values = [state.p(), liquid(CP.iDmolar), vapour(CP.iDmolar), liquid(CP.iHmolar), vapour(CP.iHmolar),
+                  liquid(CP.iSmolar), vapour(CP.iSmolar)]
+        status = "ok"
+    except Exception as exception:  # every oracle failure becomes a status, never a crash
+        values, status = [math.nan] * 7, f"err:{error_class(exception)}"
+    row = [0.0, t, *values]
+    return row, ",".join(["T", "0.0", cell(t), status, *map(cell, values), "superanc"]) + "\n"
+
+
+def sat_sa_rows(CP, name, superancillary, rows):
+    """The `sa` rows of one fluid, then (since M5.2a) a QT row at Q = 0 at each of the same temperatures:
+    (floats, lines)."""
     sa = CP.SuperAncillary(json.dumps(superancillary))
     pieces = superancillary["jexpansions_p"]
     lines, floats = [], []
-    for t in sat_sa_temperatures(pieces[0]["xmin"], pieces[-1]["xmax"], rows):
+    temperatures = sat_sa_temperatures(pieces[0]["xmin"], pieces[-1]["xmax"], rows)
+    for t in temperatures:
         try:
             values, status = [sa.eval_sat(t, "P", 0), sa.eval_sat(t, "D", 0), sa.eval_sat(t, "D", 1)], "ok"
         except Exception as exception:  # every oracle failure becomes a status, never a crash
@@ -690,12 +709,16 @@ def sat_sa_rows(CP, superancillary, rows):
         row = [math.nan, t, *values, *[math.nan] * 4]
         floats.extend(row)
         lines.append(",".join(["sa", "nan", cell(t), status, *map(cell, row[2:]), "superanc"]) + "\n")
+    for t in temperatures:
+        row, line = sat_qt_row(CP, name, t)
+        floats.extend(row)
+        lines.append(line)
     return floats, lines
 
 
 def sat(CP, lock, config, files, args):
-    """The `sat` kind (section 3.5), `sa` rows: 8 temperatures per fluid with a superancillary in all/sat.csv, 200
-    per fluid in the full set (sat/<Fluid>.csv); the core subset's files arrive with the QT/PQ rows (M6.8)."""
+    """The `sat` kind (section 3.5), `sa` and QT rows: 8 temperatures per fluid with a superancillary in all/sat.csv,
+    200 per fluid in the full set (sat/<Fluid>.csv); the core subset's files arrive with the PQ rows (M6.8)."""
     rows = args.rows or SAT_SA_ROWS[args.tier]
     if rows == 0:
         fail("--kind sat: the core subset has no sat rows before M6.8 (use --tier all or full)")
@@ -705,8 +728,9 @@ def sat(CP, lock, config, files, args):
         if superancillary is None:
             continue
         shas[name] = assert_fluid(CP, files, name)
-        results.append((name, *sat_sa_rows(CP, superancillary, rows)))
-    grid = f"input=sa Theta=1-T/Tc logspace[{SAT_THETA_MIN!r},1-Tt/Tc] n={rows} Tt,Tc=superancillary range"
+        results.append((name, *sat_sa_rows(CP, name, superancillary, rows)))
+    grid = (f"input=sa,T(Q=0) Theta=1-T/Tc logspace[{SAT_THETA_MIN!r},1-Tt/Tc] n={rows} "
+            "Tt,Tc=superancillary range")
     if args.tier == "all":
         floats = [value for _, values, _ in results for value in values]
         fluids = f"{len(results)} with a superancillary, fluids_sha256={lock['fluids_sha256']}"
