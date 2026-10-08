@@ -41,3 +41,12 @@ panic = "deny"
 # phasekit-xtask, a command-line tool, allows both at its crate root.
 print_stdout = "deny"
 print_stderr = "deny"
+
+# The mutants gate's build (`.cargo/mutants.toml`, `profile = "mutants"`): the test profile, optimised. The same tests
+# and assertions, overflow checks and debug assertions included (inherited from `test`), and the same floating-point
+# results (Rust does not reorder or contract floating-point arithmetic at any opt-level); the numeric tests run about
+# 5.7× faster (the workspace suite on the M5 stack: 57 s at opt-level 0, 10 s at 1). No debug info: shorter links.
+[profile.mutants]
+inherits = "test"
+opt-level = 1
+debug = false
