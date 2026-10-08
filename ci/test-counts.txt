@@ -28,8 +28,8 @@ wasm32-wasip2 phasekit-verify::fixtures 4
 wasm32-wasip2 phasekit-verify::manifest 2
 x86_64-unknown-linux-gnu phasekit-verify::divergences 2
 wasm32-wasip2 phasekit-verify::divergences 2
-x86_64-unknown-linux-gnu phasekit-verify::arbiters 6
-wasm32-wasip2 phasekit-verify::arbiters 6
+x86_64-unknown-linux-gnu phasekit-verify::arbiters 9
+wasm32-wasip2 phasekit-verify::arbiters 9
 x86_64-unknown-linux-gnu phasekit-verify::papers 4
 wasm32-wasip2 phasekit-verify::papers 4
 x86_64-unknown-linux-gnu phasekit-core::properties 2
