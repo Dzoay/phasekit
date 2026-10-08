@@ -156,50 +156,109 @@ pub mod math {
     }
 }
 
-/// Solver toolbox result types (D6). Every solver returns the residual evaluated AT the returned point and
-/// reports exhaustion as a status, never as a silently accepted iterate (map 03 §6). Crate-private: the
-/// first solver (the M5 density Newton) uses them.
-#[expect(dead_code, reason = "the M5 density Newton is the first user")]
-pub(crate) mod roots {
-    /// Why a solver stopped.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub(crate) enum Stop {
-        /// The tolerance was met on both step and residual.
-        Converged,
-        /// `max_iter` was reached; the flash turns this into `Error::NoConvergence`.
-        MaxIterations,
-        /// The bracket stopped containing a sign change.
-        BracketLost,
+/// Solves A·x = b for N ≤ 4 by Gaussian elimination with scaled partial pivoting: the only matrix solve in the core
+/// (the VLE and HS Newtons, M6.3 and M7; dependencies R9). A pivot within 64·ε·N of its row's scale (the row's
+/// largest |a_ij| before elimination) is singular. The test is relative to the row, so multiplying a row by any factor
+/// changes neither the pivots chosen nor the verdict, where CoolProp's `linsolve` compares the pivot with an absolute
+/// 10ε and `MatInv_2` has no zero-determinant guard (map 03 §3.4; ROT-067).
+#[cfg_attr(not(test), expect(dead_code, reason = "the pure VLE (M6.3) is the first user"))]
+pub(crate) fn solve_small<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N]) -> Result<[f64; N], crate::Error> {
+    const { assert!(N >= 1 && N <= 4, "solve_small solves 1 to 4 equations") };
+    let singular = crate::Error::InvalidState { reason: "a singular linear system (a pivot within rounding of zero)" };
+    let mut scale = [0.0; N];
+    for (s, row) in scale.iter_mut().zip(&a) {
+        *s = row.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        if !(*s > 0.0 && s.is_finite()) {
+            return Err(singular);
+        }
     }
-
-    /// A typed tolerance: absolute tolerances gave a 6.1 % density error in CoolProp (map 03 §6).
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub(crate) enum Tol {
-        /// |Δx| ≤ tol·|x|.
-        Relative(f64),
-        /// |Δx| ≤ tol.
-        Absolute(f64),
-        /// |Δ ln x| ≤ tol (densities spanning decades).
-        LogAxis(f64),
+    let tol = 64.0 * f64::EPSILON * N as f64;
+    for k in 0..N {
+        let size = |i: usize| a[i][k].abs() / scale[i];
+        let p = (k..N).fold(k, |best, i| if size(i) > size(best) { i } else { best });
+        if size(p).is_nan() || size(p) <= tol {
+            return Err(singular);
+        }
+        a.swap(k, p);
+        b.swap(k, p);
+        scale.swap(k, p);
+        let pivot = a[k];
+        for i in k + 1..N {
+            let m = a[i][k] / pivot[k];
+            for (aij, akj) in a[i][k..].iter_mut().zip(&pivot[k..]) {
+                *aij -= m * akj;
+            }
+            b[i] -= m * b[k];
+        }
     }
-
-    /// A root with the residual at that root.
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub(crate) struct Root {
-        /// The returned abscissa.
-        pub(crate) x: f64,
-        /// The residual evaluated at `x` (not at the previous iterate).
-        pub(crate) f: f64,
-        /// Iterations spent.
-        pub(crate) iterations: u16,
-        /// Why the solver stopped.
-        pub(crate) stop: Stop,
+    let mut x = [0.0; N];
+    for k in (0..N).rev() {
+        x[k] = (k + 1..N).fold(b[k], |sum, j| sum - a[k][j] * x[j]) / a[k][k];
     }
+    if x.iter().all(|v| v.is_finite()) { Ok(x) } else { Err(singular) }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ROT-067 (map 03 §3.4: `MatInv_2` has no zero-determinant guard): a singular 2×2 system, a zero row and a
+    /// non-finite entry are errors, never infinities or NaN.
+    #[test]
+    fn singular_2x2_is_an_error() {
+        let singular =
+            Err(crate::Error::InvalidState { reason: "a singular linear system (a pivot within rounding of zero)" });
+        assert_eq!(solve_small([[1.0, 2.0], [2.0, 4.0]], [1.0, 2.0]), singular);
+        assert_eq!(solve_small([[1.0, 2.0], [0.0, 0.0]], [1.0, 0.0]), singular);
+        assert_eq!(solve_small([[f64::NAN, 2.0], [1.0, 1.0]], [1.0, 0.0]), singular);
+        assert_eq!(solve_small([[0.0, 1.0], [1.0, 0.0]], [2.0, 3.0]), Ok([3.0, 2.0]), "a zero first pivot is swapped");
+        assert_eq!(solve_small([[4.0]], [2.0]), Ok([0.5]));
+    }
+
+    /// ROT-067 (map 03 §3.4: an absolute pivot test < 10ε is scale-dependent): the verdict and the solution do not
+    /// change when rows are multiplied by 2⁻¹⁰⁰ or 2¹⁰⁰ (exact factors). A system whose third row is the sum of the
+    /// others up to 1e-16 of its scale is singular at every scale; with 1e-6 it is solved at every scale.
+    #[test]
+    fn near_singular_3x3_is_scale_invariant() {
+        let system = |gap: f64| {
+            let a = [[2.0, 1.0, -1.0], [1.0, 3.0, 2.0], [3.0, 4.0, 1.0 + gap]];
+            let x = [1.0, -2.0, 0.5];
+            let b: [f64; 3] = core::array::from_fn(|i| (0..3).map(|j| a[i][j] * x[j]).sum());
+            (a, b)
+        };
+        let scaled = |(mut a, mut b): ([[f64; 3]; 3], [f64; 3]), factors: [f64; 3]| {
+            for i in 0..3 {
+                a[i] = a[i].map(|v| v * factors[i]);
+                b[i] *= factors[i];
+            }
+            (a, b)
+        };
+        let tiny = math::powi(2.0, -100);
+        let huge = math::powi(2.0, 100);
+        for factors in [[1.0, 1.0, 1.0], [tiny, tiny, tiny], [huge, 1.0, tiny], [1.0, huge, huge]] {
+            let (a, b) = scaled(system(1e-16), factors);
+            assert!(solve_small(a, b).is_err(), "{factors:?}");
+            let (a, b) = scaled(system(1e-6), factors);
+            let x = solve_small(a, b).unwrap();
+            let want = [1.0, -2.0, 0.5];
+            assert!(x.iter().zip(want).all(|(x, w)| (x - w).abs() < 1e-9), "{factors:?}: {x:?}");
+        }
+        let (a, b) = system(1e-6);
+        assert_eq!(
+            solve_small(a, b),
+            solve_small(scaled(system(1e-6), [huge, tiny, 4.0]).0, scaled(system(1e-6), [huge, tiny, 4.0]).1)
+        );
+    }
+
+    /// A well-conditioned 4×4 system solves to its known solution.
+    #[test]
+    fn four_equations_solve() {
+        let a = [[4.0, -1.0, 0.0, 1.0], [-1.0, 4.0, -1.0, 0.0], [0.0, -1.0, 4.0, -1.0], [1.0, 0.0, -1.0, 4.0]];
+        let x = [1.0, 2.0, -1.0, 0.5];
+        let b: [f64; 4] = core::array::from_fn(|i| (0..4).map(|j| a[i][j] * x[j]).sum());
+        let got = solve_small(a, b).unwrap();
+        assert!(got.iter().zip(x).all(|(g, w)| (g - w).abs() < 1e-14), "{got:?}");
+    }
 
     #[test]
     fn powi_is_a_fixed_chain() {
