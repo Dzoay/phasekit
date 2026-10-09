@@ -21,7 +21,8 @@
 use std::sync::Arc;
 
 use crate::data::{
-    CaloricCurves, CaloricStamp, Edit, EosRecord, FluidRecord, MeltingSegment, Patch, SaStamp, Superancillary,
+    Ancillary, CaloricCurves, CaloricStamp, Edit, EosRecord, FluidRecord, MeltingSegment, Patch, PseudoPure, SaStamp,
+    Superancillary,
 };
 use crate::error::LoadError;
 use crate::model::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataTerms, Limits, ModelKey, Source};
@@ -43,7 +44,7 @@ pub(crate) const SECTIONS: [(u32, &str, Option<&str>); 10] = [
     (3, "superancillary fit", None),
     (4, "superancillary", None),
     (5, "caloric curves", None),
-    (6, "ancillaries", Some("M6.3")),
+    (6, "ancillaries", None),
     (7, "transport", Some("M8.1")),
     (8, "surface tension", Some("M8.4")),
     (9, "melting", None),
@@ -340,6 +341,49 @@ fn read_caloric(bytes: &[u8], fit: Option<SaStamp>) -> Result<Option<CaloricCurv
     Ok(Some(curves))
 }
 
+/// The ancillaries section: empty, or a pseudo-pure fluid's four ancillaries (each its flags, T_r, reducing value,
+/// range, term count and terms) and QT's range (M6.9).
+fn ancillaries(pseudo_pure: Option<&PseudoPure>) -> Vec<u8> {
+    let mut out = Vec::new();
+    let Some(pp) = pseudo_pure else { return out };
+    for a in [&pp.p_l, &pp.p_v, &pp.rho_l, &pp.rho_v] {
+        out.push(u8::from(a.exponential) | u8::from(a.tau_r) << 1);
+        [a.t_r, a.reducing, a.t_min, a.t_max].into_iter().for_each(|x| put_f64(&mut out, x));
+        put_u32(&mut out, a.n.len() as u32);
+        a.n.iter().chain(&a.t).for_each(|&x| put_f64(&mut out, x));
+    }
+    put_f64(&mut out, pp.t_range.0);
+    put_f64(&mut out, pp.t_range.1);
+    out
+}
+
+fn read_ancillaries(bytes: &[u8]) -> Result<Option<PseudoPure>, LoadError> {
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    let mut r = Reader::new(bytes, "ancillaries");
+    let mut one = || -> Result<Ancillary, LoadError> {
+        let flags = r.u8()?;
+        if flags > 3 {
+            return Err(bad(format!("ancillaries: flags {flags}")));
+        }
+        let [t_r, reducing, t_min, t_max] = [r.f64()?, r.f64()?, r.f64()?, r.f64()?];
+        let count = r.u32()? as usize;
+        let mut terms = Vec::new();
+        for _ in 0..2 * count {
+            terms.push(r.f64()?);
+        }
+        let t = terms.split_off(count);
+        Ok(Ancillary { exponential: flags & 1 == 1, tau_r: flags & 2 == 2, t_r, reducing, n: terms, t, t_min, t_max })
+    };
+    let (p_l, p_v, rho_l, rho_v) = (one()?, one()?, one()?, one()?);
+    let t_range = (r.f64()?, r.f64()?);
+    if r.at != bytes.len() {
+        return Err(bad(format!("ancillaries: {} bytes after the last field", bytes.len() - r.at)));
+    }
+    Ok(Some(PseudoPure { p_l, p_v, rho_l, rho_v, t_range }))
+}
+
 fn melting(segments: &[MeltingSegment]) -> Vec<u8> {
     let mut out = Vec::new();
     for s in segments {
@@ -419,6 +463,7 @@ pub(crate) fn sections(record: &FluidRecord) -> [Vec<u8>; SECTION_COUNT] {
     bodies[2] = fit(record.superancillary_fit);
     bodies[3] = superancillary(record.superancillary.as_ref());
     bodies[4] = caloric(record.caloric.as_ref());
+    bodies[5] = ancillaries(record.pseudo_pure.as_ref());
     bodies[8] = melting(&record.melting);
     bodies[9] = corrections(&record.corrections);
     bodies
@@ -515,6 +560,7 @@ pub(crate) fn decode_eager_parts(bytes: &[u8]) -> Result<FluidRecord, LoadError>
     let eos = EosRecord::decode(sections[1])?;
     let mut record = read_metadata(sections[0], eos)?;
     record.superancillary_fit = read_fit(sections[2])?;
+    record.pseudo_pure = read_ancillaries(sections[5])?;
     record.melting = read_melting(sections[8])?;
     record.corrections = read_corrections(sections[9])?;
     Ok(record)

@@ -356,6 +356,35 @@ impl EosRecord {
     }
 }
 
+/// A saturation ancillary of CoolProp's fluid files (map 03 §3.1; `Ancillaries.cpp:43-81`). With Θ = 1 − T/T_r it is
+/// `reducing`·(1 + Σ nᵢ Θ^tᵢ) when not `exponential`, else `reducing`·exp(k·Σ nᵢ Θ^tᵢ), k = T_r/T when `tau_r` and 1
+/// otherwise; fitted over [`t_min`, `t_max`]. M6.9 ships the pseudo-pure fluids' (D4).
+#[derive(Clone, Debug, PartialEq)]
+#[allow(missing_docs)]
+pub struct Ancillary {
+    pub exponential: bool,
+    pub tau_r: bool,
+    pub t_r: f64,
+    pub reducing: f64,
+    pub n: Vec<f64>,
+    pub t: Vec<f64>,
+    pub t_min: f64,
+    pub t_max: f64,
+}
+
+/// A pseudo-pure fluid's saturation by definition (D4, user decision 4; map 04 U4): the bubble (`p_l`) and dew (`p_v`)
+/// pressure ancillaries, the density ancillaries that seed the EOS's density solves, and the temperatures QT accepts,
+/// CoolProp's max(T of `sat_min_liquid`, T of `sat_min_vapor`) to T of `temperature_max_sat`.
+#[derive(Clone, Debug, PartialEq)]
+#[allow(missing_docs)]
+pub struct PseudoPure {
+    pub p_l: Ancillary,
+    pub p_v: Ancillary,
+    pub rho_l: Ancillary,
+    pub rho_v: Ancillary,
+    pub t_range: (f64, f64),
+}
+
 /// One melting-curve segment (Simon-type form, map 07); the full form lands at M8.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[allow(missing_docs)]
@@ -611,6 +640,8 @@ pub struct FluidRecord {
     pub environmental: Option<Environmental>,
     /// Precomputed saturated caloric curves (M5.2a fills them; empty until then).
     pub caloric: Option<CaloricCurves>,
+    /// A pseudo-pure fluid's saturation definition (M6.9); `None` for every other fluid.
+    pub pseudo_pure: Option<PseudoPure>,
 }
 
 impl FluidRecord {
@@ -634,6 +665,7 @@ impl FluidRecord {
             applied: Vec::new(),
             environmental: None,
             caloric: None,
+            pseudo_pure: None,
         }
     }
 
