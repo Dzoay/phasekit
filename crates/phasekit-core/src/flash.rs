@@ -374,14 +374,11 @@ mod tests {
         assert_eq!(strategy(1_000.0, 400.0), SolvePath { strategy: Strategy::Superancillary, iterations: 0 });
     }
 
-    /// ROT-092 (map 03 §6): a DT state in the dome reads the exact curve, no VLE: its pressure and phase densities are
-    /// the curve's, bit for bit. The pressure check uses that saturation pressure: at 30,000 mol/m³ and 400 K the
-    /// single-phase EOS gives 2.2e11 Pa, far above pmax, yet the state is a valid two-phase one.
-    #[cfg(feature = "fluids-all")]
     /// PLAN.md M6.6 (E14; ROT-088, ROT-096): an EOS edit other than R or ρ_r (here Nitrogen's first power-term
     /// coefficient, times 1 + 1e-6) leaves its superancillary stale, a `Guess`. DT inside the dome then only seeds the
     /// pure VLE with it: the two-phase state's pressure and quality are the edited EOS's own saturation, bit for bit
     /// that of `vle::at_t` from the same seeds, and the stale curve's pressure is 1e-7 or more away.
+    #[cfg(feature = "fluids-all")]
     #[test]
     fn stale_curve_is_a_guess_polished_by_vle() {
         let mut record = record_of("Nitrogen");
@@ -404,6 +401,9 @@ mod tests {
         assert!((guess.bubble.p / vle.dew.p - 1.0).abs() > 1e-7, "the edit moved saturation: {guess:?} {vle:?}");
     }
 
+    /// ROT-092 (map 03 §6): a DT state in the dome reads the exact curve, no VLE: its pressure and phase densities are
+    /// the curve's, bit for bit. The pressure check uses that saturation pressure: at 30,000 mol/m³ and 400 K the
+    /// single-phase EOS gives 2.2e11 Pa, far above pmax, yet the state is a valid two-phase one.
     #[cfg(feature = "fluids-all")]
     #[test]
     fn dt_in_dome_reads_the_curve_not_vle() {
