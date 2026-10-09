@@ -26,12 +26,18 @@ const STEP_TOL: f64 = 1e-13;
 /// the order of p itself.
 const GATE: f64 = 1e-10;
 
-/// A residual this small (relative to the scales of [`GATE`]) is at the rounding floor: a step that keeps it there is
-/// taken even if it does not lower it.
+/// A residual this small (relative to the scales of [`GATE`]) is at the rounding floor: a line-search step that keeps
+/// it there is taken even if it does not lower it, and Newton has converged there once its step stops shrinking (no
+/// longer halved since the last iteration), what is left being rounding. Near the critical point the steps are the
+/// residuals' rounding divided by a small stiffness (1e-12 for Water at Θ = 5e-4) and never fall below [`STEP_TOL`].
+/// The floor alone is no criterion: far below 1 Pa the pressure term's scale is the liquid's ρ′, so a residual at the
+/// floor still allows the vapour's p a 1 % error (propylene glycol at 213 K, 2e-4 Pa) that more steps remove.
 const FLOOR: f64 = 1e-13;
 
-/// Seeds at the triple point can sit a few ulp above the model's largest density; the domain check allows this much.
-const RHO_MAX_MARGIN: f64 = 1.0 + 1e-6;
+/// The domain check allows densities this far above the model's largest density, its triple-point liquid's: water's
+/// and heavy water's saturated liquids are denser just above the triple point (by up to 1.3e-4 and 5.4e-4, their
+/// density maximum), and other seeds sit a few ulp above it there.
+const RHO_MAX_MARGIN: f64 = 1.01;
 
 /// The largest change of ln ρ in one step, and of T relative.
 const MAX_STEP: (f64, f64) = (0.5, 0.02);
@@ -184,10 +190,12 @@ fn solve_t(eos: &dyn HelmholtzModel, t: f64, seeds: (f64, f64), max_iter: u16) -
 fn newton_t(eos: &dyn HelmholtzModel, t: f64, (rho_l, rho_v): (f64, f64), max_iter: u16) -> Result<SatPair, Error> {
     let phase = |rho: f64| Point::at(eos, t, rho);
     let (mut liquid, mut vapour) = (phase(rho_l).ok_or(failed(0))?, phase(rho_v).ok_or(failed(0))?);
+    let mut previous = f64::INFINITY;
     for iteration in 1..=max_iter {
         let (res, size) = residual_t(&liquid, &vapour);
         let step = solve_small(jacobian_t(&liquid, &vapour), [-res[0], -res[1]]).map_err(|_| failed(iteration))?;
-        if step[0].abs().max(step[1].abs()) <= STEP_TOL {
+        let length = step[0].abs().max(step[1].abs());
+        if length <= STEP_TOL || (size <= FLOOR && length > previous / 2.0) {
             // Converged: what is left moves no density by more than rounding.
             return answer(eos.gas_constant(), t, liquid, vapour, iteration);
         }
@@ -198,6 +206,7 @@ fn newton_t(eos: &dyn HelmholtzModel, t: f64, (rho_l, rho_v): (f64, f64), max_it
         };
         let scale = step_scale([(step[0], MAX_STEP.0), (step[1], MAX_STEP.0)]);
         (liquid, vapour) = backtrack(scale, size, moved).ok_or(failed(iteration))?;
+        previous = length;
     }
     Err(failed(max_iter))
 }
@@ -265,12 +274,14 @@ fn newton_p(
     let r = eos.gas_constant();
     let phases = |t: f64, rho_l: f64, rho_v: f64| Some((Point::at(eos, t, rho_l)?, Point::at(eos, t, rho_v)?));
     let (mut t, (mut l, mut v)) = (t, phases(t, rho_l, rho_v).ok_or(failed(0))?);
+    let mut previous = f64::INFINITY;
     for iteration in 1..=max_iter {
         let (e, size) = residual_p(r, t, p, &l, &v);
         let step = solve_small(jacobian_p(r, t, p, &l, &v), [-e[0], -e[1], -e[2]]).map_err(|_| failed(iteration))?;
         // The step's moves: T relative, ln ρ′, ln ρ″.
         let moves = [step[0] / t, step[1], step[2]];
-        if moves.iter().fold(0.0_f64, |m, x| m.max(x.abs())) <= STEP_TOL {
+        let length = moves.iter().fold(0.0_f64, |m, x| m.max(x.abs()));
+        if length <= STEP_TOL || (size <= FLOOR && length > previous / 2.0) {
             return Ok(at_pressure(answer(r, t, l, v, iteration)?, p));
         }
         let (ul, uv) = (math::ln(l.rho), math::ln(v.rho));
@@ -281,6 +292,7 @@ fn newton_p(
         };
         let scale = step_scale([(moves[0], MAX_STEP.1), (moves[1], MAX_STEP.0), (moves[2], MAX_STEP.0)]);
         (t, l, v) = backtrack(scale, size, moved).ok_or(failed(iteration))?;
+        previous = length;
     }
     Err(failed(max_iter))
 }
@@ -360,7 +372,7 @@ mod tests {
     /// map 04 U3 (the bracketed 1-D fallback): when Newton fails (here given no iterations), the nested bracketed
     /// solves give Newton's answer within 1e-11, at a given T from the superancillary's densities and from seeds
     /// 0.2 % and 5 % off them, and at a given p from a T 0.1 % above and 0.4 % on either side; both report the given p
-    /// exactly. Near Tc (Water at Θ = 5e-3, where ln(ρ′/ρ″)/4 narrows the vapour window) it agrees within 1e-9. A window
+    /// exactly. Near Tc (Water at Θ = 1e-3, where ln(ρ′/ρ″)/8 narrows both windows) it agrees within 1e-9. A window
     /// without a root, or seeds in the wrong order, is no convergence, with Newton's iterations.
     #[test]
     fn vle_falls_back_to_a_bracket() {
@@ -389,7 +401,7 @@ mod tests {
             }
         }
         let (record, fluid) = model("Water");
-        let t = 647.096 * (1.0 - 5e-3);
+        let t = 647.096 * (1.0 - 1e-3);
         let sat = record.superancillary_curve().unwrap().at_t(t).unwrap();
         let (newton, fallback) = (
             at_t(fluid.eos(), t, (sat.bubble.rho, sat.dew.rho)).unwrap(),
@@ -525,6 +537,30 @@ mod tests {
             let seed = (t * 1.01, near.bubble.rho, near.dew.rho);
             assert!(newton_p(eos, sat.dew.p, seed, 6).is_ok(), "{name} at {} Pa", sat.dew.p);
         }
+    }
+
+    #[cfg(feature = "fluids-all")]
+    /// Near the critical point the residual reaches its rounding floor at once and Newton's steps are that rounding
+    /// divided by a small stiffness, never below `STEP_TOL`: converged at the floor once they stop shrinking (M6.4;
+    /// these ran out of iterations before). And at 277 K water's saturated liquid is denser than its triple-point
+    /// liquid, the model's `rho_max`.
+    #[test]
+    fn vle_converges_near_the_critical_point_and_at_waters_density_maximum() {
+        let (record, fluid) = model("Water");
+        let curve = record.superancillary_curve().unwrap();
+        let eos = fluid.eos();
+        for theta in [5.46e-4, 1e-6, 1e-8] {
+            let t = 647.096 * (1.0 - theta);
+            let sat = curve.at_t(t).unwrap();
+            let solved = at_t(eos, t, (sat.bubble.rho, sat.dew.rho)).unwrap();
+            assert!((solved.dew.rho / sat.dew.rho - 1.0).abs() < 1e-3, "Θ = {theta}: {solved:?}");
+            let seed = (t, sat.bubble.rho, sat.dew.rho);
+            assert!(at_p(eos, solved.dew.p, seed).is_ok(), "Θ = {theta} at p");
+        }
+        let sat = curve.at_t(277.0).unwrap();
+        assert!(sat.bubble.rho > eos.rho_max(277.0));
+        let solved = at_t(eos, 277.0, (sat.bubble.rho, sat.dew.rho)).unwrap();
+        assert!((solved.bubble.rho / sat.bubble.rho - 1.0).abs() < 1e-12, "{solved:?}");
     }
 
     #[cfg(feature = "fluids-all")]

@@ -10,6 +10,7 @@ pub mod lock;
 pub mod majorant;
 pub mod register;
 pub mod sample;
+pub mod saturation;
 pub mod sha256;
 pub mod term;
 pub mod tolerance;

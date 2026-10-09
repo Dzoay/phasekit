@@ -320,7 +320,43 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[4],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0016",
+        fluids: &["PropyleneGlycol"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::None,
+        evidence: "map 10 §8.1, M6.4: fastchebpure 2026.06.02-v2 below 227.6028 K (its first interval): rho'' 0.7 % below the v8 EOS's \
+                   saturation at 213 K, 1.1e-11 at 225.46 K; CoolProp 8.0.0's VLE agrees with phasekit's to 6e-15",
+        exempt: Some(Exempt {
+            kinds: &[Kind::Checkpoints],
+            columns: &["p", "rhoV"],
+            rows: Rows::TBand { lo: 213.0, hi: 227.6028 },
+        }),
+        tolerance: None,
+        proof: &[6],
+        status: DivStatus::Open,
+    },
 ];
+
+/// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an
+/// exemption of every row or of a temperature band (the others need more than T to decide).
+pub fn exempt_at(register: &[Divergence], fluid: &str, kind: Kind, column: &str, t: f64) -> Option<&'static str> {
+    let applies = |d: &&Divergence| {
+        let Some(e) = &d.exempt else { return false };
+        let rows = match e.rows {
+            Rows::All => true,
+            Rows::TBand { lo, hi } => lo <= t && t <= hi,
+            _ => false,
+        };
+        (d.fluids.contains(&fluid) || d.fluids == ["*"])
+            && e.kinds.contains(&kind)
+            && e.columns.contains(&column)
+            && rows
+    };
+    register.iter().find(applies).map(|d| d.id)
+}
 
 /// Why the register and the corrections disagree (VERIFICATION.md §7.2).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -409,5 +445,38 @@ mod tests {
         assert_eq!(missing_proofs(&register, 14, &["DIV-0101", "DIV-0102"]), ["DIV-0103"]);
         assert_eq!(unregistered_proofs(&register, &["DIV-0102", "DIV-0999"]), ["DIV-0999"]);
         assert_eq!(unregistered_proofs(&register, &[]), Vec::<&str>::new());
+    }
+
+    /// `exempt_at`: a band's ends are in and its outside is not, nor another column or fluid; `["*"]` covers every fluid
+    /// and `Rows::All` every T; other row sets need more than T. DIV-0016 exempts PropyleneGlycol's check points.
+    #[test]
+    fn exemptions_by_fluid_kind_column_and_temperature() {
+        let exempt = |kinds: &'static [Kind], rows| Some(Exempt { kinds, columns: &["p"], rows });
+        let register = [
+            Divergence {
+                id: "DIV-0101",
+                fluids: &["A"],
+                exempt: exempt(&[Kind::Checkpoints], Rows::TBand { lo: 1.0, hi: 2.0 }),
+                ..DIVERGENCES[5]
+            },
+            Divergence { id: "DIV-0102", fluids: &["*"], exempt: exempt(&[Kind::Sat], Rows::All), ..DIVERGENCES[5] },
+            Divergence {
+                id: "DIV-0103",
+                fluids: &["*"],
+                exempt: exempt(&[Kind::Props], Rows::TwoPhase),
+                ..DIVERGENCES[5]
+            },
+        ];
+        let at = |fluid, kind, column, t| exempt_at(&register, fluid, kind, column, t);
+        assert_eq!([1.0, 1.5, 2.0].map(|t| at("A", Kind::Checkpoints, "p", t)), [Some("DIV-0101"); 3]);
+        assert_eq!([0.5, 2.5].map(|t| at("A", Kind::Checkpoints, "p", t)), [None; 2]);
+        assert_eq!((at("A", Kind::Checkpoints, "rhoV", 1.5), at("B", Kind::Checkpoints, "p", 1.5)), (None, None));
+        assert_eq!(at("B", Kind::Sat, "p", 9.0), Some("DIV-0102"));
+        assert_eq!(at("B", Kind::Props, "p", 9.0), None, "two-phase rows need more than T");
+        let pg = |column, t| exempt_at(DIVERGENCES, "PropyleneGlycol", Kind::Checkpoints, column, t);
+        assert_eq!(
+            [pg("rhoV", 213.0), pg("p", 227.6028), pg("rhoL", 213.0), pg("p", 228.0)],
+            [Some("DIV-0016"), Some("DIV-0016"), None, None]
+        );
     }
 }

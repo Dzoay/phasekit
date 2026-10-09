@@ -151,8 +151,8 @@ impl ToleranceClass {
             ToleranceClass::Flash => Some(1e-9 * scale),
             ToleranceClass::RefAnchor => Some(1e-8), // absolute, SI mass units: the scale does not enter
             ToleranceClass::Fd => Some(1e-7 * scale),
-            // p and ρ; ρ relaxes near the critical point (Θ < 1e-3; map 10 §8.3), where the caller passes the window.
-            ToleranceClass::SatMp => Some(if near { 1e-6 } else { 1e-11 } * scale),
+            // Far from Tc; nearer, `sat_mp_density` and `sat_mp_pressure` carry the VLE's conditioning (NC1).
+            ToleranceClass::SatMp => Some(1e-11 * scale),
             _ => None,
         }
     }
@@ -173,6 +173,27 @@ impl ToleranceClass {
         (4.0 * (ratio - 1.0).abs()).max(1e-14) * value.abs()
     }
 
+    /// `SatMp`'s bound on a saturated density at Θ = (Tc − T)/Tc (VERIFICATION.md §5, user decisions NC1, NC2):
+    /// max(1e-11, 4·ε·Θ^−1.5·μ) of `value`. Near Tc, g′ = g″ is solved on an almost flat Gibbs surface, and the double
+    /// precision VLE's densities carry the rounding of g amplified as Θ^−1.5; μ ≥ 1 is that rounding's scale, the
+    /// liquid's `Term` majorant of g relative to g ([`Self::sat_mp_scale`]), as TC1 carries `Term` (measured at M6.4
+    /// on the dense multiprecision files of all 130 fluids: at most 0.39·ε·Θ^−1.5·μ, and 0.38·ε·μ/Θ in p).
+    pub fn sat_mp_density(theta: f64, mu: f64, value: f64) -> f64 {
+        1e-11_f64.max(4.0 * f64::EPSILON * phasekit_core::math::powf(theta, -1.5) * mu) * value.abs()
+    }
+
+    /// `SatMp`'s bound on a saturation pressure, or temperature, at Θ = (Tc − T)/Tc (VERIFICATION.md §5, NC1, NC2):
+    /// max(1e-11, 4·ε·μ/Θ) of `value`.
+    pub fn sat_mp_pressure(theta: f64, mu: f64, value: f64) -> f64 {
+        1e-11_f64.max(4.0 * f64::EPSILON * mu / theta) * value.abs()
+    }
+
+    /// μ of [`Self::sat_mp_density`]: max(1, (M00 + M01)/(1 + |A00 + A01|)) of the liquid, the `Term` majorants of
+    /// its g/RT = A00 + A01 relative to g/RT itself (404 for R22 near Tc, 233 for Methanol, 2 to 3 for Nitrogen).
+    pub fn sat_mp_scale(m00: f64, m01: f64, a00: f64, a01: f64) -> f64 {
+        ((m00 + m01) / (1.0 + (a00 + a01).abs())).max(1.0)
+    }
+
     /// Every class with its bound as VERIFICATION.md §5 states it, in that table's order.
     pub fn table() -> Vec<(ToleranceClass, &'static str)> {
         Self::BOUNDS.to_vec()
@@ -186,7 +207,10 @@ impl ToleranceClass {
         (ToleranceClass::SaCoeff, "1e-14"),
         (ToleranceClass::SaFit, "4 · abs(SA/mp − 1) of that point, floor 1e-14"),
         (ToleranceClass::CaloricFit, "2e-6 of max(abs(value), floor)"),
-        (ToleranceClass::SatMp, "p, ρ 1e-11; ρ 1e-6 if Θ < 1e-3"),
+        (
+            ToleranceClass::SatMp,
+            "ρ max(1e-11, 4·ε·Θ^−1.5·μ); p, T max(1e-11, 4·ε·μ/Θ); Θ = (Tc − T)/Tc, μ the carried `Term` scale of g",
+        ),
         (ToleranceClass::Flash, "T, ρ, p, h, s, u 1e-9; Q 1e-8 abs; nc: ρ 1e-6, T 1e-8"),
         (ToleranceClass::TransportDirect, "1e-12"),
         (ToleranceClass::TransportEcs, "1e-8"),
@@ -295,9 +319,17 @@ mod tests {
         assert_eq!(ToleranceClass::CaloricFit.bound(4.0), Some(8e-6));
         assert_eq!(ToleranceClass::Flash.bound_in(2.0, Window::NearCritical), Some(2e-9));
         assert_eq!(ToleranceClass::Fd.bound_in(3.0, Window::NearCritical), Some(3e-7));
-        // `SatMp`: 1e-11, a density 1e-6 near the critical point (VERIFICATION.md §5).
+        // `SatMp`: 1e-11 far from Tc; nearer, the VLE's conditioning (VERIFICATION.md §5, NC1).
         assert_eq!(ToleranceClass::SatMp.bound(4.0), Some(4e-11));
-        assert_eq!(ToleranceClass::SatMp.bound_in(4.0, Window::NearCritical), Some(4e-6));
+        assert_eq!(ToleranceClass::SatMp.bound_in(4.0, Window::NearCritical), Some(4e-11));
+        assert_eq!(ToleranceClass::sat_mp_density(0.25, 1.0, 2.0), 2e-11);
+        let theta = phasekit_core::math::powi(2.0, -20); // 4·ε·Θ^−1.5 = 2⁻²⁰ exactly
+        assert_eq!(ToleranceClass::sat_mp_density(theta, 1.0, 2.0), phasekit_core::math::powi(2.0, -19));
+        assert_eq!(ToleranceClass::sat_mp_density(theta, 4.0, 2.0), phasekit_core::math::powi(2.0, -17));
+        assert_eq!(ToleranceClass::sat_mp_pressure(0.25, 1.0, 3.0), 3e-11);
+        assert_eq!(ToleranceClass::sat_mp_pressure(0.5e-8, 2.0, 1.0), 4.0 * f64::EPSILON * 4e8);
+        assert_eq!(ToleranceClass::sat_mp_scale(6.0, 2.0, -2.0, 0.5), 3.2);
+        assert_eq!(ToleranceClass::sat_mp_scale(1.0, 0.5, 2.0, 1.0), 1.0, "never below 1");
         assert_eq!(
             (ToleranceClass::RefAnchor.bound(1e9), ToleranceClass::RefAnchor.bound(0.0)),
             (Some(1e-8), Some(1e-8))
