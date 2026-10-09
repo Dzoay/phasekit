@@ -10,7 +10,7 @@ use crate::fluid::PureFluid;
 use crate::input::{NativeInput, Pair};
 use crate::model::ThermoModel;
 use crate::relations;
-use crate::saturation::{SatAccuracy, SatPair, SaturationCurve};
+use crate::saturation::{SatAccuracy, SatPair, SatSide, SaturationCurve};
 use crate::state::{Phase, SolvePath, State, Strategy};
 use crate::units::Quality;
 
