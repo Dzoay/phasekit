@@ -235,6 +235,21 @@ fn register_cites_reproducible_oracle_facts() {
     assert!(dmc > 5e-11 && chlorine.abs() < 1e-11 && (rho / 7949.83 - 1.0).abs() < 1e-6, "DIV-0017: {dmc}, {chlorine}");
     checked.push("DIV-0017");
 
+    // DIV-0018: in all/sat.csv, the oracle's PQ at R245fa's p at Θ = 1e-7 misses the QT row that gave it that p by
+    // 2.0e-11 in T and 1.1e-6 in ρ (its T(ln p) inverse, unpolished).
+    let (path, text) = fixture!("coolprop-8.0.0/all/sat.csv");
+    let sat = Fixture::parse(path, text).unwrap();
+    let last = |input| {
+        let rows = 0..sat.rows().len();
+        rows.rev().find(|&r| sat.printed(r, "fluid") == Some("R245fa") && sat.printed(r, "input") == Some(input))
+    };
+    let (qt, pq) = (last("T").unwrap(), last("p").unwrap());
+    assert_eq!(sat.value(qt, "p"), sat.value(pq, "p"));
+    let miss = |column| (sat.value(pq, column).unwrap() / sat.value(qt, column).unwrap() - 1.0).abs();
+    let (t, rho) = (miss("T"), miss("rhoL").max(miss("rhoV")));
+    assert!(cites(t, "2.0e-11") && cites(rho, "1.1e-6"), "DIV-0018: {t:e}, {rho:e}");
+    checked.push("DIV-0018");
+
     let ids: Vec<&str> = DIVERGENCES.iter().map(|d| d.id).collect();
     assert_eq!(checked, ids, "every register entry has its facts checked");
     for row in facts.rows() {

@@ -113,11 +113,6 @@ fn distinct(liquid: &Point, vapour: &Point) -> bool {
     math::ln(liquid.rho / vapour.rho) > 1e-6
 }
 
-/// `sat` reporting the pressure `p` it was solved at, which both phases reproduce within the gate.
-fn at_pressure(sat: SatPair, p: f64) -> SatPair {
-    SatPair { bubble: SatSide { p, ..sat.bubble }, dew: SatSide { p, ..sat.dew } }
-}
-
 /// Whether Newton has converged, its next step `length` long at a residual of `size` after a step `previous` long:
 /// the step is below [`STEP_TOL`], or the residual is at [`FLOOR`] and the step no longer halves, what is left being
 /// rounding. Near the critical point the steps are the residuals' rounding divided by a small stiffness (1e-12 for
@@ -266,7 +261,7 @@ fn bracketed_p(eos: &dyn HelmholtzModel, p: f64, (t, rho_l, rho_v): (f64, f64, f
     let excess = |t: f64| at(t).map_or(f64::NAN, |sat| math::ln(sat.dew.p / p));
     let root = toms748(excess, t * (1.0 - WINDOW.2), t * (1.0 + WINDOW.2), Tol::Relative(BRACKET_TOL), BRACKET_ITER);
     let sat = solved(root).and_then(at).ok_or(failed(root.iterations))?;
-    Ok(at_pressure(sat, p))
+    Ok(sat.at_pressure(p))
 }
 
 /// Newton at a given p.
@@ -287,7 +282,7 @@ fn newton_p(
         let moves = [step[0] / t, step[1], step[2]];
         let length = moves.iter().fold(0.0_f64, |m, x| m.max(x.abs()));
         if converged(length, size, previous) {
-            return Ok(at_pressure(answer(r, t, l, v, iteration)?, p));
+            return Ok(answer(r, t, l, v, iteration)?.at_pressure(p));
         }
         let (ul, uv) = (math::ln(l.rho), math::ln(v.rho));
         let moved = |lambda: f64| {
@@ -490,7 +485,7 @@ mod tests {
         assert_eq!(solved(root(2.0 * GATE, Stop::Converged)), None);
         assert_eq!(solved(root(0.0, Stop::MaxIterations)), None);
         let sat = answer(2.0, 3.0, liquid, vapour(0.0, 0.0), 7).unwrap();
-        let reported = at_pressure(sat, 7.0);
+        let reported = sat.at_pressure(7.0);
         assert_eq!((reported.bubble.p, reported.dew.p, reported.bubble.rho, reported.dew.t), (7.0, 7.0, 4.0, 3.0));
     }
 

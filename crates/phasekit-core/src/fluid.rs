@@ -84,7 +84,7 @@ fn ready<T: Send + 'static>(value: T) -> Lazy<T> {
 
 /// Input pairs the core flash implements at this milestone. Grows M5 → M7 so every milestone is green
 /// (Verification-first): undeclared pairs are refused with `Unsupported`.
-const IMPLEMENTED: Capabilities = Capabilities::none().with(Pair::DT);
+const IMPLEMENTED: Capabilities = Capabilities::none().with(Pair::DT).with(Pair::QT).with(Pair::PQ);
 
 /// The package of a pure or pseudo-pure Helmholtz fluid: identity, EOS (any family), limits, critical point
 /// and parts materialised on first use (saturation curve, transport). Immutable; shared through `Arc`.

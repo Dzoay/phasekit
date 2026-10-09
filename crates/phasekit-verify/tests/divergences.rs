@@ -6,7 +6,8 @@
 
 use phasekit_core::internal::{FluidRecord, IdealTerm};
 use phasekit_core::{
-    Basis, DataSet, Density, DomainError, Error, Input, Order, Phase, Prop, Registry, Temperature, ThermoModel,
+    Basis, DataSet, Density, DomainError, Error, Input, Order, Phase, Pressure, Prop, Quality, Registry, Temperature,
+    ThermoModel,
 };
 use phasekit_verify::{Cell, DIVERGENCES, Fixture, MILESTONE, fixture, missing_proofs, unregistered_proofs};
 
@@ -25,6 +26,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0015", div_0015),
     ("DIV-0016", div_0016),
     ("DIV-0017", div_0017),
+    ("DIV-0018", div_0018),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -290,4 +292,23 @@ fn div_0017() {
     let r = (0..crit.rows().len()).find(|&r| crit.printed(r, "fluid") == Some("DimethylCarbonate")).unwrap();
     let ours = registry.get("DimethylCarbonate").unwrap().model().critical_point().unwrap().rho;
     assert!((ours / crit.value(r, "rhoc_num").unwrap() - 1.0).abs() > 1e-6, "the exempt cell still differs");
+}
+
+/// DIV-0018, part M6 (`SkipOracle`; M6.8, user decision PQ1): the replacing check is the QT row that gave a PQ row its
+/// p. At R245fa's p at Θ = 1e-7 in all/sat.csv, phasekit's PQ T is that row's within `SaCoeff`, and the exempt cell
+/// still differs: the oracle's PQ T misses it by more.
+fn div_0018() {
+    let (path, text) = fixture!("coolprop-8.0.0/all/sat.csv");
+    let sat = Fixture::parse(path, text).unwrap();
+    let last = |input| {
+        let rows = 0..sat.rows().len();
+        rows.rev().find(|&r| sat.printed(r, "fluid") == Some("R245fa") && sat.printed(r, "input") == Some(input))
+    };
+    let (qt, pq) = (last("T").unwrap(), last("p").unwrap());
+    let (t, p) = (sat.value(qt, "T").unwrap(), sat.value(pq, "p").unwrap());
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let input = Input::pq(Pressure::new(p).unwrap(), Quality::new(1.0).unwrap());
+    let ours = registry.get("R245fa").unwrap().state(input).unwrap().t();
+    assert!((ours / t - 1.0).abs() <= 1e-14, "{ours} against {t}");
+    assert!((sat.value(pq, "T").unwrap() / t - 1.0).abs() > 1e-14, "the exempt cell still differs");
 }

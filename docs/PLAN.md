@@ -906,6 +906,13 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
   (`State::path()`), `r134a_qt_smoke` (h = 413265.6843372975 J/kg at 300 K, Q = 1; map 11 §8),
   `water_normal_boiling_point` (PQ at 101325 Pa in [373.124, 373.125] K; map 11 §8). *Do:* the `sat` kind's PQ rows
   and core files (the all-fluid tier's QT rows land at M5.2a); QT/PQ strategies via `SaturationCurve` then VLE. *Done when:* green for 136 fluids.
+  Measured at M6.8: green for the 130 pure fluids; the six pseudo-pure fluids' QT and PQ arrive with their rules at
+  M6.9. CoolProp's PQ takes T from its T(ln p) inverse with no polish, off its own superancillary by up to 2.0e-11 in
+  T and 1.1e-6 in ρ near Tc, so each PQ row is checked against the QT row that gave it its p (user decision PQ1,
+  DIV-0018); phasekit's PQ solves the forward p(T) to rounding. CoolProp's superancillary flashes skip the model's
+  limits: 20 rows (MD4M below its Tmin, R236EA above its Tmax, R161 above its pmax) are refused by default and match
+  under `Extrapolate` (D6). PropyleneGlycol's p dips in DIV-0016's interval, so a p there has two saturation
+  temperatures: PQ is `Ambiguous` unless `RootPolicy::Nearest` picks one.
 - **M6.9 Pseudo-pure rules.** *Failing test:* `r410a_pseudo_pure_rows` (oracle, 03-decision-log: p(280 K, Q=0) =
   990480.516605891 Pa, Q=1: 987288.0717853763 Pa; QT at Q = 0.5 refused; T(1 MPa, Q = 0/0.5/1) = 280.31657 /
   280.37003 / 280.42348 K), plus `pseudo_pure_in_dome_dt_follows_the_oracle_rule` for all 6 blends. *Do:*

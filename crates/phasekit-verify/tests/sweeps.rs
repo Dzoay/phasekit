@@ -92,7 +92,7 @@ fn superancillary_matches_oracle_on_the_nightly_grid() {
         let path = format!("{FULL}/sat/{}.csv", f.name);
         let text = read(&path);
         let fixture = Fixture::parse(&path, &text).unwrap();
-        assert_eq!(fixture.rows().len(), 400, "{path}: 200 sa rows, then 200 QT rows (M5.2a)");
+        assert_eq!(fixture.rows().len(), 600, "{path}: 200 sa rows, then 200 QT (M5.2a) and 200 PQ rows (M6.8)");
         let sa = |row: &usize| fixture.rows()[*row].cells.first() == Some(&Cell::Text("sa"));
         for row in (0..fixture.rows().len()).filter(sa) {
             let sat = curve.at_t(fixture.value(row, "T").unwrap()).unwrap();

@@ -75,6 +75,8 @@ pub enum Rows {
         /// Upper temperature (K).
         hi: f64,
     },
+    /// Rows given p (the `sat` kind's PQ rows, input `p`).
+    GivenP,
 }
 
 /// The oracle cells a `SkipOracle` entry does not assert on Parity; the tests count them.
@@ -353,16 +355,49 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[6],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0018",
+        fluids: &["*"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::None,
+        evidence: "map 03 §3.3, M6.8: CoolProp's PQ takes T from its T(ln p) inverse with no polish (FlashRoutines.cpp:1169), \
+                   so its PQ states miss its own superancillary: up to 2.0e-11 in T and 1.1e-6 in rho at Theta ~ 1e-7, \
+                   4.5e-14 in T at Theta ~ 0.1; phasekit's PQ solves the curve's p(T) = p to rounding",
+        exempt: Some(Exempt {
+            kinds: &[Kind::Sat],
+            columns: &["T", "rhoL", "rhoV", "hL", "hV", "sL", "sV"],
+            rows: Rows::GivenP,
+        }),
+        tolerance: None,
+        proof: &[6],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an
 /// exemption of every row or of a temperature band (the others need more than T to decide).
 pub fn exempt_at(register: &[Divergence], fluid: &str, kind: Kind, column: &str, t: f64) -> Option<&'static str> {
+    exempt_row(register, fluid, kind, column, t, None)
+}
+
+/// [`exempt_at`] for a row whose input label (the `sat` kind's `T`, `p` or `sa`) is known too: [`Rows::GivenP`]
+/// exempts the rows given p.
+pub fn exempt_row(
+    register: &[Divergence],
+    fluid: &str,
+    kind: Kind,
+    column: &str,
+    t: f64,
+    input: Option<&str>,
+) -> Option<&'static str> {
     let applies = |d: &&Divergence| {
         let Some(e) = &d.exempt else { return false };
         let rows = match e.rows {
             Rows::All => true,
             Rows::TBand { lo, hi } => lo <= t && t <= hi,
+            Rows::GivenP => input == Some("p"),
             _ => false,
         };
         (d.fluids.contains(&fluid) || d.fluids == ["*"])
@@ -463,7 +498,8 @@ mod tests {
     }
 
     /// `exempt_at`: a band's ends are in and its outside is not, nor another column or fluid; `["*"]` covers every fluid
-    /// and `Rows::All` every T; other row sets need more than T. DIV-0016 exempts PropyleneGlycol's check points.
+    /// and `Rows::All` every T; other row sets need more than T. DIV-0016 exempts PropyleneGlycol's check points, and
+    /// DIV-0018 (through `exempt_row`) the PQ rows of the `sat` kind.
     #[test]
     fn exemptions_by_fluid_kind_column_and_temperature() {
         let exempt = |kinds: &'static [Kind], rows| Some(Exempt { kinds, columns: &["p"], rows });
@@ -493,5 +529,12 @@ mod tests {
             [pg("rhoV", 213.0), pg("p", 227.6028), pg("rhoL", 213.0), pg("p", 228.0)],
             [Some("DIV-0016"), Some("DIV-0016"), None, None]
         );
+        // DIV-0018: the oracle's PQ cells but p, its input; not its QT or `sa` rows, nor a row whose input is unknown.
+        let sat = |column, input| exempt_row(DIVERGENCES, "Water", Kind::Sat, column, 400.0, input);
+        assert_eq!(
+            [sat("T", Some("p")), sat("sV", Some("p")), sat("p", Some("p")), sat("T", Some("T")), sat("T", None)],
+            [Some("DIV-0018"), Some("DIV-0018"), None, None, None]
+        );
+        assert_eq!(exempt_at(DIVERGENCES, "Water", Kind::Sat, "rhoL", 400.0), None);
     }
 }
