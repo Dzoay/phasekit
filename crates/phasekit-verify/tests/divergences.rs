@@ -23,6 +23,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0012", div_0012),
     ("DIV-0014", div_0014),
     ("DIV-0015", div_0015),
+    ("DIV-0016", div_0016),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -248,4 +249,19 @@ fn div_0015() {
         |r: &FluidRecord| 1.0 - r.clone().compile().unwrap().eos().ideal(300.0, rho, Order::Two).get(2, 0).unwrap();
     let shift = cp0(&parity) / cp0(&at_t_r) - 1.0;
     assert!((shift / -1.33e-5 - 1.0).abs() < 0.01, "{shift}");
+}
+
+/// DIV-0016, part M6 (`SkipOracle`; M6.4): at 213 K, PropyleneGlycol's triple point, phasekit's VLE (seeded with the
+/// superancillary's densities, 4e-8 of ρ″ there) gives the saturation of the v8.0.0 EOS that CoolProp 8.0.0's own VLE
+/// gives (the register's facts, `ENABLE_SUPERANCILLARIES` off), within `Prop`; and fastchebpure's multiprecision ρ″
+/// there (its 2026.06.02-v2 check file: 1.2262649766288283e-07 mol/m³), still 0.7 % below it, is the exempt cell.
+fn div_0016() {
+    let record = record("PropyleneGlycol", DataSet::Parity);
+    let sa = record.superancillary_curve().unwrap().at_t(213.0).unwrap();
+    let fluid = record.compile().unwrap();
+    let sat = phasekit_core::internal::vle_at_t(fluid.eos(), 213.0, (sa.bubble.rho, sa.dew.rho)).unwrap();
+    let close = |got: f64, want: f64| (got / want - 1.0).abs() <= 1e-12;
+    let (liquid, vapour) = (fact("div0016_rhomolar_liquid_t213"), fact("div0016_rhomolar_vapour_t213"));
+    assert!(close(sat.bubble.rho, liquid) && close(sat.dew.rho, vapour), "{sat:?}");
+    assert!(sat.dew.rho / 1.2262649766288283e-07 - 1.0 > 7e-3, "the exempt cell still differs: {sat:?}");
 }

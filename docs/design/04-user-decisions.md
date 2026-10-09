@@ -185,3 +185,32 @@ rounding enters it as ε·(2A01′ + A02′)), so the true saturation pressure i
 | # | Question | Decision | Notes |
 |---|---|---|---|
 | DP1 | How the VLE's p is compared with the multiprecision check points | **Derive p: the reference p is the vapour side's pressure at the check point's own (T, ρ″); `SatMp` stays 1e-11 for T, p, ρ′ and ρ″** | The VLE at a given p solves at that derived p. `check_point_pressures_carry_liquid_side_rounding` pins the evidence (every row within 1·ε·ρ′RT·max(1, \|2A01′ + A02′\|) of the derived p; 49 rows beyond 1e-11), so a release that fixes the column changes the count and reopens this. M6.4's fastchebpure comparisons use the same rule (830 of their 18 875 rows are beyond 1e-11). Rejected: a carried bound on the arbiter's p, max(1e-11, ε·ρ′RT·K′/p), which keeps p independent of the EOS but reaches 4e-9 on heavy fluids at Θ = 0.5. |
+
+## The superancillary against the VLE, and the VLE near Tc (2026-10-09)
+
+Asked at M6.4, on fastchebpure's dense files for the core subset's 12 fluids (18 875 rows down to Θ = 0). The
+superancillary evaluated here equals the files' own, misfit for misfit. The VLE matches the multiprecision densities to
+about 1e-13 far from Tc (2.5e-13 at Θ ~ 0.1), which is above the 1e-14 floor of `SaFit`, so the planned direct check of
+the superancillary against the VLE within `SaFit` fails through no fault of the superancillary. Near Tc, g′ = g″ is
+solved on an almost flat Gibbs surface and the double-precision VLE's densities carry its rounding amplified as
+Θ^−1.5: within 2.2·ε·Θ^−1.5 of the multiprecision values (p within 1.5·ε/Θ), inside `SatMp`'s 1e-11 down to Θ ≈ 1e-3
+and inside the inferred near-critical 1e-6 down to Θ ≈ 3e-7, but 7.8e-5 at Θ ≈ 1e-7 and 2e-3 at Θ ≈ 1e-8, where the
+superancillary itself misfits by up to 1e-4.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| SV1 | How M6.4 compares the superancillary and the VLE | **Each against the multiprecision values: the superancillary within `SaFit` on every dense row, the VLE within `SatMp` (ρ′, ρ″, and p derived as DP1 decides)** | Their agreement follows within `SaFit` + `SatMp`; every class keeps its definition. Rejected: the direct comparison bounded by `SaFit` + `SatMp` (one check mixing two classes); `SaFit` with a 1e-12 floor for this comparison only. |
+| NC1 | How `SatMp` treats near-critical rows | **A conditioning bound: ρ max(1e-11, 4·ε·Θ^−1.5), p and T max(1e-11, 4·ε/Θ), Θ = (Tc − T)/Tc, on every row; the measured constants (2.2, 1.5) pinned by a test** | Replaces the inferred 1e-6 for Θ < 1e-3 (VERIFICATION.md §5 said it would be measured at M6): tighter down to Θ ≈ 3e-7, looser closer in, like TC1 carries `Term` through cancelling relations. Below Θ = 1e-8 the VLE is not compared: the bound there exceeds 1e-3 of ρ, and over all 130 fluids it refuses some rows below Θ = 6e-9. Rejected: keeping 1e-6 and comparing only Θ ≥ 1e-6. Reaching multiprecision accuracy near Tc would take extended precision in the near-critical solve; PLAN.md §4 records it as an idea, at the user's request. |
+
+## The near-critical bound across all 130 fluids, and an arbiter divergence (2026-10-09)
+
+Asked at M6.4, when the nightly sweep over all 130 fluids (204 050 rows) ran locally. NC1's constant had been measured
+on the 12 core fluids (2.2); 129 fluids stay within 3.5, but R22 needs 22.5 in ρ and 23.5 in p (7e-8 at Θ = 6e-6):
+its EOS carries far more rounding in g near Tc. And PropyleneGlycol's dense file disagrees with the v8.0.0 EOS below
+227.6 K, the first interval of fastchebpure's fit: ρ″ 0.7 % off at 213 K. phasekit's VLE and CoolProp 8.0.0's own (with
+the superancillaries off) agree with each other there to 6e-15.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| NC2 | How NC1's bound covers fluids whose EOS rounds more | **Carry the `Term` scale: ρ max(1e-11, 4·ε·Θ^−1.5·μ), p and T max(1e-11, 4·ε·μ/Θ), μ = max(1, (M00′ + M01′)/(1 + \|g′/RT\|)), the liquid's `Term` majorant of g relative to g** | As TC1 carries `Term` for properties. μ is 404 for R22 near Tc, 233 for Methanol, 2 to 3 for simple fluids; measured, every fluid is within 0.39·ε·Θ^−1.5·μ in ρ and 0.38·ε·μ/Θ in p. Rejected: a constant of 32 for every fluid (looser for the well-behaved ones); an R22 exception. |
+| — | PropyleneGlycol's dense rows below 227.6 K | **A divergence entry: DIV-0016 (`SkipOracle`)** | The check skips the p and ρ″ cells of those rows by citing it; its proof pins CoolProp's VLE values and the remaining gap. Rejected: skipping the rows without an entry. |

@@ -866,11 +866,22 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
   *Done when:* 390/390. Measured at M6.3: the check points' p is a double-precision liquid side's (49 rows beyond
   1e-11 of the vapour side's p at their own T and ρ″), so p is compared with that derived p (user decision DP1;
   `check_point_pressures_carry_liquid_side_rounding`); ρ′ and ρ″ match to about 1e-14.
-- **M6.4 Superancillary vs VLE.** *Failing test:* `superancillary_matches_vle_within_sa_fit` (class `SaFit`: 4 × the
-  fastchebpure ratio; the M6.1 dense files incl. near-critical points; map 10 §8.1, §8.3). *Do:* the comparison
-  harness over `mp/fastchebpure-*/` (core subset per PR; all 130 *(nightly)*), p derived from (T, ρ″) as DP1
-  decides (the files' `p(mp)` carries a double-precision liquid side's rounding); fixes in VLE or the evaluator only.
-  *Done when:* green for the core subset; all 130 *(nightly)*.
+- **M6.4 Superancillary vs VLE.** *Failing test:* `superancillary_and_vle_match_the_dense_multiprecision_files`
+  (the M6.1 dense files incl. near-critical points; map 10 §8.1, §8.3): each compared with the multiprecision values
+  (user decision SV1), the superancillary within class `SaFit` (4 × the point's own SA/mp misfit), the VLE within
+  `SatMp`, whose bound near Tc carries the double-precision VLE's conditioning (user decision NC1). *Do:* the
+  comparison harness over `mp/fastchebpure-*/` (core subset per PR; all 130 *(nightly)*), p derived from (T, ρ″) as
+  DP1 decides (the files' `p(mp)` carries a double-precision liquid side's rounding); fixes in VLE or the evaluator
+  only. *Done when:* green for the core subset; all 130 *(nightly)*. Measured at M6.4: the VLE ran out of iterations
+  for Θ ≲ 2e-3, where its residual sits at the rounding floor from the start and its steps (that rounding over a small
+  stiffness) never reach the step tolerance; it now converges at the floor once its step stops shrinking. Water's and
+  heavy water's saturated liquids are
+  denser than their triple-point liquid (`rho_max`) by up to 5.4e-4, so the VLE's domain check allows 1 % above it.
+  Near Tc the densities are within 0.39·ε·Θ^−1.5·μ of the multiprecision values over all 130 fluids (μ the carried
+  `Term` scale of g, user decision NC2: R22 needed 22.5 without it); below Θ = 1e-8 the VLE is not compared.
+  Chlorine's last row has ρ′ = ρ″ at Θ = 2.45e-7 between rows with a 5 % split (no VLE to compare), and
+  PropyleneGlycol's rows below 227.6 K are not the v8.0.0 EOS's saturation (DIV-0016). The nightly's
+  `fetch-fastchebpure --all` stopped at R1224yd(Z) (named R1224YDZ); fixed in its own PR.
 - **M6.5 Exact rescaling proved.** *Failing test:* `rescaled_superancillary_equals_vle` for Nitrogen (DIV-0003) and
   R1234ze(E) (DIV-0001), class `SatMp` (ARCHITECTURE.md §8 inference, now proved). *Do:* the DIV-0001 and DIV-0003
   proof parts due at M6. *Done when:* green; the ARCHITECTURE.md §8 sentence loses its *(inference)* tag in the same PR.
@@ -899,7 +910,7 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
   `pq_superancillary` (target ≤ 0.1 µs; CoolProp 0.45 / 0.64 µs); record SA bytes per fluid (≤ 25 KiB). Close M6: set
   `MILESTONE = 7`. *Done when:* rows recorded.
 
-**Exit gate.** G1-G8; 390/390 mp points; SA vs VLE within `SaFit` (core subset; all 130 *(nightly)*); stale polish;
+**Exit gate.** G1-G8; 390/390 mp points; SA (`SaFit`) and VLE (`SatMp`) vs the dense mp files (core subset; all 130 *(nightly)*); stale polish;
 exact rescaling for DIV-0001 and DIV-0003; R410A rows; QT/PQ for 136 fluids (all-fluid tier); IAPWS-95 Table 8 and IR
 8474 Table 4; benches recorded.
 **ROT rows.** M6.2: ROT-067, ROT-074, ROT-075, ROT-076. M6.3: ROT-066, ROT-082, ROT-089, ROT-090. M6.4: ROT-094.
@@ -1220,6 +1231,7 @@ conformance kit (VERIFICATION.md §10) and, where marked, a **zero-line core dif
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
 | — | Materials | First phase-coexistence need (ice + water) | `Substance` + min-Gibbs selector in a new crate (D10; materials R1) | Zero-line core diff |
+| — | Near-critical VLE in extended precision | A use needs the VLE itself at multiprecision accuracy near Tc (idea recorded at the user's request, 2026-10-09) | Near Tc the double-precision VLE carries its rounding amplified as Θ^−1.5 (user decision NC1, measured at M6.4). Double-double (or similar) arithmetic in the near-critical solve, as fastchebpure computes its multiprecision values. A scope change: the core is std-only until M9 and has performance targets | The dense fastchebpure rows within `SatMp`'s far-field 1e-11 closer to Tc than today; no cost to the double-precision path (the M9 benches) |
 
 **M11 cubic-R register entry** (user decision 10; ARCHITECTURE.md §10, §11). Added in the first M11 step, before any
 cubic code; VERIFICATION.md §6.6 carries the same row.

@@ -104,6 +104,9 @@ FACTS = {
         ("div0014_p_t400_rho8000", "PropsSI", ("P", "T", 400, "Dmolar", 8000, "R1224YDZ")),
         ("div0015_t_reducing", "Props1SI", ("R123", "T_reducing")),
         ("div0015_cp0molar_t300", "PropsSI", ("CP0MOLAR", "T", 300, "Dmolar", 1, "R123")),
+        # CoolProp's own VLE at PropyleneGlycol's triple point, superancillaries off (DIV-0016).
+        ("div0016_rhomolar_liquid_t213", "PropsSIVle", ("Dmolar", "T", 213, "Q", 0, "PropyleneGlycol")),
+        ("div0016_rhomolar_vapour_t213", "PropsSIVle", ("Dmolar", "T", 213, "Q", 1, "PropyleneGlycol")),
     ],
 }
 
@@ -232,12 +235,28 @@ def abstract_state(CP, backend, fluids, *args):
     return getattr(state, method)(*(getattr(CP, a) if isinstance(a, str) else a for a in rest))
 
 
+def vle_props(CP, *args):
+    """PropsSI with superancillaries off, so a saturation input goes through CoolProp's own VLE; the switch is
+    restored."""
+    before = CP.get_config_bool(CP.ENABLE_SUPERANCILLARIES)
+    CP.set_config_bool(CP.ENABLE_SUPERANCILLARIES, False)
+    try:
+        return CP.PropsSI(*args)
+    finally:
+        CP.set_config_bool(CP.ENABLE_SUPERANCILLARIES, before)
+
+
 def call(CP, fn, args):
     """One oracle call -> (value, status). `PropsSI` raises on failure, but `Props1SI` returns inf and leaves the
     message in the process-wide errstring (CoolProp's C convention; reading errstring clears it): both are checked."""
     CP.get_global_param_string("errstring")
     try:
-        value = float(abstract_state(CP, *args) if fn == "AbstractState" else getattr(CP, fn)(*args))
+        if fn == "AbstractState":
+            value = float(abstract_state(CP, *args))
+        elif fn == "PropsSIVle":
+            value = float(vle_props(CP, *args))
+        else:
+            value = float(getattr(CP, fn)(*args))
     except Exception as exception:  # every oracle failure becomes a status, never a crash
         return math.nan, f"err:{error_class(exception)}"
     message = CP.get_global_param_string("errstring")
@@ -286,7 +305,7 @@ def header(kind, lock, config, fluids, columns, tol, floats, source="coolprop", 
 
 def fact_fluids(fn, inputs):
     """The pure fluids a fact reads: `PR::n-Propane` is n-Propane, `HEOS::A[0.4]&B[0.6]` is A and B."""
-    name = {"PropsSI": inputs[-1], "Props1SI": inputs[0], "AbstractState": inputs[1]}[fn]
+    name = {"PropsSI": inputs[-1], "PropsSIVle": inputs[-1], "Props1SI": inputs[0], "AbstractState": inputs[1]}[fn]
     return [part.split("[")[0] for part in name.split("::")[-1].split("&")]
 
 

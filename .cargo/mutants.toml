@@ -56,4 +56,8 @@ exclude_re = [
     # equals 1e-6 bit for bit, which no state built from double densities reaches reliably on every target; 2e-6 and
     # 5e-7 are tested on either side.
     "vle\\.rs:[0-9]+:[0-9]+: replace > with >= in distinct",
+    # Equivalent in practice: the saturation check's Θ = (Tc − T)/Tc of a file row equals 1e-8 (where the VLE stops
+    # being compared) or 1e-2 (where its conditioning starts being measured) bit for bit in no file; rows on either
+    # side of both are tested.
+    "phasekit-verify/src/saturation\\.rs:[0-9]+:[0-9]+: replace < with <= in SaturationCheck::(rows|vle_row)",
 ]

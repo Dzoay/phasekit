@@ -7,6 +7,8 @@ use phasekit_core::internal::{FluidRecord, vle_at_p, vle_at_t};
 use phasekit_core::{
     Basis, DataSet, Density, FlashOptions, HelmholtzModel, Input, Order, Phase, Registry, SatPair, Temperature,
 };
+use phasekit_verify::saturation::carried_scale;
+use phasekit_verify::term::IdealScale;
 use phasekit_verify::{Cell, Fixture, ToleranceClass, fixture};
 
 /// The text in `column` of `row`.
@@ -40,15 +42,28 @@ fn reference_p(fixture: &Fixture<'_>, row: usize, eos: &dyn HelmholtzModel) -> f
     pressure(eos, fixture.value(row, "T").unwrap(), fixture.value(row, "rhoV").unwrap()).0
 }
 
-/// One check point's comparison of p (against `p`), ρ′ and ρ″ (and T if `t` is solved) with class `SatMp`; the
-/// failures, if any.
-fn compare(fixture: &Fixture<'_>, row: usize, name: &str, sat: &SatPair, p: f64, t: Option<f64>) -> Vec<String> {
+/// One check point's comparison of p (against `p`), ρ′ and ρ″ (and T if `t` is solved) with class `SatMp` at the
+/// point's Θ = (Tc − T)/Tc and carried scale `mu` (NC1, NC2); the failures, if any.
+fn compare(
+    fixture: &Fixture<'_>,
+    row: usize,
+    name: &str,
+    sat: &SatPair,
+    (p, mu): (f64, f64),
+    t: Option<f64>,
+) -> Vec<String> {
     let mut failures = Vec::new();
+    let (tc, t_row) = (fixture.value(row, "Tc").unwrap(), fixture.value(row, "T").unwrap());
+    let theta = (tc - t_row) / tc;
     let columns = [("p", sat.dew.p), ("rhoL", sat.bubble.rho), ("rhoV", sat.dew.rho)];
     let solved_t = t.map(|t| ("T", t));
     for (column, got) in columns.into_iter().chain(solved_t) {
         let want = if column == "p" { p } else { fixture.value(row, column).unwrap() };
-        let bound = ToleranceClass::SatMp.bound(want.abs()).unwrap();
+        let bound = if column.starts_with("rho") {
+            ToleranceClass::sat_mp_density(theta, mu, want)
+        } else {
+            ToleranceClass::sat_mp_pressure(theta, mu, want)
+        };
         if (got - want).abs() > bound {
             failures.push(format!("{name} row {row} {column}: {got} against {want} ({:e})", (got / want - 1.0)));
         }
@@ -71,17 +86,19 @@ fn vle_matches_390_multiprecision_points() {
         let name = label(&fixture, row, "fluid");
         let t = fixture.value(row, "T").unwrap();
         let (record, (rho_l, rho_v)) = seed(&registry, name, t);
-        let fluid = record.compile().unwrap();
+        let fluid = record.clone().compile().unwrap();
         let eos = fluid.eos();
         let p = reference_p(&fixture, row, eos);
+        let ideal = IdealScale::new(&record).unwrap();
+        let mu = carried_scale(&record, &ideal, eos, t, fixture.value(row, "rhoL").unwrap());
         match vle_at_t(eos, t, (rho_l, rho_v)) {
-            Ok(sat) => failures.extend(compare(&fixture, row, name, &sat, p, None)),
+            Ok(sat) => failures.extend(compare(&fixture, row, name, &sat, (p, mu), None)),
             Err(e) => failures.push(format!("{name} row {row} at {t} K: {e:?}")),
         }
         let t0 = t * 1.001;
         let (_, (seed_l, seed_v)) = seed(&registry, name, t0);
         match vle_at_p(eos, p, (t0, seed_l, seed_v)) {
-            Ok(sat) => failures.extend(compare(&fixture, row, name, &sat, p, Some(sat.dew.t))),
+            Ok(sat) => failures.extend(compare(&fixture, row, name, &sat, (p, mu), Some(sat.dew.t))),
             Err(e) => failures.push(format!("{name} row {row} at {p} Pa: {e:?}")),
         }
         solved += 2;

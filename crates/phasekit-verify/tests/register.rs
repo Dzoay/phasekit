@@ -205,6 +205,18 @@ fn register_cites_reproducible_oracle_facts() {
     assert!((ok("div0015_cp0molar_t300") / parity - 1.0).abs() < 1e-12, "DIV-0015");
     checked.push("DIV-0015");
 
+    // DIV-0016: CoolProp's own VLE (superancillaries off) at PropyleneGlycol's triple point is phasekit's, within `Prop`.
+    let pg = phasekit_core::internal::record(Registry::embedded().unwrap(), "PropyleneGlycol").unwrap();
+    let sa = pg.superancillary_curve().unwrap().at_t(213.0).unwrap();
+    let sat =
+        phasekit_core::internal::vle_at_t(pg.compile().unwrap().eos(), 213.0, (sa.bubble.rho, sa.dew.rho)).unwrap();
+    for (name, ours) in
+        [("div0016_rhomolar_liquid_t213", sat.bubble.rho), ("div0016_rhomolar_vapour_t213", sat.dew.rho)]
+    {
+        assert!((ok(name) / ours - 1.0).abs() < 1e-12, "DIV-0016: {name}");
+    }
+    checked.push("DIV-0016");
+
     let ids: Vec<&str> = DIVERGENCES.iter().map(|d| d.id).collect();
     assert_eq!(checked, ids, "every register entry has its facts checked");
     for row in facts.rows() {
