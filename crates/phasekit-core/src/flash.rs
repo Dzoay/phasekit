@@ -414,6 +414,39 @@ mod tests {
         assert_eq!(state.quality().map(f64::to_bits), Some(q.to_bits()));
     }
 
+    /// A curve whose bubble and dew sides differ (a pseudo-pure fluid's, `Definition`) over [300 K, 600 K]: p′ 2.0 MPa
+    /// and p″ 1.9 MPa, ρ′ 40 000 and ρ″ 100 mol/m³ at every T.
+    #[cfg(feature = "fluids-all")]
+    #[derive(Debug)]
+    struct Blend;
+
+    #[cfg(feature = "fluids-all")]
+    impl SaturationCurve for Blend {
+        fn accuracy(&self) -> SatAccuracy {
+            SatAccuracy::Definition
+        }
+        fn t_range(&self) -> (f64, f64) {
+            (300.0, 600.0)
+        }
+        fn at_t(&self, t: f64) -> Result<SatPair, Error> {
+            Ok(SatPair { bubble: SatSide { t, p: 2.0e6, rho: 40_000.0 }, dew: SatSide { t, p: 1.9e6, rho: 100.0 } })
+        }
+        fn at_p(&self, _p: f64) -> Result<SatPair, Error> {
+            Err(Error::Unsupported { pair: Pair::PQ })
+        }
+    }
+
+    /// D4 (map 04 U4): inside a dome whose bubble and dew sides differ, DT has no pure two-phase state; CoolProp's
+    /// pseudo-pure rule lands at M6.9, and until then the state is `Unsupported`. Water's EOS under such a curve, at
+    /// 400 K between its densities; outside them the phase rule still labels liquid and gas.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn a_dome_with_distinct_sides_is_unsupported_until_its_rule_lands() {
+        let blend = Fluid::new(Arc::new(record_of("Water").builder().unwrap().saturation(Blend).build()));
+        assert_eq!(blend.state(dt(1_000.0, 400.0)), Err(Error::Unsupported { pair: Pair::DT }));
+        assert_eq!(blend.state(dt(50.0, 400.0)).map(|s| s.phase()), Ok(Phase::Gas));
+    }
+
     /// The model's critical point labels states (map 03 §3.3): R114's published point (418.83 K, 3.257 MPa) lies below
     /// its EOS's, the top of its superancillary (420.61 K, 3.352 MPa), so at 419.5 K the dome is still there: a state
     /// between its densities is two-phase, as CoolProp says with superancillaries on, not supercritical.
