@@ -166,6 +166,14 @@ impl SaturationCheck {
     }
 }
 
+/// The 40 temperatures [`check_rescaling`] samples, evenly spaced from `lo` to Θ = 1e-3 below `tc`, each with its Θ.
+fn rescaling_points(lo: f64, tc: f64) -> impl Iterator<Item = (f64, f64)> {
+    (0..40_u32).map(move |k| {
+        let t = lo + (tc * (1.0 - 1e-3) - lo) * f64::from(k) / 39.0;
+        (t, (tc - t) / tc)
+    })
+}
+
 /// The exact rescaling of a superancillary (ARCHITECTURE.md §8, E14; DIV-0001, DIV-0003). Saturation is invariant in
 /// (τ, δ), so a correction of R or ρ_r scales ρ′ and ρ″ by ρ_r′/ρ_r and p by (R′/R)·(ρ_r′/ρ_r), and `Corrected` scales
 /// the superancillary fitted to `Parity` by those factors. On 40 temperatures from the curve's lower end to Θ = 1e-3,
@@ -183,9 +191,7 @@ pub fn check_rescaling(parity: &FluidRecord, corrected: &FluidRecord) -> Result<
     let p = rho * corrected.eos.gas_constant / parity.eos.gas_constant;
     let (lo, tc) = curve_c.t_range();
     let (mut failures, mut checked) = (Vec::new(), 0);
-    for k in 0..40 {
-        let t = lo + (tc * (1.0 - 1e-3) - lo) * f64::from(k) / 39.0;
-        let theta = (tc - t) / tc;
+    for (t, theta) in rescaling_points(lo, tc) {
         let solve = |curve: &dyn phasekit_core::SaturationCurve, eos: &dyn HelmholtzModel| {
             let sa = curve.at_t(t).ok()?;
             Some((sa, vle_at_t(eos, t, (sa.bubble.rho, sa.dew.rho)).ok()?))
@@ -343,6 +349,18 @@ mod tests {
         let check = check("Water", &header, &[row]);
         assert_eq!(check.failures.len(), 1, "{:?}", check.failures);
         assert!(check.failures[0].contains("superancillary p: "), "{:?}", check.failures);
+    }
+
+    /// The rescaling check's 40 points: from the curve's lower end (Θ = 0.5 for 100 K under Tc = 200 K) to Θ = 1e-3,
+    /// evenly spaced (the 14th a third of the way).
+    #[test]
+    fn rescaling_samples_forty_points_up_to_theta_1e_3() {
+        let points: Vec<(f64, f64)> = rescaling_points(100.0, 200.0).collect();
+        assert_eq!((points.len(), points[0]), (40, (100.0, 0.5)));
+        let (t, theta) = points[39];
+        assert!((t - 199.8).abs() < 1e-12 && (theta - 1e-3).abs() < 1e-15, "{t} {theta}");
+        let (t, theta) = points[13];
+        assert!((t - (100.0 + 99.8 / 3.0)).abs() < 1e-12 && (theta - 0.333_666_666_666_666_7).abs() < 1e-15);
     }
 
     /// A row whose ρ′ equals its ρ″ above Θ = 1e-8 is unsplit, its VLE not compared; the register's exempt cells
