@@ -82,6 +82,12 @@ pub fn file_for(name: &str, suffix: &str, files: &[String]) -> Result<String, St
     }
 }
 
+/// The name fastchebpure gives a fluid's files: CoolProp's file name without `.json` (`R1224yd(Z)` for
+/// `R1224yd(Z).json`, whose `INFO.NAME` is `R1224YDZ`), not the fluid's name.
+pub fn release_name(file: &str) -> &str {
+    file.strip_suffix(".json").unwrap_or(file)
+}
+
 /// The lock: the tag, the URL, the zip's sha256 and one `file <name> <sha256>` line per converted file, by name.
 pub fn lock_text(zip_sha256: &str, files: &[(String, String)]) -> String {
     let mut text = format!(
@@ -169,15 +175,18 @@ fn run(repo: &Repo, args: &[String]) -> Result<String, String> {
         .iter()
         .filter_map(|(path, _)| path.rsplit('/').next()?.strip_suffix(".csv"))
         .collect();
+    let stem_of =
+        |name: &str| sources.iter().find(|s| s.fluid.info.name == name).map(|s| release_name(&s.file).to_string());
     let names: Vec<String> = match &all {
         Some(_) => sources.iter().map(|s| s.fluid.info.name.clone()).filter(|n| hash_of(n).is_some()).collect(),
         None => core.iter().filter(|n| hash_of(n).is_some()).map(|n| n.to_string()).collect(),
     };
     let mut written = Vec::new();
     for name in &names {
+        let stem = stem_of(name).unwrap_or_else(|| name.clone());
         let read = |dir: &str, suffix: &str| {
             let dir = tree.join(&top).join(dir);
-            repo.read_outside(&dir.join(file_for(name, suffix, &repo.names_outside(&dir)?)?))
+            repo.read_outside(&dir.join(file_for(&stem, suffix, &repo.names_outside(&dir)?)?))
         };
         let (check, exps) = (read("outputcheck", "_check.json")?, read("output", "_exps.json")?);
         let v8 = hash_of(name).unwrap_or_default();
@@ -275,6 +284,7 @@ mod tests {
         assert_eq!(file_for("R1234yf", "_exps.json", &files), Ok("R1234YF_exps.json".to_string()));
         assert_eq!(file_for("Water", "_exps.json", &files), Ok("Water_exps.json".to_string()));
         assert_eq!(file_for("Argon", "_exps.json", &files), Err("the release has no Argon_exps.json".to_string()));
+        assert_eq!([release_name("R1224yd(Z).json"), release_name("Water.json")], ["R1224yd(Z)", "Water"]);
         let twice = ["a_x", "A_x"].map(String::from).to_vec();
         assert_eq!(file_for("a", "_x", &twice), Err("the release has 2 files named a_x but for case".to_string()));
     }
