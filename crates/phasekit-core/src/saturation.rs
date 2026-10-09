@@ -50,6 +50,11 @@ impl SatPair {
     pub fn is_pure(&self) -> bool {
         self.bubble.t == self.dew.t && self.bubble.p == self.dew.p
     }
+
+    /// The same saturation reporting the pressure `p` on both sides: a solve at p, whose sides reproduce it.
+    pub(crate) fn at_pressure(self, p: f64) -> SatPair {
+        SatPair { bubble: SatSide { p, ..self.bubble }, dew: SatSide { p, ..self.dew } }
+    }
 }
 
 /// A vapour-liquid saturation curve of one pure or pseudo-pure fluid. Implementations are immutable and
@@ -222,7 +227,7 @@ impl SaturationCurve for SuperancillaryCurve {
         match roots.get(..found) {
             Some(&[t]) => {
                 let sat = self.at_t(t)?;
-                Ok(SatPair { bubble: SatSide { p, ..sat.bubble }, dew: SatSide { p, ..sat.dew } })
+                Ok(sat.at_pressure(p))
             }
             other => Err(Error::Ambiguous { roots: Roots::new(other.unwrap_or_default()) }),
         }
@@ -347,6 +352,8 @@ mod tests {
         assert_eq!((r.bubble.p, r.bubble.rho, r.dew.rho), (f.bubble.p * 1.5, f.bubble.rho * 0.5, f.dew.rho * 0.5));
         assert_eq!(rescaled.accuracy(), SatAccuracy::Exact);
         assert_eq!(SuperancillaryCurve::new(synthetic(), SaFreshness::Stale).accuracy(), SatAccuracy::Guess);
+        let reported = curve.at_t(250.0).unwrap().at_pressure(7.0);
+        assert_eq!((reported.bubble, reported.dew), (SatSide { p: 7.0, ..sat.bubble }, SatSide { p: 7.0, ..sat.dew }));
     }
 
     /// PQ on the curve (PLAN.md M6.8): T solved from the forward p(T) inside the inverse's 1e-9 bracket (the synthetic

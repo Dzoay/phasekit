@@ -10,7 +10,7 @@ use crate::fluid::PureFluid;
 use crate::input::{NativeInput, Pair};
 use crate::model::ThermoModel;
 use crate::relations;
-use crate::saturation::{SatAccuracy, SatPair, SatSide, SaturationCurve};
+use crate::saturation::{SatAccuracy, SatPair, SaturationCurve};
 use crate::state::{Phase, SolvePath, State, Strategy};
 use crate::units::Quality;
 
@@ -251,7 +251,7 @@ fn pq(fluid: &PureFluid, p: f64, q: f64, opts: &FlashOptions) -> Result<State, E
             let distance = |t: &f64| (t - x).abs();
             let nearest = roots.as_slice().iter().copied().min_by(|a, b| distance(a).total_cmp(&distance(b)));
             let sat = curve.at_t(nearest.ok_or(Error::Ambiguous { roots })?)?;
-            SatPair { bubble: SatSide { p, ..sat.bubble }, dew: SatSide { p, ..sat.dew } }
+            sat.at_pressure(p)
         }
         (sat, _) => sat?,
     };
