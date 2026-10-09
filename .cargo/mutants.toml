@@ -48,4 +48,8 @@ exclude_re = [
     # Equivalent: for a double q >= 0.5, q - 1 is exact (Sterbenz) and |q - 1| a multiple of 2^-53, which neither
     # fl(1e-3) nor fl(0.1) is; below 0.5, |q - 1| > 0.5. So `<` and `<=` agree on every input of the near-critical window.
     "tolerance\\.rs:[0-9]+:[0-9]+: replace < with <= in Window::at",
+    # Equivalent: TOMS 748's doubled secant on a tie |f(a)| = |f(b)| (so f(a) = −f(b)) moves from a to b or from b to
+    # a, more than half the bracket either way, so both choices of u give the midpoint; and a move of exactly half the
+    # bracket lands on the midpoint, so `>` and `>=` choose the same point.
+    "roots\\.rs:[0-9]+:[0-9]+: replace (< with <=|> with >=) in Bracket::doubled_secant",
 ]
