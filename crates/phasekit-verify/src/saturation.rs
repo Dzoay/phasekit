@@ -63,7 +63,7 @@ impl SaturationCheck {
             self.failures.push(format!("{name}: no superancillary"));
             return;
         };
-        let (t_min, t_max) = curve.t_range();
+        let (t_min, _) = curve.t_range();
         let Ok(ideal) = IdealScale::new(record) else {
             self.failures.push(format!("{name}: no ideal-gas scale"));
             return;
@@ -78,11 +78,14 @@ impl SaturationCheck {
             let theta = (tc - t) / tc;
             let p = pressure(eos, t, rho_v);
             let at = format!("{name} row {row} (T {t} K, Θ {theta:.2e})");
-            // A file's first row can sit an ulp or two below the superancillary's triple point (as in tests/sat.rs).
-            let t_sa = if t < t_min && t >= t_min * (1.0 - 4.0 * f64::EPSILON) { t_min } else { t };
+            // A file's first row can sit an ulp or two below the superancillary's triple point (as in tests/sat.rs):
+            // up to 4 ulp below (positive doubles order as their bits), it is evaluated at the curve's start.
+            let below = t_min.to_bits().saturating_sub(t.to_bits());
+            let t_sa = if below <= 4 { t.max(t_min) } else { t };
             let sa = match curve.at_t(t_sa) {
                 Ok(sa) => sa,
-                Err(_) if t > t_max && theta < f64::EPSILON => {
+                // A file's last row is at Tc exactly, which can lie an ulp beyond the curve's end.
+                Err(_) if theta == 0.0 => {
                     self.beyond += 1;
                     continue;
                 }
@@ -237,8 +240,9 @@ mod tests {
 
     /// A misfit is reported where it is: ρ″ 1e-9 off fails both the superancillary (`SaFit`) and the VLE (`SatMp`), in
     /// p too, as the reference p is derived from ρ″ (DP1);
-    /// ρ′ 1e-12 off fails the superancillary alone; a row past the curve's end that is not at its Tc, or more than 4
-    /// ulp below its start, is a failure; and the report counts every row checked.
+    /// ρ′ 1e-12 off fails the superancillary alone; a row past the curve's end that is not at its Tc, or 5 ulp below
+    /// its start (4 is evaluated at its start), is a failure; and the report counts every row checked, the one at Tc
+    /// beyond the curve too.
     #[test]
     fn misfits_are_reported_where_they_are() {
         let (header, rows) = picked();
@@ -246,9 +250,15 @@ mod tests {
         bad[1][4] *= 1.0 + 1e-9;
         bad[2][3] *= 1.0 + 1e-12;
         bad[5][0] *= 1.0 + 1e-6;
-        let mut early = rows[0];
-        early[1] *= 1.0 - 1e-12;
-        let check = check("Water", &header, &[bad[0], bad[1], bad[2], bad[3], bad[4], bad[5], early]);
+        let t_min = phasekit_core::internal::record(Registry::embedded().unwrap(), "Water")
+            .unwrap()
+            .superancillary_curve()
+            .unwrap()
+            .t_range()
+            .0;
+        let [mut four, mut five] = [rows[0]; 2];
+        (four[1], five[1]) = (f64::from_bits(t_min.to_bits() - 4), f64::from_bits(t_min.to_bits() - 5));
+        let check = check("Water", &header, &[bad[0], bad[1], bad[2], bad[3], bad[4], bad[5], five, rows[5], four]);
         let what: Vec<&str> = check.failures.iter().map(|f| f.split(": ").next().unwrap_or("")).collect();
         assert_eq!(check.failures.len(), 6, "{:?}", check.failures);
         let ends = ["superancillary rhoV", "VLE p", "VLE rhoV", "superancillary rhoL"];
@@ -258,7 +268,25 @@ mod tests {
             "{what:?}"
         );
         let report = check.report(9).unwrap();
-        assert!(report.starts_with("6 of 5 entries"), "{report}");
+        assert!(report.starts_with("6 of 7 entries"), "{report}");
+    }
+
+    /// The superancillary's p is measured against the p derived from (T, ρ″) (DP1), its bound from the misfit the file
+    /// records against the file's own p: a file that claims the superancillary's p exact there fails it.
+    #[test]
+    fn a_superancillary_p_misfit_is_measured_against_the_derived_p() {
+        let (header, rows) = picked();
+        let mut row = rows[1];
+        let mut record = phasekit_core::internal::record(Registry::embedded().unwrap(), "Water").unwrap();
+        record.apply(DataSet::Parity).unwrap();
+        let p = pressure(record.clone().compile().unwrap().eos(), row[1], row[4]);
+        let misfit = (record.superancillary_curve().unwrap().at_t(row[1]).unwrap().dew.p / p - 1.0).abs();
+        assert!(misfit > 2e-14 && (row[2] / p - 1.0).abs() > 1e-15, "{misfit:e}");
+        assert_eq!(check("Water", &header, &[row]).report(5), None);
+        row[5] = p / row[2];
+        let check = check("Water", &header, &[row]);
+        assert_eq!(check.failures.len(), 1, "{:?}", check.failures);
+        assert!(check.failures[0].contains("superancillary p: "), "{:?}", check.failures);
     }
 
     /// A row whose ρ′ equals its ρ″ above Θ = 1e-8 is unsplit, its VLE not compared; the register's exempt cells

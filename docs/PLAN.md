@@ -874,8 +874,8 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
   DP1 decides (the files' `p(mp)` carries a double-precision liquid side's rounding); fixes in VLE or the evaluator
   only. *Done when:* green for the core subset; all 130 *(nightly)*. Measured at M6.4: the VLE ran out of iterations
   for Θ ≲ 2e-3, where its residual sits at the rounding floor from the start and its steps (that rounding over a small
-  stiffness) never reach the step tolerance; it now converges at the floor once its step stops shrinking (the floor
-  alone stopped propylene glycol at 213 K, 2e-4 Pa, with ρ″ 1 % off). Water's and heavy water's saturated liquids are
+  stiffness) never reach the step tolerance; it now converges at the floor once its step stops shrinking. Water's and
+  heavy water's saturated liquids are
   denser than their triple-point liquid (`rho_max`) by up to 5.4e-4, so the VLE's domain check allows 1 % above it.
   Near Tc the densities are within 0.39·ε·Θ^−1.5·μ of the multiprecision values over all 130 fluids (μ the carried
   `Term` scale of g, user decision NC2: R22 needed 22.5 without it); below Θ = 1e-8 the VLE is not compared.

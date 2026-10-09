@@ -27,11 +27,7 @@ const STEP_TOL: f64 = 1e-13;
 const GATE: f64 = 1e-10;
 
 /// A residual this small (relative to the scales of [`GATE`]) is at the rounding floor: a line-search step that keeps
-/// it there is taken even if it does not lower it, and Newton has converged there once its step stops shrinking (no
-/// longer halved since the last iteration), what is left being rounding. Near the critical point the steps are the
-/// residuals' rounding divided by a small stiffness (1e-12 for Water at Θ = 5e-4) and never fall below [`STEP_TOL`].
-/// The floor alone is no criterion: far below 1 Pa the pressure term's scale is the liquid's ρ′, so a residual at the
-/// floor still allows the vapour's p a 1 % error (propylene glycol at 213 K, 2e-4 Pa) that more steps remove.
+/// it there is taken even if it does not lower it, and Newton may stop there ([`converged`]).
 const FLOOR: f64 = 1e-13;
 
 /// The domain check allows densities this far above the model's largest density, its triple-point liquid's: water's
@@ -122,6 +118,15 @@ fn at_pressure(sat: SatPair, p: f64) -> SatPair {
     SatPair { bubble: SatSide { p, ..sat.bubble }, dew: SatSide { p, ..sat.dew } }
 }
 
+/// Whether Newton has converged, its next step `length` long at a residual of `size` after a step `previous` long:
+/// the step is below [`STEP_TOL`], or the residual is at [`FLOOR`] and the step no longer halves, what is left being
+/// rounding. Near the critical point the steps are the residuals' rounding divided by a small stiffness (1e-12 for
+/// Water at Θ = 5e-4) and never fall below [`STEP_TOL`]; once they stop shrinking, every step that still improved the
+/// answer has been taken.
+fn converged(length: f64, size: f64, previous: f64) -> bool {
+    length <= STEP_TOL || (size <= FLOOR && length > previous / 2.0)
+}
+
 /// The largest step multiple, at most 1, that moves no unknown by more than its limit: `moves` holds each unknown's
 /// change under the full step with its limit ([`MAX_STEP`]).
 fn step_scale<const N: usize>(moves: [(f64, f64); N]) -> f64 {
@@ -195,7 +200,7 @@ fn newton_t(eos: &dyn HelmholtzModel, t: f64, (rho_l, rho_v): (f64, f64), max_it
         let (res, size) = residual_t(&liquid, &vapour);
         let step = solve_small(jacobian_t(&liquid, &vapour), [-res[0], -res[1]]).map_err(|_| failed(iteration))?;
         let length = step[0].abs().max(step[1].abs());
-        if length <= STEP_TOL || (size <= FLOOR && length > previous / 2.0) {
+        if converged(length, size, previous) {
             // Converged: what is left moves no density by more than rounding.
             return answer(eos.gas_constant(), t, liquid, vapour, iteration);
         }
@@ -281,7 +286,7 @@ fn newton_p(
         // The step's moves: T relative, ln ρ′, ln ρ″.
         let moves = [step[0] / t, step[1], step[2]];
         let length = moves.iter().fold(0.0_f64, |m, x| m.max(x.abs()));
-        if length <= STEP_TOL || (size <= FLOOR && length > previous / 2.0) {
+        if converged(length, size, previous) {
             return Ok(at_pressure(answer(r, t, l, v, iteration)?, p));
         }
         let (ul, uv) = (math::ln(l.rho), math::ln(v.rho));
@@ -447,6 +452,11 @@ mod tests {
         let near = |x: f64| point(4.0 * (1.0 + x), 3.0 - 2.0 / (1.0 + x), 2.0 / (1.0 + x));
         assert!(ok(near(2e-6), point(4.0, 1.0, 2.0)) && !ok(near(5e-7), point(4.0, 1.0, 2.0)), "distinct phases");
         assert_eq!(answer(1.0, 1.0, point(4.0, 1.0, 0.0), point(1.0, 1.0, 0.0), 7), Err(failed(7)), "p = 0");
+        // Convergence: a step at STEP_TOL; at the floor, a step more than half the last one (but not half itself).
+        let step = [STEP_TOL, 0.5 * STEP_TOL, 2.0 * STEP_TOL].map(|length| converged(length, 1.0, 0.0));
+        assert_eq!(step, [true, true, false]);
+        let floor = [(0.75, FLOOR), (0.75, 0.5 * FLOOR), (0.75, 2.0 * FLOOR), (0.5, FLOOR), (0.25, FLOOR)];
+        assert_eq!(floor.map(|(length, size)| converged(length, size, 1.0)), [true, true, false, false, false]);
         // Step clipping and backtracking.
         assert_eq!(step_scale([(0.25, 0.5), (-1.0, 0.5)]), 0.5);
         assert_eq!(step_scale([(0.1, 0.5)]), 1.0);
@@ -564,10 +574,9 @@ mod tests {
     }
 
     #[cfg(feature = "fluids-all")]
-    /// Far below 1 Pa the floor alone is no convergence (the pressure term's scale is the liquid's ρ′): at 213 K,
+    /// Far below 1 Pa, where the pressure term's scale is the liquid's ρ′ and a seed's ρ″ can be decades off: at 213 K,
     /// PropyleneGlycol's triple point (2e-4 Pa), seeded with the superancillary's densities (4e-8 of ρ″ there), the VLE
-    /// gives CoolProp 8.0.0's own VLE (superancillaries off; the register's facts, DIV-0016) within 1e-12, where
-    /// stopping at the floor left ρ″ 1 % off.
+    /// gives CoolProp 8.0.0's own VLE (superancillaries off; the register's facts, DIV-0016) within 1e-12.
     #[test]
     fn vle_converges_far_below_one_pascal() {
         let (record, fluid) = model("PropyleneGlycol");
