@@ -108,21 +108,23 @@ pub(crate) fn flash(fluid: &PureFluid, input: NativeInput, opts: &FlashOptions) 
 /// Where a (T, ρ) point lies.
 enum Region {
     Single(Phase),
-    Dome(SatPair),
+    /// The saturation at T and the strategy that gave it.
+    Dome(SatPair, Strategy),
 }
 
 /// The one kernel-defined phase rule (map 01 R26): per-call hint, else the model's critical point, else the
 /// saturation curve. The critical point that labels states is the model's own: the top of an exact saturation curve
 /// (CoolProp's with superancillaries on), else the published one; R114's published 418.83 K and 3.257 MPa sit 1.8 K and
-/// 3 % below its EOS's (map 03 §3.3, measured at M5.3), and the dome reaches up to the EOS's. Below Tc without an
-/// `Exact`/`Definition` curve whose fitted range covers T, the generic VLE decides; until it lands (M6) that case is
-/// `Unsupported`, never a load error, a guess or a fit evaluated outside its range (S-10, D6).
+/// 3 % below its EOS's (map 03 §3.3, measured at M5.3), and the dome reaches up to the EOS's. A `Guess` curve (a
+/// superancillary the EOS was edited away from, E14) only seeds the pure VLE, whose saturation decides (M6.6; ROT-088,
+/// ROT-096). Below Tc without a curve whose fitted range covers T the case is `Unsupported`, never a load error, a
+/// guess or a fit evaluated outside its range (S-10, D6).
 fn region(fluid: &PureFluid, t: f64, rho: f64, p: f64, opts: &FlashOptions) -> Result<Region, Error> {
     let hint = opts.phase_hint();
     if let Some(single) = hint.filter(|h| *h != Phase::TwoPhase) {
         return Ok(Region::Single(single));
     }
-    let curve = fluid.saturation()?.filter(|c| c.accuracy() != SatAccuracy::Guess);
+    let curve = fluid.saturation()?;
     let crit = match curve.filter(|c| c.accuracy() == SatAccuracy::Exact) {
         Some(c) => {
             let t_c = c.t_range().1;
@@ -149,16 +151,21 @@ fn region(fluid: &PureFluid, t: f64, rho: f64, p: f64, opts: &FlashOptions) -> R
     if !(t_lo..=t_hi).contains(&t) {
         return Err(unsupported); // M6: a pure-fluid VLE solve outside the fit
     }
-    let sat = curve.at_t(t)?;
+    let mut sat = curve.at_t(t)?;
+    let mut strategy = Strategy::Superancillary;
+    if curve.accuracy() == SatAccuracy::Guess {
+        sat = crate::vle::at_t(fluid.eos(), t, (sat.bubble.rho, sat.dew.rho))?;
+        strategy = Strategy::Vle;
+    }
     Ok(if hint == Some(Phase::TwoPhase) {
-        Region::Dome(sat)
+        Region::Dome(sat, strategy)
     } else if rho >= sat.bubble.rho {
         let above_pc = crit.is_some_and(|c| p > c.1);
         Region::Single(if above_pc { Phase::SupercriticalLiquid } else { Phase::Liquid })
     } else if rho <= sat.dew.rho {
         Region::Single(Phase::Gas)
     } else {
-        Region::Dome(sat)
+        Region::Dome(sat, strategy)
     })
 }
 
@@ -189,9 +196,10 @@ fn dt(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<State,
             }
             State::single(key, t, rho, r, m, phase, &b, DIRECT)
         }
-        Region::Dome(sat) if sat.is_pure() => {
-            // The curve's equilibrium is the answer (ROT-092: no VLE when the superancillary is exact).
-            let path = SolvePath { strategy: Strategy::Superancillary, iterations: 0 };
+        Region::Dome(sat, strategy) if sat.is_pure() => {
+            // The curve's equilibrium is the answer (ROT-092: no VLE when the superancillary is exact), or the VLE's
+            // when the curve was only a guess (its iterations are not counted here).
+            let path = SolvePath { strategy, iterations: 0 };
             let (rl, rv) = (sat.bubble.rho, sat.dew.rho);
             let liquid = State::single(key, t, rl, r, m, Phase::Liquid, &total(fluid, t, rl)?, path)?;
             let vapour = State::single(key, t, rv, r, m, Phase::Gas, &total(fluid, t, rv)?, path)?;
@@ -200,7 +208,7 @@ fn dt(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<State,
             State::split(liquid, vapour, q, t, sat.bubble.p, path)
         }
         // Pseudo-pure in-dome DT: CoolProp's rule (D4), specified from oracle fixtures at M6 (map 04 U4).
-        Region::Dome(_) => Err(Error::Unsupported { pair: Pair::DT }),
+        Region::Dome(..) => Err(Error::Unsupported { pair: Pair::DT }),
     }?;
     let p_check = fluid.limits().check_p(state.p());
     if enforce {
@@ -368,8 +376,34 @@ mod tests {
 
     /// ROT-092 (map 03 §6): a DT state in the dome reads the exact curve, no VLE: its pressure and phase densities are
     /// the curve's, bit for bit. The pressure check uses that saturation pressure: at 30,000 mol/m³ and 400 K the
-    /// single-phase EOS gives 2.2e11 Pa, far above pmax, yet the state is a valid two-phase one. A `Guess` curve
-    /// would need a VLE polish (M6), so DT inside it is `Unsupported`.
+    /// single-phase EOS gives 2.2e11 Pa, far above pmax, yet the state is a valid two-phase one.
+    #[cfg(feature = "fluids-all")]
+    /// PLAN.md M6.6 (E14; ROT-088, ROT-096): an EOS edit other than R or ρ_r (here Nitrogen's first power-term
+    /// coefficient, times 1 + 1e-6) leaves its superancillary stale, a `Guess`. DT inside the dome then only seeds the
+    /// pure VLE with it: the two-phase state's pressure and quality are the edited EOS's own saturation, bit for bit
+    /// that of `vle::at_t` from the same seeds, and the stale curve's pressure is 1e-7 or more away.
+    #[test]
+    fn stale_curve_is_a_guess_polished_by_vle() {
+        let mut record = record_of("Nitrogen");
+        record.eos.power.first_mut().unwrap().n *= 1.0 + 1e-6;
+        assert_eq!(record.superancillary_freshness(), Some(crate::data::SaFreshness::Stale));
+        let stale = record.superancillary_curve().unwrap();
+        assert_eq!(stale.accuracy(), SatAccuracy::Guess);
+        let curve_of = record.clone();
+        let pure = record.builder().unwrap().lazy_saturation(move || Ok(curve_of.superancillary_curve())).build();
+        let t = 100.0;
+        let guess = stale.at_t(t).unwrap();
+        let vle = crate::vle::at_t(pure.eos(), t, (guess.bubble.rho, guess.dew.rho)).unwrap();
+        let fluid = Fluid::new(Arc::new(pure));
+        let rho = crate::num::math::sqrt(vle.bubble.rho * vle.dew.rho);
+        let state = fluid.state(dt(rho, t)).unwrap();
+        assert_eq!((state.phase(), state.p().to_bits()), (Phase::TwoPhase, vle.dew.p.to_bits()));
+        assert_eq!(state.path().strategy, Strategy::Vle);
+        let q = (1.0 / rho - 1.0 / vle.bubble.rho) / (1.0 / vle.dew.rho - 1.0 / vle.bubble.rho);
+        assert_eq!(state.quality().map(f64::to_bits), Some(q.to_bits()));
+        assert!((guess.bubble.p / vle.dew.p - 1.0).abs() > 1e-7, "the edit moved saturation: {guess:?} {vle:?}");
+    }
+
     #[cfg(feature = "fluids-all")]
     #[test]
     fn dt_in_dome_reads_the_curve_not_vle() {
@@ -378,26 +412,6 @@ mod tests {
         assert_eq!((state.phase(), state.p().to_bits()), (Phase::TwoPhase, sat.bubble.p.to_bits()));
         let q = (1.0 / 30_000.0 - 1.0 / sat.bubble.rho) / (1.0 / sat.dew.rho - 1.0 / sat.bubble.rho);
         assert_eq!(state.quality().map(f64::to_bits), Some(q.to_bits()));
-
-        #[derive(Debug)]
-        struct Stale;
-        impl SaturationCurve for Stale {
-            fn accuracy(&self) -> SatAccuracy {
-                SatAccuracy::Guess
-            }
-            fn t_range(&self) -> (f64, f64) {
-                (200.0, 380.0)
-            }
-            fn at_t(&self, _t: f64) -> Result<SatPair, Error> {
-                unreachable!("a Guess curve is never used as the answer")
-            }
-            fn at_p(&self, _p: f64) -> Result<SatPair, Error> {
-                Err(Error::Unsupported { pair: Pair::PQ })
-            }
-        }
-        let record = FluidRecord::synthetic("X").unwrap();
-        let toy = Fluid::new(Arc::new(record.builder().unwrap().saturation(Stale).build()));
-        assert_eq!(toy.state(dt(1_000.0, 300.0)), Err(Error::Unsupported { pair: Pair::DT }));
     }
 
     /// The model's critical point labels states (map 03 §3.3): R114's published point (418.83 K, 3.257 MPa) lies below
