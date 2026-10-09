@@ -72,7 +72,7 @@ const FILES: [(&str, &str, &str); 12] = [
     ),
 ];
 
-/// The core subset's rows below Θ = 1e-8 (Θ = 0 at the SA's own end excluded).
+/// The core subset's rows below Θ = 1e-8 (Θ ≤ 0 beyond the SA's own end excluded).
 const NEAR_CRITICAL: usize = 116;
 
 /// Checks one fluid's file.

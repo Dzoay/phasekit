@@ -44,7 +44,7 @@ pub struct SaturationCheck {
     /// Of those rows, the ones above [`THETA_VLE_MIN`] where the file's ρ′ equals its ρ″: one phase, so no VLE to
     /// compare. Chlorine's last row is one (Θ = 2.45e-7, between rows with a 5 % split, its own superancillary 4 % off).
     pub unsplit: usize,
-    /// Rows at Θ = 0 an ulp beyond the superancillary's range (the critical point itself).
+    /// Rows at Θ ≤ 0 (the critical point itself, or an ulp above it) beyond the superancillary's range.
     pub beyond: usize,
     /// Cells the register exempts (DIV-0016), counted, not compared.
     pub exempt: usize,
@@ -84,8 +84,8 @@ impl SaturationCheck {
             let t_sa = if below <= 4 { t.max(t_min) } else { t };
             let sa = match curve.at_t(t_sa) {
                 Ok(sa) => sa,
-                // A file's last row is at Tc exactly, which can lie an ulp beyond the curve's end.
-                Err(_) if theta == 0.0 => {
+                // A file's last row is at its Tc, or an ulp above it, which can lie an ulp beyond the curve's end.
+                Err(_) if theta <= 0.0 => {
                     self.beyond += 1;
                     continue;
                 }
@@ -197,7 +197,8 @@ mod tests {
     }
 
     /// Water's rows at its triple point (an ulp below the superancillary's), at Θ ≈ 0.3, in the near-critical range
-    /// (Θ ≈ 1e-4), below Θ = 1e-8, and at Tc; and a row moved past the curve's end, its Tc its T (Θ = 0).
+    /// (Θ ≈ 1e-4), below Θ = 1e-8, and at Tc; and a row moved past the curve's end, its Tc an ulp below its T (Θ < 0,
+    /// as the last rows of CarbonDioxide, HFE143m and R125).
     fn picked() -> (String, [[f64; 8]; 6]) {
         let (header, rows) = water();
         let theta = |r: &[f64; 8]| (r[0] - r[1]) / r[0];
@@ -206,7 +207,7 @@ mod tests {
         let record = phasekit_core::internal::record(Registry::embedded().unwrap(), "Water").unwrap();
         let end = record.superancillary_curve().unwrap().t_range().1 * (1.0 + 2.0 * f64::EPSILON);
         let mut past = last;
-        (past[0], past[1]) = (end, end);
+        (past[0], past[1]) = (end, f64::from_bits(end.to_bits() + 1));
         (header, [rows[0], first(0.25, 0.35), first(5e-5, 2e-4), first(1e-12, 1e-8), last, past])
     }
 
