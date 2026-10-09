@@ -155,6 +155,18 @@ fn region(fluid: &PureFluid, t: f64, rho: f64, p: f64, opts: &FlashOptions) -> R
     }
     let mut sat = curve.at_t(t)?;
     let mut strategy = Strategy::Superancillary;
+    // A liquid above the critical pressure is a supercritical liquid, as CoolProp labels it.
+    let liquid = |crit: Option<(f64, f64, f64)>| match crit {
+        Some((_, p_c, _)) if p > p_c => Phase::SupercriticalLiquid,
+        _ => Phase::Liquid,
+    };
+    if curve.accuracy() == SatAccuracy::Definition && hint.is_none() {
+        match pseudo_pure_bands(fluid, t, rho, p, &sat) {
+            Some(Phase::Liquid) => return Ok(Region::Single(liquid(crit))),
+            Some(phase) => return Ok(Region::Single(phase)),
+            None => {}
+        }
+    }
     // A stale curve seeds the pure VLE (M6.6), and so does a pseudo-pure fluid's definition: inside its dome CoolProp
     // solves the pure-fluid VLE of the blend's EOS from the ancillaries' densities (D4, map 04 U4; M6.9).
     if curve.accuracy() != SatAccuracy::Exact {
@@ -164,13 +176,37 @@ fn region(fluid: &PureFluid, t: f64, rho: f64, p: f64, opts: &FlashOptions) -> R
     Ok(if hint == Some(Phase::TwoPhase) {
         Region::Dome(sat, strategy)
     } else if rho >= sat.bubble.rho {
-        let above_pc = crit.is_some_and(|c| p > c.1);
-        Region::Single(if above_pc { Phase::SupercriticalLiquid } else { Phase::Liquid })
+        Region::Single(liquid(crit))
     } else if rho <= sat.dew.rho {
         Region::Single(Phase::Gas)
     } else {
         Region::Dome(sat, strategy)
     })
+}
+
+/// CoolProp's density bands for a pseudo-pure fluid's DT below its critical temperature, before its VLE (D4, user
+/// decision PS3; `HelmholtzEOSMixtureBackend.cpp:2340-2380`): gas below 0.95 of the dew density ancillary, liquid above
+/// 1.05 of the bubble one, and liquid in the strip within 0.9975 of either where the ancillary quality is below 0.01, p
+/// is above 1.05 of the bubble pressure ancillary and (∂p/∂ρ)_T and (∂²p/∂ρ²)_T are positive. `None`: the VLE of the
+/// blend's EOS decides. The products are CoolProp's, rounded as it rounds them.
+fn pseudo_pure_bands(fluid: &PureFluid, t: f64, rho: f64, p: f64, sat: &SatPair) -> Option<Phase> {
+    let (rho_l, rho_v) = (sat.bubble.rho, sat.dew.rho);
+    let (rho_vap, rho_liq) = (0.95 * rho_v, 1.05 * rho_l);
+    if rho < rho_vap {
+        return Some(Phase::Gas);
+    }
+    if rho > rho_liq {
+        return Some(Phase::Liquid);
+    }
+    if !(rho > 0.95 * rho_liq || rho < 1.05 * rho_vap) {
+        return None;
+    }
+    let q_anc = (1.0 / rho - 1.0 / rho_l) / (1.0 / rho_v - 1.0 / rho_l);
+    let d = fluid.eos().ideal(t, rho, Order::Three) + fluid.eos().residual(t, rho, Order::Three);
+    let a = |j| d.get(0, j).unwrap_or(f64::NAN);
+    // (∂p/∂ρ)_T = RT·(2A01 + A02) and (∂²p/∂ρ²)_T = (RT/ρ)·(2A01 + 4A02 + A03), as in `crate::crit`.
+    let stable = 2.0 * a(1) + a(2) > 0.0 && 2.0 * a(1) + 4.0 * a(2) + a(3) > 0.0;
+    (q_anc < 0.01 && p > 1.05 * sat.bubble.p && stable).then_some(Phase::Liquid)
 }
 
 /// Order-2 total bundle at (T, ρ): one ideal and one residual evaluation.

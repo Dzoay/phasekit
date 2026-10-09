@@ -12,9 +12,9 @@
 use std::process::ExitCode;
 
 use phasekit_core::internal::{
-    CaloricCurves, CaloricStamp, DoubleExponentialTerm, Edit, EosRecord, FluidRecord, GaoBTerm, GaussianTerm,
-    IdealTerm, Lemmon2005Term, MeltingSegment, NonAnalyticTerm, OffsetReference, Patch, PowerTerm, SaStamp,
-    Superancillary,
+    Ancillary, CaloricCurves, CaloricStamp, DoubleExponentialTerm, Edit, EosRecord, FluidRecord, GaoBTerm,
+    GaussianTerm, IdealTerm, Lemmon2005Term, MeltingSegment, NonAnalyticTerm, OffsetReference, Patch, PowerTerm,
+    PseudoPure, SaStamp, Superancillary,
 };
 use phasekit_core::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataSet, DataTerms, Limits, Source};
 use serde_json::{Map, Value, json};
@@ -107,6 +107,14 @@ pub fn to_json(r: &FluidRecord) -> Value {
                 "ln_p_breaks": list(&sa.ln_p_breaks),
                 "t_of_ln_p": pieces(&sa.t_of_ln_p),
             })
+        }),
+        "pseudo_pure": r.pseudo_pure.as_ref().map_or(Value::Null, |pp| {
+            let one = |a: &Ancillary| json!({
+                "exponential": a.exponential, "tau_r": a.tau_r, "t_r": num(a.t_r), "reducing": num(a.reducing),
+                "n": a.n.iter().map(|x| num(*x)).collect::<Vec<_>>(), "t": a.t.iter().map(|x| num(*x)).collect::<Vec<_>>(),
+                "t_min": num(a.t_min), "t_max": num(a.t_max),
+            });
+            json!({"p_l": one(&pp.p_l), "p_v": one(&pp.p_v), "rho_l": one(&pp.rho_l), "rho_v": one(&pp.rho_v), "t_range": [num(pp.t_range.0), num(pp.t_range.1)]})
         }),
         "melting": r.melting.iter().map(|s| json!({"t0": num(s.t0), "p0": num(s.p0), "t_min": num(s.t_min), "t_max": num(s.t_max)})).collect::<Vec<_>>(),
         "corrections": r.corrections.iter().map(patch_json).collect::<Vec<_>>(),
@@ -286,6 +294,35 @@ pub fn from_json(v: &Value) -> Result<FluidRecord, String> {
         let shape = phasekit_core::internal::model_key(shape);
         r.superancillary_fit =
             Some(SaStamp { shape, gas_constant: f(fit, "gas_constant")?, rho_reducing: f(fit, "rho_reducing")? });
+    }
+    if let Some(pp) = v.get("pseudo_pure").filter(|x| !x.is_null()) {
+        let floats = |x: &Value, key: &str| -> Result<Vec<f64>, String> {
+            let items = x.get(key).and_then(Value::as_array).ok_or(format!("pseudo_pure: no {key}"))?;
+            items.iter().map(|x| x.as_f64().ok_or_else(|| format!("pseudo_pure {key}: not a number"))).collect()
+        };
+        let flag = |x: &Value, key: &str| x.get(key).and_then(Value::as_bool).ok_or(format!("pseudo_pure: no {key}"));
+        let one = |key: &str| -> Result<Ancillary, String> {
+            let a = pp.get(key).ok_or(format!("pseudo_pure: no {key}"))?;
+            Ok(Ancillary {
+                exponential: flag(a, "exponential")?,
+                tau_r: flag(a, "tau_r")?,
+                t_r: f(a, "t_r")?,
+                reducing: f(a, "reducing")?,
+                n: floats(a, "n")?,
+                t: floats(a, "t")?,
+                t_min: f(a, "t_min")?,
+                t_max: f(a, "t_max")?,
+            })
+        };
+        let range = floats(pp, "t_range")?;
+        let &[lo, hi] = range.as_slice() else { return Err("pseudo_pure: t_range needs two temperatures".into()) };
+        r.pseudo_pure = Some(PseudoPure {
+            p_l: one("p_l")?,
+            p_v: one("p_v")?,
+            rho_l: one("rho_l")?,
+            rho_v: one("rho_v")?,
+            t_range: (lo, hi),
+        });
     }
     for m in list(v, "melting")? {
         r.melting.push(MeltingSegment {
@@ -523,8 +560,16 @@ mod tests {
     }
 
     /// The blob sections the dump covers, by their names in `BLOB_SECTIONS` (PLAN.md §2.5).
-    const DUMPED: [&str; 7] =
-        ["metadata", "eos", "superancillary fit", "superancillary", "caloric curves", "melting", "corrections"];
+    const DUMPED: [&str; 8] = [
+        "metadata",
+        "eos",
+        "superancillary fit",
+        "superancillary",
+        "caloric curves",
+        "ancillaries",
+        "melting",
+        "corrections",
+    ];
 
     /// PLAN.md §2.5: every section the blob decoder reads has a readable form here; a step that fills a reserved
     /// section (its decoder no longer refuses it) must extend the dump in the same PR, or this fails.
@@ -540,7 +585,7 @@ mod tests {
             "a section the decoder reads is missing from the dump, or the dump lists one it does not"
         );
         let reserved = phasekit_core::internal::BLOB_SECTIONS.len() - read.len();
-        assert_eq!(reserved, 3, "ancillaries, transport, surface tension");
+        assert_eq!(reserved, 2, "transport, surface tension");
     }
 
     /// Caloric curves survive the dump (no shipped blob has them before M5.2a).

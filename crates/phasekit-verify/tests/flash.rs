@@ -75,7 +75,7 @@ fn pseudo_pure_in_dome_dt_follows_the_oracle_rule() {
     for name in ["Air", "R404A", "R407C", "R410A", "R507A", "SES36"] {
         let record = phasekit_core::internal::record(&registry, name).unwrap();
         let of = |row: usize| fixture.printed(row, "fluid") == Some(name);
-        check.dt_rows_where(&fixture, registry.get(name).unwrap(), &record, of);
+        check.dt_rows_where(&fixture, name, (registry.get(name).unwrap(), &record), of);
     }
     assert_eq!(check.report(20), None);
     assert_eq!((check.compared, check.two_phase), (96, 92));

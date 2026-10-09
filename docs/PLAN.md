@@ -921,8 +921,11 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
   Measured at M6.9: the blobs carry the six fluids' pL, pV, rhoL and rhoV ancillaries and QT's range (the blob's
   ancillaries section); each side's density is the EOS's at its (T, p), restarted from the branch's far end where the
   density ancillary's seed is unstable, as CoolProp's. Inside the dome CoolProp does not use the ancillaries for p or Q:
-  it solves the pure-fluid VLE of the blend's EOS from them (`HelmholtzEOSMixtureBackend.cpp:2447-2507`), and so does
-  the phase rule here; all 96 `dome` rows agree, 4 of them gas. CoolProp's ancillary inversions stop at 1e-10 K, so its
+  past its density bands it solves the pure-fluid VLE of the blend's EOS from them (`HelmholtzEOSMixtureBackend.cpp:
+  2340-2507`), and so does the phase rule here, bands included (user decision PS3: each blend's EOS critical point lies
+  below its published one, Air's by 0.67 K, R407C's by 2.7 K, where no VLE splits); all 96 `dome` rows agree, 4 of them
+  gas, and the nightly grid's 11 961 states of the six, but for 40 p cells of SES36 at its lowest temperatures, where
+  CoolProp's in-dome p changes with Q (DIV-0019). CoolProp's ancillary inversions stop at 1e-10 K, so its
   PQ sides are checked at its own T (user decision PS1); within Θ ≈ 1e-3 of the top Air's and R407C's bubble pressure
   ancillaries turn over and SES36's own QT fails, where phasekit refuses (D6) and the rows are counted (PS2). A
   pseudo-pure fluid's model critical point stays the published one, as CoolProp's.

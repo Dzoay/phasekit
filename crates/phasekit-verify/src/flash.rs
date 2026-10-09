@@ -8,6 +8,8 @@ use phasekit_core::internal::FluidRecord;
 use phasekit_core::{Basis, Density, Fluid, Input, Order, Phase, Temperature};
 
 use crate::eos::{Majorants, carried};
+use crate::fixture::Kind;
+use crate::register::{DIVERGENCES, RowKey, exempt_row};
 use crate::term::{IdealScale, report};
 use crate::{Cell, Fixture, ToleranceClass, Window};
 
@@ -32,6 +34,8 @@ pub struct FlashCheck {
     pub compared: usize,
     /// Of those, the two-phase ones.
     pub two_phase: usize,
+    /// Cells the register exempts (`register::exempt_row`, kind `flash`).
+    pub exempt: usize,
     /// One line per disagreement.
     pub failures: Vec<String>,
 }
@@ -39,18 +43,19 @@ pub struct FlashCheck {
 impl FlashCheck {
     /// Checks every DT row of `fixture` against `fluid`, whose decoded data is `record`. Every row's status is `ok`.
     pub fn dt_rows(&mut self, fixture: &Fixture<'_>, fluid: &Fluid, record: &FluidRecord) {
-        self.dt_rows_where(fixture, fluid, record, |_| true);
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap_or_default();
+        self.dt_rows_where(fixture, name, (fluid, record), |_| true);
     }
 
-    /// [`Self::dt_rows`] for the rows `keep` selects (those of one fluid in an all-fluid file).
+    /// [`Self::dt_rows`] for the rows `keep` selects of `name` (one fluid's in an all-fluid file).
     pub fn dt_rows_where(
         &mut self,
         fixture: &Fixture<'_>,
-        fluid: &Fluid,
-        record: &FluidRecord,
+        name: &str,
+        (fluid, record): (&Fluid, &FluidRecord),
         keep: impl Fn(usize) -> bool,
     ) {
-        let path = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap_or_default();
+        let path = name;
         let (Some(eos), Ok(ideal)) = (fluid.model().helmholtz(), IdealScale::new(record)) else {
             self.failures.push(format!("{path}: not a Helmholtz fluid"));
             return;
@@ -95,6 +100,11 @@ impl FlashCheck {
                 ("u", state.u(b), r * t, "umolar"),
             ];
             for (column, got, floor, relation) in columns {
+                let key = RowKey { t, input: None, two_phase: !single };
+                if exempt_row(DIVERGENCES, name, Kind::Flash, column, key).is_some() {
+                    self.exempt += 1;
+                    continue;
+                }
                 let want = number(column);
                 let spread = match (single, &bundle) {
                     (true, Some(bundle)) => carried(relation, bundle, &majorants, r, t, rho, m),
@@ -189,7 +199,7 @@ mod tests {
         let text = file("Water", &[row(&wet, 1.0, q)]);
         let fixture = Fixture::parse("hand-made", &text).unwrap();
         let (mut none, water) = (FlashCheck::default(), phasekit_core::internal::record(&registry, "Water").unwrap());
-        none.dt_rows_where(&fixture, registry.get("Water").unwrap(), &water, |_| false);
+        none.dt_rows_where(&fixture, "Water", (registry.get("Water").unwrap(), &water), |_| false);
         assert_eq!((none.compared, none.failures.len()), (0, 0), "a row filtered out is not checked");
     }
 

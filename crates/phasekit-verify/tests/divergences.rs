@@ -27,6 +27,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0016", div_0016),
     ("DIV-0017", div_0017),
     ("DIV-0018", div_0018),
+    ("DIV-0019", div_0019),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -311,4 +312,17 @@ fn div_0018() {
     let ours = registry.get("R245fa").unwrap().state(input).unwrap().t();
     assert!((ours / t - 1.0).abs() <= 1e-14, "{ours} against {t}");
     assert!((sat.value(pq, "T").unwrap() / t - 1.0).abs() > 1e-14, "the exempt cell still differs");
+}
+
+/// DIV-0019, part M6 (`SkipOracle`; M6.9): inside SES36's dome at 206.2675 K, phasekit's DT state is the pure VLE of
+/// its EOS, the same p at every density there, with g′ = g″ to rounding; the exempt cell still differs: CoolProp's p is
+/// 1e-8 away and changes with Q.
+fn div_0019() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let ses36 = registry.get("SES36").unwrap();
+    let dt = |rho: f64| Input::dt(Density::molar(rho).unwrap(), Temperature::new(206.2675).unwrap());
+    let states = [1.97058, 0.656961].map(|rho| ses36.state(dt(rho)).unwrap());
+    assert!(states.iter().all(|s| s.phase() == Phase::TwoPhase) && states[0].p() == states[1].p());
+    let oracle = fact("div0019_p_t206.2675_rho1.97058");
+    assert!((states[0].p() / oracle - 1.0).abs() > 1e-9, "the exempt cell still differs: {}", states[0].p());
 }

@@ -107,6 +107,9 @@ FACTS = {
         # CoolProp's own VLE at PropyleneGlycol's triple point, superancillaries off (DIV-0016).
         ("div0016_rhomolar_liquid_t213", "PropsSIVle", ("Dmolar", "T", 213, "Q", 0, "PropyleneGlycol")),
         ("div0016_rhomolar_vapour_t213", "PropsSIVle", ("Dmolar", "T", 213, "Q", 1, "PropyleneGlycol")),
+        # CoolProp's in-dome p of SES36 at one T and two densities: it changes with Q (DIV-0019).
+        ("div0019_p_t206.2675_rho1.97058", "PropsSI", ("P", "T", 206.2675, "Dmolar", 1.97058, "SES36")),
+        ("div0019_p_t206.2675_rho0.656961", "PropsSI", ("P", "T", 206.2675, "Dmolar", 0.656961, "SES36")),
     ],
 }
 
@@ -844,7 +847,8 @@ def sat(CP, lock, config, files, args):
 
 # The `flash` kind (section 3.5): pairs read off truth states, never density bands (map 12 section 6.4). Since M5.3
 # the DT rows: a truth state on the (log p, T) grid or the (T, Q) grid, its density and T, and CoolProp's DT flash of
-# them with no phase imposed. Q is nan for a single phase (CoolProp's -1 sentinel, ROT-013); `phase` is CoolProp's name.
+# them with no phase imposed. Q is nan for a single phase (CoolProp's -1 sentinel, ROT-013, and its Q = 1 on a
+# pseudo-pure gas); `phase` is CoolProp's name.
 FLASH_COLUMNS = ["pair", "x1", "x2", "truth", "status", "T", "rho", "p", "h", "s", "u", "Q", "phase"]
 FLASH_UNITS = ["-", "mol/m3", "K", "-", "-", "K", "mol/m3", "Pa", "J/mol", "J/mol/K", "J/mol", "-", "-"]
 FLASH_TOL = ["label", "in", "in", "label", "label", *["flash"] * 7, "label"]
@@ -910,9 +914,11 @@ def flash_rows(job):
         try:
             state = CP.AbstractState("HEOS", name)
             state.update(CP.DmolarT_INPUTS, rho, t)
-            q = state.Q() if 0.0 <= state.Q() <= 1.0 else math.nan
-            values = [state.T(), state.rhomolar(), state.p(), state.hmolar(), state.smolar(), state.umolar(), q]
             phase = next((v for k, v in FLASH_PHASES.items() if CP.get_phase_index(k) == state.phase()), "other")
+            # Q of a two-phase state only: CoolProp leaves Q = 1 on a gas its pseudo-pure VLE path labels (M6.9), a
+            # sentinel like its -1 (ROT-013).
+            q = state.Q() if phase == "twophase" else math.nan
+            values = [state.T(), state.rhomolar(), state.p(), state.hmolar(), state.smolar(), state.umolar(), q]
             status = "ok"
         except Exception as exception:  # every oracle failure becomes a status, never a crash
             values, phase, status = [math.nan] * 7, "none", f"err:{error_class(exception)}"

@@ -110,7 +110,8 @@ fn superancillary_matches_oracle_on_the_nightly_grid() {
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures-full/coolprop-8.0.0/flash/<Fluid>.csv (PLAN.md M5.3): DT read off 40 × 40 (p, T)
-/// and 20 × 20 (T, Q) truth states of every fluid, against CoolProp's DT flash; as `dt_two_phase_matches_oracle`.
+/// and 20 × 20 (T, Q) truth states of every fluid (`dome` truths for the pseudo-pure ones, M6.9), against CoolProp's DT
+/// flash; as `dt_two_phase_matches_oracle`, the p cells DIV-0019 exempts aside.
 #[test]
 #[ignore = "nightly: reads the full flash set (cargo xtask oracle --kind flash --tier full)"]
 fn dt_flash_matches_oracle_on_the_nightly_grid() {
@@ -125,6 +126,7 @@ fn dt_flash_matches_oracle_on_the_nightly_grid() {
     }
     assert_eq!(check.report(50), None);
     assert!(check.two_phase > 130 * 300, "{check:?}");
+    assert_eq!(check.exempt, 40, "DIV-0019: SES36's in-dome p at its two lowest grid temperatures");
 }
 
 /// The same over every fluid with a superancillary, from the nightly's `cargo xtask fetch-fastchebpure --all`

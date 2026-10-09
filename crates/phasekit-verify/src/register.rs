@@ -77,6 +77,25 @@ pub enum Rows {
     },
     /// Rows given p (the `sat` kind's PQ rows, input `p`).
     GivenP,
+    /// Two-phase rows with lo ≤ T ≤ hi (a `flash` row's state in the dome).
+    TwoPhaseTBand {
+        /// Lower temperature (K).
+        lo: f64,
+        /// Upper temperature (K).
+        hi: f64,
+    },
+}
+
+/// What a row is known by when the register is asked about it: its temperature, the input label of a `sat` row, and
+/// whether its state is two-phase.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RowKey<'a> {
+    /// The row's temperature (K).
+    pub t: f64,
+    /// The `sat` kind's input label (`T`, `p` or `sa`), if any.
+    pub input: Option<&'a str>,
+    /// Whether the row's state is two-phase.
+    pub two_phase: bool,
 }
 
 /// The oracle cells a `SkipOracle` entry does not assert on Parity; the tests count them.
@@ -374,30 +393,50 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[6],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0019",
+        fluids: &["SES36"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::None,
+        evidence: "map 04 U4, M6.9: at SES36's lowest temperatures (p 114 Pa at 206.27 K) CoolProp's in-dome DT p changes \
+                   with Q at fixed T, weighting its VLE sides' pressures (1.3e-9 apart), and sits 1e-8 from phasekit's VLE, \
+                   whose g' = g'' to 1e-15",
+        exempt: Some(Exempt {
+            kinds: &[Kind::Flash],
+            columns: &["p"],
+            rows: Rows::TwoPhaseTBand { lo: 200.0, hi: 220.0 },
+        }),
+        tolerance: None,
+        proof: &[6],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an
 /// exemption of every row or of a temperature band (the others need more than T to decide).
 pub fn exempt_at(register: &[Divergence], fluid: &str, kind: Kind, column: &str, t: f64) -> Option<&'static str> {
-    exempt_row(register, fluid, kind, column, t, None)
+    exempt_row(register, fluid, kind, column, RowKey { t, input: None, two_phase: false })
 }
 
-/// [`exempt_at`] for a row whose input label (the `sat` kind's `T`, `p` or `sa`) is known too: [`Rows::GivenP`]
-/// exempts the rows given p.
+/// [`exempt_at`] for a row known by more than its T ([`RowKey`]): [`Rows::GivenP`] exempts the rows given p and
+/// [`Rows::TwoPhaseTBand`] the two-phase rows of a temperature band.
 pub fn exempt_row(
     register: &[Divergence],
     fluid: &str,
     kind: Kind,
     column: &str,
-    t: f64,
-    input: Option<&str>,
+    row: RowKey<'_>,
 ) -> Option<&'static str> {
+    let RowKey { t, input, two_phase } = row;
     let applies = |d: &&Divergence| {
         let Some(e) = &d.exempt else { return false };
         let rows = match e.rows {
             Rows::All => true,
             Rows::TBand { lo, hi } => lo <= t && t <= hi,
             Rows::GivenP => input == Some("p"),
+            Rows::TwoPhaseTBand { lo, hi } => two_phase && lo <= t && t <= hi,
             _ => false,
         };
         (d.fluids.contains(&fluid) || d.fluids == ["*"])
@@ -499,7 +538,7 @@ mod tests {
 
     /// `exempt_at`: a band's ends are in and its outside is not, nor another column or fluid; `["*"]` covers every fluid
     /// and `Rows::All` every T; other row sets need more than T. DIV-0016 exempts PropyleneGlycol's check points, and
-    /// DIV-0018 (through `exempt_row`) the PQ rows of the `sat` kind.
+    /// DIV-0018 (through `exempt_row`) the PQ rows of the `sat` kind, DIV-0019 the two-phase `flash` rows of a T band.
     #[test]
     fn exemptions_by_fluid_kind_column_and_temperature() {
         let exempt = |kinds: &'static [Kind], rows| Some(Exempt { kinds, columns: &["p"], rows });
@@ -530,11 +569,22 @@ mod tests {
             [Some("DIV-0016"), Some("DIV-0016"), None, None]
         );
         // DIV-0018: the oracle's PQ cells but p, its input; not its QT or `sa` rows, nor a row whose input is unknown.
-        let sat = |column, input| exempt_row(DIVERGENCES, "Water", Kind::Sat, column, 400.0, input);
+        let sat = |column, input| {
+            exempt_row(DIVERGENCES, "Water", Kind::Sat, column, RowKey { t: 400.0, input, two_phase: false })
+        };
         assert_eq!(
             [sat("T", Some("p")), sat("sV", Some("p")), sat("p", Some("p")), sat("T", Some("T")), sat("T", None)],
             [Some("DIV-0018"), Some("DIV-0018"), None, None, None]
         );
         assert_eq!(exempt_at(DIVERGENCES, "Water", Kind::Sat, "rhoL", 400.0), None);
+        // DIV-0019: SES36's two-phase flash rows from 200 K to 220 K, their p only.
+        let ses36 = |column, t, two_phase| {
+            exempt_row(DIVERGENCES, "SES36", Kind::Flash, column, RowKey { t, input: None, two_phase })
+        };
+        assert_eq!(
+            [ses36("p", 206.0, true), ses36("p", 220.0, true), ses36("p", 206.0, false), ses36("h", 206.0, true)],
+            [Some("DIV-0019"), Some("DIV-0019"), None, None]
+        );
+        assert_eq!((ses36("p", 199.9, true), ses36("p", 220.1, true)), (None, None));
     }
 }

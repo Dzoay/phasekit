@@ -13,7 +13,7 @@ use phasekit_core::{
 };
 use phasekit_verify::eos::{Majorants, carried};
 use phasekit_verify::fixture::Kind;
-use phasekit_verify::register::exempt_row;
+use phasekit_verify::register::{RowKey, exempt_row};
 use phasekit_verify::term::IdealScale;
 use phasekit_verify::{Cell, CheckError, DIVERGENCES, Fixture, ToleranceClass, Window, fixture};
 
@@ -423,7 +423,7 @@ fn q_rows<'a>(fixture: &Fixture<'a>, fluid_of: impl Fn(usize) -> &'a str, regist
         }
         out.pq += 1;
         for column in ["T", "rhoL", "rhoV", "hL", "hV", "sL", "sV"] {
-            match exempt_row(DIVERGENCES, name, Kind::Sat, column, t, Some("p")) {
+            match exempt_row(DIVERGENCES, name, Kind::Sat, column, RowKey { t, input: Some("p"), two_phase: false }) {
                 Some("DIV-0018") => out.exempt += 1,
                 other => out.failures.push(format!("{at}: {column} exempt by {other:?}")),
             }
@@ -558,7 +558,7 @@ fn sat_fixtures_match_oracle() {
     let each = 130 * 8 + 12 * 50;
     assert_eq!((rows.qt, rows.pq, rows.exempt), (each, each, each * 7));
     assert_eq!((rows.outside, rows.ambiguous.as_slice()), (20, &["PropyleneGlycol: 2 roots".to_owned()] as &[String]));
-    assert_eq!(rows.ancillary, AncillaryRows { rows: 0, oracle_failed: 0, refused: 0, cells: 0 });
+    assert_eq!(rows.ancillary, AncillaryRows { rows: 487, oracle_failed: 1, refused: 9, cells: 1626 });
 }
 
 /// Map 11 §8, CoolProp's own smoke value (PLAN.md M6.8): R134a's h at 300 K and Q = 1 is 413265.6843372975 J/kg in
