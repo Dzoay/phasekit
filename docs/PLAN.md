@@ -887,7 +887,9 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
   proof parts due at M6. *Done when:* green; the ARCHITECTURE.md §8 sentence loses its *(inference)* tag in the same PR.
 - **M6.6 Stale curve polish.** *Failing test:* `stale_curve_is_a_guess_polished_by_vle` (an `Edit` other than R/ρ_r on
   a test record → `SatAccuracy::Guess`; QT equals VLE within `SatMp`). *Do:* the `Guess` path in the phase rule. *Done
-  when:* green.
+  when:* green. Measured at M6.6: no `Edit` changes the EOS's shape, so the test edits a record's power-term
+  coefficient directly; QT does not exist before M6.8, so DT in the dome is the state checked (its p and quality are
+  the VLE's, path `Vle`), and M6.8's QT tests cover the `Guess` curve too.
 - **M6.7 Critical points.** *Failing tests:* `published_critical_point_is_exact` (Water 647.096 K vs the oracle's
   computed 647.0959999999873; map 01 §8), `numerical_critical_point_satisfies_the_criticality_conditions`
   (∂p/∂ρ = ∂²p/∂ρ² = 0, class `Flash`), `both_critical_points_are_exposed_distinctly` (R13: 303.05 K vs 301.88 K;
