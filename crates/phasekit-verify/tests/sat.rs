@@ -599,3 +599,28 @@ fn r410a_pseudo_pure_rows() {
     }
     assert!((t[1] - (t[0] + t[2]) / 2.0).abs() < 1e-12, "{t:?}");
 }
+
+/// ROT-084 (map 02 §6; PLAN.md M6.11, closing M6): QT at both of R13's critical temperatures. At the published 301.88 K,
+/// where CoolProp without superancillaries throws, the dome still holds (ρ′ > ρ″): the model's own critical point is
+/// 303.05 K. At the model's Tc, the top of its superancillary, QT is that point, ρ′ = ρ″, and p and ρ are the oracle's
+/// computed ones (`crit` rows) within `Flash`'s near-critical bounds.
+#[test]
+fn qt_at_both_critical_temperatures() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let r13 = registry.get("R13").unwrap();
+    let published = r13.info().published_critical().unwrap();
+    let side = |q: f64, t: f64| r13.state(qt(q, t)).unwrap().rho(Basis::Molar);
+    assert_eq!(published.t, 301.88);
+    assert!(side(0.0, published.t) > 1.1 * side(1.0, published.t), "the dome at the published Tc");
+    let top = phasekit_core::internal::record(&registry, "R13").unwrap().superancillary_curve().unwrap().t_range().1;
+    let state = r13.state(qt(0.5, top)).unwrap();
+    assert!((side(0.0, top) / side(1.0, top) - 1.0).abs() < 1e-14, "ρ′ = ρ″ at the model's Tc");
+    let (path, text) = fixture!("coolprop-8.0.0/all/crit.csv");
+    let crit = Fixture::parse(path, text).unwrap();
+    let row = (0..crit.rows().len()).find(|&r| crit.printed(r, "fluid") == Some("R13")).unwrap();
+    let cells = [("Tc_num", top, 1e-8), ("pc_num", state.p(), 1e-9), ("rhoc_num", state.rho(Basis::Molar), 1e-6)];
+    for (column, got, bound) in cells {
+        let want = crit.value(row, column).unwrap();
+        assert!((got / want - 1.0).abs() <= bound, "{column}: {got} against {want}");
+    }
+}
