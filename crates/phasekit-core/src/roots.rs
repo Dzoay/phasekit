@@ -271,6 +271,14 @@ pub(crate) fn toms748(mut f: impl FnMut(f64) -> f64, a: f64, b: f64, tol: Tol, m
     s.best(max_iter, Stop::MaxIterations)
 }
 
+/// Whether a multivariate Newton has converged (PLAN.md M6.4): its next step, `length` long, is within `step_tol`, or its
+/// residual `size` is at its rounding `floor` and the step no longer halves (`previous` is the last step's length).
+/// Near a critical point the steps are rounding over a small stiffness and never reach `step_tol`; once they stop
+/// shrinking, every step that still improved the answer has been taken (the VLE, the critical point).
+pub(crate) fn newton_converged(length: f64, size: f64, previous: f64, (step_tol, floor): (f64, f64)) -> bool {
+    length <= step_tol || (size <= floor && length > previous / 2.0)
+}
+
 /// Newton on [lo, hi] with a sign change, from `x0`; `f(x)` returns (f, f′). A step that leaves the closed bracket,
 /// or a non-finite one, becomes a bisection (rtsafe). Converged only when the step meets `tol` AND |f| ≤ `ftol` at the new
 /// point: CoolProp's Newton stops on the step alone (map 03 §3.4).

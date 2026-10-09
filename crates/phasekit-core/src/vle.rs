@@ -10,7 +10,7 @@ use crate::derivs::{Bundle, Order};
 use crate::error::Error;
 use crate::helmholtz::HelmholtzModel;
 use crate::num::{math, solve_small};
-use crate::roots::{Root, Stop, Tol, toms748};
+use crate::roots::{Root, Stop, Tol, newton_converged, toms748};
 use crate::saturation::{SatPair, SatSide};
 use crate::state::Strategy;
 
@@ -124,7 +124,7 @@ fn at_pressure(sat: SatPair, p: f64) -> SatPair {
 /// Water at Θ = 5e-4) and never fall below [`STEP_TOL`]; once they stop shrinking, every step that still improved the
 /// answer has been taken.
 fn converged(length: f64, size: f64, previous: f64) -> bool {
-    length <= STEP_TOL || (size <= FLOOR && length > previous / 2.0)
+    newton_converged(length, size, previous, (STEP_TOL, FLOOR))
 }
 
 /// The largest step multiple, at most 1, that moves no unknown by more than its limit: `moves` holds each unknown's

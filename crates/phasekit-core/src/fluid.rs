@@ -171,8 +171,8 @@ impl PureFluid {
         if let Ok((t, rho, p)) = crate::crit::numerical(&*self.eos, t0, rho0) {
             return Some(model(t, p, rho));
         }
-        // Non-analytic terms make the derivatives singular at τ = δ = 1 (Water, CarbonDioxide), where the exact curve's
-        // top is the critical point.
+        // Where the solve cannot run, an exact curve's top stands: non-analytic terms are singular at τ = δ = 1 (Water's
+        // and CarbonDioxide's published points; their superancillary tops lie just off it, and solve).
         match (curve.accuracy(), top) {
             (SatAccuracy::Exact, Some(top)) => Some(model(top.bubble.t, top.bubble.p, top.bubble.rho)),
             _ => Some(given),

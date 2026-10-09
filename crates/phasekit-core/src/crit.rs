@@ -10,6 +10,7 @@ use crate::derivs::Order;
 use crate::error::Error;
 use crate::helmholtz::HelmholtzModel;
 use crate::num::{math, solve_small};
+use crate::roots::newton_converged;
 use crate::state::Strategy;
 
 /// Newton iterations allowed.
@@ -47,13 +48,45 @@ pub(crate) fn numerical(eos: &dyn HelmholtzModel, t0: f64, rho0: f64) -> Result<
         let length = step[0].abs().max(step[1].abs());
         let scale = (MAX_STEP.0 / step[0].abs()).min(MAX_STEP.1 / step[1].abs()).min(1.0);
         (t, rho) = (t * math::exp(scale * step[0]), rho * math::exp(scale * step[1]));
-        let at_floor = k[0].abs().max(k[1].abs()) <= FLOOR && length > previous / 2.0;
+        let converged = newton_converged(length, k[0].abs().max(k[1].abs()), previous, (STEP_TOL, FLOOR));
         previous = length;
-        if length <= STEP_TOL || at_floor {
+        if converged {
             let d = eos.ideal(t, rho, Order::One) + eos.residual(t, rho, Order::One);
             let a01 = d.get(0, 1).ok_or(failed(iteration))?;
             return Ok((t, rho, rho * eos.gas_constant() * t * a01));
         }
     }
     Err(failed(MAX_ITER))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Jacobian of (K1, K2) in (ln T, ln ρ) against central differences of K1 and K2 (class `Fd`, of scales of 1),
+    /// for Methane near its critical point: Newton converges with a slightly wrong Jacobian too, only more slowly, so
+    /// it is checked here directly.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn jacobian_matches_central_differences() {
+        let registry = crate::Registry::from_embedded(crate::DataSet::Parity).unwrap();
+        let fluid = crate::internal::record(&registry, "Methane").unwrap().compile().unwrap();
+        let eos = fluid.eos();
+        for (t, rho) in [(200.0, 10_000.0), (191.0, 8_000.0), (250.0, 14_000.0)] {
+            let (_, jacobian) = system(eos, t, rho).unwrap();
+            let h = 1e-6;
+            let k = |dlt: f64, dlr: f64| system(eos, t * math::exp(dlt), rho * math::exp(dlr)).unwrap().0;
+            let columns = [(k(h, 0.0), k(-h, 0.0)), (k(0.0, h), k(0.0, -h))];
+            for (j, (up, down)) in columns.iter().enumerate() {
+                for i in 0..2 {
+                    let fd = (up[i] - down[i]) / (2.0 * h);
+                    let got = jacobian[i][j];
+                    assert!(
+                        (got - fd).abs() <= 1e-7 * got.abs().max(1.0),
+                        "({t}, {rho}) [{i}][{j}]: {got} against {fd}"
+                    );
+                }
+            }
+        }
+    }
 }

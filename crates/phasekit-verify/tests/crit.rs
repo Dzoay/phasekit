@@ -28,8 +28,8 @@ fn conditions(eos: &dyn phasekit_core::HelmholtzModel, t: f64, rho: f64) -> (f64
 }
 
 /// Map 01 §8: Water's published critical point is IAPWS-95's 647.096 K exactly, kept apart from the model's own,
-/// which is the oracle's computed 647.0959999999873 K (the superancillary's top, as the non-analytic terms make the
-/// derivatives singular at τ = δ = 1), within `Flash`.
+/// which is the oracle's computed 647.0959999999873 K within `Flash` (solved from the superancillary's top, which lies
+/// just off τ = δ = 1, where the non-analytic terms are singular).
 #[test]
 fn published_critical_point_is_exact() {
     let water = Registry::embedded().unwrap().get("Water").unwrap();
@@ -94,10 +94,11 @@ fn both_critical_points_are_exposed_distinctly() {
 }
 
 /// Oracle: the crit kind's computed columns (VERIFICATION.md §3.5, class `Flash`, near-critical bounds: ρ 1e-6, T 1e-8)
-/// and the criticality conditions (user decision CR1). Every model critical point the EOS solved satisfies K1 = K2 = 0
-/// within `Flash` (Water's and CarbonDioxide's are their superancillary's top, where their non-analytic terms make the
-/// conditions singular; the pseudo-pure fluids' is the published point, as CoolProp's). And each is CoolProp 8.0.0's
-/// computed point within `Flash`'s near-critical bounds, for all 136, but for the 6 cells DIV-0017 exempts.
+/// and the criticality conditions (user decision CR1). Every model critical point the EOS solved, all 130 with a
+/// superancillary, satisfies K1 = K2 = 0 within `Flash` (Water's and CarbonDioxide's too: their superancillary tops lie
+/// just off τ = δ = 1, where their non-analytic terms are singular; the pseudo-pure fluids' is the published point, as
+/// CoolProp's). And each is CoolProp 8.0.0's computed point within `Flash`'s near-critical bounds, for all 136, but for
+/// the 6 cells DIV-0017 exempts.
 #[test]
 fn model_critical_points_match_the_oracle() {
     let (crit, registry) = (crit(), Registry::from_embedded(DataSet::Parity).unwrap());
@@ -106,7 +107,7 @@ fn model_critical_points_match_the_oracle() {
         let name = crit.printed(r, "fluid").unwrap();
         let fluid = registry.get(name).unwrap();
         let model = fluid.model().critical_point().unwrap();
-        if model.origin == CriticalOrigin::Model && !["Water", "CarbonDioxide"].contains(&name) {
+        if model.origin == CriticalOrigin::Model {
             let (k1, k2) = conditions(fluid.model().helmholtz().unwrap(), model.t, model.rho);
             if k1.abs().max(k2.abs()) > 1e-9 {
                 failures.push(format!("{name}: K1 {k1}, K2 {k2}"));
@@ -125,5 +126,5 @@ fn model_critical_points_match_the_oracle() {
         }
     }
     assert_eq!(failures, Vec::<String>::new());
-    assert_eq!((solved, exempt), (128, 6));
+    assert_eq!((solved, exempt), (130, 6));
 }

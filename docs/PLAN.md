@@ -896,10 +896,11 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
   map 02 §6). *Do:* `CriticalPoint { origin }` published and numerical (map 03 §6 config-dependent critical point);
   the numerical columns of the `crit` kind. *Done when:* green. Measured at M6.7: the model's critical point is the
   EOS's own, by Newton on K1 = K2 = 0 from a saturation curve's top (CoolProp's computed point within `Flash`'s
-  near-critical bounds, T to 2e-14), the superancillary's top for Water and CarbonDioxide (their non-analytic terms are
-  singular at τ = δ = 1), and the published point for the pseudo-pure fluids, as CoolProp's; a nested search along
-  the isotherms is ill-posed below Tc, where multiparameter isotherms have several inflections. User decision CR1 and
-  DIV-0017 cover the flat and degenerate critical isotherms of DimethylCarbonate and Chlorine.
+  near-critical bounds, T to 2e-14; Water's and CarbonDioxide's tops lie just off τ = δ = 1, where their non-analytic
+  terms are singular, and solve too; an exact curve's top stands only where the solve cannot run), and the published
+  point for the pseudo-pure fluids, as CoolProp's; a nested search along the isotherms is ill-posed below Tc, where
+  multiparameter isotherms have several inflections. User decision CR1 and DIV-0017 cover the flat and degenerate
+  critical isotherms of DimethylCarbonate and Chlorine.
 - **M6.8 QT and PQ.** *Failing tests:* `sat_fixtures_match_oracle` (QT, PQ, both Q; class `SaCoeff` where the oracle
   path is `superanc`, `Prop` for `ancillary`; core subset and all-fluid tier), `q_pairs_report_their_saturation_source`
   (`State::path()`), `r134a_qt_smoke` (h = 413265.6843372975 J/kg at 300 K, Q = 1; map 11 §8),
