@@ -27,12 +27,25 @@ const FLOOR: f64 = 1e-12;
 /// The largest step in ln T and in ln ρ: the guess is within a few % of the root (R40's published Tc is 0.56 % off).
 const MAX_STEP: (f64, f64) = (0.005, 0.05);
 
+/// (K1, K2) at (T, ρ) from A01, A02 and A03 of the total α: (∂p/∂ρ)_T = RT·K1 and (∂²p/∂ρ²)_T = (RT/ρ)·K2.
+fn k1_k2(a01: f64, a02: f64, a03: f64) -> [f64; 2] {
+    [2.0 * a01 + a02, 2.0 * a01 + 4.0 * a02 + a03]
+}
+
+/// (K1, K2) of `eos` at (T, ρ) (see [`k1_k2`]); `None` if the model refuses the point. The phase rule's mechanical
+/// stability tests use it too.
+pub(crate) fn conditions(eos: &dyn HelmholtzModel, t: f64, rho: f64) -> Option<[f64; 2]> {
+    let d = eos.ideal(t, rho, Order::Three) + eos.residual(t, rho, Order::Three);
+    let k = k1_k2(d.get(0, 1)?, d.get(0, 2)?, d.get(0, 3)?);
+    k.iter().all(|v| v.is_finite()).then_some(k)
+}
+
 /// (K1, K2) at (T, ρ) and the Jacobian of (K1, K2) in (ln T, ln ρ); `None` if the model refuses the point.
 fn system(eos: &dyn HelmholtzModel, t: f64, rho: f64) -> Option<([f64; 2], [[f64; 2]; 2])> {
     let d = eos.ideal(t, rho, Order::Four) + eos.residual(t, rho, Order::Four);
     let a = |i, j| d.get(i, j);
     let [a01, a02, a03, a04, a11, a12, a13] = [a(0, 1)?, a(0, 2)?, a(0, 3)?, a(0, 4)?, a(1, 1)?, a(1, 2)?, a(1, 3)?];
-    let k = [2.0 * a01 + a02, 2.0 * a01 + 4.0 * a02 + a03];
+    let k = k1_k2(a01, a02, a03);
     let jacobian =
         [[-(2.0 * a11 + a12), k[1]], [-(2.0 * a11 + 4.0 * a12 + a13), 2.0 * a01 + 10.0 * a02 + 7.0 * a03 + a04]];
     (k.iter().chain(jacobian.iter().flatten()).all(|v| v.is_finite())).then_some((k, jacobian))
@@ -86,6 +99,28 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// K1 and K2 are (∂p/∂ρ)_T/RT and (∂²p/∂ρ²)_T·ρ/RT: against central differences of p in ρ (class `Fd`) for Methane
+    /// at a liquid, a vapour and a near-critical state.
+    #[test]
+    fn conditions_are_pressure_derivatives() {
+        let registry = crate::Registry::from_embedded(crate::DataSet::Parity).unwrap();
+        let fluid = crate::internal::record(&registry, "Methane").unwrap().compile().unwrap();
+        let eos = fluid.eos();
+        for (t, rho) in [(150.0, 25_000.0), (150.0, 500.0), (191.0, 10_000.0)] {
+            let rt = eos.gas_constant() * t;
+            let p = |rho: f64| {
+                let d = eos.ideal(t, rho, Order::One) + eos.residual(t, rho, Order::One);
+                rho * rt * d.get(0, 1).unwrap()
+            };
+            let h = 1e-4 * rho;
+            let dp = (p(rho + h) - p(rho - h)) / (2.0 * h);
+            let d2p = (p(rho + h) - 2.0 * p(rho) + p(rho - h)) / (h * h);
+            let [k1, k2] = conditions(eos, t, rho).unwrap();
+            let close = |got: f64, fd: f64| (got - fd).abs() <= 1e-6 * got.abs().max(1.0);
+            assert!(close(k1, dp / rt) && close(k2, d2p * rho / rt), "({t}, {rho}): {k1} {k2} against {dp} {d2p}");
         }
     }
 }

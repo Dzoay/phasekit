@@ -58,3 +58,32 @@ fn newton(eos: &dyn HelmholtzModel, t: f64, p: f64, seed: f64) -> Result<f64, Er
     }
     Err(failed(MAX_ITER))
 }
+
+#[cfg(all(test, feature = "fluids-all"))]
+mod tests {
+    use super::*;
+
+    /// Water at 400 K (saturation 245.77 kPa): from a seed inside the spinodal region (10 000 mol/m³, where
+    /// (∂p/∂ρ)_T < 0) the solve restarts from the branch's far end, the model's largest density for the compressed
+    /// liquid at 1 MPa and the ideal gas's p/RT for the vapour at 100 kPa, and finds each root to rounding; just above the
+    /// critical point (647.1 K), on a flat isotherm, it converges from a seed 1e-3 off.
+    #[test]
+    fn unstable_seeds_restart_from_the_branch_end() {
+        let registry = crate::Registry::from_embedded(crate::DataSet::Parity).unwrap();
+        let fluid = crate::internal::record(&registry, "Water").unwrap().compile().unwrap();
+        let eos = fluid.eos();
+        let p_at = |t: f64, rho: f64| {
+            let d = eos.ideal(t, rho, Order::One) + eos.residual(t, rho, Order::One);
+            rho * eos.gas_constant() * t * d.get(0, 1).unwrap()
+        };
+        assert!(newton(eos, 400.0, 1e6, 10_000.0).is_err(), "the seed is unstable");
+        let liquid = at_t_p(eos, 400.0, 1e6, 10_000.0, true).unwrap();
+        let vapour = at_t_p(eos, 400.0, 1e5, 10_000.0, false).unwrap();
+        assert!(liquid > 52_000.0 && (p_at(400.0, liquid) / 1e6 - 1.0).abs() < 1e-12, "{liquid}");
+        assert!((vapour - 30.3).abs() < 0.1 && (p_at(400.0, vapour) / 1e5 - 1.0).abs() < 1e-12, "{vapour}");
+        let (t, rho_c) = (647.1, 17_873.728);
+        let p = p_at(t, rho_c);
+        let near = at_t_p(eos, t, p, rho_c * 1.001, true).unwrap();
+        assert!((near / rho_c - 1.0).abs() < 1e-6, "{near}");
+    }
+}

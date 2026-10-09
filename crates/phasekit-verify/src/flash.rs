@@ -152,6 +152,14 @@ mod tests {
         format!("DT,{rho},{t},QT,ok,{t},{rho},{p},{h},{s},{u},{q},{}", coolprop_name(state.phase()))
     }
 
+    /// `state`'s row with p moved by the factor `scale`.
+    fn row_with_p(state: &State, scale: f64) -> String {
+        let row = row(state, 0.0, state.quality().unwrap_or(f64::NAN));
+        let mut cells: Vec<String> = row.split(',').map(str::to_owned).collect();
+        cells[7] = format!("{:?}", state.p() * scale);
+        cells.join(",")
+    }
+
     /// `rows` of `name` through `dt_rows`, against the `Parity` data.
     fn check(name: &str, rows: &[String]) -> FlashCheck {
         let registry = Registry::from_embedded(DataSet::Parity).unwrap();
@@ -201,6 +209,23 @@ mod tests {
         let (mut none, water) = (FlashCheck::default(), phasekit_core::internal::record(&registry, "Water").unwrap());
         none.dt_rows_where(&fixture, "Water", (registry.get("Water").unwrap(), &water), |_| false);
         assert_eq!((none.compared, none.failures.len()), (0, 0), "a row filtered out is not checked");
+    }
+
+    /// DIV-0019 through the register: SES36's two-phase row at 206.2675 K with p 1e-8 off is exempt in p (counted, no
+    /// failure); a single-phase row there with the same misfit is not.
+    #[test]
+    fn exempt_cells_are_counted_not_compared() {
+        let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+        let ses36 = registry.get("SES36").unwrap();
+        let state = |rho: f64| {
+            ses36.state(Input::dt(Density::molar(rho).unwrap(), Temperature::new(206.2675).unwrap())).unwrap()
+        };
+        let (dome, gas) = (state(1.97058), state(0.05));
+        assert_eq!((dome.phase(), gas.phase()), (Phase::TwoPhase, Phase::Gas));
+        let exempt = check("SES36", &[row_with_p(&dome, 1.0 + 1e-8)]);
+        assert_eq!((exempt.exempt, exempt.failures.len()), (1, 0), "{:?}", exempt.failures);
+        let single = check("SES36", &[row_with_p(&gas, 1.0 + 1e-8)]);
+        assert_eq!((single.exempt, single.failures.len()), (0, 1), "{:?}", single.failures);
     }
 
     /// CoolProp's phase names, one per label.

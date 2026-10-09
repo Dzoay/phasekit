@@ -185,11 +185,18 @@ fn region(fluid: &PureFluid, t: f64, rho: f64, p: f64, opts: &FlashOptions) -> R
 }
 
 /// CoolProp's density bands for a pseudo-pure fluid's DT below its critical temperature, before its VLE (D4, user
-/// decision PS3; `HelmholtzEOSMixtureBackend.cpp:2340-2380`): gas below 0.95 of the dew density ancillary, liquid above
-/// 1.05 of the bubble one, and liquid in the strip within 0.9975 of either where the ancillary quality is below 0.01, p
-/// is above 1.05 of the bubble pressure ancillary and (∂p/∂ρ)_T and (∂²p/∂ρ²)_T are positive. `None`: the VLE of the
-/// blend's EOS decides. The products are CoolProp's, rounded as it rounds them.
+/// decision PS3; `HelmholtzEOSMixtureBackend.cpp:2340-2380`), at (T, ρ) of `fluid` with the EOS's p: see [`band`],
+/// stability being (∂p/∂ρ)_T > 0 and (∂²p/∂ρ²)_T > 0 (`crate::crit::conditions`).
 fn pseudo_pure_bands(fluid: &PureFluid, t: f64, rho: f64, p: f64, sat: &SatPair) -> Option<Phase> {
+    let stable = || crate::crit::conditions(fluid.eos(), t, rho).is_some_and(|[k1, k2]| k1 > 0.0 && k2 > 0.0);
+    band(rho, p, sat, stable)
+}
+
+/// The bands at density ρ and pressure p for the ancillary sides `sat`: gas below 0.95 of the dew density, liquid above
+/// 1.05 of the bubble one, and liquid in the strip within 0.9975 of either where the ancillary quality is below 0.01, p
+/// is above 1.05 of the bubble pressure and the state is `stable` (asked only there). `None`: the VLE of the blend's
+/// EOS decides. The products are CoolProp's, rounded as it rounds them.
+fn band(rho: f64, p: f64, sat: &SatPair, stable: impl FnOnce() -> bool) -> Option<Phase> {
     let (rho_l, rho_v) = (sat.bubble.rho, sat.dew.rho);
     let (rho_vap, rho_liq) = (0.95 * rho_v, 1.05 * rho_l);
     if rho < rho_vap {
@@ -202,11 +209,7 @@ fn pseudo_pure_bands(fluid: &PureFluid, t: f64, rho: f64, p: f64, sat: &SatPair)
         return None;
     }
     let q_anc = (1.0 / rho - 1.0 / rho_l) / (1.0 / rho_v - 1.0 / rho_l);
-    let d = fluid.eos().ideal(t, rho, Order::Three) + fluid.eos().residual(t, rho, Order::Three);
-    let a = |j| d.get(0, j).unwrap_or(f64::NAN);
-    // (∂p/∂ρ)_T = RT·(2A01 + A02) and (∂²p/∂ρ²)_T = (RT/ρ)·(2A01 + 4A02 + A03), as in `crate::crit`.
-    let stable = 2.0 * a(1) + a(2) > 0.0 && 2.0 * a(1) + 4.0 * a(2) + a(3) > 0.0;
-    (q_anc < 0.01 && p > 1.05 * sat.bubble.p && stable).then_some(Phase::Liquid)
+    (q_anc < 0.01 && p > 1.05 * sat.bubble.p && stable()).then_some(Phase::Liquid)
 }
 
 /// Order-2 total bundle at (T, ρ): one ideal and one residual evaluation.
@@ -841,5 +844,55 @@ mod tests {
         assert_eq!(none.state(p_q(3_000.0, 0.5)), Err(Error::Unsupported { pair: Pair::PQ }));
         let defined = fluid(Some(Line(SatAccuracy::Definition)));
         assert_eq!(defined.state(q_t(0.5, 300.0)), Err(Error::InvalidInput { quantity: "Q", value: 0.5 }));
+    }
+
+    /// The density bands (user decision PS3; `HelmholtzEOSMixtureBackend.cpp:2340-2380`) on a synthetic pair, ρ′ 1000 and
+    /// ρ″ 100 mol/m³, p′ 1 MPa: gas below 0.95·ρ″ (not at it), liquid above 1.05·ρ′ (not at it); between, the strip within
+    /// 0.9975 of either side asks for stability, and nothing else does; in the liquid strip, liquid when the ancillary
+    /// quality is below 0.01, p above 1.05·p′ (not at it) and the state stable. Near the top (ρ″ 990) the liquid strip's
+    /// quality exceeds 0.01.
+    #[test]
+    fn bands_are_coolprops() {
+        let pair = |rho_v: f64| {
+            let side = |p, rho| SatSide { t: 300.0, p, rho };
+            SatPair { bubble: side(1e6, 1_000.0), dew: side(0.98e6, rho_v) }
+        };
+        let sat = pair(100.0);
+        let asked = core::cell::Cell::new(0);
+        let at = |rho: f64, p: f64, stable: bool| {
+            band(rho, p, &sat, || {
+                asked.set(asked.get() + 1);
+                stable
+            })
+        };
+        assert_eq!((at(0.95 * 100.0 - 1e-9, 1e6, true), at(0.95 * 100.0, 1e6, true)), (Some(Phase::Gas), None));
+        assert_eq!((at(1.05 * 1_000.0 + 1e-9, 1e6, true), at(1.05 * 1_000.0, 1e6, true)), (Some(Phase::Liquid), None));
+        asked.set(0);
+        assert_eq!((at(500.0, 2e6, true), at(99.8, 2e6, true), at(997.4, 2e6, true)), (None, None, None));
+        assert_eq!(asked.get(), 0, "outside the strip stability is not asked");
+        assert_eq!(at(99.7, 2e6, true), None, "the vapour strip: quality above 1");
+        assert_eq!(asked.get(), 0, "short-circuited by the quality");
+        assert_eq!([at(998.0, 2e6, true), at(998.0, 2e6, false)], [Some(Phase::Liquid), None]);
+        assert_eq!([at(998.0, 1.05 * 1e6, true), at(998.0, 1.04e6, true)], [None, None]);
+        assert_eq!(asked.get(), 2, "asked only in the liquid strip with the quality and p met");
+        let near_top = pair(990.0);
+        assert_eq!(band(998.0, 2e6, &near_top, || true), None, "quality 0.2 in the liquid strip");
+    }
+
+    /// PS3 on real blends: R407C's EOS has no dome at 358 K (its critical point is 356.60 K, the published one 359.345 K),
+    /// where the bands alone decide gas and liquid (above pc a supercritical liquid), as CoolProp's; between them its VLE
+    /// fails. An imposed `TwoPhase` skips
+    /// the bands: R410A at 280 K and 100 mol/m³, gas by the bands, is refused (a quality outside [0, 1]).
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn bands_decide_where_the_eos_has_no_dome() {
+        let r407c = embedded("R407C");
+        let phase = |rho: f64| r407c.state(dt(rho, 358.0)).map(|s| s.phase());
+        assert_eq!((phase(100.0), phase(12_000.0)), (Ok(Phase::Gas), Ok(Phase::SupercriticalLiquid)));
+        assert!(phase(5_300.0).is_err(), "no dome on the EOS: {:?}", phase(5_300.0));
+        let r410a = embedded("R410A");
+        let imposed = FlashOptions::new().with_phase(Phase::TwoPhase);
+        assert!(r410a.flash(dt(100.0, 280.0), &imposed).is_err());
+        assert_eq!(r410a.state(dt(100.0, 280.0)).map(|s| s.phase()), Ok(Phase::Gas));
     }
 }

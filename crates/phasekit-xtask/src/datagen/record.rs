@@ -401,3 +401,37 @@ fn check_constants(record: &FluidRecord) -> Result<(), String> {
         None => Ok(()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One saturation ancillary (PLAN.md M6.9): `rhoLnoexp` is the non-exponential form, `pL`, `pV` and `rhoV` the
+    /// exponential one; another type, a missing field and empty or unequal term lists are errors.
+    #[test]
+    fn ancillaries_parse_and_refuse() {
+        let base = serde_json::json!({
+            "type": "pL", "using_tau_r": true, "n": [-7.0, 1.5], "t": [1.0, 1.5],
+            "T_r": 344.494, "reducing_value": 4.9e6, "Tmin": 200.0, "Tmax": 344.494,
+        });
+        let with = |key: &str, value: serde_json::Value| {
+            let mut v = base.clone();
+            v[key] = value;
+            ancillary(&v)
+        };
+        let a = ancillary(&base).unwrap();
+        assert!(a.exponential && a.tau_r && a.n == [-7.0, 1.5] && a.t == [1.0, 1.5]);
+        assert_eq!((a.t_r, a.reducing, a.t_min, a.t_max), (344.494, 4.9e6, 200.0, 344.494));
+        assert!(!with("type", "rhoLnoexp".into()).unwrap().exponential);
+        assert!(with("type", "rhoV".into()).unwrap().exponential);
+        assert_eq!(with("type", "rational_polynomial".into()), Err("type Some(\"rational_polynomial\")".into()));
+        assert_eq!(with("n", serde_json::json!([1.0])), Err("1 n against 2 t".into()));
+        let empty = {
+            let mut v = base.clone();
+            (v["n"], v["t"]) = (serde_json::json!([]), serde_json::json!([]));
+            v
+        };
+        assert_eq!(ancillary(&empty), Err("0 n against 0 t".into()));
+        assert_eq!(with("T_r", serde_json::Value::Null), Err("no T_r".into()));
+    }
+}

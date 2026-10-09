@@ -489,6 +489,28 @@ mod tests {
         assert!(crate::internal::record(&registry, "Water").unwrap().pseudo_pure.is_none());
     }
 
+    /// A pseudo-pure curve's range (D6; PLAN.md M6.9): QT's, from the definition, both ends included; beyond them and for
+    /// NaN refused. PQ beyond the bubble pressure ancillary's range is refused with the bound it reaches: its value at
+    /// its Tmax above, and at Tmin − 0.01 K, the end of CoolProp's inversion bracket, below.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn pseudo_pure_curve_refuses_outside_its_range() {
+        let registry = crate::Registry::from_embedded(crate::DataSet::Parity).unwrap();
+        let definition = crate::internal::record(&registry, "R410A").unwrap().pseudo_pure.unwrap();
+        let curve = PseudoPureCurve(definition.clone());
+        let (lo, hi) = definition.t_range;
+        assert!(curve.at_t(lo).is_ok() && curve.at_t(hi).is_ok() && curve.accuracy() == SatAccuracy::Definition);
+        let above = DomainError::AboveMaxTemperature { t: hi + 1e-6, t_max: hi };
+        let below = DomainError::BelowMinTemperature { t: lo - 1e-6, t_min: lo };
+        assert_eq!((curve.at_t(hi + 1e-6), curve.at_t(lo - 1e-6)), (Err(above.into()), Err(below.into())));
+        assert!(matches!(curve.at_t(f64::NAN), Err(Error::InvalidInput { quantity: "T", .. })));
+        let p_l = &definition.p_l;
+        let (p_max, p_min) = (p_l.at(p_l.t_max), p_l.at(p_l.t_min - 0.01));
+        assert_eq!(curve.at_p(1e9), Err(DomainError::AboveMaxPressure { p: 1e9, p_max }.into()));
+        assert_eq!(curve.at_p(1.0), Err(DomainError::BelowMinPressure { p: 1.0, p_min }.into()));
+        assert!(matches!(curve.at_p(f64::NAN), Err(Error::InvalidInput { quantity: "p", .. })));
+    }
+
     /// PQ where p(T) dips (DIV-0016's PropyleneGlycol): over [200, 300] K p falls from 3000 to 2000 Pa, over [300, 400] K
     /// it rises back, so 2500 Pa and 3000 Pa have two roots each, `Ambiguous` in ascending T, and 2000 Pa, the minimum,
     /// one; the range is the lowest and the highest p.

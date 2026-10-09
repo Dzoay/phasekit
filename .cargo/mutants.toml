@@ -60,4 +60,12 @@ exclude_re = [
     # being compared) or 1e-2 (where its conditioning starts being measured) bit for bit in no file; rows on either
     # side of both are tested.
     "phasekit-verify/src/saturation\\.rs:[0-9]+:[0-9]+: replace < with <= in SaturationCheck::(rows|vle_row)",
+    # Equivalent: the ancillaries section's flags are two disjoint bits (exponential, τ_r), so `|` and `^` give one byte.
+    "blob\\.rs:[0-9]+:[0-9]+: replace \\| with \\^ in ancillaries",
+    # Equivalent in practice: the density Newton refuses a slope (∂p/∂ln ρ)_T ≤ 0; one exactly 0 from double arithmetic
+    # at an iterate never occurs, so `>` and `>=` agree; slopes of either sign are tested.
+    "density\\.rs:[0-9]+:[0-9]+: replace > with >= in newton",
+    # Equivalent: a pseudo-pure PQ is refused only when the pressure ancillary has no root in its range, which it has at
+    # its own value at Tmax, so p equal to that bound never reaches the comparison; above and below are tested.
+    "saturation\\.rs:[0-9]+:[0-9]+: replace > with >= in <impl SaturationCurve for PseudoPureCurve>::at_p",
 ]
