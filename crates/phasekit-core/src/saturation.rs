@@ -3,7 +3,7 @@
 
 use core::{fmt, iter};
 
-use crate::data::{SaFreshness, Superancillary};
+use crate::data::{Ancillary, SaFreshness, Superancillary};
 use crate::error::{DomainError, Error, Roots};
 use crate::num::math;
 use crate::roots::{Stop, Tol, toms748};
@@ -247,6 +247,32 @@ impl SuperancillaryCurve {
     }
 }
 
+impl Ancillary {
+    /// The value at T (`Ancillaries.cpp:43-81`), extrapolated beyond [`t_min`, `t_max`] as CoolProp's; NaN above T_r,
+    /// where Θ = 1 − T/T_r < 0.
+    pub fn at(&self, t: f64) -> f64 {
+        let theta = 1.0 - t / self.t_r;
+        if theta < 0.0 {
+            return f64::NAN;
+        }
+        let sum: f64 = self.n.iter().zip(&self.t).map(|(n, e)| n * math::powf(theta, *e)).sum();
+        if self.exponential {
+            let k = if self.tau_r { self.t_r / t } else { 1.0 };
+            self.reducing * math::exp(k * sum)
+        } else {
+            self.reducing * (1.0 + sum)
+        }
+    }
+
+    /// The T at which the ancillary takes `value`, by TOMS 748 to rounding over CoolProp's bracket of its inversion,
+    /// [`t_min` − 0.01 K, `t_max`] (`Ancillaries.cpp:82-113`, which stops at 1e-10 K); `None` where `value` is outside
+    /// the ancillary's values there.
+    pub fn invert(&self, value: f64) -> Option<f64> {
+        let root = toms748(|t| self.at(t) - value, self.t_min - 0.01, self.t_max, Tol::Absolute(0.0), 100);
+        (root.stop == Stop::Converged).then_some(root.x)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,6 +414,26 @@ mod tests {
         assert_eq!((sat.bubble.t, sat.bubble.p, sat.bubble.rho, sat.dew.rho), (300.0, 4500.0, 350.0, 15.0));
         assert_eq!(rescaled.at_p(6001.5), Err(DomainError::AboveMaxPressure { p: 6001.5, p_max: 6000.0 }.into()));
         assert_eq!(rescaled.at_p(2999.0), Err(DomainError::BelowMinPressure { p: 2999.0, p_min: 3000.0 }.into()));
+    }
+
+    /// The pseudo-pure fluids' ancillaries (PLAN.md M6.9; `Ancillaries.cpp:43-113`): R410A's bubble and dew pressures at
+    /// 280 K are CoolProp 8.0.0's QT pressures there (990480.516605891 and 987288.0717853763 Pa, 03-decision-log), and
+    /// their inversions at 1 MPa its PQ temperatures at Q = 0 and 1 (280.31657 and 280.42348 K, printed to 1e-5 K);
+    /// above T_r an ancillary is NaN, and a value outside its range has no inversion.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn ancillaries_evaluate_and_invert_as_coolprops() {
+        let registry = crate::Registry::from_embedded(crate::DataSet::Parity).unwrap();
+        let record = crate::internal::record(&registry, "R410A").unwrap();
+        let pp = record.pseudo_pure.unwrap();
+        let close = |got: f64, want: f64| (got / want - 1.0).abs() < 1e-14;
+        assert!(close(pp.p_l.at(280.0), 990_480.516_605_891) && close(pp.p_v.at(280.0), 987_288.071_785_376_3));
+        let (t_l, t_v) = (pp.p_l.invert(1e6).unwrap(), pp.p_v.invert(1e6).unwrap());
+        assert!((t_l - 280.316_57).abs() < 5e-6 && (t_v - 280.423_48).abs() < 5e-6, "{t_l} {t_v}");
+        assert!(close(pp.p_l.at(t_l), 1e6), "{}", pp.p_l.at(t_l));
+        assert!(pp.rho_v.at(pp.rho_v.t_r + 0.1).is_nan() && pp.p_l.invert(1e9).is_none());
+        assert!(pp.rho_l.at(280.0) > pp.rho_v.at(280.0));
+        assert!(crate::internal::record(&registry, "Water").unwrap().pseudo_pure.is_none());
     }
 
     /// PQ where p(T) dips (DIV-0016's PropyleneGlycol): over [200, 300] K p falls from 3000 to 2000 Pa, over [300, 400] K
