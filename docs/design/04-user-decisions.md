@@ -214,3 +214,16 @@ the superancillaries off) agree with each other there to 6e-15.
 |---|---|---|---|
 | NC2 | How NC1's bound covers fluids whose EOS rounds more | **Carry the `Term` scale: ρ max(1e-11, 4·ε·Θ^−1.5·μ), p and T max(1e-11, 4·ε·μ/Θ), μ = max(1, (M00′ + M01′)/(1 + \|g′/RT\|)), the liquid's `Term` majorant of g relative to g** | As TC1 carries `Term` for properties. μ is 404 for R22 near Tc, 233 for Methanol, 2 to 3 for simple fluids; measured, every fluid is within 0.39·ε·Θ^−1.5·μ in ρ and 0.38·ε·μ/Θ in p. Rejected: a constant of 32 for every fluid (looser for the well-behaved ones); an R22 exception. |
 | — | PropyleneGlycol's dense rows below 227.6 K | **A divergence entry: DIV-0016 (`SkipOracle`)** | The check skips the p and ρ″ cells of those rows by citing it; its proof pins CoolProp's VLE values and the remaining gap. Rejected: skipping the rows without an entry. |
+
+## The computed critical point (2026-10-09)
+
+Asked at M6.7. The model's own critical point is solved from the EOS (Newton on K1 = 2A01 + A02 = 0 and
+K2 = 2A01 + 4A02 + A03 = 0) and compared with CoolProp's computed columns (fastchebpure's multiprecision metadata).
+T agrees to 2e-14 for every fluid but Chlorine and ρc within `Flash`'s near-critical 1e-6 for all but two:
+DimethylCarbonate, 2.0e-6 off on a very flat critical isotherm (∂K2/∂ln ρ = 3.7e-5; phasekit's point satisfies K1 and
+K2 to 1e-15, while at CoolProp's ρc phasekit's EOS gives K2 = 7.5e-11), and Chlorine, whose critical region is
+degenerate (K1 and K2 within 1e-12 of 0 from 7950 to 8153 mol/m³ within 5e-5 K; the two points 2.6 % apart in ρ).
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| CR1 | How the critical point is checked | **The criticality conditions first: every solved model critical point satisfies K1 = K2 = 0 within `Flash`; the oracle's computed columns within `Flash`'s near-critical bounds, but for a divergence entry, DIV-0017 (`SkipOracle`), on Chlorine's and DimethylCarbonate's columns** | DIV-0017's proof pins the evidence (K2 at the oracle's points). Rejected: raising `Flash`'s near-critical ρ bound to 1e-5 with an entry for Chlorine alone. |

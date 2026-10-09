@@ -24,6 +24,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0014", div_0014),
     ("DIV-0015", div_0015),
     ("DIV-0016", div_0016),
+    ("DIV-0017", div_0017),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -268,4 +269,25 @@ fn div_0016() {
     let (liquid, vapour) = (fact("div0016_rhomolar_liquid_t213"), fact("div0016_rhomolar_vapour_t213"));
     assert!(close(sat.bubble.rho, liquid) && close(sat.dew.rho, vapour), "{sat:?}");
     assert!(sat.dew.rho / 1.2262649766288283e-07 - 1.0 > 7e-3, "the exempt cell still differs: {sat:?}");
+}
+
+/// DIV-0017, part M6 (`SkipOracle`; M6.7, user decision CR1): the replacing check is the criticality conditions. For
+/// DimethylCarbonate and Chlorine the model critical point satisfies K1 = K2 = 0 within `Flash`, and an exempt cell
+/// still differs: DimethylCarbonate's critical density is 2.0e-6 from the oracle's, beyond `Flash`'s near-critical 1e-6.
+fn div_0017() {
+    let registry = Registry::embedded().unwrap();
+    for name in ["DimethylCarbonate", "Chlorine"] {
+        let fluid = registry.get(name).unwrap();
+        let c = fluid.model().critical_point().unwrap();
+        let eos = fluid.model().helmholtz().unwrap();
+        let d = eos.ideal(c.t, c.rho, Order::Three) + eos.residual(c.t, c.rho, Order::Three);
+        let a = |j| d.get(0, j).unwrap();
+        let (k1, k2) = (2.0 * a(1) + a(2), 2.0 * a(1) + 4.0 * a(2) + a(3));
+        assert!(k1.abs() <= 1e-9 && k2.abs() <= 1e-9, "{name}: K1 {k1}, K2 {k2}");
+    }
+    let (path, text) = fixture!("coolprop-8.0.0/all/crit.csv");
+    let crit = Fixture::parse(path, text).unwrap();
+    let r = (0..crit.rows().len()).find(|&r| crit.printed(r, "fluid") == Some("DimethylCarbonate")).unwrap();
+    let ours = registry.get("DimethylCarbonate").unwrap().model().critical_point().unwrap().rho;
+    assert!((ours / crit.value(r, "rhoc_num").unwrap() - 1.0).abs() > 1e-6, "the exempt cell still differs");
 }

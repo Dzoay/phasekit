@@ -13,7 +13,7 @@ use crate::helmholtz::{
     MAX_POW, MultiParameterEos, NonAnalyticBlock, NonAnalyticTerm, OffsetReference, PowerBlock, PowerTerm,
     ResidualBlock, TauExpBlock,
 };
-use crate::model::{CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source};
+use crate::model::{CriticalOrigin, CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source};
 
 /// Position of a data-backed fluid in its source's index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -762,7 +762,10 @@ impl FluidRecord {
         }
         let eos = MultiParameterEos::new(e.gas_constant, e.t_reducing, e.rho_reducing, e.rho_max, blocks, ideal)?;
         let aliases: Vec<&str> = self.aliases.iter().map(String::as_str).collect();
-        let info = FluidInfo::new(&self.name, self.molar_mass, self.source.clone(), self.model_key())?;
+        let mut info = FluidInfo::new(&self.name, self.molar_mass, self.source.clone(), self.model_key())?;
+        if let Some(c) = self.critical.filter(|c| c.origin == CriticalOrigin::Published) {
+            info = info.with_published_critical(c);
+        }
         let builder = PureFluid::builder(info.with_aliases(&aliases), eos, self.limits);
         Ok(match self.critical {
             Some(c) => builder.critical(c),

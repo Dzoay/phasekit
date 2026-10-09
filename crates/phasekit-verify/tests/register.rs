@@ -217,6 +217,24 @@ fn register_cites_reproducible_oracle_facts() {
     }
     checked.push("DIV-0016");
 
+    // DIV-0017: the oracle's computed critical points (the crit rows, the register's facts for it) of DimethylCarbonate
+    // and Chlorine, with their K2 = 2A01 + 4A02 + A03 in phasekit's EOS: 7.5e-11 at DimethylCarbonate's (on a flat
+    // isotherm), within 1e-11 at Chlorine's; phasekit's own Chlorine point is 2.6 % away in ρ.
+    let (path, text) = fixture!("coolprop-8.0.0/all/crit.csv");
+    let crit = Fixture::parse(path, text).unwrap();
+    let k2_at_oracle = |name: &str| {
+        let r = (0..crit.rows().len()).find(|&r| crit.printed(r, "fluid") == Some(name)).unwrap();
+        let (t, rho) = (crit.value(r, "Tc_num").unwrap(), crit.value(r, "rhoc_num").unwrap());
+        let fluid = phasekit_core::internal::record(Registry::embedded().unwrap(), name).unwrap().compile().unwrap();
+        let d = fluid.eos().ideal(t, rho, Order::Three) + fluid.eos().residual(t, rho, Order::Three);
+        let a = |j| d.get(0, j).unwrap();
+        (2.0 * a(1) + 4.0 * a(2) + a(3), rho)
+    };
+    let (dmc, _) = k2_at_oracle("DimethylCarbonate");
+    let (chlorine, rho) = k2_at_oracle("Chlorine");
+    assert!(dmc > 5e-11 && chlorine.abs() < 1e-11 && (rho / 7949.83 - 1.0).abs() < 1e-6, "DIV-0017: {dmc}, {chlorine}");
+    checked.push("DIV-0017");
+
     let ids: Vec<&str> = DIVERGENCES.iter().map(|d| d.id).collect();
     assert_eq!(checked, ids, "every register entry has its facts checked");
     for row in facts.rows() {

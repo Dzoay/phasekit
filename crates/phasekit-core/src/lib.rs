@@ -33,6 +33,7 @@
 //! ```
 
 mod blob;
+mod crit;
 mod data;
 mod derivs;
 mod error;
@@ -99,6 +100,15 @@ pub mod internal {
         seed: (f64, f64, f64),
     ) -> Result<crate::SatPair, crate::Error> {
         crate::vle::at_p(eos, p, seed)
+    }
+
+    /// The numerical critical point (T, ρ, p) of a Helmholtz model near a guess (PLAN.md M6.7).
+    pub fn numerical_critical_point(
+        eos: &dyn crate::HelmholtzModel,
+        t: f64,
+        rho: f64,
+    ) -> Result<(f64, f64, f64), crate::Error> {
+        crate::crit::numerical(eos, t, rho)
     }
 
     /// The decoded, uncorrected record of a data-backed fluid.

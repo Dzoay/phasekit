@@ -1,15 +1,16 @@
 //! L3 packages and handles: [`PureFluid`] (the Helmholtz package, a `ThermoModel`), [`Fluid`] (the cheap
 //! handle every caller holds) and [`Gauge`] (reference states as values, never global mutation).
 
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 
 use crate::derivs::Order;
 use crate::error::{Error, LoadError};
 use crate::flash::{self, FlashOptions};
 use crate::helmholtz::HelmholtzModel;
 use crate::input::{Capabilities, Input, NativeInput, Pair, Var};
-use crate::model::{CriticalPoint, FluidInfo, Limits, ThermoModel};
+use crate::model::{CriticalOrigin, CriticalPoint, FluidInfo, Limits, ThermoModel};
 use crate::prop::Prop;
+use crate::saturation::SatAccuracy;
 use crate::saturation::SaturationCurve;
 use crate::state::State;
 use crate::transport::TransportSet;
@@ -93,6 +94,8 @@ pub struct PureFluid {
     eos: Box<dyn HelmholtzModel>,
     limits: Limits,
     critical: Option<CriticalPoint>,
+    /// The model's own critical point, found on first use ([`PureFluid::model_critical`]).
+    model_critical: OnceLock<Option<CriticalPoint>>,
     saturation: Lazy<Option<Box<dyn SaturationCurve>>>,
     transport: Lazy<TransportSet>,
 }
@@ -105,7 +108,8 @@ pub struct PureFluidBuilder {
 }
 
 impl PureFluidBuilder {
-    /// The model's own critical point (used for phase labels).
+    /// The fluid's critical point. A published one (origin `Published`) seeds the model's own, found on first use; one
+    /// with origin `Model` is the model's own as given.
     pub fn critical(mut self, c: CriticalPoint) -> Self {
         self.fluid.critical = Some(c);
         self
@@ -147,10 +151,32 @@ impl PureFluid {
             eos: Box::new(eos),
             limits,
             critical: None,
+            model_critical: OnceLock::new(),
             saturation: ready(None),
             transport: ready(TransportSet::default()), // no models: properties report `NoModel`
         };
         PureFluidBuilder { fluid }
+    }
+    /// The model's own critical point, found (see [`ThermoModel::critical_point`]).
+    fn model_critical(&self) -> Option<CriticalPoint> {
+        let given = self.critical?;
+        if given.origin == CriticalOrigin::Model {
+            return Some(given);
+        }
+        let model = |t, p, rho| CriticalPoint { t, p, rho, origin: CriticalOrigin::Model };
+        // Without a curve the published point stands, as CoolProp has it (the pseudo-pure fluids).
+        let Some(curve) = self.saturation().ok().flatten() else { return Some(given) };
+        let top = curve.at_t(curve.t_range().1).ok();
+        let (t0, rho0) = top.map_or((given.t, given.rho), |top| (top.bubble.t, top.bubble.rho));
+        if let Ok((t, rho, p)) = crate::crit::numerical(&*self.eos, t0, rho0) {
+            return Some(model(t, p, rho));
+        }
+        // Non-analytic terms make the derivatives singular at τ = δ = 1 (Water, CarbonDioxide), where the exact curve's
+        // top is the critical point.
+        match (curve.accuracy(), top) {
+            (SatAccuracy::Exact, Some(top)) => Some(model(top.bubble.t, top.bubble.p, top.bubble.rho)),
+            _ => Some(given),
+        }
     }
     /// The EOS.
     pub fn eos(&self) -> &dyn HelmholtzModel {
@@ -180,8 +206,13 @@ impl ThermoModel for PureFluid {
     fn flash(&self, input: NativeInput, opts: &FlashOptions) -> Result<State, Error> {
         flash::flash(self, input, opts)
     }
+    /// The model's own critical point (map 03 §6; ROT-084): one given with origin `Model`; else, for a fluid with a
+    /// saturation curve, the EOS's own, solved from the curve's top ([`crate::crit`]; CoolProp's with superancillaries
+    /// on, within `Flash`), or the exact curve's top where the solve cannot run (non-analytic terms at τ = δ = 1); else
+    /// the published one, with that origin, as CoolProp has it (the pseudo-pure fluids). The published point stays in
+    /// [`FluidInfo::published_critical`].
     fn critical_point(&self) -> Option<CriticalPoint> {
-        self.critical
+        *self.model_critical.get_or_init(|| self.model_critical())
     }
     fn helmholtz(&self) -> Option<&dyn HelmholtzModel> {
         Some(&*self.eos)
