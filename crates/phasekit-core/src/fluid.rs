@@ -164,8 +164,9 @@ impl PureFluid {
             return Some(given);
         }
         let model = |t, p, rho| CriticalPoint { t, p, rho, origin: CriticalOrigin::Model };
-        // Without a curve the published point stands, as CoolProp has it (the pseudo-pure fluids).
-        let Some(curve) = self.saturation().ok().flatten() else { return Some(given) };
+        // Without a curve, or with a pseudo-pure fluid's definition, the published point stands, as CoolProp has it.
+        let curve = self.saturation().ok().flatten().filter(|c| c.accuracy() != SatAccuracy::Definition);
+        let Some(curve) = curve else { return Some(given) };
         let top = curve.at_t(curve.t_range().1).ok();
         let (t0, rho0) = top.map_or((given.t, given.rho), |top| (top.bubble.t, top.bubble.rho));
         if let Ok((t, rho, p)) = crate::crit::numerical(&*self.eos, t0, rho0) {
