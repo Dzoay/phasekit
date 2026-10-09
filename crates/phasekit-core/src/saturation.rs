@@ -3,7 +3,7 @@
 
 use core::{fmt, iter};
 
-use crate::data::{Ancillary, SaFreshness, Superancillary};
+use crate::data::{Ancillary, PseudoPure, SaFreshness, Superancillary};
 use crate::error::{DomainError, Error, Roots};
 use crate::num::math;
 use crate::roots::{Stop, Tol, toms748};
@@ -244,6 +244,58 @@ impl SuperancillaryCurve {
         let (lo, hi) = (breaks.get(i).copied().unwrap_or(ln_p), breaks.get(i + 1).copied().unwrap_or(ln_p));
         let t = self.data.t_of_ln_p.get(i).map_or(f64::NAN, |c| clenshaw(c, scaled(ln_p, lo, hi)));
         ((t * (1.0 - 1e-9)).max(a), (t * (1.0 + 1e-9)).min(b))
+    }
+}
+
+/// A pseudo-pure fluid's saturation by definition (D4; map 04 U4; PLAN.md M6.9). Each side's pressure is its ancillary's
+/// (`p_l` bubble, `p_v` dew) and its density the density ancillary's, which the flash only uses to seed the EOS's
+/// density at (T, p). At p each side's T is its pressure ancillary's inversion, so bubble and dew differ in T, as in
+/// CoolProp's PQ (`FlashRoutines.cpp:1183-1199`). Refused outside its range, QT's (`t_range`), as every curve.
+#[derive(Debug)]
+pub(crate) struct PseudoPureCurve(pub(crate) PseudoPure);
+
+impl SaturationCurve for PseudoPureCurve {
+    fn accuracy(&self) -> SatAccuracy {
+        SatAccuracy::Definition
+    }
+
+    fn t_range(&self) -> (f64, f64) {
+        self.0.t_range
+    }
+
+    fn at_t(&self, t: f64) -> Result<SatPair, Error> {
+        let (t_min, t_max) = self.0.t_range;
+        if t.is_nan() {
+            return Err(Error::InvalidInput { quantity: "T", value: t });
+        }
+        if t < t_min {
+            return Err(DomainError::BelowMinTemperature { t, t_min }.into());
+        }
+        if t > t_max {
+            return Err(DomainError::AboveMaxTemperature { t, t_max }.into());
+        }
+        let side = |p: &Ancillary, rho: &Ancillary| SatSide { t, p: p.at(t), rho: rho.at(t) };
+        Ok(SatPair { bubble: side(&self.0.p_l, &self.0.rho_l), dew: side(&self.0.p_v, &self.0.rho_v) })
+    }
+
+    /// Each side's T where its pressure ancillary is p, within that ancillary's range; refused beyond it.
+    fn at_p(&self, p: f64) -> Result<SatPair, Error> {
+        if p.is_nan() {
+            return Err(Error::InvalidInput { quantity: "p", value: p });
+        }
+        let side = |pa: &Ancillary, rho: &Ancillary| -> Result<SatSide, Error> {
+            let Some(t) = pa.invert(p) else {
+                let p_max = pa.at(pa.t_max);
+                return Err(if p > p_max {
+                    DomainError::AboveMaxPressure { p, p_max }
+                } else {
+                    DomainError::BelowMinPressure { p, p_min: pa.at(pa.t_min - 0.01) }
+                }
+                .into());
+            };
+            Ok(SatSide { t, p, rho: rho.at(t) })
+        };
+        Ok(SatPair { bubble: side(&self.0.p_l, &self.0.rho_l)?, dew: side(&self.0.p_v, &self.0.rho_v)? })
     }
 }
 

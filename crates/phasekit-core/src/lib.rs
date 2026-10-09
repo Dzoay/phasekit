@@ -35,6 +35,7 @@
 mod blob;
 mod crit;
 mod data;
+mod density;
 mod derivs;
 mod error;
 mod flash;

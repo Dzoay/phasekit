@@ -486,3 +486,24 @@ fn water_normal_boiling_point() {
     let t = Registry::embedded().unwrap().get("Water").unwrap().state(pq(101_325.0, 0.0)).unwrap().t();
     assert!((373.124..=373.125).contains(&t), "{t}");
 }
+
+/// Oracle: CoolProp 8.0.0 for R410A, a pseudo-pure fluid (PLAN.md M6.9; D4, user decision 4; 03-decision-log): QT at
+/// 280 K gives the bubble pressure ancillary's 990480.516605891 Pa at Q = 0 and the dew one's 987288.0717853763 Pa at
+/// Q = 1, and refuses Q = 0.5; PQ at 1 MPa gives T = 280.31657, 280.37003 and 280.42348 K at Q = 0, 0.5 and 1 (printed
+/// to 1e-5 K), linear in Q. Each phase's density is the EOS's at its (T, p), path `Ancillary`.
+#[test]
+fn r410a_pseudo_pure_rows() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let r410a = registry.get("R410A").unwrap();
+    let close = |got: f64, want: f64| (got / want - 1.0).abs() < 1e-14;
+    let bubble = r410a.state(qt(0.0, 280.0)).unwrap();
+    let dew = r410a.state(qt(1.0, 280.0)).unwrap();
+    assert!(close(bubble.p(), 990_480.516_605_891) && close(dew.p(), 987_288.071_785_376_3), "{bubble:?} {dew:?}");
+    assert_eq!(bubble.path().strategy, Strategy::Ancillary);
+    assert_eq!(r410a.state(qt(0.5, 280.0)), Err(Error::InvalidInput { quantity: "Q", value: 0.5 }));
+    let t = [0.0, 0.5, 1.0].map(|q| r410a.state(pq(1e6, q)).unwrap().t());
+    for (got, want) in t.iter().zip([280.316_57, 280.370_03, 280.423_48]) {
+        assert!((got - want).abs() < 5e-6, "{t:?}");
+    }
+    assert!((t[1] - (t[0] + t[2]) / 2.0).abs() < 1e-12, "{t:?}");
+}

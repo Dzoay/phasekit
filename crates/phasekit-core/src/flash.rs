@@ -155,7 +155,9 @@ fn region(fluid: &PureFluid, t: f64, rho: f64, p: f64, opts: &FlashOptions) -> R
     }
     let mut sat = curve.at_t(t)?;
     let mut strategy = Strategy::Superancillary;
-    if curve.accuracy() == SatAccuracy::Guess {
+    // A stale curve seeds the pure VLE (M6.6), and so does a pseudo-pure fluid's definition: inside its dome CoolProp
+    // solves the pure-fluid VLE of the blend's EOS from the ancillaries' densities (D4, map 04 U4; M6.9).
+    if curve.accuracy() != SatAccuracy::Exact {
         sat = crate::vle::at_t(fluid.eos(), t, (sat.bubble.rho, sat.dew.rho))?;
         strategy = Strategy::Vle;
     }
@@ -198,14 +200,12 @@ fn dt(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<State,
             }
             State::single(key, t, rho, r, m, phase, &b, DIRECT)
         }
-        Region::Dome(sat, strategy) if sat.is_pure() => {
+        Region::Dome(sat, strategy) => {
             // Lever rule on molar volume; an imposed TwoPhase outside the dome fails here (q ∉ [0, 1]).
             let (rl, rv) = (sat.bubble.rho, sat.dew.rho);
             let q = Quality::new((1.0 / rho - 1.0 / rl) / (1.0 / rv - 1.0 / rl))?;
             two_phase(fluid, &sat, q, strategy)
         }
-        // Pseudo-pure in-dome DT: CoolProp's rule (D4), specified from oracle fixtures at M6 (map 04 U4).
-        Region::Dome(..) => Err(Error::Unsupported { pair: Pair::DT }),
     }?;
     let p_check = fluid.limits().check_p(state.p());
     if enforce {
@@ -215,13 +215,34 @@ fn dt(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<State,
     Ok(if t_check.is_ok() && p_check.is_ok() { state } else { state.mark_extrapolated() })
 }
 
-/// The saturation curve of a pure fluid for the Q pair `pair`; the pseudo-pure rules (a `Definition` curve) land at
-/// M6.9, and a fluid without a curve has no Q pair.
-fn pure_curve(fluid: &PureFluid, pair: Pair) -> Result<&dyn SaturationCurve, Error> {
-    match fluid.saturation()? {
-        Some(curve) if curve.accuracy() != SatAccuracy::Definition => Ok(curve),
-        _ => Err(Error::Unsupported { pair }),
-    }
+/// The saturation curve for the Q pair `pair`; a fluid without one has no Q pair.
+fn curve_for(fluid: &PureFluid, pair: Pair) -> Result<&dyn SaturationCurve, Error> {
+    fluid.saturation()?.ok_or(Error::Unsupported { pair })
+}
+
+/// QT of a pseudo-pure fluid (D4; `FlashRoutines.cpp:952-975`): at Q = 0 the bubble point, its p the bubble pressure
+/// ancillary's, and at Q = 1 the dew point; between them a quality has no meaning for these fluids, as in CoolProp.
+fn pseudo_pure_qt(fluid: &PureFluid, sat: &SatPair, q: Quality) -> Result<State, Error> {
+    let p = if q.get() == 0.0 {
+        sat.bubble.p
+    } else if q.get() == 1.0 {
+        sat.dew.p
+    } else {
+        return Err(Error::InvalidInput { quantity: "Q", value: q.get() });
+    };
+    split_sides(fluid, sat, q, sat.bubble.t, p)
+}
+
+/// A pseudo-pure fluid's two-phase state at quality `q`, temperature `t` and pressure `p` from its definition's sides,
+/// each phase at its side's T with the EOS's density at the side's (T, p), seeded by its density ancillary.
+fn split_sides(fluid: &PureFluid, sat: &SatPair, q: Quality, t: f64, p: f64) -> Result<State, Error> {
+    let (eos, m, key) = (fluid.eos(), fluid.info().molar_mass(), fluid.info().key());
+    let (r, path) = (eos.gas_constant(), SolvePath { strategy: Strategy::Ancillary, iterations: 0 });
+    let phase = |side: &SatSide, phase: Phase| {
+        let rho = crate::density::at_t_p(eos, side.t, side.p, side.rho)?;
+        State::single(key, side.t, rho, r, m, phase, &total(fluid, side.t, rho)?, path)
+    };
+    State::split(phase(&sat.bubble, Phase::Liquid)?, phase(&sat.dew, Phase::Gas)?, q, t, p, path)
 }
 
 /// QT: the saturation at T, then the state at quality q (ROT-004: QT and PQ share one `SaturationCurve` path). An
@@ -229,12 +250,13 @@ fn pure_curve(fluid: &PureFluid, pair: Pair) -> Result<&dyn SaturationCurve, Err
 /// names the source (ROT-085). The curve refuses T outside its fitted range under either domain policy (D6).
 fn qt(fluid: &PureFluid, q: f64, t: f64, opts: &FlashOptions) -> Result<State, Error> {
     let q = Quality::new(q)?;
-    let curve = pure_curve(fluid, Pair::QT)?;
+    let curve = curve_for(fluid, Pair::QT)?;
     let sat = curve.at_t(t)?;
     let state = match curve.accuracy() {
         SatAccuracy::Guess => {
             two_phase(fluid, &crate::vle::at_t(fluid.eos(), t, (sat.bubble.rho, sat.dew.rho))?, q, Strategy::Vle)
         }
+        SatAccuracy::Definition => pseudo_pure_qt(fluid, &sat, q),
         _ => two_phase(fluid, &sat, q, Strategy::Superancillary),
     }?;
     within_domain(fluid, state, opts)
@@ -245,7 +267,7 @@ fn qt(fluid: &PureFluid, q: f64, t: f64, opts: &FlashOptions) -> Result<State, E
 /// nearest to `Nearest`'s T; `Strict` and `Stable` (no temperature at p is more stable than another) are `Ambiguous`.
 fn pq(fluid: &PureFluid, p: f64, q: f64, opts: &FlashOptions) -> Result<State, Error> {
     let q = Quality::new(q)?;
-    let curve = pure_curve(fluid, Pair::PQ)?;
+    let curve = curve_for(fluid, Pair::PQ)?;
     let sat = match (curve.at_p(p), opts.roots()) {
         (Err(Error::Ambiguous { roots }), RootPolicy::Nearest(x)) => {
             let distance = |t: &f64| (t - x).abs();
@@ -260,6 +282,9 @@ fn pq(fluid: &PureFluid, p: f64, q: f64, opts: &FlashOptions) -> Result<State, E
             let seed = (sat.bubble.t, sat.bubble.rho, sat.dew.rho);
             two_phase(fluid, &crate::vle::at_p(fluid.eos(), p, seed)?, q, Strategy::Vle)
         }
+        // A pseudo-pure fluid's bubble and dew temperatures differ at p; its T is linear in Q between them, as
+        // CoolProp's (`FlashRoutines.cpp:1183-1199`).
+        SatAccuracy::Definition => split_sides(fluid, &sat, q, q.get() * sat.dew.t + (1.0 - q.get()) * sat.bubble.t, p),
         _ => two_phase(fluid, &sat, q, Strategy::Superancillary),
     }?;
     within_domain(fluid, state, opts)
