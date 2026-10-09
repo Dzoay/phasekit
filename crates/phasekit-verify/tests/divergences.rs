@@ -135,6 +135,8 @@ fn div_0001() {
         let prop = phasekit_verify::ToleranceClass::Prop.bound(oracle.abs()).unwrap();
         assert!((p_parity - oracle).abs() <= prop, "row {row}: Parity {p_parity} against the oracle {oracle}");
     }
+    // Part M6: the superancillary rescaled by R′/R is the corrected EOS's saturation (tests/saturation.rs).
+    assert_eq!(phasekit_verify::saturation::check_rescaling(&parity, &corrected), Ok(40));
 }
 
 /// DIV-0005, part M5 (`KeepOracle`; map 13 §3 item 4; ROT-044): NIST IR 8474 Table 3 does not reproduce with its own R
@@ -184,6 +186,8 @@ fn div_0003() {
     assert_ne!(corrected.eos.rho_reducing, oracle);
     assert_eq!(parity.eos.rho_reducing.to_bits(), oracle.to_bits());
     assert_eq!(corrected.applied, [Box::<str>::from("DIV-0003")]);
+    // Part M6: the superancillary rescaled by ρ_r′/ρ_r is the corrected EOS's saturation (tests/saturation.rs).
+    assert_eq!(phasekit_verify::saturation::check_rescaling(&parity, &corrected), Ok(40));
 }
 
 /// The `Investigate` pins of DIV-0006..0008 (map 12 §6.3, upstream 2acbbc82): until a paper is transcribed, Parity's

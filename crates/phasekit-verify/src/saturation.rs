@@ -166,6 +166,61 @@ impl SaturationCheck {
     }
 }
 
+/// The exact rescaling of a superancillary (ARCHITECTURE.md §8, E14; DIV-0001, DIV-0003). Saturation is invariant in
+/// (τ, δ), so a correction of R or ρ_r scales ρ′ and ρ″ by ρ_r′/ρ_r and p by (R′/R)·(ρ_r′/ρ_r), and `Corrected` scales
+/// the superancillary fitted to `Parity` by those factors. On 40 temperatures from the curve's lower end to Θ = 1e-3,
+/// each `SatMp` (Θ, and μ of the corrected liquid): the corrected EOS's VLE equals the factors times the Parity EOS's,
+/// and the rescaled superancillary equals the corrected VLE. Returns the points checked, or the failures.
+pub fn check_rescaling(parity: &FluidRecord, corrected: &FluidRecord) -> Result<usize, Vec<String>> {
+    let name = &corrected.name;
+    let curves = parity.superancillary_curve().zip(corrected.superancillary_curve());
+    let models = parity.clone().compile().ok().zip(corrected.clone().compile().ok());
+    let (Some((curve_p, curve_c)), Some((model_p, model_c)), Ok(ideal)) = (curves, models, IdealScale::new(corrected))
+    else {
+        return Err(vec![format!("{name}: no superancillary, model or ideal-gas scale")]);
+    };
+    let rho = corrected.eos.rho_reducing / parity.eos.rho_reducing;
+    let p = rho * corrected.eos.gas_constant / parity.eos.gas_constant;
+    let (lo, tc) = curve_c.t_range();
+    let (mut failures, mut checked) = (Vec::new(), 0);
+    for k in 0..40 {
+        let t = lo + (tc * (1.0 - 1e-3) - lo) * f64::from(k) / 39.0;
+        let theta = (tc - t) / tc;
+        let solve = |curve: &dyn phasekit_core::SaturationCurve, eos: &dyn HelmholtzModel| {
+            let sa = curve.at_t(t).ok()?;
+            Some((sa, vle_at_t(eos, t, (sa.bubble.rho, sa.dew.rho)).ok()?))
+        };
+        let (Some((_, vle_p)), Some((sa_c, vle_c))) =
+            (solve(&*curve_p, model_p.eos()), solve(&*curve_c, model_c.eos()))
+        else {
+            failures.push(format!("{name} at {t} K: no superancillary or VLE answer"));
+            continue;
+        };
+        let mu = carried_scale(corrected, &ideal, model_c.eos(), t, vle_c.bubble.rho);
+        let pairs = [
+            ("VLE p", vle_c.dew.p, vle_p.dew.p * p, false),
+            ("VLE rhoL", vle_c.bubble.rho, vle_p.bubble.rho * rho, true),
+            ("VLE rhoV", vle_c.dew.rho, vle_p.dew.rho * rho, true),
+            ("superancillary p", sa_c.dew.p, vle_c.dew.p, false),
+            ("superancillary rhoL", sa_c.bubble.rho, vle_c.bubble.rho, true),
+            ("superancillary rhoV", sa_c.dew.rho, vle_c.dew.rho, true),
+        ];
+        for (what, got, want, density) in pairs {
+            let bound = if density {
+                ToleranceClass::sat_mp_density(theta, mu, want)
+            } else {
+                ToleranceClass::sat_mp_pressure(theta, mu, want)
+            };
+            let within = (got - want).abs() <= bound; // false for NaN too
+            if !within {
+                failures.push(format!("{name} at {t} K, {what}: {got} against {want} (bound {bound:e})"));
+            }
+        }
+        checked += 1;
+    }
+    if failures.is_empty() { Ok(checked) } else { Err(failures) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
