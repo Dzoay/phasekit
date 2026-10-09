@@ -184,7 +184,9 @@ fn caloric_curves_match_oracle_sat_rows() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let (mut failures, mut checked) = (Vec::new(), 0);
     let mut cached: Option<(&str, FluidRecord, IdealScale)> = None;
-    for row in (0..fixture.rows().len()).filter(|&row| label(&fixture, row, "input") == "T") {
+    let superancillary_qt =
+        |row: &usize| (label(&fixture, *row, "input"), label(&fixture, *row, "path")) == ("T", "superanc");
+    for row in (0..fixture.rows().len()).filter(superancillary_qt) {
         assert_eq!(label(&fixture, row, "status"), "ok", "row {row}");
         let name = label(&fixture, row, "fluid");
         if cached.as_ref().is_none_or(|(n, ..)| *n != name) {
@@ -326,6 +328,8 @@ struct QRows {
     outside: usize,
     /// PQ rows whose p has several saturation temperatures.
     ambiguous: Vec<String>,
+    /// A pseudo-pure fluid's QT and PQ rows (path `ancillary`) and the cells compared there.
+    ancillary: (usize, usize),
     failures: Vec<String>,
 }
 
@@ -349,6 +353,10 @@ fn q_rows<'a>(fixture: &Fixture<'a>, fluid_of: impl Fn(usize) -> &'a str, regist
         let name = fluid_of(row);
         let at = format!("{name} row {row} ({input})");
         let (status, path) = (label(fixture, row, "status"), label(fixture, row, "path"));
+        if (status, path) == ("ok", "ancillary") {
+            ancillary_row(fixture, row, (name, registry.get(name).unwrap()), out);
+            continue;
+        }
         if (status, path) != ("ok", "superanc") {
             out.failures.push(format!("{at}: {status}, {path}"));
             continue;
@@ -426,8 +434,54 @@ fn q_rows<'a>(fixture: &Fixture<'a>, fluid_of: impl Fn(usize) -> &'a str, regist
     }
 }
 
-/// The core subset's `sat` files: the 12 fluids with a superancillary.
-const SAT_CORE: [(&str, &str); 12] = [
+/// A pseudo-pure fluid's QT or PQ row (path `ancillary`; PLAN.md M6.9, D4) against phasekit's flash, every cell the
+/// oracle wrote within `Prop` (1e-12 of max(|v|, floor), floors R·T and R): QT's p is the side's pressure ancillary's,
+/// and its density, h and s those of the side Q names, the EOS's at that (T, p); PQ's T is linear in Q between the sides'
+/// temperatures, each side's density, h and s the EOS's at its own T and the given p.
+fn ancillary_row(fixture: &Fixture<'_>, row: usize, (name, fluid): (&str, &Fluid), out: &mut QRows) {
+    let at = format!("{name} row {row}");
+    let [q, t, p] = ["Q", "T", "p"].map(|column| fixture.value(row, column).unwrap_or(f64::NAN));
+    let given_t = label(fixture, row, "input") == "T";
+    let flash = |q: f64| fluid.state(if given_t { qt(q, t) } else { pq(p, q) });
+    let (state, sides) = match (flash(q), flash(0.0), flash(1.0)) {
+        (Ok(state), Ok(l), Ok(v)) if state.path().strategy == Strategy::Ancillary => (state, [l, v]),
+        other => {
+            out.failures.push(format!("{at}: {other:?}"));
+            return;
+        }
+    };
+    let m = Basis::Molar;
+    let (r, critical) = (fluid.model().helmholtz().unwrap().gas_constant(), fluid.model().critical_point().unwrap());
+    let cells = [
+        ("T", state.t(), 0.0),
+        ("p", state.p(), 0.0),
+        ("rhoL", sides[0].rho(m), 0.0),
+        ("rhoV", sides[1].rho(m), 0.0),
+        ("hL", sides[0].h(m), r * sides[0].t()),
+        ("hV", sides[1].h(m), r * sides[1].t()),
+        ("sL", sides[0].s(m), r),
+        ("sV", sides[1].s(m), r),
+    ];
+    out.ancillary.0 += 1;
+    for (column, got, floor) in cells {
+        let want = fixture.value(row, column).unwrap_or(f64::NAN);
+        if want.is_nan() {
+            continue;
+        }
+        out.ancillary.1 += 1;
+        let side = if column.ends_with('V') { &sides[1] } else { &sides[0] };
+        let window = Window::at(side.t(), side.rho(m), critical.t, critical.rho);
+        let bound = ToleranceClass::Prop.bound_in(want.abs().max(floor), window).unwrap();
+        let within = (got - want).abs() <= bound; // false for NaN too
+        if !within {
+            out.failures.push(format!("{at} {column}: {got} against {want} (bound {bound:e})"));
+        }
+    }
+}
+
+/// The core subset's `sat` files: the 12 fluids with a superancillary and the pseudo-pure Air and R410A (M6.9).
+const SAT_CORE: [(&str, &str); 14] = [
+    fixture!("coolprop-8.0.0/sat/Air.csv"),
     fixture!("coolprop-8.0.0/sat/Ammonia.csv"),
     fixture!("coolprop-8.0.0/sat/CarbonDioxide.csv"),
     fixture!("coolprop-8.0.0/sat/HFE143m.csv"),
@@ -439,6 +493,7 @@ const SAT_CORE: [(&str, &str); 12] = [
     fixture!("coolprop-8.0.0/sat/R1234yf.csv"),
     fixture!("coolprop-8.0.0/sat/R1234ze(E).csv"),
     fixture!("coolprop-8.0.0/sat/R125.csv"),
+    fixture!("coolprop-8.0.0/sat/R410A.csv"),
     fixture!("coolprop-8.0.0/sat/Water.csv"),
 ];
 
@@ -467,6 +522,7 @@ fn sat_fixtures_match_oracle() {
     let each = 130 * 8 + 12 * 50;
     assert_eq!((rows.qt, rows.pq, rows.exempt), (each, each, each * 7));
     assert_eq!((rows.outside, rows.ambiguous.as_slice()), (20, &["PropyleneGlycol: 2 roots".to_owned()] as &[String]));
+    assert_eq!(rows.ancillary.0, 6 * 8 * 5 + 2 * 25 * 5, "the pseudo-pure rows: QT at Q = 0 and 1, PQ at 0, 0.5, 1");
 }
 
 /// Map 11 §8, CoolProp's own smoke value (PLAN.md M6.8): R134a's h at 300 K and Q = 1 is 413265.6843372975 J/kg in

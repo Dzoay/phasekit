@@ -5,7 +5,7 @@
 //! through that relation applies to it too (user decision TC1).
 
 use phasekit_core::internal::FluidRecord;
-use phasekit_core::{Basis, Density, Error, Fluid, Input, Order, Pair, Phase, Temperature};
+use phasekit_core::{Basis, Density, Fluid, Input, Order, Phase, Temperature};
 
 use crate::eos::{Majorants, carried};
 use crate::term::{IdealScale, report};
@@ -32,8 +32,6 @@ pub struct FlashCheck {
     pub compared: usize,
     /// Of those, the two-phase ones.
     pub two_phase: usize,
-    /// Rows refused as expected: a pseudo-pure fluid below its critical temperature has no saturation curve before M6.
-    pub unsupported: usize,
     /// One line per disagreement.
     pub failures: Vec<String>,
 }
@@ -41,14 +39,23 @@ pub struct FlashCheck {
 impl FlashCheck {
     /// Checks every DT row of `fixture` against `fluid`, whose decoded data is `record`. Every row's status is `ok`.
     pub fn dt_rows(&mut self, fixture: &Fixture<'_>, fluid: &Fluid, record: &FluidRecord) {
+        self.dt_rows_where(fixture, fluid, record, |_| true);
+    }
+
+    /// [`Self::dt_rows`] for the rows `keep` selects (those of one fluid in an all-fluid file).
+    pub fn dt_rows_where(
+        &mut self,
+        fixture: &Fixture<'_>,
+        fluid: &Fluid,
+        record: &FluidRecord,
+        keep: impl Fn(usize) -> bool,
+    ) {
         let path = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap_or_default();
-        let (Some(eos), Ok(ideal), Some(critical)) =
-            (fluid.model().helmholtz(), IdealScale::new(record), record.critical)
-        else {
-            self.failures.push(format!("{path}: not a Helmholtz fluid with a critical point"));
+        let (Some(eos), Ok(ideal)) = (fluid.model().helmholtz(), IdealScale::new(record)) else {
+            self.failures.push(format!("{path}: not a Helmholtz fluid"));
             return;
         };
-        let (pseudo_pure, r, m) = (record.superancillary.is_none(), record.eos.gas_constant, fluid.info().molar_mass());
+        let (r, m) = (record.eos.gas_constant, fluid.info().molar_mass());
         let label = |row: usize, column: &str| {
             let i = fixture.columns().iter().position(|c| *c == column);
             match i.and_then(|i| fixture.rows().get(row)?.cells.get(i).copied()) {
@@ -56,7 +63,7 @@ impl FlashCheck {
                 _ => "",
             }
         };
-        for row in 0..fixture.rows().len() {
+        for row in (0..fixture.rows().len()).filter(|&row| keep(row)) {
             let number = |column: &str| fixture.value(row, column).unwrap_or(f64::NAN);
             let (rho, t) = (number("x1"), number("x2"));
             if (label(row, "pair"), label(row, "status")) != ("DT", "ok") {
@@ -66,13 +73,6 @@ impl FlashCheck {
             let result = Density::molar(rho)
                 .and_then(|d| Ok(Input::dt(d, Temperature::new(t)?)))
                 .and_then(|input| fluid.state(input));
-            if pseudo_pure && t < critical.t {
-                match result {
-                    Err(Error::Unsupported { pair: Pair::DT }) => self.unsupported += 1,
-                    other => self.failures.push(format!("{path} row {row}: {other:?}, expected Unsupported")),
-                }
-                continue;
-            }
             let state = match result {
                 Ok(state) => state,
                 Err(e) => {
@@ -116,7 +116,7 @@ impl FlashCheck {
 
     /// `None` when every row agreed, else the first `shown` disagreements.
     pub fn report(&self, shown: usize) -> Option<String> {
-        report(&self.failures, self.compared + self.unsupported, 0.0, "Flash", shown)
+        report(&self.failures, self.compared, 0.0, "Flash", shown)
     }
 }
 
@@ -158,8 +158,9 @@ mod tests {
     ///   bound (`Flash`, 1e-9 of it, 2.27e-6 J/mol; the bound carried through h's relation is about 1.4e-6 there):
     ///   2e-6 J/mol off is within, 2e-5 is not;
     /// - a two-phase state whose Q is 1e-6 off, and a single phase where the oracle has a Q, are failures;
-    /// - a pseudo-pure fluid (R410A) is compared from its critical temperature up, at T_c itself too, and is expected
-    ///   `Unsupported` below it.
+    /// - a pseudo-pure fluid (R410A) is compared at its critical temperature and, since M6.9, inside its dome below it,
+    ///   whose state is the pure VLE of its EOS;
+    /// - only the rows a filter keeps are checked.
     #[test]
     fn dt_rows_floors_qualities_and_the_pseudo_pure_boundary() {
         let registry = Registry::from_embedded(DataSet::Parity).unwrap();
@@ -181,9 +182,15 @@ mod tests {
         let record = phasekit_core::internal::record(&registry, "R410A").unwrap();
         let critical = record.critical.unwrap();
         let at_tc = check("R410A", &[row(&state("R410A", critical.rho / 2.0, critical.t), 0.0, f64::NAN)]);
-        assert_eq!((at_tc.compared, at_tc.unsupported, at_tc.failures.len()), (1, 0, 0), "{:?}", at_tc.failures);
-        let below = format!("DT,{:?},{:?},QT,ok,{:?},{:?},1.0,1.0,1.0,1.0,nan,gas", 100.0, 300.0, 300.0, 100.0);
-        assert_eq!(check("R410A", &[below]).unsupported, 1);
+        assert_eq!((at_tc.compared, at_tc.failures.len()), (1, 0), "{:?}", at_tc.failures);
+        let dome = state("R410A", 3_000.0, 280.0);
+        let in_dome = check("R410A", &[row(&dome, 0.0, dome.quality().unwrap())]);
+        assert_eq!((in_dome.two_phase, in_dome.failures.len()), (1, 0), "{:?}", in_dome.failures);
+        let text = file("Water", &[row(&wet, 1.0, q)]);
+        let fixture = Fixture::parse("hand-made", &text).unwrap();
+        let (mut none, water) = (FlashCheck::default(), phasekit_core::internal::record(&registry, "Water").unwrap());
+        none.dt_rows_where(&fixture, registry.get("Water").unwrap(), &water, |_| false);
+        assert_eq!((none.compared, none.failures.len()), (0, 0), "a row filtered out is not checked");
     }
 
     /// CoolProp's phase names, one per label.
@@ -213,7 +220,7 @@ mod tests {
                 "other"
             ]
         );
-        let check = FlashCheck { compared: 3, unsupported: 1, failures: vec!["x".into()], ..Default::default() };
+        let check = FlashCheck { compared: 4, failures: vec!["x".into()], ..Default::default() };
         assert_eq!(check.report(1), Some("1 of 4 entries outside Flash (headroom 0.000):\nx".into()));
         assert_eq!(FlashCheck::default().report(1), None);
     }
