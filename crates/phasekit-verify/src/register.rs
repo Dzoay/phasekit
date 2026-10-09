@@ -338,6 +338,21 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[6],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0017",
+        fluids: &["Chlorine", "DimethylCarbonate"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::None,
+        evidence: "map 02 §6, M6.7: the oracle's computed critical point is less converged than the EOS's own on flat \
+                   critical isotherms: DimethylCarbonate rhoc_num 2.0e-6 off (K2 7.5e-11 there, dK2/dln rho 3.7e-5); \
+                   Chlorine's critical region is degenerate (K1, K2 within 1e-12 of 0 from 7950 to 8153 mol/m3)",
+        exempt: Some(Exempt { kinds: &[Kind::Crit], columns: &["Tc_num", "pc_num", "rhoc_num"], rows: Rows::All }),
+        tolerance: None,
+        proof: &[6],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an

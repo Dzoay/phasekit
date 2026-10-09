@@ -515,6 +515,18 @@ mod tests {
         Fluid::new(Arc::new(record_of("Water").builder().unwrap().saturation(top).build()))
     }
 
+    /// The model's critical point where its solve cannot run (map 03 §6): under an exact curve whose top is Water's
+    /// reducing point, τ = δ = 1, where the non-analytic terms are singular, it is that top, with origin `Model`.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn an_unsolvable_critical_point_is_the_exact_curves_top() {
+        let eos = record_of("Water").eos;
+        let (t, rho) = (eos.t_reducing, eos.rho_reducing);
+        let model = water_under(Top { t, p: 22.064e6, rho, rho_l: 20_000.0, rho_v: 10_000.0 }).model().critical_point();
+        let origin = crate::model::CriticalOrigin::Model;
+        assert_eq!(model, Some(crate::model::CriticalPoint { t, p: 22.064e6, rho, origin }));
+    }
+
     /// Water's pressure at (T, ρ) with the phase imposed: no phase rule, no acceptance gate.
     #[cfg(feature = "fluids-all")]
     fn imposed(rho: f64, t: f64) -> State {
