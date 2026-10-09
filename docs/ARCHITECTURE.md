@@ -1095,8 +1095,8 @@ superancillary was fitted to. The hash covers the canonical bytes of the whole E
 every field once and checks the hash moves.
 - Same shape, same R and ρ_r: `Fresh` → `Exact`.
 - Same shape, R and/or ρ_r corrected (DIV-0001, DIV-0003): `Rescaled { p, rho }`. Saturation is invariant in (τ, δ),
-  so ρ′, ρ″ scale by ρ_r′/ρ_r and p_sat by (R′/R)(ρ_r′/ρ_r) exactly (from p = ρRT(1 + δα^r_δ); *inference*, proved
-  against VLE at M6) → still `Exact`.
+  so ρ′, ρ″ scale by ρ_r′/ρ_r and p_sat by (R′/R)(ρ_r′/ρ_r) exactly (from p = ρRT(1 + δα^r_δ); proved against the
+  VLE at M6.5, `rescaled_superancillary_equals_vle`) → still `Exact`.
 - Anything else: `Stale` → `Guess` + VLE polish until a refit lands.
 
 **WASM loading.** In the browser, JS fetches only the packs a page needs and adds each with `registry.withPack(bytes)`

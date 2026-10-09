@@ -5,7 +5,7 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::{DataSet, Registry};
-use phasekit_verify::saturation::SaturationCheck;
+use phasekit_verify::saturation::{SaturationCheck, check_rescaling};
 use phasekit_verify::{Fixture, fixture};
 
 /// The core subset's fluids with a v8.0.0 superancillary, their committed files (tests/fastchebpure.rs).
@@ -102,4 +102,22 @@ fn superancillary_and_vle_match_the_dense_multiprecision_files() {
     assert_eq!((saturation.near_critical, saturation.unsplit), (NEAR_CRITICAL, 0), "{saturation:?}");
     let [density, pressure] = saturation.conditioning;
     assert!(density <= 0.5 && pressure <= 0.5, "measured conditioning {density:.2}, {pressure:.2}");
+}
+
+/// ARCHITECTURE.md §8 (E14; DIV-0001, DIV-0003): `Corrected` rescales a superancillary fitted to `Parity` exactly when
+/// it corrects only R or ρ_r, because saturation is invariant in (τ, δ). For Nitrogen (ρ_r 11183.9014645 → 11183.9) and
+/// R1234ze(E) (R 8.314472 → 8.3144621), on 40 temperatures up to Θ = 1e-3, the corrected EOS's VLE is the Parity
+/// EOS's times ρ_r′/ρ_r (densities) and (R′/R)·(ρ_r′/ρ_r) (p), and the rescaled superancillary equals it, all within
+/// `SatMp`.
+#[test]
+fn rescaled_superancillary_equals_vle() {
+    for name in ["Nitrogen", "R1234ze(E)"] {
+        let records = [DataSet::Parity, DataSet::Corrected].map(|set| {
+            let mut record = phasekit_core::internal::record(Registry::embedded().unwrap(), name).unwrap();
+            record.apply(set).unwrap();
+            record
+        });
+        assert_ne!(records[0].eos, records[1].eos, "{name}: Corrected corrects it");
+        assert_eq!(check_rescaling(&records[0], &records[1]), Ok(40), "{name}");
+    }
 }
