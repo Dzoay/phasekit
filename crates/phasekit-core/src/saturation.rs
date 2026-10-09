@@ -1,11 +1,13 @@
 //! Saturation curves: an open trait, so a family brings its own (superancillary, ancillary, a fitted curve)
 //! without a core edit, and every curve says how far it can be trusted (Extensible graft).
 
-use core::fmt;
+use core::{fmt, iter};
 
 use crate::data::{SaFreshness, Superancillary};
-use crate::error::{DomainError, Error};
-use crate::input::Pair;
+use crate::error::{DomainError, Error, Roots};
+use crate::num::math;
+use crate::roots::{Stop, Tol, toms748};
+use crate::state::Strategy;
 
 /// How the flash may use a curve's answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -140,6 +142,16 @@ impl SuperancillaryCurve {
     }
 }
 
+impl SuperancillaryCurve {
+    /// Curve `k` (0: ρ′, 1: ρ″, 2: p) of the fit at T, unscaled; NaN outside it.
+    fn raw(&self, k: usize, t: f64) -> f64 {
+        let breaks = &self.data.breaks;
+        let Some(i) = piece(breaks, t) else { return f64::NAN };
+        let (a, b) = (breaks.get(i).copied().unwrap_or(f64::NAN), breaks.get(i + 1).copied().unwrap_or(f64::NAN));
+        self.data.curves.get(k).and_then(|curve| curve.get(i)).map_or(f64::NAN, |c| clenshaw(c, scaled(t, a, b)))
+    }
+}
+
 impl SaturationCurve for SuperancillaryCurve {
     fn accuracy(&self) -> SatAccuracy {
         self.accuracy
@@ -169,9 +181,64 @@ impl SaturationCurve for SuperancillaryCurve {
         Ok(SatPair { bubble: side(rho_l), dew: side(rho_v) })
     }
 
-    /// PQ lands at M6.8; datagen already stores the T(ln p) inverse it will evaluate.
-    fn at_p(&self, _p: f64) -> Result<SatPair, Error> {
-        Err(Error::Unsupported { pair: Pair::PQ })
+    /// The saturation at p (PLAN.md M6.8; map 03 §3.3). p(T) is monotonic between the extrema datagen found
+    /// (PropyleneGlycol's dips in its first interval, DIV-0016), so each such segment holds at most one root: TOMS 748 on
+    /// the forward p(T) over the segment or, on the last one where the stored T(ln p) inverse (checked to 1e-12) has a
+    /// piece, within the inverse's bracket 1e-9 wide; a bracket that misses its root is no convergence. One root is the
+    /// answer, reporting the given p; several are `Ambiguous`, for the flash's `RootPolicy`. Refused above the curve's
+    /// highest pressure, below its lowest, and for NaN.
+    fn at_p(&self, p: f64) -> Result<SatPair, Error> {
+        if p.is_nan() {
+            return Err(Error::InvalidInput { quantity: "p", value: p });
+        }
+        let raw = p / self.p;
+        let (t_min, t_max) = self.t_range();
+        let ends = || iter::once(t_min).chain(self.data.extrema[2].iter().copied()).chain(iter::once(t_max));
+        let range = (f64::INFINITY, f64::NEG_INFINITY);
+        let (lowest, highest) = ends().map(|t| self.raw(2, t)).fold(range, |(lo, hi), v| (lo.min(v), hi.max(v)));
+        if raw > highest {
+            return Err(DomainError::AboveMaxPressure { p, p_max: highest * self.p }.into());
+        }
+        if raw < lowest {
+            return Err(DomainError::BelowMinPressure { p, p_min: lowest * self.p }.into());
+        }
+        let (mut roots, mut found) = ([f64::NAN; 4], 0);
+        for (a, b) in ends().zip(ends().skip(1)) {
+            let (pa, pb) = (self.raw(2, a), self.raw(2, b));
+            if !(pa.min(pb) <= raw && raw <= pa.max(pb)) {
+                continue;
+            }
+            let (lo, hi) = if b == t_max { self.inverse_bracket(raw, (a, b)) } else { (a, b) };
+            let root = toms748(|t| self.raw(2, t) - raw, lo, hi, Tol::Absolute(0.0), 100);
+            if root.stop != Stop::Converged {
+                return Err(Error::NoConvergence { strategy: Strategy::Superancillary, iterations: root.iterations });
+            }
+            // A p at an extremum is found at the end of both segments.
+            let seen = found > 0 && roots.get(found - 1) == Some(&root.x);
+            if let (false, Some(slot)) = (seen, roots.get_mut(found)) {
+                (*slot, found) = (root.x, found + 1);
+            }
+        }
+        match roots.get(..found) {
+            Some(&[t]) => {
+                let sat = self.at_t(t)?;
+                Ok(SatPair { bubble: SatSide { p, ..sat.bubble }, dew: SatSide { p, ..sat.dew } })
+            }
+            other => Err(Error::Ambiguous { roots: Roots::new(other.unwrap_or_default()) }),
+        }
+    }
+}
+
+impl SuperancillaryCurve {
+    /// The bracket of T at the unscaled pressure `raw` on the segment `(a, b)`: 1e-9 around the inverse's T where it
+    /// has a piece at ln p, else the segment.
+    fn inverse_bracket(&self, raw: f64, (a, b): (f64, f64)) -> (f64, f64) {
+        let breaks = &self.data.ln_p_breaks;
+        let ln_p = math::ln(raw);
+        let Some(i) = piece(breaks, ln_p) else { return (a, b) };
+        let (lo, hi) = (breaks.get(i).copied().unwrap_or(ln_p), breaks.get(i + 1).copied().unwrap_or(ln_p));
+        let t = self.data.t_of_ln_p.get(i).map_or(f64::NAN, |c| clenshaw(c, scaled(ln_p, lo, hi)));
+        ((t * (1.0 - 1e-9)).max(a), (t * (1.0 + 1e-9)).min(b))
     }
 }
 
@@ -236,7 +303,8 @@ mod tests {
         assert_eq!((scaled(2.0, 2.0, 4.0), scaled(4.0, 2.0, 4.0)), (-1.0, 1.0));
     }
 
-    /// Two pieces on [200, 300] and [300, 400] K: ρ′ = 1000 − T, ρ″ = T/10 and p = 10T in each piece's x.
+    /// Two pieces on [200, 300] and [300, 400] K: ρ′ = 1000 − T, ρ″ = T/10 and p = 10T in each piece's x; the inverse is
+    /// the constant 300 K over ln p from 7.7 to 8.2 (p 2208 to 3641 Pa).
     fn synthetic() -> Superancillary {
         let line = |a: f64, b: f64, slope: f64, offset: f64| {
             let mut c = [0.0; 13];
@@ -250,7 +318,7 @@ mod tests {
             breaks: vec![200.0, 300.0, 400.0],
             curves: [curve(-1.0, 1000.0), curve(0.1, 0.0), curve(10.0, 0.0)],
             extrema: [vec![], vec![], vec![]],
-            ln_p_breaks: vec![7.6, 8.3],
+            ln_p_breaks: vec![7.7, 8.2],
             t_of_ln_p: vec![inverse],
         }
     }
@@ -279,6 +347,63 @@ mod tests {
         assert_eq!((r.bubble.p, r.bubble.rho, r.dew.rho), (f.bubble.p * 1.5, f.bubble.rho * 0.5, f.dew.rho * 0.5));
         assert_eq!(rescaled.accuracy(), SatAccuracy::Exact);
         assert_eq!(SuperancillaryCurve::new(synthetic(), SaFreshness::Stale).accuracy(), SatAccuracy::Guess);
-        assert_eq!(curve.at_p(2500.0), Err(Error::Unsupported { pair: Pair::PQ }));
+    }
+
+    /// PQ on the curve (PLAN.md M6.8): T solved from the forward p(T) inside the inverse's 1e-9 bracket (the synthetic
+    /// inverse is the constant 300 K, so a root 2e-9 away is missed and a root 5e-10 away found); outside the inverse's
+    /// pieces over the whole segment; refused above the top, below the bottom and for NaN; an extremum splits the
+    /// segments, and a p at it is one root; a rescaled curve solves for p/1.5 and reports p.
+    #[test]
+    fn pq_solves_the_forward_curve_within_the_inverse_bracket() {
+        let curve = SuperancillaryCurve::new(synthetic(), SaFreshness::Fresh);
+        let t_at = |p: f64| curve.at_p(p).map(|sat| (sat.bubble.t, sat.dew.t, sat.bubble.p));
+        assert_eq!(t_at(3000.0), Ok((300.0, 300.0, 3000.0)));
+        let near = t_at(3000.0 * (1.0 + 5e-10)).unwrap().0;
+        assert!((near / (300.0 * (1.0 + 5e-10)) - 1.0).abs() < 1e-15, "{near}");
+        assert!(matches!(curve.at_p(3000.0 * (1.0 + 2e-9)), Err(Error::NoConvergence { .. })));
+        assert!(matches!(curve.at_p(3000.0 * (1.0 - 2e-9)), Err(Error::NoConvergence { .. })));
+        let wide = [2100.0, 3900.0, 2000.0, 4000.0].map(|p| curve.at_p(p).map(|sat| sat.dew.rho));
+        assert_eq!(wide, [Ok(21.0), Ok(39.0), Ok(20.0), Ok(40.0)], "ρ″ = T/10 at T = p/10");
+        assert_eq!(curve.at_p(4000.5), Err(DomainError::AboveMaxPressure { p: 4000.5, p_max: 4000.0 }.into()));
+        assert_eq!(curve.at_p(1999.0), Err(DomainError::BelowMinPressure { p: 1999.0, p_min: 2000.0 }.into()));
+        assert!(matches!(curve.at_p(f64::NAN), Err(Error::InvalidInput { quantity: "p", .. })));
+        let mut split = synthetic();
+        split.extrema[2] = vec![220.0];
+        let split = SuperancillaryCurve::new(split, SaFreshness::Fresh);
+        let t_at = |p: f64| split.at_p(p).map(|sat| sat.bubble.t);
+        assert_eq!(
+            [t_at(2100.0), t_at(2200.0), t_at(3900.0)],
+            [Ok(210.0), Ok(220.0), Ok(390.0)],
+            "one root at 2200 Pa, the extremum"
+        );
+        let rescaled = SuperancillaryCurve::new(synthetic(), SaFreshness::Rescaled { p: 1.5, rho: 0.5 });
+        let sat = rescaled.at_p(4500.0).unwrap();
+        assert_eq!((sat.bubble.t, sat.bubble.p, sat.bubble.rho, sat.dew.rho), (300.0, 4500.0, 350.0, 15.0));
+        assert_eq!(rescaled.at_p(6001.5), Err(DomainError::AboveMaxPressure { p: 6001.5, p_max: 6000.0 }.into()));
+        assert_eq!(rescaled.at_p(2999.0), Err(DomainError::BelowMinPressure { p: 2999.0, p_min: 3000.0 }.into()));
+    }
+
+    /// PQ where p(T) dips (DIV-0016's PropyleneGlycol): over [200, 300] K p falls from 3000 to 2000 Pa, over [300, 400] K
+    /// it rises back, so 2500 Pa and 3000 Pa have two roots each, `Ambiguous` in ascending T, and 2000 Pa, the minimum,
+    /// one; the range is the lowest and the highest p.
+    #[test]
+    fn pq_where_p_dips_has_two_roots() {
+        let mut dip = synthetic();
+        let line = |a: f64, b: f64, slope: f64, offset: f64| {
+            let mut c = [0.0; 13];
+            (c[0], c[1]) = (offset + slope * (a + b) / 2.0, slope * (b - a) / 2.0);
+            c
+        };
+        dip.curves[2] = vec![line(200.0, 300.0, -10.0, 5000.0), line(300.0, 400.0, 10.0, -1000.0)];
+        (dip.extrema[2], dip.ln_p_breaks) = (vec![300.0], vec![9.0, 9.5]);
+        let dip = SuperancillaryCurve::new(dip, SaFreshness::Fresh);
+        let roots = |p: f64| match dip.at_p(p) {
+            Err(Error::Ambiguous { roots }) => roots.as_slice().to_vec(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!((roots(2500.0), roots(3000.0)), (vec![250.0, 350.0], vec![200.0, 400.0]));
+        assert_eq!(dip.at_p(2000.0).map(|sat| (sat.bubble.t, sat.dew.rho)), Ok((300.0, 30.0)));
+        assert_eq!(dip.at_p(1999.0), Err(DomainError::BelowMinPressure { p: 1999.0, p_min: 2000.0 }.into()));
+        assert_eq!(dip.at_p(3000.5), Err(DomainError::AboveMaxPressure { p: 3000.5, p_max: 3000.0 }.into()));
     }
 }

@@ -1,7 +1,7 @@
 //! L4 the Helmholtz flash (D6): a pure function of an immutable package, a native input and per-call
 //! options. No global configuration, no sticky phase, no exception cascade (map 01 R12, map 03 §6, map 12
 //! R3/R4). Each pair runs a fixed, ordered list of strategies returning `Result`; the winner is recorded in
-//! `State::path`. The sketch implements DT; the other pairs land M5-M7 behind `IMPLEMENTED`.
+//! `State::path`. DT (M5.3), QT and PQ (M6.8) are implemented; the other pairs land at M7 behind `IMPLEMENTED`.
 #![deny(clippy::indexing_slicing)] // E12: no panicking index on the flash path
 
 use crate::derivs::{Bundle, Order};
@@ -10,7 +10,7 @@ use crate::fluid::PureFluid;
 use crate::input::{NativeInput, Pair};
 use crate::model::ThermoModel;
 use crate::relations;
-use crate::saturation::{SatAccuracy, SatPair};
+use crate::saturation::{SatAccuracy, SatPair, SatSide, SaturationCurve};
 use crate::state::{Phase, SolvePath, State, Strategy};
 use crate::units::Quality;
 
@@ -101,6 +101,8 @@ pub(crate) fn flash(fluid: &PureFluid, input: NativeInput, opts: &FlashOptions) 
     let (x, y) = input.values();
     match input.pair() {
         Pair::DT => dt(fluid, y, x, opts),
+        Pair::QT => qt(fluid, x, y, opts),
+        Pair::PQ => pq(fluid, x, y, opts),
         pair => Err(Error::Unsupported { pair }),
     }
 }
@@ -197,15 +199,10 @@ fn dt(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<State,
             State::single(key, t, rho, r, m, phase, &b, DIRECT)
         }
         Region::Dome(sat, strategy) if sat.is_pure() => {
-            // The curve's equilibrium is the answer (ROT-092: no VLE when the superancillary is exact), or the VLE's
-            // when the curve was only a guess (its iterations are not counted here).
-            let path = SolvePath { strategy, iterations: 0 };
-            let (rl, rv) = (sat.bubble.rho, sat.dew.rho);
-            let liquid = State::single(key, t, rl, r, m, Phase::Liquid, &total(fluid, t, rl)?, path)?;
-            let vapour = State::single(key, t, rv, r, m, Phase::Gas, &total(fluid, t, rv)?, path)?;
             // Lever rule on molar volume; an imposed TwoPhase outside the dome fails here (q ∉ [0, 1]).
+            let (rl, rv) = (sat.bubble.rho, sat.dew.rho);
             let q = Quality::new((1.0 / rho - 1.0 / rl) / (1.0 / rv - 1.0 / rl))?;
-            State::split(liquid, vapour, q, t, sat.bubble.p, path)
+            two_phase(fluid, &sat, q, strategy)
         }
         // Pseudo-pure in-dome DT: CoolProp's rule (D4), specified from oracle fixtures at M6 (map 04 U4).
         Region::Dome(..) => Err(Error::Unsupported { pair: Pair::DT }),
@@ -216,6 +213,78 @@ fn dt(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<State,
     }
     // Under `Extrapolate`, a state outside the domain is returned, never silently: it carries the flag.
     Ok(if t_check.is_ok() && p_check.is_ok() { state } else { state.mark_extrapolated() })
+}
+
+/// The saturation curve of a pure fluid for the Q pair `pair`; the pseudo-pure rules (a `Definition` curve) land at
+/// M6.9, and a fluid without a curve has no Q pair.
+fn pure_curve(fluid: &PureFluid, pair: Pair) -> Result<&dyn SaturationCurve, Error> {
+    match fluid.saturation()? {
+        Some(curve) if curve.accuracy() != SatAccuracy::Definition => Ok(curve),
+        _ => Err(Error::Unsupported { pair }),
+    }
+}
+
+/// QT: the saturation at T, then the state at quality q (ROT-004: QT and PQ share one `SaturationCurve` path). An
+/// `Exact` curve's equilibrium is the answer (ROT-092: no VLE); a `Guess` curve seeds the pure VLE (ROT-088). The path
+/// names the source (ROT-085). The curve refuses T outside its fitted range under either domain policy (D6).
+fn qt(fluid: &PureFluid, q: f64, t: f64, opts: &FlashOptions) -> Result<State, Error> {
+    let q = Quality::new(q)?;
+    let curve = pure_curve(fluid, Pair::QT)?;
+    let sat = curve.at_t(t)?;
+    let state = match curve.accuracy() {
+        SatAccuracy::Guess => {
+            two_phase(fluid, &crate::vle::at_t(fluid.eos(), t, (sat.bubble.rho, sat.dew.rho))?, q, Strategy::Vle)
+        }
+        _ => two_phase(fluid, &sat, q, Strategy::Superancillary),
+    }?;
+    within_domain(fluid, state, opts)
+}
+
+/// PQ: the saturation at p, then the state at quality q, as [`qt`]; the curve refuses p above its top or below its
+/// lowest pressure. Where p has several saturation temperatures (a curve whose p dips) the root policy chooses: the
+/// nearest to `Nearest`'s T; `Strict` and `Stable` (no temperature at p is more stable than another) are `Ambiguous`.
+fn pq(fluid: &PureFluid, p: f64, q: f64, opts: &FlashOptions) -> Result<State, Error> {
+    let q = Quality::new(q)?;
+    let curve = pure_curve(fluid, Pair::PQ)?;
+    let sat = match (curve.at_p(p), opts.roots()) {
+        (Err(Error::Ambiguous { roots }), RootPolicy::Nearest(x)) => {
+            let distance = |t: &f64| (t - x).abs();
+            let nearest = roots.as_slice().iter().copied().min_by(|a, b| distance(a).total_cmp(&distance(b)));
+            let sat = curve.at_t(nearest.ok_or(Error::Ambiguous { roots })?)?;
+            SatPair { bubble: SatSide { p, ..sat.bubble }, dew: SatSide { p, ..sat.dew } }
+        }
+        (sat, _) => sat?,
+    };
+    let state = match curve.accuracy() {
+        SatAccuracy::Guess => {
+            let seed = (sat.bubble.t, sat.bubble.rho, sat.dew.rho);
+            two_phase(fluid, &crate::vle::at_p(fluid.eos(), p, seed)?, q, Strategy::Vle)
+        }
+        _ => two_phase(fluid, &sat, q, Strategy::Superancillary),
+    }?;
+    within_domain(fluid, state, opts)
+}
+
+/// A saturation state against the model's limits (D6): its T and p checked; under `Enforce` a state outside them is
+/// refused, under `Extrapolate` returned with the flag.
+fn within_domain(fluid: &PureFluid, state: State, opts: &FlashOptions) -> Result<State, Error> {
+    let limits = fluid.limits();
+    match limits.check_t(state.t()).and_then(|()| limits.check_p(state.p())) {
+        Ok(()) => Ok(state),
+        Err(e) if opts.domain() == DomainPolicy::Enforce => Err(e.into()),
+        Err(_) => Ok(state.mark_extrapolated()),
+    }
+}
+
+/// The two-phase state at quality `q` on the pure saturation `sat`, solved by `strategy` (a VLE's iterations are not
+/// counted here): both phases from the EOS at their densities.
+fn two_phase(fluid: &PureFluid, sat: &SatPair, q: Quality, strategy: Strategy) -> Result<State, Error> {
+    let (r, m, key) = (fluid.eos().gas_constant(), fluid.info().molar_mass(), fluid.info().key());
+    let path = SolvePath { strategy, iterations: 0 };
+    let (t, rl, rv) = (sat.bubble.t, sat.bubble.rho, sat.dew.rho);
+    let liquid = State::single(key, t, rl, r, m, Phase::Liquid, &total(fluid, t, rl)?, path)?;
+    let vapour = State::single(key, t, rv, r, m, Phase::Gas, &total(fluid, t, rv)?, path)?;
+    State::split(liquid, vapour, q, t, sat.bubble.p, path)
 }
 
 /// The no-iteration path.
@@ -242,7 +311,7 @@ mod tests {
     #[cfg(feature = "fluids-all")]
     use crate::prop::{DerivVar, Partial};
     use crate::saturation::{SatSide, SaturationCurve};
-    use crate::units::{Basis, Density, Temperature};
+    use crate::units::{Basis, Density, Pressure, Temperature};
 
     /// A curve fitted over 200-380 K that fails the test if it is ever evaluated outside that range.
     #[derive(Debug)]
@@ -578,5 +647,128 @@ mod tests {
         let unstable = Err(DomainError::MechanicallyUnstable.into());
         assert_eq!(accept(r, 300.0, &Bundle { a02: -2.0, ..stable }), unstable); // (∂p/∂ρ)_T = 0
         assert_eq!(accept(r, 300.0, &Bundle { a20: 0.0, ..stable }), unstable); // cv = 0
+    }
+
+    /// QT at quality `q` and temperature `t`.
+    fn q_t(q: f64, t: f64) -> Input {
+        Input::qt(Quality::new(q).unwrap(), Temperature::new(t).unwrap())
+    }
+
+    /// PQ at pressure `p` and quality `q`.
+    fn p_q(p: f64, q: f64) -> Input {
+        Input::pq(Pressure::new(p).unwrap(), Quality::new(q).unwrap())
+    }
+
+    /// ROT-004, ROT-085 (map 03 §6 row 4; PLAN.md M6.8): QT and PQ read one `SaturationCurve` path, and `State::path`
+    /// names the source. Water's exact superancillary is the answer: QT at 400 K has the curve's p there, bit for bit,
+    /// and PQ at that pressure the curve's root at it. A stale curve (Nitrogen edited as in
+    /// `stale_curve_is_a_guess_polished_by_vle`) only seeds the pure VLE: QT and PQ give `vle::at_t` and `vle::at_p` from
+    /// its seeds, bit for bit. A pseudo-pure fluid (R410A, whose rules land at M6.9) has no Q pair yet.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn q_pairs_report_their_saturation_source() {
+        let exact = SolvePath { strategy: Strategy::Superancillary, iterations: 0 };
+        let water = embedded("Water");
+        let curve = record_of("Water").superancillary_curve().unwrap();
+        let sat = curve.at_t(400.0).unwrap();
+        let state = water.state(q_t(0.25, 400.0)).unwrap();
+        assert_eq!((state.path(), state.phase(), state.quality()), (exact, Phase::TwoPhase, Some(0.25)));
+        assert_eq!((state.t(), state.p()), (400.0, sat.bubble.p));
+        let state = water.state(p_q(sat.bubble.p, 1.0)).unwrap();
+        let root = curve.at_p(sat.bubble.p).unwrap();
+        assert_eq!((state.path(), state.t(), state.p()), (exact, root.bubble.t, sat.bubble.p));
+        assert!((root.bubble.t / 400.0 - 1.0).abs() < 1e-15, "{root:?}");
+
+        let mut record = record_of("Nitrogen");
+        record.eos.power.first_mut().unwrap().n *= 1.0 + 1e-6;
+        let stale = record.superancillary_curve().unwrap();
+        let curve_of = record.clone();
+        let pure = record.builder().unwrap().lazy_saturation(move || Ok(curve_of.superancillary_curve())).build();
+        let (t, guess) = (100.0, stale.at_t(100.0).unwrap());
+        let vle = crate::vle::at_t(pure.eos(), t, (guess.bubble.rho, guess.dew.rho)).unwrap();
+        let seed = stale.at_p(vle.dew.p).unwrap();
+        let vle_p = crate::vle::at_p(pure.eos(), vle.dew.p, (seed.bubble.t, seed.bubble.rho, seed.dew.rho)).unwrap();
+        let fluid = Fluid::new(Arc::new(pure));
+        let polished = SolvePath { strategy: Strategy::Vle, iterations: 0 };
+        let state = fluid.state(q_t(0.5, t)).unwrap();
+        assert_eq!((state.path(), state.p().to_bits()), (polished, vle.dew.p.to_bits()));
+        let state = fluid.state(p_q(vle.dew.p, 0.5)).unwrap();
+        assert_eq!((state.path(), state.t().to_bits()), (polished, vle_p.bubble.t.to_bits()));
+        assert!((vle_p.bubble.t / t - 1.0).abs() < 1e-12, "{vle_p:?}");
+
+        let blend = embedded("R410A");
+        assert_eq!(blend.state(q_t(0.0, 280.0)), Err(Error::Unsupported { pair: Pair::QT }));
+        assert_eq!(blend.state(p_q(1e6, 0.0)), Err(Error::Unsupported { pair: Pair::PQ }));
+    }
+
+    /// A curve over [200 K, 380 K] with p = 10·T, ρ′ = 4000 and ρ″ = 50 mol/m³ at every T, of the given accuracy; its
+    /// PQ at 2500 Pa has two roots, 260 K and 280 K.
+    #[derive(Debug)]
+    struct Line(SatAccuracy);
+
+    impl SaturationCurve for Line {
+        fn accuracy(&self) -> SatAccuracy {
+            self.0
+        }
+        fn t_range(&self) -> (f64, f64) {
+            (200.0, 380.0)
+        }
+        fn at_t(&self, t: f64) -> Result<SatPair, Error> {
+            let side = |rho| SatSide { t, p: 10.0 * t, rho };
+            Ok(SatPair { bubble: side(4_000.0), dew: side(50.0) })
+        }
+        fn at_p(&self, p: f64) -> Result<SatPair, Error> {
+            if p == 2_500.0 {
+                return Err(Error::Ambiguous { roots: crate::error::Roots::new(&[260.0, 280.0]) });
+            }
+            self.at_t(p / 10.0)
+        }
+    }
+
+    /// D6 for the Q pairs (PLAN.md M6.8): a saturation state outside the model's limits (Tmin 250 K and pmax 3500 Pa
+    /// here) is refused by default and flagged under `Extrapolate`; inside them it is a plain two-phase state at the
+    /// given quality. Where p has two saturation temperatures, PQ takes the one `RootPolicy::Nearest` names and is
+    /// otherwise `Ambiguous`. A `Definition` curve (the pseudo-pure rules, M6.9) gives no Q pair yet, nor does a fluid
+    /// without a curve.
+    #[test]
+    fn q_pairs_check_the_domain_and_need_a_pure_curve() {
+        let fluid = |curve: Option<Line>| {
+            let mut record = FluidRecord::synthetic("X").unwrap();
+            record.limits = Limits::new(250.0, 420.0, 3_500.0).unwrap();
+            let builder = record.builder().unwrap();
+            Fluid::new(Arc::new(
+                match curve {
+                    Some(curve) => builder.saturation(curve),
+                    None => builder,
+                }
+                .build(),
+            ))
+        };
+        let line = fluid(Some(Line(SatAccuracy::Exact)));
+        let state = line.state(q_t(0.5, 300.0)).unwrap();
+        assert_eq!((state.p(), state.quality(), state.is_extrapolated()), (3_000.0, Some(0.5), false));
+        assert_eq!(state.rho(Basis::Molar), 1.0 / (0.5 / 4_000.0 + 0.5 / 50.0));
+        assert_eq!(line.state(p_q(3_000.0, 0.5)).map(|s| s.t()), Ok(300.0));
+        let cold = DomainError::BelowMinTemperature { t: 220.0, t_min: 250.0 };
+        let high = DomainError::AboveMaxPressure { p: 3_600.0, p_max: 3_500.0 };
+        let outside =
+            [(q_t(0.5, 220.0), cold), (p_q(2_200.0, 0.5), cold), (q_t(0.5, 360.0), high), (p_q(3_600.0, 0.5), high)];
+        let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
+        for (input, refused) in outside {
+            assert_eq!(line.state(input), Err(refused.into()));
+            assert!(line.flash(input, &extrapolate).unwrap().is_extrapolated());
+        }
+        let two = Error::Ambiguous { roots: crate::error::Roots::new(&[260.0, 280.0]) };
+        assert_ne!(two, Error::Ambiguous { roots: crate::error::Roots::new(&[260.0]) });
+        assert_eq!(line.state(p_q(2_500.0, 0.5)), Err(two.clone()));
+        assert_eq!(line.flash(p_q(2_500.0, 0.5), &FlashOptions::new().with_roots(RootPolicy::Stable)), Err(two));
+        let nearest = |t| line.flash(p_q(2_500.0, 0.5), &FlashOptions::new().with_roots(RootPolicy::Nearest(t)));
+        assert_eq!(nearest(265.0).map(|s| (s.t(), s.p())), Ok((260.0, 2_500.0)));
+        assert_eq!(nearest(275.0).map(|s| (s.t(), s.p())), Ok((280.0, 2_500.0)));
+        for curve in [Some(Line(SatAccuracy::Definition)), None] {
+            let fluid = fluid(curve);
+            assert_eq!(fluid.state(q_t(0.5, 300.0)), Err(Error::Unsupported { pair: Pair::QT }));
+            assert_eq!(fluid.state(p_q(3_000.0, 0.5)), Err(Error::Unsupported { pair: Pair::PQ }));
+        }
     }
 }

@@ -87,7 +87,14 @@ pub enum DomainError {
         /// Limit, K.
         t_max: f64,
     },
-    /// p above the model's maximum pressure.
+    /// p below the lowest pressure of a saturation curve (its triple point's, or a dip's, M6.8).
+    BelowMinPressure {
+        /// Requested pressure, Pa.
+        p: f64,
+        /// Limit, Pa.
+        p_min: f64,
+    },
+    /// p above the model's maximum pressure, or above the highest pressure of a saturation curve (its critical point's).
     AboveMaxPressure {
         /// Requested or computed pressure, Pa.
         p: f64,
@@ -134,11 +141,17 @@ pub enum LoadError {
     ReferenceCycle(Box<str>),
 }
 
-/// Up to four roots of an ambiguous flash, as data.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Up to four roots of an ambiguous flash, as data. Two are equal when their roots are (the unused slots are NaN).
+#[derive(Clone, Copy, Debug)]
 pub struct Roots {
     values: [f64; 4],
     len: u8,
+}
+
+impl PartialEq for Roots {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
 }
 
 impl Roots {

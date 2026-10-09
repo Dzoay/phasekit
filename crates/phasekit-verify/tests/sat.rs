@@ -1,17 +1,21 @@
 //! L3 saturation (map 10 §8.5): the superancillary evaluated from the blobs against the oracle's own evaluation of the
-//! same coefficients and against the multiprecision check points (VERIFICATION.md §3.5, §5), and its exact rescaling
-//! under a gas-constant or reducing-density correction (VERIFICATION.md §7.3).
+//! same coefficients and against the multiprecision check points (VERIFICATION.md §3.5, §5), its exact rescaling
+//! under a gas-constant or reducing-density correction (VERIFICATION.md §7.3), and the QT and PQ flashes on it.
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
+use std::collections::HashMap;
+
 use phasekit_core::internal::{FluidRecord, IdealTerm};
 use phasekit_core::{
-    Basis, DataSet, Density, DomainPolicy, FlashOptions, Fluid, Input, Order, Phase, Registry, SatAccuracy,
-    SaturationCurve, State, Temperature,
+    Basis, DataSet, Density, DomainPolicy, Error, FlashOptions, Fluid, Input, Order, Phase, Pressure, Quality,
+    Registry, RootPolicy, SatAccuracy, SaturationCurve, State, Strategy, Temperature,
 };
 use phasekit_verify::eos::{Majorants, carried};
+use phasekit_verify::fixture::Kind;
+use phasekit_verify::register::exempt_row;
 use phasekit_verify::term::IdealScale;
-use phasekit_verify::{Cell, CheckError, Fixture, ToleranceClass, Window, fixture};
+use phasekit_verify::{Cell, CheckError, DIVERGENCES, Fixture, ToleranceClass, Window, fixture};
 
 /// The superancillary of `name` from the embedded blob, under `data_set` and the hash gate.
 fn curve(registry: &Registry, name: &str, data_set: DataSet) -> Box<dyn SaturationCurve> {
@@ -120,7 +124,8 @@ fn rescaled_curves_apply_exact_factors() {
     }
 }
 
-/// VERIFICATION.md §3.2, §11.3: `all/sat.csv` comes from the pinned runner image, like every committed oracle fixture.
+/// VERIFICATION.md §3.2, §11.3: `all/sat.csv` and the core subset's `sat` files come from the pinned runner image, like
+/// every committed oracle fixture.
 #[test]
 fn sat_fixtures_name_the_pinned_generator_environment() {
     let environment = |(path, text): (&str, &str)| {
@@ -128,7 +133,9 @@ fn sat_fixtures_name_the_pinned_generator_environment() {
         generator.split(' ').filter(|field| !field.starts_with("sha256=")).collect::<Vec<_>>().join(" ")
     };
     let smoke = environment(fixture!("coolprop-8.0.0/facts/smoke.csv"));
-    assert_eq!(environment(fixture!("coolprop-8.0.0/all/sat.csv")), smoke);
+    for file in std::iter::once(fixture!("coolprop-8.0.0/all/sat.csv")).chain(SAT_CORE) {
+        assert_eq!(environment(file), smoke, "{}", file.0);
+    }
 }
 
 /// The liquid and vapour states at T on the superancillary's densities, phase imposed: what a QT state is made of.
@@ -139,6 +146,26 @@ fn saturated(fluid: &Fluid, curve: &dyn SaturationCurve, t: f64) -> (State, Stat
         fluid.flash(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap()), &opts).unwrap()
     };
     (at(sat.bubble.rho, Phase::Liquid), at(sat.dew.rho, Phase::Gas))
+}
+
+/// `Prop`'s bound (VERIFICATION.md §5) on an h (`entropy` false) or s near `want` at (T, ρ), with `Term` carried
+/// through the relation.
+fn eos_bound(
+    fluid: &Fluid,
+    (record, ideal): (&FluidRecord, &IdealScale),
+    t: f64,
+    rho: f64,
+    entropy: bool,
+    want: f64,
+) -> f64 {
+    let (eos, r) = (fluid.model().helmholtz().unwrap(), record.eos.gas_constant);
+    let critical = fluid.model().critical_point().unwrap();
+    let bundle = (eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two)).bundle().unwrap();
+    let majorants = Majorants::at(record, ideal, t, rho);
+    let relation = if entropy { "smolar" } else { "hmolar" };
+    let spread = carried(relation, &bundle, &majorants, r, t, rho, fluid.info().molar_mass());
+    let scale = want.abs().max(if entropy { r } else { r * t });
+    ToleranceClass::Prop.bound_carried(scale, Window::at(t, rho, critical.t, critical.rho), spread).unwrap()
 }
 
 /// `CaloricFit` (VERIFICATION.md §5) of an h or u (`entropy` false) or an s at T.
@@ -167,23 +194,16 @@ fn caloric_curves_match_oracle_sat_rows() {
         }
         let Some((_, record, ideal)) = cached.as_ref() else { continue };
         let (fluid, t) = (registry.get(name).unwrap(), fixture.value(row, "T").unwrap());
-        let (r, critical) = (record.eos.gas_constant, fluid.model().critical_point().unwrap());
+        let r = record.eos.gas_constant;
         let (liquid, vapour) = saturated(fluid, &*record.superancillary_curve().unwrap(), t);
         let curves = record.caloric_view().unwrap().at(t).unwrap();
-        let eos = fluid.model().helmholtz().unwrap();
         let columns =
             [("hL", &liquid, 0, false), ("hV", &vapour, 1, false), ("sL", &liquid, 2, true), ("sV", &vapour, 3, true)];
         for (column, state, curve, entropy) in columns {
             let rho = state.rho(Basis::Molar);
             let want = fixture.value(row, column).unwrap();
             let got = if entropy { state.s(Basis::Molar) } else { state.h(Basis::Molar) };
-            let bundle = (eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two)).bundle().unwrap();
-            let majorants = Majorants::at(record, ideal, t, rho);
-            let relation = if entropy { "smolar" } else { "hmolar" };
-            let spread = carried(relation, &bundle, &majorants, r, t, rho, fluid.info().molar_mass());
-            let scale = want.abs().max(if entropy { r } else { r * t });
-            let window = Window::at(t, rho, critical.t, critical.rho);
-            let bound = ToleranceClass::Prop.bound_carried(scale, window, spread).unwrap();
+            let bound = eos_bound(fluid, (record, ideal), t, rho, entropy, want);
             checked += 2;
             if let Err(e) = fixture.check_bound(row, column, got, bound) {
                 failures.push(format!("{name} EOS: {e:?}"));
@@ -284,4 +304,185 @@ fn corrected_curves_rescale_or_go_stale() {
     stale.eos.power[0].n += 1e-12;
     assert_eq!(stale.caloric_freshness(), Some(phasekit_core::internal::CaloricFreshness::Stale));
     assert_eq!(stale.caloric_view(), None);
+}
+
+/// QT at quality `q` and temperature `t`.
+fn qt(q: f64, t: f64) -> Input {
+    Input::qt(Quality::new(q).unwrap(), Temperature::new(t).unwrap())
+}
+
+/// PQ at pressure `p` and quality `q`.
+fn pq(p: f64, q: f64) -> Input {
+    Input::pq(Pressure::new(p).unwrap(), Quality::new(q).unwrap())
+}
+
+/// What [`q_rows`] counted and found.
+#[derive(Debug, Default)]
+struct QRows {
+    qt: usize,
+    pq: usize,
+    exempt: usize,
+    /// States outside the model's limits (flagged under `Extrapolate`).
+    outside: usize,
+    /// PQ rows whose p has several saturation temperatures.
+    ambiguous: Vec<String>,
+    failures: Vec<String>,
+}
+
+/// The QT and PQ rows of `fixture` (`fluid_of(row)` the fluid of a row) against phasekit's flash (PLAN.md M6.8), every
+/// row `ok` and on the superancillary's path. CoolProp's superancillary flashes do not check the model's limits, so the
+/// rows are flashed under `Extrapolate`: a state outside them is flagged, and refused by default (D6). A QT row: p, ρ′
+/// and ρ″ within `SaCoeff`, h and s within `Prop`, read off the states at Q = 0 and 1. A PQ row (user decision PQ1): T
+/// within `SaCoeff` of the QT row whose p it was given (the root nearest it, where p has several), and its state
+/// phasekit's QT at that T, bit for bit, but for p, the given one; the oracle's own PQ cells are DIV-0018's.
+fn q_rows<'a>(fixture: &Fixture<'a>, fluid_of: impl Fn(usize) -> &'a str, registry: &Registry, out: &mut QRows) {
+    let mut generated: HashMap<(&str, u64), f64> = HashMap::new();
+    let mut cached: Option<(&str, FluidRecord, IdealScale)> = None;
+    let m = Basis::Molar;
+    let opts = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
+    let at_t = |fluid: &Fluid, q: f64, t: f64| fluid.flash(qt(q, t), &opts);
+    for row in 0..fixture.rows().len() {
+        let input = label(fixture, row, "input");
+        if input != "T" && input != "p" {
+            continue;
+        }
+        let name = fluid_of(row);
+        let at = format!("{name} row {row} ({input})");
+        let (status, path) = (label(fixture, row, "status"), label(fixture, row, "path"));
+        if (status, path) != ("ok", "superanc") {
+            out.failures.push(format!("{at}: {status}, {path}"));
+            continue;
+        }
+        if cached.as_ref().is_none_or(|(n, ..)| *n != name) {
+            let record = phasekit_core::internal::record(registry, name).unwrap();
+            let ideal = IdealScale::new(&record).unwrap();
+            cached = Some((name, record, ideal));
+        }
+        let Some((_, record, ideal)) = cached.as_ref() else { continue };
+        let fluid = registry.get(name).unwrap();
+        let [q, t, p] = ["Q", "T", "p"].map(|column| fixture.value(row, column).unwrap());
+        let t_qt = generated.get(&(name, p.to_bits())).copied();
+        let flashed = match (input, t_qt) {
+            ("T", _) => at_t(fluid, q, t),
+            (_, Some(t_qt)) => fluid.flash(pq(p, q), &opts.with_roots(RootPolicy::Nearest(t_qt))),
+            (_, None) => {
+                out.failures.push(format!("{at}: no QT row gave p = {p}"));
+                continue;
+            }
+        };
+        let state = match flashed {
+            Ok(state) if state.path().strategy == Strategy::Superancillary => state,
+            other => {
+                out.failures.push(format!("{at}: {other:?}"));
+                continue;
+            }
+        };
+        let outside = record.limits.check_t(state.t()).is_err() || record.limits.check_p(state.p()).is_err();
+        out.outside += usize::from(outside);
+        if state.is_extrapolated() != outside {
+            out.failures.push(format!("{at}: flagged {}, outside the limits {outside}", state.is_extrapolated()));
+        }
+        if input == "T" {
+            out.qt += 1;
+            generated.insert((name, p.to_bits()), t);
+            let sides = [0.0, 1.0].map(|q| at_t(fluid, q, t).unwrap());
+            for (column, got) in [("p", state.p()), ("rhoL", sides[0].rho(m)), ("rhoV", sides[1].rho(m))] {
+                let scale = fixture.value(row, column).unwrap().abs();
+                if let Err(e) = fixture.check_scaled(row, column, got, scale) {
+                    out.failures.push(format!("{at}: {e:?}"));
+                }
+            }
+            for (column, side, entropy) in [("hL", 0, false), ("hV", 1, false), ("sL", 0, true), ("sV", 1, true)] {
+                let (want, side) = (fixture.value(row, column).unwrap(), &sides[side]);
+                let got = if entropy { side.s(m) } else { side.h(m) };
+                let bound = eos_bound(fluid, (record, ideal), t, side.rho(m), entropy, want);
+                if let Err(e) = fixture.check_bound(row, column, got, bound) {
+                    out.failures.push(format!("{at}: {e:?}"));
+                }
+            }
+            continue;
+        }
+        out.pq += 1;
+        for column in ["T", "rhoL", "rhoV", "hL", "hV", "sL", "sV"] {
+            match exempt_row(DIVERGENCES, name, Kind::Sat, column, t, Some("p")) {
+                Some("DIV-0018") => out.exempt += 1,
+                other => out.failures.push(format!("{at}: {column} exempt by {other:?}")),
+            }
+        }
+        let t_qt = t_qt.unwrap_or(f64::NAN);
+        let within = (state.t() - t_qt).abs() <= ToleranceClass::SaCoeff.bound(t_qt).unwrap(); // false for NaN too
+        if !within {
+            out.failures.push(format!("{at}: T {} against the QT row's {t_qt}", state.t()));
+        }
+        if let Err(Error::Ambiguous { roots }) = fluid.flash(pq(p, q), &opts) {
+            out.ambiguous.push(format!("{name}: {} roots", roots.as_slice().len()));
+        }
+        let same = at_t(fluid, q, state.t()).unwrap();
+        let bits = |s: &State| [s.rho(m), s.h(m), s.s(m)].map(f64::to_bits);
+        let p_close = (same.p() - p).abs() <= ToleranceClass::SaCoeff.bound(p).unwrap();
+        if bits(&same) != bits(&state) || state.p() != p || !p_close {
+            out.failures.push(format!("{at}: {state:?} is not QT at its T, {same:?}"));
+        }
+    }
+}
+
+/// The core subset's `sat` files: the 12 fluids with a superancillary.
+const SAT_CORE: [(&str, &str); 12] = [
+    fixture!("coolprop-8.0.0/sat/Ammonia.csv"),
+    fixture!("coolprop-8.0.0/sat/CarbonDioxide.csv"),
+    fixture!("coolprop-8.0.0/sat/HFE143m.csv"),
+    fixture!("coolprop-8.0.0/sat/Helium.csv"),
+    fixture!("coolprop-8.0.0/sat/Methanol.csv"),
+    fixture!("coolprop-8.0.0/sat/n-Heptane.csv"),
+    fixture!("coolprop-8.0.0/sat/Nitrogen.csv"),
+    fixture!("coolprop-8.0.0/sat/R1130(E).csv"),
+    fixture!("coolprop-8.0.0/sat/R1234yf.csv"),
+    fixture!("coolprop-8.0.0/sat/R1234ze(E).csv"),
+    fixture!("coolprop-8.0.0/sat/R125.csv"),
+    fixture!("coolprop-8.0.0/sat/Water.csv"),
+];
+
+/// Oracle: CoolProp 8.0.0, the `sat` kind's QT and PQ rows (PLAN.md M6.8; map 03 §8): all/sat.csv, QT at Q = 0 and PQ
+/// at Q = 1 at 8 temperatures per fluid of the 130 with a superancillary, and the core subset's sat/<Fluid>.csv, QT and
+/// PQ at both Q at 25 temperatures, Θ = 1 − T/Tc log-spaced from 1e-7 to the triple point; each row as [`q_rows`]
+/// checks it. 20 states lie outside their model's limits: MD4M's curve starts at 214.15 K, below its Tmin of 214.5 K,
+/// R236EA's critical point (412.44 K) lies above its Tmax of 412 K and R161's (5.01 MPa) above its pmax of 5 MPa. At
+/// PropyleneGlycol's p at 213 K the curve has a second temperature, 218.5 K, past the dip of DIV-0016's interval: the
+/// default flash refuses it as `Ambiguous`, and CoolProp answers with the lower. The pseudo-pure fluids' rows land at
+/// M6.9.
+#[test]
+fn sat_fixtures_match_oracle() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut rows = QRows::default();
+    let (path, text) = fixture!("coolprop-8.0.0/all/sat.csv");
+    let all = Fixture::parse(path, text).unwrap();
+    q_rows(&all, |row| label(&all, row, "fluid"), &registry, &mut rows);
+    for (path, text) in SAT_CORE {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let name = path.rsplit('/').next().unwrap().trim_end_matches(".csv");
+        q_rows(&fixture, |_| name, &registry, &mut rows);
+    }
+    let failures = rows.failures.iter().take(20).collect::<Vec<_>>();
+    assert_eq!(failures, Vec::<&String>::new(), "{} failures", rows.failures.len());
+    let each = 130 * 8 + 12 * 50;
+    assert_eq!((rows.qt, rows.pq, rows.exempt), (each, each, each * 7));
+    assert_eq!((rows.outside, rows.ambiguous.as_slice()), (20, &["PropyleneGlycol: 2 roots".to_owned()] as &[String]));
+}
+
+/// Map 11 §8, CoolProp's own smoke value (PLAN.md M6.8): R134a's h at 300 K and Q = 1 is 413265.6843372975 J/kg in
+/// CoolProp 8.0.0 (`facts/smoke.csv`); phasekit's QT gives it within `Prop`.
+#[test]
+fn r134a_qt_smoke() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let h = registry.get("R134a").unwrap().state(qt(1.0, 300.0)).unwrap().h(Basis::Mass);
+    let want = 413_265.684_337_297_5;
+    assert!((h - want).abs() <= ToleranceClass::Prop.bound(want).unwrap(), "{h}");
+}
+
+/// Map 11 §8 (CoolProp's test, and its JS smoke test, VERIFICATION.md §10): Water boils at 101 325 Pa between
+/// 373.124 K and 373.125 K.
+#[test]
+fn water_normal_boiling_point() {
+    let t = Registry::embedded().unwrap().get("Water").unwrap().state(pq(101_325.0, 0.0)).unwrap().t();
+    assert!((373.124..=373.125).contains(&t), "{t}");
 }
