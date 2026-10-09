@@ -162,7 +162,6 @@ pub mod math {
 /// first row is taken. The test is relative to the row, so multiplying a row by any factor changes neither the pivots
 /// chosen nor the verdict, where CoolProp's `linsolve` compares the pivot with an absolute
 /// 10ε and `MatInv_2` has no zero-determinant guard (map 03 §3.4; ROT-067).
-#[cfg_attr(not(test), expect(dead_code, reason = "the pure VLE (M6.3) is the first user"))]
 pub(crate) fn solve_small<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N]) -> Result<[f64; N], crate::Error> {
     const { assert!(N >= 1 && N <= 4, "solve_small solves 1 to 4 equations") };
     let singular = crate::Error::InvalidState { reason: "a singular linear system (a pivot within rounding of zero)" };
