@@ -151,6 +151,8 @@ impl ToleranceClass {
             ToleranceClass::Flash => Some(1e-9 * scale),
             ToleranceClass::RefAnchor => Some(1e-8), // absolute, SI mass units: the scale does not enter
             ToleranceClass::Fd => Some(1e-7 * scale),
+            // p and ρ; ρ relaxes near the critical point (Θ < 1e-3; map 10 §8.3), where the caller passes the window.
+            ToleranceClass::SatMp => Some(if near { 1e-6 } else { 1e-11 } * scale),
             _ => None,
         }
     }
@@ -287,12 +289,15 @@ mod tests {
         assert_eq!(Prop.bound_carried(2.0, Window::Regular, 30.0), Some(3e-12));
         assert_eq!(Prop.bound_carried(2.0, Window::NearCritical, 1e5), Some(2e-8));
         assert_eq!(Prop.bound_carried(2.0, Window::Regular, f64::NAN), Some(2e-12));
-        assert_eq!(ToleranceClass::SatMp.bound_carried(2.0, Window::Regular, 1.0), None);
+        assert_eq!(ToleranceClass::SaFit.bound_carried(2.0, Window::Regular, 1.0), None, "a per-point class");
         // `SaCoeff` is 1e-14 relative; `SaFit` 4 times the point's own SA/mp misfit, never below 1e-14.
         assert_eq!(ToleranceClass::SaCoeff.bound_in(3.0, Window::NearCritical), Some(3e-14));
         assert_eq!(ToleranceClass::CaloricFit.bound(4.0), Some(8e-6));
         assert_eq!(ToleranceClass::Flash.bound_in(2.0, Window::NearCritical), Some(2e-9));
         assert_eq!(ToleranceClass::Fd.bound_in(3.0, Window::NearCritical), Some(3e-7));
+        // `SatMp`: 1e-11, a density 1e-6 near the critical point (VERIFICATION.md §5).
+        assert_eq!(ToleranceClass::SatMp.bound(4.0), Some(4e-11));
+        assert_eq!(ToleranceClass::SatMp.bound_in(4.0, Window::NearCritical), Some(4e-6));
         assert_eq!(
             (ToleranceClass::RefAnchor.bound(1e9), ToleranceClass::RefAnchor.bound(0.0)),
             (Some(1e-8), Some(1e-8))

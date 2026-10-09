@@ -52,4 +52,8 @@ exclude_re = [
     # a, more than half the bracket either way, so both choices of u give the midpoint; and a move of exactly half the
     # bracket lands on the midpoint, so `>` and `>=` choose the same point.
     "roots\\.rs:[0-9]+:[0-9]+: replace (< with <=|> with >=) in Bracket::doubled_secant",
+    # Equivalent in practice: the VLE's distinct-phase test, ln(ρ′/ρ″) > 1e-6, and `>=` differ only when the logarithm
+    # equals 1e-6 bit for bit, which no state built from double densities reaches reliably on every target; 2e-6 and
+    # 5e-7 are tested on either side.
+    "vle\\.rs:[0-9]+:[0-9]+: replace > with >= in distinct",
 ]

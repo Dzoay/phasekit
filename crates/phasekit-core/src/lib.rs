@@ -50,6 +50,7 @@ mod saturation;
 mod state;
 mod transport;
 mod units;
+mod vle;
 
 pub mod batch;
 pub use num::math;
@@ -86,6 +87,20 @@ pub mod internal {
     };
     pub use crate::saturation::{chebyshev_derivative, clenshaw, piece};
 
+    /// Saturation of a Helmholtz model at `t` by the pure-fluid VLE from seed densities `(ρ′, ρ″)` (PLAN.md M6.3).
+    pub fn vle_at_t(eos: &dyn crate::HelmholtzModel, t: f64, seed: (f64, f64)) -> Result<crate::SatPair, crate::Error> {
+        crate::vle::at_t(eos, t, seed)
+    }
+
+    /// Saturation of a Helmholtz model at the pressure `p` by the pure-fluid VLE from the seed `(T, ρ′, ρ″)`.
+    pub fn vle_at_p(
+        eos: &dyn crate::HelmholtzModel,
+        p: f64,
+        seed: (f64, f64, f64),
+    ) -> Result<crate::SatPair, crate::Error> {
+        crate::vle::at_p(eos, p, seed)
+    }
+
     /// The decoded, uncorrected record of a data-backed fluid.
     pub fn record(registry: &crate::Registry, name: &str) -> Result<FluidRecord, crate::Error> {
         registry.record(name)
@@ -120,6 +135,7 @@ const _: () = {
     shared::<dyn ThermoModel>();
     shared::<dyn HelmholtzModel>();
     shared::<dyn SaturationCurve>();
+    shared::<SatPair>();
     shared::<dyn DataSource>();
     shared::<State>();
     shared::<FlashOptions>();

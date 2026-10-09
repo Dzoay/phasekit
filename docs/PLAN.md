@@ -863,10 +863,13 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
   class `SatMp`; map 10 §8.1, map 09 §8), `vle_equilibrium_self_check` (p′ = p″, g′ = g″; class `Identity`; map 03
   §8), `vle_jacobian_matches_ad`, `vle_nan_or_stall_is_no_convergence`. *Do:* Newton in (τ, ln δ′, ln δ″) with a
   `Jet4` Jacobian solved by `num::solve_small`, SA or ancillary seeds, bracketed fallback, residual gate (map 04 U3).
-  *Done when:* 390/390.
+  *Done when:* 390/390. Measured at M6.3: the check points' p is a double-precision liquid side's (49 rows beyond
+  1e-11 of the vapour side's p at their own T and ρ″), so p is compared with that derived p (user decision DP1;
+  `check_point_pressures_carry_liquid_side_rounding`); ρ′ and ρ″ match to about 1e-14.
 - **M6.4 Superancillary vs VLE.** *Failing test:* `superancillary_matches_vle_within_sa_fit` (class `SaFit`: 4 × the
   fastchebpure ratio; the M6.1 dense files incl. near-critical points; map 10 §8.1, §8.3). *Do:* the comparison
-  harness over `mp/fastchebpure-*/` (core subset per PR; all 130 *(nightly)*); fixes in VLE or the evaluator only.
+  harness over `mp/fastchebpure-*/` (core subset per PR; all 130 *(nightly)*), p derived from (T, ρ″) as DP1
+  decides (the files' `p(mp)` carries a double-precision liquid side's rounding); fixes in VLE or the evaluator only.
   *Done when:* green for the core subset; all 130 *(nightly)*.
 - **M6.5 Exact rescaling proved.** *Failing test:* `rescaled_superancillary_equals_vle` for Nitrogen (DIV-0003) and
   R1234ze(E) (DIV-0001), class `SatMp` (ARCHITECTURE.md §8 inference, now proved). *Do:* the DIV-0001 and DIV-0003
