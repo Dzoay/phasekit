@@ -564,6 +564,23 @@ mod tests {
     }
 
     #[cfg(feature = "fluids-all")]
+    /// Far below 1 Pa the floor alone is no convergence (the pressure term's scale is the liquid's ρ′): at 213 K,
+    /// PropyleneGlycol's triple point (2e-4 Pa), seeded with the superancillary's densities (4e-8 of ρ″ there), the VLE
+    /// gives CoolProp 8.0.0's own VLE (superancillaries off; the register's facts, DIV-0016) within 1e-12, where
+    /// stopping at the floor left ρ″ 1 % off.
+    #[test]
+    fn vle_converges_far_below_one_pascal() {
+        let (record, fluid) = model("PropyleneGlycol");
+        let sa = record.superancillary_curve().unwrap().at_t(213.0).unwrap();
+        let sat = at_t(fluid.eos(), 213.0, (sa.bubble.rho, sa.dew.rho)).unwrap();
+        let close = |got: f64, want: f64| (got / want - 1.0).abs() < 1e-12;
+        assert!(
+            close(sat.dew.rho, 1.234_967_773_820_784_8e-7) && close(sat.bubble.rho, 14_414.121_785_589_81),
+            "{sat:?}"
+        );
+    }
+
+    #[cfg(feature = "fluids-all")]
     /// The domain of a phase point: the model's largest density times the margin is in, a little more is not, nor
     /// twice it, nor ρ ≤ 0 or NaN.
     #[test]

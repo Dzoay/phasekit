@@ -162,3 +162,138 @@ impl SaturationCheck {
         report(&self.failures, rows, 0.0, "SaFit (superancillary) / SatMp (VLE)", shown)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use phasekit_core::{DataSet, Registry};
+
+    const WATER: (&str, &str) = crate::fixture!("mp/fastchebpure-2026.06.02-v2/Water.csv");
+
+    /// Water's file, its header and its rows as `[f64; 8]` (the columns after the name).
+    fn water() -> (String, Vec<[f64; 8]>) {
+        let header: String = WATER.1.lines().filter(|l| l.starts_with('#')).map(|l| format!("{l}\n")).collect();
+        let rows = WATER.1.lines().filter(|l| !l.starts_with('#')).map(|l| {
+            let cells: Vec<f64> = l.split(',').skip(1).map(|c| c.parse().unwrap()).collect();
+            <[f64; 8]>::try_from(cells).unwrap()
+        });
+        (header, rows.collect())
+    }
+
+    /// Checks `rows` of `name` as a `checkpoints/v1` file under `header`.
+    fn check(name: &str, header: &str, rows: &[[f64; 8]]) -> SaturationCheck {
+        let body: String = rows.iter().map(|r| format!("{name},{}\n", r.map(|v| format!("{v:?}")).join(","))).collect();
+        let text = format!("{header}{body}");
+        let fixture = Fixture::parse("synthetic.csv", &text).unwrap();
+        let mut record = phasekit_core::internal::record(Registry::embedded().unwrap(), name).unwrap();
+        record.apply(DataSet::Parity).unwrap();
+        let fluid = record.clone().compile().unwrap();
+        let mut check = SaturationCheck::default();
+        check.rows(&fixture, name, &record, fluid.eos());
+        check
+    }
+
+    /// Water's rows at its triple point (an ulp below the superancillary's), at Θ ≈ 0.3, in the near-critical range
+    /// (Θ ≈ 1e-4), below Θ = 1e-8, and at Tc; and a row moved past the curve's end, its Tc its T (Θ = 0).
+    fn picked() -> (String, [[f64; 8]; 6]) {
+        let (header, rows) = water();
+        let theta = |r: &[f64; 8]| (r[0] - r[1]) / r[0];
+        let first = |lo: f64, hi: f64| *rows.iter().find(|r| (lo..hi).contains(&theta(r))).unwrap();
+        let last = *rows.last().unwrap();
+        let record = phasekit_core::internal::record(Registry::embedded().unwrap(), "Water").unwrap();
+        let end = record.superancillary_curve().unwrap().t_range().1 * (1.0 + 2.0 * f64::EPSILON);
+        let mut past = last;
+        (past[0], past[1]) = (end, end);
+        (header, [rows[0], first(0.25, 0.35), first(5e-5, 2e-4), first(1e-12, 1e-8), last, past])
+    }
+
+    /// A faithful file passes, and every row is counted where it belongs: the triple point an ulp below the curve's
+    /// end is evaluated at its end, Tc itself lies beyond it, and below Θ = 1e-8 the VLE is not compared. The
+    /// near-critical row's conditioning is its error over ε·Θ^−1.5·μ and ε·μ/Θ.
+    #[test]
+    fn a_faithful_file_passes_and_every_row_is_counted() {
+        let (header, rows) = picked();
+        let check = check("Water", &header, &rows);
+        assert_eq!(check.report(5), None);
+        let counts = (check.superancillary, check.vle, check.near_critical, check.unsplit, check.beyond, check.exempt);
+        assert_eq!(counts, (5, 3, 2, 0, 1, 0));
+        let r = rows[2];
+        let mut record = phasekit_core::internal::record(Registry::embedded().unwrap(), "Water").unwrap();
+        record.apply(DataSet::Parity).unwrap();
+        let fluid = record.clone().compile().unwrap();
+        let sa = record.superancillary_curve().unwrap().at_t(r[1]).unwrap();
+        let sat = vle_at_t(fluid.eos(), r[1], (sa.bubble.rho, sa.dew.rho)).unwrap();
+        let theta = (r[0] - r[1]) / r[0];
+        let mu = carried_scale(&record, &IdealScale::new(&record).unwrap(), fluid.eos(), r[1], r[3]);
+        let density = (sat.bubble.rho / r[3] - 1.0).abs().max((sat.dew.rho / r[4] - 1.0).abs());
+        let p = pressure(fluid.eos(), r[1], r[4]);
+        let want = [
+            density / (f64::EPSILON * phasekit_core::math::powf(theta, -1.5) * mu),
+            (sat.dew.p / p - 1.0).abs() / (f64::EPSILON * mu / theta),
+        ];
+        assert_eq!(check.conditioning, want);
+        assert!(want.iter().all(|c| *c > 0.0 && *c < 0.5), "{want:?}");
+    }
+
+    /// A misfit is reported where it is: ρ″ 1e-9 off fails both the superancillary (`SaFit`) and the VLE (`SatMp`), in
+    /// p too, as the reference p is derived from ρ″ (DP1);
+    /// ρ′ 1e-12 off fails the superancillary alone; a row past the curve's end that is not at its Tc, or more than 4
+    /// ulp below its start, is a failure; and the report counts every row checked.
+    #[test]
+    fn misfits_are_reported_where_they_are() {
+        let (header, rows) = picked();
+        let mut bad = rows;
+        bad[1][4] *= 1.0 + 1e-9;
+        bad[2][3] *= 1.0 + 1e-12;
+        bad[5][0] *= 1.0 + 1e-6;
+        let mut early = rows[0];
+        early[1] *= 1.0 - 1e-12;
+        let check = check("Water", &header, &[bad[0], bad[1], bad[2], bad[3], bad[4], bad[5], early]);
+        let what: Vec<&str> = check.failures.iter().map(|f| f.split(": ").next().unwrap_or("")).collect();
+        assert_eq!(check.failures.len(), 6, "{:?}", check.failures);
+        let ends = ["superancillary rhoV", "VLE p", "VLE rhoV", "superancillary rhoL"];
+        assert!(what.iter().zip(ends).all(|(w, end)| w.ends_with(end)), "{what:?}");
+        assert!(
+            check.failures[4].contains("superancillary Domain") && check.failures[5].contains("Domain"),
+            "{what:?}"
+        );
+        let report = check.report(9).unwrap();
+        assert!(report.starts_with("6 of 5 entries"), "{report}");
+    }
+
+    /// A row whose ρ′ equals its ρ″ above Θ = 1e-8 is unsplit, its VLE not compared; the register's exempt cells
+    /// (DIV-0016: PropyleneGlycol's p and ρ″ from 213 to 227.6028 K) are counted, not compared.
+    #[test]
+    fn unsplit_rows_and_exempt_cells_are_counted() {
+        let (header, rows) = picked();
+        let mut unsplit = rows[1];
+        unsplit[4] = unsplit[3];
+        let curve = |name: &str| {
+            let record = phasekit_core::internal::record(Registry::embedded().unwrap(), name).unwrap();
+            (record.superancillary_curve().unwrap(), record.compile().unwrap())
+        };
+        let (water_curve, _) = curve("Water");
+        unsplit[7] = water_curve.at_t(unsplit[1]).unwrap().dew.rho / unsplit[3];
+        let check_unsplit = check("Water", &header, &[unsplit]);
+        assert_eq!((check_unsplit.unsplit, check_unsplit.vle, check_unsplit.report(5)), (1, 0, None));
+        let (pg_curve, pg) = curve("PropyleneGlycol");
+        let t = 215.0;
+        let sa = pg_curve.at_t(t).unwrap();
+        let sat = vle_at_t(pg.eos(), t, (sa.bubble.rho, sa.dew.rho)).unwrap();
+        let p = pressure(pg.eos(), t, sat.dew.rho);
+        let tc = pg_curve.t_range().1;
+        let row = [
+            tc,
+            t,
+            p,
+            sat.bubble.rho,
+            sat.dew.rho,
+            sa.dew.p / p,
+            sa.bubble.rho / sat.bubble.rho,
+            sa.dew.rho / sat.dew.rho,
+        ];
+        let header = header.replace("Water", "PropyleneGlycol");
+        let exempt = check("PropyleneGlycol", &header, &[row, row]);
+        assert_eq!((exempt.exempt, exempt.vle, exempt.report(5)), (4, 2, None));
+    }
+}
