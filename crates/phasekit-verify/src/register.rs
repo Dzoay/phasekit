@@ -430,6 +430,7 @@ pub static DIVERGENCES: &[Divergence] = &[
             rows: Rows::TwoPhaseTBand { lo: 200.0, hi: 220.0 },
         }),
         tolerance: None,
+        table_tolerances: &[],
         proof: &[6],
         status: DivStatus::Open,
     },
