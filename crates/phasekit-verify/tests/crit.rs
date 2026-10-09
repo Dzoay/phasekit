@@ -44,8 +44,9 @@ fn published_critical_point_is_exact() {
 /// Map 03 §6: the numerical critical point, Newton on K1 = K2 = 0 from the published one, satisfies both conditions
 /// within `Flash` (1e-9, of scales of 1) for every fluid but Water and CarbonDioxide (their non-analytic terms make
 /// the third and fourth derivatives singular at τ = δ = 1, their published point); for the fluids with a
-/// superancillary it is the oracle's computed point within `Flash`'s near-critical bounds, but for the cells DIV-0017 exempts (user decision
-/// CR1: DimethylCarbonate's flat and Chlorine's degenerate critical isotherm, where the oracle's is the less converged).
+/// superancillary it is the oracle's computed point within `Flash`'s near-critical bounds, but for the cells DIV-0017
+/// exempts (user decision CR1: DimethylCarbonate's flat and Chlorine's degenerate critical isotherm, where the
+/// oracle's is the less converged).
 #[test]
 fn numerical_critical_point_satisfies_the_criticality_conditions() {
     let (crit, registry) = (crit(), Registry::from_embedded(DataSet::Parity).unwrap());
