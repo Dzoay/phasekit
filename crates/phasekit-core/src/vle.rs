@@ -99,12 +99,16 @@ fn answer(r: f64, t: f64, liquid: Point, vapour: Point, iterations: u16) -> Resu
     let (pl, pv) = (liquid.p_rt(), vapour.p_rt());
     let pressure_ok = (pl - pv).abs() <= GATE * (liquid.p_scale() + vapour.p_scale());
     let gibbs_ok = (liquid.g_rt() - vapour.g_rt()).abs() <= GATE * (1.0 + liquid.g_rt().abs());
-    let distinct = math::ln(liquid.rho / vapour.rho) > 1e-6;
-    if !(pressure_ok && gibbs_ok && distinct && pv > 0.0) {
+    if !(pressure_ok && gibbs_ok && distinct(&liquid, &vapour) && pv > 0.0) {
         return Err(failed(iterations));
     }
     let p = pv * r * t;
     Ok(SatPair { bubble: SatSide { t, p, rho: liquid.rho }, dew: SatSide { t, p, rho: vapour.rho } })
+}
+
+/// Whether the two phases are distinct, ln(ρ′/ρ″) > 1e-6: the trivial solution ρ′ = ρ″ satisfies both equations.
+fn distinct(liquid: &Point, vapour: &Point) -> bool {
+    math::ln(liquid.rho / vapour.rho) > 1e-6
 }
 
 /// `sat` reporting the pressure `p` it was solved at, which both phases reproduce within the gate.
@@ -264,7 +268,9 @@ fn newton_p(
     for iteration in 1..=max_iter {
         let (e, size) = residual_p(r, t, p, &l, &v);
         let step = solve_small(jacobian_p(r, t, p, &l, &v), [-e[0], -e[1], -e[2]]).map_err(|_| failed(iteration))?;
-        if (step[0] / t).abs().max(step[1].abs()).max(step[2].abs()) <= STEP_TOL {
+        // The step's moves: T relative, ln ρ′, ln ρ″.
+        let moves = [step[0] / t, step[1], step[2]];
+        if moves.iter().fold(0.0_f64, |m, x| m.max(x.abs())) <= STEP_TOL {
             return Ok(at_pressure(answer(r, t, l, v, iteration)?, p));
         }
         let (ul, uv) = (math::ln(l.rho), math::ln(v.rho));
@@ -273,7 +279,7 @@ fn newton_p(
             let (ln, vn) = phases(tn, math::exp(ul + lambda * step[1]), math::exp(uv + lambda * step[2]))?;
             Some(((tn, ln, vn), residual_p(r, tn, p, &ln, &vn).1))
         };
-        let scale = step_scale([(step[0] / t, MAX_STEP.1), (step[1], MAX_STEP.0), (step[2], MAX_STEP.0)]);
+        let scale = step_scale([(moves[0], MAX_STEP.1), (moves[1], MAX_STEP.0), (moves[2], MAX_STEP.0)]);
         (t, l, v) = backtrack(scale, size, moved).ok_or(failed(iteration))?;
     }
     Err(failed(max_iter))
@@ -413,7 +419,12 @@ mod tests {
         assert_eq!([a.p_rt(), a.g_rt(), a.p_scale(), a.stiffness()], [-6.0, -1.5, 8.0, -5.25]);
         let b = point(1.0, 0.5, 1.0);
         assert_eq!(residual_t(&a, &b), ([-7.0, -3.0], 3.0 / 2.5));
-        assert_eq!(residual_p(2.0, 0.5, 4.0, &a, &b), ([-2.5, -0.75, -3.0], 1.5));
+        assert_eq!(residual_t(&a, &point(1.0, -2.5, 1.0)), ([-7.0, 0.0], 7.0 / 10.0), "the pressure term's size");
+        // At p/RT = 2 (R = 2, T = 4, p = 16, where R·T and R + T differ): the liquid's pressure term dominates (size 1), then the Gibbs term (1.2),
+        // then the vapour's (3.5, at ρ″ = 0.25).
+        assert_eq!(residual_p(2.0, 4.0, 16.0, &a, &point(1.0, -2.5, 1.0)), ([-4.0, -0.5, 0.0], 1.0));
+        assert_eq!(residual_p(2.0, 4.0, 16.0, &a, &b), ([-4.0, -0.5, -3.0], 3.0 / 2.5));
+        assert_eq!(residual_p(2.0, 4.0, 16.0, &a, &point(0.25, -2.5, 1.0)), ([-4.0, -0.875, 0.0], 3.5));
         // The gate: p/RT 2 on both sides (scales 6 and 3), g/RT 3 (scale 4).
         let liquid = point(4.0, 2.5, 0.5);
         let vapour = |dp: f64, dg: f64| point(1.0, 1.0 - dp - dg, 2.0 + dp);
@@ -500,6 +511,23 @@ mod tests {
     }
 
     #[cfg(feature = "fluids-all")]
+    /// Newton itself, without the fallback that would hide its failure: from seeds 0.1 % and 1 % off it converges in
+    /// 4 iterations at a given T, and from a T 1 % off in 5 at a given p (here one more of each), for Water,
+    /// CarbonDioxide and n-Heptane.
+    #[test]
+    fn newtons_converge_quadratically() {
+        for (name, t) in [("Water", 450.0), ("CarbonDioxide", 280.0), ("n-Heptane", 300.0)] {
+            let (record, fluid) = model(name);
+            let curve = record.superancillary_curve().unwrap();
+            let (sat, near) = (curve.at_t(t).unwrap(), curve.at_t(t * 1.01).unwrap());
+            let eos = fluid.eos();
+            assert!(newton_t(eos, t, (sat.bubble.rho * 1.001, sat.dew.rho * 0.99), 5).is_ok(), "{name} at {t} K");
+            let seed = (t * 1.01, near.bubble.rho, near.dew.rho);
+            assert!(newton_p(eos, sat.dew.p, seed, 6).is_ok(), "{name} at {} Pa", sat.dew.p);
+        }
+    }
+
+    #[cfg(feature = "fluids-all")]
     /// The domain of a phase point: the model's largest density times the margin is in, a little more is not, nor
     /// twice it, nor ρ ≤ 0 or NaN.
     #[test]
@@ -507,7 +535,9 @@ mod tests {
         let (_, fluid) = model("Water");
         let eos = fluid.eos();
         let top = eos.rho_max(450.0) * RHO_MAX_MARGIN;
-        assert!(Point::at(eos, 450.0, top).is_some());
+        assert!(
+            Point::at(eos, 450.0, top).is_some() && Point::at(eos, 450.0, eos.rho_max(450.0) * (1.0 + 5e-7)).is_some()
+        );
         for rho in [top * (1.0 + 1e-9), 2.0 * eos.rho_max(450.0), 0.0, -1.0, f64::NAN] {
             assert!(Point::at(eos, 450.0, rho).is_none(), "{rho}");
         }
