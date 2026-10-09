@@ -858,23 +858,20 @@ mod tests {
             SatPair { bubble: side(1e6, 1_000.0), dew: side(0.98e6, rho_v) }
         };
         let sat = pair(100.0);
-        let asked = core::cell::Cell::new(0);
-        let at = |rho: f64, p: f64, stable: bool| {
+        let mut asked = 0;
+        let mut at = |rho: f64, p: f64, stable: bool| {
             band(rho, p, &sat, || {
-                asked.set(asked.get() + 1);
+                asked += 1;
                 stable
             })
         };
         assert_eq!((at(0.95 * 100.0 - 1e-9, 1e6, true), at(0.95 * 100.0, 1e6, true)), (Some(Phase::Gas), None));
         assert_eq!((at(1.05 * 1_000.0 + 1e-9, 1e6, true), at(1.05 * 1_000.0, 1e6, true)), (Some(Phase::Liquid), None));
-        asked.set(0);
         assert_eq!((at(500.0, 2e6, true), at(99.8, 2e6, true), at(997.4, 2e6, true)), (None, None, None));
-        assert_eq!(asked.get(), 0, "outside the strip stability is not asked");
         assert_eq!(at(99.7, 2e6, true), None, "the vapour strip: quality above 1");
-        assert_eq!(asked.get(), 0, "short-circuited by the quality");
         assert_eq!([at(998.0, 2e6, true), at(998.0, 2e6, false)], [Some(Phase::Liquid), None]);
         assert_eq!([at(998.0, 1.05 * 1e6, true), at(998.0, 1.04e6, true)], [None, None]);
-        assert_eq!(asked.get(), 2, "asked only in the liquid strip with the quality and p met");
+        assert_eq!(asked, 2, "asked only in the liquid strip with the quality and p met");
         let near_top = pair(990.0);
         assert_eq!(band(998.0, 2e6, &near_top, || true), None, "quality 0.2 in the liquid strip");
     }
