@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::{Basis, Order, Phase, PureFluid, Registry, State, ThermoModel, math};
-use phasekit_verify::arbiters::{ArbiterPart, Role, violations};
+use phasekit_verify::arbiters::{ArbiterPart, Role, k3_values, violations};
 use phasekit_verify::{
     ARBITERS, ArbiterStatus, DIVERGENCES, Fixture, MILESTONE, Part, Tolerance, fixture, from_printed,
 };
@@ -25,10 +25,11 @@ fn arbiter_statuses_are_asserted() {
         )
     };
     // The records evaluated so far, each by its own test in this file (PLAN.md M4.5 on; the paper constants of the
-    // other α^r records at M5.7).
+    // other α^r records at M5.7; the saturation tables at M6.10).
     let alpha_r =
         ["Water", "R227EA", "R365MFC", "R115", "R13I1", "R1234ze(E)", "Helium", "R1130(E)", "Tetrahydrofuran"];
-    let evaluated = alpha_r.map(|fluid| (fluid, ArbiterPart::AlphaR));
+    let saturation = [("Water", ArbiterPart::Saturation), ("Helium", ArbiterPart::Saturation)];
+    let evaluated: Vec<_> = alpha_r.map(|fluid| (fluid, ArbiterPart::AlphaR)).into_iter().chain(saturation).collect();
     for a in ARBITERS {
         let is_evaluated = evaluated.contains(&(a.fluid, a.part));
         assert_eq!(!allowed(&a.status), is_evaluated, "{} {:?}: {:?}", a.fluid, a.part, a.status);
@@ -160,6 +161,60 @@ fn iapws95_table7_within_printed_digits() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// The cells of a K3 (saturation) table outside their printed digits for `model` (class `Paper`), each row through
+/// `phasekit_verify::arbiters::k3_values` seeded with `fluid`'s superancillary, and the largest relative residual of
+/// those cells (the table's coarse digits dominate the residual of the cells within them).
+fn k3_check(table: &Fixture<'_>, fluid: &str, model: &PureFluid, m: f64) -> (Vec<String>, f64) {
+    let record = phasekit_core::internal::record(Registry::embedded().unwrap(), fluid).unwrap();
+    let curve = record.superancillary_curve().unwrap();
+    let (mut failures, mut worst) = (Vec::new(), 0.0_f64);
+    for row in 0..table.rows().len() {
+        let seed = curve.at_t(table.value(row, "T").unwrap()).unwrap();
+        for (column, got) in k3_values(table, row, model, m, (seed.bubble.rho, seed.dew.rho)).unwrap() {
+            if let Err(e) = within_printed(table, row, column, got) {
+                let want = table.value(row, column).unwrap();
+                worst = worst.max((got - want).abs() / want.abs());
+                failures.push(e);
+            }
+        }
+    }
+    (failures, worst)
+}
+
+/// Arbiter: IAPWS R6-95(2018) Table 8 (PLAN.md M6.10): p_σ, ρ′, ρ″, h′, h″, s′ and s″ at 275, 450 and 625 K, from the
+/// pure VLE of the EOS at T (p_σ its vapour side's, the better conditioned) and the EOS at its densities, each within
+/// half a unit of its last printed digit, with both constant sets (the paper's and the v8.0.0 ones). With Tables 6 and
+/// 7 this makes Water's saturation arbiter `SelfConsistent`.
+#[test]
+fn iapws95_saturation_table_within_printed_digits() {
+    let (path, text) = fixture!("paper/Water/IAPWS-R6-95-2018.8.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    assert_eq!((table.rows().len(), table.columns().len()), (3, 8));
+    for (label, model, m) in iapws95_models() {
+        let (failures, _) = k3_check(&table, "Water", &model, m);
+        assert!(failures.is_empty(), "{label}: {failures:#?}");
+    }
+}
+
+/// VERIFICATION.md §4.3 step 2 for NIST IR 8474 Table 4 (PLAN.md M6.10, user decision H4): with its own Table 1
+/// constants 12 cells miss their printed digits, 11 h″ by up to 1.7e-6 and p_σ at 5.1 K by 3.5e-6 (the worst cell beyond
+/// its digits, rounded up to two significant digits), so Helium's saturation arbiter is `Inconsistent` and does not
+/// arbitrate; DIV-0005 holds the shipped model to it at `Measured`.
+#[test]
+fn ir8474_saturation_table_is_inconsistent() {
+    let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+    let (path, text) = fixture!("paper/Helium/OrtizVega-JPCRD-2019.4.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let (model, m) = paper_model_of(&registry, "Helium");
+    let (failures, worst) = k3_check(&table, "Helium", &model, m);
+    assert_eq!(failures.len(), 12, "{failures:#?}");
+    let exponent = (math::ln(worst) / math::ln(10.0)).floor() as i32 - 1;
+    let digits = (worst / math::powi(10.0, exponent)).ceil();
+    let residual: f64 = format!("{digits}e{exponent}").parse().unwrap();
+    let record = ARBITERS.iter().find(|a| (a.fluid, a.part) == ("Helium", ArbiterPart::Saturation)).unwrap();
+    assert_eq!(record.status, ArbiterStatus::Inconsistent { residual });
 }
 
 /// A printed constant in molar SI with half a unit of its last printed digit, both through the unit's factor; a

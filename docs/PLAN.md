@@ -932,6 +932,11 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
 - **M6.10 Saturation arbiters.** *Failing tests:* `iapws95_saturation_table_within_printed_digits` (Table 8, class
   `Paper`) and the `div_0005` Table 4 part (NIST IR 8474 Table 4 at `Paper`, or at `Measured` if the ARBITERS
   procedure finds Table 4 inconsistent too; VERIFICATION.md §6.6). *Done when:* green; ARBITERS statuses updated.
+  Measured at M6.10: Table 8 reproduces within its printed digits from the EOS's VLE with both constant sets (Water's
+  saturation arbiter `SelfConsistent`; p_σ is the VLE's vapour side, a liquid's pressure at 275 K agreeing only to
+  9e-9). Table 4 does not reproduce with its own constants: 12 cells off, 11 h″ (up to 2.7 half units) and p_σ at 5.1 K
+  (3.5e-6), so Helium's saturation arbiter is `Inconsistent`; the shipped model misses 7 h″ cells by up to 1.05e-6, and
+  DIV-0005 registers Table 4's own `Measured` 2e-6 beside Table 3's 5e-7 (user decision H4).
 - **M6.11 Saturation benches.** *Failing test:* none (measurement step). *Do:* criterion `qt_superancillary`,
   `pq_superancillary` (target ≤ 0.1 µs; CoolProp 0.45 / 0.64 µs); record SA bytes per fluid (≤ 25 KiB). Close M6: set
   `MILESTONE = 7`. *Done when:* rows recorded.

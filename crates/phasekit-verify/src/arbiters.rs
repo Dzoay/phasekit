@@ -2,6 +2,58 @@
 //! tables, printed constants and status. Only a `SelfConsistent` table overrules the oracle, and the status is asserted
 //! (`tests/arbiters.rs`), so an arbiter cannot change category silently.
 
+use phasekit_core::{Basis, Order, Phase, PureFluid, State, ThermoModel};
+
+use crate::Fixture;
+
+/// One row of a K3 (saturation) table through `model` (molar mass `m`), each printed column in the table's units
+/// (PLAN.md M6.10): the pure VLE of the EOS at the row's T from `seeds` (ρ′ and ρ″ there, mol/m³), p_σ its vapour
+/// side's (the better conditioned), and ρ, h and s of each phase from the EOS at its density. `Err` names a unit this
+/// does not convert, or a failed VLE.
+pub fn k3_values(
+    table: &Fixture<'_>,
+    row: usize,
+    model: &PureFluid,
+    m: f64,
+    seeds: (f64, f64),
+) -> Result<Vec<(&'static str, f64)>, String> {
+    let t = table.value(row, "T").ok_or("no T")?;
+    let eos = model.eos();
+    let sat = phasekit_core::internal::vle_at_t(eos, t, seeds).map_err(|e| format!("VLE at {t} K: {e:?}"))?;
+    let phase = |rho: f64, phase| -> Result<State, String> {
+        let total = (eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two)).bundle().ok_or("no bundle")?;
+        let key = model.info().key();
+        State::from_total(key, t, rho, eos.gas_constant(), m, phase, &total).map_err(|e| format!("{e:?}"))
+    };
+    let (liquid, vapour, b) = (phase(sat.bubble.rho, Phase::Liquid)?, phase(sat.dew.rho, Phase::Gas)?, Basis::Molar);
+    let cells = [
+        ("p_sigma", sat.dew.p, 'p'),
+        ("rho_liq", sat.bubble.rho, 'd'),
+        ("rho_vap", sat.dew.rho, 'd'),
+        ("h_liq", liquid.h(b), 'h'),
+        ("h_vap", vapour.h(b), 'h'),
+        ("s_liq", liquid.s(b), 's'),
+        ("s_vap", vapour.s(b), 's'),
+    ];
+    let units: Vec<&str> = table.header("units").ok_or("no units")?.split(',').collect();
+    let mut out = Vec::new();
+    for (column, si, kind) in cells {
+        let Some(i) = table.columns().iter().position(|c| *c == column) else { continue };
+        let unit = units.get(i).copied().unwrap_or_default();
+        let value = match (kind, unit) {
+            ('p', "MPa") => si / 1e6,
+            ('p', "kPa") => si / 1e3,
+            ('d', "kg/m3") => si * m,
+            ('d', "mol/dm3") => si / 1e3,
+            ('h', "kJ/kg") | ('s', "kJ/(kg K)") => si / m / 1e3,
+            ('h', "J/mol") | ('s', "J/(mol K)") => si,
+            _ => return Err(format!("{column}: unit `{unit}`")),
+        };
+        out.push((column, value));
+    }
+    Ok(out)
+}
+
 /// What the arbiter checks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -262,7 +314,7 @@ pub static ARBITERS: &[Arbiter] = &[
         citation: Citation { key: "IAPWS-R6-95-2018", doi_or_report: Some("IAPWS R6-95(2018)"), role: Role::Release },
         tables: &[Table { file: "paper/Water/IAPWS-R6-95-2018.8.csv", kind: TableKind::K3, rows: Some(3) }],
         constants: Some(IAPWS_95),
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "Water",
@@ -370,7 +422,7 @@ pub static ARBITERS: &[Arbiter] = &[
         citation: Citation { key: "OrtizVega-JPCRD-2019", doi_or_report: Some("NIST IR 8474"), role: Role::EosPaper },
         tables: &[Table { file: "paper/Helium/OrtizVega-JPCRD-2019.4.csv", kind: TableKind::K3, rows: Some(17) }],
         constants: Some(NIST_IR_8474),
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::Inconsistent { residual: 3.5e-6 },
     },
     Arbiter {
         fluid: "R1234yf",
