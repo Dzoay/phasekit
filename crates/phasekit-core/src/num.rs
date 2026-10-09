@@ -158,25 +158,24 @@ pub mod math {
 
 /// Solves A·x = b for N ≤ 4 by Gaussian elimination with scaled partial pivoting: the only matrix solve in the core
 /// (the VLE and HS Newtons, M6.3 and M7; dependencies R9). A pivot within 64·ε·N of its row's scale (the row's
-/// largest |a_ij| before elimination) is singular. The test is relative to the row, so multiplying a row by any factor
-/// changes neither the pivots chosen nor the verdict, where CoolProp's `linsolve` compares the pivot with an absolute
+/// largest |a_ij| before elimination) is singular, and so is a NaN pivot or a zero row; of equally scaled pivots the
+/// first row is taken. The test is relative to the row, so multiplying a row by any factor changes neither the pivots
+/// chosen nor the verdict, where CoolProp's `linsolve` compares the pivot with an absolute
 /// 10ε and `MatInv_2` has no zero-determinant guard (map 03 §3.4; ROT-067).
 #[cfg_attr(not(test), expect(dead_code, reason = "the pure VLE (M6.3) is the first user"))]
 pub(crate) fn solve_small<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N]) -> Result<[f64; N], crate::Error> {
     const { assert!(N >= 1 && N <= 4, "solve_small solves 1 to 4 equations") };
     let singular = crate::Error::InvalidState { reason: "a singular linear system (a pivot within rounding of zero)" };
-    let mut scale = [0.0; N];
-    for (s, row) in scale.iter_mut().zip(&a) {
-        *s = row.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-        if !(*s > 0.0 && s.is_finite()) {
-            return Err(singular);
-        }
-    }
+    // A zero row's scale is 0 and its sizes NaN, never chosen and singular at its own turn; a NaN or infinite entry
+    // ends as a NaN pivot or a non-finite solution.
+    let mut scale = a.map(|row| row.iter().fold(0.0_f64, |m, v| m.max(v.abs())));
     let tol = 64.0 * f64::EPSILON * N as f64;
     for k in 0..N {
         let size = |i: usize| a[i][k].abs() / scale[i];
         let p = (k..N).fold(k, |best, i| if size(i) > size(best) { i } else { best });
-        if size(p).is_nan() || size(p) <= tol {
+        // A NaN size compares false: singular too.
+        let pivot_is_sound = size(p) > tol;
+        if !pivot_is_sound {
             return Err(singular);
         }
         a.swap(k, p);
@@ -191,7 +190,8 @@ pub(crate) fn solve_small<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N])
             b[i] -= m * b[k];
         }
     }
-    let mut x = [0.0; N];
+    // NaN until solved: back substitution reads only the x[j] it has solved.
+    let mut x = [f64::NAN; N];
     for k in (0..N).rev() {
         x[k] = (k + 1..N).fold(b[k], |sum, j| sum - a[k][j] * x[j]) / a[k][k];
     }
@@ -213,6 +213,25 @@ mod tests {
         assert_eq!(solve_small([[f64::NAN, 2.0], [1.0, 1.0]], [1.0, 0.0]), singular);
         assert_eq!(solve_small([[0.0, 1.0], [1.0, 0.0]], [2.0, 3.0]), Ok([3.0, 2.0]), "a zero first pivot is swapped");
         assert_eq!(solve_small([[4.0]], [2.0]), Ok([0.5]));
+        assert_eq!(solve_small([[f64::INFINITY, 1.0], [1.0, 1.0]], [1.0, 0.0]), singular);
+        assert_eq!(solve_small([[1.0, f64::INFINITY], [1.0, 1.0]], [1.0, 0.0]), singular);
+    }
+
+    /// The pivot test at its threshold, 64·ε·N of the row's scale: 2⁻⁴⁵ for N = 2 exactly. A second pivot of 2⁻⁴⁵ is
+    /// singular, one of 2⁻⁴⁴ is solved. Of two equally scaled pivots the first row is taken: rows (1, 1) and (−2, 2)
+    /// with b = (0.1, 0.7) give (−0.12499999999999997, 0.22499999999999998), where pivoting on the second row gives
+    /// x₀ = −0.125.
+    #[test]
+    fn pivot_threshold_and_ties() {
+        let singular =
+            Err(crate::Error::InvalidState { reason: "a singular linear system (a pivot within rounding of zero)" });
+        let at = math::powi(2.0, -45);
+        assert_eq!(solve_small([[1.0, 0.0], [1.0, at]], [1.0, 1.0]), singular);
+        assert_eq!(solve_small([[1.0, 0.0], [1.0, 2.0 * at]], [1.0, 1.0]), Ok([1.0, 0.0]));
+        assert_eq!(
+            solve_small([[1.0, 1.0], [-2.0, 2.0]], [0.1, 0.7]),
+            Ok([-0.124_999_999_999_999_97, 0.224_999_999_999_999_98])
+        );
     }
 
     /// ROT-067 (map 03 §3.4: an absolute pivot test < 10ε is scale-dependent): the verdict and the solution do not

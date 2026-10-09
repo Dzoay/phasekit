@@ -854,7 +854,11 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
   (map 03 §6: 6.1 % ST error at ρ = 1e-8 from an absolute tolerance), `singular_2x2_is_an_error` and
   `near_singular_3x3_is_scale_invariant` (map 03 §3.4). *Do:* crate-private `roots`: native TOMS748, bracketed
   Newton/Halley, `Root { x, f, iterations, stop }`, typed `Tol` (map 03 §9); `num::solve_small` (N ≤ 4, `Result`,
-  pivot test relative to the row scale; dependencies R9), the only matrix solve in core. *Done when:* green.
+  pivot test relative to the row scale; dependencies R9), the only matrix solve in core. *Done when:* green. Measured
+  at M6.2: TOMS 748 follows Alefeld, Potra & Shi's own Algorithm 748 (netlib `toms/748`) step for step, BRACKT's
+  0.7·tole adjustment and TOLE's termination included, and `toms748_is_algorithm_748` checks it on their 154 test cases
+  (the printed roots; exact evaluation counts where the problem is the same on every target); without the adjustment it
+  bisected about 8 more times at the end of every solve.
 - **M6.3 Pure VLE.** *Failing tests:* `vle_matches_390_multiprecision_points` (3 per fluid × 130 at Θ = 0.5/0.3/0.1;
   class `SatMp`; map 10 §8.1, map 09 §8), `vle_equilibrium_self_check` (p′ = p″, g′ = g″; class `Identity`; map 03
   §8), `vle_jacobian_matches_ad`, `vle_nan_or_stall_is_no_convergence`. *Do:* Newton in (τ, ln δ′, ln δ″) with a
