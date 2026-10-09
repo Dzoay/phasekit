@@ -6,11 +6,15 @@
 use phasekit_core::{DataSet, Registry};
 use phasekit_verify::eos::EosCheck;
 use phasekit_verify::flash::FlashCheck;
+use phasekit_verify::saturation::SaturationCheck;
 use phasekit_verify::term::{self, TermCheck};
 use phasekit_verify::{Cell, Fixture};
 
 /// The full set's root, fixed at compile time (clippy bans run-time environment reads, D17).
 const FULL: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures-full/coolprop-8.0.0");
+
+/// fastchebpure's files of every fluid with a superancillary, from `cargo xtask fetch-fastchebpure --all` (PLAN.md M6.4).
+const FASTCHEBPURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures-full/mp/fastchebpure-2026.06.02-v2");
 
 /// A file of the full set; the error names the path.
 #[allow(clippy::disallowed_methods, reason = "the nightly sweep reads the full set, too big to compile in (§3.6)")]
@@ -121,4 +125,33 @@ fn dt_flash_matches_oracle_on_the_nightly_grid() {
     }
     assert_eq!(check.report(50), None);
     assert!(check.two_phase > 130 * 300, "{check:?}");
+}
+
+/// The same over every fluid with a superancillary, from the nightly's `cargo xtask fetch-fastchebpure --all`
+/// (PLAN.md M6.4, the M6 exit gate's nightly part; 204 050 rows): the measured constants at most 0.39 and 0.38 (here
+/// 1); Chlorine's last row unsplit (Θ = 2.45e-7, the file's ρ′ = ρ″ between rows with a 5 % split); PropyleneGlycol's
+/// p and ρ″ from 213 K to 227.6028 K exempt (DIV-0016, 52 cells). A missing file fails the sweep, never skips it.
+#[test]
+#[ignore = "nightly: reads every fluid's fastchebpure file (cargo xtask fetch-fastchebpure --all)"]
+fn superancillary_and_vle_match_every_dense_multiprecision_file() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut saturation = SaturationCheck::default();
+    let mut fluids = 0;
+    for f in phasekit_data::FLUIDS {
+        let record = phasekit_core::internal::record(&registry, f.name).unwrap();
+        if record.superancillary_curve().is_none() {
+            continue;
+        }
+        let path = format!("{FASTCHEBPURE}/{}.csv", f.name);
+        let text = read(&path);
+        let fixture = Fixture::parse(&path, &text).unwrap();
+        let fluid = record.clone().compile().unwrap();
+        saturation.rows(&fixture, f.name, &record, fluid.eos());
+        fluids += 1;
+    }
+    assert_eq!(fluids, 130);
+    assert_eq!(saturation.report(20), None);
+    assert_eq!((saturation.unsplit, saturation.exempt), (1, 52), "Chlorine's last row; DIV-0016");
+    let [density, pressure] = saturation.conditioning;
+    assert!(density <= 1.0 && pressure <= 1.0, "measured conditioning {density:.2}, {pressure:.2}");
 }
