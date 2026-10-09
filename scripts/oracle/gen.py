@@ -782,7 +782,8 @@ def sat_pseudo_rows(CP, name, states, rows):
     """A pseudo-pure fluid's `sat` rows (M6.9; D4, map 04 U4): at `rows` temperatures, Theta = 1 - T/T_max log-spaced
     from SAT_PSEUDO_THETA_MIN to the low end, T_max its temperature_max_sat and the low end the higher of its
     sat_min_liquid and sat_min_vapor (CoolProp's QT range), QT at Q = 0 and 1, then PQ at Q = 0, 0.5 and 1 at the
-    bubble pressure of that temperature (the QT row's at Q = 0); path `ancillary`: (floats, lines)."""
+    bubble pressure of that temperature (the QT row's at Q = 0, none where it failed); path `ancillary`: (floats,
+    lines)."""
     t_min = max(states["sat_min_liquid"]["T"], states["sat_min_vapor"]["T"])
     t_max = states["temperature_max_sat"]["T"]
     theta_max = 1.0 - t_min / t_max
@@ -791,7 +792,8 @@ def sat_pseudo_rows(CP, name, states, rows):
     lines, floats = [], []
     for t in [min(max(t_max * (1.0 - theta), t_min), t_max) for theta in thetas]:
         qt = [sat_q_row(CP, name, "T", q, t, "ancillary") for q in (0.0, 1.0)]
-        pq = [sat_q_row(CP, name, "p", q, qt[0][0][2], "ancillary") for q in (0.0, 0.5, 1.0)]
+        bubble = qt[0][0][2]  # nan where the oracle's QT failed: no p to give PQ
+        pq = [] if math.isnan(bubble) else [sat_q_row(CP, name, "p", q, bubble, "ancillary") for q in (0.0, 0.5, 1.0)]
         for row, line in qt + pq:
             floats.extend(row)
             lines.append(line)

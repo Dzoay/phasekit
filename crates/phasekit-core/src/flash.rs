@@ -239,7 +239,7 @@ fn split_sides(fluid: &PureFluid, sat: &SatPair, q: Quality, t: f64, p: f64) -> 
     let (eos, m, key) = (fluid.eos(), fluid.info().molar_mass(), fluid.info().key());
     let (r, path) = (eos.gas_constant(), SolvePath { strategy: Strategy::Ancillary, iterations: 0 });
     let phase = |side: &SatSide, phase: Phase| {
-        let rho = crate::density::at_t_p(eos, side.t, side.p, side.rho)?;
+        let rho = crate::density::at_t_p(eos, side.t, side.p, side.rho, phase == Phase::Liquid)?;
         State::single(key, side.t, rho, r, m, phase, &total(fluid, side.t, rho)?, path)
     };
     State::split(phase(&sat.bubble, Phase::Liquid)?, phase(&sat.dew, Phase::Gas)?, q, t, p, path)
@@ -444,15 +444,22 @@ mod tests {
         }
     }
 
-    /// User decision 4, map 04 U4: a pseudo-pure fluid has no saturation curve before M6 (its ancillaries land at
-    /// M6.3), so below its critical temperature DT is `Unsupported`, in the dome and out of it; above, it answers.
+    /// User decision 4, map 04 U4 (PLAN.md M6.9): below its critical temperature a pseudo-pure fluid's phase rule is
+    /// the pure VLE of its EOS, seeded by its density ancillaries, as CoolProp's (`HelmholtzEOSMixtureBackend.cpp:
+    /// 2447-2507`): R410A at 280 K is gas, two-phase on that VLE's densities and pressure, or liquid; above Tc it is
+    /// supercritical.
     #[cfg(feature = "fluids-all")]
     #[test]
-    fn pseudo_pure_subcritical_dt_is_unsupported_until_m6() {
+    fn pseudo_pure_subcritical_dt_follows_its_eos_vle() {
         let r410a = embedded("R410A");
-        for rho in [100.0, 5_000.0, 15_000.0] {
-            assert_eq!(r410a.state(dt(rho, 280.0)), Err(Error::Unsupported { pair: Pair::DT }), "{rho} mol/m³");
-        }
+        let phases = [100.0, 5_000.0, 16_000.0].map(|rho| r410a.state(dt(rho, 280.0)).map(|s| s.phase()));
+        assert_eq!(phases, [Ok(Phase::Gas), Ok(Phase::TwoPhase), Ok(Phase::Liquid)]);
+        let record = record_of("R410A");
+        let definition = record.pseudo_pure.as_ref().unwrap();
+        let seeds = (definition.rho_l.at(280.0), definition.rho_v.at(280.0));
+        let vle = crate::vle::at_t(r410a.model().helmholtz().unwrap(), 280.0, seeds).unwrap();
+        let state = r410a.state(dt(5_000.0, 280.0)).unwrap();
+        assert_eq!((state.p(), state.path().strategy), (vle.dew.p, Strategy::Vle));
         assert_eq!(r410a.state(dt(5_000.0, 400.0)).unwrap().phase(), Phase::Supercritical);
     }
 
@@ -509,7 +516,7 @@ mod tests {
     }
 
     /// A curve whose bubble and dew sides differ (a pseudo-pure fluid's, `Definition`) over [300 K, 600 K]: p′ 2.0 MPa
-    /// and p″ 1.9 MPa, ρ′ 40 000 and ρ″ 100 mol/m³ at every T.
+    /// and p″ 1.9 MPa, ρ′ 52 000 and ρ″ 80 mol/m³ at every T (near Water's own at 400 K: the VLE's seeds).
     #[cfg(feature = "fluids-all")]
     #[derive(Debug)]
     struct Blend;
@@ -523,22 +530,25 @@ mod tests {
             (300.0, 600.0)
         }
         fn at_t(&self, t: f64) -> Result<SatPair, Error> {
-            Ok(SatPair { bubble: SatSide { t, p: 2.0e6, rho: 40_000.0 }, dew: SatSide { t, p: 1.9e6, rho: 100.0 } })
+            Ok(SatPair { bubble: SatSide { t, p: 2.0e6, rho: 52_000.0 }, dew: SatSide { t, p: 1.9e6, rho: 80.0 } })
         }
         fn at_p(&self, _p: f64) -> Result<SatPair, Error> {
             Err(Error::Unsupported { pair: Pair::PQ })
         }
     }
 
-    /// D4 (map 04 U4): inside a dome whose bubble and dew sides differ, DT has no pure two-phase state; CoolProp's
-    /// pseudo-pure rule lands at M6.9, and until then the state is `Unsupported`. Water's EOS under such a curve, at
-    /// 400 K between its densities; outside them the phase rule still labels liquid and gas.
+    /// D4 (map 04 U4; PLAN.md M6.9): a curve whose bubble and dew sides differ, a `Definition`, only seeds the EOS's
+    /// pure VLE inside its dome: Water's EOS under such a curve at 400 K is two-phase on Water's own saturation there,
+    /// path `Vle`, and gas below its dew density.
     #[cfg(feature = "fluids-all")]
     #[test]
-    fn a_dome_with_distinct_sides_is_unsupported_until_its_rule_lands() {
+    fn a_definitions_dome_is_its_eos_vle() {
         let blend = Fluid::new(Arc::new(record_of("Water").builder().unwrap().saturation(Blend).build()));
-        assert_eq!(blend.state(dt(1_000.0, 400.0)), Err(Error::Unsupported { pair: Pair::DT }));
-        assert_eq!(blend.state(dt(50.0, 400.0)).map(|s| s.phase()), Ok(Phase::Gas));
+        let state = blend.state(dt(1_000.0, 400.0)).unwrap();
+        let water = embedded("Water").state(dt(1_000.0, 400.0)).unwrap();
+        assert_eq!((state.phase(), state.path().strategy), (Phase::TwoPhase, Strategy::Vle));
+        assert!((state.p() / water.p() - 1.0).abs() < 1e-12, "{} against {}", state.p(), water.p());
+        assert_eq!(blend.state(dt(5.0, 400.0)).map(|s| s.phase()), Ok(Phase::Gas));
     }
 
     /// The model's critical point labels states (map 03 §3.3): R114's published point (418.83 K, 3.257 MPa) lies below
@@ -688,7 +698,7 @@ mod tests {
     /// names the source. Water's exact superancillary is the answer: QT at 400 K has the curve's p there, bit for bit,
     /// and PQ at that pressure the curve's root at it. A stale curve (Nitrogen edited as in
     /// `stale_curve_is_a_guess_polished_by_vle`) only seeds the pure VLE: QT and PQ give `vle::at_t` and `vle::at_p` from
-    /// its seeds, bit for bit. A pseudo-pure fluid (R410A, whose rules land at M6.9) has no Q pair yet.
+    /// its seeds, bit for bit. A pseudo-pure fluid (R410A) answers from its ancillary definition (M6.9).
     #[cfg(feature = "fluids-all")]
     #[test]
     fn q_pairs_report_their_saturation_source() {
@@ -722,8 +732,8 @@ mod tests {
         assert!((vle_p.bubble.t / t - 1.0).abs() < 1e-12, "{vle_p:?}");
 
         let blend = embedded("R410A");
-        assert_eq!(blend.state(q_t(0.0, 280.0)), Err(Error::Unsupported { pair: Pair::QT }));
-        assert_eq!(blend.state(p_q(1e6, 0.0)), Err(Error::Unsupported { pair: Pair::PQ }));
+        let path = |input| blend.state(input).map(|s| s.path().strategy);
+        assert_eq!((path(q_t(0.0, 280.0)), path(p_q(1e6, 0.5))), (Ok(Strategy::Ancillary), Ok(Strategy::Ancillary)));
     }
 
     /// A curve over [200 K, 380 K] with p = 10·T, ρ′ = 4000 and ρ″ = 50 mol/m³ at every T, of the given accuracy; its
@@ -753,10 +763,10 @@ mod tests {
     /// D6 for the Q pairs (PLAN.md M6.8): a saturation state outside the model's limits (Tmin 250 K and pmax 3500 Pa
     /// here) is refused by default and flagged under `Extrapolate`; inside them it is a plain two-phase state at the
     /// given quality. Where p has two saturation temperatures, PQ takes the one `RootPolicy::Nearest` names and is
-    /// otherwise `Ambiguous`. A `Definition` curve (the pseudo-pure rules, M6.9) gives no Q pair yet, nor does a fluid
-    /// without a curve.
+    /// otherwise `Ambiguous`. A fluid without a curve has no Q pair, and a `Definition` curve (a pseudo-pure fluid's,
+    /// M6.9) no QT between Q = 0 and 1.
     #[test]
-    fn q_pairs_check_the_domain_and_need_a_pure_curve() {
+    fn q_pairs_check_the_domain_and_need_a_curve() {
         let fluid = |curve: Option<Line>| {
             let mut record = FluidRecord::synthetic("X").unwrap();
             record.limits = Limits::new(250.0, 420.0, 3_500.0).unwrap();
@@ -790,10 +800,10 @@ mod tests {
         let nearest = |t| line.flash(p_q(2_500.0, 0.5), &FlashOptions::new().with_roots(RootPolicy::Nearest(t)));
         assert_eq!(nearest(265.0).map(|s| (s.t(), s.p())), Ok((260.0, 2_500.0)));
         assert_eq!(nearest(275.0).map(|s| (s.t(), s.p())), Ok((280.0, 2_500.0)));
-        for curve in [Some(Line(SatAccuracy::Definition)), None] {
-            let fluid = fluid(curve);
-            assert_eq!(fluid.state(q_t(0.5, 300.0)), Err(Error::Unsupported { pair: Pair::QT }));
-            assert_eq!(fluid.state(p_q(3_000.0, 0.5)), Err(Error::Unsupported { pair: Pair::PQ }));
-        }
+        let none = fluid(None);
+        assert_eq!(none.state(q_t(0.5, 300.0)), Err(Error::Unsupported { pair: Pair::QT }));
+        assert_eq!(none.state(p_q(3_000.0, 0.5)), Err(Error::Unsupported { pair: Pair::PQ }));
+        let defined = fluid(Some(Line(SatAccuracy::Definition)));
+        assert_eq!(defined.state(q_t(0.5, 300.0)), Err(Error::InvalidInput { quantity: "Q", value: 0.5 }));
     }
 }

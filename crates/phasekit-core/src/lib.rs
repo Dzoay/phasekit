@@ -103,6 +103,17 @@ pub mod internal {
         crate::vle::at_p(eos, p, seed)
     }
 
+    /// The density of a Helmholtz model at (T, p) on the liquid (`liquid`) or vapour branch, from a seed (PLAN.md M6.9).
+    pub fn density_at_t_p(
+        eos: &dyn crate::HelmholtzModel,
+        t: f64,
+        p: f64,
+        seed: f64,
+        liquid: bool,
+    ) -> Result<f64, crate::Error> {
+        crate::density::at_t_p(eos, t, p, seed, liquid)
+    }
+
     /// The numerical critical point (T, ρ, p) of a Helmholtz model near a guess (PLAN.md M6.7).
     pub fn numerical_critical_point(
         eos: &dyn crate::HelmholtzModel,

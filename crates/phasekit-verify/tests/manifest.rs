@@ -8,6 +8,7 @@ use phasekit_verify::{fixture, sha256_hex};
 const COMMITTED: &[(&str, &str)] = &[
     fixture!("coolprop-8.0.0/all/crit.csv"),
     fixture!("coolprop-8.0.0/all/eos.csv"),
+    fixture!("coolprop-8.0.0/all/flash.csv"),
     fixture!("coolprop-8.0.0/all/sat.csv"),
     fixture!("coolprop-8.0.0/all/term.csv"),
     fixture!("coolprop-8.0.0/crit/Air.csv"),
@@ -54,6 +55,7 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("coolprop-8.0.0/flash/R410A.csv"),
     fixture!("coolprop-8.0.0/flash/Water.csv"),
     fixture!("coolprop-8.0.0/flash/n-Heptane.csv"),
+    fixture!("coolprop-8.0.0/sat/Air.csv"),
     fixture!("coolprop-8.0.0/sat/Ammonia.csv"),
     fixture!("coolprop-8.0.0/sat/CarbonDioxide.csv"),
     fixture!("coolprop-8.0.0/sat/HFE143m.csv"),
@@ -64,6 +66,7 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("coolprop-8.0.0/sat/R1234yf.csv"),
     fixture!("coolprop-8.0.0/sat/R1234ze(E).csv"),
     fixture!("coolprop-8.0.0/sat/R125.csv"),
+    fixture!("coolprop-8.0.0/sat/R410A.csv"),
     fixture!("coolprop-8.0.0/sat/Water.csv"),
     fixture!("coolprop-8.0.0/sat/n-Heptane.csv"),
     fixture!("coolprop-8.0.0/term/Air.csv"),

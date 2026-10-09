@@ -318,6 +318,17 @@ fn pq(p: f64, q: f64) -> Input {
     Input::pq(Pressure::new(p).unwrap(), Quality::new(q).unwrap())
 }
 
+/// What [`ancillary_row`] counted.
+#[derive(Debug, Default, PartialEq)]
+struct AncillaryRows {
+    rows: usize,
+    /// Rows the oracle could not make.
+    oracle_failed: usize,
+    /// Rows phasekit's definition refuses (an ancillary with no root in its fitted range).
+    refused: usize,
+    cells: usize,
+}
+
 /// What [`q_rows`] counted and found.
 #[derive(Debug, Default)]
 struct QRows {
@@ -328,8 +339,8 @@ struct QRows {
     outside: usize,
     /// PQ rows whose p has several saturation temperatures.
     ambiguous: Vec<String>,
-    /// A pseudo-pure fluid's QT and PQ rows (path `ancillary`) and the cells compared there.
-    ancillary: (usize, usize),
+    /// A pseudo-pure fluid's QT and PQ rows (path `ancillary`).
+    ancillary: AncillaryRows,
     failures: Vec<String>,
 }
 
@@ -353,7 +364,7 @@ fn q_rows<'a>(fixture: &Fixture<'a>, fluid_of: impl Fn(usize) -> &'a str, regist
         let name = fluid_of(row);
         let at = format!("{name} row {row} ({input})");
         let (status, path) = (label(fixture, row, "status"), label(fixture, row, "path"));
-        if (status, path) == ("ok", "ancillary") {
+        if path == "ancillary" {
             ancillary_row(fixture, row, (name, registry.get(name).unwrap()), out);
             continue;
         }
@@ -434,49 +445,74 @@ fn q_rows<'a>(fixture: &Fixture<'a>, fluid_of: impl Fn(usize) -> &'a str, regist
     }
 }
 
-/// A pseudo-pure fluid's QT or PQ row (path `ancillary`; PLAN.md M6.9, D4) against phasekit's flash, every cell the
-/// oracle wrote within `Prop` (1e-12 of max(|v|, floor), floors R·T and R): QT's p is the side's pressure ancillary's,
-/// and its density, h and s those of the side Q names, the EOS's at that (T, p); PQ's T is linear in Q between the sides'
-/// temperatures, each side's density, h and s the EOS's at its own T and the given p.
+/// A pseudo-pure fluid's QT or PQ row (path `ancillary`; PLAN.md M6.9, D4) against phasekit's flash (user decisions
+/// PS1, PS2), each cell within `Prop` (1e-12 of max(|v|, floor), floors R·T and R; its near-critical bound where that
+/// applies). QT: p is the side's pressure ancillary's, and the density, h and s those of the side Q names, the EOS's at
+/// that (T, p). PQ: T, linear in Q between the sides' temperatures; at Q = 0 and Q = 1 the side's density, h and s are
+/// phasekit's EOS at the oracle's T (CoolProp's inversion stops at 1e-10 K) and the given p. A row the oracle could not
+/// make is counted, and one where phasekit's definition has no answer (an ancillary with no root in its fitted range,
+/// D6) must be a `DomainError`, and is counted.
 fn ancillary_row(fixture: &Fixture<'_>, row: usize, (name, fluid): (&str, &Fluid), out: &mut QRows) {
     let at = format!("{name} row {row}");
+    out.ancillary.rows += 1;
+    if label(fixture, row, "status") != "ok" {
+        out.ancillary.oracle_failed += 1;
+        return;
+    }
     let [q, t, p] = ["Q", "T", "p"].map(|column| fixture.value(row, column).unwrap_or(f64::NAN));
     let given_t = label(fixture, row, "input") == "T";
-    let flash = |q: f64| fluid.state(if given_t { qt(q, t) } else { pq(p, q) });
-    let (state, sides) = match (flash(q), flash(0.0), flash(1.0)) {
-        (Ok(state), Ok(l), Ok(v)) if state.path().strategy == Strategy::Ancillary => (state, [l, v]),
+    let state = match fluid.state(if given_t { qt(q, t) } else { pq(p, q) }) {
+        Ok(state) if state.path().strategy == Strategy::Ancillary => state,
+        Err(Error::Domain(_)) => {
+            out.ancillary.refused += 1;
+            return;
+        }
         other => {
             out.failures.push(format!("{at}: {other:?}"));
             return;
         }
     };
-    let m = Basis::Molar;
-    let (r, critical) = (fluid.model().helmholtz().unwrap().gas_constant(), fluid.model().critical_point().unwrap());
-    let cells = [
-        ("T", state.t(), 0.0),
-        ("p", state.p(), 0.0),
-        ("rhoL", sides[0].rho(m), 0.0),
-        ("rhoV", sides[1].rho(m), 0.0),
-        ("hL", sides[0].h(m), r * sides[0].t()),
-        ("hV", sides[1].h(m), r * sides[1].t()),
-        ("sL", sides[0].s(m), r),
-        ("sV", sides[1].s(m), r),
-    ];
-    out.ancillary.0 += 1;
-    for (column, got, floor) in cells {
+    let (m, eos) = (Basis::Molar, fluid.model().helmholtz().unwrap());
+    let (r, critical) = (eos.gas_constant(), fluid.model().critical_point().unwrap());
+    let mut compare = |column: &str, got: f64, floor: f64, (t_side, rho_side): (f64, f64)| {
         let want = fixture.value(row, column).unwrap_or(f64::NAN);
-        if want.is_nan() {
-            continue;
-        }
-        out.ancillary.1 += 1;
-        let side = if column.ends_with('V') { &sides[1] } else { &sides[0] };
-        let window = Window::at(side.t(), side.rho(m), critical.t, critical.rho);
+        out.ancillary.cells += 1;
+        let window = Window::at(t_side, rho_side, critical.t, critical.rho);
         let bound = ToleranceClass::Prop.bound_in(want.abs().max(floor), window).unwrap();
         let within = (got - want).abs() <= bound; // false for NaN too
         if !within {
             out.failures.push(format!("{at} {column}: {got} against {want} (bound {bound:e})"));
         }
+    };
+    let rho = state.rho(m);
+    if given_t {
+        compare("p", state.p(), 0.0, (t, rho));
+    } else {
+        compare("T", state.t(), 0.0, (t, rho));
+        if q != 0.0 && q != 1.0 {
+            return;
+        }
     }
+    // The side Q names: QT's own; PQ's from the EOS at the oracle's T and the given p, seeded by phasekit's side.
+    let liquid = q == 0.0;
+    let side = if given_t {
+        state
+    } else {
+        let rho = match phasekit_core::internal::density_at_t_p(eos, t, p, rho, liquid) {
+            Ok(rho) => rho,
+            Err(e) => {
+                out.failures.push(format!("{at}: no density at the oracle's T: {e:?}"));
+                return;
+            }
+        };
+        let phase = if liquid { Phase::Liquid } else { Phase::Gas };
+        let opts = FlashOptions::new().with_phase(phase).with_domain(DomainPolicy::Extrapolate);
+        fluid.flash(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap()), &opts).unwrap()
+    };
+    let (names, ts) = (if liquid { ["rhoL", "hL", "sL"] } else { ["rhoV", "hV", "sV"] }, (side.t(), side.rho(m)));
+    compare(names[0], side.rho(m), 0.0, ts);
+    compare(names[1], side.h(m), r * side.t(), ts);
+    compare(names[2], side.s(m), r, ts);
 }
 
 /// The core subset's `sat` files: the 12 fluids with a superancillary and the pseudo-pure Air and R410A (M6.9).
@@ -522,7 +558,7 @@ fn sat_fixtures_match_oracle() {
     let each = 130 * 8 + 12 * 50;
     assert_eq!((rows.qt, rows.pq, rows.exempt), (each, each, each * 7));
     assert_eq!((rows.outside, rows.ambiguous.as_slice()), (20, &["PropyleneGlycol: 2 roots".to_owned()] as &[String]));
-    assert_eq!(rows.ancillary.0, 6 * 8 * 5 + 2 * 25 * 5, "the pseudo-pure rows: QT at Q = 0 and 1, PQ at 0, 0.5, 1");
+    assert_eq!(rows.ancillary, AncillaryRows { rows: 0, oracle_failed: 0, refused: 0, cells: 0 });
 }
 
 /// Map 11 §8, CoolProp's own smoke value (PLAN.md M6.8): R134a's h at 300 K and Q = 1 is 413265.6843372975 J/kg in

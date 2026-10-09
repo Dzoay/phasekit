@@ -918,6 +918,14 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
   280.37003 / 280.42348 K), plus `pseudo_pure_in_dome_dt_follows_the_oracle_rule` for all 6 blends. *Do:*
   `Definition` curves with distinct bubble/dew `SatSide`s; QT only at Q ∈ {0, 1}; PQ with T linear in Q; the in-dome DT
   rule (map 04 §1); the pseudo-pure `sat` rows; the M5.3 `Unsupported` test is replaced. *Done when:* 6 blends green.
+  Measured at M6.9: the blobs carry the six fluids' pL, pV, rhoL and rhoV ancillaries and QT's range (the blob's
+  ancillaries section); each side's density is the EOS's at its (T, p), restarted from the branch's far end where the
+  density ancillary's seed is unstable, as CoolProp's. Inside the dome CoolProp does not use the ancillaries for p or Q:
+  it solves the pure-fluid VLE of the blend's EOS from them (`HelmholtzEOSMixtureBackend.cpp:2447-2507`), and so does
+  the phase rule here; all 96 `dome` rows agree, 4 of them gas. CoolProp's ancillary inversions stop at 1e-10 K, so its
+  PQ sides are checked at its own T (user decision PS1); within Θ ≈ 1e-3 of the top Air's and R407C's bubble pressure
+  ancillaries turn over and SES36's own QT fails, where phasekit refuses (D6) and the rows are counted (PS2). A
+  pseudo-pure fluid's model critical point stays the published one, as CoolProp's.
 - **M6.10 Saturation arbiters.** *Failing tests:* `iapws95_saturation_table_within_printed_digits` (Table 8, class
   `Paper`) and the `div_0005` Table 4 part (NIST IR 8474 Table 4 at `Paper`, or at `Measured` if the ARBITERS
   procedure finds Table 4 inconsistent too; VERIFICATION.md §6.6). *Done when:* green; ARBITERS statuses updated.

@@ -18,7 +18,8 @@ pub enum SatAccuracy {
     /// A starting point only (ancillaries, or a superancillary made stale by a data correction): the flash
     /// polishes it with a VLE solve and records `Strategy::Vle` (M6; refused as `Unsupported` before).
     Guess,
-    /// The curve defines saturation (pseudo-pure bubble/dew ancillaries): used as the answer by definition.
+    /// The curve defines saturation (pseudo-pure bubble/dew ancillaries): QT and PQ answer by definition, each side's
+    /// density the EOS's at its (T, p); inside the dome it seeds the EOS's VLE, as CoolProp's (D4; M6.9).
     Definition,
 }
 
