@@ -30,9 +30,20 @@ SPDX-FileCopyrightText = "2012-2018 Ian H. Bell and other CoolProp developers"
 SPDX-License-Identifier = "MIT"
 
 # Check values transcribed from papers: the transcription is the project's; the cells are numerical facts, each file
-# citing its source in its header (VERIFICATION.md §3.7). fastchebpure's files get their LicenseRef with M6.
+# citing its source in its header (VERIFICATION.md §3.7).
 [[annotations]]
 path = "crates/phasekit-verify/fixtures/paper/**"
 precedence = "override"
 SPDX-FileCopyrightText = "2026 The phasekit contributors"
 SPDX-License-Identifier = "MIT OR Apache-2.0"
+
+# NIST fastchebpure's multiprecision saturation files, converted, and their pin (VERIFICATION.md §3.7; user decisions
+# 3a, 3b; PLAN.md M6.1). The licence text records the decision-3a facts and the NIST disclaimer.
+[[annotations]]
+path = [
+    "crates/phasekit-verify/fixtures/mp/fastchebpure-*/**",
+    "crates/phasekit-verify/fixtures/mp/fastchebpure.lock",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "NIST (fastchebpure authors)"
+SPDX-License-Identifier = "LicenseRef-fastchebpure"

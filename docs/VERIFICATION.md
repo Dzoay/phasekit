@@ -861,7 +861,7 @@ core, data and compat (D17). Before a release: `cargo semver-checks` and `cargo 
 | aarch64 | aarch64 Linux | G3 with `--exclude phasekit-xtask` | D17 |
 | hash-compare | the four targets above | from M9.4: `tests/cross_target.rs` with std and with `--features libm`; collects and compares the hashes (9.4) | |
 | weekly | Linux | `cargo update` then G3; a full `cargo mutants` run, published as a report (surviving mutants of code no PR has touched since) | dependencies §3.4 item 4; user decision TQ2 |
-| nightly | pinned `runner_image` | until M1.16 only the L5 step, as `-- --include-ignored`; then `cargo xtask oracle --check` twice over the committed files (drift, determinism; 3.6), then `--tier full` into `fixtures-full/`, from M6 `cargo xtask fetch-fastchebpure --all`, then `cargo nextest run -p phasekit-verify --cargo-profile release --run-ignored only --profile ci` (L5), then the report | fail closed |
+| nightly | pinned `runner_image` | until M1.16 only the L5 step, as `-- --include-ignored`; then `cargo xtask oracle --check` twice over the committed files (drift, determinism; 3.6), then `--tier full` into `fixtures-full/`, from M6 `cargo xtask fetch-fastchebpure --all crates/phasekit-verify/fixtures-full`, then `cargo nextest run -p phasekit-verify --cargo-profile release --run-ignored only --profile ci` (L5), then the report | fail closed |
 
 The workflows live in `.github/workflows/{ci,weekly,nightly}.yml` (M0.6); every `ci.yml` job is a required check on
 `main`. They pin GitHub's own actions by commit, install the toolchain through `.github/actions/rust` (which holds the

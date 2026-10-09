@@ -1,0 +1,17 @@
+# fastchebpure.lock v1 (docs/VERIFICATION.md section 3.2; `cargo xtask fetch-fastchebpure`). Editing a line is a
+# pin move: a new release is a new tag, zip and files.
+tag 2026.06.02-v2
+url https://github.com/CoolProp/fastchebpure/archive/refs/tags/2026.06.02-v2.zip
+zip_sha256 2365b8e1e881c54bdd42cbd1b2585fe756f445838417ee80090195a50130f0bd
+file Ammonia.csv c508d4f88ad23945f6278bdce926d4fd73254ace9db95c36ee166a692aca4b65
+file CarbonDioxide.csv b046cdd3997097bf8aea32e94476a7362a3331d535fc36278d050626599cbf9b
+file HFE143m.csv a43620e8f59ab01337f05270dc837519df640f6f335ffeea3cf4708beae9ea0f
+file Helium.csv 6913da3c3184e5d1754825432d862c32f92c0c273405790038326ea4b6d274f2
+file Methanol.csv a9202ca64fdceba058c1d0a5ddda039a80667a8f168535bf3a33e11b9bbf4528
+file Nitrogen.csv a48f2805edc733186398f0fc06da322431542d0fd49d598fe0420a470e600107
+file R1130(E).csv bd96e948c727a19152c3417f04da2aff7865d78383899f28ca3a4973f86c0b36
+file R1234yf.csv afdfcfbfa33232343903d604e3cf77a9d70aa25759b72f4799f8159a73333ab6
+file R1234ze(E).csv be2de80aa4606fa646384f4856ef85a2afb37a67e18613af93f29a1d92210904
+file R125.csv 9b421009928b7bc57e77a7ee16eb3ef088130d01ebae5f87d151ee1f5b352642
+file Water.csv 25e04cf4b61c2840a4f863a0306049e15ddf663e03482f9d6324cd9a3cb612e0
+file n-Heptane.csv eb7c3547167007722aa1a6214832c70029c52255d5a27a7e45493cf68ec30e35

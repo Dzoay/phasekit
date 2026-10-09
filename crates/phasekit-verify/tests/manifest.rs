@@ -69,6 +69,18 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("coolprop-8.0.0/term/Water.csv"),
     fixture!("coolprop-8.0.0/term/n-Heptane.csv"),
     fixture!("mp/check-points.csv"),
+    fixture!("mp/fastchebpure-2026.06.02-v2/Ammonia.csv"),
+    fixture!("mp/fastchebpure-2026.06.02-v2/CarbonDioxide.csv"),
+    fixture!("mp/fastchebpure-2026.06.02-v2/HFE143m.csv"),
+    fixture!("mp/fastchebpure-2026.06.02-v2/Helium.csv"),
+    fixture!("mp/fastchebpure-2026.06.02-v2/Methanol.csv"),
+    fixture!("mp/fastchebpure-2026.06.02-v2/Nitrogen.csv"),
+    fixture!("mp/fastchebpure-2026.06.02-v2/R1130(E).csv"),
+    fixture!("mp/fastchebpure-2026.06.02-v2/R1234yf.csv"),
+    fixture!("mp/fastchebpure-2026.06.02-v2/R1234ze(E).csv"),
+    fixture!("mp/fastchebpure-2026.06.02-v2/R125.csv"),
+    fixture!("mp/fastchebpure-2026.06.02-v2/Water.csv"),
+    fixture!("mp/fastchebpure-2026.06.02-v2/n-Heptane.csv"),
     fixture!("paper/Helium/OrtizVega-JPCRD-2019.3.check.csv"),
     fixture!("paper/Helium/OrtizVega-JPCRD-2019.3.csv"),
     fixture!("paper/Helium/OrtizVega-JPCRD-2019.4.check.csv"),
@@ -122,17 +134,13 @@ const REUSE: &str = include_str!("../../../REUSE.toml");
 
 /// REUSE `path` patterns: `**` matches anything, `*` anything but `/`.
 fn matches(pattern: &str, path: &str) -> bool {
-    match (pattern.split_once("**"), pattern.split_once('*')) {
-        (Some((head, tail)), _) => {
-            path.starts_with(head) && (0..=path.len()).any(|i| path.get(i..).is_some_and(|rest| matches(tail, rest)))
-        }
-        (None, Some((head, tail))) => {
-            path.starts_with(head)
-                && (head.len()..=path.len()).any(|i| {
-                    !path[head.len()..i].contains('/') && path.get(i..).is_some_and(|rest| matches(tail, rest))
-                })
-        }
-        (None, None) => pattern == path,
+    let Some(star) = pattern.find('*') else { return pattern == path };
+    let (head, wild) = pattern.split_at(star);
+    let Some(path) = path.strip_prefix(head) else { return false };
+    let rest = |i: usize, tail: &str| path.get(i..).is_some_and(|rest| matches(tail, rest));
+    match wild.strip_prefix("**") {
+        Some(tail) => (0..=path.len()).any(|i| rest(i, tail)),
+        None => (0..=path.len()).any(|i| path.get(..i).is_some_and(|seg| !seg.contains('/')) && rest(i, &wild[1..])),
     }
 }
 
@@ -170,5 +178,8 @@ fn reuse_patterns_match_like_reuse() {
     assert!(matches("crates/a/**", "crates/a/b/c.csv") && matches("**", "x"));
     assert!(matches("crates/*/c.csv", "crates/b/c.csv") && !matches("crates/*/c.csv", "crates/b/d/c.csv"));
     assert!(matches("a.csv", "a.csv") && !matches("a.csv", "b.csv") && !matches("crates/a/**", "crates/b/x"));
+    // A `*` before a `**` is matched as a `*`: `mp/fastchebpure-*/**` covers every release's directory.
+    assert!(matches("crates/a-*/**", "crates/a-1/b/c.csv") && !matches("crates/a-*/**", "crates/b-1/c.csv"));
+    assert!(!matches("crates/a-*/**", "crates/a-1"), "the `/` after the `*` is literal");
     assert!(annotations().contains(&"crates/phasekit-verify/fixtures/coolprop-8.0.0/**"));
 }

@@ -838,12 +838,15 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
 - **M6.1 fastchebpure outputcheck files.** *Failing test:* `fastchebpure_files_match_the_v8_eos` (each committed
   file's sha256 equals its `fixtures/mp/fastchebpure.lock` line; the EOS hash a file records equals the fluid's
   `source_eos_hash` (map 10 §8.1: the release must match the v8.0.0 EOS hashes); its values at the check points' Θ
-  agree with `mp/check-points.csv` *(inference: the file layout is confirmed when the release is first fetched; if a
-  file records no hash, the check-point agreement alone decides)*). *Do:* `cargo xtask fetch-fastchebpure`: an anonymous download of
+  agree with `mp/check-points.csv`. Measured at M6.1: the check files record no hash, but the fits beside them
+  (`output/<Fluid>_exps.json`) do, and each converted file carries its fit's hash, checked against the fluid's in
+  xtask (`committed_files_name_the_v8_eos`); the check points sit on the dense grids and agree bit for bit).
+  *Do:* `cargo xtask fetch-fastchebpure`: an anonymous download of
   `https://github.com/CoolProp/fastchebpure/archive/refs/tags/2026.06.02-v2.zip` (the pin of
   `Web/scripts/fluid_properties.Superancillary.py:15-18`; no personal data in the URL or headers), the zip's sha256
   and a per-file sha256 written to `fastchebpure.lock`, conversion of `outputcheck/<Fluid>_check.json` to the
-  `mp/v1` CSV for the core subset (the nightly converts all 130 into `fixtures-full/`), REUSE annotation
+  layout of `mp/check-points.csv` (`checkpoints/v1`) for the core subset's 12 fluids with a superancillary (the
+  nightly converts all 130 into `fixtures-full/`), REUSE annotation
   `LicenseRef-fastchebpure` (VERIFICATION.md §3.7; user decision 3b). *Done when:* green; files and lock committed.
 - **M6.2 Root toolbox and small solves.** *Failing tests:* `root_reports_the_point_it_evaluated` (map 03 §6
   solver/state mismatch), `exhausted_iterations_are_an_error` (map 03 §6 silent non-convergence),

@@ -9,7 +9,7 @@ const FIXTURES: &str = "crates/phasekit-verify/fixtures";
 /// The test that lists every fixture to check the manifest; a reference there does not count as reading one.
 const LISTING: &str = "crates/phasekit-verify/tests/manifest.rs";
 /// Committed files under fixtures/ that are not fixtures.
-const NOT_FIXTURES: [&str; 2] = ["oracle.lock", "MANIFEST.sha256"];
+const NOT_FIXTURES: [&str; 3] = ["oracle.lock", "MANIFEST.sha256", "mp/fastchebpure.lock"];
 /// The committed budget (VERIFICATION.md §3.6).
 const BUDGET: usize = 16 * 1024 * 1024;
 
