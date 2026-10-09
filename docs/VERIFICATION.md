@@ -939,7 +939,7 @@ the steps that record each row.
 | QT / PQ via superancillary | ≤ 0.1 µs | M6 | M9 | 0.45 / 0.64 µs; C++ 0.21 / 0.22-0.23 µs (M1.15a run) |
 | PT / PH single phase | ≤ 3 / ≤ 15 µs | M7 | M9 | 19-27 / 119-376 µs; C++ 3.4-25 / 37-255 µs (M1.15a run) |
 | Thread scaling, same and different fluids (N = physical cores) | ≥ 0.9·N | M9 | recorded, a miss is re-planned | GIL-bound 0.97× on 4 threads; C++ (M1.15a) 3.0-3.8× at 4, 3.1-5.4× at 6 (mixed 4.2×), 3.4-6.5× at 12 threads |
-| Memory: EOS ≤ 25 KiB + SA ≤ 25 KiB per fluid; all 136 ≤ 8 MiB RSS | as stated | M3: compiled residual part ≤ 13.4 KiB (Methanol, 44 terms; `compiled_residual_parts_fit_25_kib`, M3.8) | M9 | 100-300 KiB per state; +67 MiB on first use; C++ (M1.15a): 0.49-0.56 MB heap per state, first use 33 MB heap / 58 MB RSS, one state of each of 136 fluids 100 MB heap / 105 MB RSS |
+| Memory: EOS ≤ 25 KiB + SA ≤ 25 KiB per fluid; all 136 ≤ 8 MiB RSS | as stated | M3: compiled residual part ≤ 13.4 KiB (Methanol, 44 terms; `compiled_residual_parts_fit_25_kib`, M3.8); M6: a decoded superancillary keeps a median 26.8 KiB, PropyleneGlycol's 38.6 KiB the most, 97 of 130 above the 25 KiB target (`superancillary_bytes_are_recorded`, M6.11; M9.7 meets it by optimisation or a recorded re-plan) | M9 | 100-300 KiB per state; +67 MiB on first use; C++ (M1.15a): 0.49-0.56 MB heap per state, first use 33 MB heap / 58 MB RSS, one state of each of 136 fluids 100 MB heap / 105 MB RSS |
 | α^r on AVX2 lanes | ≤ 0.1 µs/state and ≥ 2.5×, or stop | M12 | M12 | n/a |
 
 **Enforcement from M9 (E9):** (1) on Linux PRs, gungraun instruction counts of the tracked benches may not regress by
