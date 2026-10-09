@@ -59,14 +59,13 @@ pub(crate) fn numerical(eos: &dyn HelmholtzModel, t0: f64, rho0: f64) -> Result<
     Err(failed(MAX_ITER))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "fluids-all"))]
 mod tests {
     use super::*;
 
     /// The Jacobian of (K1, K2) in (ln T, ln ρ) against central differences of K1 and K2 (class `Fd`, of scales of 1),
     /// for Methane near its critical point: Newton converges with a slightly wrong Jacobian too, only more slowly, so
     /// it is checked here directly.
-    #[cfg(feature = "fluids-all")]
     #[test]
     fn jacobian_matches_central_differences() {
         let registry = crate::Registry::from_embedded(crate::DataSet::Parity).unwrap();
