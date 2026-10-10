@@ -8,16 +8,15 @@ Read it with `git fetch origin handoff && git show origin/handoff:README.md`, or
 
 ## 1. Where things stand
 
-- **`main` = `4fc512d`** (#89, M7.1, CI green). M0-M6 are closed; M7 is open. Signed tags `m0`-`m5` are pushed.
-- **Tag `m6` is waiting for the user's yes.** It goes on `72e2b3a` (#88, which closed M6), signed and annotated, with a
-  message in the style of `m5`'s (`git tag -l --format='%(contents)' m5`).
-- **Two branches are pushed, without PRs yet.** Both were rebased onto `4fc512d` on 2026-10-10 with unchanged trees,
-  and every commit is signed as `Dzoay <3277116+Dzoay@users.noreply.github.com>`.
+- **`main` = `08a7226`** (#90, user decision RM1, on top of #89 M7.1). M0-M6 are closed; M7 is open. Signed tags
+  `m0`-`m6` are pushed (`m6` on `72e2b3a`, 2026-10-10).
+- **Two branches are pushed, without PRs yet.** Both were rebased onto `08a7226` on 2026-10-10 with unchanged patches (the MSRV commit's
+  decision entry now sits before RM1's), and every commit is signed as `Dzoay <3277116+Dzoay@users.noreply.github.com>`.
 
   | Branch | Commits on its parent | State | Next |
   |---|---|---|---|
-  | `msrv-1.89` (parent `main`) | `d1c1ec6` chore: rust-version 1.89; `451716a` refactor: the code Rust 1.89 allows | user decision MS1; complete; 423 tests passed on 1.89.0 locally | gates, local mutants, PR, land (§3.1) |
-  | `m7.2-phase-rule` (parent `msrv-1.89`) | `4c994e3` feat(core): PT at saturation has two roots; a generic VLE below every curve; `e412994` test(verify): the PT bench | code, tests, PT bench, PLAN/VERIFICATION notes done; local mutants run: **20 missed + 1 timeout** | pin the mutants, gates, PR, land (§3.2) |
+  | `msrv-1.89` (parent `main`) | `ca27ac4` chore: rust-version 1.89; `b124f0d` refactor: the code Rust 1.89 allows | user decision MS1; complete; 423 tests passed on 1.89.0 locally | gates, local mutants, PR, land (§3.1) |
+  | `m7.2-phase-rule` (parent `msrv-1.89`) | `a9ce1e4` feat(core): PT at saturation has two roots; a generic VLE below every curve; `36ebf67` test(verify): the PT bench | code, tests, PT bench, PLAN/VERIFICATION notes done; local mutants run: **20 missed + 1 timeout** | pin the mutants, gates, PR, land (§3.2) |
 
 - No other work is in flight: no open PRs, no uncommitted changes, no fixtures waiting for a pinned-image run. M7.2
   changes no oracle fixtures.
@@ -62,7 +61,9 @@ Read it with `git fetch origin handoff && git show origin/handoff:README.md`, or
    themselves. See §4.
 8. **Claude Code:**
    - Copy these from the old machine privately. They are not here because the hook contains the email address it
-     guards:
+     guards. The user put them on a USB stick under `claude-handoff/claude/`:
+     `cp -r <stick>/claude-handoff/claude/. ~/.claude/ && chmod +x ~/.claude/hooks/guard-email.sh`. exFAT drops the
+     executable bit; if the new machine already has a `settings.json`, merge the hook entry into it by hand.
      - `~/.claude/CLAUDE.md`: the never-send-the-email rule;
      - `~/.claude/hooks/guard-email.sh`;
      - the hook's `PreToolUse` entry in `~/.claude/settings.json`: matcher `*`, command
@@ -80,11 +81,10 @@ Read it with `git fetch origin handoff && git show origin/handoff:README.md`, or
    Land the new baseline in its own small PR (e.g. `test(verify): the C++ baseline on <cpu>`) before the first step that
    records a bench there. Benches still due in M7: PH (M7.3).
 
-   **Open user decision (P3):** PLAN §6 / 04-user-decisions.md names the old dev box as the performance reference
-   machine. ARCHITECTURE.md §7's absolute targets (≤ 0.3 µs α^r, ≤ 0.5 µs properties, ≤ 3 µs PT, …) are checked there
-   at each milestone close from M9. Ask the user whether the new machine becomes the reference machine (with the targets
-   rescaled, or judged as ratios to its own C++ baseline) or the old box stays the reference. Record the answer in
-   04-user-decisions.md. Nothing before M9 depends on it.
+   **Reference machine (user decision RM1, 2026-10-10):** the old i7-8700K dev box stays the performance reference
+   machine "for now". ARCHITECTURE.md §7's absolute targets are checked there at each milestone close from M9, so
+   the M9 target checks need that box. On the new machine, compare benches only with its own C++ baseline. The
+   decision is recorded in 04-user-decisions.md, PLAN.md §6 (P3) and VERIFICATION.md §12.
 
 ## 3. Next actions, in order
 
@@ -106,7 +106,7 @@ $W/land.sh <pr>                          # in the background; waits for the 9 ch
 
 ### 3.2 M7.2, after the MSRV PR lands
 
-1. `cd ~/Projects/phasekit-m7.2 && git fetch origin && git rebase --onto origin/main 451716a`. `451716a` is
+1. `cd ~/Projects/phasekit-m7.2 && git fetch origin && git rebase --onto origin/main b124f0d`. `b124f0d` is
    `msrv-1.89`'s tip as pushed; if prep committed test counts on top of it, use the tip the MSRV PR landed from.
 2. **Pin the mutants.** `pr/mutants-m7.2.log` has the full list. Pin each with an exact hand test, or exclude it in
    `.cargo/mutants.toml` with its reason if it is truly equivalent (M7.1 excluded three that way). These are first

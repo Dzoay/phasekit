@@ -1,13 +1,13 @@
 ---
 name: coolprop-rs-plan-status
-description: "phasekit (coolprop-rs successor) history and current position: M0-M6 closed (tags m0-m5; m6 awaits yes); M7 in progress; how to resume"
+description: "phasekit (coolprop-rs successor) history and current position: M0-M6 closed (tags m0-m6); M7 in progress; how to resume"
 metadata:
   node_type: memory
   type: project
   modified: 2026-10-08T00:00:00.000Z
 ---
 
-CURRENT (2026-10-10): M6 CLOSED (#77-#88; tag m6 awaits the user's yes); M7 open, M7.1 merged (#89, main 4fc512d). Work moved to a new machine: see the orphan branch `handoff` and [[m6-resume-state]]. Everything below is history.
+CURRENT (2026-10-10): M6 CLOSED (#77-#88; tag m6 pushed); M7 open, M7.1 merged (#89, main 4fc512d). Work moved to a new machine: see the orphan branch `handoff` and [[m6-resume-state]]. Everything below is history.
 
 
 Planning (not implementing) a pure-Rust CoolProp successor. Paused by the user on 2026-10-04 to spend tokens elsewhere; the session limit was also hit once mid-run. Nothing is committed yet (repo is `git init`ed on `main`).
