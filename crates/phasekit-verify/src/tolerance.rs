@@ -215,7 +215,10 @@ impl ToleranceClass {
         (ToleranceClass::TransportDirect, "1e-12"),
         (ToleranceClass::TransportEcs, "1e-8"),
         (ToleranceClass::Paper, "half a unit in the last printed digit (`from_printed`)"),
-        (ToleranceClass::Measured, "the residual recorded in a register entry, rounded up to one significant digit"),
+        (
+            ToleranceClass::Measured,
+            "the residual recorded in a register entry (per table where tables differ), rounded up to one significant digit",
+        ),
         (ToleranceClass::Identity, "1e-12 of the largest term of the identity; nc 1e-8"),
         (ToleranceClass::Fd, "1e-7, central differences, relative step 1e-5"),
         (ToleranceClass::RefAnchor, "1e-8 abs, SI mass units *(inference: map 01 §8 states 1e-8 without units)*"),

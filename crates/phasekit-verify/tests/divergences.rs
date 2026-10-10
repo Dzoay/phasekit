@@ -9,7 +9,10 @@ use phasekit_core::{
     Basis, DataSet, Density, DomainError, Error, Input, Order, Phase, Pressure, Prop, Quality, Registry, Temperature,
     ThermoModel,
 };
-use phasekit_verify::{Cell, DIVERGENCES, Fixture, MILESTONE, fixture, missing_proofs, unregistered_proofs};
+use phasekit_verify::arbiters::{k3_values, table_text};
+use phasekit_verify::{
+    Cell, DIVERGENCES, Fixture, MILESTONE, fixture, from_printed, missing_proofs, unregistered_proofs,
+};
 
 /// Every proof function, by register id.
 const PROOFS: &[(&str, fn())] = &[
@@ -120,6 +123,15 @@ fn registered_bound(id: &str) -> f64 {
     }
 }
 
+/// The relative bound entry `id` registers for the table `file`, NaN without one.
+fn registered_table_bound(id: &str, file: &str) -> f64 {
+    let entry = DIVERGENCES.iter().find(|d| d.id == id);
+    match entry.and_then(|d| d.table_tolerances.iter().find(|(f, _)| *f == file)) {
+        Some((_, phasekit_verify::Tolerance::Relative(bound))) => *bound,
+        _ => f64::NAN,
+    }
+}
+
 /// DIV-0001, parts M5 (`UsePaper`; map 13 §3; ROT-043): Thol & Lemmon 2016 Table 3 fits R-1234ze(E) with R = 8.3144621.
 /// (1) `Corrected`, which ships that R, has p within the table's printed digits; (2) the oracle, with v8.0.0's
 /// 8.314472, is still 1.0e-6 to 1.4e-6 above it; (3) `Parity` is the oracle within `Prop`. (Part M6: the rescaled
@@ -146,7 +158,9 @@ fn div_0001() {
 /// DIV-0005, part M5 (`KeepOracle`; map 13 §3 item 4; ROT-044): NIST IR 8474 Table 3 does not reproduce with its own R
 /// (`Inconsistent`, tests/arbiters.rs), so no patch ships: `Corrected` is `Parity`, model key and all. Helium's p, c_v
 /// and w at the table's 6 states are then within the registered 5e-7 of it (class `Measured`) and equal to the
-/// oracle's within `Prop`.
+/// oracle's within `Prop`. Part M6 (PLAN.md M6.10, user decision H4): Table 4 (K3) is `Inconsistent` too; each of the
+/// shipped model's p_σ, ρ′, ρ″, h′ and h″ is within its printed digits or within the registered 2e-6 of it (`Measured`),
+/// and some cells need the latter.
 fn div_0005() {
     let (parity, corrected) = (record("Helium", DataSet::Parity), record("Helium", DataSet::Corrected));
     assert_eq!(parity.model_key(), corrected.model_key());
@@ -164,6 +178,25 @@ fn div_0005() {
             assert!((got - oracle).abs() <= prop(oracle), "row {row} {column}: {got} against the oracle {oracle}");
         }
     }
+    let file = "paper/Helium/OrtizVega-JPCRD-2019.4.csv";
+    let (bound, table4) = (registered_table_bound("DIV-0005", file), table_text(file).unwrap());
+    let table4 = Fixture::parse(file, table4).unwrap();
+    let (curve, m) = (parity.superancillary_curve().unwrap(), parity.molar_mass);
+    let model = parity.clone().compile().unwrap();
+    let mut beyond = 0;
+    for row in 0..table4.rows().len() {
+        let seed = curve.at_t(table4.value(row, "T").unwrap()).unwrap();
+        for (column, got) in k3_values(&table4, row, &model, m, (seed.bubble.rho, seed.dew.rho)).unwrap() {
+            let want = table4.value(row, column).unwrap();
+            let half = match from_printed(table4.printed(row, column).unwrap()) {
+                Some(phasekit_verify::Tolerance::Absolute(half)) => half,
+                other => unreachable!("row {row} {column}: printed digits {other:?}"),
+            };
+            beyond += usize::from((got - want).abs() > half);
+            assert!((got - want).abs() <= half.max(bound * want.abs()), "Table 4 row {row} {column}: {got} vs {want}");
+        }
+    }
+    assert!(beyond > 0, "Table 4 needs its measured bound");
 }
 
 /// DIV-0014 (`Investigate`; map 10 §8.4; ROT-132): R1224YDZ's p at (400 K, 8000 mol/m³) is 3.3 half-units of the

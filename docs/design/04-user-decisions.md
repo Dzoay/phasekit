@@ -266,3 +266,14 @@ T, 1e-8 from phasekit's converged VLE.
 |---|---|---|---|
 | PS3 | Which rule a pseudo-pure fluid's DT follows below its published Tc | **CoolProp's: gas below 0.95 of the dew density ancillary, liquid above 1.05 of the bubble one, liquid in the 0.9975 strip where the ancillary quality is below 0.01, p is above 1.05 of the bubble pressure ancillary and the state is stable; otherwise the EOS's VLE from the ancillary densities** | For the six pseudo-pure fluids only: their saturation is CoolProp's construct, and decision 4 asks for its rules from oracle fixtures; pure fluids keep the band-free rule (ROT-088). Rejected: the EOS's VLE then the ancillary densities as boundaries; the EOS alone with a divergence entry. |
 | — | SES36's in-dome p at its lowest temperatures | **A divergence entry: DIV-0019 (`SkipOracle`) on those p cells** | Its proof pins CoolProp's variation with Q and phasekit's single VLE p. Rejected: an `Investigate` entry with the measured residual as the tolerance. |
+
+## NIST IR 8474 Table 4 (2026-10-09)
+
+Asked at M6.10. Helium's saturation table, NIST IR 8474 Table 4, printed to five digits, does not reproduce with its own
+Table 1 constants: 12 cells miss their printed digits, 11 h″ by up to 2.7 half units and p_σ at 5.1 K by 1.5 half units
+(3.5e-6; the question put the residual at h″'s 1.7e-6, the p_σ cell having been overlooked). With the shipped constants
+7 h″ cells miss, by up to 1.05e-6. DIV-0005's registered 5e-7 is Table 3's.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| H4 | How Table 4 holds the shipped model | **Its own `Measured` 2e-6 in DIV-0005 (1.05e-6 rounded up to one digit), beside Table 3's 5e-7: each cell within its printed digits or within 2e-6 of the printed value; Helium's saturation arbiter `Inconsistent { residual: 3.5e-6 }`, the worst cell beyond its digits with the paper's constants** | Register entries gain per-table tolerances for this. Rejected: one tolerance of 2e-6 for both tables (Table 3 held looser than its measured 5e-7). |
