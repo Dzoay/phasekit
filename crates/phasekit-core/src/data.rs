@@ -232,7 +232,7 @@ impl EosRecord {
         let f64s = |values: &mut &[u8], n: usize| -> Result<Vec<f64>, LoadError> {
             let (head, rest) = values.split_at_checked(8 * n).ok_or_else(|| bad("truncated".into()))?;
             *values = rest;
-            Ok(head.chunks_exact(8).map(|c| f64::from_le_bytes(c.try_into().unwrap_or_default())).collect())
+            Ok(head.as_chunks::<8>().0.iter().map(|c| f64::from_le_bytes(*c)).collect())
         };
         let [r, rho_r, rho_max] = f64s(&mut values, 3)?[..] else { return Err(bad("truncated".into())) };
         let mut eos = EosRecord::new(r, f64::NAN, rho_r, rho_max);

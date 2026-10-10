@@ -268,7 +268,7 @@ mod tests {
         let record = phasekit_core::internal::record(Registry::embedded().unwrap(), "Water").unwrap();
         let end = record.superancillary_curve().unwrap().t_range().1 * (1.0 + 2.0 * f64::EPSILON);
         let mut past = last;
-        (past[0], past[1]) = (end, f64::from_bits(end.to_bits() + 1));
+        (past[0], past[1]) = (end, end.next_up());
         (header, [rows[0], first(0.25, 0.35), first(5e-5, 2e-4), first(1e-12, 1e-8), last, past])
     }
 

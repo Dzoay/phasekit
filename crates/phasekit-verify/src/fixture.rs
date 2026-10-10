@@ -653,7 +653,7 @@ mod tests {
         assert_eq!((m.line, m.class, m.got, m.want, m.error), (21, "term", 300.0 + e, 300.0, e));
         let bound = ToleranceClass::Term.bound(7.0).unwrap();
         assert_eq!(fixture.check_scaled(3, "value", bound, 7.0), Ok(1.0));
-        assert!(fixture.check_scaled(3, "value", f64::from_bits(bound.to_bits() + 1), 7.0).is_err());
+        assert!(fixture.check_scaled(3, "value", bound.next_up(), 7.0).is_err());
         assert_eq!(ToleranceClass::Term.bound(0.0), Some(1e-13 * 1e-300));
         assert_eq!(fixture.check_scaled(9, "value", 0.1, 0.0), Ok(0.0));
         assert_eq!(fixture.check_scaled(6, "value", f64::NAN, 1.0), Ok(0.0));

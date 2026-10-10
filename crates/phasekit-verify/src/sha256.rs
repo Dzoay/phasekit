@@ -11,10 +11,10 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
         message.push(0);
     }
     message.extend_from_slice(&((data.len() as u64).wrapping_mul(8)).to_be_bytes());
-    for block in message.chunks_exact(64) {
+    for block in message.as_chunks::<64>().0 {
         let mut w = [0u32; 64];
-        for (word, bytes) in w.iter_mut().zip(block.chunks_exact(4)) {
-            *word = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        for (word, bytes) in w.iter_mut().zip(block.as_chunks::<4>().0) {
+            *word = u32::from_be_bytes(*bytes);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
@@ -35,8 +35,8 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
         }
     }
     let mut digest = [0u8; 32];
-    for (bytes, word) in digest.chunks_exact_mut(4).zip(h) {
-        bytes.copy_from_slice(&word.to_be_bytes());
+    for (bytes, word) in digest.as_chunks_mut::<4>().0.iter_mut().zip(h) {
+        *bytes = word.to_be_bytes();
     }
     digest
 }

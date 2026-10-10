@@ -221,7 +221,7 @@ impl SaturationCurve for SuperancillaryCurve {
             }
             // A p at an extremum is found at the end of both segments.
             let seen = found > 0 && roots.get(found - 1) == Some(&root.x);
-            if let (false, Some(slot)) = (seen, roots.get_mut(found)) {
+            if !seen && let Some(slot) = roots.get_mut(found) {
                 (*slot, found) = (root.x, found + 1);
             }
         }

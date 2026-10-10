@@ -236,16 +236,17 @@ fn update(text: &str, target: &str, executed: &[(String, usize)]) -> String {
     let mut listed = Vec::new();
     for line in text.lines() {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        if let (false, &[t, binary, min]) = (line.trim_start().starts_with('#'), fields.as_slice()) {
-            if t == target {
-                listed.push(binary);
-                let ran = executed.iter().find(|(b, _)| b == binary).map(|(_, n)| *n);
-                if let (Some(n), Ok(min)) = (ran, min.parse::<usize>()) {
-                    if n > min {
-                        out.push_str(&format!("{t} {binary} {n}\n"));
-                        continue;
-                    }
-                }
+        if !line.trim_start().starts_with('#')
+            && let &[t, binary, min] = fields.as_slice()
+            && t == target
+        {
+            listed.push(binary);
+            let ran = executed.iter().find(|(b, _)| b == binary).map(|(_, n)| *n);
+            if let (Some(n), Ok(min)) = (ran, min.parse::<usize>())
+                && n > min
+            {
+                out.push_str(&format!("{t} {binary} {n}\n"));
+                continue;
             }
         }
         out.push_str(line);
