@@ -102,12 +102,33 @@ fn dt_drho(x: DerivVar, at: &At<'_>) -> (f64, f64) {
 }
 
 /// `(∂of/∂wrt)_at` by the Jacobian ratio in (T, ρ): `[X_T Z_ρ − X_ρ Z_T] / [Y_T Z_ρ − Y_ρ Z_T]`
-/// (map 01 §4a, U8). `None` where the denominator vanishes (e.g. `(∂T/∂T)_T`).
+/// (map 01 §4a, U8). `None` where the denominator vanishes (e.g. `(∂T/∂T)_T`). One quantity in two bases makes its
+/// Jacobian vanish only up to rounding, so it is decided before the ratio (PLAN.md M7.1, found by
+/// `a_guess_changes_no_output`): `None` where `wrt` and `at` measure one quantity (`(∂T/∂u_molar)_u_mass`), and exactly
+/// 0 where `of` and `at` do (`(∂u_molar/∂T)_u_mass`).
 pub(crate) fn first_partial(of: DerivVar, wrt: DerivVar, at_const: DerivVar, at: &At<'_>) -> Option<f64> {
+    if molar(wrt) == molar(at_const) {
+        return None;
+    }
+    if molar(of) == molar(at_const) {
+        return Some(0.0);
+    }
     let ((xt, xr), (yt, yr), (zt, zr)) = (dt_drho(of, at), dt_drho(wrt, at), dt_drho(at_const, at));
     let den = yt * zr - yr * zt;
     let v = (xt * zr - xr * zt) / den;
     (den != 0.0 && v.is_finite()).then_some(v)
+}
+
+/// The molar variable of the quantity `v` measures (`Dmass` → `Dmolar`, …); T and p as they are.
+fn molar(v: DerivVar) -> DerivVar {
+    match v {
+        DerivVar::Dmass => DerivVar::Dmolar,
+        DerivVar::Hmass => DerivVar::Hmolar,
+        DerivVar::Smass => DerivVar::Smolar,
+        DerivVar::Umass => DerivVar::Umolar,
+        DerivVar::Gmass => DerivVar::Gmolar,
+        v => v,
+    }
 }
 
 /// Molar Gibbs energy and its (T, p) derivatives to order 2. IF97 regions 1/2/5, IAPWS-06 ice Ih and
@@ -164,6 +185,16 @@ mod tests {
         assert!((d(Dmolar, P, T) - 1.0 / (r * t)).abs() < 1e-18); // ideal gas: (∂ρ/∂p)_T = 1/RT
         assert!((d(Gmolar, P, T) - 1.0 / rho).abs() < 1e-15); // (∂g/∂p)_T = v
         assert_eq!(first_partial(T, T, T, &at), None);
+        // One quantity in two bases held and varied: undefined, never the ratio of two rounding errors; held and
+        // differentiated: exactly 0. Differentiated in one basis by the other, the basis only scales.
+        let bases = [(Dmolar, Dmass), (Hmolar, Hmass), (Smolar, Smass), (Umolar, Umass), (Gmolar, Gmass)];
+        for (molar, mass) in bases {
+            for (wrt, c) in [(molar, mass), (mass, molar), (molar, molar), (mass, mass)] {
+                assert_eq!(first_partial(T, wrt, c, &at), None, "{wrt:?} at {c:?}");
+            }
+            assert_eq!([first_partial(molar, P, mass, &at), first_partial(mass, P, molar, &at)], [Some(0.0); 2]);
+        }
+        assert!((d(Dmolar, Dmass, T) - 25.0).abs() < 1e-12); // 1/M
     }
 
     /// On the spinodal, (∂p/∂ρ)_T = 0: cp diverges, but w² = RT·(2·A01 + A02 + (A01 − A11)²/(−A20))/M stays finite,
