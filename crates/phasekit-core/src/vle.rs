@@ -6,7 +6,7 @@
 //! g′ = g″, two distinct phases) or is refused: CoolProp's VLE routines exit on a small step with a large residual and
 //! can return the trivial solution ρ′ = ρ″ (map 03 §6, map 04 U3).
 
-use crate::derivs::{Bundle, Order};
+use crate::derivs::{Bundle, Derivs, Order};
 use crate::error::Error;
 use crate::helmholtz::HelmholtzModel;
 use crate::num::{math, solve_small};
@@ -47,6 +47,12 @@ const WINDOW: (f64, f64, f64) = (0.05, 0.5, 0.01);
 
 /// Iterations allowed to each bracketed solve.
 const BRACKET_ITER: u16 = 100;
+
+/// [`from_eos`]'s tolerance on a spinodal's ln ρ: it only bounds a branch, so a loose one serves.
+const SPINODAL_TOL: f64 = 1e-10;
+
+/// [`from_eos`]'s tolerance on the Maxwell pressure's ln p: [`at_t`] polishes its seeds to rounding.
+const MAXWELL_TOL: f64 = 1e-10;
 
 /// The bracketed solves' tolerance on ln ρ, and relative on T.
 const BRACKET_TOL: f64 = 1e-15;
@@ -175,6 +181,58 @@ fn jacobian_p(r: f64, t: f64, p: f64, l: &Point, v: &Point) -> [[f64; 3]; 3] {
         [v.rho * r * (v.b.a01 - v.b.a11) / p, 0.0, v.rho * r * t * v.stiffness() / p],
         [-((l.b.a10 + l.b.a11) - (v.b.a10 + v.b.a11)) / t, l.stiffness(), -v.stiffness()],
     ]
+}
+
+/// The saturation at T of a model with no curve that covers T (PLAN.md M7.2; ARCHITECTURE.md D6: hint → critical point
+/// → curve → generic pure VLE), seeded from the EOS alone. Below Tc the isotherm loops around the critical density
+/// `rho_c`: p rises to the vapour spinodal, falls, and rises again from the liquid spinodal, the zeros of (∂p/∂ρ)_T
+/// nearest the dilute gas and the model's largest density. Between the spinodal pressures the liquid's and the vapour's
+/// Gibbs energies cross once, since d(g′ − g″)/dp = v′ − v″ < 0: a Maxwell construction in ln p, each side's density
+/// bracketed on its branch ([`crate::density::bracketed`]), seeds [`at_t`]. The pressure's lower end is the liquid
+/// spinodal's, or 1e-40 of the vapour spinodal's where that is not positive (a liquid under tension).
+/// `NoConvergence { Vle }` when the loop is not there: no turn before `rho_c` from either side.
+pub(crate) fn from_eos(eos: &dyn HelmholtzModel, t: f64, rho_c: f64) -> Result<SatPair, Error> {
+    let rt = eos.gas_constant() * t;
+    // p, (∂p/∂ρ)_T and g/RT up to a function of T alone (ln ρ + α^r + Z), from `residual + IDEAL_DELTA`.
+    let mech = |rho: f64| {
+        let b = (eos.residual(t, rho, Order::Two) + Derivs::IDEAL_DELTA).bundle();
+        b.map_or([f64::NAN; 3], |b| [rho * rt * b.a01, rt * (2.0 * b.a01 + b.a02), math::ln(rho) + b.a00 + b.a01])
+    };
+    // The first turn of p(ρ) from `from` towards `to`: steps of 25 % in ρ until (∂p/∂ρ)_T is no longer positive, then
+    // TOMS 748 in that step. Inside the loop a multiparameter EOS can oscillate (R22's p swings ±1e16 Pa at 121 K), so
+    // each spinodal is the turn nearest its own phase.
+    let turn = |from: f64, to: f64| -> Result<f64, Error> {
+        let (factor, up) = if to > from { (1.25, true) } else { (0.8, false) };
+        let past = |rho: f64| if up { rho >= to } else { rho <= to };
+        let mut a = from;
+        while !past(a) {
+            let b = if past(a * factor) { to } else { a * factor };
+            if mech(b)[1] <= 0.0 {
+                let (lo, hi) = (math::ln(a.min(b)), math::ln(a.max(b)));
+                let root = toms748(|u| mech(math::exp(u))[1], lo, hi, Tol::Absolute(SPINODAL_TOL), BRACKET_ITER);
+                return root.converged(Strategy::Vle).map(|r| math::exp(r.x));
+            }
+            a = b;
+        }
+        Err(failed(0))
+    };
+    let (vapour, liquid) = (turn(1e-9 * rho_c, rho_c)?, turn(eos.rho_max(t), rho_c)?);
+    // Strictly between the spinodal pressures: at either one a side's root is its spinodal, where (∂p/∂ρ)_T = 0.
+    let p_hi = mech(vapour)[0] * (1.0 - 1e-9);
+    let p_lo = mech(liquid)[0].max(1e-40 * p_hi) * (1.0 + 1e-9);
+    if !(p_lo < p_hi) {
+        return Err(failed(0));
+    }
+    let sides = |p: f64| {
+        let ideal = p / rt;
+        let gas = crate::density::bracketed(eos, t, p, ((1e-3 * ideal).min(1e-3 * vapour), vapour), ideal);
+        let liq = crate::density::bracketed(eos, t, p, (liquid, eos.rho_max(t)), liquid);
+        gas.and_then(|(v, _)| Ok((liq?.0, v)))
+    };
+    // g′ − g″ at p: positive at the liquid spinodal's pressure, negative at the vapour spinodal's.
+    let gap = |u: f64| sides(math::exp(u)).map_or(f64::NAN, |(l, v)| mech(l)[2] - mech(v)[2]);
+    let root = toms748(gap, math::ln(p_lo), math::ln(p_hi), Tol::Absolute(MAXWELL_TOL), BRACKET_ITER);
+    at_t(eos, t, sides(math::exp(root.converged(Strategy::Vle)?.x))?)
 }
 
 /// Saturation of `eos` at `t` from the seed densities `(ρ′, ρ″)` (a superancillary's or an ancillary's).
