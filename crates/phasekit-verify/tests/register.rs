@@ -277,6 +277,17 @@ fn register_cites_reproducible_oracle_facts() {
     let apart = |a: f64, b: f64| (a / b - 1.0).abs();
     assert!(cites(apart(reported, input), "7.9e-9") && cites(apart(reported, own), "7.9e-9"), "DIV-0020: {reported}");
     assert!(cites(apart(own, input), "2.2e-16"), "DIV-0020: {own}");
+    // Its h too: in flash/Air.csv at 685.58 MPa and 1514.94 K, 6.1e-10 off the DT row read off the same PT row.
+    let (path, text) = fixture!("coolprop-8.0.0/flash/Air.csv");
+    let air = Fixture::parse(path, text).unwrap();
+    let pt = (0..air.rows().len())
+        .find(|&r| {
+            let near = |column, want: f64| (air.value(r, column).unwrap() / want - 1.0).abs() < 1e-4;
+            air.printed(r, "pair") == Some("PT") && near("x1", 685.58e6) && near("x2", 1514.94)
+        })
+        .unwrap();
+    let h = |row| air.value(row, "h").unwrap();
+    assert!(cites(apart(h(pt), h(pt + 1)), "6.1e-10"), "DIV-0020: {} and {}", h(pt), h(pt + 1));
     checked.push("DIV-0020");
 
     let ids: Vec<&str> = DIVERGENCES.iter().map(|d| d.id).collect();

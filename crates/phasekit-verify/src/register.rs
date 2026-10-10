@@ -443,12 +443,13 @@ pub static DIVERGENCES: &[Divergence] = &[
         arbiter: None,
         policy: Policy::SkipOracle,
         fix: Fix::Code("phasekit_core::flash"),
-        evidence: "map 03 §6 row 8 (ROT-074), M7.1: CoolProp's PT reports a p that is neither its input nor its own EOS's \
-                   at its (T, rho): Nitrogen at 107.45 MPa and 1192.98 K, 7.9e-9 off both, where its DT at the same \
-                   (T, rho) reproduces the input to 2.2e-16; 26 of the 504 core PT rows more than 1e-9 off, its rho, h, \
-                   s and u within Flash; phasekit's PT state is built at the density its solve returned, its p the \
-                   input to rounding",
-        exempt: Some(Exempt { kinds: &[Kind::Flash], columns: &["p"], rows: Rows::PtInputs }),
+        evidence: "map 03 §6 row 8 (ROT-074), M7.1: CoolProp's PT reports p, h, s and u at its solver's last iterate, not \
+                   at the density it returns: Nitrogen at 107.45 MPa and 1192.98 K, p 7.9e-9 off its input and off its \
+                   own DT at the same (T, rho), which reproduces the input to 2.2e-16; Air at 685.58 MPa and 1514.94 K, \
+                   h 6.1e-10 off its DT; on the nightly's 40 x 40 grids h, s and u up to 4.0e-9, 1.0e-9 and 6.3e-9 off \
+                   (Argon, Air; 2026-10-10); its rho is the converged root, within Flash; phasekit's PT state is built \
+                   at the density its solve returned, its p the input to rounding",
+        exempt: Some(Exempt { kinds: &[Kind::Flash], columns: &["p", "h", "s", "u"], rows: Rows::PtInputs }),
         tolerance: None,
         table_tolerances: &[],
         proof: &[7],
@@ -630,13 +631,14 @@ mod tests {
             [Some("DIV-0019"), Some("DIV-0019"), None, None]
         );
         assert_eq!((ses36("p", 199.9, true), ses36("p", 220.1, true)), (None, None));
-        // DIV-0020: the p of every fluid's PT rows, not of its DT rows, nor another column.
+        // DIV-0020: p, h, s and u of every fluid's PT rows, not of its DT rows, nor ρ.
         let flash = |column, input| {
             exempt_row(DIVERGENCES, "Water", Kind::Flash, column, RowKey { t: 300.0, input, two_phase: false })
         };
         assert_eq!(
-            [flash("p", Some("PT")), flash("h", Some("PT")), flash("p", Some("DT")), flash("p", None)],
-            [Some("DIV-0020"), None, None, None]
+            [flash("p", Some("PT")), flash("u", Some("PT")), flash("rho", Some("PT")), flash("p", Some("DT"))],
+            [Some("DIV-0020"), Some("DIV-0020"), None, None]
         );
+        assert_eq!(flash("h", None), None);
     }
 }

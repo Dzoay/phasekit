@@ -131,7 +131,7 @@ fn dt_flash_matches_oracle_on_the_nightly_grid() {
 
 /// Oracle: CoolProp 8.0.0, fixtures-full/coolprop-8.0.0/flash/<Fluid>.csv, the PT rows (PLAN.md M7.1): every fluid's
 /// 40 × 40 (p, T) truths, CoolProp's PT flash of its own inputs, as `pt_matches_oracle` checks the core subset's, the
-/// oracle's p exempt (DIV-0020).
+/// oracle's p, h, s and u exempt (DIV-0020).
 #[test]
 #[ignore = "nightly: reads the full flash set (cargo xtask oracle --kind flash --tier full)"]
 fn pt_flash_matches_oracle_on_the_nightly_grid() {
@@ -145,7 +145,7 @@ fn pt_flash_matches_oracle_on_the_nightly_grid() {
         check.pt_rows(&fixture, registry.get(f.name).unwrap(), &record);
     }
     assert_eq!(check.report(50), None);
-    assert!(check.compared > 136 * 1500 && check.exempt == check.compared, "{check:?}");
+    assert!(check.compared > 136 * 1500 && check.exempt == 4 * check.compared, "{check:?}");
 }
 
 /// The same over every fluid with a superancillary, from the nightly's `cargo xtask fetch-fastchebpure --all`

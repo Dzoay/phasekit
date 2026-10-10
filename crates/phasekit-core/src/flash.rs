@@ -295,9 +295,12 @@ fn pt(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<State, E
     let branch = pt_branch(fluid, p, t, opts)?;
     let (rho, path) = match branch.bracket {
         _ if branch.phase == Phase::CriticalPoint => (branch.seed, DIRECT),
-        Some(bracket) => {
+        Some((lo, hi)) => {
             let seed = opts.guess().map_or(branch.seed, |(_, rho)| rho);
-            let (rho, iterations) = crate::density::bracketed(eos, t, p, bracket, seed)?;
+            let solved = crate::density::bracketed(eos, t, p, (lo, hi), seed);
+            // A root past the model's largest density: its bracket grows (`density::liquid_above`).
+            let grown = |e| if hi == eos.rho_max(t) { crate::density::liquid_above(eos, t, p, hi) } else { Err(e) };
+            let (rho, iterations) = solved.or_else(grown)?;
             (rho, SolvePath { strategy: Strategy::DensityNewton, iterations })
         }
         None => {

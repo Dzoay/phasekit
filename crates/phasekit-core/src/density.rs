@@ -35,14 +35,20 @@ const MAX_STEP: f64 = 0.25;
 /// Iterations a bracketed solve may spend: Newton, or bisection in ln ρ where Newton leaves the bracket.
 const MAX_BRACKETED: u16 = 100;
 
+/// A bracketed solve has converged when its confirmed bracket is this narrow in ln ρ. Where p's terms are large its
+/// rounding stops Newton short of [`STEP_TOL`]: R22 at 132 K (p's noise 4e-12 of ρRT, its terms large at τ = 2.8) sends
+/// it between two densities 4.4e-14 apart in ln ρ, each step longer than the last (PLAN.md M7.1, the nightly grid).
+const WIDTH_TOL: f64 = 1e-13;
+
 /// The density at (T, p) between `lo` and `hi`, where p(T, ρ) − p is negative at `lo`, positive at `hi` and rises
 /// monotonically (a branch of stable states), from `seed` (moved to the middle in ln ρ if outside); with the iterations
 /// spent. Newton in ln ρ on `residual + IDEAL_DELTA`; every iterate narrows the bracket, and a step that leaves it, or
 /// meets a slope that is not positive, bisects it in ln ρ. Converged as [`at_t_p`]'s Newton ([`newton_converged`]), or
-/// when the bracket is within [`STEP_TOL`] in ln ρ: on a near-critical isotherm, flat to rounding, Newton's steps
-/// leave the bracket and only its halving closes in.
-/// `NoConvergence { DensityNewton }` if an iterate is not finite or the iterations run out: when `(lo, hi)` does not
-/// bracket p, the iterates close in on one end without converging.
+/// when the bracket is within [`WIDTH_TOL`] in ln ρ and an iterate has confirmed each of its ends: on a near-critical
+/// isotherm, flat to rounding, Newton's steps leave the bracket and only its halving closes in, and where p's terms are
+/// large its rounding sends Newton between two densities for good. The ends are not
+/// evaluated up front; one that no iterate confirms (the root lies beyond it) leaves the bracket closing on it, and
+/// that is `NoConvergence { DensityNewton }`, as are an iterate that is not finite and running out of iterations.
 pub(crate) fn bracketed(
     eos: &dyn HelmholtzModel,
     t: f64,
@@ -55,7 +61,7 @@ pub(crate) fn bracketed(
     let (mut below, mut above) = (math::ln(lo), math::ln(hi));
     let start = math::ln(seed);
     let mut u = if below <= start && start <= above { start } else { midpoint(below, above) };
-    let mut previous = f64::INFINITY;
+    let (mut previous, mut confirmed) = (f64::INFINITY, [false; 2]);
     for iteration in 1..=MAX_BRACKETED {
         let rho = math::exp(u);
         let b = (eos.residual(t, rho, Order::Two) + Derivs::IDEAL_DELTA).bundle().ok_or(failed(iteration))?;
@@ -67,12 +73,16 @@ pub(crate) fn bracketed(
             return Ok((rho, iteration));
         }
         if pressure < p {
-            below = u;
+            (below, confirmed[0]) = (u, true);
         } else {
-            above = u;
+            (above, confirmed[1]) = (u, true);
         }
-        if above - below <= STEP_TOL {
-            return Ok((math::exp(midpoint(below, above)), iteration));
+        if above - below <= WIDTH_TOL {
+            return if confirmed == [true; 2] {
+                Ok((math::exp(midpoint(below, above)), iteration))
+            } else {
+                Err(failed(iteration))
+            };
         }
         let next = u + (p - pressure) / slope;
         if !(slope > 0.0 && below <= next && next <= above) {
@@ -88,27 +98,32 @@ pub(crate) fn bracketed(
     Err(failed(MAX_BRACKETED))
 }
 
-/// The acceptance gate's "inputs reproduced" (D6) for a density solve: |p(T, ρ) − p| at most this much of the scale it
-/// cancels from, ρRT(1 + |A01|), a hundred times the solves' [`FLOOR`].
+/// The acceptance gate's "inputs reproduced" (D6) for a density solve: |p(T, ρ) − p| at most this much of the larger of
+/// the scale p cancels from, ρRT(1 + |A01|), and the change a relative change of ρ makes, (∂p/∂ln ρ)_T. The second is
+/// the density's own precision: a stiff liquid's p moves 2.2e9 Pa per unit of ln ρ (R22 at 121 K), so a density right
+/// to 1.4e-14 leaves p 4e-5 Pa off, 2e-12 of ρRT (PLAN.md M7.1, the nightly grid).
 const REPRODUCED: f64 = 1e-12;
 
 /// Whether the state at (T, ρ) with total bundle `b` reproduces the pressure `p` ([`REPRODUCED`]).
 pub(crate) fn reproduces(r: f64, t: f64, rho: f64, p: f64, b: &Bundle) -> bool {
-    scaled_residual(crate::relations::pressure(r, t, rho, b), p, rho, r * t, b.a01) <= REPRODUCED
+    let rt = r * t;
+    let scale = (rho * rt * (1.0 + b.a01.abs())).max(rho * rt * (2.0 * b.a01 + b.a02));
+    (crate::relations::pressure(r, t, rho, b) - p).abs() <= REPRODUCED * scale
 }
 
-/// The liquid density at (T, p) above `lo`, a liquid's density where p(T, lo) < p (PLAN.md M7.1: datagen's `rho_max`
-/// is ρ(T_min, p_max) above the saturated liquid at T_min): the bracket's upper end grows by 5 % until p(T, ρ) passes
-/// p, at most [`GROWTH`] times, then [`bracketed`] from `lo`. The steps are small because some models turn back:
+/// The liquid density at (T, p) above `lo`, a liquid's density where p(T, lo) < p, with the iterations of its bracketed
+/// solve (PLAN.md M7.1: datagen's `rho_max` is ρ(T_min, p_max) above the saturated liquid at T_min, and PT's bracket
+/// grows past `rho_max` where a model is not densest at T_min, OrthoHydrogen at 1.7 GPa and 174 K): the bracket's
+/// upper end grows by 5 % until p(T, ρ) passes p, at most [`GROWTH`] times, then [`bracketed`] from `lo`. The steps are small because some models turn back:
 /// R123's p at 166 K peaks at 1.6e8 Pa near 1.1 times its saturated liquid's density and is negative at 1.2 times.
-pub(crate) fn liquid_above(eos: &dyn HelmholtzModel, t: f64, p: f64, lo: f64) -> Result<f64, Error> {
+pub(crate) fn liquid_above(eos: &dyn HelmholtzModel, t: f64, p: f64, lo: f64) -> Result<(f64, u16), Error> {
     let rt = eos.gas_constant() * t;
     let mut hi = lo;
     for _ in 0..GROWTH {
         hi *= 1.05;
         let b = (eos.residual(t, hi, Order::Two) + Derivs::IDEAL_DELTA).bundle();
         if b.is_some_and(|b| hi * rt * b.a01 > p) {
-            return bracketed(eos, t, p, (lo, hi), lo).map(|(rho, _)| rho);
+            return bracketed(eos, t, p, (lo, hi), lo);
         }
     }
     Err(Error::NoConvergence { strategy: Strategy::DensityNewton, iterations: 0 })

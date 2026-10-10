@@ -50,9 +50,10 @@ fn dt_two_phase_matches_oracle() {
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/flash/<Fluid>.csv, the PT rows (PLAN.md M7.1): each core fluid's 6 × 6
-/// (p, T) truths, CoolProp's PT flash of its own inputs. Phase, ρ, h, s and u match as for DT
-/// (`dt_two_phase_matches_oracle`), ρ within `Flash`. The oracle's p is exempt (DIV-0020): it is neither the input nor
-/// its own EOS's at its (T, ρ), while phasekit's is the input (`pt_round_trips_on_a_40x40_log_p_t_grid`).
+/// (p, T) truths, CoolProp's PT flash of its own inputs. Phase and ρ match, ρ within `Flash`. The oracle's p, h, s and u
+/// are exempt (DIV-0020): it reports them at its solver's last iterate, not at its ρ. phasekit's p is the input
+/// (`pt_round_trips_on_a_40x40_log_p_t_grid`) and its h, s and u are its DT's at that ρ, which the DT row of the same
+/// truth checks against the oracle's DT (`dt_two_phase_matches_oracle`).
 #[test]
 fn pt_matches_oracle() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
@@ -64,7 +65,7 @@ fn pt_matches_oracle() {
         check.pt_rows(&fixture, registry.get(name).unwrap(), &record);
     }
     assert_eq!(check.report(20), None);
-    assert_eq!((check.two_phase, check.compared, check.exempt), (0, 14 * 36, 14 * 36));
+    assert_eq!((check.two_phase, check.compared, check.exempt), (0, 14 * 36, 4 * 14 * 36));
 }
 
 /// PLAN.md M7.1 (ROT-074's round trips), class `Flash`: PT of each core fluid on a 40 × 40 grid, the cell centres of T

@@ -362,8 +362,8 @@ fn div_0019() {
 }
 
 /// DIV-0020, part M7 (`SkipOracle`; M7.1): phasekit's PT of Nitrogen at the oracle row's 107.45 MPa and 1192.98 K
-/// reproduces its input to rounding, as its DT at its own (T, ρ) does; the exempt cell still differs: the oracle's PT
-/// reports a p 7.9e-9 away (flash/Nitrogen.csv).
+/// reproduces its input to rounding, and its h is the oracle's DT h at the oracle's ρ (the DT row read off the PT row)
+/// within `Flash`; the exempt cell still differs: the oracle's PT reports a p 7.9e-9 away (flash/Nitrogen.csv).
 fn div_0020() {
     let (path, text) = fixture!("coolprop-8.0.0/flash/Nitrogen.csv");
     let flash = Fixture::parse(path, text).unwrap();
@@ -377,7 +377,9 @@ fn div_0020() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let state =
         registry.get("Nitrogen").unwrap().state(Input::pt(Pressure::new(p).unwrap(), Temperature::new(t).unwrap()));
-    let ours = state.unwrap().p();
-    assert!((ours / p - 1.0).abs() <= 1e-15, "{ours} against {p}");
+    let state = state.unwrap();
+    assert!((state.p() / p - 1.0).abs() <= 1e-15, "{} against {p}", state.p());
+    let dt_h = flash.value(row + 1, "h").unwrap();
+    assert!((state.h(Basis::Molar) / dt_h - 1.0).abs() <= 1e-9, "{} against {dt_h}", state.h(Basis::Molar));
     assert!((flash.value(row, "p").unwrap() / p - 1.0).abs() > 1e-9, "the exempt cell still differs");
 }
