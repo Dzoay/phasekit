@@ -28,6 +28,11 @@ pub fn coolprop_name(phase: Phase) -> &'static str {
     }
 }
 
+/// Whether `got` lies further than `bound` from `want`.
+fn beyond(got: f64, want: f64, bound: f64) -> bool {
+    (got - want).abs() > bound
+}
+
 /// The running result of a `flash` check.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FlashCheck {
@@ -182,7 +187,7 @@ impl FlashCheck {
         let spread =
             bundle.map_or(f64::NAN, |b| carried("p", &b, &Majorants::at(record, &ideal, t, rho), r, t, rho, m));
         let bound = ToleranceClass::Flash.bound_carried(p, Window::Regular, spread).unwrap_or(0.0);
-        if (state.p() - p).abs() > bound {
+        if beyond(state.p(), p, bound) {
             self.failures.push(format!("{name} PT({p} Pa, {t} K): p {} beyond {bound}", state.p()));
         }
         Ok(())
@@ -224,14 +229,14 @@ mod tests {
         cells.join(",")
     }
 
-    /// `rows` of `name` through `dt_rows`, against the `Parity` data.
+    /// `rows` of `name`, DT and PT alike, against the `Parity` data.
     fn check(name: &str, rows: &[String]) -> FlashCheck {
         let registry = Registry::from_embedded(DataSet::Parity).unwrap();
         let record = phasekit_core::internal::record(&registry, name).unwrap();
         let text = file(name, rows);
         let fixture = Fixture::parse("hand-made", &text).unwrap();
         let mut check = FlashCheck::default();
-        check.dt_rows(&fixture, registry.get(name).unwrap(), &record);
+        check.dt_rows_where(&fixture, name, (registry.get(name).unwrap(), &record), |_| true);
         check
     }
 
@@ -290,6 +295,34 @@ mod tests {
         assert_eq!((exempt.exempt, exempt.failures.len()), (1, 0), "{:?}", exempt.failures);
         let single = check("SES36", &[row_with_p(&gas, 1.0 + 1e-8)]);
         assert_eq!((single.exempt, single.failures.len()), (0, 1), "{:?}", single.failures);
+    }
+
+    /// PT rows (PLAN.md M7.1): ρ is an output there, compared within `Flash`, and p, h, s and u are DIV-0020's, counted
+    /// as exempt: Water's PT state at 1 MPa and 500 K agrees with its own row; its row with ρ 1e-6 off is a failure, and
+    /// one with h 1e-6 off is not.
+    #[test]
+    fn pt_rows_compare_rho_and_exempt_the_stale_outputs() {
+        let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+        let water = registry.get("Water").unwrap();
+        let pt = Input::pt(Pressure::new(1e6).unwrap(), Temperature::new(500.0).unwrap());
+        let state = water.state(pt).unwrap();
+        let b = Basis::Molar;
+        let row = |rho: f64, dh: f64| {
+            let (p, t) = (1e6_f64, 500.0_f64);
+            let (h, s, u) = (state.h(b) + dh, state.s(b), state.u(b));
+            format!("PT,{p:?},{t:?},PT,ok,{t:?},{rho:?},{p:?},{h:?},{s:?},{u:?},nan,{}", coolprop_name(state.phase()))
+        };
+        let rho = state.rho(b);
+        let exact = check("Water", &[row(rho, 0.0)]);
+        assert_eq!((exact.compared, exact.exempt, exact.failures.len()), (1, 4, 0), "{:?}", exact.failures);
+        assert_eq!(check("Water", &[row(rho * (1.0 + 1e-6), 0.0)]).failures.len(), 1, "ρ 1e-6 off");
+        assert_eq!(check("Water", &[row(rho, 1e-6 * state.h(b))]).failures.len(), 0, "h exempt");
+    }
+
+    /// `beyond`, exactly: at the bound is not beyond it, past it is.
+    #[test]
+    fn beyond_its_bound_is_strict() {
+        assert!(!beyond(0.0, 1.0, 1.0) && beyond(0.0, 2.0, 1.0) && beyond(2.0, 0.0, 1.0) && !beyond(1.0, 1.0, 0.0));
     }
 
     /// CoolProp's phase names, one per label.

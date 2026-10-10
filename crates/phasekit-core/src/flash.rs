@@ -619,6 +619,95 @@ mod tests {
         assert!((state.p() / 10e6 - 1.0).abs() < 1e-15, "{}", state.p());
     }
 
+    /// PT's branch rule at its edges (PLAN.md M7.1), exactly: Water at its labelling critical point (the
+    /// superancillary's top) is that point, ρc with no solve; at Tc above pc supercritical; at pc above Tc a
+    /// supercritical gas (above pc supercritical), and at pc below Tc a liquid (above pc a supercritical liquid).
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn pt_branch_edges_are_exact() {
+        let water = embedded("Water");
+        let curve = record_of("Water").superancillary_curve().unwrap();
+        let t_c = curve.t_range().1;
+        let top = curve.at_t(t_c).unwrap();
+        let (p_c, rho_c) = (top.bubble.p, top.bubble.rho);
+        let critical = water.state(pt(p_c, t_c)).unwrap();
+        assert_eq!(
+            (critical.phase(), critical.rho(Basis::Molar), critical.path()),
+            (Phase::CriticalPoint, rho_c, DIRECT)
+        );
+        let phase = |p, t| water.state(pt(p, t)).map(|s| s.phase());
+        assert_eq!(
+            [phase(2.0 * p_c, t_c), phase(p_c, 1.1 * t_c), phase(1.5 * p_c, 1.1 * t_c)],
+            [Ok(Phase::Supercritical), Ok(Phase::SupercriticalGas), Ok(Phase::Supercritical)]
+        );
+        assert_eq!(
+            [phase(p_c, 0.9 * t_c), phase(1.5 * p_c, 0.9 * t_c)],
+            [Ok(Phase::Liquid), Ok(Phase::SupercriticalLiquid)]
+        );
+    }
+
+    /// PT checks its domain (D6): Water at 3000 K (its Tmax 2000 K) is refused under `Enforce` and flagged under
+    /// `Extrapolate`; inside the domain it is not flagged.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn pt_outside_the_domain_is_refused_or_flagged() {
+        let water = embedded("Water");
+        let hot = DomainError::AboveMaxTemperature { t: 3000.0, t_max: 2000.0 };
+        assert_eq!(water.state(pt(1e6, 3000.0)), Err(hot.into()));
+        let flagged =
+            water.flash(pt(1e6, 3000.0), &FlashOptions::new().with_domain(DomainPolicy::Extrapolate)).unwrap();
+        assert!(flagged.is_extrapolated() && flagged.phase() == Phase::SupercriticalGas, "{flagged:?}");
+        assert!(!water.state(pt(1e6, 1000.0)).unwrap().is_extrapolated());
+    }
+
+    /// An imposed phase is its own branch (PLAN.md M7.1): Water at 1 bar and 400 K is a vapour by the rule (psat
+    /// 245.8 kPa); under `Liquid` it is the metastable liquid, seeded by ρ′ and found in a few steps, under `Gas` the
+    /// vapour, and under `TwoPhase` refused, since (p, T) fix no quality.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn pt_under_a_hint_follows_its_branch() {
+        let water = embedded("Water");
+        let with = |phase| water.flash(pt(1e5, 400.0), &FlashOptions::new().with_phase(phase));
+        let (liquid, gas) = (with(Phase::Liquid).unwrap(), with(Phase::Gas).unwrap());
+        assert!(liquid.rho(Basis::Molar) > 50_000.0 && liquid.phase() == Phase::Liquid, "{liquid:?}");
+        assert!(liquid.path().iterations <= 3, "from ρ′, not the far end: {:?}", liquid.path());
+        assert!((gas.rho(Basis::Molar) - 30.3).abs() < 0.1 && gas.phase() == Phase::Gas, "{gas:?}");
+        assert_eq!(with(Phase::TwoPhase), Err(Error::Undefined { prop: Prop::Q, phase: Phase::TwoPhase }));
+        assert_eq!(water.state(pt(1e5, 400.0)).unwrap().phase(), Phase::Gas);
+    }
+
+    /// PLAN.md M7.1, the nightly grid: OrthoHydrogen at 1.71 GPa and 174.23 K is denser than its model's largest
+    /// density, ρ(T_min, p_max), since its EOS is not densest at T_min there: PT's bracket grows past it.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn pt_grows_its_bracket_past_rho_max() {
+        let h2 = embedded("OrthoHydrogen");
+        let (p, t) = (1_710_994_283.990_256_8, 174.2317);
+        let state = h2.state(pt(p, t)).unwrap();
+        let rho_max = h2.model().helmholtz().unwrap().rho_max(t);
+        assert!(state.rho(Basis::Molar) > rho_max, "{} against {rho_max}", state.rho(Basis::Molar));
+        assert!((state.p() / p - 1.0).abs() < 1e-14, "{}", state.p());
+    }
+
+    /// A pseudo-pure fluid's PT follows its pressure ancillaries exactly, as CoolProp's: R410A at 280 K is liquid one float
+    /// above the bubble pressure and gas one float below the dew pressure; at either, or between them, (p, T) is
+    /// two-phase and fixes no quality.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn pseudo_pure_pt_follows_its_ancillaries() {
+        let r410a = embedded("R410A");
+        let definition = record_of("R410A").pseudo_pure.unwrap();
+        let (p_l, p_v) = (definition.p_l.at(280.0), definition.p_v.at(280.0));
+        let phase = |p: f64| r410a.state(pt(p, 280.0)).map(|s| s.phase());
+        let (above, below) = (f64::from_bits(p_l.to_bits() + 1), f64::from_bits(p_v.to_bits() - 1));
+        assert_eq!([phase(above), phase(below)], [Ok(Phase::Liquid), Ok(Phase::Gas)]);
+        let no_quality = Err(Error::Undefined { prop: Prop::Q, phase: Phase::TwoPhase });
+        assert_eq!(
+            [phase(p_l), phase(p_v), phase(0.5 * (p_l + p_v))],
+            [no_quality.clone(), no_quality.clone(), no_quality]
+        );
+    }
+
     /// ROT-072 (map 03 §6): a guess only seeds PT's bracketed solve. CoolProp's PT of Water at 10 MPa and 300 K from a
     /// guess of 0.9 ρ lands on dp/dρ = −2.95e5 < 0, ρ 14.2 % off; here 0.9 ρ, a vapour's density, twice ρ and a guess
     /// made at another temperature all give the stable liquid root to rounding.
@@ -787,6 +876,11 @@ mod tests {
         let q = (1.0 / rho - 1.0 / vle.bubble.rho) / (1.0 / vle.dew.rho - 1.0 / vle.bubble.rho);
         assert_eq!(state.quality().map(f64::to_bits), Some(q.to_bits()));
         assert!((guess.bubble.p / vle.dew.p - 1.0).abs() > 1e-7, "the edit moved saturation: {guess:?} {vle:?}");
+        // PT polishes the stale curve too: between its pressure and the VLE's, the VLE decides the phase (M7.1).
+        let between = 0.5 * (guess.bubble.p + vle.dew.p);
+        let want = if between > vle.dew.p { Phase::Liquid } else { Phase::Gas };
+        let input = Input::pt(Pressure::new(between).unwrap(), Temperature::new(t).unwrap());
+        assert_eq!(fluid.state(input).map(|s| s.phase()), Ok(want));
     }
 
     /// ROT-092 (map 03 §6): a DT state in the dome reads the exact curve, no VLE: its pressure and phase densities are

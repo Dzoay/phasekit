@@ -208,6 +208,18 @@ mod tests {
         assert_eq!(far_end(eos, 400.0, 1e5, false), 1e5 / (eos.gas_constant() * 400.0));
     }
 
+    /// The acceptance gate's "inputs reproduced", exactly: |p(T, ρ) − p| against 1e-12 of the larger of ρRT(1 + |A01|)
+    /// and (∂p/∂ln ρ)_T. At R = 2, T = 3 and ρ = 5 (ρRT = 30) with A01 = 0.5, p(T, ρ) = 15: a soft state
+    /// (2A01 + A02 = 0.1) allows 1e-12 of 45, a stiff one (2A01 + A02 = 100) 1e-12 of 3000.
+    #[test]
+    fn reproduction_is_judged_on_both_scales() {
+        let bundle = |a02| Bundle { a00: 0.0, a10: 0.0, a01: 0.5, a20: 0.0, a11: 0.0, a02 };
+        let (soft, stiff) = (bundle(-0.9), bundle(99.0));
+        let at = |b: &Bundle, dp: f64| reproduces(2.0, 3.0, 5.0, 15.0 + dp, b);
+        assert!(at(&soft, 4.4e-11) && !at(&soft, 4.6e-11));
+        assert!(at(&stiff, 2.9e-9) && !at(&stiff, 3.01e-9));
+    }
+
     /// The residual's scale, exactly: |3 − 1| / (2·5·(1 + |−0.5|)) = 2/15.
     #[test]
     fn residual_is_scaled_by_its_cancelling_terms() {

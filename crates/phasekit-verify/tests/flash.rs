@@ -4,7 +4,7 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::{DataSet, DomainError, Error, Phase, Prop, Registry};
+use phasekit_core::{DataSet, DomainError, Error, Phase, Prop, Registry, math};
 use phasekit_verify::flash::FlashCheck;
 use phasekit_verify::{Fixture, fixture};
 
@@ -89,7 +89,7 @@ fn pt_round_trips_on_a_40x40_log_p_t_grid() {
         for i in 0..40 {
             let t = t_low + (limits.t_max() - t_low) * centre(i);
             for j in 0..40 {
-                let p = (limits.p_max().ln() * centre(j)).exp();
+                let p = math::exp(math::ln(limits.p_max()) * centre(j));
                 if let Err(e) = check.pt_round_trip(name, (registry.get(name).unwrap(), &record), (p, t)) {
                     refused.push((name, (p.round(), (t * 1e3).round() / 1e3), e));
                 }
