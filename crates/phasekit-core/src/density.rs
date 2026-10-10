@@ -29,10 +29,18 @@ const MAX_STEP: f64 = 0.25;
 /// The density at (T, p) on the liquid (`liquid`) or vapour branch, from `seed` (mol/m³), else from the branch's far
 /// end; `NoConvergence { DensityNewton }` if neither converges.
 pub(crate) fn at_t_p(eos: &dyn HelmholtzModel, t: f64, p: f64, seed: f64, liquid: bool) -> Result<f64, Error> {
-    newton(eos, t, p, seed).or_else(|_| {
-        let far = if liquid { eos.rho_max(t) } else { p / (eos.gas_constant() * t) };
-        newton(eos, t, p, far)
-    })
+    newton(eos, t, p, seed).or_else(|_| newton(eos, t, p, far_end(eos, t, p, liquid)))
+}
+
+/// The branch's far end, where a restart begins: the model's largest density for a liquid, the ideal gas's p/RT for a
+/// vapour.
+fn far_end(eos: &dyn HelmholtzModel, t: f64, p: f64, liquid: bool) -> f64 {
+    if liquid { eos.rho_max(t) } else { p / (eos.gas_constant() * t) }
+}
+
+/// |p(T, ρ) − p| relative to the scale it cancels from, ρRT(1 + |A01|), with `rt` = RT.
+fn scaled_residual(pressure: f64, p: f64, rho: f64, rt: f64, a01: f64) -> f64 {
+    (pressure - p).abs() / (rho * rt * (1.0 + a01.abs()))
 }
 
 /// Newton from `seed`, refused at the first unstable or non-finite iterate.
@@ -49,7 +57,7 @@ fn newton(eos: &dyn HelmholtzModel, t: f64, p: f64, seed: f64) -> Result<f64, Er
             return Err(failed(iteration));
         }
         let step = (p - pressure) / slope;
-        let size = (pressure - p).abs() / (rho * rt * (1.0 + b.a01.abs()));
+        let size = scaled_residual(pressure, p, rho, rt, b.a01);
         u += step.clamp(-MAX_STEP, MAX_STEP);
         if newton_converged(step.abs(), size, previous, (STEP_TOL, FLOOR)) {
             return Ok(math::exp(u));
@@ -85,5 +93,13 @@ mod tests {
         let p = p_at(t, rho_c);
         let near = at_t_p(eos, t, p, rho_c * 1.001, true).unwrap();
         assert!((near / rho_c - 1.0).abs() < 1e-6, "{near}");
+        assert_eq!(far_end(eos, 400.0, 1e6, true), eos.rho_max(400.0));
+        assert_eq!(far_end(eos, 400.0, 1e5, false), 1e5 / (eos.gas_constant() * 400.0));
+    }
+
+    /// The residual's scale, exactly: |3 − 1| / (2·5·(1 + |−0.5|)) = 2/15.
+    #[test]
+    fn residual_is_scaled_by_its_cancelling_terms() {
+        assert_eq!(scaled_residual(3.0, 1.0, 2.0, 5.0, -0.5), 2.0 / 15.0);
     }
 }

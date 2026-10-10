@@ -188,14 +188,19 @@ fn region(fluid: &PureFluid, t: f64, rho: f64, p: f64, opts: &FlashOptions) -> R
 /// decision PS3; `HelmholtzEOSMixtureBackend.cpp:2340-2380`), at (T, ρ) of `fluid` with the EOS's p: see [`band`],
 /// stability being (∂p/∂ρ)_T > 0 and (∂²p/∂ρ²)_T > 0 (`crate::crit::conditions`).
 fn pseudo_pure_bands(fluid: &PureFluid, t: f64, rho: f64, p: f64, sat: &SatPair) -> Option<Phase> {
-    let stable = || crate::crit::conditions(fluid.eos(), t, rho).is_some_and(|[k1, k2]| k1 > 0.0 && k2 > 0.0);
-    band(rho, p, sat, stable)
+    band(rho, p, sat, || stable(crate::crit::conditions(fluid.eos(), t, rho)))
+}
+
+/// Stability as the bands ask it, from (∂p/∂ρ)_T and (∂²p/∂ρ²)_T (`crate::crit::conditions`): both positive.
+fn stable(conditions: Option<[f64; 2]>) -> bool {
+    conditions.is_some_and(|[k1, k2]| k1 > 0.0 && k2 > 0.0)
 }
 
 /// The bands at density ρ and pressure p for the ancillary sides `sat`: gas below 0.95 of the dew density, liquid above
-/// 1.05 of the bubble one, and liquid in the strip within 0.9975 of either where the ancillary quality is below 0.01, p
-/// is above 1.05 of the bubble pressure and the state is `stable` (asked only there). `None`: the VLE of the blend's
-/// EOS decides. The products are CoolProp's, rounded as it rounds them.
+/// 1.05 of the bubble one, and in the liquid strip, above 0.9975 of the bubble density, liquid by [`strip_liquid`].
+/// `None`: the VLE of the blend's EOS decides. CoolProp asks the same in a vapour strip below 0.9975 of the dew
+/// density, where the ancillary quality exceeds 1 (ρ < ρ″ ≤ ρ′), so it never answers liquid there and is not asked. The
+/// products are CoolProp's, rounded as it rounds them.
 fn band(rho: f64, p: f64, sat: &SatPair, stable: impl FnOnce() -> bool) -> Option<Phase> {
     let (rho_l, rho_v) = (sat.bubble.rho, sat.dew.rho);
     let (rho_vap, rho_liq) = (0.95 * rho_v, 1.05 * rho_l);
@@ -205,11 +210,17 @@ fn band(rho: f64, p: f64, sat: &SatPair, stable: impl FnOnce() -> bool) -> Optio
     if rho > rho_liq {
         return Some(Phase::Liquid);
     }
-    if !(rho > 0.95 * rho_liq || rho < 1.05 * rho_vap) {
+    if rho <= 0.95 * rho_liq {
         return None;
     }
     let q_anc = (1.0 / rho - 1.0 / rho_l) / (1.0 / rho_v - 1.0 / rho_l);
-    (q_anc < 0.01 && p > 1.05 * sat.bubble.p && stable()).then_some(Phase::Liquid)
+    strip_liquid(q_anc, p, sat.bubble.p, stable).then_some(Phase::Liquid)
+}
+
+/// A state in the liquid strip is liquid when its ancillary quality is below 0.01, p is above 1.05 of the bubble
+/// pressure `p_bubble` and it is `stable`, asked last and only then.
+fn strip_liquid(q_anc: f64, p: f64, p_bubble: f64, stable: impl FnOnce() -> bool) -> bool {
+    q_anc < 0.01 && p > 1.05 * p_bubble && stable()
 }
 
 /// Order-2 total bundle at (T, ρ): one ideal and one residual evaluation.
@@ -869,11 +880,31 @@ mod tests {
         assert_eq!((at(1.05 * 1_000.0 + 1e-9, 1e6, true), at(1.05 * 1_000.0, 1e6, true)), (Some(Phase::Liquid), None));
         assert_eq!((at(500.0, 2e6, true), at(99.8, 2e6, true), at(997.4, 2e6, true)), (None, None, None));
         assert_eq!(at(99.7, 2e6, true), None, "the vapour strip: quality above 1");
+        let edge: f64 = 0.95 * (1.05 * 1_000.0);
+        let above = f64::from_bits(edge.to_bits() + 1);
+        assert_eq!((at(edge, 2e6, true), at(above, 2e6, true)), (None, Some(Phase::Liquid)), "the strip's edge");
         assert_eq!([at(998.0, 2e6, true), at(998.0, 2e6, false)], [Some(Phase::Liquid), None]);
         assert_eq!([at(998.0, 1.05 * 1e6, true), at(998.0, 1.04e6, true)], [None, None]);
-        assert_eq!(asked, 2, "asked only in the liquid strip with the quality and p met");
+        assert_eq!(asked, 3, "asked only in the liquid strip with the quality and p met");
         let near_top = pair(990.0);
         assert_eq!(band(998.0, 2e6, &near_top, || true), None, "quality 0.2 in the liquid strip");
+        let side = |p, rho| SatSide { t: 300.0, p, rho };
+        let scaled = SatPair { bubble: side(1e6, 1.0), dew: side(0.98e6, 0.1) };
+        assert_eq!(band(0.998, 2e6, &scaled, || true), Some(Phase::Liquid), "the same bands 1000 times thinner");
+    }
+
+    /// The liquid strip's rule and the stability it asks, exactly: a quality of 0.01 or p at 1.05·p′ is not liquid, and
+    /// stability needs both pressure derivatives positive (a zero, a negative or no value is unstable).
+    #[test]
+    fn strip_rule_and_stability_are_exact() {
+        let liquid = |q: f64, p: f64, stable: bool| strip_liquid(q, p, 1e6, || stable);
+        let (below, above) = (f64::from_bits(0.01_f64.to_bits() - 1), f64::from_bits((1.05 * 1e6_f64).to_bits() + 1));
+        assert!(liquid(below, 2e6, true) && liquid(0.0, above, true));
+        assert!(!liquid(0.01, 2e6, true) && !liquid(0.0, 1.05 * 1e6, true) && !liquid(0.0, 2e6, false));
+        assert!(stable(Some([1.0, 1.0])));
+        for c in [Some([0.0, 1.0]), Some([1.0, 0.0]), Some([-1.0, 1.0]), Some([1.0, -1.0]), None] {
+            assert!(!stable(c), "{c:?}");
+        }
     }
 
     /// PS3 on real blends: R407C's EOS has no dome at 358 K (its critical point is 356.60 K, the published one 359.345 K),
