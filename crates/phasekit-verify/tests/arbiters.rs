@@ -322,10 +322,10 @@ fn k2_check(table: &Fixture<'_>, model: &PureFluid, m: f64, exempt: &[(usize, &s
             if want != 0.0 {
                 worst = worst.max((got - want).abs() / want.abs());
             }
-            if !exempt.contains(&(row, column)) {
-                if let Err(e) = within_printed(table, row, column, got) {
-                    failures.push(e);
-                }
+            if !exempt.contains(&(row, column))
+                && let Err(e) = within_printed(table, row, column, got)
+            {
+                failures.push(e);
             }
         }
     }

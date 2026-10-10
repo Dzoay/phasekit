@@ -135,10 +135,10 @@ fn step_scale<const N: usize>(moves: [(f64, f64); N]) -> f64 {
 fn backtrack<P>(scale: f64, size: f64, mut at: impl FnMut(f64) -> Option<(P, f64)>) -> Option<P> {
     let mut lambda = scale;
     for _ in 0..=10 {
-        if let Some((point, next)) = at(lambda) {
-            if next < size || next <= FLOOR {
-                return Some(point);
-            }
+        if let Some((point, next)) = at(lambda)
+            && (next < size || next <= FLOOR)
+        {
+            return Some(point);
         }
         lambda /= 2.0;
     }

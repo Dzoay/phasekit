@@ -97,10 +97,11 @@ mod tests {
         for line in manifest.lines() {
             if line.starts_with('[') {
                 in_clippy = line.trim() == "[workspace.lints.clippy]";
-            } else if let (true, Some((name, level))) = (in_clippy, line.split_once('=')) {
-                if level.trim() == "\"deny\"" {
-                    denied.push(name.trim());
-                }
+            } else if in_clippy
+                && let Some((name, level)) = line.split_once('=')
+                && level.trim() == "\"deny\""
+            {
+                denied.push(name.trim());
             }
         }
         denied

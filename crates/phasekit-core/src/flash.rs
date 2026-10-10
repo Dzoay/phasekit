@@ -131,17 +131,17 @@ fn region(fluid: &PureFluid, t: f64, rho: f64, p: f64, opts: &FlashOptions) -> R
     }
     let curve = fluid.saturation()?;
     let crit = labelling_critical(fluid, curve)?;
-    if hint.is_none() {
-        if let Some((t_c, p_c, rho_c)) = crit.filter(|c| t >= c.0) {
-            let phase = if t == t_c && rho == rho_c {
-                Phase::CriticalPoint
-            } else if p > p_c {
-                Phase::Supercritical
-            } else {
-                Phase::SupercriticalGas
-            };
-            return Ok(Region::Single(phase));
-        }
+    if hint.is_none()
+        && let Some((t_c, p_c, rho_c)) = crit.filter(|c| t >= c.0)
+    {
+        let phase = if t == t_c && rho == rho_c {
+            Phase::CriticalPoint
+        } else if p > p_c {
+            Phase::Supercritical
+        } else {
+            Phase::SupercriticalGas
+        };
+        return Ok(Region::Single(phase));
     }
     let unsupported = Error::Unsupported { pair: Pair::DT };
     let Some(curve) = curve else { return Err(unsupported) };
@@ -699,7 +699,7 @@ mod tests {
         let definition = record_of("R410A").pseudo_pure.unwrap();
         let (p_l, p_v) = (definition.p_l.at(280.0), definition.p_v.at(280.0));
         let phase = |p: f64| r410a.state(pt(p, 280.0)).map(|s| s.phase());
-        let (above, below) = (f64::from_bits(p_l.to_bits() + 1), f64::from_bits(p_v.to_bits() - 1));
+        let (above, below) = (p_l.next_up(), p_v.next_down());
         assert_eq!([phase(above), phase(below)], [Ok(Phase::Liquid), Ok(Phase::Gas)]);
         let no_quality = Err(Error::Undefined { prop: Prop::Q, phase: Phase::TwoPhase });
         assert_eq!(
@@ -1212,7 +1212,7 @@ mod tests {
         assert_eq!((at(500.0, 2e6, true), at(99.8, 2e6, true), at(997.4, 2e6, true)), (None, None, None));
         assert_eq!(at(99.7, 2e6, true), None, "the vapour strip: quality above 1");
         let edge: f64 = 0.95 * (1.05 * 1_000.0);
-        let above = f64::from_bits(edge.to_bits() + 1);
+        let above = edge.next_up();
         assert_eq!((at(edge, 2e6, true), at(above, 2e6, true)), (None, Some(Phase::Liquid)), "the strip's edge");
         assert_eq!([at(998.0, 2e6, true), at(998.0, 2e6, false)], [Some(Phase::Liquid), None]);
         assert_eq!([at(998.0, 1.05 * 1e6, true), at(998.0, 1.04e6, true)], [None, None]);
@@ -1229,7 +1229,7 @@ mod tests {
     #[test]
     fn strip_rule_and_stability_are_exact() {
         let liquid = |q: f64, p: f64, stable: bool| strip_liquid(q, p, 1e6, || stable);
-        let (below, above) = (f64::from_bits(0.01_f64.to_bits() - 1), f64::from_bits((1.05 * 1e6_f64).to_bits() + 1));
+        let (below, above) = (0.01_f64.next_down(), (1.05 * 1e6_f64).next_up());
         assert!(liquid(below, 2e6, true) && liquid(0.0, above, true));
         assert!(!liquid(0.01, 2e6, true) && !liquid(0.0, 1.05 * 1e6, true) && !liquid(0.0, 2e6, false));
         assert!(stable(Some([1.0, 1.0])));
