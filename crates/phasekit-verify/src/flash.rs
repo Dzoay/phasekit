@@ -1,11 +1,12 @@
-//! Checking `flash` fixtures (VERIFICATION.md §3.5, §8.2), shared by the corpus tests and the nightly sweep. Since M5.3
-//! the DT rows: (ρ, T) read off a truth state, flashed with no phase imposed, against CoolProp's flash of the same
-//! inputs. The phase label and Q (class `Flash`, 1e-8 absolute) must match, and p, h, s, u within class `Flash` (1e-9 of
-//! max(|v|, floor)). A single-phase DT state is the EOS relation at its input (T, ρ), so the `Term` bound carried
-//! through that relation applies to it too (user decision TC1).
+//! Checking `flash` fixtures (VERIFICATION.md §3.5, §8.2), shared by the corpus tests and the nightly sweep: a pair's
+//! inputs read off a truth state, flashed with no phase imposed, against CoolProp's flash of the same inputs. The DT rows
+//! since M5.3, (ρ, T); the PT rows since M7.1, the truth's own (p, T), whose ρ is an output too. The phase label and Q
+//! (class `Flash`, 1e-8 absolute) must match, and ρ (PT), p, h, s, u within class `Flash` (1e-9 of max(|v|, floor)). A
+//! single-phase state is the EOS relation at its (T, ρ), so the `Term` bound carried through that relation applies to
+//! it too (user decision TC1).
 
 use phasekit_core::internal::FluidRecord;
-use phasekit_core::{Basis, Density, Fluid, Input, Order, Phase, Temperature};
+use phasekit_core::{Basis, Density, Fluid, Input, Order, Phase, Pressure, Temperature};
 
 use crate::eos::{Majorants, carried};
 use crate::fixture::Kind;
@@ -43,12 +44,33 @@ pub struct FlashCheck {
 impl FlashCheck {
     /// Checks every DT row of `fixture` against `fluid`, whose decoded data is `record`. Every row's status is `ok`.
     pub fn dt_rows(&mut self, fixture: &Fixture<'_>, fluid: &Fluid, record: &FluidRecord) {
-        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap_or_default();
-        self.dt_rows_where(fixture, name, (fluid, record), |_| true);
+        self.pair_rows(fixture, "DT", fluid, record);
     }
 
-    /// [`Self::dt_rows`] for the rows `keep` selects of `name` (one fluid's in an all-fluid file).
+    /// Checks every PT row of `fixture` as [`Self::dt_rows`] does, ρ among the outputs (PLAN.md M7.1).
+    pub fn pt_rows(&mut self, fixture: &Fixture<'_>, fluid: &Fluid, record: &FluidRecord) {
+        self.pair_rows(fixture, "PT", fluid, record);
+    }
+
+    /// The rows of `pair` in a one-fluid file.
+    fn pair_rows(&mut self, fixture: &Fixture<'_>, pair: &str, fluid: &Fluid, record: &FluidRecord) {
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap_or_default();
+        self.rows_where(fixture, name, (fluid, record), |row| fixture.printed(row, "pair") == Some(pair));
+    }
+
+    /// Checks the rows `keep` selects of `name` (one fluid's in an all-fluid file), DT and PT alike.
     pub fn dt_rows_where(
+        &mut self,
+        fixture: &Fixture<'_>,
+        name: &str,
+        (fluid, record): (&Fluid, &FluidRecord),
+        keep: impl Fn(usize) -> bool,
+    ) {
+        self.rows_where(fixture, name, (fluid, record), keep);
+    }
+
+    /// [`Self::dt_rows_where`]: each row's input by its pair.
+    fn rows_where(
         &mut self,
         fixture: &Fixture<'_>,
         name: &str,
@@ -70,21 +92,23 @@ impl FlashCheck {
         };
         for row in (0..fixture.rows().len()).filter(|&row| keep(row)) {
             let number = |column: &str| fixture.value(row, column).unwrap_or(f64::NAN);
-            let (rho, t) = (number("x1"), number("x2"));
-            if (label(row, "pair"), label(row, "status")) != ("DT", "ok") {
-                self.failures.push(format!("{path} row {row}: not an ok DT row"));
-                continue;
-            }
-            let result = Density::molar(rho)
-                .and_then(|d| Ok(Input::dt(d, Temperature::new(t)?)))
-                .and_then(|input| fluid.state(input));
-            let state = match result {
-                Ok(state) => state,
-                Err(e) => {
-                    self.failures.push(format!("{path} row {row} ({rho} mol/m³, {t} K): {e:?}"));
+            let (x1, t) = (number("x1"), number("x2"));
+            let input = match (label(row, "pair"), label(row, "status")) {
+                ("DT", "ok") => Density::molar(x1).and_then(|d| Ok(Input::dt(d, Temperature::new(t)?))),
+                ("PT", "ok") => Pressure::new(x1).and_then(|p| Ok(Input::pt(p, Temperature::new(t)?))),
+                _ => {
+                    self.failures.push(format!("{path} row {row}: not an ok DT or PT row"));
                     continue;
                 }
             };
+            let state = match input.and_then(|input| fluid.state(input)) {
+                Ok(state) => state,
+                Err(e) => {
+                    self.failures.push(format!("{path} row {row} ({} {x1}, {t} K): {e:?}", label(row, "pair")));
+                    continue;
+                }
+            };
+            let rho = state.rho(Basis::Molar);
             self.compared += 1;
             if label(row, "phase") != coolprop_name(state.phase()) {
                 self.failures.push(format!("{path} row {row}: {:?}, oracle {}", state.phase(), label(row, "phase")));
@@ -99,8 +123,14 @@ impl FlashCheck {
                 ("s", state.s(b), r, "smolar"),
                 ("u", state.u(b), r * t, "umolar"),
             ];
+            if label(row, "pair") == "PT" {
+                let bound = ToleranceClass::Flash.bound(number("rho").abs());
+                if let Err(e) = fixture.check_bound(row, "rho", rho, bound.unwrap_or(0.0)) {
+                    self.failures.push(format!("{e:?}"));
+                }
+            }
             for (column, got, floor, relation) in columns {
-                let key = RowKey { t, input: None, two_phase: !single };
+                let key = RowKey { t, input: Some(label(row, "pair")), two_phase: !single };
                 if exempt_row(DIVERGENCES, name, Kind::Flash, column, key).is_some() {
                     self.exempt += 1;
                     continue;
@@ -122,6 +152,40 @@ impl FlashCheck {
                 got => self.failures.push(format!("{path} row {row}: Q {got:?}, oracle {q}")),
             }
         }
+    }
+
+    /// PLAN.md M7.1, class `Flash`: PT of `name` at (p, T) round-trips. DT at the state's (ρ, T) gives the same phase,
+    /// and the state's p is the input within `Flash` (1e-9 of p) or the `Term` bound carried through p's relation where
+    /// that is larger (user decision TC1: a liquid at 1 Pa holds p only to the rounding of terms near ρRT). A refused
+    /// point is returned for the caller to judge, uncounted.
+    pub fn pt_round_trip(
+        &mut self,
+        name: &str,
+        (fluid, record): (&Fluid, &FluidRecord),
+        (p, t): (f64, f64),
+    ) -> Result<(), phasekit_core::Error> {
+        let ideal = IdealScale::new(record)?;
+        let input = Pressure::new(p).and_then(|pressure| Ok(Input::pt(pressure, Temperature::new(t)?)));
+        let state = input.and_then(|input| fluid.state(input))?;
+        self.compared += 1;
+        let rho = state.rho(Basis::Molar);
+        let back =
+            Density::molar(rho).and_then(|d| Ok(Input::dt(d, Temperature::new(t)?))).and_then(|i| fluid.state(i));
+        if back.as_ref().map(phasekit_core::State::phase) != Ok(state.phase()) {
+            self.failures.push(format!("{name} PT({p} Pa, {t} K) {:?} at ρ = {rho}: DT gives {back:?}", state.phase()));
+        }
+        let (r, m) = (record.eos.gas_constant, fluid.info().molar_mass());
+        let bundle = fluid
+            .model()
+            .helmholtz()
+            .and_then(|e| (e.ideal(t, rho, Order::Two) + e.residual(t, rho, Order::Two)).bundle());
+        let spread =
+            bundle.map_or(f64::NAN, |b| carried("p", &b, &Majorants::at(record, &ideal, t, rho), r, t, rho, m));
+        let bound = ToleranceClass::Flash.bound_carried(p, Window::Regular, spread).unwrap_or(0.0);
+        if (state.p() - p).abs() > bound {
+            self.failures.push(format!("{name} PT({p} Pa, {t} K): p {} beyond {bound}", state.p()));
+        }
+        Ok(())
     }
 
     /// `None` when every row agreed, else the first `shown` disagreements.

@@ -84,15 +84,17 @@ pub enum Rows {
         /// Upper temperature (K).
         hi: f64,
     },
+    /// The `flash` kind's PT rows (input pair `PT`).
+    PtInputs,
 }
 
-/// What a row is known by when the register is asked about it: its temperature, the input label of a `sat` row, and
-/// whether its state is two-phase.
+/// What a row is known by when the register is asked about it: its temperature, the input label of a `sat` row or the
+/// pair of a `flash` row, and whether its state is two-phase.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RowKey<'a> {
     /// The row's temperature (K).
     pub t: f64,
-    /// The `sat` kind's input label (`T`, `p` or `sa`), if any.
+    /// The `sat` kind's input label (`T`, `p` or `sa`) or the `flash` kind's pair (`DT`, `PT`), if any.
     pub input: Option<&'a str>,
     /// Whether the row's state is two-phase.
     pub two_phase: bool,
@@ -434,6 +436,24 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[6],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0020",
+        fluids: &["*"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::flash"),
+        evidence: "map 03 §6 row 8 (ROT-074), M7.1: CoolProp's PT reports a p that is neither its input nor its own EOS's \
+                   at its (T, rho): Nitrogen at 107.45 MPa and 1192.98 K, 7.9e-9 off both, where its DT at the same \
+                   (T, rho) reproduces the input to 2.2e-16; 26 of the 504 core PT rows more than 1e-9 off, its rho, h, \
+                   s and u within Flash; phasekit's PT state is built at the density its solve returned, its p the \
+                   input to rounding",
+        exempt: Some(Exempt { kinds: &[Kind::Flash], columns: &["p"], rows: Rows::PtInputs }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[7],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an
@@ -442,8 +462,8 @@ pub fn exempt_at(register: &[Divergence], fluid: &str, kind: Kind, column: &str,
     exempt_row(register, fluid, kind, column, RowKey { t, input: None, two_phase: false })
 }
 
-/// [`exempt_at`] for a row known by more than its T ([`RowKey`]): [`Rows::GivenP`] exempts the rows given p and
-/// [`Rows::TwoPhaseTBand`] the two-phase rows of a temperature band.
+/// [`exempt_at`] for a row known by more than its T ([`RowKey`]): [`Rows::GivenP`] exempts the rows given p,
+/// [`Rows::TwoPhaseTBand`] the two-phase rows of a temperature band and [`Rows::PtInputs`] the PT rows.
 pub fn exempt_row(
     register: &[Divergence],
     fluid: &str,
@@ -459,6 +479,7 @@ pub fn exempt_row(
             Rows::TBand { lo, hi } => lo <= t && t <= hi,
             Rows::GivenP => input == Some("p"),
             Rows::TwoPhaseTBand { lo, hi } => two_phase && lo <= t && t <= hi,
+            Rows::PtInputs => input == Some("PT"),
             _ => false,
         };
         (d.fluids.contains(&fluid) || d.fluids == ["*"])
@@ -560,7 +581,8 @@ mod tests {
 
     /// `exempt_at`: a band's ends are in and its outside is not, nor another column or fluid; `["*"]` covers every fluid
     /// and `Rows::All` every T; other row sets need more than T. DIV-0016 exempts PropyleneGlycol's check points, and
-    /// DIV-0018 (through `exempt_row`) the PQ rows of the `sat` kind, DIV-0019 the two-phase `flash` rows of a T band.
+    /// DIV-0018 (through `exempt_row`) the PQ rows of the `sat` kind, DIV-0019 the two-phase `flash` rows of a T band and
+    /// DIV-0020 the `flash` kind's PT rows.
     #[test]
     fn exemptions_by_fluid_kind_column_and_temperature() {
         let exempt = |kinds: &'static [Kind], rows| Some(Exempt { kinds, columns: &["p"], rows });
@@ -608,5 +630,13 @@ mod tests {
             [Some("DIV-0019"), Some("DIV-0019"), None, None]
         );
         assert_eq!((ses36("p", 199.9, true), ses36("p", 220.1, true)), (None, None));
+        // DIV-0020: the p of every fluid's PT rows, not of its DT rows, nor another column.
+        let flash = |column, input| {
+            exempt_row(DIVERGENCES, "Water", Kind::Flash, column, RowKey { t: 300.0, input, two_phase: false })
+        };
+        assert_eq!(
+            [flash("p", Some("PT")), flash("h", Some("PT")), flash("p", Some("DT")), flash("p", None)],
+            [Some("DIV-0020"), None, None, None]
+        );
     }
 }
