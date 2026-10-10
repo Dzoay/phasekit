@@ -55,7 +55,8 @@ fn compiled_residual_parts_fit_25_kib() {
 /// PLAN.md M6.11 (ARCHITECTURE.md §7: superancillary ≤ 25 KiB per fluid; recorded at M6, enforced from M9): the heap a
 /// decoded superancillary keeps, recorded: median 27 472 B over the 130, PropyleneGlycol's 39 576 B the most, 97 of
 /// them above the 25 KiB target (the stored inverse and extrema on top of CoolProp's three curves), which M9.7 meets by
-/// optimisation or a recorded re-plan; pinned below 40 KiB until then. QT and PQ on the decoded curve allocate nothing.
+/// optimisation or a recorded re-plan; pinned below 40 KiB until then. With 32-bit pointers (wasm32) each curve keeps
+/// 112 B less. QT and PQ on the decoded curve allocate nothing.
 #[test]
 fn superancillary_bytes_are_recorded() {
     let registry = Registry::embedded().unwrap();
@@ -71,7 +72,9 @@ fn superancillary_bytes_are_recorded() {
     sizes.sort_unstable();
     let (largest, median) = (sizes[sizes.len() - 1], sizes[sizes.len() / 2].0);
     let over = sizes.iter().filter(|(bytes, _)| *bytes > 25 * 1024).count();
-    assert_eq!((sizes.len(), median, largest, over), (130, 27_472, (39_576, "PropyleneGlycol"), 97));
+    let pointers = if cfg!(target_pointer_width = "64") { 0 } else { 112 };
+    let want = (130, 27_472 - pointers, (39_576 - pointers, "PropyleneGlycol"), 97);
+    assert_eq!((sizes.len(), median, largest, over), want);
     assert!(largest.0 <= 40 * 1024);
     let water = registry.get("Water").unwrap();
     let quality = Quality::new(0.5).unwrap();
