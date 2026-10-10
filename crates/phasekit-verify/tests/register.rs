@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::internal::{Edit, FluidRecord, IdealTerm, Patch, SaFreshness};
-use phasekit_core::{DataSet, Order, Registry};
+use phasekit_core::{DataSet, Density, Input, Order, Registry, Temperature};
 use phasekit_verify::{
     Cell, DIVERGENCES, Fix, Fixture, Policy, Provenance, RegisterError, Tolerance, check_register, fixture,
     from_printed,
@@ -249,6 +249,17 @@ fn register_cites_reproducible_oracle_facts() {
     let (t, rho) = (miss("T"), miss("rhoL").max(miss("rhoV")));
     assert!(cites(t, "2.0e-11") && cites(rho, "1.1e-6"), "DIV-0018: {t:e}, {rho:e}");
     checked.push("DIV-0018");
+
+    // DIV-0019: CoolProp's in-dome p of SES36 at 206.2675 K differs between two densities of its dome (by 6.9e-10), and
+    // phasekit's (the pure VLE's, the same at both) is 1e-8 from either.
+    let [p1, p2] = ["div0019_p_t206.2675_rho1.97058", "div0019_p_t206.2675_rho0.656961"].map(ok);
+    let ses36 = Registry::from_embedded(DataSet::Parity).unwrap();
+    let dt = |rho: f64| Input::dt(Density::molar(rho).unwrap(), Temperature::new(206.2675).unwrap());
+    let ours = [1.97058, 0.656961].map(|rho| ses36.get("SES36").unwrap().state(dt(rho)).unwrap().p());
+    assert_eq!(ours[0], ours[1], "DIV-0019: the VLE's p");
+    let apart = |a: f64, b: f64| (a / b - 1.0).abs();
+    assert!(cites(apart(p2, p1), "6.9e-10") && apart(ours[0], p1) > 9e-9, "DIV-0019: {p1} {p2} {ours:?}");
+    checked.push("DIV-0019");
 
     let ids: Vec<&str> = DIVERGENCES.iter().map(|d| d.id).collect();
     assert_eq!(checked, ids, "every register entry has its facts checked");

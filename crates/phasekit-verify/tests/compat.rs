@@ -53,5 +53,6 @@ fn props_si_dt_matches_oracle() {
             }
         }
     }
-    assert!(answered > 300 && refused > 0, "{answered} answered, {refused} refused (R410A below Tc)");
+    // 3 × 52 rows, 4 keys each, R410A's dome rows too since M6.9 (none is refused any more).
+    assert_eq!((answered, refused), (3 * 52 * 4, 0));
 }

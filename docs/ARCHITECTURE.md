@@ -699,9 +699,11 @@ form (S-04).
 NativeInput, ..)`.
 - Each pair runs a fixed ordered list of `Result` strategies; the winner goes to `State::path()`.
 - Solvers return `Root{x, f(x), iterations, stop}` with typed `Tol`; exhaustion is an error.
-- Phase rule, defined once (map 01 R26): hint → model critical point → `SaturationCurve` (`Exact` and `Definition`
-  used, `Guess` polished by VLE) → generic pure VLE. Below Tc with no usable curve the answer is `Unsupported` until
-  M6 brings VLE, never a load error or a guess (S-10). An imposed `TwoPhase` is honoured: outside the dome its lever
+- Phase rule, defined once (map 01 R26): hint → model critical point → `SaturationCurve` (`Exact` used, `Guess`
+  polished by VLE; a `Definition` seeds the pure VLE of the blend's EOS, which is what CoolProp runs inside a
+  pseudo-pure dome, measured against oracle fixtures at M6.9 as user decision 4 asks, while its QT and PQ answer by
+  definition) → generic pure VLE. Below Tc with no usable curve the answer is `Unsupported`, never a load error or a
+  guess (S-10). An imposed `TwoPhase` is honoured: outside the dome its lever
   rule gives q ∉ [0, 1], which is refused.
 - Domain (user decision 6). `DomainPolicy::Enforce`, the default, refuses T below the triple point (the bound is the
   higher of `t_min` and `t_triple`, which CoolProp conflates; map 09 R8), above `Tmax` or `pmax`, and below the melting

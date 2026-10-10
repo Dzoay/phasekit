@@ -17,8 +17,8 @@
 //! default EOS is refused (ROT-068). Derived states (`hmolar`, `smolar` of `STATES`) are never mapped (ROT-052).
 
 use phasekit_core::internal::{
-    DoubleExponentialTerm, Environmental, EosRecord, FluidRecord, GaoBTerm, GaussianTerm, IdealTerm, Lemmon2005Term,
-    MAX_POW, MeltingSegment, NonAnalyticTerm, OffsetReference, PowerTerm, SaStamp,
+    Ancillary, DoubleExponentialTerm, Environmental, EosRecord, FluidRecord, GaoBTerm, GaussianTerm, IdealTerm,
+    Lemmon2005Term, MAX_POW, MeltingSegment, NonAnalyticTerm, OffsetReference, PowerTerm, PseudoPure, SaStamp,
 };
 use phasekit_core::{CriticalOrigin, CriticalPoint, DataTerms, Limits, Source};
 
@@ -66,6 +66,7 @@ pub fn to_record(source: &super::Source) -> Result<FluidRecord, String> {
     fluid_record.critical = Some(CriticalPoint { t: c.t, p: c.p, rho: c.rhomolar, origin: CriticalOrigin::Published });
     fluid_record.environmental = info.environmental.as_ref().map(environmental).transpose().map_err(|e| at(&e))?;
     fluid_record.melting = melting(&fluid.ancillaries).map_err(|e| at(&format!("ANCILLARIES.melting_line: {e}")))?;
+    fluid_record.pseudo_pure = pseudo_pure(fluid, eos).map_err(|e| at(&e))?;
     check_constants(&fluid_record).map_err(|e| at(&e))?;
     if let Some(sa) = fluid_record.superancillary.clone() {
         fluid_record.caloric = Some(super::caloric::curves(&fluid_record, &sa).map_err(|e| at(&e))?);
@@ -302,6 +303,46 @@ fn melting(ancillaries: &serde_json::Value) -> Result<Vec<MeltingSegment>, Strin
     Ok(segments)
 }
 
+/// A pseudo-pure fluid's saturation definition (D4; map 04 U4; PLAN.md M6.9): its `pL`, `pV`, `rhoL` and `rhoV`
+/// ancillaries, and the temperatures QT accepts, CoolProp's max(T of `sat_min_liquid`, T of `sat_min_vapor`) to T of
+/// `temperature_max_sat`, or Tc without one (`HelmholtzEOSMixtureBackend.cpp:1265-1291`). `None` for a pure fluid.
+fn pseudo_pure(fluid: &mirror::Fluid, eos: &mirror::Eos) -> Result<Option<PseudoPure>, String> {
+    if !eos.pseudo_pure {
+        return Ok(None);
+    }
+    let one = |key: &str| {
+        let value = fluid.ancillaries.get(key).ok_or(format!("ANCILLARIES.{key}: missing"))?;
+        ancillary(value).map_err(|e| format!("ANCILLARIES.{key}: {e}"))
+    };
+    let s = &eos.states;
+    let t_max = s.temperature_max_sat.as_ref().map_or(fluid.states.critical.t, |state| state.t);
+    let t_range = (s.sat_min_liquid.t.max(s.sat_min_vapor.t), t_max);
+    Ok(Some(PseudoPure { p_l: one("pL")?, p_v: one("pV")?, rho_l: one("rhoL")?, rho_v: one("rhoV")?, t_range }))
+}
+
+/// One saturation ancillary (`Ancillaries.cpp:43-81`): type `rhoLnoexp` is the non-exponential form, `pL`, `pV` and
+/// `rhoV` the exponential one (CoolProp takes any other name as exponential; this mapping refuses it), with its terms
+/// `n`, `t`, `T_r`, `reducing_value`, range `Tmin`-`Tmax` and `using_tau_r`.
+fn ancillary(value: &serde_json::Value) -> Result<Ancillary, String> {
+    let num = |key: &str| value.get(key).and_then(serde_json::Value::as_f64).ok_or(format!("no {key}"));
+    let list = |key: &str| {
+        let items = value.get(key).and_then(serde_json::Value::as_array).ok_or(format!("no {key}"))?;
+        items.iter().map(|x| x.as_f64().ok_or(format!("{key}: not a number"))).collect::<Result<Vec<f64>, String>>()
+    };
+    let exponential = match value.get("type").and_then(serde_json::Value::as_str) {
+        Some("rhoLnoexp") => false,
+        Some("pL" | "pV" | "rhoV") => true,
+        other => return Err(format!("type {other:?}")),
+    };
+    let tau_r = value.get("using_tau_r").and_then(serde_json::Value::as_bool).ok_or("no using_tau_r")?;
+    let (n, t) = (list("n")?, list("t")?);
+    if n.is_empty() || n.len() != t.len() {
+        return Err(format!("{} n against {} t", n.len(), t.len()));
+    }
+    let (t_r, reducing, t_min, t_max) = (num("T_r")?, num("reducing_value")?, num("Tmin")?, num("Tmax")?);
+    Ok(Ancillary { exponential, tau_r, t_r, reducing, n, t, t_min, t_max })
+}
+
 /// The units every `*_units` field must name; datagen checks them and drops them (map 09 §9 D2).
 fn check_units(eos: &mirror::Eos, states: &mirror::States) -> Result<(), String> {
     let mut wrong = Vec::new();
@@ -358,5 +399,39 @@ fn check_constants(record: &FluidRecord) -> Result<(), String> {
     match constants.iter().find(|(_, x)| !(x.is_finite() && *x > 0.0)) {
         Some((name, x)) => Err(format!("{name} = {x} is not finite and positive")),
         None => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One saturation ancillary (PLAN.md M6.9): `rhoLnoexp` is the non-exponential form, `pL`, `pV` and `rhoV` the
+    /// exponential one; another type, a missing field and empty or unequal term lists are errors.
+    #[test]
+    fn ancillaries_parse_and_refuse() {
+        let base = serde_json::json!({
+            "type": "pL", "using_tau_r": true, "n": [-7.0, 1.5], "t": [1.0, 1.5],
+            "T_r": 344.494, "reducing_value": 4.9e6, "Tmin": 200.0, "Tmax": 344.494,
+        });
+        let with = |key: &str, value: serde_json::Value| {
+            let mut v = base.clone();
+            v[key] = value;
+            ancillary(&v)
+        };
+        let a = ancillary(&base).unwrap();
+        assert!(a.exponential && a.tau_r && a.n == [-7.0, 1.5] && a.t == [1.0, 1.5]);
+        assert_eq!((a.t_r, a.reducing, a.t_min, a.t_max), (344.494, 4.9e6, 200.0, 344.494));
+        assert!(!with("type", "rhoLnoexp".into()).unwrap().exponential);
+        assert!(with("type", "rhoV".into()).unwrap().exponential);
+        assert_eq!(with("type", "rational_polynomial".into()), Err("type Some(\"rational_polynomial\")".into()));
+        assert_eq!(with("n", serde_json::json!([1.0])), Err("1 n against 2 t".into()));
+        let empty = {
+            let mut v = base.clone();
+            (v["n"], v["t"]) = (serde_json::json!([]), serde_json::json!([]));
+            v
+        };
+        assert_eq!(ancillary(&empty), Err("0 n against 0 t".into()));
+        assert_eq!(with("T_r", serde_json::Value::Null), Err("no T_r".into()));
     }
 }

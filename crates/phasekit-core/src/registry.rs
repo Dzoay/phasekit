@@ -14,7 +14,7 @@ use crate::data::{DataSet, DataSource, FluidId, FluidRecord};
 use crate::error::{Error, LoadError};
 use crate::fluid::{Fluid, ReferenceState};
 use crate::model::ThermoModel;
-use crate::saturation::{SaturationCurve, SuperancillaryCurve};
+use crate::saturation::{PseudoPureCurve, SaturationCurve, SuperancillaryCurve};
 use crate::transport::{TransportSet, ViscosityModel};
 
 /// Case-insensitive (ASCII) comparison without allocating; keys are stored lower-case.
@@ -68,12 +68,16 @@ impl Slot {
         record.apply(self.data_set)?;
         let deps = self.deps.clone();
         let freshness = record.superancillary_freshness();
+        let pseudo_pure = record.pseudo_pure.clone();
         let builder = record.builder().map_err(|e| match e {
             Error::Load(l) => l,
             other => LoadError::Format(other.to_string().into()),
         })?;
         // The superancillary stays in the blob until saturation is first needed (ROT-035); the closure owns the blob.
         let builder = builder.lazy_saturation(move || {
+            if let Some(definition) = pseudo_pure {
+                return Ok(Some(Box::new(PseudoPureCurve(definition)) as Box<dyn SaturationCurve>));
+            }
             let Some(freshness) = freshness else { return Ok(None) };
             let curve = crate::blob::decode_superancillary(blob.bytes())?
                 .map(|sa| Box::new(SuperancillaryCurve::new(sa, freshness)) as Box<dyn SaturationCurve>);

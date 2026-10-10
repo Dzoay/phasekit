@@ -35,6 +35,7 @@
 mod blob;
 mod crit;
 mod data;
+mod density;
 mod derivs;
 mod error;
 mod flash;
@@ -79,8 +80,8 @@ pub use units::{Basis, Density, Enthalpy, Entropy, InternalEnergy, Pressure, Qua
 #[doc(hidden)]
 pub mod internal {
     pub use crate::data::{
-        CaloricCurves, CaloricFreshness, CaloricStamp, CaloricView, Edit, Environmental, EosRecord, FluidRecord,
-        MeltingSegment, Patch, SaFreshness, SaStamp, Superancillary,
+        Ancillary, CaloricCurves, CaloricFreshness, CaloricStamp, CaloricView, Edit, Environmental, EosRecord,
+        FluidRecord, MeltingSegment, Patch, PseudoPure, SaFreshness, SaStamp, Superancillary,
     };
     pub use crate::helmholtz::{
         DoubleExponentialTerm, GaoBTerm, GaussianTerm, IdealTerm, Lemmon2005Term, MAX_POW, NonAnalyticTerm,
@@ -100,6 +101,17 @@ pub mod internal {
         seed: (f64, f64, f64),
     ) -> Result<crate::SatPair, crate::Error> {
         crate::vle::at_p(eos, p, seed)
+    }
+
+    /// The density of a Helmholtz model at (T, p) on the liquid (`liquid`) or vapour branch, from a seed (PLAN.md M6.9).
+    pub fn density_at_t_p(
+        eos: &dyn crate::HelmholtzModel,
+        t: f64,
+        p: f64,
+        seed: f64,
+        liquid: bool,
+    ) -> Result<f64, crate::Error> {
+        crate::density::at_t_p(eos, t, p, seed, liquid)
     }
 
     /// The numerical critical point (T, ρ, p) of a Helmholtz model near a guess (PLAN.md M6.7).

@@ -107,6 +107,9 @@ FACTS = {
         # CoolProp's own VLE at PropyleneGlycol's triple point, superancillaries off (DIV-0016).
         ("div0016_rhomolar_liquid_t213", "PropsSIVle", ("Dmolar", "T", 213, "Q", 0, "PropyleneGlycol")),
         ("div0016_rhomolar_vapour_t213", "PropsSIVle", ("Dmolar", "T", 213, "Q", 1, "PropyleneGlycol")),
+        # CoolProp's in-dome p of SES36 at one T and two densities: it changes with Q (DIV-0019).
+        ("div0019_p_t206.2675_rho1.97058", "PropsSI", ("P", "T", 206.2675, "Dmolar", 1.97058, "SES36")),
+        ("div0019_p_t206.2675_rho0.656961", "PropsSI", ("P", "T", 206.2675, "Dmolar", 0.656961, "SES36")),
     ],
 }
 
@@ -701,6 +704,9 @@ SAT_UNITS = ["-", "-", "K", "-", "Pa", "mol/m3", "mol/m3", "J/mol", "J/mol", "J/
 SAT_TOL = ["label", "in", "in", "label", "sa_coeff", "sa_coeff", "sa_coeff", "prop", "prop", "prop", "prop", "label"]
 SAT_ROWS = {"core": 25, "all": 8, "full": 200}  # temperatures per fluid
 SAT_THETA_MIN = 1e-7  # Theta = 1 - T/Tc log-spaced from here to 1 - Tt/Tc
+# A pseudo-pure fluid's grid stops further from its saturation maximum: R410A's ancillaries end at T_r = 344.494 K, short
+# of its temperature_max_sat (344.4943434 K), where CoolProp's QT has no density seed (M6.9).
+SAT_PSEUDO_THETA_MIN = 1e-3
 
 
 def sat_sa_temperatures(t_min, t_max, rows):
@@ -714,25 +720,29 @@ def sat_sa_temperatures(t_min, t_max, rows):
     return [min(max(t_max * (1.0 - theta), t_min), t_max) for theta in thetas]
 
 
-def sat_q_row(CP, name, given, q, x):
-    """One QT (`given` "T", x = T) or PQ (`given` "p", x = p) row (map 03 section 8): T, p, rho', rho'', h', h'', s',
-    s'' of a fresh `AbstractState`; CoolProp takes the densities from the superancillary and h, s from the EOS there
-    (PLAN.md M5.2a, M6.8)."""
+def sat_q_row(CP, name, given, q, x, path="superanc"):
+    """One QT (`given` "T", x = T) or PQ (`given` "p", x = p, which is the row's p) row (map 03 section 8): T, p, rho',
+    rho'', h', h'', s', s'' of a fresh `AbstractState`. On the superancillary's path CoolProp takes the densities from
+    it and h, s from the EOS there (PLAN.md M5.2a, M6.8); on a pseudo-pure fluid's ancillary path each side's density
+    is the EOS's at its ancillary pressure, and QT computes only the side Q names (Q = 0 or 1), so the other side's
+    cells are nan (M6.9)."""
+    both = path == "superanc" or given == "p"
     try:
         state = CP.AbstractState("HEOS", name)
         if given == "T":
             state.update(CP.QT_INPUTS, q, x)
         else:
             state.update(CP.PQ_INPUTS, x, q)
-        liquid, vapour = state.saturated_liquid_keyed_output, state.saturated_vapor_keyed_output
-        values = [state.T(), state.p(), liquid(CP.iDmolar), vapour(CP.iDmolar), liquid(CP.iHmolar),
-                  vapour(CP.iHmolar), liquid(CP.iSmolar), vapour(CP.iSmolar)]
+        sides = [(state.saturated_liquid_keyed_output, both or q == 0.0),
+                 (state.saturated_vapor_keyed_output, both or q == 1.0)]
+        cells = [[read(key) if on else math.nan for read, on in sides] for key in (CP.iDmolar, CP.iHmolar, CP.iSmolar)]
+        values = [state.T(), state.p() if given == "T" else x, *[v for pair in cells for v in pair]]
         status = "ok"
     except Exception as exception:  # every oracle failure becomes a status, never a crash
         values = [x if given == "T" else math.nan, x if given == "p" else math.nan, *[math.nan] * 6]
         status = f"err:{error_class(exception)}"
     row = [q, *values]
-    return row, ",".join([given, cell(q), cell(values[0]), status, *map(cell, values[1:]), "superanc"]) + "\n"
+    return row, ",".join([given, cell(q), cell(values[0]), status, *map(cell, values[1:]), path]) + "\n"
 
 
 def sat_rows(CP, name, superancillary, tier, rows):
@@ -771,44 +781,78 @@ def sat_rows(CP, name, superancillary, tier, rows):
     return floats, lines
 
 
+def sat_pseudo_rows(CP, name, states, rows):
+    """A pseudo-pure fluid's `sat` rows (M6.9; D4, map 04 U4): at `rows` temperatures, Theta = 1 - T/T_max log-spaced
+    from SAT_PSEUDO_THETA_MIN to the low end, T_max its temperature_max_sat and the low end the higher of its
+    sat_min_liquid and sat_min_vapor (CoolProp's QT range), QT at Q = 0 and 1, then PQ at Q = 0, 0.5 and 1 at the
+    bubble pressure of that temperature (the QT row's at Q = 0, none where it failed); path `ancillary`: (floats,
+    lines)."""
+    t_min = max(states["sat_min_liquid"]["T"], states["sat_min_vapor"]["T"])
+    t_max = states["temperature_max_sat"]["T"]
+    theta_max = 1.0 - t_min / t_max
+    thetas = [math.exp(math.log(theta_max) + (math.log(SAT_PSEUDO_THETA_MIN) - math.log(theta_max)) * k / (rows - 1))
+              for k in range(rows)] if rows > 1 else [theta_max]
+    lines, floats = [], []
+    for t in [min(max(t_max * (1.0 - theta), t_min), t_max) for theta in thetas]:
+        qt = [sat_q_row(CP, name, "T", q, t, "ancillary") for q in (0.0, 1.0)]
+        bubble = qt[0][0][2]  # nan where the oracle's QT failed: no p to give PQ
+        pq = [] if math.isnan(bubble) else [sat_q_row(CP, name, "p", q, bubble, "ancillary") for q in (0.0, 0.5, 1.0)]
+        for row, line in qt + pq:
+            floats.extend(row)
+            lines.append(line)
+    return floats, lines
+
+
 def sat(CP, lock, config, files, args):
-    """The `sat` kind (section 3.5) for the fluids with a superancillary: the core subset's files (sat/<Fluid>.csv, 100
-    rows each), all/sat.csv (8 temperatures per fluid) and the full set's files (200 temperatures)."""
+    """The `sat` kind (section 3.5) for the fluids with a superancillary and the pseudo-pure ones: the core subset's
+    files (sat/<Fluid>.csv, 100 rows each, 125 for a pseudo-pure fluid), all/sat.csv (8 temperatures per fluid) and the
+    full set's files (200 temperatures)."""
     rows = args.rows or SAT_ROWS[args.tier]
-    results, shas = [], {}
+    results, shas, pseudo = [], {}, 0
     for name in tier_fluids(args, files):
-        superancillary = json.loads(files[name].read_text(encoding="utf-8"))["EOS"][0].get("SUPERANCILLARY")
-        if superancillary is None:
-            continue  # the pseudo-pure fluids: their rows land at M6.9
+        eos = json.loads(files[name].read_text(encoding="utf-8"))["EOS"][0]
+        superancillary = eos.get("SUPERANCILLARY")
+        if superancillary is None and not eos["pseudo_pure"]:
+            continue
         shas[name] = assert_fluid(CP, files, name)
-        results.append((name, *sat_rows(CP, name, superancillary, args.tier, rows)))
+        if superancillary is None:
+            pseudo += 1
+            results.append((name, *sat_pseudo_rows(CP, name, eos["STATES"], rows)))
+        else:
+            results.append((name, *sat_rows(CP, name, superancillary, args.tier, rows)))
     if args.tier == "core":
         grid = (f"input=T,p Q=0,1 Theta=1-T/Tc logspace[{SAT_THETA_MIN!r},1-Tt/Tc] n={rows} "
                 "Tt,Tc=superancillary range; p=QT(Q=0) p at each T")
     else:
         grid = (f"input=sa,T(Q=0),p(Q=1) Theta=1-T/Tc logspace[{SAT_THETA_MIN!r},1-Tt/Tc] n={rows} "
                 "Tt,Tc=superancillary range; p=QT p at each T")
+    pseudo_grid = (f"pseudo-pure: input=T Q=0,1, p Q=0,0.5,1 Theta=1-T/Tmax logspace[{SAT_PSEUDO_THETA_MIN!r},"
+                   f"1-Tmin/Tmax] n={rows} Tmin,Tmax=QT range; p=QT(Q=0) p at each T")
     if args.tier == "all":
+        grid = f"{grid}; {pseudo_grid}"
         floats = [value for _, values, _ in results for value in values]
-        fluids = f"{len(results)} with a superancillary, fluids_sha256={lock['fluids_sha256']}"
+        fluids = (f"{len(results) - pseudo} with a superancillary and {pseudo} pseudo-pure, "
+                  f"fluids_sha256={lock['fluids_sha256']}")
         columns, tol, units = ["fluid", *SAT_COLUMNS], ["label", *SAT_TOL], ["-", *SAT_UNITS]
         text = header("sat", lock, config, fluids, columns, tol, floats, units=units, grid=grid)
         return {"all/sat.csv": text + "".join(f"{name},{line}" for name, _, lines in results for line in lines)}
     out = {}
     for name, floats, lines in results:
+        own = pseudo_grid if lines and lines[0].endswith(",ancillary\n") else grid
         text = header("sat", lock, config, [(name, shas[name])], SAT_COLUMNS, SAT_TOL, floats, units=SAT_UNITS,
-                      grid=grid)
+                      grid=own)
         out[f"sat/{name}.csv"] = text + "".join(lines)
     return out
 
 
 # The `flash` kind (section 3.5): pairs read off truth states, never density bands (map 12 section 6.4). Since M5.3
 # the DT rows: a truth state on the (log p, T) grid or the (T, Q) grid, its density and T, and CoolProp's DT flash of
-# them with no phase imposed. Q is nan for a single phase (CoolProp's -1 sentinel, ROT-013); `phase` is CoolProp's name.
+# them with no phase imposed. Q is nan for a single phase (CoolProp's -1 sentinel, ROT-013, and its Q = 1 on a
+# pseudo-pure gas); `phase` is CoolProp's name.
 FLASH_COLUMNS = ["pair", "x1", "x2", "truth", "status", "T", "rho", "p", "h", "s", "u", "Q", "phase"]
 FLASH_UNITS = ["-", "mol/m3", "K", "-", "-", "K", "mol/m3", "Pa", "J/mol", "J/mol/K", "J/mol", "-", "-"]
 FLASH_TOL = ["label", "in", "in", "label", "label", *["flash"] * 7, "label"]
-FLASH_GRID = {"core": (6, 4), "all": (0, 0), "full": (40, 20)}  # PT points per axis, QT points per axis
+FLASH_GRID = {"core": (6, 4), "all": (0, 4), "full": (40, 20)}  # PT points per axis, QT points per axis
 FLASH_PHASES = {"phase_liquid": "liquid", "phase_gas": "gas", "phase_twophase": "twophase",
                 "phase_supercritical": "supercritical", "phase_supercritical_gas": "supercritical_gas",
                 "phase_supercritical_liquid": "supercritical_liquid", "phase_critical_point": "critical_point"}
@@ -817,11 +861,14 @@ FLASH_PHASES = {"phase_liquid": "liquid", "phase_gas": "gas", "phase_twophase": 
 def flash_truths(CP, name, n_pt, n_qt):
     """The truth states of one fluid: n_pt x n_pt (p, T) at cell centres of T in [T_low, Tmax] and log p in
     [max(ptriple, 1 Pa), pmax], then n_qt x n_qt (T, Q) at cell centres of T in [T_low, Tc] and Q in (0, 1); T_low =
-    max(Tmin, Ttriple) (map 09 R8). Each is (label, CoolProp input pair, value 1, value 2)."""
+    max(Tmin, Ttriple) (map 09 R8). Each is (label, CoolProp input pair, value 1, value 2). CoolProp has no QT at
+    0 < Q < 1 for a pseudo-pure fluid, so its (T, Q) cells are `dome` truths instead (M6.9): (rho, T) given, rho at
+    1/rho = Q/rho'' + (1 - Q)/rho' on its QT densities at Q = 0 and 1 (pair None)."""
     state = CP.AbstractState("HEOS", name)
     t_low, t_max, tc = max(state.Tmin(), state.Ttriple()), state.Tmax(), state.T_critical()
     p_low, p_max = max(state.p_triple(), 1.0), state.pmax()
     centre = lambda k, n: (k + 0.5) / n  # noqa: E731
+    pseudo_pure = state.fluid_param_string("pure") == "false"
     truths = []
     for i in range(n_pt):
         t = t_low + (t_max - t_low) * centre(i, n_pt)
@@ -830,8 +877,20 @@ def flash_truths(CP, name, n_pt, n_qt):
             truths.append(("PT", CP.PT_INPUTS, p, t))
     for i in range(n_qt):
         t = t_low + (tc - t_low) * centre(i, n_qt)
+        if not pseudo_pure:
+            truths.extend(("QT", CP.QT_INPUTS, centre(j, n_qt), t) for j in range(n_qt))
+            continue
+        try:
+            sides = []
+            for q in (0.0, 1.0):
+                side = CP.AbstractState("HEOS", name)
+                side.update(CP.QT_INPUTS, q, t)
+                sides.append(side.rhomolar())
+        except Exception:  # noqa: BLE001 - no definition at this T; no truths to make
+            continue
         for j in range(n_qt):
-            truths.append(("QT", CP.QT_INPUTS, centre(j, n_qt), t))
+            q = centre(j, n_qt)
+            truths.append(("dome", None, 1.0 / (q / sides[1] + (1.0 - q) / sides[0]), t))
     return truths
 
 
@@ -844,17 +903,22 @@ def flash_rows(job):
     lines, floats = [], []
     for truth, pair, v1, v2 in flash_truths(CP, name, n_pt, n_qt):
         try:
-            state = CP.AbstractState("HEOS", name)
-            state.update(pair, v1, v2)
-            rho, t = state.rhomolar(), state.T()
+            if pair is None:
+                rho, t = v1, v2
+            else:
+                state = CP.AbstractState("HEOS", name)
+                state.update(pair, v1, v2)
+                rho, t = state.rhomolar(), state.T()
         except Exception:  # noqa: BLE001 - no truth state there; nothing to read off
             continue
         try:
             state = CP.AbstractState("HEOS", name)
             state.update(CP.DmolarT_INPUTS, rho, t)
-            q = state.Q() if 0.0 <= state.Q() <= 1.0 else math.nan
-            values = [state.T(), state.rhomolar(), state.p(), state.hmolar(), state.smolar(), state.umolar(), q]
             phase = next((v for k, v in FLASH_PHASES.items() if CP.get_phase_index(k) == state.phase()), "other")
+            # Q of a two-phase state only: CoolProp leaves Q = 1 on a gas its pseudo-pure VLE path labels (M6.9), a
+            # sentinel like its -1 (ROT-013).
+            q = state.Q() if phase == "twophase" else math.nan
+            values = [state.T(), state.rhomolar(), state.p(), state.hmolar(), state.smolar(), state.umolar(), q]
             status = "ok"
         except Exception as exception:  # every oracle failure becomes a status, never a crash
             values, phase, status = [math.nan] * 7, "none", f"err:{error_class(exception)}"
@@ -865,15 +929,24 @@ def flash_rows(job):
 
 def flash(CP, lock, config, files, args):
     """The `flash` kind (section 3.5), DT rows (M5.3): flash/<Fluid>.csv for each core fluid (6 x 6 PT + 4 x 4 QT
-    truths) and the full set (40 x 40 + 20 x 20); the all-fluid tier has none."""
+    truths) and the full set (40 x 40 + 20 x 20); all/flash.csv holds the six pseudo-pure fluids' 4 x 4 `dome` truths
+    (M6.9)."""
     n_pt, n_qt = FLASH_GRID[args.tier]
-    if n_pt == 0:
-        fail("--kind flash: the all-fluid tier has no flash rows (section 3.6)")
     names = tier_fluids(args, files)
+    if args.tier == "all":
+        names = [name for name in names if json.loads(files[name].read_text(encoding="utf-8"))["EOS"][0]["pseudo_pure"]]
     shas = {name: assert_fluid(CP, files, name) for name in names}
     results = pool_map(flash_rows, [(name, n_pt, n_qt) for name in names], args.jobs)
     grid = (f"truth PT {n_pt}x{n_pt} T~[Tlow,Tmax] log p~[max(ptriple,1 Pa),pmax]; truth QT {n_qt}x{n_qt} "
-            "T~[Tlow,Tc] Q~(0,1); cell centres; pair DT read off each truth, no phase imposed")
+            "T~[Tlow,Tc] Q~(0,1), dome for a pseudo-pure fluid (rho on its QT densities); cell centres; pair DT read "
+            "off each truth, no phase imposed")
+    if args.tier == "all":
+        floats = [value for _, values in results for value in values]
+        fluids = f"{len(names)} pseudo-pure, fluids_sha256={lock['fluids_sha256']}"
+        columns, tol, units = ["fluid", *FLASH_COLUMNS], ["label", *FLASH_TOL], ["-", *FLASH_UNITS]
+        text = header("flash", lock, config, fluids, columns, tol, floats, units=units, grid=grid)
+        body = "".join(f"{name},{line}" for name, (lines, _) in zip(names, results) for line in lines)
+        return {"all/flash.csv": text + body}
     out = {}
     for name, (lines, floats) in zip(names, results):
         text = header("flash", lock, config, [(name, shas[name])], FLASH_COLUMNS, FLASH_TOL, floats, units=FLASH_UNITS,

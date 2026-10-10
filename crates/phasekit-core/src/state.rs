@@ -47,6 +47,8 @@ pub enum Strategy {
     Superancillary,
     /// Vapour-liquid equilibrium solve (or polish of a `Guess` saturation curve).
     Vle,
+    /// A pseudo-pure fluid's ancillary definition of saturation, each side's density the EOS's at its (T, p) (D4).
+    Ancillary,
 }
 
 /// The strategy and its iteration count.

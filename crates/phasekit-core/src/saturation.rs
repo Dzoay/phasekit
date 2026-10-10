@@ -3,7 +3,7 @@
 
 use core::{fmt, iter};
 
-use crate::data::{SaFreshness, Superancillary};
+use crate::data::{Ancillary, PseudoPure, SaFreshness, Superancillary};
 use crate::error::{DomainError, Error, Roots};
 use crate::num::math;
 use crate::roots::{Stop, Tol, toms748};
@@ -18,7 +18,8 @@ pub enum SatAccuracy {
     /// A starting point only (ancillaries, or a superancillary made stale by a data correction): the flash
     /// polishes it with a VLE solve and records `Strategy::Vle` (M6; refused as `Unsupported` before).
     Guess,
-    /// The curve defines saturation (pseudo-pure bubble/dew ancillaries): used as the answer by definition.
+    /// The curve defines saturation (pseudo-pure bubble/dew ancillaries): QT and PQ answer by definition, each side's
+    /// density the EOS's at its (T, p); inside the dome it seeds the EOS's VLE, as CoolProp's (D4; M6.9).
     Definition,
 }
 
@@ -247,6 +248,84 @@ impl SuperancillaryCurve {
     }
 }
 
+/// A pseudo-pure fluid's saturation by definition (D4; map 04 U4; PLAN.md M6.9). Each side's pressure is its ancillary's
+/// (`p_l` bubble, `p_v` dew) and its density the density ancillary's, which the flash only uses to seed the EOS's
+/// density at (T, p). At p each side's T is its pressure ancillary's inversion, so bubble and dew differ in T, as in
+/// CoolProp's PQ (`FlashRoutines.cpp:1183-1199`). Refused outside its range, QT's (`t_range`), as every curve.
+#[derive(Debug)]
+pub(crate) struct PseudoPureCurve(pub(crate) PseudoPure);
+
+impl SaturationCurve for PseudoPureCurve {
+    fn accuracy(&self) -> SatAccuracy {
+        SatAccuracy::Definition
+    }
+
+    fn t_range(&self) -> (f64, f64) {
+        self.0.t_range
+    }
+
+    fn at_t(&self, t: f64) -> Result<SatPair, Error> {
+        let (t_min, t_max) = self.0.t_range;
+        if t.is_nan() {
+            return Err(Error::InvalidInput { quantity: "T", value: t });
+        }
+        if t < t_min {
+            return Err(DomainError::BelowMinTemperature { t, t_min }.into());
+        }
+        if t > t_max {
+            return Err(DomainError::AboveMaxTemperature { t, t_max }.into());
+        }
+        let side = |p: &Ancillary, rho: &Ancillary| SatSide { t, p: p.at(t), rho: rho.at(t) };
+        Ok(SatPair { bubble: side(&self.0.p_l, &self.0.rho_l), dew: side(&self.0.p_v, &self.0.rho_v) })
+    }
+
+    /// Each side's T where its pressure ancillary is p, within that ancillary's range; refused beyond it.
+    fn at_p(&self, p: f64) -> Result<SatPair, Error> {
+        if p.is_nan() {
+            return Err(Error::InvalidInput { quantity: "p", value: p });
+        }
+        let side = |pa: &Ancillary, rho: &Ancillary| -> Result<SatSide, Error> {
+            let Some(t) = pa.invert(p) else {
+                let p_max = pa.at(pa.t_max);
+                return Err(if p > p_max {
+                    DomainError::AboveMaxPressure { p, p_max }
+                } else {
+                    DomainError::BelowMinPressure { p, p_min: pa.at(pa.t_min - 0.01) }
+                }
+                .into());
+            };
+            Ok(SatSide { t, p, rho: rho.at(t) })
+        };
+        Ok(SatPair { bubble: side(&self.0.p_l, &self.0.rho_l)?, dew: side(&self.0.p_v, &self.0.rho_v)? })
+    }
+}
+
+impl Ancillary {
+    /// The value at T (`Ancillaries.cpp:43-81`), extrapolated beyond [`t_min`, `t_max`] as CoolProp's; NaN above T_r,
+    /// where Θ = 1 − T/T_r < 0.
+    pub fn at(&self, t: f64) -> f64 {
+        let theta = 1.0 - t / self.t_r;
+        if theta < 0.0 {
+            return f64::NAN;
+        }
+        let sum: f64 = self.n.iter().zip(&self.t).map(|(n, e)| n * math::powf(theta, *e)).sum();
+        if self.exponential {
+            let k = if self.tau_r { self.t_r / t } else { 1.0 };
+            self.reducing * math::exp(k * sum)
+        } else {
+            self.reducing * (1.0 + sum)
+        }
+    }
+
+    /// The T at which the ancillary takes `value`, by TOMS 748 to rounding over CoolProp's bracket of its inversion,
+    /// [`t_min` − 0.01 K, `t_max`] (`Ancillaries.cpp:82-113`, which stops at 1e-10 K); `None` where `value` is outside
+    /// the ancillary's values there.
+    pub fn invert(&self, value: f64) -> Option<f64> {
+        let root = toms748(|t| self.at(t) - value, self.t_min - 0.01, self.t_max, Tol::Absolute(0.0), 100);
+        (root.stop == Stop::Converged).then_some(root.x)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,6 +467,48 @@ mod tests {
         assert_eq!((sat.bubble.t, sat.bubble.p, sat.bubble.rho, sat.dew.rho), (300.0, 4500.0, 350.0, 15.0));
         assert_eq!(rescaled.at_p(6001.5), Err(DomainError::AboveMaxPressure { p: 6001.5, p_max: 6000.0 }.into()));
         assert_eq!(rescaled.at_p(2999.0), Err(DomainError::BelowMinPressure { p: 2999.0, p_min: 3000.0 }.into()));
+    }
+
+    /// The pseudo-pure fluids' ancillaries (PLAN.md M6.9; `Ancillaries.cpp:43-113`): R410A's bubble and dew pressures at
+    /// 280 K are CoolProp 8.0.0's QT pressures there (990480.516605891 and 987288.0717853763 Pa, 03-decision-log), and
+    /// their inversions at 1 MPa its PQ temperatures at Q = 0 and 1 (280.31657 and 280.42348 K, printed to 1e-5 K);
+    /// above T_r an ancillary is NaN, and a value outside its range has no inversion.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn ancillaries_evaluate_and_invert_as_coolprops() {
+        let registry = crate::Registry::from_embedded(crate::DataSet::Parity).unwrap();
+        let record = crate::internal::record(&registry, "R410A").unwrap();
+        let pp = record.pseudo_pure.unwrap();
+        let close = |got: f64, want: f64| (got / want - 1.0).abs() < 1e-14;
+        assert!(close(pp.p_l.at(280.0), 990_480.516_605_891) && close(pp.p_v.at(280.0), 987_288.071_785_376_3));
+        let (t_l, t_v) = (pp.p_l.invert(1e6).unwrap(), pp.p_v.invert(1e6).unwrap());
+        assert!((t_l - 280.316_57).abs() < 5e-6 && (t_v - 280.423_48).abs() < 5e-6, "{t_l} {t_v}");
+        assert!(close(pp.p_l.at(t_l), 1e6), "{}", pp.p_l.at(t_l));
+        assert!(pp.rho_v.at(pp.rho_v.t_r + 0.1).is_nan() && pp.p_l.invert(1e9).is_none());
+        assert!(pp.rho_l.at(280.0) > pp.rho_v.at(280.0));
+        assert!(crate::internal::record(&registry, "Water").unwrap().pseudo_pure.is_none());
+    }
+
+    /// A pseudo-pure curve's range (D6; PLAN.md M6.9): QT's, from the definition, both ends included; beyond them and for
+    /// NaN refused. PQ beyond the bubble pressure ancillary's range is refused with the bound it reaches: its value at
+    /// its Tmax above, and at Tmin − 0.01 K, the end of CoolProp's inversion bracket, below.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn pseudo_pure_curve_refuses_outside_its_range() {
+        let registry = crate::Registry::from_embedded(crate::DataSet::Parity).unwrap();
+        let definition = crate::internal::record(&registry, "R410A").unwrap().pseudo_pure.unwrap();
+        let curve = PseudoPureCurve(definition.clone());
+        let (lo, hi) = definition.t_range;
+        assert!(curve.at_t(lo).is_ok() && curve.at_t(hi).is_ok() && curve.accuracy() == SatAccuracy::Definition);
+        let above = DomainError::AboveMaxTemperature { t: hi + 1e-6, t_max: hi };
+        let below = DomainError::BelowMinTemperature { t: lo - 1e-6, t_min: lo };
+        assert_eq!((curve.at_t(hi + 1e-6), curve.at_t(lo - 1e-6)), (Err(above.into()), Err(below.into())));
+        assert!(matches!(curve.at_t(f64::NAN), Err(Error::InvalidInput { quantity: "T", .. })));
+        let p_l = &definition.p_l;
+        let (p_max, p_min) = (p_l.at(p_l.t_max), p_l.at(p_l.t_min - 0.01));
+        assert_eq!(curve.at_p(1e9), Err(DomainError::AboveMaxPressure { p: 1e9, p_max }.into()));
+        assert_eq!(curve.at_p(1.0), Err(DomainError::BelowMinPressure { p: 1.0, p_min }.into()));
+        assert!(matches!(curve.at_p(f64::NAN), Err(Error::InvalidInput { quantity: "p", .. })));
     }
 
     /// PQ where p(T) dips (DIV-0016's PropyleneGlycol): over [200, 300] K p falls from 3000 to 2000 Pa, over [300, 400] K

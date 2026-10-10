@@ -356,6 +356,35 @@ impl EosRecord {
     }
 }
 
+/// A saturation ancillary of CoolProp's fluid files (map 03 §3.1; `Ancillaries.cpp:43-81`). With Θ = 1 − T/T_r it is
+/// `reducing`·(1 + Σ nᵢ Θ^tᵢ) when not `exponential`, else `reducing`·exp(k·Σ nᵢ Θ^tᵢ), k = T_r/T when `tau_r` and 1
+/// otherwise; fitted over [`t_min`, `t_max`]. M6.9 ships the pseudo-pure fluids' (D4).
+#[derive(Clone, Debug, PartialEq)]
+#[allow(missing_docs)]
+pub struct Ancillary {
+    pub exponential: bool,
+    pub tau_r: bool,
+    pub t_r: f64,
+    pub reducing: f64,
+    pub n: Vec<f64>,
+    pub t: Vec<f64>,
+    pub t_min: f64,
+    pub t_max: f64,
+}
+
+/// A pseudo-pure fluid's saturation by definition (D4, user decision 4; map 04 U4): the bubble (`p_l`) and dew (`p_v`)
+/// pressure ancillaries, the density ancillaries that seed the EOS's density solves, and the temperatures QT accepts,
+/// CoolProp's max(T of `sat_min_liquid`, T of `sat_min_vapor`) to T of `temperature_max_sat`.
+#[derive(Clone, Debug, PartialEq)]
+#[allow(missing_docs)]
+pub struct PseudoPure {
+    pub p_l: Ancillary,
+    pub p_v: Ancillary,
+    pub rho_l: Ancillary,
+    pub rho_v: Ancillary,
+    pub t_range: (f64, f64),
+}
+
 /// One melting-curve segment (Simon-type form, map 07); the full form lands at M8.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[allow(missing_docs)]
@@ -611,6 +640,8 @@ pub struct FluidRecord {
     pub environmental: Option<Environmental>,
     /// Precomputed saturated caloric curves (M5.2a fills them; empty until then).
     pub caloric: Option<CaloricCurves>,
+    /// A pseudo-pure fluid's saturation definition (M6.9); `None` for every other fluid.
+    pub pseudo_pure: Option<PseudoPure>,
 }
 
 impl FluidRecord {
@@ -634,6 +665,7 @@ impl FluidRecord {
             applied: Vec::new(),
             environmental: None,
             caloric: None,
+            pseudo_pure: None,
         }
     }
 
@@ -868,6 +900,23 @@ mod tests {
             Some(SaStamp { shape: e.shape_hash(), gas_constant: e.gas_constant, rho_reducing: e.rho_reducing });
         r.superancillary = Some(superancillary());
         r.melting = vec![MeltingSegment { t0: 251.165, p0: 208.566e6, t_min: 251.165, t_max: 256.164 }];
+        let ancillary = |exponential, tau_r, reducing| Ancillary {
+            exponential,
+            tau_r,
+            t_r: 344.494,
+            reducing,
+            n: vec![-7.2, 1.5],
+            t: vec![1.0, 1.5],
+            t_min: 200.0,
+            t_max: 344.494,
+        };
+        r.pseudo_pure = Some(PseudoPure {
+            p_l: ancillary(true, true, 4.9e6),
+            p_v: ancillary(true, false, 4.9e6),
+            rho_l: ancillary(false, false, 6324.0),
+            rho_v: ancillary(true, true, 6324.0),
+            t_range: (200.0, 344.494_343_4),
+        });
         r.corrections = vec![
             Patch { divergence: "DIV-0001".into(), edit: Edit::GasConstant(8.314_462_1) },
             Patch { divergence: "DIV-0003".into(), edit: Edit::ReducingDensity(11_183.9) },
@@ -1002,7 +1051,7 @@ mod tests {
             edit(&mut bodies[i]);
             crate::blob::assemble(&bodies)
         };
-        let steps = [(5, "ancillaries", "M6.3"), (6, "transport", "M8.1"), (7, "surface tension", "M8.4")];
+        let steps = [(6, "transport", "M8.1"), (7, "surface tension", "M8.4")];
         for (i, name, step) in steps {
             let err = format_error(&blob_with(i, |b| b.extend([0; 8])));
             assert_eq!(err, format!("the {name} section lands at {step}"));
@@ -1014,6 +1063,10 @@ mod tests {
         assert_eq!(format_error(&blob_with(0, |b| _ = b.pop())), "metadata section is truncated");
         assert_eq!(format_error(&blob_with(1, |b| b.push(99))), "eos section: unknown tag 99");
         assert_eq!(format_error(&blob_with(9, |b| b.push(1))), "corrections section is truncated");
+        // Filled at M6.9: the four ancillaries' flags are 0-3, and nothing follows QT's range.
+        assert_eq!(format_error(&blob_with(5, |b| b.extend([0; 8]))), "ancillaries: 8 bytes after the last field");
+        assert_eq!(format_error(&blob_with(5, |b| _ = b.pop())), "ancillaries section is truncated");
+        assert_eq!(format_error(&blob_with(5, |b| b[0] = 4)), "ancillaries: flags 4");
         assert_eq!(FluidRecord::decode(&blob_with(4, |_| {})), Ok(record.clone()));
         // The first power term's d (tag 1 after R, ρ_r, ρ_max and the tag-0 T_r): an exponent is an integer within
         // MAX_POW.
