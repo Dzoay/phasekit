@@ -1,0 +1,25 @@
+Found 117 mutants to test
+ok       Unmutated baseline in 8s build + 0s test
+ INFO Auto-set test timeout to 600s
+MISSED   crates/phasekit-core/src/flash.rs:193:34: replace match guard t < t_c with true in generic_vle in 5s build + 22s test
+MISSED   crates/phasekit-core/src/flash.rs:193:36: replace < with <= in generic_vle in 3s build + 21s test
+MISSED   crates/phasekit-core/src/flash.rs:334:59: replace < with <= in pt in 3s build + 28s test
+MISSED   crates/phasekit-core/src/flash.rs:334:48: replace - with / in pt in 4s build + 28s test
+MISSED   crates/phasekit-core/src/flash.rs:334:66: replace - with + in pt in 4s build + 26s test
+MISSED   crates/phasekit-core/src/flash.rs:438:29: replace * with + in pt_branch in 4s build + 19s test
+MISSED   crates/phasekit-core/src/vle.rs:199:59: replace * with / in from_eos in 4s build + 19s test
+MISSED   crates/phasekit-core/src/vle.rs:205:34: replace > with >= in from_eos in 4s build + 24s test
+MISSED   crates/phasekit-core/src/vle.rs:209:31: replace * with + in from_eos in 5s build + 26s test
+MISSED   crates/phasekit-core/src/vle.rs:209:31: replace * with / in from_eos in 5s build + 24s test
+MISSED   crates/phasekit-core/src/vle.rs:219:39: replace * with / in from_eos in 4s build + 22s test
+MISSED   crates/phasekit-core/src/vle.rs:222:50: replace * with + in from_eos in 2s build + 22s test
+MISSED   crates/phasekit-core/src/vle.rs:222:50: replace * with / in from_eos in 3s build + 21s test
+MISSED   crates/phasekit-core/src/vle.rs:222:42: replace * with / in from_eos in 3s build + 22s test
+MISSED   crates/phasekit-core/src/vle.rs:222:57: replace + with - in from_eos in 3s build + 21s test
+MISSED   crates/phasekit-core/src/vle.rs:222:57: replace + with * in from_eos in 3s build + 17s test
+MISSED   crates/phasekit-core/src/vle.rs:228:81: replace * with + in from_eos in 3s build + 21s test
+MISSED   crates/phasekit-core/src/vle.rs:228:81: replace * with / in from_eos in 3s build + 20s test
+MISSED   crates/phasekit-core/src/vle.rs:233:81: replace - with + in from_eos in 2s build + 21s test
+MISSED   crates/phasekit-core/src/vle.rs:233:81: replace - with / in from_eos in 3s build + 20s test
+TIMEOUT  crates/phasekit-core/src/vle.rs:209:57: replace * with / in from_eos in 4s build + 600s test
+117 mutants tested in 15m: 20 missed, 87 caught, 9 unviable, 1 timeouts

@@ -1,0 +1,7 @@
+- [coolprop-rs plan status](coolprop-rs-plan-status.md) — phasekit repo github.com/Dzoay/phasekit (~/Projects/phasekit); M0-M6 closed (tags m0-m5; m6 awaits yes); M7 in progress (M7.1 merged)
+- [Never send email](never-send-email.md) — never send the user's email to any external service without asking first
+- [Git identity and workflow](git-identity-and-workflow.md) — commits as Dzoay noreply only; squash-merge linear history, Conventional Commits, SemVer; SSH-signed commits via gpg-agent; required checks on main
+- [Long-run merge authorization](long-run-merge-authorization.md) — work through plan steps in one run; merge each step PR myself when CI is green
+- [Landing stacked step PRs](landing-stacked-step-prs.md) — squash-only stacks need rebase-before-merge; nextest everywhere; mutants baseline-timeout trap and fix; one mutants run at a time; fixtures from pinned image
+- [Develop while CI lands](develop-while-ci-lands.md) — stack and build the next steps locally while the chain lands queued PRs; never block on CI
+- [Resume state](m6-resume-state.md) — 2026-10-10 handoff to a new machine: msrv-1.89 + m7.2 pushed, no PRs; read origin/handoff README first

@@ -1,0 +1,15 @@
+        FAIL [   0.004s] (1/6) phasekit-verify::new_family subcritical_without_a_curve_uses_the_eos_vle
+    thread 'subcritical_without_a_curve_uses_the_eos_vle' (2164518) panicked at crates/phasekit-verify/tests/new_family.rs:128:45:
+    called `Result::unwrap()` on an `Err` value: Unsupported { pair: DT }
+        FAIL [   0.004s] (2/6) phasekit-verify::new_family new_family_subcritical_dt_goes_through_the_core_phase_rule
+    thread 'new_family_subcritical_dt_goes_through_the_core_phase_rule' (2164519) panicked at crates/phasekit-verify/tests/new_family.rs:265:50:
+    called `Result::unwrap()` on an `Err` value: Unsupported { pair: DT }
+        PASS [   0.007s] (3/6) phasekit-core flash::tests::water_dg_dt_at_constant_p_equals_minus_s
+        PASS [   0.008s] (4/6) phasekit-core flash::tests::pt_range_is_one_rule
+        PASS [   0.008s] (5/6) phasekit-core flash::tests::imposed_two_phase_dt_matches_qt
+        FAIL [   0.009s] (6/6) phasekit-core flash::tests::pt_at_saturation_is_ambiguous_under_strict
+    thread 'flash::tests::pt_at_saturation_is_ambiguous_under_strict' (2164521) panicked at crates/phasekit-core/src/flash.rs:814:17:
+    305 K: Err(NoConvergence { strategy: DensityNewton, iterations: 1 })
+        FAIL [   0.004s] (1/6) phasekit-verify::new_family subcritical_without_a_curve_uses_the_eos_vle
+        FAIL [   0.004s] (2/6) phasekit-verify::new_family new_family_subcritical_dt_goes_through_the_core_phase_rule
+        FAIL [   0.009s] (6/6) phasekit-core flash::tests::pt_at_saturation_is_ambiguous_under_strict
