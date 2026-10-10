@@ -1,12 +1,12 @@
 //! L4 the Helmholtz flash (D6): a pure function of an immutable package, a native input and per-call
 //! options. No global configuration, no sticky phase, no exception cascade (map 01 R12, map 03 §6, map 12
 //! R3/R4). Each pair runs a fixed, ordered list of strategies returning `Result`; the winner is recorded in
-//! `State::path`. DT (M5.3), QT and PQ (M6.8) and PT (M7.1) are implemented; the other pairs land at M7 behind
-//! `IMPLEMENTED`.
+//! `State::path`. DT (M5.3), QT and PQ (M6.8) and PT (M7.1; its phase rule complete at M7.2) are implemented; the
+//! other pairs land at M7 behind `IMPLEMENTED`.
 #![deny(clippy::indexing_slicing)] // E12: no panicking index on the flash path
 
 use crate::derivs::{Bundle, Order};
-use crate::error::{DomainError, Error};
+use crate::error::{DomainError, Error, Roots};
 use crate::fluid::PureFluid;
 use crate::input::{NativeInput, Pair};
 use crate::model::ThermoModel;
@@ -122,8 +122,8 @@ enum Region {
 /// (CoolProp's with superancillaries on), else the published one; R114's published 418.83 K and 3.257 MPa sit 1.8 K and
 /// 3 % below its EOS's (map 03 §3.3, measured at M5.3), and the dome reaches up to the EOS's. A `Guess` curve (a
 /// superancillary the EOS was edited away from, E14) only seeds the pure VLE, whose saturation decides (M6.6; ROT-088,
-/// ROT-096). Below Tc without a curve whose fitted range covers T the case is `Unsupported`, never a load error, a
-/// guess or a fit evaluated outside its range (S-10, D6).
+/// ROT-096). Below Tc without a curve whose fitted range covers T the generic VLE of the EOS decides (M7.2,
+/// [`generic_vle`]), never a load error, a guess or a fit evaluated outside its range (S-10, D6).
 fn region(fluid: &PureFluid, t: f64, rho: f64, p: f64, opts: &FlashOptions) -> Result<Region, Error> {
     let hint = opts.phase_hint();
     if let Some(single) = hint.filter(|h| *h != Phase::TwoPhase) {
@@ -143,32 +143,31 @@ fn region(fluid: &PureFluid, t: f64, rho: f64, p: f64, opts: &FlashOptions) -> R
         };
         return Ok(Region::Single(phase));
     }
-    let unsupported = Error::Unsupported { pair: Pair::DT };
-    let Some(curve) = curve else { return Err(unsupported) };
-    let (t_lo, t_hi) = curve.t_range();
-    if !(t_lo..=t_hi).contains(&t) {
-        return Err(unsupported); // M6: a pure-fluid VLE solve outside the fit
-    }
-    let mut sat = curve.at_t(t)?;
-    let mut strategy = Strategy::Superancillary;
     // A liquid above the critical pressure is a supercritical liquid, as CoolProp labels it.
     let liquid = |crit: Option<(f64, f64, f64)>| match crit {
         Some((_, p_c, _)) if p > p_c => Phase::SupercriticalLiquid,
         _ => Phase::Liquid,
     };
-    if curve.accuracy() == SatAccuracy::Definition && hint.is_none() {
-        match pseudo_pure_bands(fluid, t, rho, p, &sat) {
-            Some(Phase::Liquid) => return Ok(Region::Single(liquid(crit))),
-            Some(phase) => return Ok(Region::Single(phase)),
-            None => {}
+    let (sat, strategy) = match curve.filter(|c| fitted(*c, t)) {
+        Some(curve) => {
+            let sat = curve.at_t(t)?;
+            if curve.accuracy() == SatAccuracy::Definition && hint.is_none() {
+                match pseudo_pure_bands(fluid, t, rho, p, &sat) {
+                    Some(Phase::Liquid) => return Ok(Region::Single(liquid(crit))),
+                    Some(phase) => return Ok(Region::Single(phase)),
+                    None => {}
+                }
+            }
+            // A stale curve seeds the pure VLE (M6.6), and so does a pseudo-pure fluid's definition: inside its dome
+            // CoolProp solves the pure-fluid VLE of the blend's EOS from the ancillaries' densities (D4, map 04 U4).
+            if curve.accuracy() == SatAccuracy::Exact {
+                (sat, Strategy::Superancillary)
+            } else {
+                (crate::vle::at_t(fluid.eos(), t, (sat.bubble.rho, sat.dew.rho))?, Strategy::Vle)
+            }
         }
-    }
-    // A stale curve seeds the pure VLE (M6.6), and so does a pseudo-pure fluid's definition: inside its dome CoolProp
-    // solves the pure-fluid VLE of the blend's EOS from the ancillaries' densities (D4, map 04 U4; M6.9).
-    if curve.accuracy() != SatAccuracy::Exact {
-        sat = crate::vle::at_t(fluid.eos(), t, (sat.bubble.rho, sat.dew.rho))?;
-        strategy = Strategy::Vle;
-    }
+        None => (generic_vle(fluid, crit, t, Pair::DT)?, Strategy::Vle),
+    };
     Ok(if hint == Some(Phase::TwoPhase) {
         Region::Dome(sat, strategy)
     } else if rho >= sat.bubble.rho {
@@ -178,6 +177,22 @@ fn region(fluid: &PureFluid, t: f64, rho: f64, p: f64, opts: &FlashOptions) -> R
     } else {
         Region::Dome(sat, strategy)
     })
+}
+
+/// Whether `curve` is fitted at T (a fit is never evaluated outside its range, D6).
+fn fitted(curve: &dyn SaturationCurve, t: f64) -> bool {
+    let (lo, hi) = curve.t_range();
+    (lo..=hi).contains(&t)
+}
+
+/// The saturation at T where no curve's fitted range covers T (PLAN.md M7.2): the generic pure VLE of the EOS, seeded
+/// by its own Maxwell construction ([`crate::vle::from_eos`]), below the labelling critical point; `Unsupported` for
+/// `pair` without one, or at or above it.
+fn generic_vle(fluid: &PureFluid, crit: Option<(f64, f64, f64)>, t: f64, pair: Pair) -> Result<SatPair, Error> {
+    match crit {
+        Some((t_c, _, rho_c)) if t < t_c => crate::vle::from_eos(fluid.eos(), t, rho_c),
+        _ => Err(Error::Unsupported { pair }),
+    }
 }
 
 /// The critical point (T, p, ρ) that labels states: the top of an exact saturation curve, else the published one
@@ -277,8 +292,9 @@ fn dt(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<State,
     Ok(if t_check.is_ok() && p_check.is_ok() { state } else { state.mark_extrapolated() })
 }
 
-/// PT (PLAN.md M7.1; map 03 §3.1, §9 `flash::pt`): the domain checked, the branch of (p, T) ([`pt_branch`]), then the
-/// density on it. A bracketed branch holds one root ([`crate::density::bracketed`]), so a guess (`with_guess`) only
+/// PT (PLAN.md M7.1, M7.2; map 03 §3.1, §9 `flash::pt`): the domain checked, the branch of (p, T) ([`pt_branch`]), then
+/// the density on it; at the saturation pressure both roots, which `Nearest` chooses between and `Strict` and `Stable`
+/// return as `Ambiguous` (ROT-080). A bracketed branch holds one root ([`crate::density::bracketed`]), so a guess (`with_guess`) only
 /// seeds its Newton and moves no output beyond rounding (ROT-017, ROT-072); where the seed picks the root (a pseudo-pure
 /// fluid's branch, an imposed phase) a guess is not used. The acceptance gate (D6): the state's own p reproduces the
 /// input to the rounding of the terms it cancels from (ROT-074: CoolProp's PT reports p up to 1e-8 off it, and a liquid
@@ -292,20 +308,33 @@ fn pt(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<State, E
     }
     let eos = fluid.eos();
     let (r, m, key) = (eos.gas_constant(), fluid.info().molar_mass(), fluid.info().key());
-    let branch = pt_branch(fluid, p, t, opts)?;
-    let (rho, path) = match branch.bracket {
-        _ if branch.phase == Phase::CriticalPoint => (branch.seed, DIRECT),
-        Some((lo, hi)) => {
-            let seed = opts.guess().map_or(branch.seed, |(_, rho)| rho);
-            let solved = crate::density::bracketed(eos, t, p, (lo, hi), seed);
-            // A root past the model's largest density: its bracket grows (`density::liquid_above`).
-            let grown = |e| if hi == eos.rho_max(t) { crate::density::liquid_above(eos, t, p, hi) } else { Err(e) };
-            let (rho, iterations) = solved.or_else(grown)?;
-            (rho, SolvePath { strategy: Strategy::DensityNewton, iterations })
+    let solve = |branch: &Branch| -> Result<(f64, SolvePath), Error> {
+        let (rho, iterations) = match branch.bracket {
+            _ if branch.phase == Phase::CriticalPoint => return Ok((branch.seed, DIRECT)),
+            Some((lo, hi)) => {
+                let seed = opts.guess().map_or(branch.seed, |(_, rho)| rho);
+                let solved = crate::density::bracketed(eos, t, p, (lo, hi), seed);
+                // A root past the model's largest density: its bracket grows (`density::liquid_above`).
+                let grown = |e| if hi == eos.rho_max(t) { crate::density::liquid_above(eos, t, p, hi) } else { Err(e) };
+                solved.or_else(grown)?
+            }
+            None => crate::density::at_t_p(eos, t, p, branch.seed, branch.liquid)?,
+        };
+        Ok((rho, SolvePath { strategy: Strategy::DensityNewton, iterations }))
+    };
+    // At psat `Nearest` picks the root nearer its density; `Strict` and `Stable` (neither is more stable) return both.
+    let (branch, (rho, path)) = match pt_branch(fluid, p, t, opts)? {
+        Where::One(branch) => {
+            let solved = solve(&branch)?;
+            (branch, solved)
         }
-        None => {
-            let (rho, iterations) = crate::density::at_t_p(eos, t, p, branch.seed, branch.liquid)?;
-            (rho, SolvePath { strategy: Strategy::DensityNewton, iterations })
+        Where::Both { gas, liquid } => {
+            let (g, l) = (solve(&gas)?, solve(&liquid)?);
+            match opts.roots() {
+                RootPolicy::Nearest(x) if (l.0 - x).abs() < (g.0 - x).abs() => (liquid, l),
+                RootPolicy::Nearest(_) => (gas, g),
+                _ => return Err(Error::Ambiguous { roots: Roots::new(&[g.0, l.0]) }),
+            }
         }
     };
     let b = total(fluid, t, rho)?;
@@ -330,6 +359,12 @@ struct Branch {
     liquid: bool,
 }
 
+/// Where (p, T) lies: one branch, or both at the saturation pressure.
+enum Where {
+    One(Branch),
+    Both { gas: Branch, liquid: Branch },
+}
+
 /// Where (p, T) lies, by CoolProp's T-based rule (`HelmholtzEOSMixtureBackend.cpp:2177-2260`, 2329-2350; map 03 §3.1),
 /// on the critical point that labels states ([`labelling_critical`]):
 /// - an imposed single phase: its own branch, unbracketed, from the curve's density at T (a liquid's) or the ideal
@@ -344,14 +379,16 @@ struct Branch {
 ///   its ancillary's seed and unbracketed, as CoolProp's (the blend's EOS has its own dome); between them (p, T) is
 ///   two-phase, where it fixes no quality.
 ///
-/// Below Tc without a curve whose fitted range covers T the case is `Unsupported`, as for DT.
-fn pt_branch(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<Branch, Error> {
+/// At exactly the saturation pressure both the liquid and the vapour are roots ([`Where::Both`]; ROT-080: CoolProp's
+/// answer there depends on T). Below Tc without a curve whose fitted range covers T, the generic VLE of the EOS gives
+/// the saturation, as for DT ([`generic_vle`]).
+fn pt_branch(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<Where, Error> {
     let eos = fluid.eos();
     let (rho_max, ideal) = (eos.rho_max(t), p / (eos.gas_constant() * t));
     let floor = 1e-3 * ideal.min(rho_max);
     let no_quality = Error::Undefined { prop: Prop::Q, phase: Phase::TwoPhase };
     let curve = fluid.saturation()?;
-    let fitted = curve.filter(|c| (c.t_range().0..=c.t_range().1).contains(&t));
+    let fitted = curve.filter(|c| fitted(*c, t));
     if let Some(hint) = opts.phase_hint() {
         let liquid = matches!(hint, Phase::Liquid | Phase::SupercriticalLiquid);
         let seed = match fitted.map(|c| c.at_t(t)) {
@@ -362,43 +399,58 @@ fn pt_branch(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<B
         return if hint == Phase::TwoPhase {
             Err(no_quality)
         } else {
-            Ok(Branch { phase: hint, bracket: None, seed, liquid })
+            Ok(Where::One(Branch { phase: hint, bracket: None, seed, liquid }))
         };
     }
     let crit = labelling_critical(fluid, curve)?;
     if let Some((t_c, p_c, rho_c)) = crit {
         if t == t_c && p == p_c {
-            return Ok(Branch { phase: Phase::CriticalPoint, bracket: None, seed: rho_c, liquid: false });
+            return Ok(Where::One(Branch { phase: Phase::CriticalPoint, bracket: None, seed: rho_c, liquid: false }));
         }
         if t >= t_c {
             let phase = if p > p_c { Phase::Supercritical } else { Phase::SupercriticalGas };
-            return Ok(Branch { phase, bracket: Some((floor, rho_max)), seed: ideal, liquid: false });
+            return Ok(Where::One(Branch { phase, bracket: Some((floor, rho_max)), seed: ideal, liquid: false }));
         }
     }
-    let curve = fitted.ok_or(Error::Unsupported { pair: Pair::PT })?;
-    let mut sat = curve.at_t(t)?;
     let above_pc = crit.is_some_and(|(_, p_c, _)| p > p_c);
     let liquid = if above_pc { Phase::SupercriticalLiquid } else { Phase::Liquid };
-    match curve.accuracy() {
-        SatAccuracy::Definition if p > sat.bubble.p => {
-            Ok(Branch { phase: liquid, bracket: None, seed: sat.bubble.rho, liquid: true })
-        }
-        SatAccuracy::Definition if p < sat.dew.p => {
-            Ok(Branch { phase: Phase::Gas, bracket: None, seed: ideal, liquid: false })
-        }
-        SatAccuracy::Definition => Err(no_quality),
-        accuracy => {
-            if accuracy != SatAccuracy::Exact {
-                sat = crate::vle::at_t(eos, t, (sat.bubble.rho, sat.dew.rho))?;
+    let sat = match fitted {
+        Some(curve) => {
+            let sat = curve.at_t(t)?;
+            match curve.accuracy() {
+                SatAccuracy::Definition if p > sat.bubble.p => {
+                    let branch = Branch { phase: liquid, bracket: None, seed: sat.bubble.rho, liquid: true };
+                    return Ok(Where::One(branch));
+                }
+                SatAccuracy::Definition if p < sat.dew.p => {
+                    let branch = Branch { phase: Phase::Gas, bracket: None, seed: ideal, liquid: false };
+                    return Ok(Where::One(branch));
+                }
+                SatAccuracy::Definition => return Err(no_quality),
+                SatAccuracy::Exact => sat,
+                _ => crate::vle::at_t(eos, t, (sat.bubble.rho, sat.dew.rho))?,
             }
-            Ok(if above_pc || p >= sat.bubble.p {
-                Branch { phase: liquid, bracket: Some((sat.bubble.rho, rho_max)), seed: sat.bubble.rho, liquid: true }
-            } else {
-                Branch { phase: Phase::Gas, bracket: Some((floor, sat.dew.rho)), seed: ideal, liquid: false }
-            })
         }
-    }
+        None => generic_vle(fluid, crit, t, Pair::PT)?,
+    };
+    let lower = sat.bubble.rho * (1.0 - SAT_RELAX);
+    let liquid = Branch { phase: liquid, bracket: Some((lower, rho_max)), seed: sat.bubble.rho, liquid: true };
+    let upper = sat.dew.rho * (1.0 + SAT_RELAX);
+    let gas = Branch { phase: Phase::Gas, bracket: Some((floor, upper)), seed: ideal, liquid: false };
+    Ok(if above_pc || p > sat.bubble.p {
+        Where::One(liquid)
+    } else if p < sat.bubble.p {
+        Where::One(gas)
+    } else {
+        Where::Both { gas, liquid }
+    })
 }
+
+/// A PT bracket's saturated end reaches this far past ρ′ (into the metastable liquid) or ρ″ (the metastable vapour):
+/// a curve's densities and pressure agree with the EOS's own VLE only to its fit, so for p a hair from psat the root
+/// lies a hair past them. The spinodal is far further (0.2·ln(ρ′/ρ″) inside each phase near Tc, mean field), so the
+/// branch stays monotonic (PLAN.md M7.2).
+const SAT_RELAX: f64 = 1e-9;
 
 /// The saturation curve for the Q pair `pair`; a fluid without one has no Q pair.
 fn curve_for(fluid: &PureFluid, pair: Pair) -> Result<&dyn SaturationCurve, Error> {
@@ -544,7 +596,8 @@ mod tests {
     }
 
     /// D6: below the triple point the default refuses; `Extrapolate` evaluates a metastable single-phase
-    /// state and flags it (scalar and batch); a saturation fit is never evaluated outside its range.
+    /// state and flags it (scalar and batch); a saturation fit is never evaluated outside its range, where the generic
+    /// VLE of the EOS decides instead (M7.2).
     #[test]
     fn extrapolation_is_opt_in_flagged_and_never_extends_a_fit() {
         let mut record = FluidRecord::synthetic("X").unwrap();
@@ -559,9 +612,10 @@ mod tests {
         assert_eq!(fluid.flash(dt(172.0), &liquid(enforce)), Err(below_triple.into()));
         assert!(fluid.flash(dt(172.0), &liquid(extrapolate)).unwrap().is_extrapolated());
         assert!(!fluid.flash(dt(300.0), &liquid(extrapolate)).unwrap().is_extrapolated());
-        // Without a hint the phase rule needs the fit; outside 200-380 K it is not evaluated under either policy.
+        // Without a hint, outside 200-380 K the fit is not evaluated under either policy (it panics if it is): the
+        // generic VLE of the EOS is asked, and the toy EOS has no loop there.
         for (t, opts) in [(172.0, extrapolate), (190.0, enforce), (190.0, extrapolate)] {
-            assert_eq!(fluid.flash(dt(t), &opts), Err(Error::Unsupported { pair: Pair::DT }));
+            assert_eq!(fluid.flash(dt(t), &opts), Err(Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 }));
         }
         assert_eq!(fluid.flash(dt(300.0), &enforce).unwrap().phase(), Phase::Liquid);
 
@@ -572,8 +626,9 @@ mod tests {
         let summary = batch::evaluate(&fluid, &req, &mut out, &mut status).unwrap();
         assert_eq!((status, summary.failed_cells), ([Status::Extrapolated, Status::Ok], 0));
 
-        // Real Water (PLAN.md M5.3): supercooled liquid at 260 K is refused by default, flagged under `Extrapolate`
-        // with a liquid hint, and without a hint not evaluated at all, because the superancillary starts at 273.16 K.
+        // Real Water (PLAN.md M5.3): supercooled liquid at 260 K is refused by default and flagged under `Extrapolate`
+        // with a liquid hint. Without a hint the superancillary, which starts at 273.16 K, is not evaluated: the EOS's
+        // own VLE gives psat 222.6 Pa there (M7.2), and 55 000 mol/m³ lies just inside its dome, 55 500 above it.
         #[cfg(feature = "fluids-all")]
         {
             let water = embedded("Water");
@@ -582,7 +637,14 @@ mod tests {
             assert_eq!(water.flash(input, &enforce), Err(below.into()));
             let supercooled = water.flash(input, &liquid(extrapolate)).unwrap();
             assert!(supercooled.is_extrapolated() && supercooled.phase() == Phase::Liquid);
-            assert_eq!(water.flash(input, &extrapolate), Err(Error::Unsupported { pair: Pair::DT }));
+            let wet = water.flash(input, &extrapolate).unwrap();
+            assert_eq!(
+                (wet.phase(), wet.path().strategy, wet.is_extrapolated()),
+                (Phase::TwoPhase, Strategy::Vle, true)
+            );
+            assert!(wet.quality().is_some_and(|q| q < 1e-7) && (wet.p() / 222.557 - 1.0).abs() < 1e-5, "{wet:?}");
+            let denser = Input::dt(Density::molar(55_500.0).unwrap(), Temperature::new(260.0).unwrap());
+            assert_eq!(water.flash(denser, &extrapolate).map(|s| s.phase()), Ok(Phase::Liquid));
         }
     }
 
@@ -794,6 +856,88 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// ROT-080 (map 03 §6 "PT near saturation"): one rule at every T. CoolProp's PT of Water at its saturation pressure
+    /// answers liquid at 305 K (its p-based rule below 0.9 T_triple + 0.1 Tc) and throws at 315 K. Here, at 305 K and
+    /// 315 K alike, p = psat has two roots, and `Strict` returns both densities (ascending: ρ″, then ρ′), as does
+    /// `Stable` (at psat neither is more stable); `Nearest` and an imposed phase pick one; one float above or below
+    /// psat, the stable root is the only answer.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn pt_at_saturation_is_ambiguous_under_strict() {
+        let water = embedded("Water");
+        let curve = record_of("Water").superancillary_curve().unwrap();
+        let with = |p, t, opts: FlashOptions| water.flash(pt(p, t), &opts);
+        for t in [305.0, 315.0] {
+            let sat = curve.at_t(t).unwrap();
+            let p = sat.bubble.p;
+            let Err(Error::Ambiguous { roots }) = water.state(pt(p, t)) else {
+                panic!("{t} K: {:?}", water.state(pt(p, t)))
+            };
+            let &[vapour, liquid] = roots.as_slice() else { panic!("{roots:?}") };
+            let near = |got: f64, want: f64| (got / want - 1.0).abs() < 1e-9;
+            assert!(near(liquid, sat.bubble.rho) && near(vapour, sat.dew.rho), "{t} K: {roots:?} against {sat:?}");
+            assert_eq!(with(p, t, FlashOptions::new().with_roots(RootPolicy::Stable)), Err(Error::Ambiguous { roots }));
+            let nearest = |x| with(p, t, FlashOptions::new().with_roots(RootPolicy::Nearest(x))).unwrap();
+            let (l, v) = (nearest(1.1 * liquid), nearest(0.0));
+            assert_eq!(
+                (l.rho(Basis::Molar), l.phase(), v.rho(Basis::Molar), v.phase()),
+                (liquid, Phase::Liquid, vapour, Phase::Gas)
+            );
+            let imposed = |phase| with(p, t, FlashOptions::new().with_phase(phase)).unwrap().rho(Basis::Molar);
+            assert!(near(imposed(Phase::Liquid), liquid) && near(imposed(Phase::Gas), vapour), "{t} K");
+            let (above, below) = (f64::from_bits(p.to_bits() + 1), f64::from_bits(p.to_bits() - 1));
+            let phase = |p| water.state(pt(p, t)).map(|s| s.phase());
+            assert_eq!((phase(above), phase(below)), (Ok(Phase::Liquid), Ok(Phase::Gas)), "{t} K");
+        }
+    }
+
+    /// ROT-073 (map 03 §6): CoolProp's imposed two-phase DT of Water at 1000 mol/m³ and 400 K throws "rhomolar is less
+    /// than zero" (stale SatL/SatV). Here it is the lever rule on the saturation at T: QT's state at its quality, and
+    /// the same as without the hint, since the phase rule finds the dome too.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn imposed_two_phase_dt_matches_qt() {
+        let water = embedded("Water");
+        let imposed = water.flash(dt(1000.0, 400.0), &FlashOptions::new().with_phase(Phase::TwoPhase)).unwrap();
+        let qt = water.state(q_t(imposed.quality().unwrap(), 400.0)).unwrap();
+        let m = Basis::Molar;
+        let pairs =
+            [(imposed.p(), qt.p()), (imposed.h(m), qt.h(m)), (imposed.s(m), qt.s(m)), (imposed.rho(m), qt.rho(m))];
+        for (got, want) in pairs {
+            assert!((got - want).abs() <= 1e-12 * want.abs(), "{got} against {want}");
+        }
+        assert_eq!(imposed, water.state(dt(1000.0, 400.0)).unwrap());
+    }
+
+    /// map 01 §8 (an identity no oracle is needed for): (∂g/∂T)_p = −s for Water's PT state at 300 K and 1 atm, where
+    /// CoolProp 8.0.0 gives −393.0620684404547 J/kg/K (and −393.0620684404549 by the identity).
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn water_dg_dt_at_constant_p_equals_minus_s() {
+        let state = embedded("Water").state(pt(101_325.0, 300.0)).unwrap();
+        let dg_dt = state.partial(Partial { of: DerivVar::Gmass, wrt: DerivVar::T, at: DerivVar::P }).unwrap();
+        assert!((dg_dt / -state.s(Basis::Mass) - 1.0).abs() < 1e-14, "{dg_dt} and {}", state.s(Basis::Mass));
+        assert!((dg_dt / -393.062_068_440_454_7 - 1.0).abs() < 1e-12, "{dg_dt}");
+    }
+
+    /// map 03 §6 "Inconsistent range policy": CoolProp's PT accepts Water at 3000 K and at 1e5 K (its Tmax is 2000 K)
+    /// and fails at 5 GPa inside its melting-line evaluator rather than on pmax. Here one domain rule serves every pair:
+    /// above Tmax or pmax PT is refused under `Enforce` with DT's and QT's errors, and flagged under `Extrapolate`.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn pt_range_is_one_rule() {
+        let water = embedded("Water");
+        let hot = DomainError::AboveMaxTemperature { t: 3000.0, t_max: 2000.0 };
+        assert_eq!((water.state(pt(1e6, 3000.0)), water.state(dt(40.0, 3000.0))), (Err(hot.into()), Err(hot.into())));
+        let far = DomainError::AboveMaxTemperature { t: 1e5, t_max: 2000.0 };
+        assert_eq!(water.state(pt(1e6, 1e5)), Err(far.into()));
+        assert_eq!(water.state(pt(5e9, 1000.0)), Err(DomainError::AboveMaxPressure { p: 5e9, p_max: 1e9 }.into()));
+        let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
+        let flagged = water.flash(pt(1e6, 3000.0), &extrapolate).unwrap();
+        assert!(flagged.is_extrapolated() && flagged.phase() == Phase::SupercriticalGas, "{flagged:?}");
+        assert!((flagged.p() / 1e6 - 1.0).abs() < 1e-15);
     }
 
     /// ROT-078, DIV-0012 (map 12 §6.3, #3394): Water at 250 K, below its 273.16 K triple point, is refused; CoolProp
