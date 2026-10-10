@@ -1,0 +1,37 @@
+# fixture: phasekit-bench/v1 (VERIFICATION.md §12; written by `cargo xtask bench --record`)
+# machine: intel-core-i7-8700k
+# columns: date,commit,step,bench,fluid,median,unit,cpu,os,rustc,governor
+2026-10-10,b1c5ba4,M6.11,alphar_order2/residual,Methane,554.981,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,alphar_order2/residual,R134a,271.566,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,alphar_order2/residual,Water,5327.063,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,alphar_order2/residual,n-Heptane,168.365,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,alphar_order2/residual,n-Propane,357.061,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,alphar_order2/residual,overhead,31.920,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,dt_flash/dome,Methane,2372.478,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,dt_flash/dome,R134a,1099.667,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,dt_flash/dome,Water,16142.288,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,dt_flash/dome,n-Heptane,1025.358,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,dt_flash/dome,n-Propane,1772.026,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,dt_flash/single,Methane,858.092,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,dt_flash/single,R134a,417.851,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,dt_flash/single,Water,5392.978,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,dt_flash/single,n-Heptane,389.703,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,dt_flash/single,n-Propane,625.613,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,lookup_by_name/alias,R134a,42.819,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,lookup_by_name/cas,R134a,37.869,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,lookup_by_name/name,R134a,43.121,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,pq_superancillary/flash,Methane,1874.359,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,pq_superancillary/flash,R134a,1061.020,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,pq_superancillary/flash,Water,11721.118,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,pq_superancillary/flash,n-Heptane,996.900,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,pq_superancillary/flash,n-Propane,1477.826,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,properties_at_t_rho/dt_h_cp,Methane,857.365,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,properties_at_t_rho/dt_h_cp,R134a,426.534,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,properties_at_t_rho/dt_h_cp,Water,5425.271,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,properties_at_t_rho/dt_h_cp,n-Heptane,391.514,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,properties_at_t_rho/dt_h_cp,n-Propane,637.625,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,qt_superancillary/flash,Methane,1584.844,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,qt_superancillary/flash,R134a,770.841,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,qt_superancillary/flash,Water,11358.655,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,qt_superancillary/flash,n-Heptane,710.163,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,b1c5ba4,M6.11,qt_superancillary/flash,n-Propane,1175.398,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
