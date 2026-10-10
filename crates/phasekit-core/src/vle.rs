@@ -30,9 +30,10 @@ const GATE: f64 = 1e-10;
 /// it there is taken even if it does not lower it, and Newton may stop there ([`converged`]).
 const FLOOR: f64 = 1e-13;
 
-/// The domain check allows densities this far above the model's largest density, its triple-point liquid's: water's
-/// and heavy water's saturated liquids are denser just above the triple point (by up to 1.3e-4 and 5.4e-4, their
-/// density maximum), and other seeds sit a few ulp above it there.
+/// The domain check allows densities this far above the model's largest density. That was its triple-point liquid's
+/// until M7.1, which water's and heavy water's saturated liquids exceed just above the triple point (by up to 1.3e-4
+/// and 5.4e-4, their density maximum); it is ρ(T_min, p_max) since, far above every saturated liquid, and the margin
+/// stays for a seed a little past it.
 const RHO_MAX_MARGIN: f64 = 1.01;
 
 /// The largest change of ln ρ in one step, and of T relative.
@@ -547,8 +548,8 @@ mod tests {
     #[cfg(feature = "fluids-all")]
     /// Near the critical point the residual reaches its rounding floor at once and Newton's steps are that rounding
     /// divided by a small stiffness, never below `STEP_TOL`: converged at the floor once they stop shrinking (M6.4;
-    /// these ran out of iterations before). And at 277 K water's saturated liquid is denser than its triple-point
-    /// liquid, the model's `rho_max`.
+    /// these ran out of iterations before). And at 277 K, water's density maximum, where its saturated liquid is denser
+    /// than its triple-point liquid (the model's `rho_max` until M7.1).
     #[test]
     fn vle_converges_near_the_critical_point_and_at_waters_density_maximum() {
         let (record, fluid) = model("Water");
@@ -563,7 +564,7 @@ mod tests {
             assert!(at_p(eos, solved.dew.p, seed).is_ok(), "Θ = {theta} at p");
         }
         let sat = curve.at_t(277.0).unwrap();
-        assert!(sat.bubble.rho > eos.rho_max(277.0));
+        assert!(sat.bubble.rho > curve.at_t(273.16).unwrap().bubble.rho);
         let solved = at_t(eos, 277.0, (sat.bubble.rho, sat.dew.rho)).unwrap();
         assert!((solved.bubble.rho / sat.bubble.rho - 1.0).abs() < 1e-12, "{solved:?}");
     }

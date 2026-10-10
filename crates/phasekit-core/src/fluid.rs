@@ -84,7 +84,7 @@ fn ready<T: Send + 'static>(value: T) -> Lazy<T> {
 
 /// Input pairs the core flash implements at this milestone. Grows M5 → M7 so every milestone is green
 /// (Verification-first): undeclared pairs are refused with `Unsupported`.
-const IMPLEMENTED: Capabilities = Capabilities::none().with(Pair::DT).with(Pair::QT).with(Pair::PQ);
+const IMPLEMENTED: Capabilities = Capabilities::none().with(Pair::DT).with(Pair::PT).with(Pair::QT).with(Pair::PQ);
 
 /// The package of a pure or pseudo-pure Helmholtz fluid: identity, EOS (any family), limits, critical point
 /// and parts materialised on first use (saturation curve, transport). Immutable; shared through `Arc`.
@@ -383,8 +383,8 @@ mod tests {
         let before = (state, read(&state));
         // Above the 420 K limit, and a pair the toy model does not declare.
         assert!(matches!(fluid.flash(dt(500.0), &liquid), Err(Error::Domain(_))));
-        let pt = Input::pt(Pressure::new(1e6).unwrap(), Temperature::new(300.0).unwrap());
-        assert_eq!(fluid.flash(pt, &liquid), Err(Error::Unsupported { pair: Pair::PT }));
+        let hs = Input::hs(Enthalpy::molar(1e4).unwrap(), Entropy::molar(10.0).unwrap());
+        assert_eq!(fluid.flash(hs, &liquid), Err(Error::Unsupported { pair: Pair::HS }));
         assert_eq!((state, read(&state)), before);
         let again = fluid.flash(dt(300.0), &liquid).unwrap();
         assert_eq!((again, read(&again)), before, "the handle carries nothing over from the failure");

@@ -107,8 +107,8 @@ fn registry_and_flash_reach_the_new_family() {
     assert!((state.cv(Basis::Molar).unwrap() - 1.5 * R).abs() < 1e-12);
     fd_first_order(fluid.model().helmholtz().unwrap(), t, rho, 1e-6, 1e-8).unwrap();
     // Undeclared pairs are refused, never `todo!`.
-    let pt = Input::new(Pair::PT, 1e5, t, Basis::Molar).unwrap();
-    assert_eq!(fluid.flash(pt, &FlashOptions::default()).unwrap_err(), Error::Unsupported { pair: Pair::PT });
+    let hs = Input::new(Pair::HS, 1e3, 10.0, Basis::Molar).unwrap();
+    assert_eq!(fluid.flash(hs, &FlashOptions::default()).unwrap_err(), Error::Unsupported { pair: Pair::HS });
 }
 
 /// S-10 / E18: below Tc a family with no saturation curve needs the generic VLE (M6). Until then the core
@@ -322,8 +322,8 @@ fn compat_strings_reach_the_new_family() {
     let p = reg.get("vdW-Argon").unwrap().state(dt(rho, t)).unwrap().p();
     assert_eq!(props_si_in(&reg, "P", "T", t, "Dmolar", rho, "vdW-Argon").unwrap(), p);
     assert_eq!(props_si_in(&reg, "P", "Dmolar", rho, "T", t, "HEOS::vdw").unwrap(), p);
-    let refused = props_si_in(&reg, "P", "P", 1e5, "T", t, "vdw");
-    assert_eq!(refused, Err(CompatError::Core(Error::Unsupported { pair: Pair::PT })));
+    let refused = props_si_in(&reg, "P", "H", 1e3, "T", t, "vdw");
+    assert_eq!(refused, Err(CompatError::Core(Error::Unsupported { pair: Pair::HT })));
 }
 
 #[test]
