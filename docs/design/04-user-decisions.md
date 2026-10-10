@@ -277,3 +277,14 @@ Table 1 constants: 12 cells miss their printed digits, 11 h″ by up to 2.7 half
 | # | Question | Decision | Notes |
 |---|---|---|---|
 | H4 | How Table 4 holds the shipped model | **Its own `Measured` 2e-6 in DIV-0005 (1.05e-6 rounded up to one digit), beside Table 3's 5e-7: each cell within its printed digits or within 2e-6 of the printed value; Helium's saturation arbiter `Inconsistent { residual: 3.5e-6 }`, the worst cell beyond its digits with the paper's constants** | Register entries gain per-table tolerances for this. Rejected: one tolerance of 2e-6 for both tables (Table 3 held looser than its measured 5e-7). |
+
+## The MSRV (2026-10-10)
+
+Asked during M7.1, when a test could not use `f64::next_up` (stable since 1.86) under the workspace MSRV 1.85. The MSRV
+never limited tooling: development, lints and CI already use the latest stable (1.99.0); it limits only the language
+and library features the source may use. 1.85 was chosen as the edition-2024 floor, Debian 13's packaged rustc and the
+Linux kernel's minimum (dependencies R3, open question 1).
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| MS1 | Raise the workspace MSRV? | **1.89, workspace-wide, now** | Concrete features (D17): let-chains (1.88), `f64::next_up`/`next_down` (1.86), and every test builds and runs on it, num-dual's (1.89) included, so the `msrv` CI job runs G3 and the doctests instead of `check --lib`; M12's SIMD needed 1.89 anyway. Users building with Debian 13's packaged 1.85 need rustup or trixie-backports: "users using rustup is fine, it is a common practice in rust development". Rejected: keeping 1.85, a rolling "stable minus N" policy, tracking the latest stable. Its own PR, after the step PRs in flight. |
