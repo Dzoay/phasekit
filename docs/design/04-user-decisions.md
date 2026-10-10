@@ -277,3 +277,13 @@ Table 1 constants: 12 cells miss their printed digits, 11 h″ by up to 2.7 half
 | # | Question | Decision | Notes |
 |---|---|---|---|
 | H4 | How Table 4 holds the shipped model | **Its own `Measured` 2e-6 in DIV-0005 (1.05e-6 rounded up to one digit), beside Table 3's 5e-7: each cell within its printed digits or within 2e-6 of the printed value; Helium's saturation arbiter `Inconsistent { residual: 3.5e-6 }`, the worst cell beyond its digits with the paper's constants** | Register entries gain per-table tolerances for this. Rejected: one tolerance of 2e-6 for both tables (Table 3 held looser than its measured 5e-7). |
+
+## The performance reference machine after the move (2026-10-10)
+
+Asked when work moved from the dev box to another, less powerful machine. P3 named the dev box (i7-8700K) as the
+machine on which ARCHITECTURE.md §7's absolute targets are checked from M9; the C++ baseline and the recorded benches
+are both keyed by CPU model, so the two machines' files never mix.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| RM1 | Does the new machine replace the dev box as the performance reference? | **No: the i7-8700K dev box stays the reference machine, for now** | "this box can remain the reference for now". The new machine records its own C++ baseline (`cargo xtask baseline`, `coolprop-8.0.0-<machine>.csv`) in its own PR before it records any bench; its benches go to `results/<milestone>-<machine>.csv`, and a PR compares them with that machine's baseline only. The §7 targets stay absolute and are checked on the dev box at each milestone close from M9. To be revisited if the dev box goes. |
