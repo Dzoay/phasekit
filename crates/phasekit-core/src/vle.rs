@@ -220,8 +220,8 @@ pub(crate) fn from_eos(eos: &dyn HelmholtzModel, t: f64, rho_c: f64) -> Result<S
     // Strictly between the spinodal pressures: at either one a side's root is its spinodal, where (∂p/∂ρ)_T = 0.
     let p_hi = mech(vapour)[0] * (1.0 - 1e-9);
     let p_lo = mech(liquid)[0].max(1e-40 * p_hi) * (1.0 + 1e-9);
-    if !(p_lo < p_hi) {
-        return Err(failed(0));
+    if p_lo.partial_cmp(&p_hi) != Some(core::cmp::Ordering::Less) {
+        return Err(failed(0)); // the spinodal pressures out of order, or not numbers
     }
     let sides = |p: f64| {
         let ideal = p / rt;
