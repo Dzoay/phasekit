@@ -847,10 +847,11 @@ def sat(CP, lock, config, files, args):
 
 # The `flash` kind (section 3.5): pairs read off truth states, never density bands (map 12 section 6.4). Since M5.3
 # the DT rows: a truth state on the (log p, T) grid or the (T, Q) grid, its density and T, and CoolProp's DT flash of
-# them with no phase imposed. Q is nan for a single phase (CoolProp's -1 sentinel, ROT-013, and its Q = 1 on a
-# pseudo-pure gas); `phase` is CoolProp's name.
+# them with no phase imposed. Since M7.1 the PT rows: each (p, T) truth itself, CoolProp's PT flash of its own inputs,
+# ahead of its DT row. x1 and x2 are the pair's inputs in SI molar units (DT: mol/m3, K; PT: Pa, K). Q is nan for a
+# single phase (CoolProp's -1 sentinel, ROT-013, and its Q = 1 on a pseudo-pure gas); `phase` is CoolProp's name.
 FLASH_COLUMNS = ["pair", "x1", "x2", "truth", "status", "T", "rho", "p", "h", "s", "u", "Q", "phase"]
-FLASH_UNITS = ["-", "mol/m3", "K", "-", "-", "K", "mol/m3", "Pa", "J/mol", "J/mol/K", "J/mol", "-", "-"]
+FLASH_UNITS = ["-", "pair", "K", "-", "-", "K", "mol/m3", "Pa", "J/mol", "J/mol/K", "J/mol", "-", "-"]
 FLASH_TOL = ["label", "in", "in", "label", "label", *["flash"] * 7, "label"]
 FLASH_GRID = {"core": (6, 4), "all": (0, 4), "full": (40, 20)}  # PT points per axis, QT points per axis
 FLASH_PHASES = {"phase_liquid": "liquid", "phase_gas": "gas", "phase_twophase": "twophase",
@@ -894,9 +895,15 @@ def flash_truths(CP, name, n_pt, n_qt):
     return truths
 
 
+def flash_phase(CP, state):
+    """CoolProp's name of the phase of `state`."""
+    return next((v for k, v in FLASH_PHASES.items() if CP.get_phase_index(k) == state.phase()), "other")
+
+
 def flash_rows(job):
-    """One fluid's DT rows, in a pool child: each truth state's (rho, T), then a fresh `AbstractState` DT flash. A truth
-    the oracle cannot make (a PT point below the melting line, say) is skipped; a failed DT flash is a status."""
+    """One fluid's rows, in a pool child: for a (p, T) truth its PT row (the truth state as CoolProp's PT flash left it),
+    then for every truth its (rho, T) and a fresh `AbstractState` DT flash. A truth the oracle cannot make (a PT point
+    below the melting line, say) is skipped; a failed DT flash is a status."""
     import CoolProp.CoolProp as CP  # the parent's module, inherited through fork
 
     name, n_pt, n_qt = job
@@ -911,10 +918,15 @@ def flash_rows(job):
                 rho, t = state.rhomolar(), state.T()
         except Exception:  # noqa: BLE001 - no truth state there; nothing to read off
             continue
+        if truth == "PT":
+            values = [state.T(), rho, state.p(), state.hmolar(), state.smolar(), state.umolar(), math.nan]
+            floats.extend([v1, v2, *values])
+            lines.append(",".join(["PT", cell(v1), cell(v2), truth, "ok", *map(cell, values), flash_phase(CP, state)])
+                         + "\n")
         try:
             state = CP.AbstractState("HEOS", name)
             state.update(CP.DmolarT_INPUTS, rho, t)
-            phase = next((v for k, v in FLASH_PHASES.items() if CP.get_phase_index(k) == state.phase()), "other")
+            phase = flash_phase(CP, state)
             # Q of a two-phase state only: CoolProp leaves Q = 1 on a gas its pseudo-pure VLE path labels (M6.9), a
             # sentinel like its -1 (ROT-013).
             q = state.Q() if phase == "twophase" else math.nan
@@ -928,9 +940,9 @@ def flash_rows(job):
 
 
 def flash(CP, lock, config, files, args):
-    """The `flash` kind (section 3.5), DT rows (M5.3): flash/<Fluid>.csv for each core fluid (6 x 6 PT + 4 x 4 QT
-    truths) and the full set (40 x 40 + 20 x 20); all/flash.csv holds the six pseudo-pure fluids' 4 x 4 `dome` truths
-    (M6.9)."""
+    """The `flash` kind (section 3.5), DT rows (M5.3) and PT rows (M7.1): flash/<Fluid>.csv for each core fluid (6 x 6
+    PT + 4 x 4 QT truths) and the full set (40 x 40 + 20 x 20); all/flash.csv holds the six pseudo-pure fluids' 4 x 4
+    `dome` truths (M6.9)."""
     n_pt, n_qt = FLASH_GRID[args.tier]
     names = tier_fluids(args, files)
     if args.tier == "all":
@@ -938,8 +950,8 @@ def flash(CP, lock, config, files, args):
     shas = {name: assert_fluid(CP, files, name) for name in names}
     results = pool_map(flash_rows, [(name, n_pt, n_qt) for name in names], args.jobs)
     grid = (f"truth PT {n_pt}x{n_pt} T~[Tlow,Tmax] log p~[max(ptriple,1 Pa),pmax]; truth QT {n_qt}x{n_qt} "
-            "T~[Tlow,Tc] Q~(0,1), dome for a pseudo-pure fluid (rho on its QT densities); cell centres; pair DT read "
-            "off each truth, no phase imposed")
+            "T~[Tlow,Tc] Q~(0,1), dome for a pseudo-pure fluid (rho on its QT densities); cell centres; pair PT of each "
+            "PT truth, pair DT read off each truth, no phase imposed")
     if args.tier == "all":
         floats = [value for _, values in results for value in values]
         fluids = f"{len(names)} pseudo-pure, fluids_sha256={lock['fluids_sha256']}"

@@ -7,7 +7,7 @@ use phasekit_compat::props_si_in;
 use phasekit_core::{Basis, DataSet, Density, Input, Registry, Temperature};
 use phasekit_verify::{Fixture, fixture};
 
-/// Oracle: CoolProp 8.0.0, the core subset's `flash` DT rows (PLAN.md M5.9). `PropsSI(X, "T", T, "Dmolar", ρ, fluid)`
+/// Oracle: CoolProp 8.0.0, the core subset's `flash` DT rows (PLAN.md M5.9; the PT rows beside them since M7.1 aside). `PropsSI(X, "T", T, "Dmolar", ρ, fluid)`
 /// and the swapped `PropsSI(X, "Dmolar", ρ, "T", T, fluid)` for X = P, Hmolar, Smolar, Hmass are the typed DT flash's
 /// values bit for bit, refusals included, and that flash matches the oracle on these rows (`dt_two_phase_matches_oracle`
 /// in tests/flash.rs, class `Flash`); a direct comparison of p closes the chain within class `Flash`.
@@ -24,7 +24,7 @@ fn props_si_dt_matches_oracle() {
         let fixture = Fixture::parse(path, text).unwrap();
         let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
         let fluid = registry.get(name).unwrap();
-        for row in 0..fixture.rows().len() {
+        for row in (0..fixture.rows().len()).filter(|&row| fixture.printed(row, "pair") == Some("DT")) {
             let (rho, t) = (fixture.value(row, "x1").unwrap(), fixture.value(row, "x2").unwrap());
             let typed = fluid.state(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap()));
             for (key, prop) in [

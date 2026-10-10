@@ -137,8 +137,8 @@ pub struct EosRecord {
     pub gas_constant: f64,
     pub t_reducing: f64,
     pub rho_reducing: f64,
-    /// Upper molar-density bound for root bracketing. Datagen's bound is provisional: the EOS's saturated-liquid
-    /// density at T_min (`STATES.sat_min_liquid`), until M7.1 can solve ρ(T_min, p_max) *(inference)*.
+    /// Upper molar-density bound for root bracketing: the EOS's liquid density at (T_min, p_max), which datagen solves
+    /// above the saturated liquid at T_min (`STATES.sat_min_liquid`, its provisional bound until M7.1).
     pub rho_max: f64,
     /// CoolProp's Power and Exponential kinds.
     pub power: Vec<PowerTerm>,

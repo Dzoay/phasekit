@@ -68,10 +68,21 @@ pub fn to_record(source: &super::Source) -> Result<FluidRecord, String> {
     fluid_record.melting = melting(&fluid.ancillaries).map_err(|e| at(&format!("ANCILLARIES.melting_line: {e}")))?;
     fluid_record.pseudo_pure = pseudo_pure(fluid, eos).map_err(|e| at(&e))?;
     check_constants(&fluid_record).map_err(|e| at(&e))?;
+    fluid_record.eos.rho_max = largest_density(&fluid_record).map_err(|e| at(&e))?;
     if let Some(sa) = fluid_record.superancillary.clone() {
         fluid_record.caloric = Some(super::caloric::curves(&fluid_record, &sa).map_err(|e| at(&e))?);
     }
     Ok(fluid_record)
+}
+
+/// The model's largest density (PLAN.md M7.1): its liquid's at (T_min, p_max), solved above CoolProp's saturated
+/// liquid at T_min, which the record carries until then (M2.3). Liquids contract as they cool, so every state of the
+/// domain is below it; water's density maximum at 4 °C lies at low pressure, far below p_max.
+fn largest_density(record: &FluidRecord) -> Result<f64, String> {
+    let fluid = record.clone().compile().map_err(|e| e.to_string())?;
+    let (t, p, lo) = (record.limits.t_min(), record.limits.p_max(), record.eos.rho_max);
+    phasekit_core::internal::liquid_density_above(fluid.eos(), t, p, lo)
+        .map_err(|e| format!("ρ(T_min = {t} K, p_max = {p} Pa) above {lo} mol/m³: {e:?}"))
 }
 
 /// The alternate EOS entries a file carries and datagen does not map, one line each (ROT-041, map 09 R10).

@@ -129,6 +129,25 @@ fn dt_flash_matches_oracle_on_the_nightly_grid() {
     assert_eq!(check.exempt, 40, "DIV-0019: SES36's in-dome p at its two lowest grid temperatures");
 }
 
+/// Oracle: CoolProp 8.0.0, fixtures-full/coolprop-8.0.0/flash/<Fluid>.csv, the PT rows (PLAN.md M7.1): every fluid's
+/// 40 × 40 (p, T) truths, CoolProp's PT flash of its own inputs, as `pt_matches_oracle` checks the core subset's, the
+/// oracle's p, h, s and u exempt (DIV-0020).
+#[test]
+#[ignore = "nightly: reads the full flash set (cargo xtask oracle --kind flash --tier full)"]
+fn pt_flash_matches_oracle_on_the_nightly_grid() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut check = FlashCheck::default();
+    for f in phasekit_data::FLUIDS {
+        let path = format!("{FULL}/flash/{}.csv", f.name);
+        let text = read(&path);
+        let fixture = Fixture::parse(&path, &text).unwrap();
+        let record = phasekit_core::internal::record(&registry, f.name).unwrap();
+        check.pt_rows(&fixture, registry.get(f.name).unwrap(), &record);
+    }
+    assert_eq!(check.report(50), None);
+    assert!(check.compared > 136 * 1500 && check.exempt == 4 * check.compared, "{check:?}");
+}
+
 /// The same over every fluid with a superancillary, from the nightly's `cargo xtask fetch-fastchebpure --all`
 /// (PLAN.md M6.4, the M6 exit gate's nightly part; 204 050 rows): the measured constants at most 0.39 and 0.38 (here
 /// 1); Chlorine's last row unsplit (Θ = 2.45e-7, the file's ρ′ = ρ″ between rows with a 5 % split); PropyleneGlycol's

@@ -1,9 +1,10 @@
 //! L4 flash (VERIFICATION.md §3.5 `flash`, §8.2): pairs read off truth states, never density bands (map 12 §6.4),
-//! against CoolProp's flash of the same inputs. Since M5.3 the DT pair, below the critical temperature included.
+//! against CoolProp's flash of the same inputs. Since M5.3 the DT pair, below the critical temperature included; since
+//! M7.1 PT.
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::{DataSet, Registry};
+use phasekit_core::{DataSet, DomainError, Error, Phase, Prop, Registry, math};
 use phasekit_verify::flash::FlashCheck;
 use phasekit_verify::{Fixture, fixture};
 
@@ -46,6 +47,60 @@ fn dt_two_phase_matches_oracle() {
     // 14 × 36 PT truths and 14 × 16 QT truths, the pseudo-pure Air's and R410A's `dome` truths (M6.9), of which two
     // of Air's are gas.
     assert_eq!((check.two_phase, check.compared), (12 * 16 + 30, 14 * 36 + 14 * 16));
+}
+
+/// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/flash/<Fluid>.csv, the PT rows (PLAN.md M7.1): each core fluid's 6 × 6
+/// (p, T) truths, CoolProp's PT flash of its own inputs. Phase and ρ match, ρ within `Flash`. The oracle's p, h, s and u
+/// are exempt (DIV-0020): it reports them at its solver's last iterate, not at its ρ. phasekit's p is the input
+/// (`pt_round_trips_on_a_40x40_log_p_t_grid`) and its h, s and u are its DT's at that ρ, which the DT row of the same
+/// truth checks against the oracle's DT (`dt_two_phase_matches_oracle`).
+#[test]
+fn pt_matches_oracle() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut check = FlashCheck::default();
+    for (path, text) in FLASH_CORE {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
+        let record = phasekit_core::internal::record(&registry, name).unwrap();
+        check.pt_rows(&fixture, registry.get(name).unwrap(), &record);
+    }
+    assert_eq!(check.report(20), None);
+    assert_eq!((check.two_phase, check.compared, check.exempt), (0, 14 * 36, 4 * 14 * 36));
+}
+
+/// PLAN.md M7.1 (ROT-074's round trips), class `Flash`: PT of each core fluid on a 40 × 40 grid, the cell centres of T
+/// in [max(Tmin, Ttriple), Tmax] and of log p in [1 Pa, pmax], round-trips (`FlashCheck::pt_round_trip`): DT at its
+/// (ρ, T) gives the same phase, and its p is the input's within `Flash`. Every point flashes but two, refused by typed
+/// errors where CoolProp refuses too: Air at 84.0 K and 171 kPa lies between its dew and bubble pressure ancillaries,
+/// two-phase, where (p, T) fix no quality; Methanol at 181.2 K and 619 MPa, deep below its melting line (236 K there),
+/// has cv < 0 on its EOS (above 500 MPa at that T), which the acceptance gate refuses.
+#[test]
+fn pt_round_trips_on_a_40x40_log_p_t_grid() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut check = FlashCheck::default();
+    let mut refused = Vec::new();
+    let centre = |k: usize| (k as f64 + 0.5) / 40.0;
+    for (path, text) in FLASH_CORE {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
+        let record = phasekit_core::internal::record(&registry, name).unwrap();
+        let limits = record.limits;
+        let t_low = limits.t_triple().map_or(limits.t_min(), |t| t.max(limits.t_min()));
+        for i in 0..40 {
+            let t = t_low + (limits.t_max() - t_low) * centre(i);
+            for j in 0..40 {
+                let p = math::exp(math::ln(limits.p_max()) * centre(j));
+                if let Err(e) = check.pt_round_trip(name, (registry.get(name).unwrap(), &record), (p, t)) {
+                    refused.push((name, (p.round(), (t * 1e3).round() / 1e3), e));
+                }
+            }
+        }
+    }
+    assert_eq!(check.report(20), None);
+    let two_phase = Error::Undefined { prop: Prop::Q, phase: Phase::TwoPhase };
+    let unstable = Error::Domain(DomainError::MechanicallyUnstable);
+    assert_eq!(refused, [("Air", (170_541.0, 84.003), two_phase), ("Methanol", (619_157_820.0, 181.165), unstable)]);
+    assert_eq!(check.compared, 14 * 1600 - 2);
 }
 
 /// VERIFICATION.md §3.2, §11.3: the `flash` files come from the pinned runner image, like every committed oracle

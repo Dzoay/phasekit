@@ -111,7 +111,13 @@ pub mod internal {
         seed: f64,
         liquid: bool,
     ) -> Result<f64, crate::Error> {
-        crate::density::at_t_p(eos, t, p, seed, liquid)
+        crate::density::at_t_p(eos, t, p, seed, liquid).map(|(rho, _)| rho)
+    }
+
+    /// The liquid density of a Helmholtz model at (T, p) above `lo`, a liquid density below p (PLAN.md M7.1: datagen's
+    /// `rho_max`, ρ(T_min, p_max)).
+    pub fn liquid_density_above(eos: &dyn crate::HelmholtzModel, t: f64, p: f64, lo: f64) -> Result<f64, crate::Error> {
+        crate::density::liquid_above(eos, t, p, lo).map(|(rho, _)| rho)
     }
 
     /// The numerical critical point (T, ρ, p) of a Helmholtz model near a guess (PLAN.md M6.7).

@@ -965,7 +965,16 @@ bands (map 03 §8; map 10 §8.5 L4).
   §6), `a_guess_changes_no_output` (every `Prop`, with and without `with_guess`; map 01 R6). *Do:* add the `flash`
   kind's PT rows to gen.py; Newton on `residual + IDEAL_DELTA`, bracketed by ρ′/ρ″ and `rho_max(T)`, acceptance (inputs
   reproduced, in domain, dp/dρ > 0, cv > 0 unless a phase is imposed); datagen's provisional `rho_max` (the saturated
-  liquid density at T_min, M2.3) becomes ρ(T_min, p_max) from this solver. *Done when:* green.
+  liquid density at T_min, M2.3) becomes ρ(T_min, p_max) from this solver. *Done when:* green. Measured at M7.1:
+  the 40 × 40 grids of the 14 core fluids round-trip (22 398 states). Two points are refused by typed errors, as
+  CoolProp refuses them: Air at 84 K and 171 kPa lies between its pressure ancillaries, and Methanol at 181 K and
+  619 MPa, far below its melting line, has cv < 0 on its EOS. CoolProp's PT reports p, h, s and u at its solver's last
+  iterate, not at the density it returns: p 7.9e-9 off for Nitrogen at 107 MPa (26 of the 504 core rows more than 1e-9
+  off), and on the nightly's grids h, s and u up to 6.3e-9 off its own DT at that density. Its ρ agrees within `Flash`,
+  so its p, h, s and u are exempt (DIV-0020). R123's EOS turns back at 166 K beyond 1.1 times its
+  saturated liquid's density, so datagen grows the `rho_max` bracket in 5 % steps. One more fix: a first partial
+  differentiated by a quantity it holds in another basis, (∂T/∂u)_u_mass, gave the ratio of two rounding errors; it is
+  `Undefined` now, and (∂X/∂Y)_X is exactly 0 in any basis.
 - **M7.2 PT and DT phase rule complete.** *Failing tests:* `pt_at_saturation_is_ambiguous_under_strict`
   (`Ambiguous { roots: [ρ′, ρ″] }` at Water 305 K and 315 K at p_sat; `Nearest` and `with_phase` pick one; map 03 §6
   "PT near saturation"), `imposed_two_phase_dt_matches_qt`, `water_dg_dt_at_constant_p_equals_minus_s` (300 K, 1 atm:

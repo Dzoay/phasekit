@@ -261,6 +261,35 @@ fn register_cites_reproducible_oracle_facts() {
     assert!(cites(apart(p2, p1), "6.9e-10") && apart(ours[0], p1) > 9e-9, "DIV-0019: {p1} {p2} {ours:?}");
     checked.push("DIV-0019");
 
+    // DIV-0020: in flash/Nitrogen.csv, the oracle's PT row at 107.45 MPa and 1192.98 K reports a p 7.9e-9 off its input
+    // and off the DT row read off it, whose p at the same (T, ρ) is the input to 2.2e-16.
+    let (path, text) = fixture!("coolprop-8.0.0/flash/Nitrogen.csv");
+    let flash = Fixture::parse(path, text).unwrap();
+    let pt = (0..flash.rows().len())
+        .find(|&r| {
+            let near = |column, want: f64| (flash.value(r, column).unwrap() / want - 1.0).abs() < 1e-4;
+            flash.printed(r, "pair") == Some("PT") && near("x1", 107.45e6) && near("x2", 1192.98)
+        })
+        .unwrap();
+    let (input, reported, dt) = (flash.value(pt, "x1").unwrap(), flash.value(pt, "p").unwrap(), pt + 1);
+    assert_eq!((flash.printed(dt, "pair"), flash.value(dt, "x1")), (Some("DT"), flash.value(pt, "rho")));
+    let own = flash.value(dt, "p").unwrap();
+    let apart = |a: f64, b: f64| (a / b - 1.0).abs();
+    assert!(cites(apart(reported, input), "7.9e-9") && cites(apart(reported, own), "7.9e-9"), "DIV-0020: {reported}");
+    assert!(cites(apart(own, input), "2.2e-16"), "DIV-0020: {own}");
+    // Its h too: in flash/Air.csv at 685.58 MPa and 1514.94 K, 6.1e-10 off the DT row read off the same PT row.
+    let (path, text) = fixture!("coolprop-8.0.0/flash/Air.csv");
+    let air = Fixture::parse(path, text).unwrap();
+    let pt = (0..air.rows().len())
+        .find(|&r| {
+            let near = |column, want: f64| (air.value(r, column).unwrap() / want - 1.0).abs() < 1e-4;
+            air.printed(r, "pair") == Some("PT") && near("x1", 685.58e6) && near("x2", 1514.94)
+        })
+        .unwrap();
+    let h = |row| air.value(row, "h").unwrap();
+    assert!(cites(apart(h(pt), h(pt + 1)), "6.1e-10"), "DIV-0020: {} and {}", h(pt), h(pt + 1));
+    checked.push("DIV-0020");
+
     let ids: Vec<&str> = DIVERGENCES.iter().map(|d| d.id).collect();
     assert_eq!(checked, ids, "every register entry has its facts checked");
     for row in facts.rows() {

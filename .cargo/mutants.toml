@@ -28,6 +28,13 @@ exclude_globs = [
 ]
 
 exclude_re = [
+    # Equivalent mutants of the bracketed density solve (PLAN.md M7.1): `pressure < p` follows a return on
+    # `pressure == p`, so `<=` takes the same branch; a zero slope gives a step of ±∞ or NaN, which bisects whether the
+    # guard says `> 0` or `>= 0`; and `liquid_above`'s bracket test differs at `>=` only where p(T, ρ) equals p exactly,
+    # where the solve it hands the bracket to returns that very ρ.
+    "density\\.rs:[0-9]+:[0-9]+: replace < with <= in bracketed",
+    "density\\.rs:[0-9]+:[0-9]+: replace > with >= in bracketed",
+    "density\\.rs:[0-9]+:[0-9]+: replace > with >= in liquid_above",
     # Each gate's `run` gathers its input through `repo` and is exercised by G8, not by unit tests; the rules it
     # applies live in the module's pure functions, which are mutated.
     "replace run -> Verdict",

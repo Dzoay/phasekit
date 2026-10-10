@@ -190,7 +190,7 @@ mod tests {
     /// input key builds its own pair (refused by name where the kernel has no flash for it yet) and basis.
     #[test]
     fn every_key_reaches_its_kernel_name() {
-        use phasekit_core::{Density, Quality, Temperature};
+        use phasekit_core::{Density, Pressure, Quality, Temperature};
         let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
         let water = registry.get("Water").unwrap();
         let dt = |rho| Input::dt(rho, Temperature::new(700.0).unwrap());
@@ -246,8 +246,11 @@ mod tests {
         assert_eq!(props_si_in(&registry, "P", "T", 400.0, "Q", 0.5, "Water"), Ok(at_400));
         let above = props_si_in(&registry, "P", "T", 700.0, "Q", 0.5, "Water");
         assert!(matches!(above, Err(CompatError::Core(Error::Domain(_)))), "{above:?}");
+        // P with T reaches PT (M7.1).
+        let pt = water.state(Input::pt(Pressure::new(0.5).unwrap(), Temperature::new(700.0).unwrap())).unwrap().p();
+        assert_eq!(props_si_in(&registry, "P", "T", 700.0, "P", 0.5, "Water"), Ok(pt));
         // The other inputs with T: their pair, which the kernel refuses by name until its flash lands (M7).
-        let others = [("P", Var::P), ("H", Var::H), ("Hmass", Var::H), ("Hmolar", Var::H)];
+        let others = [("H", Var::H), ("Hmass", Var::H), ("Hmolar", Var::H)];
         let others = others.into_iter().chain([("S", Var::S), ("Smass", Var::S), ("Smolar", Var::S)]);
         for (key, var) in others.chain([("U", Var::U), ("Umass", Var::U), ("Umolar", Var::U)]) {
             let (pair, _) = Pair::from_vars(Var::T, var).unwrap();
