@@ -853,14 +853,14 @@ definition of the subcommands; PLAN.md steps add them in the order of the last c
 | `core-frozen` | section 10 | M11, M14 |
 
 Also per PR: `cargo deny check` (bans incl. `bincode`, `serde_cbor`, and `once_cell` and `lazy_static` as direct
-dependencies; licence allow-list; dependencies §3.4), `reuse lint`, `cargo shear`, MSRV `cargo +1.85 check --lib` for
-core, data and compat (D17). Before a release: `cargo semver-checks` and `cargo about generate` (D14).
+dependencies; licence allow-list; dependencies §3.4), `reuse lint`, `cargo shear`, and G3 on the MSRV, 1.89 (D17, user decision
+MS1; `cargo +1.85 check --lib` for core, data and compat before). Before a release: `cargo semver-checks` and `cargo about generate` (D14).
 
 ### 11.3 CI matrix
 
 | Job | Runner | Runs | Notes |
 |---|---|---|---|
-| fmt, clippy, linux, msrv | x86_64 Linux | `fmt`: G1. `clippy`: G2, G7. `linux`: G3, G8 (`gates all`), and from M0.7 deny, reuse, shear. `msrv`: `cargo +1.85.0 check --lib -p phasekit-core -p phasekit-data -p phasekit-compat` (compat from M5.9) | `linux` fetches `origin/main`, the wasip2 target, wasmtime and cargo-mutants for `gates counts` and `gates mutants`; caches `reference/CoolProp` keyed by its pinned commit and runs `scripts/fetch-coolprop.sh` on a miss (anonymous clone); gungraun from M9 |
+| fmt, clippy, linux, msrv | x86_64 Linux | `fmt`: G1. `clippy`: G2, G7. `linux`: G3, G8 (`gates all`), and from M0.7 deny, reuse, shear. `msrv`: G3 and the doctests on 1.89.0, the workspace `rust-version` (user decision MS1, 2026-10-10; `cargo +1.85.0 check --lib -p phasekit-core -p phasekit-data -p phasekit-compat` until then) | `linux` fetches `origin/main`, the wasip2 target, wasmtime and cargo-mutants for `gates counts` and `gates mutants`; caches `reference/CoolProp` keyed by its pinned commit and runs `scripts/fetch-coolprop.sh` on a miss (anonymous clone); gungraun from M9 |
 | windows | Windows MSVC | G3 with `--exclude phasekit-xtask` (so G6 is a real build) | MSVC CRT transcendentals differ in ulps; the classes absorb it |
 | wasip2 | x86_64 Linux + wasmtime | G4: `cargo nextest run --workspace --exclude phasekit-xtask --target wasm32-wasip2 --profile ci` and `cargo test --doc` likewise, under the `wasmtime` runner set in `.cargo/config.toml` (M0.5) | fixtures via `include_str!`, no filesystem; thread tests compiled out |
 | wasm-browser | x86_64 Linux | G5; `cargo build -p phasekit-core --no-default-features --features fluids-core --target wasm32-unknown-unknown`, baseline and `RUSTFLAGS="-C target-feature=+simd128"`; from M10 also `phasekit-wasm` and the JS smoke test (section 13) | K15 |
