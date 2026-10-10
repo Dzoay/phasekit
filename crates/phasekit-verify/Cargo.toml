@@ -42,5 +42,9 @@ harness = false
 name = "dt"
 harness = false
 
+[[bench]]
+name = "sat"
+harness = false
+
 [lints]
 workspace = true

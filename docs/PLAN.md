@@ -939,7 +939,12 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
   DIV-0005 registers Table 4's own `Measured` 2e-6 beside Table 3's 5e-7 (user decision H4).
 - **M6.11 Saturation benches.** *Failing test:* none (measurement step). *Do:* criterion `qt_superancillary`,
   `pq_superancillary` (target ≤ 0.1 µs; CoolProp 0.45 / 0.64 µs); record SA bytes per fluid (≤ 25 KiB). Close M6: set
-  `MILESTONE = 7`. *Done when:* rows recorded.
+  `MILESTONE = 7`. *Done when:* rows recorded. Measured at M6.11: QT 0.71-1.58 µs and PQ 1.00-1.87 µs (n-Heptane to
+  Methane; Water 11.4 / 11.7 µs), 7 to 19 times the target. The two phases' EOS bundles, which the two-phase `State`
+  builds eagerly, take nearly all of it: Methane's α^r alone is 0.57 µs, Water's 5.3 µs. CoolProp's QT and PQ evaluate
+  only the superancillary. M9.6 meets the target, for instance with a state that defers its bundles, or re-plans it. A
+  decoded superancillary keeps a median 27 472 B, PropyleneGlycol's 39 576 B the most; 97 of the 130 exceed 25 KiB,
+  which M9.7 meets or re-plans.
 
 **Exit gate.** G1-G8; 390/390 mp points; SA (`SaFit`) and VLE (`SatMp`) vs the dense mp files (core subset; all 130 *(nightly)*); stale polish;
 exact rescaling for DIV-0001 and DIV-0003; R410A rows; QT/PQ for 136 fluids (all-fluid tier); IAPWS-95 Table 8 and IR
