@@ -929,7 +929,9 @@ the steps that record each row.
   one-thread time over the N-thread time.
 - **Recording:** `cargo xtask bench --record` writes `crates/phasekit-verify/benches/results/<milestone>-<machine>.csv`
   (date, commit, step, bench, fluid, median, unit, CPU, OS, rustc, governor). At each milestone close the results are
-  compared with the ARCHITECTURE.md §7 table.
+  compared with the ARCHITECTURE.md §7 table. Another machine than the reference machine (PLAN.md §6 P3, user decision
+  RM1) records its own C++ baseline before its first bench and compares its results with that baseline only; the §7
+  targets are checked on the reference machine.
 
 | Bench (one x86-64 core) | Target (ARCHITECTURE.md §7) | Recorded | Enforced | CoolProp 8.0.0 |
 |---|---|---|---|---|

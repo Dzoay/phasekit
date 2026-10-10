@@ -1402,7 +1402,7 @@ from M9.6 `gates perf` enforces gungraun regressions on Linux CI and the referen
 |---|---|---|---|
 | P1 | Shim library file name | phasekit name only (`phasekit_coolproplib.dll`, `libphasekit_coolproplib.so`); MIGRATION.md shows hosts how to point at it | M10.6 |
 | P2 | CI host and remote | GitHub + Actions, public repo `Dzoay/phasekit`; commits use the GitHub no-reply identity only | M0.6 |
-| P3 | Performance reference machine | The dev box (i7-8700K, 6 cores / 12 threads); CPU model recorded with each result | M9.2-M9.5 |
+| P3 | Performance reference machine | The dev box (i7-8700K, 6 cores / 12 threads); CPU model recorded with each result. It stays the reference after work moved to a slower machine (RM1, 2026-10-10), which records against its own C++ baseline | M9.2-M9.5 |
 | P4 | Paywalled EOS papers (Ammonia, CO₂, R125, Air, Nitrogen, HFE143m) | Open: the user will look into cost and access. Until a paper arrives its fluid stays oracle-only, labelled provisional; nothing waits on it | M5.7, then whenever a paper arrives |
 | P5 | Publishing v0.1 | crates.io (core, data, compat) and npm (browser package) under the `Dzoay` accounts via trusted publishing from GitHub Actions; C binaries as release assets; PyPI at M16 | M10.9 |
 | P6 | Shim `set_config_*` | The shim keeps its own process-wide settings and translates every key that has a phasekit equivalent into per-call options on each shim call (e.g. `DONT_CHECK_PROPERTY_LIMITS` → `DomainPolicy::Extrapolate`); other keys are accepted, ignored and listed in MIGRATION.md; nothing reaches the kernel | M10.6 |
