@@ -46,5 +46,9 @@ harness = false
 name = "sat"
 harness = false
 
+[[bench]]
+name = "pt"
+harness = false
+
 [lints]
 workspace = true

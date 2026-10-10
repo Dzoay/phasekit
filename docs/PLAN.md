@@ -983,7 +983,13 @@ bands (map 03 §8; map 10 §8.5 L4).
   "PT near saturation"), `imposed_two_phase_dt_matches_qt`, `water_dg_dt_at_constant_p_equals_minus_s` (300 K, 1 atm:
   −393.0620684404547 J/kg/K, map 01 §8), `pt_range_is_one_rule` (Water 3000 K refused under `Enforce`; map 03 §6).
   *Do:* hint → critical point → curve (`Exact`/`Definition`, `Guess` polished) → VLE. *Done when:* green; PT bench
-  (target ≤ 3 µs) recorded.
+  (target ≤ 3 µs) recorded. Measured at M7.2: at psat, PT on the parent failed with `NoConvergence` (the liquid
+  bracket's end sat on the root, unconfirmed); now both roots, and each bracket reaches 1e-9 past ρ′ and ρ″. Below every
+  curve's fitted range the EOS's own VLE decides (`vle::from_eos`), so the van der Waals family has a dome without a
+  curve. `pt_flash` (PT and h on the C++ baseline's grid): n-Heptane 1.60 µs, R134a 2.28, n-Propane 3.02, Methane 4.51,
+  Water 38.6 µs; CoolProp's C++ 3.4, 5.3, 4.8, 9.7 and 25.1 µs. Water is slower: each Newton step is one α^r (5.3 µs,
+  its non-analytic terms, M9.2a), and from the ideal-gas seed these dense supercritical states take about seven; a
+  better seed and NA1 are M9's.
 - **M7.3 PH, PS, PU.** *Failing tests:* `p_x_round_trips` (from (p, T) truth), `nitrogen_supercritical_cold_ps`
   (86.35 K/4.754 MPa and 90.20 K/7.768 MPa; map 03 §8 PXFlash), `pxcdj_named_regressions` (Water, CO₂, R134a,
   Propane, N₂, MM; map 03 §8), `errors_name_the_failing_strategy`. *Do:* outer T TOMS748 with a warm-started inner

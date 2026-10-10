@@ -887,7 +887,7 @@ mod tests {
             );
             let imposed = |phase| with(p, t, FlashOptions::new().with_phase(phase)).unwrap().rho(Basis::Molar);
             assert!(near(imposed(Phase::Liquid), liquid) && near(imposed(Phase::Gas), vapour), "{t} K");
-            let (above, below) = (f64::from_bits(p.to_bits() + 1), f64::from_bits(p.to_bits() - 1));
+            let (above, below) = (p.next_up(), p.next_down());
             let phase = |p| water.state(pt(p, t)).map(|s| s.phase());
             assert_eq!((phase(above), phase(below)), (Ok(Phase::Liquid), Ok(Phase::Gas)), "{t} K");
         }
