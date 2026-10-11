@@ -10,6 +10,9 @@ use phasekit_verify::saturation::SaturationCheck;
 use phasekit_verify::term::{self, TermCheck};
 use phasekit_verify::{Cell, Fixture};
 
+#[path = "common/capability.rs"]
+mod capability;
+
 /// The full set's root, fixed at compile time (clippy bans run-time environment reads, D17).
 const FULL: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures-full/coolprop-8.0.0");
 
@@ -175,4 +178,20 @@ fn superancillary_and_vle_match_every_dense_multiprecision_file() {
     assert_eq!((saturation.unsplit, saturation.exempt), (1, 52), "Chlorine's last row; DIV-0016");
     let [density, pressure] = saturation.conditioning;
     assert!(density <= 1.0 && pressure <= 1.0, "measured conditioning {density:.2}, {pressure:.2}");
+}
+
+/// PLAN.md M7.9, every embedded fluid's 19 × 2 capability matrix (the exit gate's 136; the tables are
+/// `tests/common/capability.rs`, shared with `tests/capability.rs`'s core subset).
+#[test]
+#[ignore = "nightly: every embedded fluid's 19 × 2 capability matrix"]
+fn capability_matrix_19x2_all_fluids() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let (mut bad, mut compared) = (Vec::new(), 0);
+    for f in phasekit_data::FLUIDS {
+        let (fluid_bad, n) = capability::mismatches(&registry, f.name);
+        bad.extend(fluid_bad);
+        compared += n;
+    }
+    assert!(bad.is_empty(), "{} of {compared} cells:\n{}", bad.len(), bad.join("\n"));
+    assert_eq!(compared, 136 * 19 * 2 * capability::CALLS.len());
 }
