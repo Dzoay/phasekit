@@ -155,7 +155,7 @@ jobs:
             echo "|---|---|---|"
             for f in "$FIXTURES"/coolprop-8.0.0/{facts,crit,term,eos,flash,all}/*.csv "$FIXTURES"/mp/check-points.csv; do
               rows=$(grep -vc '^#' "$f"); failed=$(grep -v '^#' "$f" | grep -c ',err:' || true)
-              echo "| ${f#$FIXTURES/} | $rows | $failed |"
+              echo "| ${f#"$FIXTURES"/} | $rows | $failed |"
             done
             echo
             echo "Generator: $(grep -m1 '^# generator:' "$FIXTURES/coolprop-8.0.0/facts/smoke.csv" | cut -c3-)"
