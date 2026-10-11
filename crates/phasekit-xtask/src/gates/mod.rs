@@ -43,14 +43,7 @@ const GATES: [(&str, Gate); 12] = [
 
 pub fn main(args: &[String]) -> ExitCode {
     let repo = Repo::locate();
-    let selected: Vec<_> = match args.split_first() {
-        Some((name, [])) if name == "all" => GATES.iter().map(|&(name, gate)| (name, gate, &[][..])).collect(),
-        Some((name, rest)) => match GATES.iter().find(|(gate, _)| gate == name) {
-            Some(&(name, gate)) => vec![(name, gate, rest)],
-            None => return usage(),
-        },
-        None => return usage(),
-    };
+    let Some(selected) = select(args) else { return usage() };
     let mut failed = false;
     for (name, gate, rest) in selected {
         match gate(&repo, rest) {
@@ -71,9 +64,25 @@ pub fn main(args: &[String]) -> ExitCode {
     if failed { ExitCode::FAILURE } else { ExitCode::SUCCESS }
 }
 
+/// The gates `args` name, each with its own arguments: `all`, every gate in force; `all --except <gate>`, every gate
+/// but that one (CI runs `gates mutants` as its own job, user decision CI2); or one gate and its arguments. `None` for
+/// anything else.
+fn select(args: &[String]) -> Option<Vec<(&'static str, Gate, &[String])>> {
+    let all = |except: Option<&str>| {
+        GATES.iter().filter(|(name, _)| Some(*name) != except).map(|&(name, gate)| (name, gate, &[][..])).collect()
+    };
+    match args.split_first()? {
+        (name, []) if name == "all" => Some(all(None)),
+        (name, [flag, except]) if name == "all" && flag == "--except" => {
+            GATES.iter().any(|(gate, _)| gate == except).then(|| all(Some(except.as_str())))
+        }
+        (name, rest) => GATES.iter().find(|(gate, _)| gate == name).map(|&(name, gate)| vec![(name, gate, rest)]),
+    }
+}
+
 fn usage() -> ExitCode {
     let names: Vec<&str> = GATES.iter().map(|(name, _)| *name).collect();
-    eprintln!("usage: cargo xtask gates <all|{}> (counts also takes --update)", names.join("|"));
+    eprintln!("usage: cargo xtask gates <all [--except <gate>]|{}> (counts also takes --update)", names.join("|"));
     ExitCode::FAILURE
 }
 
@@ -103,4 +112,33 @@ fn value<'a>(lines: &[&'a str], key: &str) -> Option<&'a str> {
 /// A manifest's `[package] name`.
 fn package_name(manifest: &str) -> Option<&str> {
     value(&table(manifest, "package")?, "name")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The gates a command line selects, by name.
+    fn names(args: &[&str]) -> Option<Vec<&'static str>> {
+        let args: Vec<String> = args.iter().map(ToString::to_string).collect();
+        select(&args).map(|gates| gates.iter().map(|(name, ..)| *name).collect())
+    }
+
+    /// `all` is every gate in force, in order; `all --except <gate>` all but that one (CI runs `gates mutants` as its
+    /// own job); one gate takes its own arguments; anything else is refused.
+    #[test]
+    fn gates_are_selected_by_name() {
+        let every: Vec<&str> = GATES.iter().map(|(name, _)| *name).collect();
+        assert_eq!(names(&["all"]), Some(every.clone()));
+        let but_mutants: Vec<&str> = every.iter().copied().filter(|name| *name != "mutants").collect();
+        assert_eq!(names(&["all", "--except", "mutants"]), Some(but_mutants));
+        assert_eq!(names(&["counts", "--update"]), Some(vec!["counts"]));
+        let args = ["counts".to_string(), "--update".to_string()];
+        assert_eq!(select(&args).map(|gates| gates.first().map(|(.., rest)| rest.len())), Some(Some(1)));
+        let refused: [&[&str]; 5] =
+            [&[], &["all", "--except", "nothing"], &["all", "mutants"], &["all", "--skip", "rot"], &["no"]];
+        for args in refused {
+            assert_eq!(names(args), None, "{args:?}");
+        }
+    }
 }
