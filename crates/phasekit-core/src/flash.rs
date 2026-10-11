@@ -1061,6 +1061,11 @@ impl QVar {
         }
     }
 
+    /// The input that gives `x`: h and s themselves, the density 1/v for DQ.
+    fn input(self, x: f64) -> f64 {
+        if self == QVar::V { 1.0 / x } else { x }
+    }
+
     /// The lever rule's value at quality q from the caloric curves' h′, h″, s′, s″, u′, u″; `None` for v.
     fn lever(self, q: f64, sides: [f64; 6]) -> Option<f64> {
         let [hl, hv, sl, sv, ..] = sides;
@@ -1120,7 +1125,7 @@ fn qx(fluid: &PureFluid, q: f64, x: f64, var: QVar, pair: Pair, opts: &FlashOpti
     let mut nodes = grid.clone();
     for triple in grid.windows(3) {
         if let [(t0, g0), (_, g1), (t2, g2)] = triple
-            && (g1 - g0) * (g2 - g1) < 0.0
+            && (g1 > g0) != (g2 > g1)
         {
             nodes.push(turn_of(&scan, *t0, *t2, g1 > g0)?);
         }
@@ -1135,14 +1140,15 @@ fn qx(fluid: &PureFluid, q: f64, x: f64, var: QVar, pair: Pair, opts: &FlashOpti
         let found = toms748(|t| scan(t).unwrap_or(f64::NAN), *a, *b, Tol::Relative(T_TOL), T_ITER);
         let found = found.converged(Strategy::Saturation)?;
         let t = if calorics.is_some() { polish(&exact, found.x)? } else { found.x };
-        if !roots.iter().any(|(r, _)| (r - t).abs() <= T_TOL * t) {
+        // A root on a node (or a turn) closes the brackets either side of it; each returns that node exactly.
+        if !roots.iter().any(|(r, _)| r.to_bits() == t.to_bits()) {
             roots.push((t, found.iterations));
         }
     }
     roots.sort_by(|a, b| a.0.total_cmp(&b.0));
     let temperatures: Vec<f64> = roots.iter().map(|r| r.0).collect();
     let (t, iterations) = match (roots.as_slice(), opts.roots()) {
-        ([], _) => return Err(Error::InvalidInput { quantity: var_name(var), value: x }),
+        ([], _) => return Err(Error::InvalidInput { quantity: var_name(var), value: var.input(x) }),
         ([one], _) => *one,
         (_, RootPolicy::Nearest(target)) => {
             let pick = nearest(target, &temperatures);
@@ -1164,30 +1170,35 @@ fn var_name(var: QVar) -> &'static str {
 
 /// The turn of `g` between `a` and `b` (a maximum if `max`, else a minimum) by golden-section search, with g there.
 fn turn_of(g: &impl Fn(f64) -> Result<f64, Error>, a: f64, b: f64, max: bool) -> Result<(f64, f64), Error> {
-    let (r, sign) = (GOLDEN, if max { -1.0 } else { 1.0 });
+    // A minimum of f: g itself, or −g for a maximum.
+    let f = |t: f64| g(t).map(|v| if max { -v } else { v });
+    let r = GOLDEN;
     let (mut a, mut b) = (a, b);
     let (mut c, mut d) = (b - r * (b - a), a + r * (b - a));
-    let (mut gc, mut gd) = (sign * g(c)?, sign * g(d)?);
+    let (mut gc, mut gd) = (f(c)?, f(d)?);
     for _ in 0..TURN_STEPS {
         if gc < gd {
             (b, d, gd) = (d, c, gc);
             c = b - r * (b - a);
-            gc = sign * g(c)?;
+            gc = f(c)?;
         } else {
             (a, c, gc) = (c, d, gd);
             d = a + r * (b - a);
-            gd = sign * g(d)?;
+            gd = f(d)?;
         }
     }
     let t = 0.5 * (a + b);
     Ok((t, g(t)?))
 }
 
+/// The brackets [`polish`] tries, 1e-9 to 1e-4 of T, each ten times the last.
+const POLISH_WIDENINGS: u16 = 6;
+
 /// A root `t` of the caloric curves' x(T) polished on the EOS's (`exact`): TOMS 748 in a bracket around it, widened
 /// tenfold from 1e-9 of t until it holds a sign change; the curves' root where none does by 1e-4.
 fn polish(exact: &impl Fn(f64) -> Result<f64, Error>, t: f64) -> Result<f64, Error> {
     let mut width = 1e-9;
-    while width <= 1e-4 {
+    for _ in 0..POLISH_WIDENINGS {
         let (a, b) = (t * (1.0 - width), t * (1.0 + width));
         let (ga, gb) = (exact(a)?, exact(b)?);
         if ga == 0.0 || gb == 0.0 || ga.is_sign_negative() != gb.is_sign_negative() {
@@ -2778,6 +2789,108 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// M7.7: a Q-pair scans x(T) on the caloric curves (M5.2a), decoded from the blob with the record, and polishes its
+    /// roots on QT's state. The curves' lever rule gives h and s of Water's QT state within `CaloricFit` (2e-6 of the
+    /// value) and none for v, which comes from the superancillary's densities; on the state, h, s and v = 1/ρ are read
+    /// as they are.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn q_pairs_read_the_caloric_curves() {
+        let (water, calorics) = (embedded("Water"), record_of("Water").calorics().unwrap());
+        for (q, t) in [(0.3, 400.0), (0.7, 600.0)] {
+            let (state, sides) = (water.state(q_t(q, t)).unwrap(), calorics.at(t).unwrap());
+            let m = Basis::Molar;
+            for (var, want) in [(QVar::H, state.h(m)), (QVar::S, state.s(m))] {
+                let lever = var.lever(q, sides).unwrap();
+                assert!((lever - want).abs() <= 2e-6 * want.abs(), "{var:?} at {t} K: {lever} against {want}");
+                assert_eq!(var.of(&state), want);
+            }
+            assert_eq!(QVar::V.lever(q, sides), None);
+            assert_eq!(QVar::V.of(&state), 1.0 / state.rho(m));
+        }
+    }
+
+    /// M7.7: two roots inside one grid cell, either side of a turn of x(T), are both found: golden-section search puts
+    /// the turn between the cell's nodes, and it brackets each root. Water's h″ peaks near 507 K, so HQ at Q = 1 for the
+    /// h″ 2 mK below the peak has its two roots within 10 mK, in the grid cell that holds the peak; both are returned,
+    /// `Ambiguous`.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn two_roots_in_one_cell_are_both_found() {
+        let water = embedded("Water");
+        let (lo, hi) = record_of("Water").superancillary_curve().unwrap().t_range();
+        let h_vapour = |t: f64| water.state(q_t(1.0, t)).unwrap().h(Basis::Molar);
+        let temperatures = (0..=20_000).map(|k| 500.0 + f64::from(k) * 1e-3);
+        let peak = temperatures.max_by(|a, b| h_vapour(*a).total_cmp(&h_vapour(*b))).unwrap();
+        let cell = (hi - lo) / f64::from(QX_CELLS);
+        let a = lo + ((peak - lo) / cell).floor() * cell;
+        let margin = (peak - a).min(a + cell - peak);
+        assert!(margin > 0.05, "h″ peaks at {peak} K, {margin} K from a node");
+        // 2 mK below the peak (found to 1 mK): the turn must be placed within about 2 mK of it to bracket both roots.
+        let t = peak - 2e-3;
+        let roots = roots_of(&water, q_x(QVar::H, 1.0, &water.state(q_t(1.0, t)).unwrap()));
+        let &[low, high] = roots.as_slice() else { panic!("{roots:?}") };
+        assert!((low / t - 1.0).abs() < 1e-9 && high > peak && high < t + 1e-2, "{roots:?}: peak {peak} K, cell {a} K");
+    }
+
+    /// M7.7: a root found on the caloric curves is polished on the EOS: TOMS 748 in a bracket around it, widened tenfold
+    /// from 1e-9 of T until it holds a sign change. A residual whose root lies 3e-7 of T away is polished onto it; one
+    /// whose root lies beyond 1e-4 of T leaves the curves' root as it is.
+    #[test]
+    fn polish_moves_a_root_onto_the_eos() {
+        for (offset, want) in [(3e-7, 400.0 * (1.0 + 3e-7)), (-3e-7, 400.0 * (1.0 - 3e-7)), (1e-3, 400.0)] {
+            let root = 400.0 * (1.0 + offset);
+            let got = polish(&|t: f64| Ok(t - root), 400.0).unwrap();
+            assert!((got / want - 1.0).abs() < 1e-12, "{offset}: {got}");
+        }
+    }
+
+    /// M7.7: a pseudo-pure fluid has no caloric curves, so its Q-pairs scan QT's own state: Air's HQ and DQ at Q = 1 and
+    /// QS at Q = 0 at 100 K return that T, `Nearest` where h″ turns (its QT takes only Q = 0 and 1, D4).
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn pseudo_pure_q_pairs_scan_qt() {
+        let air = embedded("Air");
+        for (var, q) in [(QVar::H, 1.0), (QVar::V, 1.0), (QVar::S, 0.0)] {
+            let truth = air.state(q_t(q, 100.0)).unwrap();
+            let nearest = FlashOptions::new().with_roots(RootPolicy::Nearest(100.0));
+            let back = air.flash(q_x(var, q, &truth), &nearest).unwrap();
+            assert!((back.t() / 100.0 - 1.0).abs() < 1e-9 && back.quality() == Some(q), "{var:?}: {back:?}");
+        }
+    }
+
+    /// M7.7: a root exactly on a grid node closes the brackets either side of it and is one root. DQ at Q = 0 for
+    /// Water's ρ′ at a node's temperature makes the scan's residual exactly 0 there (v′ from the same superancillary
+    /// densities): one state at that T, not `Ambiguous`.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn a_root_on_a_grid_node_is_one_root() {
+        let water = embedded("Water");
+        let curve = record_of("Water").superancillary_curve().unwrap();
+        let (lo, hi) = curve.t_range();
+        let t = lo + (hi - lo) * f64::from(QX_CELLS / 2) / f64::from(QX_CELLS);
+        let liquid = Density::molar(curve.at_t(t).unwrap().bubble.rho).unwrap();
+        let state = water.state(Input::dq(liquid, Quality::new(0.0).unwrap())).unwrap();
+        assert!((state.t() / t - 1.0).abs() < 1e-9 && state.quality() == Some(0.0), "{state:?}");
+    }
+
+    /// M7.7: an x that no saturated state at Q holds is `InvalidInput`, naming the input: HQ at Q = 1 above Water's
+    /// largest h″, QS at Q = 0 above its s at the critical point, DQ at Q = 0 above its largest ρ′.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn a_q_pair_without_a_root_is_invalid_input() {
+        let water = embedded("Water");
+        let (one, zero) = (Quality::new(1.0).unwrap(), Quality::new(0.0).unwrap());
+        let cases = [
+            (Input::hq(Enthalpy::molar(60_000.0).unwrap(), one), "H", 60_000.0),
+            (Input::qs(zero, Entropy::molar(500.0).unwrap()), "S", 500.0),
+            (Input::dq(Density::molar(60_000.0).unwrap(), zero), "D", 60_000.0),
+        ];
+        for (input, quantity, value) in cases {
+            assert_eq!(water.state(input), Err(Error::InvalidInput { quantity, value }), "{input:?}");
         }
     }
 }

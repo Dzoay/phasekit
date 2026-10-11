@@ -306,7 +306,7 @@ fn embedded_water_initialises_once_under_16_threads() {
 /// materialises once under 16 racing threads. The blob is shared through an `Arc`: decoding the fluid keeps no handle
 /// to it, the package's lazy saturation keeps one until its single run (std's `LazyLock` drops the initialiser after
 /// it, S-08), and every thread's DT state inside the dome, whose phase needs the curve, has the same bits. The caloric
-/// curves (M7.7) likewise keep their handle until a Q-pair first needs them.
+/// curves (M7.7) likewise keep their handle until a Q-pair first needs them: DQ does not, QS does.
 #[cfg(not(target_family = "wasm"))]
 #[test]
 fn saturation_materialises_once_under_contention() {
@@ -335,6 +335,9 @@ fn saturation_materialises_once_under_contention() {
     assert!(states.iter().all(|s| *s == states[0]), "{states:?}");
     assert_eq!(states[0].as_ref().map(|s| s.0), Ok(Phase::TwoPhase));
     let vapour = water.state(Input::qt(Quality::new(1.0).unwrap(), Temperature::new(300.0).unwrap())).unwrap();
+    let dq = Input::dq(Density::molar(vapour.rho(Basis::Molar)).unwrap(), Quality::new(1.0).unwrap());
+    assert!(water.state(dq).is_ok_and(|s| (s.t() / 300.0 - 1.0).abs() < 1e-9));
+    assert_eq!(Arc::strong_count(&bytes), 3, "DQ reads the superancillary's densities, not the caloric curves");
     let qs = Input::qs(Quality::new(1.0).unwrap(), Entropy::molar(vapour.s(Basis::Molar)).unwrap());
     assert!(water.state(qs).is_ok_and(|s| (s.t() / 300.0 - 1.0).abs() < 1e-9));
     assert_eq!(Arc::strong_count(&bytes), 2, "the caloric curves materialised on the first Q-pair and let go too");

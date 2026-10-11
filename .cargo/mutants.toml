@@ -46,6 +46,17 @@ exclude_re = [
     "flash\\.rs:[0-9]+:[0-9]+: replace \\|\\| with && in cell_roots",
     "flash\\.rs:[0-9]+:[0-9]+: replace match guard pseudo_pure with true in tx",
     "flash\\.rs:[0-9]+:[0-9]+: replace match guard pseudo_pure\\(\\) with true in isochore_p",
+    # Equivalent mutants of the Q-pairs (PLAN.md M7.7). A turn is a node where x stops rising or falling,
+    # `(g1 > g0) != (g2 > g1)`, and its kind `g1 > g0`: `>=` differs only at an exact tie of two nodes, whose cells then
+    # find no turn but an end. The golden-section search keeps the lower of two values, `gc < gd`, and `<=` differs only
+    # at a tie. Polish takes a bracket whose end's residual is exactly 0 or whose ends' signs differ; with `&&` for the
+    # first `||` a root exactly on the bracket's lower end still has ends of opposite sign unless x only touches it. And
+    # without its caloric curves (`decode_caloric` giving none) a Q-pair scans QT's own state, as a pseudo-pure fluid's
+    # does, and finds the same roots: the curves only make the scan cheaper (user decision CC2).
+    "flash\\.rs:[0-9]+:[0-9]+: replace > with >= in qx",
+    "flash\\.rs:[0-9]+:[0-9]+: replace < with <= in turn_of",
+    "flash\\.rs:[0-9]+:[0-9]+: replace \\|\\| with && in polish",
+    "blob\\.rs:[0-9]+:[0-9]+: replace decode_caloric -> Result<Option<CaloricCurves>, LoadError> with Ok\\(None\\)",
     # Each gate's `run` gathers its input through `repo` and is exercised by G8, not by unit tests; the rules it
     # applies live in the module's pure functions, which are mutated.
     "replace run -> Verdict",
