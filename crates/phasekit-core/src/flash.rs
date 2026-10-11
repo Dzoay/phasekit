@@ -24,7 +24,7 @@ pub enum RootPolicy {
     /// Several roots → `Error::Ambiguous { roots }`.
     #[default]
     Strict,
-    /// The root nearest to this value of the solved variable.
+    /// The root nearest to this value of the solved variable; of two equally near, the smaller.
     Nearest(f64),
     /// The thermodynamically stable root (lowest Gibbs energy).
     Stable,
@@ -331,7 +331,7 @@ fn pt(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<State, E
         Where::Both { gas, liquid } => {
             let (g, l) = (solve(&gas)?, solve(&liquid)?);
             match opts.roots() {
-                RootPolicy::Nearest(x) if (l.0 - x).abs() < (g.0 - x).abs() => (liquid, l),
+                RootPolicy::Nearest(x) if nearest(x, &[g.0, l.0]) == Some(l.0) => (liquid, l),
                 RootPolicy::Nearest(_) => (gas, g),
                 _ => return Err(Error::Ambiguous { roots: Roots::new(&[g.0, l.0]) }),
             }
@@ -435,7 +435,7 @@ fn pt_branch(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<W
     };
     let lower = sat.bubble.rho * (1.0 - SAT_RELAX);
     let liquid = Branch { phase: liquid, bracket: Some((lower, rho_max)), seed: sat.bubble.rho, liquid: true };
-    let upper = sat.dew.rho * (1.0 + SAT_RELAX);
+    let upper = sat.dew.rho / (1.0 - SAT_RELAX);
     let gas = Branch { phase: Phase::Gas, bracket: Some((floor, upper)), seed: ideal, liquid: false };
     Ok(if above_pc || p > sat.bubble.p {
         Where::One(liquid)
@@ -446,11 +446,18 @@ fn pt_branch(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<W
     })
 }
 
-/// A PT bracket's saturated end reaches this far past ρ′ (into the metastable liquid) or ρ″ (the metastable vapour):
-/// a curve's densities and pressure agree with the EOS's own VLE only to its fit, so for p a hair from psat the root
-/// lies a hair past them. The spinodal is far further (0.2·ln(ρ′/ρ″) inside each phase near Tc, mean field), so the
-/// branch stays monotonic (PLAN.md M7.2).
+/// A PT bracket's saturated end reaches this far past ρ′ (into the metastable liquid) or ρ″ (the metastable vapour), a
+/// factor 1 − `SAT_RELAX` in ρ either way: a curve's densities and pressure agree with the EOS's own VLE only to its
+/// fit, so for p a hair from psat the root lies a hair past them. The spinodal is far further (0.2·ln(ρ′/ρ″) inside
+/// each phase near Tc, mean field), so the branch stays monotonic (PLAN.md M7.2).
 const SAT_RELAX: f64 = 1e-9;
+
+/// `RootPolicy::Nearest(x)`'s choice among ascending `roots`, one rule for every pair: the root nearest to `x`, and of
+/// two equally near the first, the smaller; `None` without roots.
+fn nearest(x: f64, roots: &[f64]) -> Option<f64> {
+    let distance = |root: &f64| (root - x).abs();
+    roots.iter().copied().min_by(|a, b| distance(a).total_cmp(&distance(b)))
+}
 
 /// The saturation curve for the Q pair `pair`; a fluid without one has no Q pair.
 fn curve_for(fluid: &PureFluid, pair: Pair) -> Result<&dyn SaturationCurve, Error> {
@@ -507,9 +514,7 @@ fn pq(fluid: &PureFluid, p: f64, q: f64, opts: &FlashOptions) -> Result<State, E
     let curve = curve_for(fluid, Pair::PQ)?;
     let sat = match (curve.at_p(p), opts.roots()) {
         (Err(Error::Ambiguous { roots }), RootPolicy::Nearest(x)) => {
-            let distance = |t: &f64| (t - x).abs();
-            let nearest = roots.as_slice().iter().copied().min_by(|a, b| distance(a).total_cmp(&distance(b)));
-            let sat = curve.at_t(nearest.ok_or(Error::Ambiguous { roots })?)?;
+            let sat = curve.at_t(nearest(x, roots.as_slice()).ok_or(Error::Ambiguous { roots })?)?;
             sat.at_pressure(p)
         }
         (sat, _) => sat?,
@@ -891,6 +896,16 @@ mod tests {
             let phase = |p| water.state(pt(p, t)).map(|s| s.phase());
             assert_eq!((phase(above), phase(below)), (Ok(Phase::Liquid), Ok(Phase::Gas)), "{t} K");
         }
+    }
+
+    /// `RootPolicy::Nearest` (PLAN.md M7.2), for PT's two roots at psat and PQ's temperatures alike: the root nearest to
+    /// x, of two equally near the smaller (at 2 and at 5.5 below), and none of none.
+    #[test]
+    fn nearest_takes_the_smaller_of_a_tie() {
+        let roots = [1.0, 3.0, 8.0];
+        let picks = [0.0, 1.9, 2.0, 2.1, 5.5, 5.6, 100.0].map(|x| nearest(x, &roots));
+        assert_eq!(picks, [Some(1.0), Some(1.0), Some(1.0), Some(3.0), Some(3.0), Some(8.0), Some(8.0)]);
+        assert_eq!(nearest(2.0, &[]), None);
     }
 
     /// ROT-073 (map 03 §6): CoolProp's imposed two-phase DT of Water at 1000 mol/m³ and 400 K throws "rhomolar is less

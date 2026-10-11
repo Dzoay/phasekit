@@ -54,6 +54,10 @@ const SPINODAL_TOL: f64 = 1e-10;
 /// [`from_eos`]'s tolerance on the Maxwell pressure's ln p: [`at_t`] polishes its seeds to rounding.
 const MAXWELL_TOL: f64 = 1e-10;
 
+/// The most steps of 25 % [`maxwell`] takes from either end towards ρc, a bound on a loop that always ends: from
+/// 1e-9 ρc the march reaches ρc in 93, and 200 cover a factor of 1e19.
+const MARCH_STEPS: u16 = 200;
+
 /// The bracketed solves' tolerance on ln ρ, and relative on T.
 const BRACKET_TOL: f64 = 1e-15;
 
@@ -188,51 +192,61 @@ fn jacobian_p(r: f64, t: f64, p: f64, l: &Point, v: &Point) -> [[f64; 3]; 3] {
 /// `rho_c`: p rises to the vapour spinodal, falls, and rises again from the liquid spinodal, the zeros of (∂p/∂ρ)_T
 /// nearest the dilute gas and the model's largest density. Between the spinodal pressures the liquid's and the vapour's
 /// Gibbs energies cross once, since d(g′ − g″)/dp = v′ − v″ < 0: a Maxwell construction in ln p, each side's density
-/// bracketed on its branch ([`crate::density::bracketed`]), seeds [`at_t`]. The pressure's lower end is the liquid
-/// spinodal's, or 1e-40 of the vapour spinodal's where that is not positive (a liquid under tension).
-/// `NoConvergence { Vle }` when the loop is not there: no turn before `rho_c` from either side.
+/// bracketed on its branch ([`crate::density::bracketed`]), seeds [`at_t`] ([`maxwell`]); `NoConvergence { Vle }`
+/// where there is no loop.
 pub(crate) fn from_eos(eos: &dyn HelmholtzModel, t: f64, rho_c: f64) -> Result<SatPair, Error> {
+    at_t(eos, t, maxwell(eos, t, rho_c)?)
+}
+
+/// [`from_eos`]'s seed `(ρ′, ρ″)`: the Maxwell construction at T between the spinodals around `rho_c`, to
+/// [`MAXWELL_TOL`] in ln p. The pressure's lower end is the liquid spinodal's, or 1e-40 of the vapour spinodal's where
+/// that is not positive (a liquid under tension). `NoConvergence { Vle }` when the loop is not there: no turn before
+/// `rho_c` from either side.
+fn maxwell(eos: &dyn HelmholtzModel, t: f64, rho_c: f64) -> Result<(f64, f64), Error> {
     let rt = eos.gas_constant() * t;
-    // p, (∂p/∂ρ)_T and g/RT up to a function of T alone (ln ρ + α^r + Z), from `residual + IDEAL_DELTA`.
+    // p, (∂p/∂ρ)_T/RT and g/RT up to a function of T alone (ln ρ + α^r + Z), from `residual + IDEAL_DELTA`.
     let mech = |rho: f64| {
         let b = (eos.residual(t, rho, Order::Two) + Derivs::IDEAL_DELTA).bundle();
-        b.map_or([f64::NAN; 3], |b| [rho * rt * b.a01, rt * (2.0 * b.a01 + b.a02), math::ln(rho) + b.a00 + b.a01])
+        b.map_or([f64::NAN; 3], |b| [rho * rt * b.a01, 2.0 * b.a01 + b.a02, math::ln(rho) + b.a00 + b.a01])
     };
-    // The first turn of p(ρ) from `from` towards `to`: steps of 25 % in ρ until (∂p/∂ρ)_T is no longer positive, then
-    // TOMS 748 in that step. Inside the loop a multiparameter EOS can oscillate (R22's p swings ±1e16 Pa at 121 K), so
-    // each spinodal is the turn nearest its own phase.
-    let turn = |from: f64, to: f64| -> Result<f64, Error> {
-        let (factor, up) = if to > from { (1.25, true) } else { (0.8, false) };
-        let past = |rho: f64| if up { rho >= to } else { rho <= to };
+    // The first turn of p(ρ) from `from` towards ρc: steps by `factor` in ρ, the last one clamped to ρc by `clamp`
+    // (`f64::min` going up, `f64::max` going down), until (∂p/∂ρ)_T is no longer positive, then TOMS 748 in that step.
+    // Inside the loop a multiparameter EOS can oscillate (R22's p swings ±1e16 Pa at 121 K), so each spinodal is the
+    // turn nearest its own phase.
+    let turn = |from: f64, factor: f64, clamp: fn(f64, f64) -> f64| -> Result<f64, Error> {
         let mut a = from;
-        while !past(a) {
-            let b = if past(a * factor) { to } else { a * factor };
+        for _ in 0..MARCH_STEPS {
+            let b = clamp(a * factor, rho_c);
             if mech(b)[1] <= 0.0 {
-                let (lo, hi) = (math::ln(a.min(b)), math::ln(a.max(b)));
+                let (lo, hi) = (math::ln(a), math::ln(b));
                 let root = toms748(|u| mech(math::exp(u))[1], lo, hi, Tol::Absolute(SPINODAL_TOL), BRACKET_ITER);
                 return root.converged(Strategy::Vle).map(|r| math::exp(r.x));
+            }
+            if b == rho_c {
+                break; // ρc without a turn: no loop
             }
             a = b;
         }
         Err(failed(0))
     };
-    let (vapour, liquid) = (turn(1e-9 * rho_c, rho_c)?, turn(eos.rho_max(t), rho_c)?);
+    let (vapour, liquid) = (turn(rho_c * 1e-9, 1.25, f64::min)?, turn(eos.rho_max(t), 0.8, f64::max)?);
     // Strictly between the spinodal pressures: at either one a side's root is its spinodal, where (∂p/∂ρ)_T = 0.
     let p_hi = mech(vapour)[0] * (1.0 - 1e-9);
-    let p_lo = mech(liquid)[0].max(1e-40 * p_hi) * (1.0 + 1e-9);
+    let p_lo = mech(liquid)[0].max(p_hi * 1e-40) * (1.0 + 1e-9);
     if p_lo.partial_cmp(&p_hi) != Some(core::cmp::Ordering::Less) {
         return Err(failed(0)); // the spinodal pressures out of order, or not numbers
     }
+    // Each side's root at p. Below the vapour spinodal Z < 1, so the ideal-gas density p/RT lies below the vapour's.
     let sides = |p: f64| {
         let ideal = p / rt;
-        let gas = crate::density::bracketed(eos, t, p, ((1e-3 * ideal).min(1e-3 * vapour), vapour), ideal);
+        let gas = crate::density::bracketed(eos, t, p, (1e-3 * ideal, vapour), ideal);
         let liq = crate::density::bracketed(eos, t, p, (liquid, eos.rho_max(t)), liquid);
         gas.and_then(|(v, _)| Ok((liq?.0, v)))
     };
     // g′ − g″ at p: positive at the liquid spinodal's pressure, negative at the vapour spinodal's.
     let gap = |u: f64| sides(math::exp(u)).map_or(f64::NAN, |(l, v)| mech(l)[2] - mech(v)[2]);
     let root = toms748(gap, math::ln(p_lo), math::ln(p_hi), Tol::Absolute(MAXWELL_TOL), BRACKET_ITER);
-    at_t(eos, t, sides(math::exp(root.converged(Strategy::Vle)?.x))?)
+    sides(math::exp(root.converged(Strategy::Vle)?.x))
 }
 
 /// Saturation of `eos` at `t` from the seed densities `(ρ′, ρ″)` (a superancillary's or an ancillary's).
@@ -641,6 +655,31 @@ mod tests {
             close(sat.dew.rho, 1.234_967_773_820_784_8e-7) && close(sat.bubble.rho, 14_414.121_785_589_81),
             "{sat:?}"
         );
+    }
+
+    #[cfg(feature = "fluids-all")]
+    /// PLAN.md M7.2: the Maxwell construction alone, before [`at_t`] polishes it, is the saturation of the EOS. For
+    /// Water its densities are the superancillary's within 1e-8 at 300 K, where the liquid spinodal is under tension
+    /// (−166 MPa) and the pressure's lower end is 1e-40 of the vapour spinodal's, and at 600 K and 646 K, where both
+    /// spinodal pressures are positive (at 646 K 31 kPa apart). For PropyleneGlycol at 213 K, 2e-4 Pa and nine decades
+    /// below its vapour spinodal, they are its VLE's (the register's facts, DIV-0016).
+    #[test]
+    fn maxwell_seeds_are_the_saturation() {
+        let near = |got: f64, want: f64| (got / want - 1.0).abs() < 1e-8;
+        let critical = |record: &FluidRecord| {
+            let curve = record.superancillary_curve().unwrap();
+            curve.at_t(curve.t_range().1).unwrap().bubble.rho
+        };
+        let (record, fluid) = model("Water");
+        let curve = record.superancillary_curve().unwrap();
+        for t in [300.0, 600.0, 646.0] {
+            let sat = curve.at_t(t).unwrap();
+            let (rho_l, rho_v) = maxwell(fluid.eos(), t, critical(&record)).unwrap();
+            assert!(near(rho_l, sat.bubble.rho) && near(rho_v, sat.dew.rho), "{t} K: {rho_l}, {rho_v} against {sat:?}");
+        }
+        let (record, fluid) = model("PropyleneGlycol");
+        let (rho_l, rho_v) = maxwell(fluid.eos(), 213.0, critical(&record)).unwrap();
+        assert!(near(rho_l, 14_414.121_785_589_81) && near(rho_v, 1.234_967_773_820_784_8e-7), "{rho_l}, {rho_v}");
     }
 
     #[cfg(feature = "fluids-all")]

@@ -113,28 +113,37 @@ fn registry_and_flash_reach_the_new_family() {
 
 /// S-10 / E18, PLAN.md M7.2: below Tc a family with no saturation curve gets the generic VLE of its EOS, seeded by the
 /// core's own Maxwell construction between the spinodals, never a load error or a guess. Arbiter: the test's Maxwell
-/// construction (bisected to adjacent floats), at 0.8 and 0.4 Tc: inside the dome DT is two-phase at its pressure with
-/// the lever rule's quality (`Strategy::Vle`); PT at that pressure has both roots, its densities; an imposed single
-/// phase is honoured.
+/// construction (bisected to adjacent floats), at 0.8 and 0.4 Tc, where the liquid spinodal is under tension, and at
+/// 0.9995 Tc and (1 − 1e-6) Tc, where both spinodal pressures are positive, 506 Pa and 0.045 Pa apart: inside the dome
+/// DT is two-phase at its pressure with the lever rule's quality (`Strategy::Vle`); PT at that pressure has both roots,
+/// its densities; an imposed single phase is honoured. The densities agree to 1e-10, and to 1e-7 at Θ = 1e-6, where p
+/// is flat in ρ to third order and both constructions resolve them only to 1.4e-8; the quality agrees to that over
+/// ln(ρ′/ρ″), which divides their errors. At and above Tc there is no saturation to impose: `Unsupported`.
 #[test]
 fn subcritical_without_a_curve_uses_the_eos_vle() {
     let (model, crit) = vdw();
     let reg = Registry::empty().with_model(model).unwrap();
     let fluid = reg.get("vdw").unwrap();
-    for t in [0.8 * crit.t, 0.4 * crit.t] {
+    let points = [(0.8, 1e-10), (0.4, 1e-10), (0.9995, 1e-10), (1.0 - 1e-6, 1e-7)];
+    for (t, tol) in points.map(|(x, tol)| (x * crit.t, tol)) {
         let sat = maxwell(0.1355, 3.2e-5, t);
         let (p_sat, rho_l, rho_v) = (sat.bubble.p, sat.bubble.rho, sat.dew.rho);
         let rho = 1.0 / (0.75 / rho_l + 0.25 / rho_v);
         let state = fluid.state(dt(rho, t)).unwrap();
         assert_eq!((state.phase(), state.path().strategy), (Phase::TwoPhase, Strategy::Vle), "{t} K");
         assert!((state.p() / p_sat - 1.0).abs() < 1e-12, "{t} K: {} against {p_sat}", state.p());
-        assert!((state.quality().unwrap() - 0.25).abs() < 1e-10, "{t} K: {:?}", state.quality());
+        let q_tol = tol / math::ln(rho_l / rho_v);
+        assert!((state.quality().unwrap() - 0.25).abs() < q_tol, "{t} K: {:?}", state.quality());
         let pt = Input::pt(Pressure::new(state.p()).unwrap(), Temperature::new(t).unwrap());
         let Err(Error::Ambiguous { roots }) = fluid.state(pt) else { panic!("{t} K: {:?}", fluid.state(pt)) };
-        let near = |got: f64, want: f64| (got / want - 1.0).abs() < 1e-10;
+        let near = |got: f64, want: f64| (got / want - 1.0).abs() < tol;
         assert!(near(roots.as_slice()[0], rho_v) && near(roots.as_slice()[1], rho_l), "{t} K: {roots:?}");
         let gas = fluid.flash(dt(rho, t), &FlashOptions::new().with_phase(Phase::Gas)).unwrap();
         assert_eq!(gas.phase(), Phase::Gas);
+    }
+    let two_phase = FlashOptions::new().with_phase(Phase::TwoPhase);
+    for t in [crit.t, 1.1 * crit.t] {
+        assert_eq!(fluid.flash(dt(crit.rho, t), &two_phase), Err(Error::Unsupported { pair: Pair::DT }), "{t} K");
     }
 }
 
