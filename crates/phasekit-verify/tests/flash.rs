@@ -52,9 +52,9 @@ fn dt_two_phase_matches_oracle() {
     assert_eq!((check.two_phase, check.compared), (12 * 16 + 30, 14 * 36 + 14 * 16));
 }
 
-/// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/flash/<Fluid>.csv, the PT rows (PLAN.md M7.1): each core fluid's 6 × 6
-/// (p, T) truths, CoolProp's PT flash of its own inputs. Phase and ρ match, ρ within `Flash`. The oracle's p, h, s and u
-/// are exempt (DIV-0020): it reports them at its solver's last iterate, not at its ρ. phasekit's p is the input
+/// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/flash/<Fluid>.csv, the PT rows (PLAN.md M7.1): each core fluid's 6 ×
+/// 6 (p, T) truths, CoolProp's PT flash of its own inputs. Phase and ρ match, ρ within `Flash`. The oracle's p, h, s
+/// and u are exempt (DIV-0020): it reports them at its solver's last iterate, not at its ρ. phasekit's p is the input
 /// (`pt_round_trips_on_a_40x40_log_p_t_grid`) and its h, s and u are its DT's at that ρ, which the DT row of the same
 /// truth checks against the oracle's DT (`dt_two_phase_matches_oracle`).
 #[test]
@@ -165,10 +165,10 @@ fn d_x_round_trips() {
 /// PLAN.md M7.8 (map 03 §8; `CoolProp-Tests-HS.cpp:39, :86`), class `Flash`: HS on CoolProp's production grids. Two
 /// phase: Water, Nitrogen, R134a, MM, n-Pentane and Methane at 25 temperatures from the triple point + 1 K to Tc −
 /// max(0.5 K, 1e-3 Tc), at Q 0.05, 0.25, 0.5, 0.75 and 0.95: the QT state. Single phase: those and CarbonDioxide and
-/// Hydrogen on CoolProp's 20 × 20 (log p, T) grids, p from max(p at the triple point, 1e-6 pmax) to pmax and T from
-/// the domain's lowest temperature to Tmax, at the cells' centres as every grid here (VERIFICATION.md §3.6): the PT
-/// state wherever PT gives one, all but one (a solid Hydrogen state; see below). HS of each returns its phase, T and ρ within 1e-9
-/// and its quality within 1e-8.
+/// Hydrogen on CoolProp's 20 × 20 (log p, T) grids, p from max(p at the triple point, 1e-6 pmax) to pmax and T from the
+/// domain's lowest temperature to Tmax, at the cells' centres as every grid here (VERIFICATION.md §3.6): the PT state
+/// wherever PT gives one, all but one (a solid Hydrogen state; see below). HS of each returns its phase, T and ρ within
+/// 1e-9 and its quality within 1e-8.
 #[test]
 fn hs_round_trips() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
@@ -238,10 +238,11 @@ fn su_round_trips() {
 /// PLAN.md M7.8, class `Flash`: states on the domain's bounds round-trip through the caloric pairs as states inside it
 /// do. A solved T or p within 1e-12 of a bound is on it, and at the domain's lowest temperature, where no colder state
 /// brackets the root, a residual within the acceptance gate's tolerance is the root. For Water, CarbonDioxide, Nitrogen
-/// and R134a: the liquid and the gas at the lowest temperature, and states at pmax, at Tmax and at both, through HS, SU,
-/// DH, DS and DU ([`FlashCheck`]), and those below pmax through HP, PS, PU and DP (T within 1e-9). And an x colder than
-/// the lowest temperature's (the EOS's gas 5 % below it) is `BelowMinTemperature` for HP, DH and DP, as is a DH 1e-11
-/// of its scale under the liquid's there, while one 1e-14 under it is that liquid.
+/// and R134a: the liquid and the gas at the lowest temperature, and states at pmax, at Tmax and at both, through HS,
+/// SU, DH, DS and DU ([`FlashCheck`]) and HP, PS, PU and DP (T within 1e-9; M7.9: an input a few ulp over pmax, as a
+/// state at pmax reads its p back, is on it). And an x colder than the lowest temperature's (the EOS's gas 5 % below
+/// it) is `BelowMinTemperature` for HP, DH and DP, as is a DH 1e-11 of its scale under the liquid's there, while one
+/// 1e-14 under it is that liquid.
 #[test]
 fn caloric_pairs_round_trip_on_the_domain_bounds() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
@@ -271,10 +272,6 @@ fn caloric_pairs_round_trip_on_the_domain_bounds() {
             check.hs_round_trip(name, fluid, &truth);
             check.su_round_trip(name, fluid, &truth);
             check.dx_round_trip(name, fluid, &truth);
-            // A state at pmax reads its p back a few ulp over it, an input P+X and DP refuse until M7.9.
-            if truth.p() >= limits.p_max() {
-                continue;
-            }
             let (p, rho) = (truth.p(), truth.rho(m));
             let pairs =
                 [(Pair::HP, truth.h(m), p), (Pair::PS, p, truth.s(m)), (Pair::PU, p, truth.u(m)), (Pair::DP, rho, p)];
@@ -311,8 +308,7 @@ fn caloric_pairs_round_trip_on_the_domain_bounds() {
     }
     assert_eq!(check.report(20), None);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    // Every state below pmax, and those at pmax whose p reads back at or under it.
-    assert!(compared >= 4 * 3 * 4 && check.compared == 4 * 5 * 5, "{compared} {}", check.compared);
+    assert_eq!((compared, check.compared), (4 * 5 * 4, 4 * 5 * 5));
 }
 
 /// PLAN.md M7.8: the issue-mined D+X and HS cases of CoolProp's `CoolProp-Tests-HSU_D.cpp` (map 03 §8), class `Flash`
@@ -431,9 +427,10 @@ fn flash_fixtures_name_the_pinned_generator_environment() {
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/all/flash.csv (PLAN.md M6.9; D4, user decision 4; map 04 U4): the
-/// six pseudo-pure fluids' `dome` rows, (ρ, T) between their QT densities at 4 × 4 cell centres of T and Q, flashed with
-/// no phase imposed. Inside its dome CoolProp solves the pure-fluid VLE of the blend's EOS from the density ancillaries
-/// (`HelmholtzEOSMixtureBackend.cpp:2447-2507`), as phasekit does: phase, Q, p, h, s and u as `dt_rows` checks them.
+/// six pseudo-pure fluids' `dome` rows, (ρ, T) between their QT densities at 4 × 4 cell centres of T and Q, flashed
+/// with no phase imposed. Inside its dome CoolProp solves the pure-fluid VLE of the blend's EOS from the density
+/// ancillaries (`HelmholtzEOSMixtureBackend.cpp:2447-2507`), as phasekit does: phase, Q, p, h, s and u as `dt_rows`
+/// checks them.
 #[test]
 fn pseudo_pure_in_dome_dt_follows_the_oracle_rule() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
