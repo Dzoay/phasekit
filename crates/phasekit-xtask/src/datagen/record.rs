@@ -146,6 +146,42 @@ fn rows<const N: usize>(names: [&str; N], lists: [List<'_>; N]) -> Result<Vec<[f
     Ok((0..k).map(|i| core::array::from_fn(|j| columns[j][i])).collect())
 }
 
+/// Each row of a block's lists ([`rows`]) as one term of `out`, in order.
+fn push_rows<const N: usize, T>(
+    out: &mut Vec<T>,
+    names: [&str; N],
+    lists: [List<'_>; N],
+    term: impl Fn([f64; N]) -> T,
+) -> Result<(), String> {
+    out.extend(rows(names, lists)?.into_iter().map(term));
+    Ok(())
+}
+
+/// A Lemmon2005 term from its row `[n, t, d, l, m]`.
+fn lemmon2005_term([n, t, d, l, m]: [f64; 5]) -> Lemmon2005Term {
+    Lemmon2005Term { n, t, d: d as u8, l: l as u8, m }
+}
+
+/// A DoubleExponential term from its row `[n, t, d, g_d, l_d, g_t, l_t]`.
+fn double_exponential_term([n, t, d, gd, ld, gt, lt]: [f64; 7]) -> DoubleExponentialTerm {
+    DoubleExponentialTerm { n, t, d: d as u8, gd, ld: ld as u8, gt, lt }
+}
+
+/// A Gaussian term from its row `[n, t, d, η, ε, β, γ]`.
+fn gaussian_term([n, t, d, eta, epsilon, beta, gamma]: [f64; 7]) -> GaussianTerm {
+    GaussianTerm { n, t, d: d as u8, eta, epsilon, beta, gamma }
+}
+
+/// A GaoB term from its row `[n, t, d, η, ε, β, γ, b]`: CoolProp stores −η, the paper η (map 02 §3.1).
+fn gao_b_term([n, t, d, eta, epsilon, beta, gamma, b]: [f64; 8]) -> GaoBTerm {
+    GaoBTerm { n, t, d: d as u8, eta: -eta, epsilon, beta, gamma, b }
+}
+
+/// A non-analytic term from its row `[n, a, b, β, A, B, C, D]`.
+fn non_analytic_term([n, a, b, beta, big_a, big_b, big_c, big_d]: [f64; 8]) -> NonAnalyticTerm {
+    NonAnalyticTerm { n, a, b, beta, big_a, big_b, big_c, big_d }
+}
+
 fn residual(block: &ResidualBlock, eos: &mut EosRecord) -> Result<(), String> {
     use List::{Exponent, Real};
     match block {
@@ -166,36 +202,25 @@ fn residual(block: &ResidualBlock, eos: &mut EosRecord) -> Result<(), String> {
         }
         ResidualBlock::Lemmon2005 { n, t, d, l, m } => {
             let lists = [Real(n), Real(t), Exponent(d), Exponent(l), Real(m)];
-            for [n, t, d, l, m] in rows(["n", "t", "d", "l", "m"], lists)? {
-                eos.lemmon2005.push(Lemmon2005Term { n, t, d: d as u8, l: l as u8, m });
-            }
+            push_rows(&mut eos.lemmon2005, ["n", "t", "d", "l", "m"], lists, lemmon2005_term)?;
         }
         ResidualBlock::DoubleExponential { n, t, d, gd, ld, gt, lt } => {
             let lists = [Real(n), Real(t), Exponent(d), Real(gd), Exponent(ld), Real(gt), Real(lt)];
-            for [n, t, d, gd, ld, gt, lt] in rows(["n", "t", "d", "gd", "ld", "gt", "lt"], lists)? {
-                eos.double_exponential.push(DoubleExponentialTerm { n, t, d: d as u8, gd, ld: ld as u8, gt, lt });
-            }
+            let names = ["n", "t", "d", "gd", "ld", "gt", "lt"];
+            push_rows(&mut eos.double_exponential, names, lists, double_exponential_term)?;
         }
         ResidualBlock::Gaussian { n, t, d, eta, epsilon, beta, gamma } => {
             let lists = [Real(n), Real(t), Exponent(d), Real(eta), Real(epsilon), Real(beta), Real(gamma)];
-            for [n, t, d, eta, epsilon, beta, gamma] in rows(["n", "t", "d", "eta", "epsilon", "beta", "gamma"], lists)?
-            {
-                eos.gaussian.push(GaussianTerm { n, t, d: d as u8, eta, epsilon, beta, gamma });
-            }
+            push_rows(&mut eos.gaussian, ["n", "t", "d", "eta", "epsilon", "beta", "gamma"], lists, gaussian_term)?;
         }
         ResidualBlock::GaoB { n, t, d, eta, epsilon, beta, gamma, b } => {
             let lists = [Real(n), Real(t), Exponent(d), Real(eta), Real(epsilon), Real(beta), Real(gamma), Real(b)];
-            let names = ["n", "t", "d", "eta", "epsilon", "beta", "gamma", "b"];
-            for [n, t, d, eta, epsilon, beta, gamma, b] in rows(names, lists)? {
-                eos.gao_b.push(GaoBTerm { n, t, d: d as u8, eta: -eta, epsilon, beta, gamma, b }); // the paper's sign
-            }
+            push_rows(&mut eos.gao_b, ["n", "t", "d", "eta", "epsilon", "beta", "gamma", "b"], lists, gao_b_term)?;
         }
         ResidualBlock::NonAnalytic { n, a, b, beta, big_a, big_b, big_c, big_d } => {
             let lists = [Real(n), Real(a), Real(b), Real(beta), Real(big_a), Real(big_b), Real(big_c), Real(big_d)];
-            for [n, a, b, beta, big_a, big_b, big_c, big_d] in rows(["n", "a", "b", "beta", "A", "B", "C", "D"], lists)?
-            {
-                eos.non_analytic.push(NonAnalyticTerm { n, a, b, beta, big_a, big_b, big_c, big_d });
-            }
+            let names = ["n", "a", "b", "beta", "A", "B", "C", "D"];
+            push_rows(&mut eos.non_analytic, names, lists, non_analytic_term)?;
         }
         ResidualBlock::Associating { .. } => {
             return Err("ResidualHelmholtzAssociating is not ported (ROT-068; only an alternate EOS uses it)".into());

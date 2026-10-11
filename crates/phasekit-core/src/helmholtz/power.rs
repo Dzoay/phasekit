@@ -130,10 +130,7 @@ pub(super) fn falling(p: f64) -> [f64; 5] {
 pub(super) fn exp_series(out: &mut [[f64; 2]; 3], (d, l, c): (u8, u8, f64), mut add: impl FnMut(&mut [f64; 2], f64)) {
     let (d, l) = (usize::from(d), usize::from(l));
     let mut coef = 1.0; // (−c)^q / q!
-    for q in 0..3u8 {
-        if q > 0 && l == 0 {
-            break;
-        }
+    for q in 0..if l == 0 { 1u8 } else { 3 } {
         if let Some(slot) = out.get_mut(d + usize::from(q) * l) {
             add(slot, coef);
         }
