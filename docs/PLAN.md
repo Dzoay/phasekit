@@ -1062,6 +1062,35 @@ bands (map 03 §8; map 10 §8.5 L4).
   family's scaffolding once, not in core (`helmholtz/gaussian.rs`, `gao_b.rs`), xtask datagen (`record.rs`'s residual
   and ideal arms) and verify (`majorant.rs`, `tests/terms.rs`) separately, so a new family is one addition. *Done when:*
   as M7.9a.
+- **M7.9c Complexity gate** (user decisions CX1, CX2). *Failing command:* G2 with the new lints and no exemptions. *Do:*
+  `cognitive_complexity` and `too_many_lines` at `warn` in `[workspace.lints.clippy]` (`excessive_nesting` is already in
+  `clippy::all`), with thresholds in `clippy.toml` calibrated to Sonar's bar (cognitive complexity 15, control-flow
+  nesting 3, 100 lines; `04-user-decisions.md`, CX2); `#[expect(clippy::…, reason = "…")]` on every function over it,
+  the reason naming the step that fixes it or, for a permanent exemption (TOMS 748 as printed, a data table), why; one
+  probe per new lint in `clippy_bans_fire`. *Done when:* G1-G8 green; no behaviour change; a function over the bar fails
+  G2, and so does an `#[expect]` that no longer fires.
+- **M7.9d Test nesting** (user decision CX1). *Failing test:* none; a refactor. *Do:* the tests over the bar (25 at
+  `c094914`, among them core's `raw_gate_refuses_every_invalid_value_without_panicking`, nesting 6, and
+  `domain_errors_are_uniform_across_pairs`, and verify's `tests/sat.rs` `q_rows` and `tests/flash.rs` round trips): a
+  Cartesian-product iterator and a failure collector in verify's `tests/common/` and a core test-support module (no new
+  dependency); each per-fluid body a named function; `q_rows` split by input; `domain_errors_are_uniform_across_pairs`
+  split into its three tests; datagen's `mod.rs` tests moved to `datagen/tests/`, as DR3 moved flash.rs's. Each
+  `#[test]` keeps an assertion in its own body (`gates assertions`); no tolerance changes. *Done when:* G1-G8 green; the
+  executed-test counts unchanged per binary but for the split tests, which the PR lists; mutants clean on the diff; the
+  step's `#[expect]`s gone.
+- **M7.9e Flash search scaffolds** (user decision CX3). *Failing test:* none. *Do:* core `flash.rs`'s three hand-rolled
+  scaffolds once each (TOMS 748 with the bracket's ends cached and the first failure kept; stepping down to a bracket
+  and bisecting towards a refusal; the choice among roots by `RootPolicy`), so that `sx`, `root_in_t`, `qx`, `tx`,
+  `pt_branch` and `region` meet the bar; flash.rs's production code in modules by path; `Registry::push_source` in its
+  three phases; `roots::bracketed`'s end checks and `EosRecord::decode`'s sections, or an exemption with its reason.
+  Every residual is evaluated in the same order with the same operations. *Done when:* the robustness corpus, the
+  capability matrix's truths and the 40 × 40 PT grid give states bit-identical to the parent commit's (the comparison
+  recorded in the PR); G1-G8 green; mutants clean on the diff; the step's `#[expect]`s gone.
+- **M7.9f Verify library and xtask** (user decision CX3). *Failing test:* none. *Do:* verify's `Fixture::parse`,
+  `FlashCheck::rows_where` and `SaturationCheck::rows`; xtask's `fluid.rs` `from_json` (218 lines, the workspace's
+  longest function) as one parser per section, `gates/assertions.rs` `code_only` with one helper per token kind, and the
+  gates' `check` functions still over the bar after M7.9a. *Done when:* as M7.9d, and datagen's generated files and
+  blobs bit-identical.
 - **M7.10 Order-3 outputs.** *Failing tests:* `second_partials_match_oracle` (`second_partial_deriv`), Thorade &
   Saadat identities (class `Identity`), `fundamental_derivative_matches_oracle`, `kappa_and_beta_match_oracle`. *Do:*
   additive `Prop` variants via `ThermoModel::derivs` (ARCHITECTURE.md §3.7). Close M7: set `MILESTONE = 8`. *Done
