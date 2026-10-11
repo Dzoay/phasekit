@@ -2,8 +2,8 @@
 //! options. No global configuration, no sticky phase, no exception cascade (map 01 R12, map 03 §6, map 12
 //! R3/R4). Each pair runs a fixed, ordered list of strategies returning `Result`; the winner is recorded in
 //! `State::path`. DT (M5.3), QT and PQ (M6.8), PT (M7.1; its phase rule complete at M7.2), PH, PS and PU (M7.3), DH,
-//! DS and DU (M7.4), HT, ST and TU (M7.5), DP (M7.6) and QS, HQ and DQ (M7.7) are implemented; the other pairs land
-//! at M7 behind `IMPLEMENTED`.
+//! DS and DU (M7.4), HT, ST and TU (M7.5), DP (M7.6), QS, HQ and DQ (M7.7) and HS and SU (M7.8) are implemented: all
+//! 19 pairs (`IMPLEMENTED`).
 #![deny(clippy::indexing_slicing)] // E12: no panicking index on the flash path
 
 use crate::derivs::{Bundle, Order};
@@ -112,6 +112,8 @@ pub(crate) fn flash(fluid: &PureFluid, input: NativeInput, opts: &FlashOptions) 
         Pair::HP => named(Pair::HP, px(fluid, y, x, Caloric::H, opts)),
         Pair::PS => named(Pair::PS, px(fluid, x, y, Caloric::S, opts)),
         Pair::PU => named(Pair::PU, px(fluid, x, y, Caloric::U, opts)),
+        Pair::HS => named(Pair::HS, sx(fluid, y, x, Caloric::H, opts)),
+        Pair::SU => named(Pair::SU, sx(fluid, x, y, Caloric::U, opts)),
         Pair::DH => named(Pair::DH, dx(fluid, x, y, Caloric::H, opts)),
         Pair::DS => named(Pair::DS, dx(fluid, x, y, Caloric::S, opts)),
         Pair::DU => named(Pair::DU, dx(fluid, x, y, Caloric::U, opts)),
@@ -122,7 +124,6 @@ pub(crate) fn flash(fluid: &PureFluid, input: NativeInput, opts: &FlashOptions) 
         Pair::QS => qx(fluid, x, y, QVar::S, Pair::QS, opts),
         Pair::HQ => qx(fluid, y, x, QVar::H, Pair::HQ, opts),
         Pair::DQ => qx(fluid, y, 1.0 / x, QVar::V, Pair::DQ, opts),
-        pair => Err(Error::Unsupported { pair }),
     }
 }
 
@@ -288,7 +289,7 @@ fn total(fluid: &PureFluid, t: f64, rho: f64) -> Result<Bundle, Error> {
 /// (D6; map 03 §6, `agent-notes.md`: dp/dρ > 0 and cv > 0).
 fn dt(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<State, Error> {
     let enforce = opts.domain() == DomainPolicy::Enforce;
-    let t_check = fluid.limits().check_t(t);
+    let t_check = check_t(fluid, t);
     if enforce {
         t_check?;
     }
@@ -309,7 +310,7 @@ fn dt(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<State,
             two_phase(fluid, &sat, q, strategy)
         }
     }?;
-    let p_check = fluid.limits().check_p(state.p());
+    let p_check = check_p(fluid, state.p());
     if enforce {
         p_check?;
     }
@@ -629,6 +630,138 @@ fn px(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
     within_domain(fluid, state, opts)
 }
 
+/// The share of its scale (`Caloric::scale`) within which x(PS(p, s)) is x while HS and SU seek their bracket: just
+/// above the noise PS's own tolerance on T leaves in x (c·T·1e-14, under 1e-13 of RT), far inside class `Flash`.
+const ISENTROPE_NOISE: f64 = 1e-13;
+
+/// The decades of p below the model's largest pressure that HS and SU search.
+const SX_DECADES: u16 = 30;
+
+/// The most bisections HS and SU take towards the domain's edge along the isentrope.
+const SX_STEPS: u16 = 200;
+
+/// The most times HS and SU split their bracket around a refusal inside it.
+const SX_SPLITS: u16 = 8;
+
+/// HS and SU (PLAN.md M7.8; map 03 §3.1, §8, §9 `flash::hs`). Along the isentrope h and u rise with p, through the dome
+/// as on either side of it: dh = v·dp, and du = −p·dv with v falling as p rises. So the state is the root in ln p of
+/// x(PS(p, s)) − x, each iterate a PS flash ([`px`], which holds the dome and the domain), bracketed by decades of p
+/// from the model's largest pressure (see the code), then TOMS 748 in ln p (`Strategy::Isentrope`). CoolProp's HS screens the dome on 40 points of its caloric curves and runs a cascade of
+/// homotopies in (T, ln ρ) from four anchors (map 03 §3.1); the isentrope needs neither. The state is PS's at the root,
+/// with PS's acceptance (dp/dρ > 0 and c_v > 0 where no phase is imposed, map 03 §8's agent notes) and domain checks,
+/// and x reproduced. An x above every state the isentrope holds is PS's refusal above them, or `AboveMaxPressure` at
+/// pmax; one below every state, PS's refusal below them (the domain's lowest temperature), or `InvalidInput`. Errors
+/// name this pair ([`named`]).
+fn sx(fluid: &PureFluid, s: f64, x: f64, var: Caloric, opts: &FlashOptions) -> Result<State, Error> {
+    let p_max = fluid.limits().p_max();
+    let along = opts.with_domain(DomainPolicy::Extrapolate);
+    // While the bracket is sought, a residual within the nested solve's noise ([`ISENTROPE_NOISE`]) is the root: where
+    // the isentrope leaves the domain just past it (a state at pmax, or at the triple point's temperature), no state
+    // beyond it brackets it. TOMS 748 inside the bracket reads the raw residual.
+    let r = fluid.eos().gas_constant();
+    let raw = |u: f64| px(fluid, math::exp(u), s, Caloric::S, &along).map(|state| (var.of(&state) - x, state.t()));
+    let residual = |u: f64| {
+        let (at, t) = raw(u)?;
+        Ok(if at.abs() <= ISENTROPE_NOISE * var.scale(r, t, x) { 0.0 } else { at })
+    };
+    // Down from pmax a decade at a time, over p where PS refuses, to the first p where x(p) is at or below x; the last p
+    // above x before it closes the bracket unless PS refused between them. Otherwise bisection in ln p between the
+    // bracket's known end and the nearest refusal beside it finds its other end: the isentrope can leave the domain and
+    // come back (at the triple point's temperature water's s(p) turns at 38.6 MPa), or end in it (under the triple
+    // point's pressure), and a root at such an edge (a state at the triple point's temperature) is reached there, its
+    // residual within the noise.
+    let top = math::ln(p_max);
+    let (mut above, mut below, mut failed) = (None, None, None);
+    let (mut refused_over_below, mut refused_under_above) = (None, None);
+    for k in 0..SX_DECADES {
+        let u = top - f64::from(k) * core::f64::consts::LN_10;
+        match residual(u) {
+            Ok(at) if at > 0.0 => (above, refused_over_below, refused_under_above) = (Some((u, at)), None, None),
+            Ok(at) => {
+                below = Some((u, at));
+                break;
+            }
+            Err(e) => {
+                failed.get_or_insert(e);
+                refused_over_below = Some(u);
+                refused_under_above = refused_under_above.or(above.map(|_| u));
+            }
+        }
+    }
+    let invalid = || Error::InvalidInput { quantity: var.name(), value: x };
+    // Bisection between a known end and a refusal: the first p whose residual is on `side` (above x, or at or below it).
+    let bisect = |(mut held, mut at_held): (f64, f64), mut refused: f64, side: bool| {
+        for _ in 0..SX_STEPS {
+            if at_held == 0.0 || (refused - held).abs() < T_TOL {
+                break;
+            }
+            let next = 0.5 * (held + refused);
+            match residual(next) {
+                Ok(at) if if side { at > 0.0 } else { at <= 0.0 } => {
+                    return Ok(((held, at_held), (next, at)));
+                }
+                Ok(at) => (held, at_held) = (next, at),
+                Err(_) => refused = next,
+            }
+        }
+        if at_held == 0.0 { Ok(((held, at_held), (held, at_held))) } else { Err(()) }
+    };
+    let ((a, at_a), (b, at_b)) = match (above, below) {
+        (Some(above), Some(below)) if refused_over_below.is_none() => (below, above),
+        (_, Some(below)) if below.1 == 0.0 => (below, below),
+        (_, Some(below)) => match refused_over_below {
+            Some(refused) => bisect(below, refused, true).map_err(|()| failed.unwrap_or_else(invalid))?,
+            None => return Err(DomainError::AboveMaxPressure { p: p_max, p_max }.into()),
+        },
+        (Some(above), None) => match refused_under_above {
+            Some(refused) => {
+                bisect(above, refused, false).map(|(b, a)| (a, b)).map_err(|()| failed.unwrap_or_else(invalid))?
+            }
+            None => return Err(failed.unwrap_or_else(invalid)),
+        },
+        (None, None) => return Err(failed.unwrap_or_else(invalid)),
+    };
+    // TOMS 748 in the bracket. A refusal inside it (the isentrope dips out of the domain between its ends: Hydrogen's
+    // under its triple point's temperature near 20 K and 470 MPa) splits it: bisection from its upper end towards
+    // the refusal finds a p below x, or else from its lower end one above x, and TOMS 748 runs again on that part.
+    let (mut a, mut at_a, mut b, mut at_b) = (a, at_a, b, at_b);
+    let mut solved = None;
+    for _ in 0..SX_SPLITS {
+        let mut refused = None;
+        let ended = |u: f64| {
+            if u == a {
+                at_a
+            } else if u == b {
+                at_b
+            } else {
+                raw(u).map_or_else(
+                    |e| {
+                        refused.get_or_insert((u, e));
+                        f64::NAN
+                    },
+                    |(at, _)| at,
+                )
+            }
+        };
+        let root = toms748(ended, a, b, Tol::Absolute(T_TOL), T_ITER);
+        let Some((at, e)) = refused else {
+            solved = Some(root);
+            break;
+        };
+        ((a, at_a), (b, at_b)) = match bisect((b, at_b), at, false) {
+            Ok(((above, at_above), below)) => (below, (above, at_above)),
+            Err(()) => bisect((a, at_a), at, true).map_err(|()| e)?,
+        };
+    }
+    let Some(root) = solved else { return Err(Error::NoConvergence { strategy: Strategy::Isentrope, iterations: 0 }) };
+    let root = root.converged(Strategy::Isentrope)?;
+    let state = px(fluid, math::exp(root.x), s, Caloric::S, opts)?;
+    if !reproduces_x(var, r, state.t(), x, var.of(&state)) {
+        return Err(Error::NoConvergence { strategy: Strategy::Isentrope, iterations: root.iterations });
+    }
+    Ok(state.with_path(SolvePath { strategy: Strategy::Isentrope, iterations: root.iterations }))
+}
+
 /// The saturation at p that splits a P+X isobar, and the strategy its two-phase states take: an exact curve's
 /// (`Superancillary`), a stale curve's polished by the VLE at p (`Vle`), a pseudo-pure fluid's ancillaries
 /// (`Ancillary`), or without a curve the generic VLE's ([`generic_sat_p`]). `None` where p has no saturation: above
@@ -713,7 +846,8 @@ fn isobar(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions, 
         let (_, rho) = walk.density(t)?;
         Ok(var.at(r, t, &total(fluid, t, rho)?) - x)
     };
-    let (t, iterations) = root_in_t(fluid, (lo, hi), ends, Strategy::Isobar, residual)?;
+    let tiny = REPRODUCED_X * var.scale(r, lo, x);
+    let (t, iterations) = root_in_t(fluid, (lo, hi), (ends, tiny), Strategy::Isobar, residual)?;
     let path = SolvePath { strategy: Strategy::Isobar, iterations };
     let (branch, rho) = walk.density(t)?;
     let b = total(fluid, t, rho)?;
@@ -743,7 +877,7 @@ fn isobar(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions, 
 fn root_in_t(
     fluid: &PureFluid,
     (lo, hi): (f64, f64),
-    ends: (Option<f64>, Option<f64>),
+    (ends, tiny): ((Option<f64>, Option<f64>), f64),
     strategy: Strategy,
     mut residual: impl FnMut(f64) -> Result<f64, Error>,
 ) -> Result<(f64, u16), Error> {
@@ -758,7 +892,8 @@ fn root_in_t(
     for _ in 0..T_ITER {
         let at = match (t == hi, t == lo) {
             (true, _) => ends.1.map_or_else(|| residual(t), Ok),
-            (_, true) => ends.0.map_or_else(|| residual(t), Ok),
+            // At the domain's low end a residual within `tiny` is the root: a state there, reproduced.
+            (_, true) => ends.0.map_or_else(|| residual(t), Ok).map(|at| if at > tiny { at } else { at.min(0.0) }),
             _ => residual(t),
         };
         match at {
@@ -814,7 +949,9 @@ fn root_in_t(
 fn dx(fluid: &PureFluid, rho: f64, x: f64, var: Caloric, opts: &FlashOptions) -> Result<State, Error> {
     let along = if opts.phase_hint() == Some(Phase::TwoPhase) { FlashOptions::new() } else { *opts };
     let residual = |t: f64| Ok(isochore_x(fluid, t, rho, var, &along)? - x);
-    let (t, iterations) = root_in_t(fluid, t_search(fluid), (None, None), Strategy::Isochore, residual)?;
+    let (span, r) = (t_search(fluid), fluid.eos().gas_constant());
+    let tiny = REPRODUCED_X * var.scale(r, span.0, x);
+    let (t, iterations) = root_in_t(fluid, span, ((None, None), tiny), Strategy::Isochore, residual)?;
     let state = dt(fluid, t, rho, opts)?;
     let r = fluid.eos().gas_constant();
     if !reproduces_x(var, r, t, x, var.of(&state)) {
@@ -835,7 +972,8 @@ fn dp(fluid: &PureFluid, rho: f64, p: f64, opts: &FlashOptions) -> Result<State,
     }
     let along = if opts.phase_hint() == Some(Phase::TwoPhase) { FlashOptions::new() } else { *opts };
     let residual = |t: f64| Ok(isochore_p(fluid, t, rho, &along)? - p);
-    let (t, iterations) = root_in_t(fluid, t_search(fluid), (None, None), Strategy::Isochore, residual)?;
+    let (t, iterations) =
+        root_in_t(fluid, t_search(fluid), ((None, None), REPRODUCED_X * p), Strategy::Isochore, residual)?;
     let state = dt(fluid, t, rho, opts)?;
     if !reproduces_p(p, state.p()) {
         return Err(Error::NoConvergence { strategy: Strategy::Isochore, iterations });
@@ -1289,11 +1427,34 @@ fn curve_at_p(curve: &dyn SaturationCurve, p: f64, opts: &FlashOptions) -> Resul
     }
 }
 
+/// A share of a domain bound within which a value is the bound: a T or p solved at Tmax or pmax exactly lands a few
+/// ulp to either side (a P+X state at Tmax 5e-13 K over it).
+const AT_BOUND: f64 = 1e-12;
+
+/// The model's temperature limits (D6, `Limits::check_t`), a T within [`AT_BOUND`] of a bound counting as on it.
+fn check_t(fluid: &PureFluid, t: f64) -> Result<(), DomainError> {
+    let limits = fluid.limits();
+    let t_low = limits.t_triple().map_or(limits.t_min(), |tt| tt.max(limits.t_min()));
+    let on = |bound: f64| (t - bound).abs() <= AT_BOUND * bound;
+    limits.check_t(if on(t_low) {
+        t_low
+    } else if on(limits.t_max()) {
+        limits.t_max()
+    } else {
+        t
+    })
+}
+
+/// The model's pressure limit (D6, `Limits::check_p`), a p within [`AT_BOUND`] of pmax counting as on it.
+fn check_p(fluid: &PureFluid, p: f64) -> Result<(), DomainError> {
+    let p_max = fluid.limits().p_max();
+    fluid.limits().check_p(if (p - p_max).abs() <= AT_BOUND * p_max { p_max } else { p })
+}
+
 /// A saturation state against the model's limits (D6): its T and p checked; under `Enforce` a state outside them is
 /// refused, under `Extrapolate` returned with the flag.
 fn within_domain(fluid: &PureFluid, state: State, opts: &FlashOptions) -> Result<State, Error> {
-    let limits = fluid.limits();
-    match limits.check_t(state.t()).and_then(|()| limits.check_p(state.p())) {
+    match check_t(fluid, state.t()).and_then(|()| check_p(fluid, state.p())) {
         Ok(()) => Ok(state),
         Err(e) if opts.domain() == DomainPolicy::Enforce => Err(e.into()),
         Err(_) => Ok(state.mark_extrapolated()),

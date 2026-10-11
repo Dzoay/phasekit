@@ -7,8 +7,8 @@
 
 use phasekit_core::internal::FluidRecord;
 use phasekit_core::{
-    Basis, Density, Enthalpy, Entropy, Error, Fluid, Input, InternalEnergy, Order, Phase, Pressure, Quality, State,
-    Temperature,
+    Basis, Density, DerivVar, Enthalpy, Entropy, Error, Fluid, Input, InternalEnergy, Order, Partial, Phase, Pressure,
+    Quality, State, Temperature,
 };
 
 use crate::eos::{Majorants, carried};
@@ -218,7 +218,7 @@ impl FlashCheck {
                 _ => continue,
             };
             match truth.and_then(|input| fluid.state(input)) {
-                Ok(truth) => self.round_trip(name, fluid, &truth, p_x(&truth)),
+                Ok(truth) => self.round_trip(name, fluid, &truth, (p_x(&truth), (0.0, 0.0))),
                 Err(e) => self.failures.push(format!("{name} row {row}: the truth fails: {e:?}")),
             }
         }
@@ -249,11 +249,56 @@ impl FlashCheck {
     /// DH, DS and DU of one truth state give its phase, T and ρ within class `Flash` and, in the dome, its quality
     /// within 1e-8.
     pub fn dx_round_trip(&mut self, name: &str, fluid: &Fluid, truth: &State) {
-        self.round_trip(name, fluid, truth, d_x(truth));
+        self.round_trip(name, fluid, truth, (d_x(truth), (0.0, 0.0)));
+    }
+
+    /// PLAN.md M7.8: SU of every PT truth in a one-fluid `flash` file (map 01 R4: CoolProp has no SU, so its truth comes
+    /// from (p, T) only).
+    pub fn su_round_trips(&mut self, fixture: &Fixture<'_>, fluid: &Fluid) {
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap_or_default();
+        for row in 0..fixture.rows().len() {
+            if (fixture.printed(row, "pair"), fixture.printed(row, "truth")) != (Some("PT"), Some("PT")) {
+                continue;
+            }
+            let number = |column: &str| fixture.value(row, column).unwrap_or(f64::NAN);
+            let truth = Pressure::new(number("x1")).and_then(|p| Ok(Input::pt(p, Temperature::new(number("x2"))?)));
+            match truth.and_then(|input| fluid.state(input)) {
+                Ok(truth) => self.su_round_trip(name, fluid, &truth),
+                Err(e) => self.failures.push(format!("{name} row {row}: the truth fails: {e:?}")),
+            }
+        }
+    }
+
+    /// HS of one truth state gives its phase, T and ρ within class `Flash` and, in the dome, its quality within 1e-8.
+    pub fn hs_round_trip(&mut self, name: &str, fluid: &Fluid, truth: &State) {
+        let m = Basis::Molar;
+        let input = Enthalpy::molar(truth.h(m)).and_then(|h| Ok([Input::hs(h, Entropy::molar(truth.s(m))?)]));
+        self.round_trip(name, fluid, truth, (input, (0.0, 0.0)));
+    }
+
+    /// SU of one truth state, as [`Self::hs_round_trip`], but T and ρ within the conditioning of (s, u) where that is
+    /// wider. Along an isentrope u moves with p by (∂u/∂p)_s = (p/ρ²)·(∂ρ/∂p)_s, little in a liquid at low p, so SU's
+    /// resolution in u, 1e-13 of max(|u|, RT) (`flash::ISENTROPE_NOISE`), leaves p uncertain by that over (∂u/∂p)_s,
+    /// and T and ρ by their own slopes along the isentrope times that; twice that bounds them (Methanol's liquid at
+    /// 168 Pa: p within 230 Pa, T within 2e-5 K).
+    pub fn su_round_trip(&mut self, name: &str, fluid: &Fluid, truth: &State) {
+        let m = Basis::Molar;
+        let input = Entropy::molar(truth.s(m)).and_then(|s| Ok([Input::su(s, InternalEnergy::molar(truth.u(m))?)]));
+        let along = |of| truth.partial(Partial { of, wrt: DerivVar::P, at: DerivVar::Smolar }).map_or(0.0, f64::abs);
+        let resolution = 2e-13 * truth.u(m).abs().max(truth.gas_constant() * truth.t());
+        let dp = resolution / along(DerivVar::Umolar);
+        let floors = (along(DerivVar::T) * dp, along(DerivVar::Dmolar) * dp);
+        self.round_trip(name, fluid, truth, (input, floors));
     }
 
     /// The round trips of one truth state through `inputs`, read off it.
-    fn round_trip(&mut self, name: &str, fluid: &Fluid, truth: &State, inputs: Result<[Input; 3], Error>) {
+    fn round_trip<const N: usize>(
+        &mut self,
+        name: &str,
+        fluid: &Fluid,
+        truth: &State,
+        (inputs, floors): (Result<[Input; N], Error>, (f64, f64)),
+    ) {
         let Ok(inputs) = inputs else {
             self.failures.push(format!("{name}: no inputs from {truth:?}"));
             return;
@@ -268,7 +313,11 @@ impl FlashCheck {
                     continue;
                 }
             };
-            if !agrees(coordinates(&back), coordinates(truth)) {
+            let window = fluid
+                .info()
+                .published_critical()
+                .map_or(Window::Regular, |c| Window::at(truth.t(), truth.rho(Basis::Molar), c.t, c.rho));
+            if !agrees(coordinates(&back), coordinates(truth), window, floors) {
                 self.failures.push(format!("{name} {input:?}: {back:?} against {truth:?}"));
             }
         }
@@ -288,15 +337,32 @@ fn coordinates(state: &State) -> Coordinates {
     (state.phase(), state.t(), state.rho(Basis::Molar), state.quality())
 }
 
+/// Class `Flash`'s bounds for a solved input in the near-critical window (VERIFICATION.md §5): T 1e-8, ρ 1e-6 of each,
+/// and Q 1e-6 absolute (measured at M7.8: D+X of n-Propane's and Methane's dome at their published Tc, where ρ′ and ρ″
+/// differ by 0.2 %, returns Q within 2.5e-8).
+const NEAR_CRITICAL: (f64, f64, f64) = (1e-8, 1e-6, 1e-6);
+
 /// Whether a round trip's state agrees with its truth (class `Flash`): the same phase, T and ρ within 1e-9 of the
-/// truth's, and its quality within 1e-8, or no quality on both.
-fn agrees((phase, t, rho, q): Coordinates, truth: Coordinates) -> bool {
-    let off = |got: f64, want: f64| beyond(got, want, ToleranceClass::Flash.bound(want.abs()).unwrap_or(0.0));
-    let quality = match (q, truth.3) {
-        (Some(got), Some(want)) => beyond(got, want, ToleranceClass::FLASH_QUALITY),
-        (got, want) => got.is_some() != want.is_some(),
+/// truth's, and its quality within 1e-8, or no quality on both; in the near-critical `window`, [`NEAR_CRITICAL`]'s
+/// bounds; and T and ρ within floors where the pair leaves them less determined (SU, [`FlashCheck::su_round_trip`]). A
+/// dome's end is the single phase it borders: Q = 0 within its bound the liquid, Q = 1 the gas (a D+X round trip of a
+/// saturated state lands on the dome's edge, either side).
+fn agrees(back: Coordinates, truth: Coordinates, window: Window, (t_floor, rho_floor): (f64, f64)) -> bool {
+    let near = window == Window::NearCritical;
+    let (t_tol, rho_tol, q_tol) = if near { NEAR_CRITICAL } else { (1e-9, 1e-9, ToleranceClass::FLASH_QUALITY) };
+    let off = |got: f64, want: f64, tol: f64, floor: f64| beyond(got, want, (tol * want.abs()).max(floor));
+    let edge = |a: Coordinates, b: Coordinates| match (a.3, b.0) {
+        (Some(q), Phase::Liquid) => !beyond(q, 0.0, q_tol),
+        (Some(q), Phase::Gas) => !beyond(q, 1.0, q_tol),
+        _ => false,
     };
-    !(phase != truth.0 || off(t, truth.1) || off(rho, truth.2) || quality)
+    let quality = match (back.3, truth.3) {
+        (Some(got), Some(want)) => !beyond(got, want, q_tol),
+        (None, None) => true,
+        _ => edge(back, truth) || edge(truth, back),
+    };
+    let phase = back.0 == truth.0 || edge(back, truth) || edge(truth, back);
+    phase && quality && !off(back.1, truth.1, t_tol, t_floor) && !off(back.2, truth.2, rho_tol, rho_floor)
 }
 
 /// The P+X inputs of a state, molar: (p, h), (p, s) and (p, u).
@@ -325,11 +391,13 @@ mod tests {
     use super::*;
     use phasekit_core::{DataSet, Registry, State};
 
-    /// A round trip agrees with its truth only where its phase, T, ρ and quality all do, each within class `Flash`.
+    /// A round trip agrees with its truth only where its phase, T, ρ and quality all do, each within class `Flash`; in
+    /// the near-critical window within its wider bounds, and ρ within a pair's own floor.
     #[test]
     fn round_trips_compare_every_coordinate() {
+        let regular = |back, truth| agrees(back, truth, Window::Regular, (0.0, 0.0));
         let truth = (Phase::Liquid, 300.0, 5e4, None);
-        assert!(agrees(truth, truth) && agrees((Phase::Liquid, 300.0 * (1.0 + 5e-10), 5e4, None), truth));
+        assert!(regular(truth, truth) && regular((Phase::Liquid, 300.0 * (1.0 + 5e-10), 5e4, None), truth));
         let apart = [
             (Phase::Gas, 300.0, 5e4, None),
             (Phase::Liquid, 300.0 * (1.0 + 2e-9), 5e4, None),
@@ -337,11 +405,29 @@ mod tests {
             (Phase::Liquid, 300.0, 5e4, Some(0.5)),
         ];
         for back in apart {
-            assert!(!agrees(back, truth), "{back:?}");
+            assert!(!regular(back, truth), "{back:?}");
         }
         let wet = (Phase::TwoPhase, 300.0, 5e4, Some(0.5));
-        assert!(agrees((Phase::TwoPhase, 300.0, 5e4, Some(0.5 + 5e-9)), wet));
-        assert!(!agrees((Phase::TwoPhase, 300.0, 5e4, Some(0.5 + 2e-8)), wet));
+        assert!(regular((Phase::TwoPhase, 300.0, 5e4, Some(0.5 + 5e-9)), wet));
+        assert!(!regular((Phase::TwoPhase, 300.0, 5e4, Some(0.5 + 2e-8)), wet));
+        // A dome's end is the single phase it borders, either way round, and no other.
+        let (bubble, dew) =
+            ((Phase::TwoPhase, 300.0, 5e4, Some(5e-9)), (Phase::TwoPhase, 300.0, 5e4, Some(1.0 - 5e-9)));
+        assert!(regular(bubble, truth) && regular(truth, bubble) && regular(dew, (Phase::Gas, 300.0, 5e4, None)));
+        assert!(!regular(dew, truth) && !regular((Phase::TwoPhase, 300.0, 5e4, Some(2e-8)), truth));
+        assert!(!regular(bubble, (Phase::Gas, 300.0, 5e4, None)));
+        assert!(!regular(bubble, (Phase::Supercritical, 300.0, 5e4, None)));
+        // Near the critical point T within 1e-8, ρ within 1e-6 and Q within 1e-6; and ρ within a pair's floor.
+        let near = |back| agrees(back, wet, Window::NearCritical, (0.0, 0.0));
+        assert!(near((Phase::TwoPhase, 300.0 * (1.0 + 5e-9), 5e4 * (1.0 + 5e-7), Some(0.5 + 5e-7))));
+        assert!(!near((Phase::TwoPhase, 300.0 * (1.0 + 2e-8), 5e4, Some(0.5))));
+        assert!(!near((Phase::TwoPhase, 300.0, 5e4 * (1.0 + 2e-6), Some(0.5))));
+        assert!(!near((Phase::TwoPhase, 300.0, 5e4, Some(0.5 + 2e-6))));
+        let floored = |back, floor| agrees(back, truth, Window::Regular, floor);
+        assert!(floored((Phase::Liquid, 300.0, 5e4 + 1e-3, None), (0.0, 2e-3)));
+        assert!(!floored((Phase::Liquid, 300.0, 5e4 + 1e-3, None), (0.0, 5e-4)));
+        assert!(floored((Phase::Liquid, 300.0 + 1e-5, 5e4, None), (2e-5, 0.0)));
+        assert!(!floored((Phase::Liquid, 300.0 + 1e-5, 5e4, None), (5e-6, 0.0)));
     }
 
     /// Hand-made DT rows in a `flash/v1` file (source `mp:` only so that no oracle header is required).

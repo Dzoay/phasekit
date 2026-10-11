@@ -57,6 +57,8 @@ pub enum Strategy {
     Isotherm,
     /// TOMS 748 in T along the saturation curve (Q-pairs), on the caloric curves and polished on the EOS.
     Saturation,
+    /// TOMS 748 in ln p along an isentrope (HS, SU), each iterate a PS flash.
+    Isentrope,
 }
 
 /// The strategy and its iteration count.

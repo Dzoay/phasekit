@@ -102,7 +102,9 @@ const IMPLEMENTED: Capabilities = Capabilities::none()
     .with(Pair::DP)
     .with(Pair::QS)
     .with(Pair::HQ)
-    .with(Pair::DQ);
+    .with(Pair::DQ)
+    .with(Pair::HS)
+    .with(Pair::SU);
 
 /// The package of a pure or pseudo-pure Helmholtz fluid: identity, EOS (any family), limits, critical point
 /// and parts materialised on first use (saturation curve, transport). Immutable; shared through `Arc`.
