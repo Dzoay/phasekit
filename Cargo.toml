@@ -62,3 +62,18 @@ codegen-units = 1
 inherits = "test"
 opt-level = 1
 debug = false
+
+# User decision SP1 (2026-10-11): phasekit-core, phasekit-xtask and every dependency build optimised in the dev profile,
+# and so in `test` and `mutants`, which inherit it. Each datagen test regenerates all 136 fluids, most of it in
+# phasekit-core: the workspace suite on the M7.5 stack took 134 s (1 018 test CPU-seconds, 831 of them xtask's) at
+# opt-level 0, 117 s with only xtask and the dependencies optimised, and 44 s (335) with phasekit-core too. Overflow
+# checks and debug assertions stay on, and floating-point results do not change (see `mutants`), which datagen's
+# byte-for-byte tests and `gates datagen` check. The other workspace crates stay at opt-level 0.
+[profile.dev.package.phasekit-core]
+opt-level = 2
+
+[profile.dev.package.phasekit-xtask]
+opt-level = 2
+
+[profile.dev.package."*"]
+opt-level = 2
