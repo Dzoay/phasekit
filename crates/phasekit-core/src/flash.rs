@@ -510,6 +510,11 @@ const ISOBAR_ITER: u16 = 100;
 /// The share of its scale (`Caloric::scale`) to which a P+X state reproduces x (class `Flash`).
 const REPRODUCED_X: f64 = 1e-9;
 
+/// The acceptance gate's "inputs reproduced" for a caloric input (D6): `got` within [`REPRODUCED_X`] of x's scale.
+fn reproduces_x(var: Caloric, r: f64, t: f64, x: f64, got: f64) -> bool {
+    (got - x).abs() <= REPRODUCED_X * var.scale(r, t, x)
+}
+
 /// P+X: PH, PS and PU (PLAN.md M7.3; map 03 §3.1, §9 `flash::px`). The saturation at p ([`saturation_at_p`]) splits
 /// the isobar: an x below the saturated liquid's is the liquid, between T_low and the bubble temperature; above the
 /// saturated vapour's the gas, between the dew temperature and 1.5·Tmax (CoolProp's bound); between them the dome, by
@@ -539,15 +544,15 @@ fn px_solve(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions
     let t_low = limits.t_triple().map_or(limits.t_min(), |t| t.max(limits.t_min()));
     let t_high = 1.5 * limits.t_max();
     let hint = opts.phase_hint();
-    let along = |lo, hi, ends, liquid, beside| isobar(fluid, p, x, var, opts, Span { lo, hi, ends, liquid, beside });
+    let along = |lo, hi, ends, liquid| isobar(fluid, p, x, var, opts, Span { lo, hi, ends, liquid });
     if hint.is_some_and(|h| h != Phase::TwoPhase) {
-        return along(t_low, t_high, (None, None), false, false);
+        return along(t_low, t_high, (None, None), false);
     }
     let Some((sat, strategy)) = saturation_at_p(fluid, p, t_low, opts)? else {
         if hint == Some(Phase::TwoPhase) {
             return Err(Error::Undefined { prop: Prop::Q, phase: Phase::TwoPhase });
         }
-        return along(t_low, t_high, (None, None), false, false);
+        return along(t_low, t_high, (None, None), false);
     };
     // Each saturated side's x, the EOS's at its (T, ρ): a pseudo-pure side's ρ is the EOS's at its (T, p), as PQ's.
     let side = |side: &SatSide, liquid: bool| -> Result<f64, Error> {
@@ -557,21 +562,21 @@ fn px_solve(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions
         };
         Ok(var.at(fluid.eos().gas_constant(), side.t, &total(fluid, side.t, rho)?))
     };
+    // The lever rule's quality on x: below 0 the liquid, above 1 the gas, unless `TwoPhase` is imposed.
     let (x_l, x_v) = (side(&sat.bubble, true)?, side(&sat.dew, false)?);
-    if hint == Some(Phase::TwoPhase) || (x_l..=x_v).contains(&x) {
-        let q = Quality::new((x - x_l) / (x_v - x_l))?;
-        let state = match strategy {
-            Strategy::Ancillary => split_sides(fluid, &sat, q, q.get() * sat.dew.t + (1.0 - q.get()) * sat.bubble.t, p),
-            strategy => two_phase(fluid, &sat, q, strategy),
-        }?;
-        return within_domain(fluid, state, opts);
+    let (q, imposed) = ((x - x_l) / (x_v - x_l), hint == Some(Phase::TwoPhase));
+    if !imposed && q < 0.0 {
+        return along(t_low, sat.bubble.t, (None, Some(x_l)), true);
     }
-    let beside = strategy == Strategy::Ancillary;
-    if x < x_l {
-        along(t_low, sat.bubble.t, (None, Some(x_l)), true, beside)
-    } else {
-        along(sat.dew.t, t_high, (Some(x_v), None), false, beside)
+    if !imposed && q > 1.0 {
+        return along(sat.dew.t, t_high, (Some(x_v), None), false);
     }
+    let q = Quality::new(q)?;
+    let state = match strategy {
+        Strategy::Ancillary => split_sides(fluid, &sat, q, q.get() * sat.dew.t + (1.0 - q.get()) * sat.bubble.t, p),
+        strategy => two_phase(fluid, &sat, q, strategy),
+    }?;
+    within_domain(fluid, state, opts)
 }
 
 /// The saturation at p that splits a P+X isobar, and the strategy its two-phase states take: an exact curve's
@@ -614,15 +619,14 @@ fn generic_sat_p(fluid: &PureFluid, p: f64, t_low: f64) -> Result<Option<(SatPai
     }
     let mut failure = None;
     let mut gap = |t: f64| {
-        if t >= t_c {
-            return math::ln(p_c / p);
-        }
-        generic_vle(fluid, Some(crit), t, Pair::PQ).map_or_else(
+        let pressure =
+            if t >= t_c { Ok(p_c) } else { generic_vle(fluid, Some(crit), t, Pair::PQ).map(|sat| sat.bubble.p) };
+        pressure.map_or_else(
             |e| {
                 failure.get_or_insert(e);
                 f64::NAN
             },
-            |sat| math::ln(sat.bubble.p / p),
+            |pressure| math::ln(pressure / p),
         )
     };
     let at_low = gap(t_low);
@@ -637,14 +641,13 @@ fn generic_sat_p(fluid: &PureFluid, p: f64, t_low: f64) -> Result<Option<(SatPai
 }
 
 /// A stretch of a P+X isobar that holds one single-phase branch: T from `lo` to `hi`, x known at a saturated end
-/// (`ends`), the side of the dome it lies on (`liquid`: the root PT takes at exactly psat), and whether it lies beside
-/// a pseudo-pure dome, where between the ancillary pressures PT's rule has no single phase and the side is imposed.
+/// (`ends`), and the side of the dome it lies on (`liquid`: the root PT takes at exactly psat). A span never reaches
+/// into a pseudo-pure dome: its saturated end is the bubble or dew temperature, whose x it is given.
 struct Span {
     lo: f64,
     hi: f64,
     ends: (Option<f64>, Option<f64>),
     liquid: bool,
-    beside: bool,
 }
 
 /// The single-phase state of x on `span` of the isobar at p ([`Strategy::Isobar`]): TOMS 748 in T on x(T) − x, each
@@ -670,7 +673,10 @@ fn isobar(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions, 
         return Err(DomainError::AboveMaxTemperature { t: hi, t_max: limits.t_max() }.into());
     }
     let (mut a, mut b, mut at_a, mut at_b) = (lo, hi, at_lo, at_hi);
-    while at_a > 0.0 {
+    for _ in 0..ISOBAR_ITER {
+        if at_a <= 0.0 {
+            break;
+        }
         let next = (0.8 * b).max(lo);
         if next == lo {
             return Err(colder.into());
@@ -702,7 +708,7 @@ fn isobar(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions, 
     if !crate::density::reproduces(r, t, rho, p, &b) {
         return Err(Error::NoConvergence { strategy: Strategy::DensityNewton, iterations: path.iterations });
     }
-    if (var.at(r, t, &b) - x).abs() > REPRODUCED_X * var.scale(r, t, x) {
+    if !reproduces_x(var, r, t, x, var.at(r, t, &b)) {
         return Err(Error::NoConvergence { strategy: Strategy::Isobar, iterations: path.iterations });
     }
     if opts.phase_hint().is_none() {
@@ -725,16 +731,11 @@ struct Walk<'a> {
 }
 
 impl Walk<'_> {
-    /// The branch and density at (T, p): PT's branch rule, on the span's side at exactly psat, and beside a pseudo-pure
-    /// dome on that side where the rule has no single phase; seeded by the last density.
+    /// The branch and density at (T, p): PT's branch rule, on the span's side at exactly psat; seeded by the last
+    /// density.
     fn density(&mut self, t: f64) -> Result<(Branch, f64), Error> {
         let (fluid, p, span) = (self.fluid, self.p, &self.span);
-        let side = if span.liquid { Phase::Liquid } else { Phase::Gas };
-        let rule = match pt_branch(fluid, p, t, self.opts) {
-            Err(Error::Undefined { .. }) if span.beside => pt_branch(fluid, p, t, &self.opts.with_phase(side))?,
-            rule => rule?,
-        };
-        let branch = match rule {
+        let branch = match pt_branch(fluid, p, t, self.opts)? {
             Where::One(branch) => branch,
             Where::Both { liquid, gas } => {
                 if span.liquid {
@@ -891,7 +892,9 @@ mod tests {
     #[cfg(feature = "fluids-all")]
     use crate::prop::{DerivVar, Partial};
     use crate::saturation::{SatSide, SaturationCurve};
-    use crate::units::{Basis, Density, Enthalpy, Entropy, InternalEnergy, Pressure, Temperature};
+    use crate::units::{Basis, Density, Pressure, Temperature};
+    #[cfg(feature = "fluids-all")]
+    use crate::units::{Enthalpy, Entropy, InternalEnergy};
 
     /// A curve fitted over 200-380 K that fails the test if it is ever evaluated outside that range.
     #[derive(Debug)]
@@ -1740,9 +1743,9 @@ mod tests {
     }
 
     /// PH, PS and PU of the PT state of `fluid` at (p, T) return its phase, and its T and ρ within class `Flash` (1e-9),
-    /// solved along the isobar.
+    /// solved along the isobar; the inputs checked.
     #[cfg(feature = "fluids-all")]
-    fn round_trips(fluid: &Fluid, p: f64, t: f64) {
+    fn round_trips(fluid: &Fluid, p: f64, t: f64) -> usize {
         let truth = fluid.state(pt(p, t)).unwrap();
         let m = Basis::Molar;
         for input in p_x(&truth) {
@@ -1754,6 +1757,7 @@ mod tests {
             );
             assert_eq!(back.path().strategy, Strategy::Isobar, "{input:?}");
         }
+        3
     }
 
     /// map 03 §8 PXFlash (`CoolProp-Tests-PXFlash.cpp:34`, PLAN.md M7.3): Nitrogen in the supercritical-cold corner,
@@ -1766,7 +1770,7 @@ mod tests {
         let nitrogen = embedded("Nitrogen");
         for (t, p) in [(86.35, 4.754e6), (90.20, 7.768e6)] {
             assert_eq!(nitrogen.state(pt(p, t)).unwrap().phase(), Phase::SupercriticalLiquid);
-            round_trips(&nitrogen, p, t);
+            assert_eq!(round_trips(&nitrogen, p, t), 3);
         }
     }
 
@@ -1796,8 +1800,77 @@ mod tests {
             ("Nitrogen", 121.0, 3.7e6),
             ("Water", 277.0, 5.0e6),
         ];
-        for (name, t, p) in cases {
-            round_trips(&embedded(name), p, t);
+        let checked: usize = cases.iter().map(|&(name, t, p)| round_trips(&embedded(name), p, t)).sum();
+        assert_eq!(checked, 3 * cases.len());
+    }
+
+    /// The P+X acceptance gate (D6, `reproduces_x`): the solved state's x within 1e-9 of its scale, |x| or at least RT
+    /// for h and u, R for s; at the bound exactly, reproduced.
+    #[test]
+    fn x_is_reproduced_to_its_scale() {
+        let (r, t) = (8.0, 300.0);
+        assert_eq!([Caloric::H, Caloric::S, Caloric::U].map(|v| v.scale(r, t, 10.0)), [2400.0, 10.0, 2400.0]);
+        assert_eq!([Caloric::H, Caloric::S, Caloric::U].map(|v| v.scale(r, t, -5e3)), [5e3; 3]);
+        let bound = REPRODUCED_X * 2400.0;
+        assert!(reproduces_x(Caloric::H, r, t, 0.0, bound) && !reproduces_x(Caloric::H, r, t, 0.0, 2.0 * bound));
+        assert!(reproduces_x(Caloric::H, r, t, 1000.0, 1000.0 + 1e-6));
+        assert!(reproduces_x(Caloric::S, r, t, 0.0, 8e-9) && !reproduces_x(Caloric::S, r, t, 0.0, 1e-8));
+    }
+
+    /// P+X at the dome's edge and under an imposed phase (PLAN.md M7.3, D6). Water at 1 MPa: PH, PS and PU of PQ's
+    /// saturated liquid and vapour are two-phase at Q = 0 and 1 exactly, the lever rule's ends. h a little above the
+    /// saturated liquid's is two-phase, Q 0.001; under `Liquid` it is the superheated liquid, above the saturation
+    /// temperature; under `TwoPhase` the same two-phase state; and the liquid's own h under `TwoPhase` is refused (a
+    /// quality below 0).
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn p_x_at_the_dome_edge_and_under_a_hint() {
+        let water = embedded("Water");
+        let m = Basis::Molar;
+        for q in [0.0, 1.0] {
+            let saturated = water.state(p_q(1e6, q)).unwrap();
+            for input in p_x(&saturated) {
+                let back = water.state(input).unwrap();
+                assert!(back.phase() == Phase::TwoPhase && back.quality() == Some(q), "{input:?}: {back:?}");
+            }
+        }
+        let (liquid, vapour) = (water.state(p_q(1e6, 0.0)).unwrap(), water.state(p_q(1e6, 1.0)).unwrap());
+        let h = liquid.h(m) + 1e-3 * (vapour.h(m) - liquid.h(m));
+        let ph = Input::hp(Enthalpy::molar(h).unwrap(), Pressure::new(1e6).unwrap());
+        let free = water.state(ph).unwrap();
+        assert!(
+            free.phase() == Phase::TwoPhase && free.quality().is_some_and(|q| (q - 1e-3).abs() < 1e-12),
+            "{free:?}"
+        );
+        let with = |phase| water.flash(ph, &FlashOptions::new().with_phase(phase));
+        let superheated = with(Phase::Liquid).unwrap();
+        assert!(superheated.phase() == Phase::Liquid && superheated.t() > liquid.t(), "{superheated:?}");
+        assert!((superheated.h(m) / h - 1.0).abs() < 1e-12, "{superheated:?}");
+        assert_eq!(with(Phase::TwoPhase), Ok(free));
+        let compressed = water.state(pt(1e6, 400.0)).unwrap();
+        let refused = water.flash(p_x(&compressed)[0], &FlashOptions::new().with_phase(Phase::TwoPhase));
+        assert!(matches!(refused, Err(Error::InvalidInput { quantity: "quality", .. })), "{refused:?}");
+    }
+
+    /// P+X on a stale curve (M6.6): the curve only seeds the VLE at p, which decides. Nitrogen with its EOS edited away
+    /// from its superancillary: PH, PS and PU of its two-phase DT state at 100 K are that state, its T the VLE's within
+    /// 1e-9, where the stale curve's saturation temperature at that p is 2e-7 off.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn p_x_on_a_stale_curve_follows_the_vle() {
+        let mut record = record_of("Nitrogen");
+        record.eos.power.first_mut().unwrap().n *= 1.0 + 1e-6;
+        let stale = record.superancillary_curve().unwrap();
+        let curve_of = record.clone();
+        let pure = record.builder().unwrap().lazy_saturation(move || Ok(curve_of.superancillary_curve())).build();
+        let fluid = Fluid::new(Arc::new(pure));
+        let truth = fluid.state(dt(5_000.0, 100.0)).unwrap();
+        assert_eq!((truth.phase(), truth.path().strategy), (Phase::TwoPhase, Strategy::Vle));
+        assert!((stale.at_p(truth.p()).unwrap().bubble.t / 100.0 - 1.0).abs() > 1e-8, "the edit moved saturation");
+        for input in p_x(&truth) {
+            let back = fluid.state(input).unwrap();
+            let q = (back.quality().unwrap() - truth.quality().unwrap()).abs();
+            assert!((back.t() / 100.0 - 1.0).abs() < 1e-9 && q < 1e-9, "{input:?}: {back:?}");
         }
     }
 

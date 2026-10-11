@@ -147,6 +147,48 @@ fn subcritical_without_a_curve_uses_the_eos_vle() {
     }
 }
 
+/// PLAN.md M7.3: P+X on a family with no saturation curve takes the saturation at p from the generic VLE of its EOS
+/// (M7.2), at the T where that VLE's pressure is p. Van der Waals at 0.8 Tc: its two-phase state (Q 0.25), its liquid
+/// and its gas; at 0.8 Tc and 2 pc a liquid above the critical pressure; at 1.2 Tc and 1.5 pc a supercritical state; and
+/// a gas at 100 K below the saturation pressure at the domain's lowest temperature (50 K), where every state is a gas.
+/// PH and PS of each return it: its phase, T and ρ within 1e-9, its quality within 1e-9.
+#[test]
+fn p_x_without_a_curve_uses_the_eos_vle() {
+    let (model, crit) = vdw();
+    let reg = Registry::empty().with_model(model).unwrap();
+    let fluid = reg.get("vdw").unwrap();
+    let t = 0.8 * crit.t;
+    let sat = maxwell(0.1355, 3.2e-5, t);
+    let (rho_l, rho_v) = (sat.bubble.rho, sat.dew.rho);
+    let pt = |p: f64, t: f64| Input::pt(Pressure::new(p).unwrap(), Temperature::new(t).unwrap());
+    let dilute = 1e-3 * maxwell(0.1355, 3.2e-5, 50.0).bubble.p;
+    let truths = [
+        dt(1.0 / (0.75 / rho_l + 0.25 / rho_v), t),
+        dt(1.01 * rho_l, t),
+        dt(0.5 * rho_v, t),
+        pt(2.0 * crit.p, t),
+        pt(1.5 * crit.p, 1.2 * crit.t),
+        pt(dilute, 100.0),
+    ];
+    let m = Basis::Molar;
+    let near = |got: f64, want: f64| (got / want - 1.0).abs() < 1e-9;
+    for input in truths {
+        let truth = fluid.state(input).unwrap();
+        let p = Pressure::new(truth.p()).unwrap();
+        for back in
+            [Input::hp(Enthalpy::molar(truth.h(m)).unwrap(), p), Input::ps(p, Entropy::molar(truth.s(m)).unwrap())]
+        {
+            let state = fluid.state(back).unwrap_or_else(|e| panic!("{back:?} of {truth:?}: {e:?}"));
+            let quality = match (state.quality(), truth.quality()) {
+                (Some(a), Some(b)) => (a - b).abs() < 1e-9,
+                (a, b) => a == b,
+            };
+            let same = state.phase() == truth.phase() && near(state.t(), truth.t()) && near(state.rho(m), truth.rho(m));
+            assert!(same && quality, "{back:?}: {state:?} against {truth:?}");
+        }
+    }
+}
+
 /// The van der Waals saturation curve by a Maxwell construction ([`maxwell`]), as the family crate would ship it, over
 /// [0.5 Tc, Tc].
 #[derive(Debug)]

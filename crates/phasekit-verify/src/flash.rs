@@ -215,8 +215,6 @@ impl FlashCheck {
                 ("DT", "dome") if label(row, "phase") == "twophase" => {
                     Quality::new(number("Q")).and_then(|q| Ok(Input::pq(pressure?, q)))
                 }
-                // Gas by CoolProp's density bands, inside its ancillary dome at that p: its PH is two-phase there.
-                ("DT", "dome") => continue,
                 _ => continue,
             };
             match truth.and_then(|input| fluid.state(input)) {
@@ -250,12 +248,7 @@ impl FlashCheck {
                     continue;
                 }
             };
-            let off = |got: f64, want: f64| beyond(got, want, ToleranceClass::Flash.bound(want.abs()).unwrap_or(0.0));
-            let quality = match (back.quality(), truth.quality()) {
-                (Some(got), Some(want)) => beyond(got, want, ToleranceClass::FLASH_QUALITY),
-                (got, want) => got.is_some() != want.is_some(),
-            };
-            if back.phase() != truth.phase() || off(back.t(), truth.t()) || off(back.rho(m), truth.rho(m)) || quality {
+            if !agrees(coordinates(&back), coordinates(truth)) {
                 self.failures.push(format!("{name} {input:?}: {back:?} against {truth:?}"));
             }
         }
@@ -267,10 +260,48 @@ impl FlashCheck {
     }
 }
 
+/// A state's phase, T, molar ρ and quality, which a round trip compares.
+type Coordinates = (Phase, f64, f64, Option<f64>);
+
+/// The coordinates of `state`.
+fn coordinates(state: &State) -> Coordinates {
+    (state.phase(), state.t(), state.rho(Basis::Molar), state.quality())
+}
+
+/// Whether a round trip's state agrees with its truth (class `Flash`): the same phase, T and ρ within 1e-9 of the
+/// truth's, and its quality within 1e-8, or no quality on both.
+fn agrees((phase, t, rho, q): Coordinates, truth: Coordinates) -> bool {
+    let off = |got: f64, want: f64| beyond(got, want, ToleranceClass::Flash.bound(want.abs()).unwrap_or(0.0));
+    let quality = match (q, truth.3) {
+        (Some(got), Some(want)) => beyond(got, want, ToleranceClass::FLASH_QUALITY),
+        (got, want) => got.is_some() != want.is_some(),
+    };
+    !(phase != truth.0 || off(t, truth.1) || off(rho, truth.2) || quality)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use phasekit_core::{DataSet, Registry, State};
+
+    /// A round trip agrees with its truth only where its phase, T, ρ and quality all do, each within class `Flash`.
+    #[test]
+    fn round_trips_compare_every_coordinate() {
+        let truth = (Phase::Liquid, 300.0, 5e4, None);
+        assert!(agrees(truth, truth) && agrees((Phase::Liquid, 300.0 * (1.0 + 5e-10), 5e4, None), truth));
+        let apart = [
+            (Phase::Gas, 300.0, 5e4, None),
+            (Phase::Liquid, 300.0 * (1.0 + 2e-9), 5e4, None),
+            (Phase::Liquid, 300.0, 5e4 * (1.0 + 2e-9), None),
+            (Phase::Liquid, 300.0, 5e4, Some(0.5)),
+        ];
+        for back in apart {
+            assert!(!agrees(back, truth), "{back:?}");
+        }
+        let wet = (Phase::TwoPhase, 300.0, 5e4, Some(0.5));
+        assert!(agrees((Phase::TwoPhase, 300.0, 5e4, Some(0.5 + 5e-9)), wet));
+        assert!(!agrees((Phase::TwoPhase, 300.0, 5e4, Some(0.5 + 2e-8)), wet));
+    }
 
     /// Hand-made DT rows in a `flash/v1` file (source `mp:` only so that no oracle header is required).
     fn file(fluid: &str, rows: &[String]) -> String {
