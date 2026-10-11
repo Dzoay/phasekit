@@ -519,13 +519,14 @@ impl Caloric {
         }
     }
 
-    /// Its slope along an isotherm, (∂x/∂ln ρ)_T, on a single phase with total bundle `b`: δ·∂/∂δ takes A_i0 to A_i1
-    /// and A01 to A01 + A02.
-    fn slope(self, r: f64, t: f64, b: &Bundle) -> f64 {
+    /// The sign of its slope along an isotherm, (∂x/∂ln ρ)_T, on a single phase with total bundle `b`, as a number of
+    /// that sign: δ·∂/∂δ takes A_i0 to A_i1 and A01 to A01 + A02, and the slope is this times RT (R for s), which
+    /// T+X reads only for where it changes sign.
+    fn slope_sign(self, b: &Bundle) -> f64 {
         match self {
-            Caloric::H => r * t * (b.a11 + b.a01 + b.a02),
-            Caloric::S => r * (b.a11 - b.a01),
-            Caloric::U => r * t * b.a11,
+            Caloric::H => b.a11 + b.a01 + b.a02,
+            Caloric::S => b.a11 - b.a01,
+            Caloric::U => b.a11,
         }
     }
 
@@ -812,31 +813,24 @@ fn dx(fluid: &PureFluid, rho: f64, x: f64, var: Caloric, opts: &FlashOptions) ->
     Ok(state.with_path(SolvePath { strategy: Strategy::Isochore, iterations }))
 }
 
-/// x at (T, ρ) as DT's state has it ([`dt_point`]).
+/// x at (T, ρ) as DT's state has it: the EOS's for a single phase; in the dome (DT's phase rule) the lever rule's on
+/// molar volume between the saturated sides at T. Where a pseudo-pure fluid's VLE fails just below its published
+/// critical temperature, above its EOS's own (Air at 13 119 mol/m³ from 131 K to 132.53 K; R407C's EOS critical point is
+/// 356.60 K, the published one 359.345 K), the EOS has no dome and its single phase's x is the one the search follows,
+/// continuous with the lever rule's where that dome closes; DT itself refuses those states.
 fn isochore_x(fluid: &PureFluid, t: f64, rho: f64, var: Caloric, opts: &FlashOptions) -> Result<f64, Error> {
-    Ok(dt_point(fluid, t, rho, var, opts)?.0)
-}
-
-/// x at (T, ρ) as DT's state has it, and its slope (∂x/∂ln ρ)_T: the EOS's for a single phase; in the dome (DT's phase
-/// rule) the lever rule's on molar volume between the saturated sides at T, falling with ρ as v does. Where a pseudo-pure
-/// fluid's VLE fails just below its published critical temperature, above its EOS's own (Air at 13 119 mol/m³ from
-/// 131 K to 132.53 K; R407C's EOS critical point is 356.60 K, the published one 359.345 K), the EOS has no dome and its
-/// single phase's x is the one a search follows, continuous with the lever rule's where that dome closes; DT itself
-/// refuses those states.
-fn dt_point(fluid: &PureFluid, t: f64, rho: f64, var: Caloric, opts: &FlashOptions) -> Result<(f64, f64), Error> {
     let r = fluid.eos().gas_constant();
     let b = total(fluid, t, rho)?;
-    let single = (var.at(r, t, &b), var.slope(r, t, &b));
     let pseudo_pure = || fluid.saturation().is_ok_and(|c| c.is_some_and(|c| c.accuracy() == SatAccuracy::Definition));
     Ok(match region(fluid, t, rho, relations::pressure(r, t, rho, &b), opts) {
-        Err(Error::NoConvergence { strategy: Strategy::Vle, .. }) if pseudo_pure() => single,
+        Err(Error::NoConvergence { strategy: Strategy::Vle, .. }) if pseudo_pure() => var.at(r, t, &b),
         region => match region? {
-            Region::Single(_) => single,
+            Region::Single(_) => var.at(r, t, &b),
             Region::Dome(sat, _) => {
-                let (vl, vv) = (1.0 / sat.bubble.rho, 1.0 / sat.dew.rho);
-                let (xl, xv) = (var.at(r, t, &total(fluid, t, 1.0 / vl)?), var.at(r, t, &total(fluid, t, 1.0 / vv)?));
-                let per_v = (xv - xl) / (vv - vl);
-                (xl + per_v * (1.0 / rho - vl), -per_v / rho)
+                let (rl, rv) = (sat.bubble.rho, sat.dew.rho);
+                let q = (1.0 / rho - 1.0 / rl) / (1.0 / rv - 1.0 / rl);
+                let (xl, xv) = (var.at(r, t, &total(fluid, t, rl)?), var.at(r, t, &total(fluid, t, rv)?));
+                xl + q * (xv - xl)
             }
         },
     })
@@ -877,7 +871,7 @@ fn tx(fluid: &PureFluid, t: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
     let dome = match crit {
         Some((t_c, ..)) if t >= t_c => None,
         _ if single_hint => None,
-        // A pseudo-pure fluid's VLE fails just below its published Tc, above its EOS's own: no dome (`dt_point`).
+        // A pseudo-pure fluid's VLE fails just below its published Tc, above its EOS's own: no dome (`isochore_x`).
         _ => match saturation_at_t(fluid, curve, crit, t) {
             Err(Error::NoConvergence { strategy: Strategy::Vle, .. }) if pseudo_pure => None,
             sat => Some(sat?.0),
@@ -900,15 +894,12 @@ fn tx(fluid: &PureFluid, t: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
     }
     let point = |u: f64| -> Result<(f64, f64), Error> {
         let b = total(fluid, t, math::exp(u))?;
-        Ok((var.at(r, t, &b) - x, var.slope(r, t, &b)))
+        Ok((var.at(r, t, &b) - x, var.slope_sign(&b)))
     };
-    for (from, to) in stretches.into_iter().filter(|(from, to)| from < to) {
-        let decades = (to - from) / core::f64::consts::LN_10;
-        let cells = (decades * f64::from(TX_NODES)).ceil().max(f64::from(TX_CELLS));
-        let step = (to - from) / cells;
+    // A stretch is empty where the dome reaches the axis's end (from = to, never beyond it).
+    for (from, to) in stretches.into_iter().filter(|(from, to)| from != to) {
         let (mut a, mut at_a) = (from, point(from)?);
-        for k in 1..=(cells as u32) {
-            let b = if f64::from(k) >= cells { to } else { from + f64::from(k) * step };
+        for b in tx_nodes(from, to).skip(1) {
             let at_b = point(b)?;
             roots.extend(cell_roots(&point, (a, at_a), (b, at_b))?);
             (a, at_a) = (b, at_b);
@@ -939,6 +930,15 @@ fn tx(fluid: &PureFluid, t: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
         return Err(Error::NoConvergence { strategy: Strategy::Isotherm, iterations: state.path().iterations });
     }
     Ok(state)
+}
+
+/// The nodes of T+X's grid over a stretch of ln ρ from `from` to `to`: [`TX_NODES`] per decade of ρ and at least
+/// [`TX_CELLS`] cells, evenly spaced, both ends included.
+fn tx_nodes(from: f64, to: f64) -> impl Iterator<Item = f64> {
+    let decades = (to - from) / core::f64::consts::LN_10;
+    let cells = (decades * f64::from(TX_NODES)).ceil().max(f64::from(TX_CELLS));
+    let step = (to - from) / cells;
+    (0..=cells as u32).map(move |k| if f64::from(k) >= cells { to } else { from + f64::from(k) * step })
 }
 
 /// The roots of x(ln ρ) − x in one grid cell of an isotherm's single phase, from its ends' residuals and slopes
@@ -2286,5 +2286,138 @@ mod tests {
                 ht.rho(m)
             );
         }
+    }
+
+    /// The density of the extremum of x along Water's isotherm at T in [lo, hi] (a minimum if `min`), by a scan in ln ρ
+    /// with steps of 1e-5; states DT refuses are skipped.
+    #[cfg(feature = "fluids-all")]
+    fn turn_of_x(water: &Fluid, var: Caloric, t: f64, (lo, hi): (f64, f64), min: bool) -> f64 {
+        let steps = (math::ln(hi / lo) / 1e-5) as u32;
+        let x = |rho: f64| water.state(dt(rho, t)).ok().map(|s| var.of(&s));
+        let scan = (0..=steps).map(|k| lo * math::exp(f64::from(k) * 1e-5)).filter_map(|rho| Some((rho, x(rho)?)));
+        let pick = |a: &(f64, f64), b: &(f64, f64)| if min { a.1.total_cmp(&b.1) } else { b.1.total_cmp(&a.1) };
+        scan.min_by(pick).unwrap().0
+    }
+
+    /// M7.5: two roots of x along an isotherm within one grid cell, either side of a turn of x, are both found: the
+    /// cell is cut where (∂x/∂ln ρ)_T changes sign. Water's h at 1000 K has a minimum in ρ, and its s at 275 K a
+    /// maximum just above ρ′ (by its density maximum). HT and ST for the x 5e-4 past each turn in ρ return the root
+    /// there and the one just short of the turn, both within 2e-3 of it.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn t_x_finds_both_roots_by_a_turn() {
+        let water = embedded("Water");
+        let liquid = record_of("Water").superancillary_curve().unwrap().at_t(275.0).unwrap().bubble.rho;
+        let cases = [(Caloric::H, 1000.0, (1e3, 6e4), true), (Caloric::S, 275.0, (liquid, 1.2 * liquid), false)];
+        for (var, t, range, min) in cases {
+            let turn = turn_of_x(&water, var, t, range, min);
+            assert!(turn > 1.001 * range.0 && turn < 0.999 * range.1, "{var:?} turns at {turn}, an end of {range:?}");
+            let beyond = water.state(dt(1.0005 * turn, t)).unwrap();
+            let Err(Error::Ambiguous { roots }) = water.state(t_x(var, &beyond)) else { panic!("{var:?} by {turn}") };
+            let near: Vec<f64> = roots.as_slice().iter().copied().filter(|r| (r / turn - 1.0).abs() < 2e-3).collect();
+            let at = |r: &f64| (r / (1.0005 * turn) - 1.0).abs() < 1e-9;
+            assert!(near.len() == 2 && near.iter().any(at), "{var:?}: {roots:?} by the turn at {turn}");
+        }
+    }
+
+    /// M7.5: a saturated liquid's x is the dome's end and its single phase's, and the root both find is one root (they
+    /// agree to 1e-14 in ln ρ): HT of Water's saturated liquid at 20 temperatures from 300 K to 490 K is that state.
+    /// Above about 510 K its liquid's h falls with p at first (Tα > 1), and HT of h′ has a second, denser root.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn t_x_of_a_saturated_liquid_is_one_root() {
+        let water = embedded("Water");
+        for k in 0..20 {
+            let side = water.state(q_t(0.0, 300.0 + 10.0 * f64::from(k))).unwrap();
+            let back = water.state(t_x(Caloric::H, &side));
+            let same = |s: &State| (s.rho(Basis::Molar) / side.rho(Basis::Molar) - 1.0).abs() < 1e-9;
+            assert!(back.as_ref().is_ok_and(same), "{side:?}: {back:?}");
+        }
+    }
+
+    /// M7.5 (D6, user decision 6): T+X checks T against the domain under `Enforce`, not under `Extrapolate`. Water's
+    /// HT, ST and TU at 2100 K, above its Tmax, are `AboveMaxTemperature`, and under `Extrapolate` the state, flagged.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn t_x_checks_t_against_the_domain() {
+        let water = embedded("Water");
+        let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
+        let state = water.flash(dt(100.0, 2100.0), &extrapolate).unwrap();
+        for var in [Caloric::H, Caloric::S, Caloric::U] {
+            let input = t_x(var, &state);
+            let refused = water.state(input);
+            assert!(matches!(refused, Err(Error::Domain(DomainError::AboveMaxTemperature { .. }))), "{refused:?}");
+            let back = water.flash(input, &extrapolate.with_roots(RootPolicy::Nearest(100.0))).unwrap();
+            assert!(back.is_extrapolated() && (back.rho(Basis::Molar) / 100.0 - 1.0).abs() < 1e-9, "{var:?}: {back:?}");
+        }
+    }
+
+    /// M7.5 (ROT-070): an imposed single phase holds along the whole isotherm, so the dome's root is not one. Water's
+    /// HT at 300 K for the h of its liquid at 10 MPa is `Ambiguous` between that liquid and a two-phase state without a
+    /// hint; under an imposed `Liquid` its roots are the EOS's along the whole isotherm, through its van der Waals
+    /// loop: three, the liquid among them and the two-phase state's density not.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn t_x_under_an_imposed_phase_skips_the_dome() {
+        let water = embedded("Water");
+        let liquid = water.state(pt(10e6, 300.0)).unwrap();
+        let input = t_x(Caloric::H, &liquid);
+        let roots = |opts: FlashOptions| match water.flash(input, &opts) {
+            Err(Error::Ambiguous { roots }) => roots.as_slice().to_vec(),
+            other => panic!("{other:?}"),
+        };
+        let (free, imposed) = (roots(FlashOptions::new()), roots(FlashOptions::new().with_phase(Phase::Liquid)));
+        let has = |roots: &[f64], rho: f64| roots.iter().any(|r| (r / rho - 1.0).abs() < 1e-9);
+        let &[two_phase, rho] = free.as_slice() else { panic!("{free:?}") };
+        assert!((rho / liquid.rho(Basis::Molar) - 1.0).abs() < 1e-9, "{free:?}");
+        assert!(imposed.len() == 3 && has(&imposed, rho) && !has(&imposed, two_phase), "{imposed:?}");
+    }
+
+    /// M7.5: where a pseudo-pure fluid's VLE fails just below its published Tc, above its EOS's own (Air from about
+    /// 131.9 K to 132.4 K), T+X runs on one stretch without a dome, as DT's single phase: HT of Air's gas at 100 mol/m³
+    /// and 132.2 K returns it.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn t_x_of_a_pseudo_pure_fluid_where_its_vle_fails() {
+        let air = embedded("Air");
+        let gas = air.state(dt(100.0, 132.2)).unwrap();
+        let back = air.flash(t_x(Caloric::H, &gas), &FlashOptions::new().with_roots(RootPolicy::Nearest(100.0)));
+        assert!(back.as_ref().is_ok_and(|s| (s.rho(Basis::Molar) / 100.0 - 1.0).abs() < 1e-9), "{back:?}");
+    }
+
+    /// M7.5: a pure fluid's phase comes from its curve, not a pseudo-pure fluid's density bands: Water at 0.999 of ρ′
+    /// at 400 K, inside the bands' liquid strip, is two-phase.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn a_pure_fluid_inside_its_dome_by_rho_l_is_two_phase() {
+        let water = embedded("Water");
+        let liquid = record_of("Water").superancillary_curve().unwrap().at_t(400.0).unwrap().bubble.rho;
+        let state = water.state(dt(0.999 * liquid, 400.0)).unwrap();
+        assert!(state.phase() == Phase::TwoPhase && state.quality().is_some_and(|q| q > 0.0 && q < 1e-3), "{state:?}");
+    }
+
+    /// M7.5: T+X's grid has 8 nodes per decade of ρ and at least 16 cells, evenly spaced from one end to the other.
+    #[test]
+    fn t_x_grids_have_eight_nodes_per_decade() {
+        let ln10 = core::f64::consts::LN_10;
+        let grids = [(0.0, 2.6 * ln10, 21), (2.0, 2.0 + 0.5 * ln10, 16), (-30.0, -30.0 + 14.9 * ln10, 120)];
+        for (from, to, cells) in grids {
+            let nodes: Vec<f64> = tx_nodes(from, to).collect();
+            assert_eq!((nodes.len(), nodes.first(), nodes.last()), (cells + 1, Some(&from), Some(&to)));
+            let step = (to - from) / cells as f64;
+            let even = |w: &[f64]| matches!(w, [a, b] if ((b - a) / step - 1.0).abs() < 1e-9);
+            assert!(nodes.windows(2).all(even), "{nodes:?}");
+        }
+    }
+
+    /// M7.5: a pseudo-pure fluid's ancillaries are its phase rule only within their fitted range (D6): below it, under
+    /// `Extrapolate`, R410A's gas at 1 mol/m³ and 190 K (its curve starts at 200 K) is the EOS's, flagged.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn a_pseudo_pure_fluid_below_its_curve_extrapolates() {
+        let r410a = embedded("R410A");
+        let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
+        let state = r410a.flash(dt(1.0, 190.0), &extrapolate);
+        assert!(state.as_ref().is_ok_and(|s| s.phase() == Phase::Gas && s.is_extrapolated()), "{state:?}");
     }
 }
