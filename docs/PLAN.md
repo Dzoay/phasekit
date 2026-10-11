@@ -1037,6 +1037,21 @@ bands (map 03 §8; map 10 §8.5 L4).
   `domain_errors_are_uniform_across_pairs` (T > Tmax, p > pmax for all 19 pairs), `dt_mass_basis_reproduces_input`,
   `robustness_corpus_never_panics` (~100 issue-linked states, map 10 §8.1: a state that passes acceptance or a typed
   error). *Done when:* green for the core subset; all 136 *(nightly)*.
+- **M7.9a Duplication refactor** (user decision DR1). *Failing test:* none; a refactor changes no behaviour. *Do:* the
+  duplication audit's areas 1-3, 5 and 6 (`04-user-decisions.md`, DR1): a shared helper module for phasekit-verify's
+  integration tests (`tests/common/mod.rs`: `label()`, the pinned-generator-environment test, the paper-formula AD
+  tests' scaffolding, the table and grid checks); one setup and one bound-check tail for the check routines of verify's
+  `eos.rs` and `term.rs`; one header writer and validator for the blob and the pack in core's `blob.rs` (no format
+  version change); one table for compat's CoolProp names and for the Prop-to-state mapping; and xtask's `baseline.rs`
+  check pair and `gates/counts.rs` junit and doc counts. Not data tables, the factored solvers, the ban probes, the
+  `Display` impls or the State accessors, and `cp0_integral` stays duplicated if it is an independent oracle. *Done
+  when:* G1-G8 green; the executed-test counts unchanged per binary; datagen's generated files and blobs bit-identical;
+  mutants clean on the diff; `jscpd crates -f rust -i '**/generated.rs' --ignore-identifiers --ignore-literals` no
+  longer reports the audit's clones (345 clones, 3 832 lines at #90).
+- **M7.9b EOS term scaffolding** (user decision DR2). *Failing test:* none. *Do:* the audit's area 4: each EOS term
+  family's scaffolding once, not in core (`helmholtz/gaussian.rs`, `gao_b.rs`), xtask datagen (`record.rs`'s residual
+  and ideal arms) and verify (`majorant.rs`, `tests/terms.rs`) separately, so a new family is one addition. *Done when:*
+  as M7.9a.
 - **M7.10 Order-3 outputs.** *Failing tests:* `second_partials_match_oracle` (`second_partial_deriv`), Thorade &
   Saadat identities (class `Identity`), `fundamental_derivative_matches_oracle`, `kappa_and_beta_match_oracle`. *Do:*
   additive `Prop` variants via `ThermoModel::derivs` (ARCHITECTURE.md §3.7). Close M7: set `MILESTONE = 8`. *Done
