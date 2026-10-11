@@ -229,8 +229,8 @@ fn check(manifest: &[Entry], target: &str, executed: &[(String, usize)]) -> Vec<
     errors
 }
 
-/// The manifest with every minimum raised to what ran and every new binary that ran tests appended; comments and
-/// order are kept, and no minimum is lowered.
+/// The manifest with every minimum raised to what ran and every new binary that ran tests appended; comments, order
+/// and the lines of minimums that still hold are kept as written, and no minimum is lowered.
 fn update(text: &str, target: &str, executed: &[(String, usize)]) -> String {
     let mut out = String::new();
     let mut listed = Vec::new();
@@ -398,16 +398,19 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
     #[test]
     fn update_raises_and_adds_but_never_lowers() {
-        let text =
-            format!("# header\n{HOST} phasekit-core::lib 24\n# pending M5.9: x\n{HOST} phasekit-verify::lazy_load 8\n");
+        let kept = format!("{HOST}  phasekit-verify::new_family   8");
+        let text = format!(
+            "# header\n{HOST} phasekit-core::lib 24\n# pending M5.9: x\n{HOST} phasekit-verify::lazy_load 8\n{kept}\n"
+        );
         let now = ran(&[
             ("phasekit-core::lib", 30),
             ("phasekit-verify::lazy_load", 7),
+            ("phasekit-verify::new_family", 8),
             ("phasekit-xtask::main", 2),
             ("phasekit-data::lib", 0),
         ]);
         let want = format!(
-            "# header\n{HOST} phasekit-core::lib 30\n# pending M5.9: x\n{HOST} phasekit-verify::lazy_load 8\n{HOST} phasekit-xtask::main 2\n"
+            "# header\n{HOST} phasekit-core::lib 30\n# pending M5.9: x\n{HOST} phasekit-verify::lazy_load 8\n{kept}\n{HOST} phasekit-xtask::main 2\n"
         );
         assert_eq!(update(&text, HOST, &now), want);
     }
