@@ -70,12 +70,12 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.tools
-          key: tools-${{ runner.os }}-${{ runner.arch }}-wasmtime-${{ env.WASMTIME_VERSION }}-mutants-${{ env.CARGO_MUTANTS_VERSION }}-nextest-${{ env.CARGO_NEXTEST_VERSION }}-deny-${{ env.CARGO_DENY_VERSION }}-shear-${{ env.CARGO_SHEAR_VERSION }}
-      - name: Install wasmtime, cargo-mutants, cargo-nextest, cargo-deny and cargo-shear
+          key: tools-${{ runner.os }}-${{ runner.arch }}-wasmtime-${{ env.WASMTIME_VERSION }}-nextest-${{ env.CARGO_NEXTEST_VERSION }}-deny-${{ env.CARGO_DENY_VERSION }}-shear-${{ env.CARGO_SHEAR_VERSION }}
+      - name: Install wasmtime, cargo-nextest, cargo-deny and cargo-shear
         if: steps.tools.outputs.cache-hit != 'true'
         run: >-
-          cargo install --locked --root ~/.tools "wasmtime-cli@$WASMTIME_VERSION" "cargo-mutants@$CARGO_MUTANTS_VERSION"
-          "cargo-nextest@$CARGO_NEXTEST_VERSION" "cargo-deny@$CARGO_DENY_VERSION" "cargo-shear@$CARGO_SHEAR_VERSION"
+          cargo install --locked --root ~/.tools "wasmtime-cli@$WASMTIME_VERSION" "cargo-nextest@$CARGO_NEXTEST_VERSION"
+          "cargo-deny@$CARGO_DENY_VERSION" "cargo-shear@$CARGO_SHEAR_VERSION"
       - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
       - name: CoolProp checkout cache
         id: coolprop
@@ -90,8 +90,8 @@ jobs:
         run: cargo nextest run --workspace --profile ci
       - name: G3 cargo test --doc --workspace
         run: cargo test --doc --workspace
-      - name: G8 cargo xtask gates all
-        run: cargo xtask gates all
+      - name: G8 cargo xtask gates all --except mutants (the mutants job runs that one)
+        run: cargo xtask gates all --except mutants
       - name: Fluid data changes (job summary; PRs that change data; PLAN.md M2.9a)
         if: github.event_name == 'pull_request'
         run: |
@@ -109,6 +109,40 @@ jobs:
         run: cargo shear
       - name: reuse lint (REUSE 3.3)
         run: pipx run "reuse==$REUSE_VERSION" lint
+
+  # G8's mutants gate as its own job, beside linux rather than after it (user decision CI2): `gates mutants` mutates the
+  # PR's own changes against origin/main and runs the workspace tests on each, so it needs what those tests need.
+  mutants:
+    name: mutants
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # `gates mutants` diffs against origin/main
+      - uses: ./.github/actions/rust
+        with:
+          components: clippy # clippy_bans_fire runs clippy on the lint probe
+      - name: Tool cache
+        id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-mutants-${{ env.CARGO_MUTANTS_VERSION }}-nextest-${{ env.CARGO_NEXTEST_VERSION }}
+      - name: Install cargo-mutants and cargo-nextest
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: cargo install --locked --root ~/.tools "cargo-mutants@$CARGO_MUTANTS_VERSION" "cargo-nextest@$CARGO_NEXTEST_VERSION"
+      - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
+      - name: CoolProp checkout cache
+        id: coolprop
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reference/CoolProp
+          key: coolprop-${{ hashFiles('scripts/fetch-coolprop.sh') }} # the script pins the commit
+      - name: Fetch CoolProp (anonymous clone of the pinned commit)
+        if: steps.coolprop.outputs.cache-hit != 'true'
+        run: scripts/fetch-coolprop.sh
+      - name: G8 cargo xtask gates mutants
+        run: cargo xtask gates mutants
 
   msrv:
     name: msrv
