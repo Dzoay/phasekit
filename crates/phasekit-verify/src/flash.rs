@@ -309,11 +309,7 @@ impl FlashCheck {
                     continue;
                 }
             };
-            let window = fluid
-                .info()
-                .published_critical()
-                .map_or(Window::Regular, |c| Window::at(truth.t(), truth.rho(Basis::Molar), c.t, c.rho));
-            if !agrees(coordinates(&back), coordinates(truth), window, floors) {
+            if !agrees(coordinates(&back), coordinates(truth), window_of(fluid, truth), floors) {
                 self.failures.push(format!("{name} {input:?}: {back:?} against {truth:?}"));
             }
         }
@@ -326,10 +322,10 @@ impl FlashCheck {
 }
 
 /// A state's phase, T, molar ρ and quality, which a round trip compares.
-type Coordinates = (Phase, f64, f64, Option<f64>);
+pub(crate) type Coordinates = (Phase, f64, f64, Option<f64>);
 
 /// The coordinates of `state`.
-fn coordinates(state: &State) -> Coordinates {
+pub(crate) fn coordinates(state: &State) -> Coordinates {
     (state.phase(), state.t(), state.rho(Basis::Molar), state.quality())
 }
 
@@ -342,6 +338,14 @@ pub(crate) fn su_floors(truth: &State) -> (f64, f64) {
     (along(DerivVar::T) * dp, along(DerivVar::Dmolar) * dp)
 }
 
+/// The window of `fluid` that `truth` lies in, by its published critical point (VERIFICATION.md §5).
+pub(crate) fn window_of(fluid: &Fluid, truth: &State) -> Window {
+    fluid
+        .info()
+        .published_critical()
+        .map_or(Window::Regular, |c| Window::at(truth.t(), truth.rho(Basis::Molar), c.t, c.rho))
+}
+
 /// Class `Flash`'s bounds for a solved input in the near-critical window (VERIFICATION.md §5): T 1e-8, ρ 1e-6 of each,
 /// and Q 1e-6 absolute (measured at M7.8: D+X of n-Propane's and Methane's dome at their published Tc, where ρ′ and ρ″
 /// differ by 0.2 %, returns Q within 2.5e-8).
@@ -352,7 +356,18 @@ const NEAR_CRITICAL: (f64, f64, f64) = (1e-8, 1e-6, 1e-6);
 /// bounds; and T and ρ within floors where the pair leaves them less determined (SU, [`FlashCheck::su_round_trip`]). A
 /// dome's end is the single phase it borders: Q = 0 within its bound the liquid, Q = 1 the gas (a D+X round trip of a
 /// saturated state lands on the dome's edge, either side).
-fn agrees(back: Coordinates, truth: Coordinates, window: Window, (t_floor, rho_floor): (f64, f64)) -> bool {
+fn agrees(back: Coordinates, truth: Coordinates, window: Window, floors: (f64, f64)) -> bool {
+    disagreement(back, truth, window, floors).is_none()
+}
+
+/// The first coordinate in which `back` disagrees with `truth` ([`agrees`]), as (name, got, want): "phase" (with each
+/// side's quality, NaN for a single phase), "Q", "T" or "rho".
+pub(crate) fn disagreement(
+    back: Coordinates,
+    truth: Coordinates,
+    window: Window,
+    (t_floor, rho_floor): (f64, f64),
+) -> Option<(&'static str, f64, f64)> {
     let near = window == Window::NearCritical;
     let (t_tol, rho_tol, q_tol) = if near { NEAR_CRITICAL } else { (1e-9, 1e-9, ToleranceClass::FLASH_QUALITY) };
     let off = |got: f64, want: f64, tol: f64, floor: f64| beyond(got, want, (tol * want.abs()).max(floor));
@@ -366,8 +381,18 @@ fn agrees(back: Coordinates, truth: Coordinates, window: Window, (t_floor, rho_f
         (None, None) => true,
         _ => edge(back, truth) || edge(truth, back),
     };
-    let phase = back.0 == truth.0 || edge(back, truth) || edge(truth, back);
-    phase && quality && !off(back.1, truth.1, t_tol, t_floor) && !off(back.2, truth.2, rho_tol, rho_floor)
+    let q = |c: Coordinates| c.3.unwrap_or(f64::NAN);
+    if !(back.0 == truth.0 || edge(back, truth) || edge(truth, back)) {
+        Some(("phase", q(back), q(truth)))
+    } else if !quality {
+        Some(("Q", q(back), q(truth)))
+    } else if off(back.1, truth.1, t_tol, t_floor) {
+        Some(("T", back.1, truth.1))
+    } else if off(back.2, truth.2, rho_tol, rho_floor) {
+        Some(("rho", back.2, truth.2))
+    } else {
+        None
+    }
 }
 
 /// The P+X inputs of a state, molar: (p, h), (p, s) and (p, u).

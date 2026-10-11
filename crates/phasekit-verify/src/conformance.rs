@@ -2,9 +2,12 @@
 //! crate and runs these checks unchanged. Identity-based, so they need no oracle.
 
 use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
-use phasekit_core::{Basis, Error, Fluid, Gauge, HelmholtzModel, Input, Order, State};
+use phasekit_core::{
+    Basis, Error, FlashOptions, Fluid, Gauge, HelmholtzModel, Input, Order, Pair, Prop, RootPolicy, State, Var,
+};
 
 use crate::ToleranceClass;
+use crate::flash::{coordinates, disagreement, window_of};
 
 /// A failed check: which quantity, at which point, got vs expected.
 #[derive(Clone, Debug, PartialEq)]
@@ -123,6 +126,73 @@ pub fn policy_equivalence(fluid: &Fluid, req: &BatchRequest<'_>, candidate: Exec
         Some((at, ((&got, &want), _))) => Err(Mismatch { what: "cell", at, got, want }),
         None => Ok(()),
     }
+}
+
+/// One cell of the capability matrix (VERIFICATION.md §8.5): a pair's inputs read off a truth state, flashed with the
+/// default options.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Outcome {
+    /// The truth within class `Flash`: the state returned, or under `Ambiguous` one of its roots, each taken by
+    /// `RootPolicy::Nearest`.
+    Pass,
+    /// Another state: its first coordinate that differs from the truth's (phase, Q, T or ρ).
+    Fail(Mismatch),
+    /// The model does not declare the pair.
+    Unsupported,
+    /// A typed refusal: the flash's, an `Ambiguous` none of whose roots is the truth, or the truth's own where it does
+    /// not define the pair's inputs (a single phase has no quality).
+    Refused(Error),
+}
+
+/// VERIFICATION.md §8.5 (ROT-081, ROT-129): every pair of [`Pair::ALL`] round-tripped through a single-phase truth and a
+/// two-phase truth, `truth` in that order. Each cell reads the pair's inputs off the truth (molar), flashes them, and
+/// compares the state's phase, T, ρ and quality with the truth's in class `Flash` (its near-critical bounds in the
+/// window of the published critical point), so a round trip asserts the state it recovers, not only that one came back.
+pub fn capability_matrix(fluid: &Fluid, truth: [&State; 2]) -> Vec<(Pair, [Outcome; 2])> {
+    Pair::ALL.iter().map(|&pair| (pair, truth.map(|truth| round_trip(fluid, pair, truth)))).collect()
+}
+
+/// One cell of [`capability_matrix`].
+fn round_trip(fluid: &Fluid, pair: Pair, truth: &State) -> Outcome {
+    let input = match input_of(pair, truth) {
+        Ok(input) => input,
+        Err(e) => return Outcome::Refused(e),
+    };
+    let check =
+        |back: &State| match disagreement(coordinates(back), coordinates(truth), window_of(fluid, truth), (0.0, 0.0)) {
+            Some((what, got, want)) => Err(Mismatch { what, at: 0, got, want }),
+            None => Ok(()),
+        };
+    match fluid.state(input) {
+        Ok(back) => check(&back).map_or_else(Outcome::Fail, |()| Outcome::Pass),
+        Err(Error::Unsupported { .. }) => Outcome::Unsupported,
+        Err(Error::Ambiguous { roots }) => {
+            let nearest = |root: f64| FlashOptions::new().with_roots(RootPolicy::Nearest(root));
+            let found = roots
+                .as_slice()
+                .iter()
+                .any(|&root| fluid.flash(input, &nearest(root)).is_ok_and(|s| check(&s).is_ok()));
+            if found { Outcome::Pass } else { Outcome::Refused(Error::Ambiguous { roots }) }
+        }
+        Err(e) => Outcome::Refused(e),
+    }
+}
+
+/// The input of `pair` read off `state`, molar; a single phase has no quality (`Undefined`).
+pub fn input_of(pair: Pair, state: &State) -> Result<Input, Error> {
+    let m = Basis::Molar;
+    let value = |var: Var| match var {
+        Var::T => Ok(state.t()),
+        Var::P => Ok(state.p()),
+        Var::Q => state.quality().ok_or(Error::Undefined { prop: Prop::Q, phase: state.phase() }),
+        Var::D => Ok(state.rho(m)),
+        Var::H => Ok(state.h(m)),
+        Var::S => Ok(state.s(m)),
+        Var::U => Ok(state.u(m)),
+        _ => Err(Error::Unsupported { pair }),
+    };
+    let (x, y) = pair.vars();
+    Input::new(pair, value(x)?, value(y)?, m)
 }
 
 #[cfg(test)]

@@ -16,7 +16,9 @@ pub mod term;
 pub mod tolerance;
 
 pub use arbiters::{ARBITERS, Arbiter, ArbiterPart, ArbiterStatus};
-pub use conformance::{Mismatch, fd_first_order, gauge_invariance, gauged_pair, policy_equivalence};
+pub use conformance::{
+    Mismatch, Outcome, capability_matrix, fd_first_order, gauge_invariance, gauged_pair, input_of, policy_equivalence,
+};
 pub use fixture::{Cell, CheckError, ColumnRole, Fixture, FixtureError, FixtureMismatch, Kind, Row};
 pub use lock::{ORACLE_LOCK, OracleLock};
 pub use register::{

@@ -119,7 +119,8 @@ fn registry_and_flash_reach_the_new_family() {
 /// DT is two-phase at its pressure with the lever rule's quality (`Strategy::Vle`); PT at that pressure has both roots,
 /// its densities; an imposed single phase is honoured. The densities agree to 1e-10, and to 1e-7 at Θ = 1e-6, where p
 /// is flat in ρ to third order and both constructions resolve them only to 1.4e-8; the quality agrees to that over
-/// ln(ρ′/ρ″), which divides their errors. At and above Tc there is no saturation to impose: `Unsupported`.
+/// ln(ρ′/ρ″), which divides their errors. At and above Tc there is no dome to impose: the quality is `Undefined`
+/// (M7.9, as for every pair).
 #[test]
 fn subcritical_without_a_curve_uses_the_eos_vle() {
     let (model, crit) = vdw();
@@ -144,7 +145,8 @@ fn subcritical_without_a_curve_uses_the_eos_vle() {
     }
     let two_phase = FlashOptions::new().with_phase(Phase::TwoPhase);
     for t in [crit.t, 1.1 * crit.t] {
-        assert_eq!(fluid.flash(dt(crit.rho, t), &two_phase), Err(Error::Unsupported { pair: Pair::DT }), "{t} K");
+        let no_quality = Err(Error::Undefined { prop: Prop::Q, phase: Phase::TwoPhase });
+        assert_eq!(fluid.flash(dt(crit.rho, t), &two_phase), no_quality, "{t} K");
     }
 }
 

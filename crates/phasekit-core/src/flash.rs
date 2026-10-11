@@ -9,7 +9,7 @@
 use crate::derivs::{Bundle, Order};
 use crate::error::{DomainError, Error, Roots};
 use crate::fluid::PureFluid;
-use crate::input::{NativeInput, Pair};
+use crate::input::{NativeInput, Pair, Var};
 use crate::model::ThermoModel;
 use crate::num::math;
 use crate::prop::Prop;
@@ -62,8 +62,11 @@ impl FlashOptions {
     pub const fn new() -> Self {
         Self { phase_hint: None, roots: RootPolicy::Strict, domain: DomainPolicy::Enforce, guess: None }
     }
-    /// Imposes a phase for this call only (never sticky). A single-phase label skips the phase rule;
-    /// `TwoPhase` requires the dome and is refused (quality outside [0, 1]) where the state is not in it.
+    /// Imposes a phase for this call only (never sticky, ROT-069), honoured by every pair (ROT-070). A single-phase
+    /// label skips the phase rule and solves on its branch; a single phase has no quality, so a Q-pair under one is
+    /// `Undefined { prop: Q }`. `TwoPhase` requires the dome: inputs outside it are refused by their quality
+    /// (`InvalidInput`, outside [0, 1]), and at or above the critical temperature, where there is no dome, the quality
+    /// is `Undefined`. An input on the dome's edge, within the acceptance gate of a saturated side, is that side.
     pub const fn with_phase(mut self, phase: Phase) -> Self {
         self.phase_hint = Some(phase);
         self
@@ -104,6 +107,13 @@ impl FlashOptions {
 /// The flash of a [`PureFluid`]: dispatch on the pair of an already normalised input.
 pub(crate) fn flash(fluid: &PureFluid, input: NativeInput, opts: &FlashOptions) -> Result<State, Error> {
     let (x, y) = input.values();
+    // A quality fixes a two-phase state, which an imposed single phase is not: there its quality is undefined (D6).
+    let (vx, vy) = input.pair().vars();
+    if let Some(phase) = opts.phase_hint().filter(|h| *h != Phase::TwoPhase)
+        && (vx == Var::Q || vy == Var::Q)
+    {
+        return Err(Error::Undefined { prop: Prop::Q, phase });
+    }
     match input.pair() {
         Pair::DT => dt(fluid, y, x, opts),
         Pair::PT => pt(fluid, x, y, opts),
@@ -148,6 +158,10 @@ fn region(fluid: &PureFluid, t: f64, rho: f64, p: f64, opts: &FlashOptions) -> R
     }
     let curve = fluid.saturation()?;
     let crit = labelling_critical(fluid, curve)?;
+    // At and above the critical temperature there is no dome to impose: no quality (D6, ROT-070).
+    if hint == Some(Phase::TwoPhase) && crit.is_some_and(|c| t >= c.0) {
+        return Err(Error::Undefined { prop: Prop::Q, phase: Phase::TwoPhase });
+    }
     if hint.is_none()
         && let Some((t_c, p_c, rho_c)) = crit.filter(|c| t >= c.0)
     {
@@ -304,10 +318,14 @@ fn dt(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<State,
             State::single(key, t, rho, r, m, phase, &b, DIRECT)
         }
         Region::Dome(sat, strategy) => {
-            // Lever rule on molar volume; an imposed TwoPhase outside the dome fails here (q ∉ [0, 1]).
+            // Lever rule on molar volume; an imposed TwoPhase outside the dome fails here (q ∉ [0, 1]), but at a
+            // density within the acceptance gate's share of a saturated one it is that side (a D+X or T+X root on the
+            // dome's edge rounds to either side of it).
             let (rl, rv) = (sat.bubble.rho, sat.dew.rho);
-            let q = Quality::new((1.0 / rho - 1.0 / rl) / (1.0 / rv - 1.0 / rl))?;
-            two_phase(fluid, &sat, q, strategy)
+            let q = (1.0 / rho - 1.0 / rl) / (1.0 / rv - 1.0 / rl);
+            let q = if rho <= rl * (1.0 + REPRODUCED_X) { q.max(0.0) } else { q };
+            let q = if rho >= rv * (1.0 - REPRODUCED_X) { q.min(1.0) } else { q };
+            two_phase(fluid, &sat, Quality::new(q)?, strategy)
         }
     }?;
     let p_check = check_p(fluid, state.p());
@@ -320,15 +338,14 @@ fn dt(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<State,
 
 /// PT (PLAN.md M7.1, M7.2; map 03 §3.1, §9 `flash::pt`): the domain checked, the branch of (p, T) ([`pt_branch`]), then
 /// the density on it; at the saturation pressure both roots, which `Nearest` chooses between and `Strict` and `Stable`
-/// return as `Ambiguous` (ROT-080). A bracketed branch holds one root ([`crate::density::bracketed`]), so a guess (`with_guess`) only
-/// seeds its Newton and moves no output beyond rounding (ROT-017, ROT-072); where the seed picks the root (a pseudo-pure
-/// fluid's branch, an imposed phase) a guess is not used. The acceptance gate (D6): the state's own p reproduces the
-/// input to the rounding of the terms it cancels from (ROT-074: CoolProp's PT reports p up to 1e-8 off it, and a liquid
-/// at 1 Pa cannot hold p to 1e-9 in double precision), and, unless a phase is imposed, the state is mechanically
-/// stable.
+/// return as `Ambiguous` (ROT-080). A bracketed branch holds one root ([`crate::density::bracketed`]), so a guess
+/// (`with_guess`) only seeds its Newton and moves no output beyond rounding (ROT-017, ROT-072); where the seed picks
+/// the root (a pseudo-pure fluid's branch, an imposed phase) a guess is not used. The acceptance gate (D6): the state's
+/// own p reproduces the input to the rounding of the terms it cancels from (ROT-074: CoolProp's PT reports p up to 1e-8
+/// off it, and a liquid at 1 Pa cannot hold p to 1e-9 in double precision), and, unless a phase is imposed, the state
+/// is mechanically stable.
 fn pt(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<State, Error> {
-    let limits = fluid.limits();
-    let check = limits.check_t(t).and_then(|()| limits.check_p(p));
+    let check = check_t(fluid, t).and_then(|()| check_p(fluid, p));
     if opts.domain() == DomainPolicy::Enforce {
         check?;
     }
@@ -363,8 +380,8 @@ fn pt(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<State, E
     Ok(if check.is_ok() { state } else { state.mark_extrapolated() })
 }
 
-/// The density on `branch` at (T, p) and the path of its solve: a bracketed branch from `seed` (outside the bracket, from
-/// its middle), one without a bracket from the branch's own seed, the critical point with no solve.
+/// The density on `branch` at (T, p) and the path of its solve: a bracketed branch from `seed` (outside the bracket,
+/// from its middle), one without a bracket from the branch's own seed, the critical point with no solve.
 fn solve_branch(fluid: &PureFluid, p: f64, t: f64, branch: &Branch, seed: f64) -> Result<(f64, SolvePath), Error> {
     let eos = fluid.eos();
     let (rho, iterations) = match branch.bracket {
@@ -549,6 +566,10 @@ const T_TOL: f64 = 1e-14;
 /// Iterations allowed to a P+X or D+X solve in T.
 const T_ITER: u16 = 100;
 
+/// The bisections [`root_in_t`] takes from a T above x towards a refusal right below it: from a step of a fifth of T to
+/// under [`T_TOL`] of it (0.2·2⁻⁴⁵ ≈ 6e-15).
+const T_HALVINGS: u16 = 45;
+
 /// The share of its scale (`Caloric::scale`) to which a P+X or D+X state reproduces x (class `Flash`).
 const REPRODUCED_X: f64 = 1e-9;
 
@@ -596,7 +617,7 @@ fn named(pair: Pair, result: Result<State, Error>) -> Result<State, Error> {
 /// [0, 1]. Errors name this pair ([`named`]).
 fn px(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions) -> Result<State, Error> {
     if opts.domain() == DomainPolicy::Enforce {
-        fluid.limits().check_p(p)?;
+        check_p(fluid, p)?;
     }
     let (t_low, t_high) = t_search(fluid);
     let hint = opts.phase_hint();
@@ -618,7 +639,8 @@ fn px(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
         };
         Ok(var.at(fluid.eos().gas_constant(), side.t, &total(fluid, side.t, rho)?))
     };
-    // The lever rule's quality on x: below 0 the liquid, above 1 the gas, unless `TwoPhase` is imposed.
+    // The lever rule's quality on x: below 0 the liquid, above 1 the gas, unless `TwoPhase` is imposed; then an x the
+    // acceptance gate takes for a side's is that side (an HS root on the dome's edge).
     let (x_l, x_v) = (side(&sat.bubble, true)?, side(&sat.dew, false)?);
     let (q, imposed) = ((x - x_l) / (x_v - x_l), hint == Some(Phase::TwoPhase));
     if !imposed && q < 0.0 {
@@ -627,7 +649,9 @@ fn px(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
     if !imposed && q > 1.0 {
         return along(sat.dew.t, t_high, (Some(x_v), None), false);
     }
-    let q = Quality::new(q)?;
+    let r = fluid.eos().gas_constant();
+    let q = if reproduces_x(var, r, sat.bubble.t, x, x_l) { q.max(0.0) } else { q };
+    let q = Quality::new(if reproduces_x(var, r, sat.dew.t, x, x_v) { q.min(1.0) } else { q })?;
     let state = match strategy {
         Strategy::Ancillary => split_sides(fluid, &sat, q, q.get() * sat.dew.t + (1.0 - q.get()) * sat.bubble.t, p),
         strategy => two_phase(fluid, &sat, q, strategy),
@@ -652,14 +676,18 @@ const SX_SPLITS: u16 = 8;
 /// HS and SU (PLAN.md M7.8; map 03 §3.1, §8, §9 `flash::hs`). Along the isentrope h and u rise with p, through the dome
 /// as on either side of it: dh = v·dp, and du = −p·dv with v falling as p rises. So the state is the root in ln p of
 /// x(PS(p, s)) − x, each iterate a PS flash ([`px`], which holds the dome and the domain), bracketed by decades of p
-/// from the model's largest pressure (see the code), then TOMS 748 in ln p (`Strategy::Isentrope`). CoolProp's HS screens the dome on 40 points of its caloric curves and runs a cascade of
-/// homotopies in (T, ln ρ) from four anchors (map 03 §3.1); the isentrope needs neither. The state is PS's at the root,
-/// with PS's acceptance (dp/dρ > 0 and c_v > 0 where no phase is imposed, map 03 §8's agent notes) and domain checks,
-/// and x reproduced. An x above every state the isentrope holds is PS's refusal above them, or `AboveMaxPressure` at
-/// pmax; one below every state, PS's refusal below them (the domain's lowest temperature), or `InvalidInput`. Errors
-/// name this pair ([`named`]).
+/// from the model's largest pressure (see the code), then TOMS 748 in ln p (`Strategy::Isentrope`). CoolProp's HS
+/// screens the dome on 40 points of its caloric curves and runs a cascade of homotopies in (T, ln ρ) from four anchors
+/// (map 03 §3.1); the isentrope needs neither. The state is PS's at the root, with PS's acceptance (dp/dρ > 0 and c_v >
+/// 0 where no phase is imposed, map 03 §8's agent notes) and domain checks, and x reproduced. An x above every state
+/// the isentrope holds is PS's refusal above them, or `AboveMaxPressure` at pmax; one below every state, PS's refusal
+/// below them (the domain's lowest temperature), or `InvalidInput`. Errors name this pair ([`named`]).
 fn sx(fluid: &PureFluid, s: f64, x: f64, var: Caloric, opts: &FlashOptions) -> Result<State, Error> {
     let p_max = fluid.limits().p_max();
+    // An imposed phase holds along the whole isentrope. An imposed `TwoPhase` keeps the search in the dome, where x(p)
+    // is well conditioned up to its edges; on a liquid's side u moves little with p, (∂u/∂p)_s = (p/ρ²)(∂ρ/∂p)_s, so a
+    // root there holds p only to about 1e-6, and the dome's edge at that p misses s (Water's saturated liquid at 400
+    // K).
     let along = opts.with_domain(DomainPolicy::Extrapolate);
     // While the bracket is sought, a residual within the nested solve's noise ([`ISENTROPE_NOISE`]) is the root: where
     // the isentrope leaves the domain just past it (a state at pmax, or at the triple point's temperature), no state
@@ -672,8 +700,8 @@ fn sx(fluid: &PureFluid, s: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
         let (at, t) = raw(u)?;
         Ok(if at.abs() <= ISENTROPE_NOISE * var.scale(r, t, x) { 0.0 } else { at })
     };
-    // Down from pmax a decade at a time, over p where PS refuses, to the first p where x(p) is at or below x; the last p
-    // above x before it closes the bracket unless PS refused between them. Otherwise bisection in ln p between the
+    // Down from pmax a decade at a time, over p where PS refuses, to the first p where x(p) is at or below x; the last
+    // p above x before it closes the bracket unless PS refused between them. Otherwise bisection in ln p between the
     // bracket's known end and the nearest refusal beside it finds its other end: the isentrope can leave the domain and
     // come back (at the triple point's temperature water's s(p) turns at 38.6 MPa), or end in it (under the triple
     // point's pressure), and a root at such an edge (a state at the triple point's temperature) is reached there, its
@@ -697,7 +725,8 @@ fn sx(fluid: &PureFluid, s: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
         u -= core::f64::consts::LN_10;
     }
     let invalid = || Error::InvalidInput { quantity: var.name(), value: x };
-    // Bisection between a known end and a refusal: the first p whose residual is on `side` (above x, or at or below it).
+    // Bisection between a known end and a refusal: the first p whose residual is on `side` (above x, or at or below
+    // it).
     let bisect = |(mut held, mut at_held): (f64, f64), mut refused: f64, side: bool| {
         for _ in 0..SX_STEPS {
             if at_held == 0.0 {
@@ -895,7 +924,9 @@ fn root_in_t(
     }
     // Down from `hi` in steps of 20 % in T to the first T where x(T) falls below x, the last T above it the bracket's
     // top. A state that fails on the way is stepped over (an imposed liquid beyond its superheat limit), but not one
-    // between the two that bracket the root.
+    // between the two that bracket the root. A refusal right below a T above x is first approached by bisection: the
+    // branch can end there with the root just above its end (an imposed gas, or a supercritical state on the gas's
+    // branch, at 30 MPa has no state below Water's critical temperature).
     let (mut t, mut above, mut below, mut failed) = (hi, None, None, None);
     for _ in 0..T_ITER {
         let at = match (t == hi, t == lo) {
@@ -911,6 +942,24 @@ fn root_in_t(
                 break;
             }
             Err(e) => {
+                if let Some((mut held, mut at_held)) = above {
+                    let mut refused = t;
+                    for _ in 0..T_HALVINGS {
+                        let next = 0.5 * (held + refused);
+                        match residual(next) {
+                            Ok(at) if at > 0.0 => (held, at_held) = (next, at),
+                            Ok(at) => {
+                                below = Some((next, at));
+                                break;
+                            }
+                            Err(_) => refused = next,
+                        }
+                    }
+                    above = Some((held, at_held));
+                    if below.is_some() {
+                        break;
+                    }
+                }
                 failed.get_or_insert(e);
             }
         }
@@ -948,12 +997,12 @@ fn root_in_t(
 
 /// D+X: DH, DS and DU (PLAN.md M7.4; map 03 §3.1, §9 `flash::dx`). Along the isochore x(T) is DT's ([`isochore_x`]): a
 /// single phase's from the EOS at (T, ρ), in the dome the lever rule's on the saturation at T (DT's phase rule,
-/// [`region`]), so it is continuous through the dome's edge, where ρ is a saturated density. T is the root of
-/// x(T) − x from T_low to 1.5·Tmax ([`root_in_t`], `Strategy::Isochore`), and the state DT's at it, with DT's acceptance
-/// and domain checks and x reproduced. CoolProp splits the range at the saturation crossings and classifies each
-/// interval (map 03 §3.1); a residual continuous through the dome needs no intervals. An imposed single phase holds
-/// along the whole isochore; an imposed `TwoPhase` holds at the root, so a single-phase answer is refused there (a
-/// quality outside [0, 1]). Errors name this pair ([`named`]).
+/// [`region`]), so it is continuous through the dome's edge, where ρ is a saturated density. T is the root of x(T) − x
+/// from T_low to 1.5·Tmax ([`root_in_t`], `Strategy::Isochore`), and the state DT's at it, with DT's acceptance and
+/// domain checks and x reproduced. CoolProp splits the range at the saturation crossings and classifies each interval
+/// (map 03 §3.1); a residual continuous through the dome needs no intervals. An imposed single phase holds along the
+/// whole isochore; an imposed `TwoPhase` holds at the root, so a single-phase answer is refused there (a quality
+/// outside [0, 1]). Errors name this pair ([`named`]).
 fn dx(fluid: &PureFluid, rho: f64, x: f64, var: Caloric, opts: &FlashOptions) -> Result<State, Error> {
     let along = if opts.phase_hint() == Some(Phase::TwoPhase) { FlashOptions::new() } else { *opts };
     let residual = |t: f64| Ok(isochore_x(fluid, t, rho, var, &along)? - x);
@@ -976,7 +1025,7 @@ fn dx(fluid: &PureFluid, rho: f64, x: f64, var: Caloric, opts: &FlashOptions) ->
 /// isochore, an imposed `TwoPhase` holds at the root. Errors name this pair ([`named`]).
 fn dp(fluid: &PureFluid, rho: f64, p: f64, opts: &FlashOptions) -> Result<State, Error> {
     if opts.domain() == DomainPolicy::Enforce {
-        fluid.limits().check_p(p)?;
+        check_p(fluid, p)?;
     }
     let along = if opts.phase_hint() == Some(Phase::TwoPhase) { FlashOptions::new() } else { *opts };
     let residual = |t: f64| Ok(isochore_p(fluid, t, rho, &along)? - p);
@@ -989,8 +1038,8 @@ fn dp(fluid: &PureFluid, rho: f64, p: f64, opts: &FlashOptions) -> Result<State,
     Ok(state.with_path(SolvePath { strategy: Strategy::Isochore, iterations }))
 }
 
-/// p at (T, ρ) as DT's state has it: the EOS's for a single phase, the saturation pressure in the dome (DT's phase rule);
-/// where a pseudo-pure fluid's VLE fails just below its published Tc, the EOS's (see [`isochore_x`]).
+/// p at (T, ρ) as DT's state has it: the EOS's for a single phase, the saturation pressure in the dome (DT's phase
+/// rule); where a pseudo-pure fluid's VLE fails just below its published Tc, the EOS's (see [`isochore_x`]).
 fn isochore_p(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<f64, Error> {
     let r = fluid.eos().gas_constant();
     let p = relations::pressure(r, t, rho, &total(fluid, t, rho)?);
@@ -1006,9 +1055,9 @@ fn isochore_p(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Resul
 
 /// x at (T, ρ) as DT's state has it: the EOS's for a single phase; in the dome (DT's phase rule) the lever rule's on
 /// molar volume between the saturated sides at T. Where a pseudo-pure fluid's VLE fails just below its published
-/// critical temperature, above its EOS's own (Air at 13 119 mol/m³ from 131 K to 132.53 K; R407C's EOS critical point is
-/// 356.60 K, the published one 359.345 K), the EOS has no dome and its single phase's x is the one the search follows,
-/// continuous with the lever rule's where that dome closes; DT itself refuses those states.
+/// critical temperature, above its EOS's own (Air at 13 119 mol/m³ from 131 K to 132.53 K; R407C's EOS critical point
+/// is 356.60 K, the published one 359.345 K), the EOS has no dome and its single phase's x is the one the search
+/// follows, continuous with the lever rule's where that dome closes; DT itself refuses those states.
 fn isochore_x(fluid: &PureFluid, t: f64, rho: f64, var: Caloric, opts: &FlashOptions) -> Result<f64, Error> {
     let r = fluid.eos().gas_constant();
     let b = total(fluid, t, rho)?;
@@ -1040,17 +1089,18 @@ const TX_CELLS: u16 = 16;
 /// 1e-15 of the model's largest density to it, x(ρ) is DT's. Below the labelling critical temperature it has three
 /// stretches: the vapour up to ρ″, the dome, where x is the lever rule's, linear in v, so its one root is closed-form,
 /// and the liquid from ρ′; above it one. On a single phase x need not be monotonic: in the compressed liquid h and u
-/// rise again from the saturated liquid's ((∂h/∂ρ)_T changes sign at the Joule-Thomson inversion), and by water's density
-/// maximum its s rises with ρ just above ρ′. So each such stretch is cut at the turns of x, where (∂x/∂ln ρ)_T changes
-/// sign between the nodes of a grid of [`TX_NODES`] per decade (at least [`TX_CELLS`] cells), and each monotonic piece
-/// holds at most one root, found by TOMS 748 in ln ρ ([`Strategy::Isotherm`]). Each root's state is DT's, with DT's
-/// acceptance and domain checks. One root is the answer. Several are `Ambiguous` under `Strict` and `Stable` (each is
-/// a state at its own pressure; CoolProp silently returns the two-phase one, map 03 §6, ROT-071), and `Nearest` takes
-/// the one nearest its density. No root is `InvalidInput`: x is beyond every state at T. An imposed single phase holds
-/// along the whole isotherm, an imposed `TwoPhase` at the root, as in [`dx`]. Errors name this pair ([`named`]).
+/// rise again from the saturated liquid's ((∂h/∂ρ)_T changes sign at the Joule-Thomson inversion), and by water's
+/// density maximum its s rises with ρ just above ρ′. So each such stretch is cut at the turns of x, where (∂x/∂ln ρ)_T
+/// changes sign between the nodes of a grid of [`TX_NODES`] per decade (at least [`TX_CELLS`] cells), and each
+/// monotonic piece holds at most one root, found by TOMS 748 in ln ρ ([`Strategy::Isotherm`]). Each root's state is
+/// DT's, with DT's acceptance and domain checks. One root is the answer. Several are `Ambiguous` under `Strict` and
+/// `Stable` (each is a state at its own pressure; CoolProp silently returns the two-phase one, map 03 §6, ROT-071), and
+/// `Nearest` takes the one nearest its density. No root is `InvalidInput`: x is beyond every state at T. An imposed
+/// single phase holds along the whole isotherm, an imposed `TwoPhase` at the root, as in [`dx`]. Errors name this pair
+/// ([`named`]).
 fn tx(fluid: &PureFluid, t: f64, x: f64, var: Caloric, opts: &FlashOptions) -> Result<State, Error> {
     if opts.domain() == DomainPolicy::Enforce {
-        fluid.limits().check_t(t)?;
+        check_t(fluid, t)?;
     }
     let (eos, r) = (fluid.eos(), fluid.eos().gas_constant());
     let top = math::ln(eos.rho_max(t));
@@ -1226,23 +1276,36 @@ impl QVar {
 /// The grid cells along a saturation curve's fitted range on which a Q-pair brackets its roots.
 const QX_CELLS: u16 = 200;
 
+/// The times a Q-pair's grid halves its last cell towards the critical point, where x(T) goes like powers of Tc − T and
+/// its turns crowd: down to 1e-9 of a cell.
+const QX_TOP_HALVINGS: usize = 30;
+
 /// The golden section's ratio, (√5 − 1)/2.
 const GOLDEN: f64 = 0.618_033_988_749_894_9;
+
+/// The nodes of a Q-pair's grid over a curve's fitted range [`lo`, `hi`]: [`QX_CELLS`] even cells, the last halved
+/// [`QX_TOP_HALVINGS`] times towards `hi`, both ends included.
+fn qx_nodes(lo: f64, hi: f64) -> impl Iterator<Item = f64> {
+    let cell = (hi - lo) / f64::from(QX_CELLS);
+    let top = core::iter::successors(Some(0.5 * cell), |w| Some(0.5 * w)).take(QX_TOP_HALVINGS).map(move |w| hi - w);
+    (0..QX_CELLS).map(move |k| lo + cell * f64::from(k)).chain(top).chain([hi])
+}
 
 /// Golden-section steps that locate a turn of a Q-pair's x(T) inside two grid cells: 0.618^60 of their width.
 const TURN_STEPS: u16 = 60;
 
 /// QS, HQ and DQ (PLAN.md M7.7; map 03 §3.1, §6, §9 `flash::qx`): every T on the saturation curve where the lever rule
-/// at quality q gives x (h, s, or v = 1/ρ), each root's state QT's. x(T) is not monotonic: Water's h″ peaks near
-/// 507 K, R1234ze(E)'s s″ turns twice, and Water's ρ′ peaks at 277 K. So x(T) is scanned on a grid of [`QX_CELLS`]
-/// cells over the curve's fitted range, up to the critical point, from the cheapest exact-enough source: an exact
+/// at quality q gives x (h, s, or v = 1/ρ), each root's state QT's. x(T) is not monotonic: Water's h″ peaks near 507 K,
+/// R1234ze(E)'s s″ turns twice, and Water's ρ′ peaks at 277 K. So x(T) is scanned on a grid of [`QX_CELLS`] cells over
+/// the curve's fitted range, up to the critical point, its last cell halved [`QX_TOP_HALVINGS`] times towards it
+/// (R1234yf's s and h at Q = ½ turn within 0.74 K of it, its cell), from the cheapest exact-enough source: an exact
 /// curve's caloric curves for h and s (M5.2a; CoolProp builds them at first use), its densities for v, else QT's own
 /// state. A turn between grid nodes is located by golden-section search, so two roots near it are both bracketed; each
 /// bracket's root is found by TOMS 748 and, where the scan read the caloric curves, polished on the EOS
 /// (`Strategy::Saturation`). Every Q in [0, 1] is accepted for every pair (CoolProp's HQ accepts only Q = 1 and its QS
 /// no fractional Q; its DQ brackets T only to Tc − 0.1 K). One root is the answer; several are `Ambiguous` with their
-/// temperatures under `Strict` and `Stable` (no T at a quality is more stable than another), and `Nearest(T)` takes
-/// one (ROT-071; CoolProp throws `MultipleSolutionsError`). No root is `InvalidInput`. A fluid without a curve has no
+/// temperatures under `Strict` and `Stable` (no T at a quality is more stable than another), and `Nearest(T)` takes one
+/// (ROT-071; CoolProp throws `MultipleSolutionsError`). No root is `InvalidInput`. A fluid without a curve has no
 /// Q-pair (`Unsupported`); a pseudo-pure fluid's has only Q = 0 and 1, as its QT.
 fn qx(fluid: &PureFluid, q: f64, x: f64, var: QVar, pair: Pair, opts: &FlashOptions) -> Result<State, Error> {
     Quality::new(q)?;
@@ -1262,39 +1325,51 @@ fn qx(fluid: &PureFluid, q: f64, x: f64, var: QVar, pair: Pair, opts: &FlashOpti
             None => exact(t),
         }
     };
-    // The grid, and each turn between its nodes where golden-section search puts it.
-    let mut grid: Vec<(f64, f64)> = Vec::new();
-    for k in 0..=QX_CELLS {
-        let t = if k == QX_CELLS { hi } else { lo + (hi - lo) * f64::from(k) / f64::from(QX_CELLS) };
-        grid.push((t, scan(t)?));
-    }
-    let mut nodes = grid.clone();
-    for triple in grid.windows(3) {
-        if let [(t0, g0), (_, g1), (t2, g2)] = triple
-            && (g1 > g0) != (g2 > g1)
-        {
-            nodes.push(turn_of(&scan, *t0, *t2, g1 > g0)?);
+    // The grid in runs of nodes where the saturated state exists (a pseudo-pure fluid's definition fails within 1 mK of
+    // its curve's top: R410A), and each turn between a run's nodes where golden-section search puts it.
+    let (mut runs, mut refused): (Vec<Vec<(f64, f64)>>, _) = (vec![Vec::new()], None);
+    for t in qx_nodes(lo, hi) {
+        match scan(t) {
+            Ok(g) => runs.last_mut().into_iter().for_each(|run| run.push((t, g))),
+            Err(e) => {
+                refused.get_or_insert(e);
+                runs.push(Vec::new());
+            }
         }
     }
-    nodes.sort_by(|a, b| a.0.total_cmp(&b.0));
     let mut roots: Vec<(f64, u16)> = Vec::new();
-    for pair in nodes.windows(2) {
-        let [(a, ga), (b, gb)] = pair else { continue };
-        if *ga != 0.0 && *gb != 0.0 && ga.is_sign_negative() == gb.is_sign_negative() {
-            continue;
+    for grid in runs {
+        let mut nodes = grid.clone();
+        for triple in grid.windows(3) {
+            if let [(t0, g0), (_, g1), (t2, g2)] = triple
+                && (g1 > g0) != (g2 > g1)
+            {
+                // A turn the search cannot reach (x refused inside the cells) is left out, as a refused node.
+                match turn_of(&scan, *t0, *t2, g1 > g0) {
+                    Ok(node) => nodes.push(node),
+                    Err(e) => _ = refused.get_or_insert(e),
+                }
+            }
         }
-        let found = toms748(|t| scan(t).unwrap_or(f64::NAN), *a, *b, Tol::Relative(T_TOL), T_ITER);
-        let found = found.converged(Strategy::Saturation)?;
-        let t = if calorics.is_some() { polish(&exact, found.x)? } else { found.x };
-        // A root on a node (or a turn) closes the brackets either side of it; each returns that node exactly.
-        if !roots.iter().any(|(r, _)| r.to_bits() == t.to_bits()) {
-            roots.push((t, found.iterations));
+        nodes.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for pair in nodes.windows(2) {
+            let [(a, ga), (b, gb)] = pair else { continue };
+            if *ga != 0.0 && *gb != 0.0 && ga.is_sign_negative() == gb.is_sign_negative() {
+                continue;
+            }
+            let found = toms748(|t| scan(t).unwrap_or(f64::NAN), *a, *b, Tol::Relative(T_TOL), T_ITER);
+            let found = found.converged(Strategy::Saturation)?;
+            let t = if calorics.is_some() { polish(&exact, found.x)? } else { found.x };
+            // A root on a node (or a turn) closes the brackets either side of it; each returns that node exactly.
+            if !roots.iter().any(|(r, _)| r.to_bits() == t.to_bits()) {
+                roots.push((t, found.iterations));
+            }
         }
     }
     roots.sort_by(|a, b| a.0.total_cmp(&b.0));
     let temperatures: Vec<f64> = roots.iter().map(|r| r.0).collect();
     let (t, iterations) = match (roots.as_slice(), opts.roots()) {
-        ([], _) => return Err(Error::InvalidInput { quantity: var_name(var), value: var.input(x) }),
+        ([], _) => return Err(refused.unwrap_or(Error::InvalidInput { quantity: var_name(var), value: var.input(x) })),
         ([one], _) => *one,
         (_, RootPolicy::Nearest(target)) => {
             let pick = nearest(target, &temperatures);
@@ -1435,8 +1510,10 @@ fn curve_at_p(curve: &dyn SaturationCurve, p: f64, opts: &FlashOptions) -> Resul
     }
 }
 
-/// A share of a domain bound within which a value is the bound: a T or p solved at Tmax or pmax exactly lands a few
-/// ulp to either side (a P+X state at Tmax 5e-13 K over it).
+/// A share of a domain bound within which a value is the bound, given or solved: a T or p solved at Tmax or pmax lands
+/// a few ulp to either side (a P+X state at Tmax 5e-13 K over it), and a state's own p, read back as an input, carries
+/// its rounding (CO₂'s PT at its pmax of 800 MPa reports p 6.6e-14 above it). Every pair's inputs and states are
+/// checked with it (ROT-079).
 const AT_BOUND: f64 = 1e-12;
 
 /// The model's temperature limits (D6, `Limits::check_t`), a T within [`AT_BOUND`] of a bound counting as on it.
@@ -1684,8 +1761,8 @@ mod tests {
         assert!((state.p() / p - 1.0).abs() < 1e-14, "{}", state.p());
     }
 
-    /// A pseudo-pure fluid's PT follows its pressure ancillaries exactly, as CoolProp's: R410A at 280 K is liquid one float
-    /// above the bubble pressure and gas one float below the dew pressure; at either, or between them, (p, T) is
+    /// A pseudo-pure fluid's PT follows its pressure ancillaries exactly, as CoolProp's: R410A at 280 K is liquid one
+    /// float above the bubble pressure and gas one float below the dew pressure; at either, or between them, (p, T) is
     /// two-phase and fixes no quality.
     #[cfg(feature = "fluids-all")]
     #[test]
@@ -1826,8 +1903,8 @@ mod tests {
         }
     }
 
-    /// `RootPolicy::Nearest` (PLAN.md M7.2), for PT's two roots at psat and PQ's temperatures alike: the root nearest to
-    /// x, of two equally near the smaller (at 2 and at 5.5 below), and none of none.
+    /// `RootPolicy::Nearest` (PLAN.md M7.2), for PT's two roots at psat and PQ's temperatures alike: the root nearest
+    /// to x, of two equally near the smaller (at 2 and at 5.5 below), and none of none.
     #[test]
     fn nearest_takes_the_smaller_of_a_tie() {
         let roots = [1.0, 3.0, 8.0];
@@ -1838,12 +1915,14 @@ mod tests {
 
     /// ROT-073 (map 03 §6): CoolProp's imposed two-phase DT of Water at 1000 mol/m³ and 400 K throws "rhomolar is less
     /// than zero" (stale SatL/SatV). Here it is the lever rule on the saturation at T: QT's state at its quality, and
-    /// the same as without the hint, since the phase rule finds the dome too.
+    /// the same as without the hint, since the phase rule finds the dome too. On the dome's edge (M7.9) a density
+    /// within the acceptance gate's share (1e-9) of a saturated one is that side, Q 0 or 1 exactly, and one 1e-6
+    /// beyond it is refused (a quality outside [0, 1]).
     #[cfg(feature = "fluids-all")]
     #[test]
     fn imposed_two_phase_dt_matches_qt() {
-        let water = embedded("Water");
-        let imposed = water.flash(dt(1000.0, 400.0), &FlashOptions::new().with_phase(Phase::TwoPhase)).unwrap();
+        let (water, two_phase) = (embedded("Water"), FlashOptions::new().with_phase(Phase::TwoPhase));
+        let imposed = water.flash(dt(1000.0, 400.0), &two_phase).unwrap();
         let qt = water.state(q_t(imposed.quality().unwrap(), 400.0)).unwrap();
         let m = Basis::Molar;
         let pairs =
@@ -1852,6 +1931,12 @@ mod tests {
             assert!((got - want).abs() <= 1e-12 * want.abs(), "{got} against {want}");
         }
         assert_eq!(imposed, water.state(dt(1000.0, 400.0)).unwrap());
+        for (q, outwards) in [(0.0, 1.0), (1.0, -1.0)] {
+            let rho = water.state(q_t(q, 400.0)).unwrap().rho(m);
+            let at = |share: f64| water.flash(dt(rho * (1.0 + outwards * share), 400.0), &two_phase);
+            assert!(at(1e-10).is_ok_and(|s| s.phase() == Phase::TwoPhase && s.quality() == Some(q)), "{:?}", at(1e-10));
+            assert!(matches!(at(1e-6), Err(Error::InvalidInput { quantity: "quality", .. })), "{:?}", at(1e-6));
+        }
     }
 
     /// map 01 §8 (an identity no oracle is needed for): (∂g/∂T)_p = −s for Water's PT state at 300 K and 1 atm, where
@@ -1866,8 +1951,9 @@ mod tests {
     }
 
     /// map 03 §6 "Inconsistent range policy": CoolProp's PT accepts Water at 3000 K and at 1e5 K (its Tmax is 2000 K)
-    /// and fails at 5 GPa inside its melting-line evaluator rather than on pmax. Here one domain rule serves every pair:
-    /// above Tmax or pmax PT is refused under `Enforce` with DT's and QT's errors, and flagged under `Extrapolate`.
+    /// and fails at 5 GPa inside its melting-line evaluator rather than on pmax. Here one domain rule serves every
+    /// pair: above Tmax or pmax PT is refused under `Enforce` with DT's and QT's errors, and flagged under
+    /// `Extrapolate`.
     #[cfg(feature = "fluids-all")]
     #[test]
     fn pt_range_is_one_rule() {
@@ -2165,8 +2251,8 @@ mod tests {
     /// ROT-004, ROT-085 (map 03 §6 row 4; PLAN.md M6.8): QT and PQ read one `SaturationCurve` path, and `State::path`
     /// names the source. Water's exact superancillary is the answer: QT at 400 K has the curve's p there, bit for bit,
     /// and PQ at that pressure the curve's root at it. A stale curve (Nitrogen edited as in
-    /// `stale_curve_is_a_guess_polished_by_vle`) only seeds the pure VLE: QT and PQ give `vle::at_t` and `vle::at_p` from
-    /// its seeds, bit for bit. A pseudo-pure fluid (R410A) answers from its ancillary definition (M6.9).
+    /// `stale_curve_is_a_guess_polished_by_vle`) only seeds the pure VLE: QT and PQ give `vle::at_t` and `vle::at_p`
+    /// from its seeds, bit for bit. A pseudo-pure fluid (R410A) answers from its ancillary definition (M6.9).
     #[cfg(feature = "fluids-all")]
     #[test]
     fn q_pairs_report_their_saturation_source() {
@@ -2275,11 +2361,11 @@ mod tests {
         assert_eq!(defined.state(q_t(0.5, 300.0)), Err(Error::InvalidInput { quantity: "Q", value: 0.5 }));
     }
 
-    /// The density bands (user decision PS3; `HelmholtzEOSMixtureBackend.cpp:2340-2380`) on a synthetic pair, ρ′ 1000 and
-    /// ρ″ 100 mol/m³, p′ 1 MPa: gas below 0.95·ρ″ (not at it), liquid above 1.05·ρ′ (not at it); between, the strip within
-    /// 0.9975 of either side asks for stability, and nothing else does; in the liquid strip, liquid when the ancillary
-    /// quality is below 0.01, p above 1.05·p′ (not at it) and the state stable. Near the top (ρ″ 990) the liquid strip's
-    /// quality exceeds 0.01.
+    /// The density bands (user decision PS3; `HelmholtzEOSMixtureBackend.cpp:2340-2380`) on a synthetic pair, ρ′ 1000
+    /// and ρ″ 100 mol/m³, p′ 1 MPa: gas below 0.95·ρ″ (not at it), liquid above 1.05·ρ′ (not at it); between, the strip
+    /// within 0.9975 of either side asks for stability, and nothing else does; in the liquid strip, liquid when the
+    /// ancillary quality is below 0.01, p above 1.05·p′ (not at it) and the state stable. Near the top (ρ″ 990) the
+    /// liquid strip's quality exceeds 0.01.
     #[test]
     fn bands_are_coolprops() {
         let pair = |rho_v: f64| {
@@ -2325,10 +2411,10 @@ mod tests {
         }
     }
 
-    /// PS3 on real blends: R407C's EOS has no dome at 358 K (its critical point is 356.60 K, the published one 359.345 K),
-    /// where the bands alone decide gas and liquid (above pc a supercritical liquid), as CoolProp's; between them its VLE
-    /// fails. An imposed `TwoPhase` skips
-    /// the bands: R410A at 280 K and 100 mol/m³, gas by the bands, is refused (a quality outside [0, 1]).
+    /// PS3 on real blends: R407C's EOS has no dome at 358 K (its critical point is 356.60 K, the published one 359.345
+    /// K), where the bands alone decide gas and liquid (above pc a supercritical liquid), as CoolProp's; between them
+    /// its VLE fails. An imposed `TwoPhase` skips the bands: R410A at 280 K and 100 mol/m³, gas by the bands, is
+    /// refused (a quality outside [0, 1]).
     #[cfg(feature = "fluids-all")]
     #[test]
     fn bands_decide_where_the_eos_has_no_dome() {
@@ -2353,8 +2439,8 @@ mod tests {
         ]
     }
 
-    /// PH, PS and PU of the PT state of `fluid` at (p, T) return its phase, and its T and ρ within class `Flash` (1e-9),
-    /// solved along the isobar; the inputs checked.
+    /// PH, PS and PU of the PT state of `fluid` at (p, T) return its phase, and its T and ρ within class `Flash`
+    /// (1e-9), solved along the isobar; the inputs checked.
     #[cfg(feature = "fluids-all")]
     fn round_trips(fluid: &Fluid, p: f64, t: f64) -> usize {
         let truth = fluid.state(pt(p, t)).unwrap();
@@ -2386,10 +2472,10 @@ mod tests {
     }
 
     /// map 03 §8 PXcdj (`CoolProp-Tests-PXcdj.cpp:186`, PLAN.md M7.3): CoolProp's named P+X regressions, gas, liquid
-    /// and supercritical states of six fluids and the hard ones (Nitrogen's supercritical-cold trap at 121 K and
-    /// 3.7 MPa, Water by its density maximum at 277 K and 5 MPa; its R134a "spinodal step" at 250 K and 0.3 MPa is its
-    /// R134a liquid, listed once here). CoolProp asks T and ρ within 1e-5 of the PT state; here PH, PS and PU return them
-    /// within class `Flash`.
+    /// and supercritical states of six fluids and the hard ones (Nitrogen's supercritical-cold trap at 121 K and 3.7
+    /// MPa, Water by its density maximum at 277 K and 5 MPa; its R134a "spinodal step" at 250 K and 0.3 MPa is its
+    /// R134a liquid, listed once here). CoolProp asks T and ρ within 1e-5 of the PT state; here PH, PS and PU return
+    /// them within class `Flash`.
     #[cfg(feature = "fluids-all")]
     #[test]
     fn pxcdj_named_regressions() {
@@ -2432,7 +2518,8 @@ mod tests {
     /// saturated liquid and vapour are two-phase at Q = 0 and 1 exactly, the lever rule's ends. h a little above the
     /// saturated liquid's is two-phase, Q 0.001; under `Liquid` it is the superheated liquid, above the saturation
     /// temperature; under `TwoPhase` the same two-phase state; and the liquid's own h under `TwoPhase` is refused (a
-    /// quality below 0).
+    /// quality below 0). Under `TwoPhase` (M7.9) an x past a saturated side's by 1e-11 of it, within the acceptance
+    /// gate, is that side, Q 0 or 1 exactly, and one past it by 1e-7 is refused.
     #[cfg(feature = "fluids-all")]
     #[test]
     fn p_x_at_the_dome_edge_and_under_a_hint() {
@@ -2461,6 +2548,25 @@ mod tests {
         let compressed = water.state(pt(1e6, 400.0)).unwrap();
         let refused = water.flash(p_x(&compressed)[0], &FlashOptions::new().with_phase(Phase::TwoPhase));
         assert!(matches!(refused, Err(Error::InvalidInput { quantity: "quality", .. })), "{refused:?}");
+        let (p, two_phase) = (Pressure::new(1e6).unwrap(), FlashOptions::new().with_phase(Phase::TwoPhase));
+        for (side, q, outwards) in [(&liquid, 0.0, -1.0), (&vapour, 1.0, 1.0)] {
+            for share in [1e-11, 1e-7] {
+                let past = |x: f64| x * (1.0 + outwards * share);
+                let inputs = [
+                    Input::hp(Enthalpy::molar(past(side.h(m))).unwrap(), p),
+                    Input::ps(p, Entropy::molar(past(side.s(m))).unwrap()),
+                    Input::pu(p, InternalEnergy::molar(past(side.u(m))).unwrap()),
+                ];
+                for input in inputs {
+                    let back = water.flash(input, &two_phase);
+                    let expected = match &back {
+                        Ok(state) => share < 1e-9 && state.phase() == Phase::TwoPhase && state.quality() == Some(q),
+                        Err(e) => share > 1e-9 && matches!(e, Error::InvalidInput { quantity: "quality", .. }),
+                    };
+                    assert!(expected, "{input:?}: {back:?}");
+                }
+            }
+        }
     }
 
     /// The D+X inputs of `state`, molar: (ρ, h), (ρ, s) and (ρ, u).
@@ -2474,11 +2580,11 @@ mod tests {
         ]
     }
 
-    /// D+X under an imposed phase (PLAN.md M7.4, D6): an imposed single phase holds along the whole isochore, an imposed
-    /// `TwoPhase` at the root. Water: DH, DS and DU of its two-phase state at 400 K (Q 0.5) under `TwoPhase` are that
-    /// state. Its liquid stretched at 390 K to the saturated liquid's density at 400 K lies in the dome by DT's phase rule,
-    /// so it is a state only under `Liquid`, under which D+X follow the liquid's isochore and return it. The gas's inputs
-    /// at 400 K and 10 kPa under `TwoPhase` are refused (a quality above 1).
+    /// D+X under an imposed phase (PLAN.md M7.4, D6): an imposed single phase holds along the whole isochore, an
+    /// imposed `TwoPhase` at the root. Water: DH, DS and DU of its two-phase state at 400 K (Q 0.5) under `TwoPhase`
+    /// are that state. Its liquid stretched at 390 K to the saturated liquid's density at 400 K lies in the dome by
+    /// DT's phase rule, so it is a state only under `Liquid`, under which D+X follow the liquid's isochore and return
+    /// it. The gas's inputs at 400 K and 10 kPa under `TwoPhase` are refused (a quality above 1).
     #[cfg(feature = "fluids-all")]
     #[test]
     fn d_x_under_a_hint() {
@@ -2580,14 +2686,15 @@ mod tests {
         }
     }
 
-    /// ROT-071 (map 03 §6): along an isotherm x(ρ) need not be monotonic. CoolProp's HT of Water at 300 K for the h of its
-    /// compressed liquid at 1, 10 and 50 MPa silently returns the two-phase state at psat (3536.8 Pa), Q = 0.000376,
-    /// 0.00376 and 0.0185. Here HT under `Strict` is `Ambiguous` with every root, ascending in ρ: CoolProp's two-phase
-    /// one (its ρ within 1e-9, its Q within 1e-12) and the compressed liquid; `Nearest` takes each, and each reproduces h. So for ST
-    /// and TU at 275 K, where water's density maximum makes s and u rise with ρ just above ρ′ and fall again: at 1 and
-    /// 10 MPa CoolProp returns the two-phase root alone, while the isotherm also holds a third, denser liquid (ST at
-    /// 20.0 and 10.8 MPa, TU at 45.6 and 35.7 MPa; CoolProp's own s and u there are the input's within 3e-11). At 50 MPa
-    /// the liquid is the only root, where CoolProp returns a liquid under tension, at −25.7 MPa (ST) and −2.8 MPa (TU).
+    /// ROT-071 (map 03 §6): along an isotherm x(ρ) need not be monotonic. CoolProp's HT of Water at 300 K for the h of
+    /// its compressed liquid at 1, 10 and 50 MPa silently returns the two-phase state at psat (3536.8 Pa), Q =
+    /// 0.000376, 0.00376 and 0.0185. Here HT under `Strict` is `Ambiguous` with every root, ascending in ρ: CoolProp's
+    /// two-phase one (its ρ within 1e-9, its Q within 1e-12) and the compressed liquid; `Nearest` takes each, and each
+    /// reproduces h. So for ST and TU at 275 K, where water's density maximum makes s and u rise with ρ just above ρ′
+    /// and fall again: at 1 and 10 MPa CoolProp returns the two-phase root alone, while the isotherm also holds a
+    /// third, denser liquid (ST at 20.0 and 10.8 MPa, TU at 45.6 and 35.7 MPa; CoolProp's own s and u there are the
+    /// input's within 3e-11). At 50 MPa the liquid is the only root, where CoolProp returns a liquid under tension, at
+    /// −25.7 MPa (ST) and −2.8 MPa (TU).
     #[cfg(feature = "fluids-all")]
     #[test]
     fn compressed_liquid_ht_is_ambiguous() {
@@ -2647,7 +2754,8 @@ mod tests {
     /// ROT-077 (map 03 §6): CoolProp's density solve above Tc has an absolute tolerance, 1e-9 mol/m³, so its ST of
     /// Water at 1.3 Tc is 6.1 % off at ρ = 1e-8 mol/m³ and 0.87 % off at 1e-7. Here the isotherm's axis is ln ρ: ST
     /// returns ρ = 1e-8, 1e-7 and 1e-6 within class `Flash` (1e-9); HT within the conditioning of h there, the rounding
-    /// of h over (∂h/∂ρ)_T: h moves 1e-12 of itself between ρ = 0 and 1e-8 (CoolProp 5.6e-4 off, 4e-4 its conditioning).
+    /// of h over (∂h/∂ρ)_T: h moves 1e-12 of itself between ρ = 0 and 1e-8 (CoolProp 5.6e-4 off, 4e-4 its
+    /// conditioning).
     #[cfg(feature = "fluids-all")]
     #[test]
     fn low_density_round_trips() {
@@ -2886,8 +2994,8 @@ mod tests {
     }
 
     /// map 03 §6 (#2773, ROT-071): Water's h″ peaks near 507 K, so HQ at Q = 1 for h″(400 K) has two roots; CoolProp's
-    /// default throws, listing 400 K and 587.912 K. Here `Strict` returns both temperatures (400 K within 1e-9, the other
-    /// within 1e-3 K of CoolProp's printed one), `Nearest` takes each, and each state's h is the input's.
+    /// default throws, listing 400 K and 587.912 K. Here `Strict` returns both temperatures (400 K within 1e-9, the
+    /// other within 1e-3 K of CoolProp's printed one), `Nearest` takes each, and each state's h is the input's.
     #[cfg(feature = "fluids-all")]
     #[test]
     fn hq_water_400k_lists_both_roots() {
@@ -2923,9 +3031,9 @@ mod tests {
         );
     }
 
-    /// map 03 §6: CoolProp's DQ brackets T only up to Tc − 0.1 K, so its DQ of Water at Tc − 0.05 K fails at Q = 0.5 ("do
-    /// not bracket the root"; Q = 0 and 1 take its saturated-density path). Here DQ at Q = 0, 0.5 and 1 returns that T
-    /// within 1e-9, the critical point the superancillary's top.
+    /// map 03 §6: CoolProp's DQ brackets T only up to Tc − 0.1 K, so its DQ of Water at Tc − 0.05 K fails at Q = 0.5
+    /// ("do not bracket the root"; Q = 0 and 1 take its saturated-density path). Here DQ at Q = 0, 0.5 and 1 returns
+    /// that T within 1e-9, the critical point the superancillary's top.
     #[cfg(feature = "fluids-all")]
     #[test]
     fn dq_works_near_tc() {
@@ -3014,9 +3122,9 @@ mod tests {
         assert!(checked >= 4, "{checked} fluids");
     }
 
-    /// M7.7: a root found on the caloric curves is polished on the EOS: TOMS 748 in a bracket around it, widened tenfold
-    /// from 1e-9 of T until it holds a sign change. A residual whose root lies 3e-7 of T away is polished onto it; one
-    /// whose root lies beyond 1e-4 of T leaves the curves' root as it is.
+    /// M7.7: a root found on the caloric curves is polished on the EOS: TOMS 748 in a bracket around it, widened
+    /// tenfold from 1e-9 of T until it holds a sign change. A residual whose root lies 3e-7 of T away is polished onto
+    /// it; one whose root lies beyond 1e-4 of T leaves the curves' root as it is.
     #[test]
     fn polish_moves_a_root_onto_the_eos() {
         for (offset, want) in [(3e-7, 400.0 * (1.0 + 3e-7)), (-3e-7, 400.0 * (1.0 - 3e-7)), (1e-3, 400.0)] {
@@ -3026,8 +3134,8 @@ mod tests {
         }
     }
 
-    /// M7.7: a pseudo-pure fluid has no caloric curves, so its Q-pairs scan QT's own state: Air's HQ and DQ at Q = 1 and
-    /// QS at Q = 0 at 100 K return that T, `Nearest` where h″ turns (its QT takes only Q = 0 and 1, D4).
+    /// M7.7: a pseudo-pure fluid has no caloric curves, so its Q-pairs scan QT's own state: Air's HQ and DQ at Q = 1
+    /// and QS at Q = 0 at 100 K return that T, `Nearest` where h″ turns (its QT takes only Q = 0 and 1, D4).
     #[cfg(feature = "fluids-all")]
     #[test]
     fn pseudo_pure_q_pairs_scan_qt() {
@@ -3070,5 +3178,313 @@ mod tests {
         for (input, quantity, value) in cases {
             assert_eq!(water.state(input), Err(Error::InvalidInput { quantity, value }), "{input:?}");
         }
+    }
+
+    /// M7.9: a Q-pair's grid over [100 K, 500 K] is 200 even cells of 2 K, then its last cell halved 30 times towards
+    /// 500 K (499 K, 499.5 K, … to 2e-9 K of it), then 500 K.
+    #[test]
+    fn q_pair_grids_halve_their_last_cell() {
+        let nodes: Vec<f64> = qx_nodes(100.0, 500.0).collect();
+        assert_eq!(nodes.len(), 200 + 30 + 1);
+        let (cells, top) = nodes.split_at(200);
+        assert!(cells.iter().zip(0..).all(|(&t, k)| t == 100.0 + 2.0 * f64::from(k)), "{cells:?}");
+        let halved = (1..=30).map(|k| 500.0 - math::powi(2.0, 1 - k)).chain([500.0]);
+        assert!(top.iter().zip(halved).all(|(&t, want)| t == want), "{top:?}");
+    }
+
+    /// The input of `pair` read off `state`, molar; `None` where it needs a quality and the state is a single phase.
+    #[cfg(feature = "fluids-all")]
+    fn input_of(pair: Pair, state: &State) -> Option<Input> {
+        let m = Basis::Molar;
+        let value = |var: Var| match var {
+            Var::T => Some(state.t()),
+            Var::P => Some(state.p()),
+            Var::Q => state.quality(),
+            Var::D => Some(state.rho(m)),
+            Var::H => Some(state.h(m)),
+            Var::S => Some(state.s(m)),
+            Var::U => Some(state.u(m)),
+        };
+        let (x, y) = pair.vars();
+        Input::new(pair, value(x)?, value(y)?, m).ok()
+    }
+
+    /// Whether `state` reproduces both values of `input`: T and ρ within 1e-9 of each, p within 1e-9 of it and 1e-12 of
+    /// ρRT (the terms it cancels from), Q within 1e-9, and h, s and u as the acceptance gate asks ([`reproduces_x`]).
+    #[cfg(feature = "fluids-all")]
+    fn reproduces(state: &State, input: Input) -> bool {
+        let (m, r, t) = (Basis::Molar, state.gas_constant(), state.t());
+        let holds = |var: Var, want: f64| match var {
+            Var::T => (t - want).abs() <= 1e-9 * want,
+            Var::P => (state.p() - want).abs() <= 1e-9 * want + 1e-12 * state.rho(m) * r * t,
+            Var::Q => state.quality().is_some_and(|q| (q - want).abs() <= 1e-9),
+            Var::D => (state.rho(m) - want).abs() <= 1e-9 * want,
+            Var::H => reproduces_x(Caloric::H, r, t, want, state.h(m)),
+            Var::S => reproduces_x(Caloric::S, r, t, want, state.s(m)),
+            Var::U => reproduces_x(Caloric::U, r, t, want, state.u(m)),
+        };
+        let ((vx, vy), (x, y)) = (input.pair().vars(), input.values());
+        holds(vx, x) && holds(vy, y)
+    }
+
+    /// Whether `state` is `truth`: the same phase, T and ρ within 1e-9 of the truth's, Q within 1e-9.
+    #[cfg(feature = "fluids-all")]
+    fn is_truth(state: &State, truth: &State) -> bool {
+        let near = |a: f64, b: f64| (a - b).abs() <= 1e-9 * b.abs();
+        let quality = match (state.quality(), truth.quality()) {
+            (Some(a), Some(b)) => (a - b).abs() <= 1e-9,
+            (a, b) => a == b,
+        };
+        state.phase() == truth.phase()
+            && near(state.t(), truth.t())
+            && near(state.rho(Basis::Molar), truth.rho(Basis::Molar))
+            && quality
+    }
+
+    /// The states a flash of `input` under `opts` returns: its state, or each root of an `Ambiguous` taken by
+    /// `Nearest`; none for any other refusal.
+    #[cfg(feature = "fluids-all")]
+    fn states_of(fluid: &Fluid, input: Input, opts: FlashOptions, result: &Result<State, Error>) -> Vec<State> {
+        match result {
+            Ok(state) => vec![*state],
+            Err(Error::Ambiguous { roots }) => roots
+                .as_slice()
+                .iter()
+                .map(|&root| fluid.flash(input, &opts.with_roots(RootPolicy::Nearest(root))).unwrap())
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// ROT-069 (map 03 §6 row 1): CoolProp's DQ, HQ and QS impose two-phase on the backend and never clear it, so its
+    /// reused Water state then gives PH at 30 MPa and h(700 K) 270.79 K and PT throws; after DQ, DT at 10 mol/m³ and
+    /// 700 K is two-phase; after PH under an imposed gas, PT at 1 bar and 300 K is a gas. Here a hint is an argument of
+    /// one call and a `Fluid` is immutable: on one `Fluid`, after QS, HQ, DQ and a PH under `Gas`, PT at (30 MPa, 700
+    /// K) and (1 bar, 300 K), PH at (30 MPa, h(700 K)) and DT at (10 mol/m³, 700 K) each return the state a fresh
+    /// `Fluid` returns, bit for bit, and PH is at 700 K.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn phase_hints_never_leak() {
+        let truth = embedded("Water").state(pt(30e6, 700.0)).unwrap();
+        let ph = Input::hp(Enthalpy::molar(truth.h(Basis::Molar)).unwrap(), Pressure::new(30e6).unwrap());
+        let probes = [pt(30e6, 700.0), pt(1e5, 300.0), ph, dt(10.0, 700.0)];
+        let fresh: Vec<_> = probes.iter().map(|&input| embedded("Water").state(input)).collect();
+        let water = embedded("Water");
+        let saturated = water.state(q_t(1.0, 400.0)).unwrap();
+        for pair in [Pair::QS, Pair::HQ, Pair::DQ] {
+            let prior = water.state(input_of(pair, &saturated).unwrap());
+            assert!(matches!(prior, Ok(_) | Err(Error::Ambiguous { .. })), "{pair:?}: {prior:?}");
+        }
+        assert!(water.flash(ph, &FlashOptions::new().with_phase(Phase::Gas)).is_ok_and(|s| s.phase() == Phase::Gas));
+        for (input, want) in probes.iter().zip(&fresh) {
+            let got = water.state(*input);
+            let bits = |r: &Result<State, Error>| r.as_ref().map(|s| format!("{s:?}")).map_err(|e| format!("{e:?}"));
+            assert_eq!(bits(&got), bits(want), "{input:?}");
+        }
+        let back = water.state(ph).unwrap();
+        assert!((back.t() / 700.0 - 1.0).abs() < 1e-9 && back.phase() == Phase::Supercritical, "{back:?}");
+        assert_eq!(water.state(dt(10.0, 700.0)).map(|s| s.phase()), Ok(Phase::SupercriticalGas));
+        assert_eq!(water.state(pt(1e5, 300.0)).map(|s| s.phase()), Ok(Phase::Liquid));
+    }
+
+    /// ROT-070 (map 03 §6 row 2): CoolProp honours an imposed phase in PT, DT and T+X, ignores it in DP and clears it
+    /// in PH, DH and HS. Here `with_phase` means one thing for all 19 pairs (D6). Water's liquid, gas, supercritical,
+    /// supercritical liquid and supercritical gas, and its saturated liquid, Q 0.5 and saturated vapour at 400 K; each
+    /// pair whose inputs a state defines, under each of six labels:
+    /// - every state returned, or every root of an `Ambiguous` (each taken by `Nearest`), carries the label and
+    ///   reproduces the inputs;
+    /// - under the state's own label the state is returned (or is among the roots), but PT of a two-phase state, whose
+    ///   (p, T) fixes no quality (`Undefined`);
+    /// - under `TwoPhase` a single-phase state's inputs are refused, their quality outside [0, 1] (`InvalidInput`) or
+    ///   none, at p or T above the critical point's or for PT (`Undefined`), unless they have a two-phase root too (T+X
+    ///   of a compressed liquid, M7.5), which is returned;
+    /// - a Q-pair under a single-phase label is refused: a quality is `Undefined` in that phase;
+    /// - no other refusal is `Unsupported`.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn phase_hint_is_honoured_by_every_pair() {
+        let water = embedded("Water");
+        let truths = [
+            (pt(1e6, 350.0), Phase::Liquid),
+            (pt(1e4, 400.0), Phase::Gas),
+            (pt(30e6, 700.0), Phase::Supercritical),
+            (pt(30e6, 400.0), Phase::SupercriticalLiquid),
+            (pt(1e6, 700.0), Phase::SupercriticalGas),
+            (q_t(0.0, 400.0), Phase::TwoPhase),
+            (q_t(0.5, 400.0), Phase::TwoPhase),
+            (q_t(1.0, 400.0), Phase::TwoPhase),
+        ];
+        let labels = [
+            Phase::Liquid,
+            Phase::Gas,
+            Phase::TwoPhase,
+            Phase::Supercritical,
+            Phase::SupercriticalLiquid,
+            Phase::SupercriticalGas,
+        ];
+        let mut checked = 0;
+        for (input, phase) in truths {
+            let truth = water.state(input).unwrap();
+            assert_eq!(truth.phase(), phase, "{input:?}");
+            for (pair, hint) in Pair::ALL.iter().flat_map(|&pair| labels.map(|hint| (pair, hint))) {
+                let Some(input) = input_of(pair, &truth) else { continue };
+                let with = FlashOptions::new().with_phase(hint);
+                let result = water.flash(input, &with);
+                let states = states_of(&water, input, with, &result);
+                let at = format!("{hint:?} {input:?} of {truth:?}: {result:?}");
+                assert!(states.iter().all(|s| s.phase() == hint && reproduces(s, input)), "{at}");
+                let quality_pair = pair.vars().0 == Var::Q || pair.vars().1 == Var::Q;
+                let no_quality = |phase| Err(Error::Undefined { prop: Prop::Q, phase });
+                if quality_pair && hint != Phase::TwoPhase {
+                    assert_eq!(result, no_quality(hint), "{at}");
+                } else if hint == phase && !(pair == Pair::PT && phase == Phase::TwoPhase) {
+                    assert!(states.iter().any(|s| is_truth(s, &truth)), "{at}");
+                } else if hint == Phase::TwoPhase && phase != Phase::TwoPhase {
+                    let refused = matches!(result, Err(Error::InvalidInput { quantity: "quality", .. }))
+                        || result == no_quality(Phase::TwoPhase);
+                    assert!(refused || !states.is_empty(), "{at}");
+                } else {
+                    assert!(!matches!(result, Err(Error::Unsupported { .. })), "{at}");
+                }
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 6 * (5 * 14 + 3 * 19));
+    }
+
+    /// ROT-079 (map 03 §6 row 12): CoolProp's PT accepts 1e5 K for Water (Tmax 2000 K), its DP refuses T above
+    /// 1.5·Tmax, and its PT at 5 GPa fails inside the melting line's evaluator. Here one domain check applies to every
+    /// pair (D6, user decision 6). Water's, CO₂'s and Air's states at 1.25·Tmax and 10 MPa, and at 1000 K and 2·pmax:
+    /// each pair without a quality refuses them under `Enforce` with `AboveMaxTemperature` at the state's T, or
+    /// `AboveMaxPressure` at its p, or returns another root inside the domain (CO₂'s TU at 1000 K, at 244 MPa), and
+    /// under `Extrapolate` returns the state, flagged (or roots that include it). States at Tmax and at pmax themselves
+    /// are in the domain for every pair. HS and SU search p up to pmax only, so above it they refuse at pmax under
+    /// either policy, as P+X refuses at 1.5·Tmax. QT at that T and PQ at that p lie beyond the saturation curve, whose
+    /// end (below the domain's bound) they name. QS, HQ and DQ have no input beyond the domain: every saturated state
+    /// lies below the critical point.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn domain_errors_are_uniform_across_pairs() {
+        let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
+        let mut checked = 0;
+        for name in ["Water", "CarbonDioxide", "Air"] {
+            let fluid = embedded(name);
+            let pure = record_of(name).builder().unwrap().build();
+            let (t_max, p_max) = (pure.limits().t_max(), pure.limits().p_max());
+            let hot = fluid.flash(pt(1e7, 1.25 * t_max), &extrapolate).unwrap();
+            let dense = fluid.flash(pt(2.0 * p_max, 1000.0), &extrapolate).unwrap();
+            let near = |a: f64, b: f64| (a / b - 1.0).abs() <= 1e-9;
+            for (truth, above_t) in [(hot, true), (dense, false)] {
+                let at = |pair: Pair| format!("{name} {pair:?} of {truth:?}");
+                let qt = Input::qt(Quality::new(1.0).unwrap(), Temperature::new(truth.t()).unwrap());
+                let pq = Input::pq(Pressure::new(truth.p()).unwrap(), Quality::new(1.0).unwrap());
+                let beyond_curve = if above_t { qt } else { pq };
+                for policy in [FlashOptions::new(), extrapolate] {
+                    let got = fluid.flash(beyond_curve, &policy);
+                    let curve_end = match got {
+                        Err(Error::Domain(DomainError::AboveMaxTemperature { t, t_max: end })) => {
+                            above_t && t == truth.t() && end < t_max
+                        }
+                        Err(Error::Domain(DomainError::AboveMaxPressure { p, p_max: end })) => {
+                            !above_t && p == truth.p() && end < p_max
+                        }
+                        _ => false,
+                    };
+                    assert!(curve_end, "{name} {beyond_curve:?}: {got:?}");
+                }
+                for &pair in Pair::ALL {
+                    let Some(input) = input_of(pair, &truth) else { continue };
+                    let searched = !above_t && matches!(pair, Pair::HS | Pair::SU);
+                    let enforced = fluid.state(input);
+                    let refused = match enforced {
+                        Err(Error::Domain(DomainError::AboveMaxTemperature { t, t_max: bound })) => {
+                            above_t && near(t, truth.t()) && bound == t_max
+                        }
+                        Err(Error::Domain(DomainError::AboveMaxPressure { p, p_max: bound })) => {
+                            !above_t && bound == p_max && if searched { p == p_max } else { near(p, truth.p()) }
+                        }
+                        // A pair with several roots returns the one in the domain (CO₂'s TU at 1000 K: 244 MPa).
+                        _ => states_of(&fluid, input, FlashOptions::new(), &enforced)
+                            .iter()
+                            .all(|s| reproduces(s, input) && s.t() <= t_max && s.p() <= p_max && !s.is_extrapolated()),
+                    };
+                    assert!(refused, "{}: {enforced:?}", at(pair));
+                    let flagged = fluid.flash(input, &extrapolate);
+                    if searched {
+                        assert_eq!(flagged, enforced, "{}", at(pair));
+                    } else {
+                        let states = states_of(&fluid, input, extrapolate, &flagged);
+                        let ok = states.iter().any(|s| is_truth(s, &truth) && s.is_extrapolated());
+                        assert!(ok, "{}: {flagged:?}", at(pair));
+                    }
+                    checked += 1;
+                }
+            }
+            // On the bounds themselves every state is in the domain: PT's at Tmax and at pmax round-trip.
+            for truth in [pt(1e7, t_max), pt(p_max, 1000.0)].map(|input| fluid.state(input).unwrap()) {
+                for &pair in Pair::ALL {
+                    let Some(input) = input_of(pair, &truth) else { continue };
+                    let result = fluid.state(input);
+                    let states = states_of(&fluid, input, FlashOptions::new(), &result);
+                    assert!(states.iter().any(|s| is_truth(s, &truth)), "{name} {pair:?} of {truth:?}: {result:?}");
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 3 * 4 * 14);
+    }
+
+    /// ROT-007 (map 01 R4; map 12 COO-6): CoolProp's DmassT returns a density off its input, its HmassT fails where
+    /// HmolarT works, and it has no SU arm. Here the basis is converted once, at the edge (`Fluid::native`): DT in
+    /// kg/m³ returns the input density to two ulp in that basis, and every pair read off a state in mass units returns
+    /// the state its molar inputs return, or the same roots, within class `Flash` (T and ρ within 1e-9, Q within 1e-9:
+    /// by CO₂'s critical point, an ulp of u moves PU's ρ by 7e-12). Water's liquid, gas, supercritical state and Q 0.5
+    /// at 400 K; CO₂'s near its critical point.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn dt_mass_basis_reproduces_input() {
+        let mut checked = 0;
+        for (name, inputs) in [
+            ("Water", [pt(1e6, 350.0), pt(1e4, 400.0), pt(30e6, 700.0), q_t(0.5, 400.0)]),
+            ("CarbonDioxide", [pt(7.4e6, 305.0), pt(7.3e6, 300.0), dt(10_000.0, 304.2), q_t(0.5, 304.0)]),
+        ] {
+            let fluid = embedded(name);
+            let m = fluid.info().molar_mass();
+            for truth in inputs.map(|input| fluid.state(input).unwrap()) {
+                let mass = truth.rho(Basis::Mass);
+                let dt_mass = Input::dt(Density::mass(mass).unwrap(), Temperature::new(truth.t()).unwrap());
+                let back = fluid.state(dt_mass).unwrap().rho(Basis::Mass);
+                assert!((back - mass).abs() <= 2.0 * f64::EPSILON * mass, "{name}: {back} against {mass}");
+                for &pair in Pair::ALL {
+                    let Some(molar) = input_of(pair, &truth) else { continue };
+                    let (vx, vy) = pair.vars();
+                    let (x, y) = molar.values();
+                    let per_kg = |var: Var, v: f64| match var {
+                        Var::D => v * m,
+                        Var::H | Var::S | Var::U => v / m,
+                        _ => v,
+                    };
+                    let mass_input = Input::new(pair, per_kg(vx, x), per_kg(vy, y), Basis::Mass).unwrap();
+                    let opts = FlashOptions::new();
+                    let (a, b) = (fluid.state(molar), fluid.state(mass_input));
+                    let (sa, sb) = (states_of(&fluid, molar, opts, &a), states_of(&fluid, mass_input, opts, &b));
+                    let close = |s: &State, t: &State| {
+                        let near = |u: f64, v: f64| (u - v).abs() <= 1e-9 * v.abs();
+                        let q = match (s.quality(), t.quality()) {
+                            (Some(u), Some(v)) => (u - v).abs() <= 1e-9,
+                            (u, v) => u == v,
+                        };
+                        s.phase() == t.phase()
+                            && near(s.t(), t.t())
+                            && near(s.rho(Basis::Molar), t.rho(Basis::Molar))
+                            && q
+                    };
+                    let same = !sa.is_empty() && sa.len() == sb.len() && sa.iter().zip(&sb).all(|(s, t)| close(s, t));
+                    assert!(same, "{name} {pair:?}: {a:?} against {b:?}");
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked >= 4 * 14 + 2 * 19, "{checked}");
     }
 }
