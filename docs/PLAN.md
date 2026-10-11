@@ -1049,15 +1049,25 @@ bands (map 03 §8; map 10 §8.5 L4).
   names; the melting-line refusals (#2639, #1936) wait for M8's melting lines.
 - **M7.9a Duplication refactor** (user decision DR1). *Failing test:* none; a refactor changes no behaviour. *Do:* the
   duplication audit's areas 1-3, 5 and 6 (`04-user-decisions.md`, DR1): a shared helper module for phasekit-verify's
-  integration tests (`tests/common/mod.rs`: `label()`, the pinned-generator-environment test, the paper-formula AD
-  tests' scaffolding, the table and grid checks); one setup and one bound-check tail for the check routines of verify's
-  `eos.rs` and `term.rs`; one header writer and validator for the blob and the pack in core's `blob.rs` (no format
-  version change); one table for compat's CoolProp names and for the Prop-to-state mapping; and xtask's `baseline.rs`
-  check pair and `gates/counts.rs` junit and doc counts. Not data tables, the factored solvers, the ban probes, the
+  integration tests (`tests/common/mod.rs`: `label()`, the pinned-generator-environment test, the table and grid
+  checks); one setup and one bound-check tail for the check routines of verify's `eos.rs` and `term.rs`; one header
+  writer and validator for the blob and the pack in core's `blob.rs` (no format version change); one table for
+  compat's CoolProp names and for the Prop-to-state mapping; xtask's `baseline.rs` check pair and `gates/counts.rs`
+  junit and doc counts; and phasekit-core's `flash.rs` tests, one module per input-pair family (user decision DR3; the
+  paper-formula AD tests' scaffolding is area 4's, M7.9b). Not data tables, the factored solvers, the ban probes, the
   `Display` impls or the State accessors, and `cp0_integral` stays duplicated if it is an independent oracle. *Done
   when:* G1-G8 green; the executed-test counts unchanged per binary; datagen's generated files and blobs bit-identical;
   mutants clean on the diff; `jscpd crates -f rust -i '**/generated.rs' --ignore-identifiers --ignore-literals` no
-  longer reports the audit's clones (345 clones, 3 832 lines at #90).
+  longer reports the audit's clones (345 clones, 3 832 lines at #90). Measured at M7.9a: the tests per binary are
+  M7.9's (484 with the ignored ones) and one more in phasekit-verify's library, the pin of a mutant of
+  `on_the_pinned_image`; datagen bit-identical; 323 mutants on the diff, the one missed pinned. jscpd reports 384
+  clones and 4 165 lines, against 391 and 4 213 at M7.9 (M7.2-M7.9 added 46 to #90's): the audit's clones in areas
+  1-3, 5 and 6 are gone but `term::Tally`'s two three-line impls, as is one found after it (`Fixture::check` and
+  `check_bound` each built the mismatch). What it still reports there is data tables (fixture lists, mapping tables),
+  import blocks, `blob.rs`'s `Reader` and record writers, and test inputs. As built, the helpers live in the library,
+  not a `tests/common` module: `label()` is `Fixture::printed` and the pinned-generator test
+  `phasekit_verify::on_the_pinned_image`; the per-fluid fixture loops are `every_core_flash` (`tests/flash.rs`) and
+  `every_full_flash` (`tests/sweeps.rs`).
 - **M7.9b EOS term scaffolding** (user decision DR2). *Failing test:* none. *Do:* the audit's area 4: each EOS term
   family's scaffolding once, not in core (`helmholtz/gaussian.rs`, `gao_b.rs`), xtask datagen (`record.rs`'s residual
   and ideal arms) and verify (`majorant.rs`, `tests/terms.rs`) separately, so a new family is one addition. *Done when:*
