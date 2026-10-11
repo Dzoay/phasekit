@@ -994,7 +994,11 @@ bands (map 03 §8; map 10 §8.5 L4).
   (86.35 K/4.754 MPa and 90.20 K/7.768 MPa; map 03 §8 PXFlash), `pxcdj_named_regressions` (Water, CO₂, R134a,
   Propane, N₂, MM; map 03 §8), `errors_name_the_failing_strategy`. *Do:* outer T TOMS748 with a warm-started inner
   density, brackets from SA and the domain bound (map 03 §9 `flash::px`). *Done when:* green; PH bench (target
-  ≤ 15 µs) recorded.
+  ≤ 15 µs) recorded. Measured at M7.3: the core subset's 2 178 P+X round trips within `Flash`; a pseudo-pure dome
+  follows the ancillaries, as CoolProp's PH (Air at 18.2 kPa: the same T and Q to 3e-14); Helium's s at 362 MPa turns
+  back below 168 K, far below its melting line, where the search still finds the physical root. `ph_flash` on the
+  i7-1165G7 laptop (RM1: against its own C++ baseline): n-Heptane 13.4 µs, R134a 17.0, n-Propane 23.1, Methane 34.4,
+  Water 296 µs; its C++ 32.6, 43.5, 43.5, 76.6 and 223 µs. About ten PT solves per PH; fewer is M9's.
 - **M7.4 DH, DS, DU.** *Failing test:* `d_x_round_trips` incl. the Air near-critical cases (map 03 §8 AirCritical).
   *Do:* the interval method (map 03 §9 `flash::dx`). *Done when:* green.
 - **M7.5 HT, ST, TU.** *Failing tests:* `compressed_liquid_ht_is_ambiguous` (Water 300 K at 1/10/50 MPa: the oracle
