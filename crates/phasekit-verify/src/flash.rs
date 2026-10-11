@@ -284,11 +284,7 @@ impl FlashCheck {
     pub fn su_round_trip(&mut self, name: &str, fluid: &Fluid, truth: &State) {
         let m = Basis::Molar;
         let input = Entropy::molar(truth.s(m)).and_then(|s| Ok([Input::su(s, InternalEnergy::molar(truth.u(m))?)]));
-        let along = |of| truth.partial(Partial { of, wrt: DerivVar::P, at: DerivVar::Smolar }).map_or(0.0, f64::abs);
-        let resolution = 2e-13 * truth.u(m).abs().max(truth.gas_constant() * truth.t());
-        let dp = resolution / along(DerivVar::Umolar);
-        let floors = (along(DerivVar::T) * dp, along(DerivVar::Dmolar) * dp);
-        self.round_trip(name, fluid, truth, (input, floors));
+        self.round_trip(name, fluid, truth, (input, su_floors(truth)));
     }
 
     /// The round trips of one truth state through `inputs`, read off it.
@@ -335,6 +331,15 @@ type Coordinates = (Phase, f64, f64, Option<f64>);
 /// The coordinates of `state`.
 fn coordinates(state: &State) -> Coordinates {
     (state.phase(), state.t(), state.rho(Basis::Molar), state.quality())
+}
+
+/// The floors of T and ρ for an SU round trip of `truth` ([`FlashCheck::su_round_trip`]): SU's resolution in u, twice
+/// 1e-13 of max(|u|, RT), over (∂u/∂p)_s, times T's and ρ's own slopes along the isentrope.
+pub(crate) fn su_floors(truth: &State) -> (f64, f64) {
+    let along = |of| truth.partial(Partial { of, wrt: DerivVar::P, at: DerivVar::Smolar }).map_or(0.0, f64::abs);
+    let resolution = 2e-13 * truth.u(Basis::Molar).abs().max(truth.gas_constant() * truth.t());
+    let dp = resolution / along(DerivVar::Umolar);
+    (along(DerivVar::T) * dp, along(DerivVar::Dmolar) * dp)
 }
 
 /// Class `Flash`'s bounds for a solved input in the near-critical window (VERIFICATION.md §5): T 1e-8, ρ 1e-6 of each,
@@ -581,5 +586,29 @@ mod tests {
         let check = FlashCheck { compared: 4, failures: vec!["x".into()], ..Default::default() };
         assert_eq!(check.report(1), Some("1 of 4 entries outside Flash (headroom 0.000):\nx".into()));
         assert_eq!(FlashCheck::default().report(1), None);
+    }
+
+    /// SU's floors are its conditioning and no looser: inside class `Flash` for Water's gas at 1 bar and 400 K (under
+    /// 1e-10 of T and ρ), and of the order its slow u along the isentrope leaves for Methanol's liquid at 168 Pa and
+    /// 200 K (T between 1e-6 and 1e-3 K). By Water's triple point, where its liquid's u is about 0, SU resolves u to
+    /// 1e-13 of RT, not of |u|: T within 1e-10 to 1e-9 K, ρ within 1e-6 to 1e-5 mol/m³.
+    #[test]
+    fn su_floors_are_su_conditioning() {
+        let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+        let state = |name: &str, p: f64, t: f64| {
+            let (p, t) = (phasekit_core::Pressure::new(p).unwrap(), phasekit_core::Temperature::new(t).unwrap());
+            registry.get(name).unwrap().state(Input::pt(p, t)).unwrap()
+        };
+        let gas = state("Water", 1e5, 400.0);
+        let (t_floor, rho_floor) = su_floors(&gas);
+        assert!(t_floor < 1e-10 * gas.t() && rho_floor < 1e-10 * gas.rho(Basis::Molar), "{t_floor} {rho_floor}");
+        let liquid = state("Methanol", 168.0, 200.0);
+        let (t_floor, rho_floor) = su_floors(&liquid);
+        assert!(liquid.phase() == Phase::Liquid && t_floor > 1e-6 && t_floor < 1e-3, "{t_floor} {liquid:?}");
+        assert!(rho_floor > 0.0 && rho_floor < 1e-3 * liquid.rho(Basis::Molar), "{rho_floor}");
+        let triple = state("Water", 1e6, 273.16);
+        let (t_floor, rho_floor) = su_floors(&triple);
+        assert!(triple.u(Basis::Molar).abs() < 1.0 && t_floor > 1e-10 && t_floor < 1e-9, "{t_floor} {triple:?}");
+        assert!(rho_floor > 1e-6 && rho_floor < 1e-5, "{rho_floor}");
     }
 }

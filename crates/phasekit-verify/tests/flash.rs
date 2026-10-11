@@ -5,8 +5,8 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::{
-    Basis, DataSet, Density, DomainError, Error, Input, Pair, Phase, Pressure, Prop, Quality, Registry, Temperature,
-    math,
+    Basis, DataSet, Density, DomainError, DomainPolicy, Error, FlashOptions, Input, Pair, Phase, Pressure, Prop,
+    Quality, Registry, Temperature, math,
 };
 use phasekit_verify::flash::FlashCheck;
 use phasekit_verify::{Fixture, fixture};
@@ -233,6 +233,86 @@ fn su_round_trips() {
     }
     assert_eq!(check.report(20), None);
     assert_eq!(check.compared, 14 * 36);
+}
+
+/// PLAN.md M7.8, class `Flash`: states on the domain's bounds round-trip through the caloric pairs as states inside it
+/// do. A solved T or p within 1e-12 of a bound is on it, and at the domain's lowest temperature, where no colder state
+/// brackets the root, a residual within the acceptance gate's tolerance is the root. For Water, CarbonDioxide, Nitrogen
+/// and R134a: the liquid and the gas at the lowest temperature, and states at pmax, at Tmax and at both, through HS, SU,
+/// DH, DS and DU ([`FlashCheck`]), and those below pmax through HP, PS, PU and DP (T within 1e-9). And an x colder than
+/// the lowest temperature's (the EOS's gas 5 % below it) is `BelowMinTemperature` for HP, DH and DP, as is a DH 1e-11
+/// of its scale under the liquid's there, while one 1e-14 under it is that liquid.
+#[test]
+fn caloric_pairs_round_trip_on_the_domain_bounds() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let (mut check, mut failures, mut compared) = (FlashCheck::default(), Vec::new(), 0);
+    let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
+    let m = Basis::Molar;
+    for name in ["Water", "CarbonDioxide", "Nitrogen", "R134a"] {
+        let fluid = registry.get(name).unwrap();
+        let record = phasekit_core::internal::record(&registry, name).unwrap();
+        let limits = record.limits;
+        let t_low = limits.t_triple().map_or(limits.t_min(), |t| t.max(limits.t_min()));
+        let p_sat = record.superancillary_curve().unwrap().at_t(t_low).unwrap().bubble.p;
+        let t_c = record.critical.unwrap().t;
+        let pt = |p: f64, t: f64, opts: &FlashOptions| {
+            fluid.flash(Input::pt(Pressure::new(p).unwrap(), Temperature::new(t).unwrap()), opts)
+        };
+        let enforce = FlashOptions::new();
+        let compressed = (10.0 * p_sat).max(1e6);
+        let truths = [
+            pt(compressed, t_low, &enforce),
+            pt(0.5 * p_sat, t_low, &enforce),
+            pt(limits.p_max(), 1.2 * t_c, &enforce),
+            pt(1e6, limits.t_max(), &enforce),
+            pt(limits.p_max(), limits.t_max(), &enforce),
+        ];
+        for truth in truths.map(Result::unwrap) {
+            check.hs_round_trip(name, fluid, &truth);
+            check.su_round_trip(name, fluid, &truth);
+            check.dx_round_trip(name, fluid, &truth);
+            // A state at pmax reads its p back a few ulp over it, an input P+X and DP refuse until M7.9.
+            if truth.p() >= limits.p_max() {
+                continue;
+            }
+            let (p, rho) = (truth.p(), truth.rho(m));
+            let pairs =
+                [(Pair::HP, truth.h(m), p), (Pair::PS, p, truth.s(m)), (Pair::PU, p, truth.u(m)), (Pair::DP, rho, p)];
+            for (pair, x, y) in pairs {
+                compared += 1;
+                match fluid.state(Input::new(pair, x, y, m).unwrap()) {
+                    Ok(back) if (back.t() / truth.t() - 1.0).abs() < 1e-9 => {}
+                    other => failures.push(format!("{name} {pair:?} of {truth:?}: {other:?}")),
+                }
+            }
+        }
+        // An h within 1e-13 of its scale under the lowest temperature's liquid's (D+X's tolerance there) is that state;
+        // one 1e-11 under it is colder than the domain.
+        let liquid = pt(compressed, t_low, &enforce).unwrap();
+        let scale = liquid.h(m).abs().max(liquid.gas_constant() * t_low);
+        let dh = |under: f64| fluid.state(Input::new(Pair::DH, liquid.rho(m), liquid.h(m) - under * scale, m).unwrap());
+        match dh(1e-14) {
+            Ok(back) if (back.t() / t_low - 1.0).abs() < 1e-12 => {}
+            other => failures.push(format!("{name} DH 1e-14 under the lowest temperature's liquid: {other:?}")),
+        }
+        if !matches!(dh(1e-11), Err(Error::Domain(DomainError::BelowMinTemperature { .. }))) {
+            failures.push(format!("{name} DH 1e-11 under the lowest temperature's liquid: {:?}", dh(1e-11)));
+        }
+        // A gas: a cold liquid's isochore can meet its isobar again inside the domain (Water's density maximum).
+        let cold = pt(0.1 * p_sat, 0.95 * t_low, &extrapolate).unwrap();
+        for (pair, x, y) in
+            [(Pair::HP, cold.h(m), cold.p()), (Pair::DH, cold.rho(m), cold.h(m)), (Pair::DP, cold.rho(m), cold.p())]
+        {
+            let refused = fluid.state(Input::new(pair, x, y, m).unwrap());
+            if !matches!(refused, Err(Error::Domain(DomainError::BelowMinTemperature { .. }))) {
+                failures.push(format!("{name} {pair:?} colder than the domain: {refused:?}"));
+            }
+        }
+    }
+    assert_eq!(check.report(20), None);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    // Every state below pmax, and those at pmax whose p reads back at or under it.
+    assert!(compared >= 4 * 3 * 4 && check.compared == 4 * 5 * 5, "{compared} {}", check.compared);
 }
 
 /// PLAN.md M7.8: the issue-mined D+X and HS cases of CoolProp's `CoolProp-Tests-HSU_D.cpp` (map 03 §8), class `Flash`

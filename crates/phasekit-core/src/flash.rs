@@ -552,6 +552,11 @@ const T_ITER: u16 = 100;
 /// The share of its scale (`Caloric::scale`) to which a P+X or D+X state reproduces x (class `Flash`).
 const REPRODUCED_X: f64 = 1e-9;
 
+/// The share of its scale within which an input is the value of a state at the domain's lowest temperature, where no
+/// colder state brackets the root: the rounding of x evaluated there (about 1e-15), far inside the acceptance gate. A
+/// looser share would make every state within it the root, a band of p 1.2e-8 wide for CO₂'s gas at its triple point.
+const AT_LOWEST_T: f64 = 1e-13;
+
 /// The acceptance gate's "inputs reproduced" for a caloric input (D6): `got` within [`REPRODUCED_X`] of x's scale.
 fn reproduces_x(var: Caloric, r: f64, t: f64, x: f64, got: f64) -> bool {
     (got - x).abs() <= REPRODUCED_X * var.scale(r, t, x)
@@ -637,8 +642,9 @@ const ISENTROPE_NOISE: f64 = 1e-13;
 /// The decades of p below the model's largest pressure that HS and SU search.
 const SX_DECADES: u16 = 30;
 
-/// The most bisections HS and SU take towards the domain's edge along the isentrope.
-const SX_STEPS: u16 = 200;
+/// The bisections HS and SU take towards the domain's edge along the isentrope: from a decade of p, 2.3 in ln p, to its
+/// last bit (2.3·2⁻⁶⁰ ≈ 2e-18).
+const SX_STEPS: u16 = 60;
 
 /// The most times HS and SU split their bracket around a refusal inside it.
 const SX_SPLITS: u16 = 8;
@@ -659,7 +665,9 @@ fn sx(fluid: &PureFluid, s: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
     // the isentrope leaves the domain just past it (a state at pmax, or at the triple point's temperature), no state
     // beyond it brackets it. TOMS 748 inside the bracket reads the raw residual.
     let r = fluid.eos().gas_constant();
-    let raw = |u: f64| px(fluid, math::exp(u), s, Caloric::S, &along).map(|state| (var.of(&state) - x, state.t()));
+    // p from ln p, never above pmax: exp(ln pmax) can round a few ulp over it (CO₂'s 800 MPa), which PS refuses.
+    let p_of = |u: f64| math::exp(u).min(p_max);
+    let raw = |u: f64| px(fluid, p_of(u), s, Caloric::S, &along).map(|state| (var.of(&state) - x, state.t()));
     let residual = |u: f64| {
         let (at, t) = raw(u)?;
         Ok(if at.abs() <= ISENTROPE_NOISE * var.scale(r, t, x) { 0.0 } else { at })
@@ -670,11 +678,10 @@ fn sx(fluid: &PureFluid, s: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
     // come back (at the triple point's temperature water's s(p) turns at 38.6 MPa), or end in it (under the triple
     // point's pressure), and a root at such an edge (a state at the triple point's temperature) is reached there, its
     // residual within the noise.
-    let top = math::ln(p_max);
+    let mut u = math::ln(p_max);
     let (mut above, mut below, mut failed) = (None, None, None);
     let (mut refused_over_below, mut refused_under_above) = (None, None);
-    for k in 0..SX_DECADES {
-        let u = top - f64::from(k) * core::f64::consts::LN_10;
+    for _ in 0..SX_DECADES {
         match residual(u) {
             Ok(at) if at > 0.0 => (above, refused_over_below, refused_under_above) = (Some((u, at)), None, None),
             Ok(at) => {
@@ -687,12 +694,13 @@ fn sx(fluid: &PureFluid, s: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
                 refused_under_above = refused_under_above.or(above.map(|_| u));
             }
         }
+        u -= core::f64::consts::LN_10;
     }
     let invalid = || Error::InvalidInput { quantity: var.name(), value: x };
     // Bisection between a known end and a refusal: the first p whose residual is on `side` (above x, or at or below it).
     let bisect = |(mut held, mut at_held): (f64, f64), mut refused: f64, side: bool| {
         for _ in 0..SX_STEPS {
-            if at_held == 0.0 || (refused - held).abs() < T_TOL {
+            if at_held == 0.0 {
                 break;
             }
             let next = 0.5 * (held + refused);
@@ -755,7 +763,7 @@ fn sx(fluid: &PureFluid, s: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
     }
     let Some(root) = solved else { return Err(Error::NoConvergence { strategy: Strategy::Isentrope, iterations: 0 }) };
     let root = root.converged(Strategy::Isentrope)?;
-    let state = px(fluid, math::exp(root.x), s, Caloric::S, opts)?;
+    let state = px(fluid, p_of(root.x), s, Caloric::S, opts)?;
     if !reproduces_x(var, r, state.t(), x, var.of(&state)) {
         return Err(Error::NoConvergence { strategy: Strategy::Isentrope, iterations: root.iterations });
     }
@@ -846,7 +854,7 @@ fn isobar(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions, 
         let (_, rho) = walk.density(t)?;
         Ok(var.at(r, t, &total(fluid, t, rho)?) - x)
     };
-    let tiny = REPRODUCED_X * var.scale(r, lo, x);
+    let tiny = AT_LOWEST_T * var.scale(r, lo, x);
     let (t, iterations) = root_in_t(fluid, (lo, hi), (ends, tiny), Strategy::Isobar, residual)?;
     let path = SolvePath { strategy: Strategy::Isobar, iterations };
     let (branch, rho) = walk.density(t)?;
@@ -950,7 +958,7 @@ fn dx(fluid: &PureFluid, rho: f64, x: f64, var: Caloric, opts: &FlashOptions) ->
     let along = if opts.phase_hint() == Some(Phase::TwoPhase) { FlashOptions::new() } else { *opts };
     let residual = |t: f64| Ok(isochore_x(fluid, t, rho, var, &along)? - x);
     let (span, r) = (t_search(fluid), fluid.eos().gas_constant());
-    let tiny = REPRODUCED_X * var.scale(r, span.0, x);
+    let tiny = AT_LOWEST_T * var.scale(r, span.0, x);
     let (t, iterations) = root_in_t(fluid, span, ((None, None), tiny), Strategy::Isochore, residual)?;
     let state = dt(fluid, t, rho, opts)?;
     let r = fluid.eos().gas_constant();
@@ -973,7 +981,7 @@ fn dp(fluid: &PureFluid, rho: f64, p: f64, opts: &FlashOptions) -> Result<State,
     let along = if opts.phase_hint() == Some(Phase::TwoPhase) { FlashOptions::new() } else { *opts };
     let residual = |t: f64| Ok(isochore_p(fluid, t, rho, &along)? - p);
     let (t, iterations) =
-        root_in_t(fluid, t_search(fluid), ((None, None), REPRODUCED_X * p), Strategy::Isochore, residual)?;
+        root_in_t(fluid, t_search(fluid), ((None, None), AT_LOWEST_T * p), Strategy::Isochore, residual)?;
     let state = dt(fluid, t, rho, opts)?;
     if !reproduces_p(p, state.p()) {
         return Err(Error::NoConvergence { strategy: Strategy::Isochore, iterations });
