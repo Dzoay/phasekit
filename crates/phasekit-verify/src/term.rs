@@ -29,13 +29,8 @@ pub const COLUMNS: [(&str, usize, usize); 15] = [
 
 /// `e`'s constants and every residual list, without the ideal part.
 pub fn residual_part(e: &EosRecord) -> EosRecord {
-    let mut eos = EosRecord::new(e.gas_constant, e.t_reducing, e.rho_reducing, e.rho_max);
-    eos.power.clone_from(&e.power);
-    eos.lemmon2005.clone_from(&e.lemmon2005);
-    eos.double_exponential.clone_from(&e.double_exponential);
-    eos.gaussian.clone_from(&e.gaussian);
-    eos.gao_b.clone_from(&e.gao_b);
-    eos.non_analytic.clone_from(&e.non_analytic);
+    let mut eos = e.clone();
+    eos.ideal.clear();
     eos
 }
 
