@@ -3,6 +3,9 @@ allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
 
+# User decision CX2 (PLAN.md M7.9c): Sonar's length bar, in lines of code (clippy counts no blank or comment line).
+too-many-lines-threshold = 100
+
 # The library's only interior mutability is std's one-shot `OnceLock` / `LazyLock` (D8). Atomics are banned too
 # (ROT-031): only phasekit-capi's FFI-state modules may allow them (M10.4), and a test that counts across threads
 # allows them on its counter alone. Each stable atomic type is listed by name.

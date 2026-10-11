@@ -108,6 +108,7 @@ fn residuals(table: &Fixture, column: &str, scale: f64, oracle: impl Fn(usize) -
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
+#[expect(clippy::too_many_lines, reason = "M7.9d: one check per kind of fact")]
 fn register_cites_reproducible_oracle_facts() {
     let (path, text) = fixture!("coolprop-8.0.0/facts/register.csv");
     let facts = Fixture::parse(path, text).unwrap_or_else(|e| panic!("{e}"));

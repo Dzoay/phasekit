@@ -184,6 +184,7 @@ fn patch_json(p: &Patch) -> Value {
 }
 
 /// Reads the dump back.
+#[expect(clippy::too_many_lines, reason = "M7.9f: one parser per section")]
 pub fn from_json(v: &Value) -> Result<FluidRecord, String> {
     let f = |v: &Value, k: &str| v.get(k).and_then(Value::as_f64).ok_or(format!("{k}: not a number"));
     let u = |v: &Value, k: &str| {

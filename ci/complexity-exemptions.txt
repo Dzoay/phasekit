@@ -1,0 +1,58 @@
+# `cargo xtask gates complexity` (PLAN.md M7.9c; user decisions CX2, CX4): the functions over Sonar's bars, cognitive
+# complexity 15 (S3776) and control-flow nesting 3 (S134), each with its ceilings and the reason it stays there for
+# now, usually the step that brings it under the bars. One per line: `<file> <function> cog=<n> nest=<n> <reason>`.
+# An entry whose function is under the bars, over its ceilings or gone fails the gate: the list only shrinks.
+crates/phasekit-core/src/data.rs EosRecord::decode cog=16 nest=3 M7.9e: its sections, or an exemption with its reason
+crates/phasekit-core/src/density.rs bracketed cog=22 nest=3 M7.9e: its end checks pulled out, as roots::bracketed's
+crates/phasekit-core/src/flash.rs pt_branch cog=25 nest=3 M7.9e: the flash search scaffolds, each once
+crates/phasekit-core/src/flash.rs px cog=16 nest=1 M7.9e: the flash search scaffolds, each once
+crates/phasekit-core/src/flash.rs qx cog=37 nest=4 M7.9e: the flash search scaffolds, each once
+crates/phasekit-core/src/flash.rs region cog=21 nest=2 M7.9e: the flash search scaffolds, each once
+crates/phasekit-core/src/flash.rs root_in_t cog=37 nest=5 M7.9e: the flash search scaffolds, each once
+crates/phasekit-core/src/flash.rs sx cog=38 nest=3 M7.9e: the flash search scaffolds, each once
+crates/phasekit-core/src/flash/tests/every_pair.rs domain_errors_are_uniform_across_pairs cog=46 nest=5 M7.9d: split into its three tests
+crates/phasekit-core/src/flash/tests/every_pair.rs dt_mass_basis_reproduces_input cog=19 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-core/src/flash/tests/every_pair.rs phase_hint_is_honoured_by_every_pair cog=16 nest=3 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-core/src/flash/tests/pt.rs a_guess_changes_no_output cog=13 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-core/src/flash/tests/px.rs p_x_at_the_dome_edge_and_under_a_hint cog=15 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-core/src/input.rs tests::raw_gate_refuses_every_invalid_value_without_panicking cog=22 nest=6 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-core/src/registry.rs Registry::push_source cog=20 nest=4 M7.9e: its three phases
+crates/phasekit-core/src/roots.rs bracketed cog=30 nest=2 M7.9e: its end checks pulled out, as roots::bracketed's
+crates/phasekit-core/src/roots.rs toms748 cog=29 nest=3 stays: TOMS 748 as printed (Alefeld, Potra & Shi 1995, Algorithm 748), step for step
+crates/phasekit-core/src/roots/aps.rs problem cog=18 nest=2 stays: a data table, the 28 test problems as Algorithm 748's driver defines them
+crates/phasekit-core/src/saturation.rs SuperancillaryCurve::at_p cog=17 nest=2 M7.9e: its search for the bracketing cell pulled out
+crates/phasekit-core/src/vle.rs tests::vle_jacobian_at_p_matches_ad cog=14 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-core/src/vle.rs tests::vle_jacobian_matches_ad cog=16 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/src/fixture.rs Fixture::parse cog=30 nest=2 M7.9f: the verify library, one helper per section
+crates/phasekit-verify/src/flash.rs FlashCheck::rows_where cog=26 nest=3 M7.9f: the verify library, one helper per section
+crates/phasekit-verify/src/majorant.rs Bound::mul cog=10 nest=4 M7.9f: the verify library, one helper per section
+crates/phasekit-verify/src/saturation.rs SaturationCheck::rows cog=20 nest=3 M7.9f: the verify library, one helper per section
+crates/phasekit-verify/tests/arbiters.rs iapws95_table6_within_printed_digits cog=10 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/arbiters.rs iapws95_table7_within_printed_digits cog=15 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/batch.rs batch_equals_scalar_bitwise cog=10 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/common/capability.rs mismatches cog=13 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/compat.rs props_si_dt_matches_oracle cog=14 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/crit.rs numerical_critical_point_satisfies_the_criticality_conditions cog=13 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/flash.rs caloric_pairs_round_trip_on_the_domain_bounds cog=19 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/flash.rs hs_round_trips cog=17 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/flash.rs hsu_d_issue_cases cog=32 nest=3 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/flash.rs pt_round_trips_on_a_40x40_log_p_t_grid cog=10 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/papers.rs printed_strings_parse cog=11 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/sat.rs ancillary_row cog=20 nest=2 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/sat.rs caloric_curves_match_oracle_sat_rows cog=16 nest=3 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/sat.rs q_rows cog=51 nest=4 M7.9d: split by input
+crates/phasekit-verify/tests/sweeps.rs superancillary_matches_oracle_on_the_nightly_grid cog=11 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/terms.rs jet4_matches_num_dual_on_every_real_method cog=13 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-verify/tests/virials.rs bvirial_matches_oracle_within_the_registered_bound cog=14 nest=4 M7.9d: the per-fluid body a named function over a product of cases
+crates/phasekit-xtask/src/datagen/mod.rs tests::caloric_curves_match_the_eos_between_nodes cog=17 nest=5 M7.9d: moved to datagen/tests/ and flattened
+crates/phasekit-xtask/src/datagen/superanc.rs extrema cog=13 nest=4 M7.9f: xtask
+crates/phasekit-xtask/src/fluid.rs from_json cog=41 nest=3 M7.9f: one parser per section
+crates/phasekit-xtask/src/gates/assertions.rs check cog=26 nest=5 M7.9f: the gates' checks
+crates/phasekit-xtask/src/gates/assertions.rs code_only cog=34 nest=4 M7.9f: one helper per token kind
+crates/phasekit-xtask/src/gates/doc_excerpts.rs check cog=22 nest=4 M7.9f: the gates' checks
+crates/phasekit-xtask/src/gates/fixtures.rs check cog=21 nest=2 M7.9f: the gates' checks
+crates/phasekit-xtask/src/gates/ignores.rs check cog=15 nest=4 M7.9f: the gates' checks
+crates/phasekit-xtask/src/gates/ignores.rs valid cog=16 nest=2 M7.9f: the gates' checks
+crates/phasekit-xtask/src/gates/rot.rs check cog=18 nest=3 M7.9f: the gates' checks
+crates/phasekit-xtask/src/repo.rs Repo::criterion_results cog=13 nest=4 M7.9f: xtask
+crates/phasekit-xtask/src/repo.rs Repo::files cog=13 nest=4 M7.9f: xtask
