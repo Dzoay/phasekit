@@ -322,11 +322,9 @@ fn dt(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<State,
             // density within the acceptance gate's share of a saturated one it is that side (a D+X or T+X root on the
             // dome's edge rounds to either side of it).
             let (rl, rv) = (sat.bubble.rho, sat.dew.rho);
-            let q = match (1.0 / rho - 1.0 / rl) / (1.0 / rv - 1.0 / rl) {
-                q if q < 0.0 && rho <= rl * (1.0 + REPRODUCED_X) => 0.0,
-                q if q > 1.0 && rho >= rv * (1.0 - REPRODUCED_X) => 1.0,
-                q => q,
-            };
+            let q = (1.0 / rho - 1.0 / rl) / (1.0 / rv - 1.0 / rl);
+            let q = if rho <= rl * (1.0 + REPRODUCED_X) { q.max(0.0) } else { q };
+            let q = if rho >= rv * (1.0 - REPRODUCED_X) { q.min(1.0) } else { q };
             two_phase(fluid, &sat, Quality::new(q)?, strategy)
         }
     }?;
@@ -568,6 +566,10 @@ const T_TOL: f64 = 1e-14;
 /// Iterations allowed to a P+X or D+X solve in T.
 const T_ITER: u16 = 100;
 
+/// The bisections [`root_in_t`] takes from a T above x towards a refusal right below it: from a step of a fifth of T to
+/// under [`T_TOL`] of it (0.2·2⁻⁴⁵ ≈ 6e-15).
+const T_HALVINGS: u16 = 45;
+
 /// The share of its scale (`Caloric::scale`) to which a P+X or D+X state reproduces x (class `Flash`).
 const REPRODUCED_X: f64 = 1e-9;
 
@@ -648,11 +650,8 @@ fn px(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
         return along(sat.dew.t, t_high, (Some(x_v), None), false);
     }
     let r = fluid.eos().gas_constant();
-    let q = Quality::new(match q {
-        q if q < 0.0 && reproduces_x(var, r, sat.bubble.t, x, x_l) => 0.0,
-        q if q > 1.0 && reproduces_x(var, r, sat.dew.t, x, x_v) => 1.0,
-        q => q,
-    })?;
+    let q = if reproduces_x(var, r, sat.bubble.t, x, x_l) { q.max(0.0) } else { q };
+    let q = Quality::new(if reproduces_x(var, r, sat.dew.t, x, x_v) { q.min(1.0) } else { q })?;
     let state = match strategy {
         Strategy::Ancillary => split_sides(fluid, &sat, q, q.get() * sat.dew.t + (1.0 - q.get()) * sat.bubble.t, p),
         strategy => two_phase(fluid, &sat, q, strategy),
@@ -945,10 +944,7 @@ fn root_in_t(
             Err(e) => {
                 if let Some((mut held, mut at_held)) = above {
                     let mut refused = t;
-                    for _ in 0..T_ITER {
-                        if held - refused <= T_TOL * held {
-                            break;
-                        }
+                    for _ in 0..T_HALVINGS {
                         let next = 0.5 * (held + refused);
                         match residual(next) {
                             Ok(at) if at > 0.0 => (held, at_held) = (next, at),
@@ -1287,6 +1283,14 @@ const QX_TOP_HALVINGS: usize = 30;
 /// The golden section's ratio, (√5 − 1)/2.
 const GOLDEN: f64 = 0.618_033_988_749_894_9;
 
+/// The nodes of a Q-pair's grid over a curve's fitted range [`lo`, `hi`]: [`QX_CELLS`] even cells, the last halved
+/// [`QX_TOP_HALVINGS`] times towards `hi`, both ends included.
+fn qx_nodes(lo: f64, hi: f64) -> impl Iterator<Item = f64> {
+    let cell = (hi - lo) / f64::from(QX_CELLS);
+    let top = core::iter::successors(Some(0.5 * cell), |w| Some(0.5 * w)).take(QX_TOP_HALVINGS).map(move |w| hi - w);
+    (0..QX_CELLS).map(move |k| lo + cell * f64::from(k)).chain(top).chain([hi])
+}
+
 /// Golden-section steps that locate a turn of a Q-pair's x(T) inside two grid cells: 0.618^60 of their width.
 const TURN_STEPS: u16 = 60;
 
@@ -1324,9 +1328,7 @@ fn qx(fluid: &PureFluid, q: f64, x: f64, var: QVar, pair: Pair, opts: &FlashOpti
     // The grid in runs of nodes where the saturated state exists (a pseudo-pure fluid's definition fails within 1 mK of
     // its curve's top: R410A), and each turn between a run's nodes where golden-section search puts it.
     let (mut runs, mut refused): (Vec<Vec<(f64, f64)>>, _) = (vec![Vec::new()], None);
-    let cell = (hi - lo) / f64::from(QX_CELLS);
-    let top = core::iter::successors(Some(0.5 * cell), |w| Some(0.5 * w)).take(QX_TOP_HALVINGS).map(|w| hi - w);
-    for t in (0..QX_CELLS).map(|k| lo + cell * f64::from(k)).chain(top).chain([hi]) {
+    for t in qx_nodes(lo, hi) {
         match scan(t) {
             Ok(g) => runs.last_mut().into_iter().for_each(|run| run.push((t, g))),
             Err(e) => {
@@ -1913,12 +1915,14 @@ mod tests {
 
     /// ROT-073 (map 03 §6): CoolProp's imposed two-phase DT of Water at 1000 mol/m³ and 400 K throws "rhomolar is less
     /// than zero" (stale SatL/SatV). Here it is the lever rule on the saturation at T: QT's state at its quality, and
-    /// the same as without the hint, since the phase rule finds the dome too.
+    /// the same as without the hint, since the phase rule finds the dome too. On the dome's edge (M7.9) a density
+    /// within the acceptance gate's share (1e-9) of a saturated one is that side, Q 0 or 1 exactly, and one 1e-6
+    /// beyond it is refused (a quality outside [0, 1]).
     #[cfg(feature = "fluids-all")]
     #[test]
     fn imposed_two_phase_dt_matches_qt() {
-        let water = embedded("Water");
-        let imposed = water.flash(dt(1000.0, 400.0), &FlashOptions::new().with_phase(Phase::TwoPhase)).unwrap();
+        let (water, two_phase) = (embedded("Water"), FlashOptions::new().with_phase(Phase::TwoPhase));
+        let imposed = water.flash(dt(1000.0, 400.0), &two_phase).unwrap();
         let qt = water.state(q_t(imposed.quality().unwrap(), 400.0)).unwrap();
         let m = Basis::Molar;
         let pairs =
@@ -1927,6 +1931,12 @@ mod tests {
             assert!((got - want).abs() <= 1e-12 * want.abs(), "{got} against {want}");
         }
         assert_eq!(imposed, water.state(dt(1000.0, 400.0)).unwrap());
+        for (q, outwards) in [(0.0, 1.0), (1.0, -1.0)] {
+            let rho = water.state(q_t(q, 400.0)).unwrap().rho(m);
+            let at = |share: f64| water.flash(dt(rho * (1.0 + outwards * share), 400.0), &two_phase);
+            assert!(at(1e-10).is_ok_and(|s| s.phase() == Phase::TwoPhase && s.quality() == Some(q)), "{:?}", at(1e-10));
+            assert!(matches!(at(1e-6), Err(Error::InvalidInput { quantity: "quality", .. })), "{:?}", at(1e-6));
+        }
     }
 
     /// map 01 §8 (an identity no oracle is needed for): (∂g/∂T)_p = −s for Water's PT state at 300 K and 1 atm, where
@@ -2508,7 +2518,8 @@ mod tests {
     /// saturated liquid and vapour are two-phase at Q = 0 and 1 exactly, the lever rule's ends. h a little above the
     /// saturated liquid's is two-phase, Q 0.001; under `Liquid` it is the superheated liquid, above the saturation
     /// temperature; under `TwoPhase` the same two-phase state; and the liquid's own h under `TwoPhase` is refused (a
-    /// quality below 0).
+    /// quality below 0). Under `TwoPhase` (M7.9) an x past a saturated side's by 1e-11 of it, within the acceptance
+    /// gate, is that side, Q 0 or 1 exactly, and one past it by 1e-7 is refused.
     #[cfg(feature = "fluids-all")]
     #[test]
     fn p_x_at_the_dome_edge_and_under_a_hint() {
@@ -2537,6 +2548,25 @@ mod tests {
         let compressed = water.state(pt(1e6, 400.0)).unwrap();
         let refused = water.flash(p_x(&compressed)[0], &FlashOptions::new().with_phase(Phase::TwoPhase));
         assert!(matches!(refused, Err(Error::InvalidInput { quantity: "quality", .. })), "{refused:?}");
+        let (p, two_phase) = (Pressure::new(1e6).unwrap(), FlashOptions::new().with_phase(Phase::TwoPhase));
+        for (side, q, outwards) in [(&liquid, 0.0, -1.0), (&vapour, 1.0, 1.0)] {
+            for share in [1e-11, 1e-7] {
+                let past = |x: f64| x * (1.0 + outwards * share);
+                let inputs = [
+                    Input::hp(Enthalpy::molar(past(side.h(m))).unwrap(), p),
+                    Input::ps(p, Entropy::molar(past(side.s(m))).unwrap()),
+                    Input::pu(p, InternalEnergy::molar(past(side.u(m))).unwrap()),
+                ];
+                for input in inputs {
+                    let back = water.flash(input, &two_phase);
+                    let expected = match &back {
+                        Ok(state) => share < 1e-9 && state.phase() == Phase::TwoPhase && state.quality() == Some(q),
+                        Err(e) => share > 1e-9 && matches!(e, Error::InvalidInput { quantity: "quality", .. }),
+                    };
+                    assert!(expected, "{input:?}: {back:?}");
+                }
+            }
+        }
     }
 
     /// The D+X inputs of `state`, molar: (ρ, h), (ρ, s) and (ρ, u).
@@ -3148,6 +3178,18 @@ mod tests {
         for (input, quantity, value) in cases {
             assert_eq!(water.state(input), Err(Error::InvalidInput { quantity, value }), "{input:?}");
         }
+    }
+
+    /// M7.9: a Q-pair's grid over [100 K, 500 K] is 200 even cells of 2 K, then its last cell halved 30 times towards
+    /// 500 K (499 K, 499.5 K, … to 2e-9 K of it), then 500 K.
+    #[test]
+    fn q_pair_grids_halve_their_last_cell() {
+        let nodes: Vec<f64> = qx_nodes(100.0, 500.0).collect();
+        assert_eq!(nodes.len(), 200 + 30 + 1);
+        let (cells, top) = nodes.split_at(200);
+        assert!(cells.iter().zip(0..).all(|(&t, k)| t == 100.0 + 2.0 * f64::from(k)), "{cells:?}");
+        let halved = (1..=30).map(|k| 500.0 - math::powi(2.0, 1 - k)).chain([500.0]);
+        assert!(top.iter().zip(halved).all(|(&t, want)| t == want), "{top:?}");
     }
 
     /// The input of `pair` read off `state`, molar; `None` where it needs a quality and the state is a single phase.
