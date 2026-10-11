@@ -594,6 +594,20 @@ impl CaloricView<'_> {
     }
 }
 
+/// Caloric curves that passed their freshness gate, owned: what a compiled fluid keeps (M7.7, the Q-pairs).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Calorics {
+    curves: CaloricCurves,
+    factor: f64,
+}
+
+impl Calorics {
+    /// h′, h″, s′, s″, u′, u″ at T (molar, the record's gauge); `None` outside the pieces. Allocates nothing.
+    pub fn at(&self, t: f64) -> Option<[f64; 6]> {
+        Some(self.curves.at(t)?.map(|v| v * self.factor))
+    }
+}
+
 /// How a record's EOS relates to the caloric curves shipped with it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CaloricFreshness {
@@ -684,6 +698,12 @@ impl FluidRecord {
             CaloricFreshness::Stale => return None,
         };
         Some(CaloricView { curves: self.caloric.as_ref()?, factor })
+    }
+
+    /// [`FluidRecord::caloric_view`]'s curves, owned, as a compiled fluid keeps them.
+    pub fn calorics(&self) -> Option<Calorics> {
+        let view = self.caloric_view()?;
+        Some(Calorics { curves: view.curves.clone(), factor: view.factor })
     }
 
     /// The caloric curves' freshness gate, beside [`FluidRecord::superancillary_freshness`]; `None` without curves.
@@ -798,7 +818,10 @@ impl FluidRecord {
         if let Some(c) = self.critical.filter(|c| c.origin == CriticalOrigin::Published) {
             info = info.with_published_critical(c);
         }
-        let builder = PureFluid::builder(info.with_aliases(&aliases), eos, self.limits);
+        let mut builder = PureFluid::builder(info.with_aliases(&aliases), eos, self.limits);
+        if let Some(calorics) = self.calorics() {
+            builder = builder.calorics(calorics);
+        }
         Ok(match self.critical {
             Some(c) => builder.critical(c),
             None => builder,

@@ -553,8 +553,8 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
 }
 
 /// [`decode`] without the superancillary, which the registry decodes on first saturation use
-/// ([`decode_superancillary`]), and without the caloric curves, which nothing reads at run time before the
-/// saturation-based flashes (M7.7); together they are most of a fluid's bytes (map 09).
+/// ([`decode_superancillary`]), and without the caloric curves, which a compiled fluid decodes on first use by a
+/// Q-pair ([`decode_caloric`]); together they are most of a fluid's bytes (map 09).
 pub(crate) fn decode_eager_parts(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
     let sections = validated_sections(bytes)?;
     let eos = EosRecord::decode(sections[1])?;
@@ -569,6 +569,12 @@ pub(crate) fn decode_eager_parts(bytes: &[u8]) -> Result<FluidRecord, LoadError>
 /// The superancillary of a v1 blob, validated whole again; `None` for a fluid without one.
 pub(crate) fn decode_superancillary(bytes: &[u8]) -> Result<Option<Superancillary>, LoadError> {
     read_superancillary(validated_sections(bytes)?[3])
+}
+
+/// The caloric curves of a blob, sampled on the superancillary `fit`, which a compiled fluid decodes on first use by a
+/// Q-pair (M7.7).
+pub(crate) fn decode_caloric(bytes: &[u8], fit: Option<SaStamp>) -> Result<Option<CaloricCurves>, LoadError> {
+    read_caloric(validated_sections(bytes)?[4], fit)
 }
 
 /// The first eight bytes of every pack.
