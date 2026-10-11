@@ -15,22 +15,13 @@ use phasekit_verify::eos::{Majorants, carried};
 use phasekit_verify::fixture::Kind;
 use phasekit_verify::register::{RowKey, exempt_row};
 use phasekit_verify::term::IdealScale;
-use phasekit_verify::{Cell, CheckError, DIVERGENCES, Fixture, ToleranceClass, Window, fixture};
+use phasekit_verify::{CheckError, DIVERGENCES, Fixture, ToleranceClass, Window, fixture};
 
 /// The superancillary of `name` from the embedded blob, under `data_set` and the hash gate.
 fn curve(registry: &Registry, name: &str, data_set: DataSet) -> Box<dyn SaturationCurve> {
     let mut record = phasekit_core::internal::record(registry, name).unwrap();
     record.apply(data_set).unwrap();
     record.superancillary_curve().unwrap()
-}
-
-/// The text in `column` of `row`.
-fn label<'a>(fixture: &Fixture<'a>, row: usize, column: &str) -> &'a str {
-    let i = fixture.columns().iter().position(|c| *c == column).unwrap();
-    match fixture.rows()[row].cells[i] {
-        Cell::Text(text) => text,
-        Cell::Num(_) | Cell::Blank => "",
-    }
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/all/sat.csv, the `sa` rows (PLAN.md M5.2; map 03 §8): p, ρ′ and ρ″
@@ -43,9 +34,9 @@ fn superancillary_matches_oracle_eval_sat() {
     let fixture = Fixture::parse(path, text).unwrap();
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let (mut failures, mut checked, mut headroom, mut fluids) = (Vec::new(), 0, 0.0_f64, Vec::new());
-    for row in (0..fixture.rows().len()).filter(|&row| label(&fixture, row, "input") == "sa") {
-        assert_eq!(label(&fixture, row, "status"), "ok", "row {row}");
-        let name = label(&fixture, row, "fluid");
+    for row in (0..fixture.rows().len()).filter(|&row| fixture.printed(row, "input").unwrap() == "sa") {
+        assert_eq!(fixture.printed(row, "status").unwrap(), "ok", "row {row}");
+        let name = fixture.printed(row, "fluid").unwrap();
         if fluids.last() != Some(&name) {
             fluids.push(name);
         }
@@ -76,7 +67,7 @@ fn superancillary_matches_the_check_points() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let (mut failures, mut moved) = (Vec::new(), Vec::new());
     for row in 0..fixture.rows().len() {
-        let name = label(&fixture, row, "fluid");
+        let name = fixture.printed(row, "fluid").unwrap();
         let curve = curve(&registry, name, DataSet::Parity);
         // fastchebpure moved points below the triple point up to it; three came out 1-2 ulp below the fit, which the
         // curve refuses (D6), so they are evaluated at the triple point itself.
@@ -128,14 +119,10 @@ fn rescaled_curves_apply_exact_factors() {
 /// every committed oracle fixture.
 #[test]
 fn sat_fixtures_name_the_pinned_generator_environment() {
-    let environment = |(path, text): (&str, &str)| {
-        let generator = Fixture::parse(path, text).unwrap().header("generator").unwrap_or_default();
-        generator.split(' ').filter(|field| !field.starts_with("sha256=")).collect::<Vec<_>>().join(" ")
-    };
-    let smoke = environment(fixture!("coolprop-8.0.0/facts/smoke.csv"));
-    for file in std::iter::once(fixture!("coolprop-8.0.0/all/sat.csv")).chain(SAT_CORE) {
-        assert_eq!(environment(file), smoke, "{}", file.0);
-    }
+    assert_eq!(
+        phasekit_verify::on_the_pinned_image(std::iter::once(fixture!("coolprop-8.0.0/all/sat.csv")).chain(SAT_CORE)),
+        Ok(15)
+    );
 }
 
 /// The liquid and vapour states at T on the superancillary's densities, phase imposed: what a QT state is made of.
@@ -184,11 +171,12 @@ fn caloric_curves_match_oracle_sat_rows() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let (mut failures, mut checked) = (Vec::new(), 0);
     let mut cached: Option<(&str, FluidRecord, IdealScale)> = None;
-    let superancillary_qt =
-        |row: &usize| (label(&fixture, *row, "input"), label(&fixture, *row, "path")) == ("T", "superanc");
+    let superancillary_qt = |row: &usize| {
+        (fixture.printed(*row, "input").unwrap(), fixture.printed(*row, "path").unwrap()) == ("T", "superanc")
+    };
     for row in (0..fixture.rows().len()).filter(superancillary_qt) {
-        assert_eq!(label(&fixture, row, "status"), "ok", "row {row}");
-        let name = label(&fixture, row, "fluid");
+        assert_eq!(fixture.printed(row, "status").unwrap(), "ok", "row {row}");
+        let name = fixture.printed(row, "fluid").unwrap();
         if cached.as_ref().is_none_or(|(n, ..)| *n != name) {
             let record = phasekit_core::internal::record(&registry, name).unwrap();
             let ideal = IdealScale::new(&record).unwrap();
@@ -357,13 +345,13 @@ fn q_rows<'a>(fixture: &Fixture<'a>, fluid_of: impl Fn(usize) -> &'a str, regist
     let opts = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
     let at_t = |fluid: &Fluid, q: f64, t: f64| fluid.flash(qt(q, t), &opts);
     for row in 0..fixture.rows().len() {
-        let input = label(fixture, row, "input");
+        let input = fixture.printed(row, "input").unwrap();
         if input != "T" && input != "p" {
             continue;
         }
         let name = fluid_of(row);
         let at = format!("{name} row {row} ({input})");
-        let (status, path) = (label(fixture, row, "status"), label(fixture, row, "path"));
+        let (status, path) = (fixture.printed(row, "status").unwrap(), fixture.printed(row, "path").unwrap());
         if path == "ancillary" {
             ancillary_row(fixture, row, (name, registry.get(name).unwrap()), out);
             continue;
@@ -455,12 +443,12 @@ fn q_rows<'a>(fixture: &Fixture<'a>, fluid_of: impl Fn(usize) -> &'a str, regist
 fn ancillary_row(fixture: &Fixture<'_>, row: usize, (name, fluid): (&str, &Fluid), out: &mut QRows) {
     let at = format!("{name} row {row}");
     out.ancillary.rows += 1;
-    if label(fixture, row, "status") != "ok" {
+    if fixture.printed(row, "status").unwrap() != "ok" {
         out.ancillary.oracle_failed += 1;
         return;
     }
     let [q, t, p] = ["Q", "T", "p"].map(|column| fixture.value(row, column).unwrap_or(f64::NAN));
-    let given_t = label(fixture, row, "input") == "T";
+    let given_t = fixture.printed(row, "input").unwrap() == "T";
     let state = match fluid.state(if given_t { qt(q, t) } else { pq(p, q) }) {
         Ok(state) if state.path().strategy == Strategy::Ancillary => state,
         Err(Error::Domain(_)) => {
@@ -547,7 +535,7 @@ fn sat_fixtures_match_oracle() {
     let mut rows = QRows::default();
     let (path, text) = fixture!("coolprop-8.0.0/all/sat.csv");
     let all = Fixture::parse(path, text).unwrap();
-    q_rows(&all, |row| label(&all, row, "fluid"), &registry, &mut rows);
+    q_rows(&all, |row| all.printed(row, "fluid").unwrap(), &registry, &mut rows);
     for (path, text) in SAT_CORE {
         let fixture = Fixture::parse(path, text).unwrap();
         let name = path.rsplit('/').next().unwrap().trim_end_matches(".csv");

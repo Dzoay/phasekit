@@ -58,21 +58,22 @@ impl fmt::Display for CompatError {
 
 impl std::error::Error for CompatError {}
 
-/// CoolProp input keys: (variable, basis). `None` basis = basis-free (T, P, Q).
+/// CoolProp input keys: (variable, basis). `None` basis = basis-free (T, P, Q). The keys are output keys
+/// ([`parse_output`]), so each CoolProp name is listed once.
 pub fn parse_input(key: &str) -> Option<(Var, Option<Basis>)> {
     use Basis::{Mass, Molar};
-    Some(match key {
-        "T" => (Var::T, None),
-        "P" => (Var::P, None),
-        "Q" => (Var::Q, None),
-        "D" | "Dmass" => (Var::D, Some(Mass)),
-        "Dmolar" => (Var::D, Some(Molar)),
-        "H" | "Hmass" => (Var::H, Some(Mass)),
-        "Hmolar" => (Var::H, Some(Molar)),
-        "S" | "Smass" => (Var::S, Some(Mass)),
-        "Smolar" => (Var::S, Some(Molar)),
-        "U" | "Umass" => (Var::U, Some(Mass)),
-        "Umolar" => (Var::U, Some(Molar)),
+    Some(match parse_output(key)? {
+        Prop::T => (Var::T, None),
+        Prop::P => (Var::P, None),
+        Prop::Q => (Var::Q, None),
+        Prop::Dmass => (Var::D, Some(Mass)),
+        Prop::Dmolar => (Var::D, Some(Molar)),
+        Prop::Hmass => (Var::H, Some(Mass)),
+        Prop::Hmolar => (Var::H, Some(Molar)),
+        Prop::Smass => (Var::S, Some(Mass)),
+        Prop::Smolar => (Var::S, Some(Molar)),
+        Prop::Umass => (Var::U, Some(Mass)),
+        Prop::Umolar => (Var::U, Some(Molar)),
         _ => return None,
     })
 }

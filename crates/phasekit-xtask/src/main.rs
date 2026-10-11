@@ -130,8 +130,9 @@ mod tests {
     }
 
     /// Rot: ROT-042. R is per-model data (`HelmholtzModel::gas_constant`), never a literal in the kernel: no float
-    /// literal `8.31…` appears in `crates/phasekit-core/src` outside test modules (CoolProp hard-codes 8.3144598 in five
-    /// places beside 10 distinct EOS values; map 12 R7, map 02 §6). Comments and tests may name values.
+    /// literal `8.31…` appears in `crates/phasekit-core/src` outside test modules, a file's `#[cfg(test)]` module or a
+    /// test module's own files (`flash/tests.rs`, `flash/tests/*.rs`) (CoolProp hard-codes 8.3144598 in five places
+    /// beside 10 distinct EOS values; map 12 R7, map 02 §6). Comments and tests may name values.
     #[test]
     fn no_gas_constant_literal_in_core() {
         assert_eq!(
@@ -141,8 +142,10 @@ mod tests {
         assert_eq!(gas_constant_literals("let r = R * 8.3144598;"), [1]);
         let files = crate::repo::Repo::locate().files("crates/phasekit-core/src", ".rs", true).unwrap();
         assert!(files.len() > 20);
+        let test_module = |path: &str| path.ends_with("/tests.rs") || path.contains("/tests/");
         let hits: Vec<(String, Vec<usize>)> = files
             .iter()
+            .filter(|(path, _)| !test_module(path))
             .map(|(path, text)| (path.clone(), gas_constant_literals(text)))
             .filter(|(_, lines)| !lines.is_empty())
             .collect();

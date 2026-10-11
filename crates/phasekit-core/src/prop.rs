@@ -78,6 +78,26 @@ pub enum DerivVar {
     Gmass,
 }
 
+/// A first-order variable is the property of the same name: what it means at a state is [`crate::Fluid::prop`]'s.
+impl From<DerivVar> for Prop {
+    fn from(v: DerivVar) -> Prop {
+        match v {
+            DerivVar::T => Prop::T,
+            DerivVar::P => Prop::P,
+            DerivVar::Dmolar => Prop::Dmolar,
+            DerivVar::Dmass => Prop::Dmass,
+            DerivVar::Hmolar => Prop::Hmolar,
+            DerivVar::Hmass => Prop::Hmass,
+            DerivVar::Smolar => Prop::Smolar,
+            DerivVar::Smass => Prop::Smass,
+            DerivVar::Umolar => Prop::Umolar,
+            DerivVar::Umass => Prop::Umass,
+            DerivVar::Gmolar => Prop::Gmolar,
+            DerivVar::Gmass => Prop::Gmass,
+        }
+    }
+}
+
 /// `(∂of/∂wrt)_at` at a single-phase state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Partial {

@@ -3,7 +3,8 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::{DataSet, Registry};
+use phasekit_core::internal::FluidRecord;
+use phasekit_core::{DataSet, Fluid, Registry};
 use phasekit_verify::eos::EosCheck;
 use phasekit_verify::flash::FlashCheck;
 use phasekit_verify::saturation::SaturationCheck;
@@ -112,12 +113,8 @@ fn superancillary_matches_oracle_on_the_nightly_grid() {
     assert_eq!(failures.iter().take(20).collect::<Vec<_>>(), Vec::<&String>::new(), "{} failures", failures.len());
 }
 
-/// Oracle: CoolProp 8.0.0, fixtures-full/coolprop-8.0.0/flash/<Fluid>.csv (PLAN.md M5.3): DT read off 40 × 40 (p, T)
-/// and 20 × 20 (T, Q) truth states of every fluid (`dome` truths for the pseudo-pure ones, M6.9), against CoolProp's DT
-/// flash; as `dt_two_phase_matches_oracle`, the p cells DIV-0019 exempts aside.
-#[test]
-#[ignore = "nightly: reads the full flash set (cargo xtask oracle --kind flash --tier full)"]
-fn dt_flash_matches_oracle_on_the_nightly_grid() {
+/// Every fluid's full flash fixture, checked by `rows` (a [`FlashCheck`] pair's) on its `Parity` fluid and record.
+fn every_full_flash(rows: impl Fn(&mut FlashCheck, &Fixture<'_>, &Fluid, &FluidRecord)) -> FlashCheck {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let mut check = FlashCheck::default();
     for f in phasekit_data::FLUIDS {
@@ -125,8 +122,18 @@ fn dt_flash_matches_oracle_on_the_nightly_grid() {
         let text = read(&path);
         let fixture = Fixture::parse(&path, &text).unwrap();
         let record = phasekit_core::internal::record(&registry, f.name).unwrap();
-        check.dt_rows(&fixture, registry.get(f.name).unwrap(), &record);
+        rows(&mut check, &fixture, registry.get(f.name).unwrap(), &record);
     }
+    check
+}
+
+/// Oracle: CoolProp 8.0.0, fixtures-full/coolprop-8.0.0/flash/<Fluid>.csv (PLAN.md M5.3): DT read off 40 × 40 (p, T)
+/// and 20 × 20 (T, Q) truth states of every fluid (`dome` truths for the pseudo-pure ones, M6.9), against CoolProp's DT
+/// flash; as `dt_two_phase_matches_oracle`, the p cells DIV-0019 exempts aside.
+#[test]
+#[ignore = "nightly: reads the full flash set (cargo xtask oracle --kind flash --tier full)"]
+fn dt_flash_matches_oracle_on_the_nightly_grid() {
+    let check = every_full_flash(FlashCheck::dt_rows);
     assert_eq!(check.report(50), None);
     assert!(check.two_phase > 130 * 300, "{check:?}");
     assert_eq!(check.exempt, 40, "DIV-0019: SES36's in-dome p at its two lowest grid temperatures");
@@ -138,15 +145,7 @@ fn dt_flash_matches_oracle_on_the_nightly_grid() {
 #[test]
 #[ignore = "nightly: reads the full flash set (cargo xtask oracle --kind flash --tier full)"]
 fn pt_flash_matches_oracle_on_the_nightly_grid() {
-    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
-    let mut check = FlashCheck::default();
-    for f in phasekit_data::FLUIDS {
-        let path = format!("{FULL}/flash/{}.csv", f.name);
-        let text = read(&path);
-        let fixture = Fixture::parse(&path, &text).unwrap();
-        let record = phasekit_core::internal::record(&registry, f.name).unwrap();
-        check.pt_rows(&fixture, registry.get(f.name).unwrap(), &record);
-    }
+    let check = every_full_flash(FlashCheck::pt_rows);
     assert_eq!(check.report(50), None);
     assert!(check.compared > 136 * 1500 && check.exempt == 4 * check.compared, "{check:?}");
 }

@@ -9,16 +9,7 @@ use phasekit_core::{
 };
 use phasekit_verify::saturation::carried_scale;
 use phasekit_verify::term::IdealScale;
-use phasekit_verify::{Cell, Fixture, ToleranceClass, fixture};
-
-/// The text in `column` of `row`.
-fn label<'a>(fixture: &Fixture<'a>, row: usize, column: &str) -> &'a str {
-    let i = fixture.columns().iter().position(|c| *c == column).unwrap();
-    match fixture.rows()[row].cells[i] {
-        Cell::Text(text) => text,
-        Cell::Num(_) | Cell::Blank => "",
-    }
-}
+use phasekit_verify::{Fixture, ToleranceClass, fixture};
 
 /// `name`'s decoded `Parity` record and the superancillary's (ρ′, ρ″) at T, at the fit's triple point for the three
 /// check points 1-2 ulp below it (tests/sat.rs).
@@ -83,7 +74,7 @@ fn vle_matches_390_multiprecision_points() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let (mut failures, mut solved) = (Vec::new(), 0);
     for row in 0..fixture.rows().len() {
-        let name = label(&fixture, row, "fluid");
+        let name = fixture.printed(row, "fluid").unwrap();
         let t = fixture.value(row, "T").unwrap();
         let (record, (rho_l, rho_v)) = seed(&registry, name, t);
         let fluid = record.clone().compile().unwrap();
@@ -119,7 +110,7 @@ fn check_point_pressures_carry_liquid_side_rounding() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let mut over = 0;
     for row in 0..fixture.rows().len() {
-        let name = label(&fixture, row, "fluid");
+        let name = fixture.printed(row, "fluid").unwrap();
         let fluid = phasekit_core::internal::record(&registry, name).unwrap().compile().unwrap();
         let eos = fluid.eos();
         let [t, p, rho_l] = ["T", "p", "rhoL"].map(|c| fixture.value(row, c).unwrap());

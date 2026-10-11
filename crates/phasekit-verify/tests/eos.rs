@@ -9,24 +9,6 @@ use phasekit_core::{Basis, DataSet, DerivVar, Partial, Registry, State};
 use phasekit_verify::eos::{self, EosCheck, IdentityCheck};
 use phasekit_verify::{Cell, Fixture, ToleranceClass, Window, fixture};
 
-/// The core subset's `eos` files (VERIFICATION.md §3.6).
-const EOS_CORE: [(&str, &str); 14] = [
-    fixture!("coolprop-8.0.0/eos/Air.csv"),
-    fixture!("coolprop-8.0.0/eos/Ammonia.csv"),
-    fixture!("coolprop-8.0.0/eos/CarbonDioxide.csv"),
-    fixture!("coolprop-8.0.0/eos/HFE143m.csv"),
-    fixture!("coolprop-8.0.0/eos/Helium.csv"),
-    fixture!("coolprop-8.0.0/eos/Methanol.csv"),
-    fixture!("coolprop-8.0.0/eos/Nitrogen.csv"),
-    fixture!("coolprop-8.0.0/eos/R1130(E).csv"),
-    fixture!("coolprop-8.0.0/eos/R1234yf.csv"),
-    fixture!("coolprop-8.0.0/eos/R1234ze(E).csv"),
-    fixture!("coolprop-8.0.0/eos/R125.csv"),
-    fixture!("coolprop-8.0.0/eos/R410A.csv"),
-    fixture!("coolprop-8.0.0/eos/Water.csv"),
-    fixture!("coolprop-8.0.0/eos/n-Heptane.csv"),
-];
-
 /// The decoded `Parity` record of `name`.
 fn record(registry: &Registry, name: &str) -> FluidRecord {
     phasekit_core::internal::record(registry, name).unwrap()
@@ -73,7 +55,7 @@ fn labels_are_valid(fixture: &Fixture<'_>) {
 fn eos_fixtures_match_oracle() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let mut check = EosCheck::default();
-    for (path, text) in EOS_CORE {
+    for (path, text) in eos::CORE_FILES {
         let fixture = Fixture::parse(path, text).unwrap();
         labels_are_valid(&fixture);
         let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
@@ -136,7 +118,7 @@ fn identities(check: &mut IdentityCheck, at: &str, state: &State, m: f64, window
 fn identities_hold() {
     let registry = Registry::embedded().unwrap();
     let mut check = IdentityCheck::default();
-    for (path, text) in EOS_CORE {
+    for (path, text) in eos::CORE_FILES {
         let fixture = Fixture::parse(path, text).unwrap();
         let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
         let fluid = registry.get(name).unwrap();
@@ -155,14 +137,12 @@ fn identities_hold() {
 /// VERIFICATION.md §3.2, §11.3: the `eos` files come from the pinned runner image, like every committed oracle fixture.
 #[test]
 fn eos_fixtures_name_the_pinned_generator_environment() {
-    let environment = |(path, text): (&str, &str)| {
-        let generator = Fixture::parse(path, text).unwrap().header("generator").unwrap_or_default();
-        generator.split(' ').filter(|field| !field.starts_with("sha256=")).collect::<Vec<_>>().join(" ")
-    };
-    let smoke = environment(fixture!("coolprop-8.0.0/facts/smoke.csv"));
-    for file in EOS_CORE.into_iter().chain([fixture!("coolprop-8.0.0/all/eos.csv")]) {
-        assert_eq!(environment(file), smoke, "{}", file.0);
-    }
+    assert_eq!(
+        phasekit_verify::on_the_pinned_image(
+            eos::CORE_FILES.into_iter().chain([fixture!("coolprop-8.0.0/all/eos.csv")])
+        ),
+        Ok(15)
+    );
 }
 
 /// The `eos` fixtures' M5.5 columns of the core subset and the all-fluid tier against the `Parity` data: the partials,
@@ -170,7 +150,7 @@ fn eos_fixtures_name_the_pinned_generator_environment() {
 fn m5_5_columns(parts: bool) -> EosCheck {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let mut check = EosCheck::default();
-    for (path, text) in EOS_CORE {
+    for (path, text) in eos::CORE_FILES {
         let fixture = Fixture::parse(path, text).unwrap();
         let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
         let rows: Vec<usize> = (0..fixture.rows().len()).collect();
@@ -214,7 +194,7 @@ fn fd_first_order_on_every_core_fluid() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let tol = ToleranceClass::Fd.bound(1.0).unwrap();
     let mut checked = 0;
-    for (path, text) in EOS_CORE {
+    for (path, text) in eos::CORE_FILES {
         let fixture = Fixture::parse(path, text).unwrap();
         let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
         let eos = registry.get(name).unwrap().model().helmholtz().unwrap();

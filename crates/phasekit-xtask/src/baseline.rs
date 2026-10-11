@@ -79,6 +79,30 @@ fn rows(text: &str, fields: usize) -> impl Iterator<Item = (usize, Vec<&str>)> {
         .map(move |(n, line)| (n + 1, line.splitn(fields, ',').collect()))
 }
 
+/// The rows of a result file whose fields are `layout`, each as its `N` fields to `row`, which says whether its values
+/// are sound (else `rule` is the row's error) and gives its key; a row of another width is an error. Returns the keys.
+fn keyed_rows<'a, const N: usize, K>(
+    (name, text): (&str, &'a str),
+    layout: &str,
+    rule: &str,
+    errors: &mut Vec<String>,
+    mut row: impl FnMut([&'a str; N]) -> (bool, K),
+) -> Vec<K> {
+    let mut keys = Vec::new();
+    for (n, fields) in rows(text, N) {
+        let Ok(fields) = <[&str; N]>::try_from(fields) else {
+            errors.push(format!("{name}:{n}: not {layout}"));
+            continue;
+        };
+        let (sound, key) = row(fields);
+        if !sound {
+            errors.push(format!("{name}:{n}: {rule}"));
+        }
+        keys.push(key);
+    }
+    keys
+}
+
 /// A finite positive number.
 fn positive(s: &str) -> Option<f64> {
     s.parse::<f64>().ok().filter(|v| v.is_finite() && *v > 0.0)
@@ -87,21 +111,16 @@ fn positive(s: &str) -> Option<f64> {
 /// Checks one timing file; returns its CPU model.
 pub fn check(name: &str, text: &str) -> Result<String, Vec<String>> {
     let (cpu, mut errors) = check_header(name, text, &HEADER, "coolprop-baseline/v1");
-    let mut seen = Vec::new();
-    for (n, fields) in rows(text, 7) {
-        let &[workload, fluid, states, median, min, max, grid] = fields.as_slice() else {
-            errors.push(format!("{name}:{n}: not workload,fluid,states,median,min,max,grid"));
-            continue;
-        };
-        let timed = matches!(
-            (states.parse::<usize>(), positive(median), positive(min), positive(max)),
-            (Ok(states), Some(median), Some(min), Some(max)) if states > 0 && min <= median && median <= max
-        );
-        if !timed || !grid.contains("seed=1") {
-            errors.push(format!("{name}:{n}: needs states > 0, 0 < min <= median <= max and a seeded grid"));
-        }
-        seen.push((workload, fluid));
-    }
+    let (layout, rule) =
+        ("workload,fluid,states,median,min,max,grid", "needs states > 0, 0 < min <= median <= max and a seeded grid");
+    let seen =
+        keyed_rows((name, text), layout, rule, &mut errors, |[workload, fluid, states, median, min, max, grid]| {
+            let timed = matches!(
+                (states.parse::<usize>(), positive(median), positive(min), positive(max)),
+                (Ok(states), Some(median), Some(min), Some(max)) if states > 0 && min <= median && median <= max
+            );
+            (timed && grid.contains("seed=1"), (workload, fluid))
+        });
     let want: Vec<(&str, &str)> = FLUIDS.iter().flat_map(|f| WORKLOADS.iter().map(move |w| (*w, *f))).collect();
     if seen != want {
         errors.push(format!("{name}: rows {seen:?}, want every workload of every fluid in order"));
@@ -113,19 +132,18 @@ pub fn check(name: &str, text: &str) -> Result<String, Vec<String>> {
 /// growing with its update) and one all-fluids row naming the fluid count; byte counts are integers.
 pub fn check_memory(name: &str, text: &str) -> Result<String, Vec<String>> {
     let (cpu, mut errors) = check_header(name, text, &MEMORY_HEADER, "coolprop-baseline-memory/v1");
-    let mut seen: Vec<(String, String)> = Vec::new();
+    let (layout, rule) = ("measure,fluid,heap_bytes,rss_bytes", "heap bytes > 0 and integer rss bytes");
     let mut heap = Vec::new();
-    for (n, fields) in rows(text, 4) {
-        let &[measure, fluid, heap_bytes, rss_bytes] = fields.as_slice() else {
-            errors.push(format!("{name}:{n}: not measure,fluid,heap_bytes,rss_bytes"));
-            continue;
+    let seen = keyed_rows((name, text), layout, rule, &mut errors, |[measure, fluid, heap_bytes, rss_bytes]| {
+        let sound = match (heap_bytes.parse::<i64>(), rss_bytes.parse::<i64>()) {
+            (Ok(h), Ok(_)) if h > 0 => {
+                heap.push(h);
+                true
+            }
+            _ => false,
         };
-        match (heap_bytes.parse::<i64>(), rss_bytes.parse::<i64>()) {
-            (Ok(h), Ok(_)) if h > 0 => heap.push(h),
-            _ => errors.push(format!("{name}:{n}: heap bytes > 0 and integer rss bytes")),
-        }
-        seen.push((measure.to_string(), fluid.to_string()));
-    }
+        (sound, (measure.to_string(), fluid.to_string()))
+    });
     let mut want = vec![("library_first_use".to_string(), "Water".to_string())];
     for fluid in FLUIDS {
         want.extend(MEMORY_PER_FLUID.map(|m| (m.to_string(), fluid.to_string())));
@@ -149,23 +167,17 @@ pub fn check_memory(name: &str, text: &str) -> Result<String, Vec<String>> {
 /// state positive, speedup exactly 1 at one thread and positive elsewhere.
 pub fn check_scaling(name: &str, text: &str) -> Result<String, Vec<String>> {
     let (cpu, mut errors) = check_header(name, text, &HEADER, "coolprop-baseline-scaling/v1");
-    let mut seen: Vec<(String, usize)> = Vec::new();
-    for (n, fields) in rows(text, 5) {
-        let &[mode, threads, states, ns, speedup] = fields.as_slice() else {
-            errors.push(format!("{name}:{n}: not mode,threads,states_per_thread,median_ns_per_state,speedup"));
-            continue;
-        };
+    let (layout, rule) = (
+        "mode,threads,states_per_thread,median_ns_per_state,speedup",
+        "needs states > 0, ns > 0, speedup > 0 and exactly 1 at one thread",
+    );
+    let seen = keyed_rows((name, text), layout, rule, &mut errors, |[mode, threads, states, ns, speedup]| {
         let threads = threads.parse::<usize>().unwrap_or(0);
         let one = threads != 1 || speedup == "1";
-        if states.parse::<usize>().map_or(true, |s| s == 0)
-            || positive(ns).is_none()
-            || positive(speedup).is_none()
-            || !one
-        {
-            errors.push(format!("{name}:{n}: needs states > 0, ns > 0, speedup > 0 and exactly 1 at one thread"));
-        }
-        seen.push((mode.to_string(), threads));
-    }
+        let sound =
+            states.parse::<usize>().is_ok_and(|s| s > 0) && positive(ns).is_some() && positive(speedup).is_some();
+        (sound && one, (mode.to_string(), threads))
+    });
     let modes = FLUIDS.iter().copied().chain(["mixed"]);
     let want: Vec<(String, usize)> = modes.flat_map(|m| THREADS.map(|t| (m.to_string(), t))).collect();
     if seen != want {

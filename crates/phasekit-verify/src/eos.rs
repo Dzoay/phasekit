@@ -5,12 +5,12 @@
 
 use phasekit_core::internal::FluidRecord;
 use phasekit_core::{
-    Basis, Bundle, Density, DerivVar, DomainPolicy, Error, FlashOptions, Fluid, Input, ModelKey, Order, Partial, Phase,
-    Prop, State, Temperature, math,
+    Basis, Bundle, CriticalPoint, Density, DerivVar, DomainPolicy, Error, FlashOptions, Fluid, HelmholtzModel, Input,
+    ModelKey, Order, Partial, Phase, Prop, State, Temperature, math,
 };
 
-use crate::term::{IdealScale, report};
-use crate::{CheckError, Fixture, ToleranceClass, Window, majorant};
+use crate::term::{IdealScale, Tally, report};
+use crate::{Fixture, ToleranceClass, Window, majorant};
 
 /// The core subset's `eos` files (VERIFICATION.md §3.6), compiled in.
 pub const CORE_FILES: [(&str, &str); 14] = [
@@ -85,24 +85,9 @@ pub fn partial_column(p: Partial) -> String {
     format!("d{}_d{}_{}", name(p.of), name(p.wrt), name(p.at))
 }
 
-/// A first-order variable's value at `state`.
-pub fn variable(state: &State, v: DerivVar) -> f64 {
-    let (m, k) = (Basis::Molar, Basis::Mass);
-    match v {
-        DerivVar::T => state.t(),
-        DerivVar::P => state.p(),
-        DerivVar::Dmolar => state.rho(m),
-        DerivVar::Dmass => state.rho(k),
-        DerivVar::Hmolar => state.h(m),
-        DerivVar::Hmass => state.h(k),
-        DerivVar::Smolar => state.s(m),
-        DerivVar::Smass => state.s(k),
-        DerivVar::Umolar => state.u(m),
-        DerivVar::Umass => state.u(k),
-        DerivVar::Gmolar => state.g(m),
-        DerivVar::Gmass => state.g(k),
-        _ => f64::NAN,
-    }
+/// A first-order variable's value at `state` of `fluid`: the property of the same name (`Fluid::prop`).
+pub fn variable(fluid: &Fluid, state: &State, v: DerivVar) -> f64 {
+    fluid.prop(state, v.into()).unwrap_or(f64::NAN)
 }
 
 /// The `Prop` floor of a first partial (∂X/∂Y)_Z (VERIFICATION.md §5): |X|/|Y| at the state.
@@ -276,40 +261,19 @@ impl EosCheck {
     /// Checks `rows` (0-based) of `fixture` against `fluid`, whose decoded data is `record`. Every row's status must be
     /// `ok`; the oracle's `p` sets the partial-derivative floors.
     pub fn rows(&mut self, fixture: &Fixture<'_>, rows: &[usize], fluid: &Fluid, record: &FluidRecord) {
-        let (Some(eos), Ok(ideal)) = (fluid.model().helmholtz(), IdealScale::new(record)) else {
-            self.failures.push(format!("{}: not a Helmholtz fluid", record.name));
-            return;
-        };
-        let (r, molar_mass) = (eos.gas_constant(), fluid.info().molar_mass());
-        let critical = fluid.model().critical_point();
-        for &row in rows {
-            let number = |column: &str| fixture.value(row, column);
-            let (Some(t), Some(rho), Some(p)) = (number("T"), number("rhomolar"), number("p")) else {
-                self.failures.push(format!("row {row}: T, rhomolar or p is missing (status not ok?)"));
+        let Some(setup) = self.setup(fluid, record) else { return };
+        let Setup { r, molar_mass, .. } = setup;
+        for (row, Point { t, rho, state, bundle, majorants, window }) in self.points(fixture, rows, fluid, &setup) {
+            let (Some(p), Some(bundle)) = (fixture.value(row, "p"), bundle) else {
+                self.failures
+                    .push(format!("row {row} (T = {t}, ρ = {rho}): p is missing (status not ok?) or no bundle"));
                 continue;
             };
-            let (state, bundle) = match (
-                state(fluid, t, rho),
-                (eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two)).bundle(),
-            ) {
-                (Ok(state), Some(bundle)) => (state, bundle),
-                (state, _) => {
-                    self.failures.push(format!("row {row} (T = {t}, ρ = {rho}): the flash failed: {:?}", state.err()));
-                    continue;
-                }
-            };
-            let majorants = Majorants::at(record, &ideal, t, rho);
-            let window = critical.map_or(Window::Regular, |c| Window::at(t, rho, c.t, c.rho));
             for (column, floor) in COLUMNS {
-                let Some(want) = number(column) else { continue };
+                let Some(want) = fixture.value(row, column) else { continue };
                 let carried = carried(column, &bundle, &majorants, r, t, rho, molar_mass);
                 let bound = ToleranceClass::Prop.bound_carried(scale(floor, want, r, t, rho, p), window, carried);
-                self.checked += 1;
-                match fixture.check_bound(row, column, output(&state, column), bound.unwrap_or(0.0)) {
-                    Ok(ratio) => self.headroom = self.headroom.max(ratio),
-                    Err(CheckError::Mismatch(m)) => self.failures.push(m.to_string()),
-                    Err(e) => self.failures.push(format!("row {row}, {column}: {e:?}")),
-                }
+                self.count(fixture.check_bound(row, column, output(&state, column), bound.unwrap_or(0.0)), row, column);
             }
         }
     }
@@ -325,58 +289,121 @@ impl EosCheck {
         record: &FluidRecord,
         parts: bool,
     ) {
-        let (Some(eos), Ok(ideal)) = (fluid.model().helmholtz(), IdealScale::new(record)) else {
-            self.failures.push(format!("{}: not a Helmholtz fluid", record.name));
-            return;
-        };
-        let (r, molar_mass) = (eos.gas_constant(), fluid.info().molar_mass());
-        let critical = fluid.model().critical_point();
-        for &row in rows {
-            let number = |column: &str| fixture.value(row, column);
-            let (Some(t), Some(rho)) = (number("T"), number("rhomolar")) else {
-                self.failures.push(format!("row {row}: T or rhomolar is missing"));
-                continue;
-            };
-            let Ok(state) = state(fluid, t, rho) else {
-                self.failures.push(format!("row {row} (T = {t}, ρ = {rho}): the flash failed"));
-                continue;
-            };
-            let window = critical.map_or(Window::Regular, |c| Window::at(t, rho, c.t, c.rho));
-            let bundle = (eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two)).bundle();
-            let majorants = Majorants::at(record, &ideal, t, rho);
+        let Some(setup) = self.setup(fluid, record) else { return };
+        let Setup { r, molar_mass, .. } = setup;
+        for (row, Point { t, rho, state, bundle, majorants, window }) in self.points(fixture, rows, fluid, &setup) {
             let mut entries: Vec<(String, f64, f64, f64)> = partials()
                 .into_iter()
                 .filter(|_| !parts)
                 .map(|p| {
-                    let floor = partial_floor(variable(&state, p.of), variable(&state, p.wrt));
+                    let floor = partial_floor(variable(fluid, &state, p.of), variable(fluid, &state, p.wrt));
                     let spread =
                         bundle.as_ref().map_or(f64::NAN, |b| carried_partial(p, b, &majorants, r, t, rho, molar_mass));
                     (partial_column(p), state.partial(p).unwrap_or(f64::NAN), floor, spread)
                 })
                 .collect();
             // c_p⁰ = R·(1 − A20⁰) and the residual parts: the ideal or the residual `Term` scales through each relation.
-            let spreads = part_spreads(record, &ideal, r, t, rho);
+            let spreads = part_spreads(record, &setup.ideal, r, t, rho);
             for ((column, floor, prop), spread) in PARTS.into_iter().zip(spreads).filter(|_| parts) {
                 let floor = scale(floor, 0.0, r, t, rho, state.p());
                 entries.push((column.to_string(), fluid.prop(&state, prop).unwrap_or(f64::NAN), floor, spread));
             }
             for (column, got, floor, spread) in entries {
-                let Some(want) = number(&column) else { continue };
-                self.checked += 1;
+                let Some(want) = fixture.value(row, &column) else { continue };
                 let bound = ToleranceClass::Prop.bound_carried(want.abs().max(floor), window, spread).unwrap_or(0.0);
-                match fixture.check_bound(row, &column, got, bound) {
-                    Ok(ratio) => self.headroom = self.headroom.max(ratio),
-                    Err(CheckError::Mismatch(m)) => self.failures.push(m.to_string()),
-                    Err(e) => self.failures.push(format!("row {row}, {column}: {e:?}")),
-                }
+                self.count(fixture.check_bound(row, &column, got, bound), row, &column);
             }
         }
+    }
+
+    /// `fluid`'s [`Setup`], or a failure line and `None` for a fluid that is not a Helmholtz one.
+    fn setup<'a>(&mut self, fluid: &'a Fluid, record: &'a FluidRecord) -> Option<Setup<'a>> {
+        let setup = Setup::of(fluid, record);
+        if setup.is_none() {
+            self.failures.push(format!("{}: not a Helmholtz fluid", record.name));
+        }
+        setup
+    }
+
+    /// The [`Point`] of each of `rows` that has T and ρ and whose DT flash succeeds; a failure line for each other.
+    fn points(
+        &mut self,
+        fixture: &Fixture<'_>,
+        rows: &[usize],
+        fluid: &Fluid,
+        setup: &Setup<'_>,
+    ) -> Vec<(usize, Point)> {
+        let mut points = Vec::with_capacity(rows.len());
+        for &row in rows {
+            let (Some(t), Some(rho)) = (fixture.value(row, "T"), fixture.value(row, "rhomolar")) else {
+                self.failures.push(format!("row {row}: T or rhomolar is missing (status not ok?)"));
+                continue;
+            };
+            let state = match state(fluid, t, rho) {
+                Ok(state) => state,
+                Err(e) => {
+                    self.failures.push(format!("row {row} (T = {t}, ρ = {rho}): the flash failed: {e:?}"));
+                    continue;
+                }
+            };
+            let bundle = (setup.eos.ideal(t, rho, Order::Two) + setup.eos.residual(t, rho, Order::Two)).bundle();
+            let (majorants, window) = (setup.majorants(t, rho), window_at(setup.critical, t, rho));
+            points.push((row, Point { t, rho, state, bundle, majorants, window }));
+        }
+        points
     }
 
     /// `None` when every entry passed, else a report of the first `shown` failures.
     pub fn report(&self, shown: usize) -> Option<String> {
         report(&self.failures, self.checked, self.headroom, "Prop", shown)
     }
+}
+
+impl Tally for EosCheck {
+    fn parts(&mut self) -> (&mut usize, &mut Vec<String>, &mut f64) {
+        (&mut self.checked, &mut self.failures, &mut self.headroom)
+    }
+}
+
+/// What a check of a Helmholtz fluid's states needs (`EosCheck`, the flash checks): its EOS, the ideal part's `Term`
+/// scale, R, the molar mass and the critical point that sets the near-critical window.
+pub(crate) struct Setup<'a> {
+    pub(crate) eos: &'a dyn HelmholtzModel,
+    pub(crate) record: &'a FluidRecord,
+    pub(crate) ideal: IdealScale,
+    pub(crate) r: f64,
+    pub(crate) molar_mass: f64,
+    pub(crate) critical: Option<CriticalPoint>,
+}
+
+impl<'a> Setup<'a> {
+    /// `fluid`'s, with its decoded data `record`; `None` for a fluid that is not a Helmholtz one.
+    pub(crate) fn of(fluid: &'a Fluid, record: &'a FluidRecord) -> Option<Setup<'a>> {
+        let (eos, ideal) = (fluid.model().helmholtz()?, IdealScale::new(record).ok()?);
+        let (r, molar_mass, critical) = (eos.gas_constant(), fluid.info().molar_mass(), fluid.model().critical_point());
+        Some(Setup { eos, record, ideal, r, molar_mass, critical })
+    }
+
+    /// The `Term` scales of the bundle at (T, ρ).
+    pub(crate) fn majorants(&self, t: f64, rho: f64) -> Majorants {
+        Majorants::at(self.record, &self.ideal, t, rho)
+    }
+}
+
+/// One `eos` row's DT state and what its bounds need: the order-2 bundle (`None` where it cannot be formed), the
+/// `Term` scales and the window.
+struct Point {
+    t: f64,
+    rho: f64,
+    state: State,
+    bundle: Option<Bundle>,
+    majorants: Majorants,
+    window: Window,
+}
+
+/// The window (T, ρ) lies in by `critical` (VERIFICATION.md §5); regular without one.
+pub(crate) fn window_at(critical: Option<CriticalPoint>, t: f64, rho: f64) -> Window {
+    critical.map_or(Window::Regular, |c| Window::at(t, rho, c.t, c.rho))
 }
 
 /// The running result of the L4 identities (VERIFICATION.md §8.1), class `Identity`: |lhs − rhs| within 1e-12 (1e-8 in
@@ -431,9 +458,10 @@ mod tests {
     #[test]
     fn variable_reads_each_first_order_variable() {
         let (s, ..) = water();
+        let registry = phasekit_core::Registry::from_embedded(phasekit_core::DataSet::Parity).unwrap();
         let (m, k) = (Basis::Molar, Basis::Mass);
         let want = [s.t(), s.p(), s.rho(m), s.rho(k), s.h(m), s.h(k), s.s(m), s.s(k), s.u(m), s.u(k), s.g(m), s.g(k)];
-        let got = VARIABLES.map(|v| variable(&s, v));
+        let got = VARIABLES.map(|v| variable(registry.get("Water").unwrap(), &s, v));
         assert_eq!(got.map(f64::to_bits), want.map(f64::to_bits), "{VARIABLES:?}");
     }
 

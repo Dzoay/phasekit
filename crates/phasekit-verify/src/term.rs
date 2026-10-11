@@ -59,14 +59,7 @@ pub struct TermCheck {
 impl TermCheck {
     /// Checks `rows` (0-based) of `fixture` against `model`, whose residual part is `eos`.
     pub fn rows(&mut self, fixture: &Fixture<'_>, rows: &[usize], model: &dyn HelmholtzModel, eos: &EosRecord) {
-        for &row in rows {
-            let number = |column: &str| fixture.value(row, column);
-            let (Some(t), Some(rho), Some(tau), Some(delta)) =
-                (number("T"), number("rhomolar"), number("tau"), number("delta"))
-            else {
-                self.failures.push(format!("row {row}: T, rhomolar, tau or delta is missing"));
-                continue;
-            };
+        for (row, (t, rho, tau, delta)) in self.points(fixture, rows) {
             // The model's τ and δ are the oracle's, bit for bit, or the comparison is not like for like.
             for (column, own) in [("tau", eos.t_reducing / t), ("delta", rho / eos.rho_reducing)] {
                 if let Err(e) = fixture.check(row, column, own) {
@@ -82,12 +75,7 @@ impl TermCheck {
                 let scaled = majorant::floored(majorant::eos(eos, tau, delta, i, j), alpha_scale);
                 let scale = scaled.max(TERM_FLOOR) / factor;
                 let a = got.get(i, j).unwrap_or(f64::NAN);
-                self.checked += 1;
-                match fixture.check_scaled(row, column, a / factor, scale) {
-                    Ok(ratio) => self.headroom = self.headroom.max(ratio),
-                    Err(CheckError::Mismatch(m)) => self.failures.push(m.to_string()),
-                    Err(e) => self.failures.push(format!("row {row}, {column}: {e:?}")),
-                }
+                self.count(fixture.check_scaled(row, column, a / factor, scale), row, column);
             }
         }
     }
@@ -95,6 +83,46 @@ impl TermCheck {
     /// `None` when every entry passed, else a report of the first `shown` failures.
     pub fn report(&self, shown: usize) -> Option<String> {
         report(&self.failures, self.checked, self.headroom, "Term", shown)
+    }
+}
+
+/// A running check of fixture entries ([`TermCheck`], `EosCheck`): entries compared, one line per failure, and the
+/// largest error / bound of the entries that passed.
+pub(crate) trait Tally {
+    /// The tally's three parts.
+    fn parts(&mut self) -> (&mut usize, &mut Vec<String>, &mut f64);
+
+    /// Counts one entry of `row` and `column` by its check's `result`: its error / bound into the headroom when it
+    /// passed, else a line, the mismatch or what kept the entry from being compared.
+    fn count(&mut self, result: Result<f64, CheckError>, row: usize, column: &str) {
+        let (checked, failures, headroom) = self.parts();
+        *checked += 1;
+        match result {
+            Ok(ratio) => *headroom = headroom.max(ratio),
+            Err(CheckError::Mismatch(m)) => failures.push(m.to_string()),
+            Err(e) => failures.push(format!("row {row}, {column}: {e:?}")),
+        }
+    }
+}
+
+impl TermCheck {
+    /// (T, ρ, τ, δ) of each of `rows` that has all four; a failure line for each other.
+    fn points(&mut self, fixture: &Fixture<'_>, rows: &[usize]) -> Vec<(usize, (f64, f64, f64, f64))> {
+        let number = |row: usize, column: &str| fixture.value(row, column);
+        let mut points = Vec::with_capacity(rows.len());
+        for &row in rows {
+            match (number(row, "T"), number(row, "rhomolar"), number(row, "tau"), number(row, "delta")) {
+                (Some(t), Some(rho), Some(tau), Some(delta)) => points.push((row, (t, rho, tau, delta))),
+                _ => self.failures.push(format!("row {row}: T, rhomolar, tau or delta is missing")),
+            }
+        }
+        points
+    }
+}
+
+impl Tally for TermCheck {
+    fn parts(&mut self) -> (&mut usize, &mut Vec<String>, &mut f64) {
+        (&mut self.checked, &mut self.failures, &mut self.headroom)
     }
 }
 
@@ -149,24 +177,13 @@ impl TermCheck {
         model: &dyn HelmholtzModel,
         scale: &IdealScale,
     ) {
-        for &row in rows {
-            let number = |column: &str| fixture.value(row, column);
-            let (Some(t), Some(rho), Some(tau), Some(delta)) =
-                (number("T"), number("rhomolar"), number("tau"), number("delta"))
-            else {
-                self.failures.push(format!("row {row}: T, rhomolar, tau or delta is missing"));
-                continue;
-            };
+        for (row, (t, rho, tau, delta)) in self.points(fixture, rows) {
             let got = model.ideal(t, rho, Order::Three);
             for (column, i, j) in COLUMNS.into_iter().filter(|&(_, i, j)| i + j <= 3) {
                 let factor = math::powi(tau, i as i32) * math::powi(delta, j as i32);
                 let scaled = scale.get(t, rho, i, j).max(TERM_FLOOR);
-                self.checked += 1;
-                match fixture.check_scaled(row, column, got.get(i, j).unwrap_or(f64::NAN) / factor, scaled / factor) {
-                    Ok(ratio) => self.headroom = self.headroom.max(ratio),
-                    Err(CheckError::Mismatch(m)) => self.failures.push(m.to_string()),
-                    Err(e) => self.failures.push(format!("row {row}, {column}: {e:?}")),
-                }
+                let got = got.get(i, j).unwrap_or(f64::NAN) / factor;
+                self.count(fixture.check_scaled(row, column, got, scaled / factor), row, column);
             }
         }
     }
