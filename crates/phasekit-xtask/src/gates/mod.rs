@@ -3,6 +3,7 @@
 //! gate fails closed: no input to check is a failure, never a pass (ROT-127).
 
 mod assertions;
+mod complexity;
 mod counts;
 mod datagen;
 mod deps;
@@ -26,7 +27,7 @@ type Verdict = Result<String, Vec<String>>;
 type Gate = fn(&Repo, &[String]) -> Verdict;
 
 /// The gates in force, in the order `gates all` runs them (VERIFICATION.md §11.2).
-const GATES: [(&str, Gate); 12] = [
+const GATES: [(&str, Gate); 13] = [
     ("deps", deps::run),
     ("lints", lints::run),
     ("counts", counts::run),
@@ -38,6 +39,7 @@ const GATES: [(&str, Gate); 12] = [
     ("datagen", datagen::run),
     ("features", features::run),
     ("assertions", assertions::run),
+    ("complexity", complexity::run),
     ("mutants", mutants::run),
 ];
 
