@@ -132,6 +132,19 @@ mod tests {
         assert!(keys.contains(&"ENABLE_SUPERANCILLARIES") && keys.contains(&"NORMALIZE_GAS_CONSTANTS"));
     }
 
+    /// VERIFICATION.md §3.2, §11.3: the smoke file is on the pinned image, and the same file generated under another
+    /// Python is listed with its environment.
+    #[test]
+    fn a_file_from_another_environment_is_listed() {
+        let (path, text) = crate::fixture!("coolprop-8.0.0/facts/smoke.csv");
+        assert_eq!(on_the_pinned_image([(path, text)]), Ok(1));
+        let pinned = generator_environment((path, text)).unwrap();
+        let python = pinned.split(' ').find(|field| field.starts_with("python=")).unwrap();
+        let other = text.replacen(python, "python=0.0", 1);
+        let listed = vec![format!("other.csv: {}", pinned.replacen(python, "python=0.0", 1))];
+        assert_eq!(on_the_pinned_image([(path, text), ("other.csv", other.as_str())]), Err(listed));
+    }
+
     #[test]
     fn lock_lines_and_config_keys_are_strict() {
         assert_eq!(OracleLock::parse("# c\n\nkey  a value\n").unwrap().get("key"), Some("a value"));
