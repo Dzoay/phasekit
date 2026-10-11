@@ -249,13 +249,21 @@ mod tests {
         // P with T reaches PT (M7.1).
         let pt = water.state(Input::pt(Pressure::new(0.5).unwrap(), Temperature::new(700.0).unwrap())).unwrap().p();
         assert_eq!(props_si_in(&registry, "P", "T", 700.0, "P", 0.5, "Water"), Ok(pt));
-        // The other inputs with T: their pair, which the kernel refuses by name until its flash lands (M7).
-        let others = [("H", Var::H), ("Hmass", Var::H), ("Hmolar", Var::H)];
-        let others = others.into_iter().chain([("S", Var::S), ("Smass", Var::S), ("Smolar", Var::S)]);
-        for (key, var) in others.chain([("U", Var::U), ("Umass", Var::U), ("Umolar", Var::U)]) {
-            let (pair, _) = Pair::from_vars(Var::T, var).unwrap();
-            let refused = props_si_in(&registry, "P", "T", 700.0, key, 0.5, "Water");
-            assert_eq!(refused, Err(CompatError::Core(Error::Unsupported { pair })), "{key}");
+        // The other inputs with T reach their pair's flash (M7.5) in the key's basis; CoolProp's H, S and U are mass.
+        let (mass, molar) = (Basis::Mass, Basis::Molar);
+        let others = [("H", Var::H, mass), ("Hmass", Var::H, mass), ("Hmolar", Var::H, molar)];
+        let others =
+            others.into_iter().chain([("S", Var::S, mass), ("Smass", Var::S, mass), ("Smolar", Var::S, molar)]);
+        for (key, var, basis) in others.chain([("U", Var::U, mass), ("Umass", Var::U, mass), ("Umolar", Var::U, molar)])
+        {
+            let (pair, swapped) = Pair::from_vars(Var::T, var).unwrap();
+            let (x, y) = if swapped { (0.5, 700.0) } else { (700.0, 0.5) };
+            let kernel = Input::new(pair, x, y, basis).and_then(|input| water.state(input)).map(|s| s.p());
+            assert_eq!(
+                props_si_in(&registry, "P", "T", 700.0, key, 0.5, "Water"),
+                kernel.map_err(CompatError::Core),
+                "{key}"
+            );
         }
         // Two keys of one basis pass the basis check, to the kernel's DH (M7.4); two of different bases do not.
         let same = props_si_in(&registry, "P", "Dmolar", 10.0, "Hmolar", 1.0, "Water");

@@ -1009,7 +1009,12 @@ bands (map 03 §8; map 10 §8.5 L4).
   silently returns two-phase at 3536.8 Pa with Q = 0.00038/0.0038/0.0185; ST and UT at 275 K; map 03 §6),
   `low_density_round_trips` (Water 1.3 T_c, ρ = 1e-8…1e-6, ST and HT; the oracle's ST is 6.1 % off at 1e-8). *Do:*
   log-ρ axis, detect (∂X/∂ρ)_T > 0 on the liquid branch, `Ambiguous { roots }` (map 03 §9 `flash::tx`). *Done when:*
-  green.
+  green. Measured at M7.5: x(ρ) along the isotherm is DT's, and a single phase need not be monotonic in it, on either
+  branch. Past water's density maximum its s and u rise with ρ again, so ST and TU at 275 K and 1 or 10 MPa have three
+  roots, not two: CoolProp's two-phase answer, the liquid, and a denser liquid (ST at 20.0 and 10.8 MPa). Each
+  single-phase stretch is cut where (∂x/∂ln ρ)_T changes sign between the nodes of a grid of 8 per decade, and the
+  dome's root is the lever rule's, closed-form. At 50 MPa ST and TU have one root, where CoolProp returns a liquid under
+  tension at −25.7 and −2.8 MPa.
 - **M7.6 DP.** *Failing test:* `dp_honours_the_phase_hint` (oracle ignores an imposed gas at a two-phase (d, p);
   map 03 §6). *Do:* `flash::dp`. *Done when:* green.
 - **M7.7 QS, HQ, DQ.** *Prerequisite:* the caloric curves (M5.2a). *Failing tests:* `hq_water_400k_lists_both_roots`
