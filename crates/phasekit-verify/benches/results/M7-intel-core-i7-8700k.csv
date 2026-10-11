@@ -1,0 +1,42 @@
+# fixture: phasekit-bench/v1 (VERIFICATION.md §12; written by `cargo xtask bench --record`)
+# machine: intel-core-i7-8700k
+# columns: date,commit,step,bench,fluid,median,unit,cpu,os,rustc,governor
+2026-10-10,1f6ca2c,M7.2,alphar_order2/residual,Methane,564.399,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,alphar_order2/residual,R134a,266.319,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,alphar_order2/residual,Water,5101.532,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,alphar_order2/residual,n-Heptane,171.189,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,alphar_order2/residual,n-Propane,372.865,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,alphar_order2/residual,overhead,32.597,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,dt_flash/dome,Methane,2373.189,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,dt_flash/dome,R134a,1101.174,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,dt_flash/dome,Water,17187.341,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,dt_flash/dome,n-Heptane,1038.097,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,dt_flash/dome,n-Propane,1749.346,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,dt_flash/single,Methane,845.758,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,dt_flash/single,R134a,419.937,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,dt_flash/single,Water,5775.484,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,dt_flash/single,n-Heptane,394.595,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,dt_flash/single,n-Propane,616.069,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,lookup_by_name/alias,R134a,43.093,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,lookup_by_name/cas,R134a,36.065,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,lookup_by_name/name,R134a,43.014,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,pq_superancillary/flash,Methane,1870.512,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,pq_superancillary/flash,R134a,1057.782,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,pq_superancillary/flash,Water,11385.274,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,pq_superancillary/flash,n-Heptane,979.720,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,pq_superancillary/flash,n-Propane,1499.971,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,properties_at_t_rho/dt_h_cp,Methane,869.730,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,properties_at_t_rho/dt_h_cp,R134a,437.643,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,properties_at_t_rho/dt_h_cp,Water,5750.072,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,properties_at_t_rho/dt_h_cp,n-Heptane,397.123,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,properties_at_t_rho/dt_h_cp,n-Propane,635.089,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,pt_flash/pt_h,Methane,4505.566,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,pt_flash/pt_h,R134a,2283.693,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,pt_flash/pt_h,Water,38593.955,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,pt_flash/pt_h,n-Heptane,1597.442,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,pt_flash/pt_h,n-Propane,3015.655,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,qt_superancillary/flash,Methane,1575.434,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,qt_superancillary/flash,R134a,739.529,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,qt_superancillary/flash,Water,11131.049,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,qt_superancillary/flash,n-Heptane,684.322,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
+2026-10-10,1f6ca2c,M7.2,qt_superancillary/flash,n-Propane,1178.073,ns,Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz,Linux 7.2.9-1-cachyos,rustc 1.99.0 (b940084d7 2026-09-28),powersave
