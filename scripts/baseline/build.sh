@@ -33,7 +33,10 @@ CPM_SOURCE_CACHE="$SCRATCH/cpm" cmake -S "$ROOT/scripts/baseline" -B "$BUILD" -D
 cmake --build "$BUILD" --target coolprop_baseline -j "$(nproc)"
 
 cpu=$(grep -m1 '^model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')
-machine=$(printf '%s' "$cpu" | sed -E 's/\((R|TM)\)//g; s/ CPU.*//; s/ +/-/g' | tr '[:upper:]' '[:lower:]')
+# The machine key is `cargo xtask bench`'s (bench::slug): the model before any '@', without (R), (TM) and " CPU", its
+# other characters' runs as single '-'.
+machine=$(printf '%s' "$cpu" | sed -E 's/@.*//; s/\((R|TM)\)//g; s/ CPU//; s/[^A-Za-z0-9]+/-/g; s/^-+//; s/-+$//' |
+  tr '[:upper:]' '[:lower:]')
 governor=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo unknown)
 out="$ROOT/crates/phasekit-verify/benches/baseline/coolprop-8.0.0-$machine.csv"
 mkdir -p "$(dirname "$out")"
