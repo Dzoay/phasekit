@@ -2814,26 +2814,35 @@ mod tests {
     }
 
     /// M7.7: two roots inside one grid cell, either side of a turn of x(T), are both found: golden-section search puts
-    /// the turn between the cell's nodes, and it brackets each root. Water's h″ peaks near 507 K, so HQ at Q = 1 for the
-    /// h″ 2 mK below the peak has its two roots within 10 mK, in the grid cell that holds the peak; both are returned,
-    /// `Ambiguous`.
+    /// the turn between the cell's nodes, and it brackets each root. h″ peaks below the critical point, so HQ at Q = 1
+    /// for the h″ 2 mK below its peak has its two roots within 10 mK, in the grid cell that holds the peak; both are
+    /// returned, `Ambiguous`. For six fluids whose peak lies at least 0.05 K from a node, with peaks in either half of
+    /// their cells: a search that found the turn only from a neighbouring triple of nodes would miss some.
     #[cfg(feature = "fluids-all")]
     #[test]
     fn two_roots_in_one_cell_are_both_found() {
-        let water = embedded("Water");
-        let (lo, hi) = record_of("Water").superancillary_curve().unwrap().t_range();
-        let h_vapour = |t: f64| water.state(q_t(1.0, t)).unwrap().h(Basis::Molar);
-        let temperatures = (0..=20_000).map(|k| 500.0 + f64::from(k) * 1e-3);
-        let peak = temperatures.max_by(|a, b| h_vapour(*a).total_cmp(&h_vapour(*b))).unwrap();
-        let cell = (hi - lo) / f64::from(QX_CELLS);
-        let a = lo + ((peak - lo) / cell).floor() * cell;
-        let margin = (peak - a).min(a + cell - peak);
-        assert!(margin > 0.05, "h″ peaks at {peak} K, {margin} K from a node");
-        // 2 mK below the peak (found to 1 mK): the turn must be placed within about 2 mK of it to bracket both roots.
-        let t = peak - 2e-3;
-        let roots = roots_of(&water, q_x(QVar::H, 1.0, &water.state(q_t(1.0, t)).unwrap()));
-        let &[low, high] = roots.as_slice() else { panic!("{roots:?}") };
-        assert!((low / t - 1.0).abs() < 1e-9 && high > peak && high < t + 1e-2, "{roots:?}: peak {peak} K, cell {a} K");
+        let mut checked = 0;
+        for name in ["Water", "R134a", "n-Propane", "CarbonDioxide", "Ammonia", "Nitrogen"] {
+            let fluid = embedded(name);
+            let (lo, hi) = record_of(name).superancillary_curve().unwrap().t_range();
+            let h_vapour = |t: f64| fluid.state(q_t(1.0, t)).unwrap().h(Basis::Molar);
+            let highest = |ts: &mut dyn Iterator<Item = f64>| ts.max_by(|a, b| h_vapour(*a).total_cmp(&h_vapour(*b)));
+            let coarse = highest(&mut (0..1000).map(|k| lo + (hi - 1.0 - lo) * f64::from(k) / 1000.0)).unwrap();
+            let peak = highest(&mut (0..=2000).map(|k| coarse - 1.0 + f64::from(k) * 1e-3)).unwrap();
+            let cell = (hi - lo) / f64::from(QX_CELLS);
+            let a = lo + ((peak - lo) / cell).floor() * cell;
+            if (peak - a).min(a + cell - peak) < 0.05 {
+                continue;
+            }
+            // 2 mK below the peak (found to 1 mK): the turn must be placed within about 2 mK of it to bracket both.
+            let t = peak - 2e-3;
+            let roots = roots_of(&fluid, q_x(QVar::H, 1.0, &fluid.state(q_t(1.0, t)).unwrap()));
+            let &[low, high] = roots.as_slice() else { panic!("{name}: {roots:?}") };
+            let both = (low / t - 1.0).abs() < 1e-9 && high > peak && high < t + 1e-2;
+            assert!(both, "{name}: {roots:?}, h″ peaking at {peak} K in the cell from {a} K");
+            checked += 1;
+        }
+        assert!(checked >= 4, "{checked} fluids");
     }
 
     /// M7.7: a root found on the caloric curves is polished on the EOS: TOMS 748 in a bracket around it, widened tenfold
