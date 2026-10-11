@@ -394,8 +394,9 @@ fn compat_strings_reach_the_new_family() {
     let p = reg.get("vdW-Argon").unwrap().state(dt(rho, t)).unwrap().p();
     assert_eq!(props_si_in(&reg, "P", "T", t, "Dmolar", rho, "vdW-Argon").unwrap(), p);
     assert_eq!(props_si_in(&reg, "P", "Dmolar", rho, "T", t, "HEOS::vdw").unwrap(), p);
+    // HT is declared since M7.5: an h that no state at T holds is refused, typed, through the strings too.
     let refused = props_si_in(&reg, "P", "H", 1e3, "T", t, "vdw");
-    assert_eq!(refused, Err(CompatError::Core(Error::Unsupported { pair: Pair::HT })));
+    assert!(matches!(refused, Err(CompatError::Core(Error::InvalidInput { quantity: "H", .. }))), "{refused:?}");
 }
 
 #[test]
