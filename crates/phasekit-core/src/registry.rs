@@ -68,6 +68,7 @@ impl Slot {
         record.apply(self.data_set)?;
         let deps = self.deps.clone();
         let freshness = record.superancillary_freshness();
+        let (calorics_of, calorics_blob) = (record.clone(), blob.clone());
         let pseudo_pure = record.pseudo_pure.clone();
         let builder = record.builder().map_err(|e| match e {
             Error::Load(l) => l,
@@ -82,6 +83,12 @@ impl Slot {
             let curve = crate::blob::decode_superancillary(blob.bytes())?
                 .map(|sa| Box::new(SuperancillaryCurve::new(sa, freshness)) as Box<dyn SaturationCurve>);
             Ok(curve)
+        });
+        // So do the caloric curves until a Q-pair first needs them (M7.7).
+        let builder = builder.lazy_calorics(move || {
+            let mut record = calorics_of;
+            record.caloric = crate::blob::decode_caloric(calorics_blob.bytes(), record.superancillary_fit)?;
+            Ok(record.calorics())
         });
         let package = if deps.is_empty() {
             builder.build()

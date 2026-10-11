@@ -3,6 +3,7 @@
 
 use std::sync::{Arc, LazyLock, OnceLock};
 
+use crate::data::Calorics;
 use crate::derivs::Order;
 use crate::error::{Error, LoadError};
 use crate::flash::{self, FlashOptions};
@@ -98,7 +99,10 @@ const IMPLEMENTED: Capabilities = Capabilities::none()
     .with(Pair::HT)
     .with(Pair::ST)
     .with(Pair::TU)
-    .with(Pair::DP);
+    .with(Pair::DP)
+    .with(Pair::QS)
+    .with(Pair::HQ)
+    .with(Pair::DQ);
 
 /// The package of a pure or pseudo-pure Helmholtz fluid: identity, EOS (any family), limits, critical point
 /// and parts materialised on first use (saturation curve, transport). Immutable; shared through `Arc`.
@@ -111,6 +115,8 @@ pub struct PureFluid {
     /// The model's own critical point, found on first use ([`PureFluid::model_critical`]).
     model_critical: OnceLock<Option<CriticalPoint>>,
     saturation: Lazy<Option<Box<dyn SaturationCurve>>>,
+    /// The saturated caloric curves the Q-pairs find their roots on (M7.7), decoded on first use.
+    calorics: Lazy<Option<Calorics>>,
     transport: Lazy<TransportSet>,
 }
 
@@ -144,6 +150,21 @@ impl PureFluidBuilder {
     }
     /// Transport materialised on first use; the decoder's closure holds the blob and strong handles to its
     /// ECS reference fluids (E5). Crate-private: CoolProp's transport forms are closed data (§11).
+    /// The saturated caloric curves (M5.2a), eagerly available.
+    pub(crate) fn calorics(mut self, calorics: Calorics) -> Self {
+        self.fluid.calorics = ready(Some(calorics));
+        self
+    }
+
+    /// The saturated caloric curves, decoded on first use by a Q-pair.
+    pub(crate) fn lazy_calorics(
+        mut self,
+        init: impl FnOnce() -> Result<Option<Calorics>, LoadError> + Send + 'static,
+    ) -> Self {
+        self.fluid.calorics = LazyLock::new(Box::new(init));
+        self
+    }
+
     pub(crate) fn lazy_transport(
         mut self,
         init: impl FnOnce() -> Result<TransportSet, LoadError> + Send + 'static,
@@ -167,6 +188,7 @@ impl PureFluid {
             critical: None,
             model_critical: OnceLock::new(),
             saturation: ready(None),
+            calorics: ready(None),
             transport: ready(TransportSet::default()), // no models: properties report `NoModel`
         };
         PureFluidBuilder { fluid }
@@ -201,6 +223,11 @@ impl PureFluid {
     pub fn limits(&self) -> &Limits {
         &self.limits
     }
+    /// The saturated caloric curves, decoding them on first use; `None` without fresh ones.
+    pub(crate) fn calorics(&self) -> Result<Option<&Calorics>, Error> {
+        Ok(LazyLock::force(&self.calorics).as_ref().map_err(|e| Error::Load(e.clone()))?.as_ref())
+    }
+
     /// The saturation curve, decoding it on first use. `None`: no curve, so the generic VLE (M6) decides.
     pub fn saturation(&self) -> Result<Option<&dyn SaturationCurve>, Error> {
         Ok(LazyLock::force(&self.saturation).as_ref().map_err(|e| Error::Load(e.clone()))?.as_deref())

@@ -55,6 +55,8 @@ pub enum Strategy {
     Isochore,
     /// TOMS 748 in ln ρ along an isotherm (T+X), on each monotonic piece of x(ρ), each iterate DT's state at (T, ρ).
     Isotherm,
+    /// TOMS 748 in T along the saturation curve (Q-pairs), on the caloric curves and polished on the EOS.
+    Saturation,
 }
 
 /// The strategy and its iteration count.

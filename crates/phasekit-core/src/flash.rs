@@ -2,8 +2,8 @@
 //! options. No global configuration, no sticky phase, no exception cascade (map 01 R12, map 03 §6, map 12
 //! R3/R4). Each pair runs a fixed, ordered list of strategies returning `Result`; the winner is recorded in
 //! `State::path`. DT (M5.3), QT and PQ (M6.8), PT (M7.1; its phase rule complete at M7.2), PH, PS and PU (M7.3), DH,
-//! DS and DU (M7.4), HT, ST and TU (M7.5) and DP (M7.6) are implemented; the other pairs land at M7 behind
-//! `IMPLEMENTED`.
+//! DS and DU (M7.4), HT, ST and TU (M7.5), DP (M7.6) and QS, HQ and DQ (M7.7) are implemented; the other pairs land
+//! at M7 behind `IMPLEMENTED`.
 #![deny(clippy::indexing_slicing)] // E12: no panicking index on the flash path
 
 use crate::derivs::{Bundle, Order};
@@ -119,6 +119,9 @@ pub(crate) fn flash(fluid: &PureFluid, input: NativeInput, opts: &FlashOptions) 
         Pair::ST => named(Pair::ST, tx(fluid, y, x, Caloric::S, opts)),
         Pair::TU => named(Pair::TU, tx(fluid, x, y, Caloric::U, opts)),
         Pair::DP => named(Pair::DP, dp(fluid, x, y, opts)),
+        Pair::QS => qx(fluid, x, y, QVar::S, Pair::QS, opts),
+        Pair::HQ => qx(fluid, y, x, QVar::H, Pair::HQ, opts),
+        Pair::DQ => qx(fluid, y, 1.0 / x, QVar::V, Pair::DQ, opts),
         pair => Err(Error::Unsupported { pair }),
     }
 }
@@ -1038,6 +1041,162 @@ impl Walk<'_> {
         self.seed = rho;
         Ok((branch, rho))
     }
+}
+
+/// What a Q-pair fixes beside the quality: h, s or, for DQ, the molar volume v = 1/ρ.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QVar {
+    H,
+    S,
+    V,
+}
+
+impl QVar {
+    /// Its value on a state (molar).
+    fn of(self, state: &State) -> f64 {
+        match self {
+            QVar::H => state.h(Basis::Molar),
+            QVar::S => state.s(Basis::Molar),
+            QVar::V => 1.0 / state.rho(Basis::Molar),
+        }
+    }
+
+    /// The lever rule's value at quality q from the caloric curves' h′, h″, s′, s″, u′, u″; `None` for v.
+    fn lever(self, q: f64, sides: [f64; 6]) -> Option<f64> {
+        let [hl, hv, sl, sv, ..] = sides;
+        match self {
+            QVar::H => Some((1.0 - q) * hl + q * hv),
+            QVar::S => Some((1.0 - q) * sl + q * sv),
+            QVar::V => None,
+        }
+    }
+}
+
+/// The grid cells along a saturation curve's fitted range on which a Q-pair brackets its roots.
+const QX_CELLS: u16 = 200;
+
+/// The golden section's ratio, (√5 − 1)/2.
+const GOLDEN: f64 = 0.618_033_988_749_894_9;
+
+/// Golden-section steps that locate a turn of a Q-pair's x(T) inside two grid cells: 0.618^60 of their width.
+const TURN_STEPS: u16 = 60;
+
+/// QS, HQ and DQ (PLAN.md M7.7; map 03 §3.1, §6, §9 `flash::qx`): every T on the saturation curve where the lever rule
+/// at quality q gives x (h, s, or v = 1/ρ), each root's state QT's. x(T) is not monotonic: Water's h″ peaks near
+/// 507 K, R1234ze(E)'s s″ turns twice, and Water's ρ′ peaks at 277 K. So x(T) is scanned on a grid of [`QX_CELLS`]
+/// cells over the curve's fitted range, up to the critical point, from the cheapest exact-enough source: an exact
+/// curve's caloric curves for h and s (M5.2a; CoolProp builds them at first use), its densities for v, else QT's own
+/// state. A turn between grid nodes is located by golden-section search, so two roots near it are both bracketed; each
+/// bracket's root is found by TOMS 748 and, where the scan read the caloric curves, polished on the EOS
+/// (`Strategy::Saturation`). Every Q in [0, 1] is accepted for every pair (CoolProp's HQ accepts only Q = 1 and its QS
+/// no fractional Q; its DQ brackets T only to Tc − 0.1 K). One root is the answer; several are `Ambiguous` with their
+/// temperatures under `Strict` and `Stable` (no T at a quality is more stable than another), and `Nearest(T)` takes
+/// one (ROT-071; CoolProp throws `MultipleSolutionsError`). No root is `InvalidInput`. A fluid without a curve has no
+/// Q-pair (`Unsupported`); a pseudo-pure fluid's has only Q = 0 and 1, as its QT.
+fn qx(fluid: &PureFluid, q: f64, x: f64, var: QVar, pair: Pair, opts: &FlashOptions) -> Result<State, Error> {
+    Quality::new(q)?;
+    let curve = curve_for(fluid, pair)?;
+    let (lo, hi) = curve.t_range();
+    let along = opts.with_domain(DomainPolicy::Extrapolate);
+    let exact = |t: f64| qt(fluid, q, t, &along).map(|state| var.of(&state) - x);
+    let exact_curve = curve.accuracy() == SatAccuracy::Exact;
+    let calorics = if exact_curve && var != QVar::V { fluid.calorics()? } else { None };
+    let scan = |t: f64| -> Result<f64, Error> {
+        if var == QVar::V && exact_curve {
+            let sat = curve.at_t(t)?;
+            return Ok((1.0 - q) / sat.bubble.rho + q / sat.dew.rho - x);
+        }
+        match calorics.and_then(|c| var.lever(q, c.at(t)?)) {
+            Some(value) => Ok(value - x),
+            None => exact(t),
+        }
+    };
+    // The grid, and each turn between its nodes where golden-section search puts it.
+    let mut grid: Vec<(f64, f64)> = Vec::new();
+    for k in 0..=QX_CELLS {
+        let t = if k == QX_CELLS { hi } else { lo + (hi - lo) * f64::from(k) / f64::from(QX_CELLS) };
+        grid.push((t, scan(t)?));
+    }
+    let mut nodes = grid.clone();
+    for triple in grid.windows(3) {
+        if let [(t0, g0), (_, g1), (t2, g2)] = triple
+            && (g1 - g0) * (g2 - g1) < 0.0
+        {
+            nodes.push(turn_of(&scan, *t0, *t2, g1 > g0)?);
+        }
+    }
+    nodes.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut roots: Vec<(f64, u16)> = Vec::new();
+    for pair in nodes.windows(2) {
+        let [(a, ga), (b, gb)] = pair else { continue };
+        if *ga != 0.0 && *gb != 0.0 && ga.is_sign_negative() == gb.is_sign_negative() {
+            continue;
+        }
+        let found = toms748(|t| scan(t).unwrap_or(f64::NAN), *a, *b, Tol::Relative(T_TOL), T_ITER);
+        let found = found.converged(Strategy::Saturation)?;
+        let t = if calorics.is_some() { polish(&exact, found.x)? } else { found.x };
+        if !roots.iter().any(|(r, _)| (r - t).abs() <= T_TOL * t) {
+            roots.push((t, found.iterations));
+        }
+    }
+    roots.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let temperatures: Vec<f64> = roots.iter().map(|r| r.0).collect();
+    let (t, iterations) = match (roots.as_slice(), opts.roots()) {
+        ([], _) => return Err(Error::InvalidInput { quantity: var_name(var), value: x }),
+        ([one], _) => *one,
+        (_, RootPolicy::Nearest(target)) => {
+            let pick = nearest(target, &temperatures);
+            *roots.iter().find(|r| Some(r.0) == pick).ok_or(Error::Ambiguous { roots: Roots::new(&temperatures) })?
+        }
+        _ => return Err(Error::Ambiguous { roots: Roots::new(&temperatures) }),
+    };
+    Ok(qt(fluid, q, t, opts)?.with_path(SolvePath { strategy: Strategy::Saturation, iterations }))
+}
+
+/// The name a Q-pair's other input goes by.
+fn var_name(var: QVar) -> &'static str {
+    match var {
+        QVar::H => "H",
+        QVar::S => "S",
+        QVar::V => "D",
+    }
+}
+
+/// The turn of `g` between `a` and `b` (a maximum if `max`, else a minimum) by golden-section search, with g there.
+fn turn_of(g: &impl Fn(f64) -> Result<f64, Error>, a: f64, b: f64, max: bool) -> Result<(f64, f64), Error> {
+    let (r, sign) = (GOLDEN, if max { -1.0 } else { 1.0 });
+    let (mut a, mut b) = (a, b);
+    let (mut c, mut d) = (b - r * (b - a), a + r * (b - a));
+    let (mut gc, mut gd) = (sign * g(c)?, sign * g(d)?);
+    for _ in 0..TURN_STEPS {
+        if gc < gd {
+            (b, d, gd) = (d, c, gc);
+            c = b - r * (b - a);
+            gc = sign * g(c)?;
+        } else {
+            (a, c, gc) = (c, d, gd);
+            d = a + r * (b - a);
+            gd = sign * g(d)?;
+        }
+    }
+    let t = 0.5 * (a + b);
+    Ok((t, g(t)?))
+}
+
+/// A root `t` of the caloric curves' x(T) polished on the EOS's (`exact`): TOMS 748 in a bracket around it, widened
+/// tenfold from 1e-9 of t until it holds a sign change; the curves' root where none does by 1e-4.
+fn polish(exact: &impl Fn(f64) -> Result<f64, Error>, t: f64) -> Result<f64, Error> {
+    let mut width = 1e-9;
+    while width <= 1e-4 {
+        let (a, b) = (t * (1.0 - width), t * (1.0 + width));
+        let (ga, gb) = (exact(a)?, exact(b)?);
+        if ga == 0.0 || gb == 0.0 || ga.is_sign_negative() != gb.is_sign_negative() {
+            let root = toms748(|u| exact(u).unwrap_or(f64::NAN), a, b, Tol::Relative(T_TOL), T_ITER);
+            return Ok(root.converged(Strategy::Saturation)?.x);
+        }
+        width *= 10.0;
+    }
+    Ok(t)
 }
 
 /// The saturation curve for the Q pair `pair`; a fluid without one has no Q pair.
@@ -2524,5 +2683,101 @@ mod tests {
         let input = Input::dp(Density::molar(13_119.0).unwrap(), Pressure::new(state.p()).unwrap());
         let back = air.state(input);
         assert!(back.as_ref().is_ok_and(|s| (s.t() / 132.45 - 1.0).abs() < 1e-9), "{back:?}");
+    }
+
+    /// The Q-pair input of `var` for `state` at its quality `q` (molar).
+    #[cfg(feature = "fluids-all")]
+    fn q_x(var: QVar, q: f64, state: &State) -> Input {
+        let (q, m) = (Quality::new(q).unwrap(), Basis::Molar);
+        match var {
+            QVar::H => Input::hq(Enthalpy::molar(state.h(m)).unwrap(), q),
+            QVar::S => Input::qs(q, Entropy::molar(state.s(m)).unwrap()),
+            QVar::V => Input::dq(Density::molar(state.rho(m)).unwrap(), q),
+        }
+    }
+
+    /// The temperatures of a Q-pair's roots, `Strict`'s `Ambiguous` list.
+    #[cfg(feature = "fluids-all")]
+    fn roots_of(fluid: &Fluid, input: Input) -> Vec<f64> {
+        match fluid.state(input) {
+            Err(Error::Ambiguous { roots }) => roots.as_slice().to_vec(),
+            other => panic!("{input:?}: {other:?}"),
+        }
+    }
+
+    /// map 03 §6 (#2773, ROT-071): Water's h″ peaks near 507 K, so HQ at Q = 1 for h″(400 K) has two roots; CoolProp's
+    /// default throws, listing 400 K and 587.912 K. Here `Strict` returns both temperatures (400 K within 1e-9, the other
+    /// within 1e-3 K of CoolProp's printed one), `Nearest` takes each, and each state's h is the input's.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn hq_water_400k_lists_both_roots() {
+        let water = embedded("Water");
+        let vapour = water.state(q_t(1.0, 400.0)).unwrap();
+        let input = q_x(QVar::H, 1.0, &vapour);
+        let roots = roots_of(&water, input);
+        let &[low, high] = roots.as_slice() else { panic!("{roots:?}") };
+        assert!((low / 400.0 - 1.0).abs() < 1e-9 && (high - 587.912).abs() < 1e-3, "{roots:?}");
+        for t in [low, high] {
+            let state = water.flash(input, &FlashOptions::new().with_roots(RootPolicy::Nearest(t))).unwrap();
+            assert!(
+                state.t() == t && (state.h(Basis::Molar) / vapour.h(Basis::Molar) - 1.0).abs() < 1e-12,
+                "{state:?}"
+            );
+            assert_eq!(state.path().strategy, Strategy::Saturation);
+        }
+    }
+
+    /// map 03 §6: R1234ze(E)'s s″ turns twice, near 271 K and 338 K, so QS at Q = 1 for s″(275.6 K) has three roots;
+    /// CoolProp's error lists 267.297, 275.6 and 363.697 K. Here `Strict` returns the three (275.6 K within 1e-9, the
+    /// others within 1e-3 K of CoolProp's printed values).
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn qs_r1234ze_e_vapour_has_three_roots() {
+        let fluid = embedded("R1234ze(E)");
+        let vapour = fluid.state(q_t(1.0, 275.6)).unwrap();
+        let roots = roots_of(&fluid, q_x(QVar::S, 1.0, &vapour));
+        let &[a, b, c] = roots.as_slice() else { panic!("{roots:?}") };
+        assert!(
+            (a - 267.297).abs() < 1e-3 && (b / 275.6 - 1.0).abs() < 1e-9 && (c - 363.697).abs() < 1e-3,
+            "{roots:?}"
+        );
+    }
+
+    /// map 03 §6: CoolProp's DQ brackets T only up to Tc − 0.1 K, so its DQ of Water at Tc − 0.05 K fails at Q = 0.5 ("do
+    /// not bracket the root"; Q = 0 and 1 take its saturated-density path). Here DQ at Q = 0, 0.5 and 1 returns that T
+    /// within 1e-9, the critical point the superancillary's top.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn dq_works_near_tc() {
+        let water = embedded("Water");
+        let t = record_of("Water").superancillary_curve().unwrap().t_range().1 - 0.05;
+        for q in [0.0, 0.5, 1.0] {
+            let truth = water.state(q_t(q, t)).unwrap();
+            let back = water.state(q_x(QVar::V, q, &truth)).unwrap();
+            assert!((back.t() / t - 1.0).abs() < 1e-9 && back.quality() == Some(q), "Q = {q}: {back:?}");
+        }
+    }
+
+    /// map 03 §3.1: CoolProp's HQ accepts only Q = 1 and its QS no fractional Q. Here every Q-pair accepts every Q: for
+    /// Water, R134a and n-Propane at 0.6 and 0.95 of the critical temperature and Q = 0, 0.25, 0.5, 0.75 and 1, QS, HQ
+    /// and DQ of the QT state return it (T within 1e-9; `Nearest` its T where the pair has several roots).
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn q_pairs_are_symmetric_in_q() {
+        for name in ["Water", "R134a", "n-Propane"] {
+            let fluid = embedded(name);
+            let t_c = record_of(name).superancillary_curve().unwrap().t_range().1;
+            for (t, q) in [0.6, 0.95].into_iter().flat_map(|x| [0.0, 0.25, 0.5, 0.75, 1.0].map(|q| (x * t_c, q))) {
+                let truth = fluid.state(q_t(q, t)).unwrap();
+                for var in [QVar::S, QVar::H, QVar::V] {
+                    let input = q_x(var, q, &truth);
+                    let back = fluid.flash(input, &FlashOptions::new().with_roots(RootPolicy::Nearest(t))).unwrap();
+                    assert!(
+                        (back.t() / t - 1.0).abs() < 1e-9 && back.quality() == Some(q),
+                        "{name} {input:?}: {back:?}"
+                    );
+                }
+            }
+        }
     }
 }
