@@ -553,6 +553,11 @@ fn reproduces_x(var: Caloric, r: f64, t: f64, x: f64, got: f64) -> bool {
     (got - x).abs() <= REPRODUCED_X * var.scale(r, t, x)
 }
 
+/// The acceptance gate's "inputs reproduced" for a pressure input (D6): `got` within [`REPRODUCED_X`] of p.
+fn reproduces_p(p: f64, got: f64) -> bool {
+    (got - p).abs() <= REPRODUCED_X * p
+}
+
 /// The domain's lowest temperature, the higher of Tmin and the triple point, and the highest a P+X or D+X solve
 /// searches, 1.5·Tmax (CoolProp's bound).
 fn t_search(fluid: &PureFluid) -> (f64, f64) {
@@ -829,7 +834,7 @@ fn dp(fluid: &PureFluid, rho: f64, p: f64, opts: &FlashOptions) -> Result<State,
     let residual = |t: f64| Ok(isochore_p(fluid, t, rho, &along)? - p);
     let (t, iterations) = root_in_t(fluid, t_search(fluid), (None, None), Strategy::Isochore, residual)?;
     let state = dt(fluid, t, rho, opts)?;
-    if (state.p() - p).abs() > REPRODUCED_X * p {
+    if !reproduces_p(p, state.p()) {
         return Err(Error::NoConvergence { strategy: Strategy::Isochore, iterations });
     }
     Ok(state.with_path(SolvePath { strategy: Strategy::Isochore, iterations }))
@@ -2481,5 +2486,43 @@ mod tests {
         );
         let back = water.flash(dt(rho, imposed.t()), &gas).unwrap();
         assert!((back.p() / p - 1.0).abs() < 1e-9, "{back:?}");
+    }
+
+    /// M7.6: a pressure input is reproduced within 1e-9 of it (D6), and not beyond.
+    #[test]
+    fn a_pressure_is_reproduced_within_1e_9() {
+        for p in [1e3, 2.5e5, 1e8] {
+            assert!(reproduces_p(p, p * (1.0 + 5e-10)) && reproduces_p(p, p * (1.0 - 5e-10)), "{p}");
+            assert!(!reproduces_p(p, p * (1.0 + 2e-9)) && !reproduces_p(p, p * (1.0 - 2e-9)), "{p}");
+        }
+    }
+
+    /// M7.6 (D6, user decision 6): DP checks p against the domain under `Enforce`, not under `Extrapolate`. Water at
+    /// 1.1 of its pmax and 1000 K is `AboveMaxPressure`, and under `Extrapolate` the state at that p, flagged.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn dp_checks_p_against_the_domain() {
+        let water = embedded("Water");
+        let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
+        let p_max = record_of("Water").limits.p_max();
+        let state = water.flash(pt(1.1 * p_max, 1000.0), &extrapolate).unwrap();
+        let input = Input::dp(Density::molar(state.rho(Basis::Molar)).unwrap(), Pressure::new(state.p()).unwrap());
+        let refused = water.state(input);
+        assert!(matches!(refused, Err(Error::Domain(DomainError::AboveMaxPressure { .. }))), "{refused:?}");
+        let back = water.flash(input, &extrapolate).unwrap();
+        assert!(back.is_extrapolated() && (back.t() / 1000.0 - 1.0).abs() < 1e-9, "{back:?}");
+    }
+
+    /// M7.6: where a pseudo-pure fluid's VLE fails just below its published Tc (Air from about 131.9 K to 132.4 K at
+    /// its critical density), DP's search along the isochore takes the EOS's pressure there: DP of Air's state at
+    /// 13 119 mol/m³ and 132.45 K returns it.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn dp_of_a_pseudo_pure_fluid_where_its_vle_fails() {
+        let air = embedded("Air");
+        let state = air.state(dt(13_119.0, 132.45)).unwrap();
+        let input = Input::dp(Density::molar(13_119.0).unwrap(), Pressure::new(state.p()).unwrap());
+        let back = air.state(input);
+        assert!(back.as_ref().is_ok_and(|s| (s.t() / 132.45 - 1.0).abs() < 1e-9), "{back:?}");
     }
 }
