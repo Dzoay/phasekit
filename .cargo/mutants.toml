@@ -57,6 +57,12 @@ exclude_re = [
     "flash\\.rs:[0-9]+:[0-9]+: replace < with <= in turn_of",
     "flash\\.rs:[0-9]+:[0-9]+: replace \\|\\| with && in polish",
     "blob\\.rs:[0-9]+:[0-9]+: replace decode_caloric -> Result<Option<CaloricCurves>, LoadError> with Ok\\(None\\)",
+    # Equivalent mutants of HS and SU (PLAN.md M7.8). A residual exactly 0 (within the nested solve's noise) is the
+    # root whether a test reads it as above (`>= 0`) or at or below x: TOMS 748 returns a bracket's end whose residual
+    # is 0. And a bracket of two decades with a refusal between them, taken as if none were there, meets that refusal
+    # inside TOMS 748, which splits the bracket around it, as the guarded arm's bisection does.
+    "flash\\.rs:[0-9]+:[0-9]+: replace > with >= in sx",
+    "flash\\.rs:[0-9]+:[0-9]+: replace match guard refused_over_below.is_none\\(\\) with true in sx",
     # Each gate's `run` gathers its input through `repo` and is exercised by G8, not by unit tests; the rules it
     # applies live in the module's pure functions, which are mutated.
     "replace run -> Verdict",

@@ -106,9 +106,10 @@ fn registry_and_flash_reach_the_new_family() {
     assert_eq!((state.phase(), state.path().strategy), (Phase::SupercriticalGas, Strategy::Direct));
     assert!((state.cv(Basis::Molar).unwrap() - 1.5 * R).abs() < 1e-12);
     fd_first_order(fluid.model().helmholtz().unwrap(), t, rho, 1e-6, 1e-8).unwrap();
-    // Undeclared pairs are refused, never `todo!`.
-    let hs = Input::new(Pair::HS, 1e3, 10.0, Basis::Molar).unwrap();
-    assert_eq!(fluid.flash(hs, &FlashOptions::default()).unwrap_err(), Error::Unsupported { pair: Pair::HS });
+    // Every pair is declared since M7.8, a new family's too: HS of the DT state returns it.
+    let hs = Input::new(Pair::HS, state.h(Basis::Molar), state.s(Basis::Molar), Basis::Molar).unwrap();
+    let back = fluid.flash(hs, &FlashOptions::default()).unwrap();
+    assert!((back.t() / t - 1.0).abs() < 1e-9 && (back.rho(Basis::Molar) / rho - 1.0).abs() < 1e-9, "{back:?}");
 }
 
 /// S-10 / E18, PLAN.md M7.2: below Tc a family with no saturation curve gets the generic VLE of its EOS, seeded by the

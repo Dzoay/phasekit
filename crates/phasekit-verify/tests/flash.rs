@@ -4,7 +4,10 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::{DataSet, DomainError, Error, Input, Phase, Pressure, Prop, Registry, Temperature, math};
+use phasekit_core::{
+    Basis, DataSet, Density, DomainError, DomainPolicy, Error, FlashOptions, Input, Pair, Phase, Pressure, Prop,
+    Quality, Registry, Temperature, math,
+};
 use phasekit_verify::flash::FlashCheck;
 use phasekit_verify::{Fixture, fixture};
 
@@ -157,6 +160,260 @@ fn d_x_round_trips() {
     // As CoolProp's test skips its PT throws: one point lies between Air's pressure ancillaries, 131.90 K at 3.64 MPa.
     assert_eq!(refused, [(2, 4, Error::Undefined { prop: Prop::Q, phase: Phase::TwoPhase })]);
     assert_eq!(air.compared, 3 * (2400 - 1));
+}
+
+/// PLAN.md M7.8 (map 03 §8; `CoolProp-Tests-HS.cpp:39, :86`), class `Flash`: HS on CoolProp's production grids. Two
+/// phase: Water, Nitrogen, R134a, MM, n-Pentane and Methane at 25 temperatures from the triple point + 1 K to Tc −
+/// max(0.5 K, 1e-3 Tc), at Q 0.05, 0.25, 0.5, 0.75 and 0.95: the QT state. Single phase: those and CarbonDioxide and
+/// Hydrogen on CoolProp's 20 × 20 (log p, T) grids, p from max(p at the triple point, 1e-6 pmax) to pmax and T from
+/// the domain's lowest temperature to Tmax, at the cells' centres as every grid here (VERIFICATION.md §3.6): the PT
+/// state wherever PT gives one, all but one (a solid Hydrogen state; see below). HS of each returns its phase, T and ρ within 1e-9
+/// and its quality within 1e-8.
+#[test]
+fn hs_round_trips() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut check = FlashCheck::default();
+    let lin = |a: f64, b: f64, n: usize, k: usize| a + (b - a) * k as f64 / (n - 1) as f64;
+    for name in ["Water", "Nitrogen", "R134a", "MM", "n-Pentane", "Methane"] {
+        let fluid = registry.get(name).unwrap();
+        let record = phasekit_core::internal::record(&registry, name).unwrap();
+        let curve = record.superancillary_curve().unwrap();
+        let (t_triple, t_c) = curve.t_range();
+        for k in 0..25 {
+            let t = lin(t_triple + 1.0, t_c - (1e-3 * t_c).max(0.5), 25, k);
+            for q in [0.05, 0.25, 0.5, 0.75, 0.95] {
+                let truth = fluid.state(Input::qt(Quality::new(q).unwrap(), Temperature::new(t).unwrap())).unwrap();
+                check.hs_round_trip(name, fluid, &truth);
+            }
+        }
+    }
+    assert_eq!(check.report(20), None);
+    assert_eq!((check.compared, check.two_phase), (6 * 125, 6 * 125));
+    let mut single = FlashCheck::default();
+    for name in ["Water", "Nitrogen", "CarbonDioxide", "R134a", "MM", "n-Pentane", "Methane", "Hydrogen"] {
+        let fluid = registry.get(name).unwrap();
+        let record = phasekit_core::internal::record(&registry, name).unwrap();
+        let limits = record.limits;
+        let t_low = limits.t_triple().map_or(limits.t_min(), |t| t.max(limits.t_min()));
+        let p_triple = record.superancillary_curve().map_or(0.0, |c| c.at_t(c.t_range().0).unwrap().bubble.p);
+        let p_low = p_triple.max(1e-6 * limits.p_max());
+        let centre = |a: f64, b: f64, k: usize| a + (b - a) * (k as f64 + 0.5) / 20.0;
+        for i in 0..20 {
+            let p = math::exp(centre(math::ln(p_low), math::ln(limits.p_max()), i));
+            for j in 0..20 {
+                let t = centre(t_low, limits.t_max(), j);
+                if let Ok(truth) = fluid.state(Input::pt(Pressure::new(p).unwrap(), Temperature::new(t).unwrap())) {
+                    single.hs_round_trip(name, fluid, &truth);
+                }
+            }
+        }
+    }
+    // One PT truth, Hydrogen at 38.6 K and 782 MPa, lies far below its melting line, solid (melting lines arrive at
+    // M8): there its EOS's isentrope folds, s rising again as T falls, and PS's highest root at that p is refused
+    // under the triple point's temperature.
+    let [hydrogen] = single.failures.as_slice() else { panic!("{:?}", single.report(20)) };
+    assert!(
+        hydrogen.starts_with("Hydrogen")
+            && hydrogen.contains("782454277")
+            && hydrogen.ends_with("BelowMinTemperature { t: 13.957, t_min: 13.957 })")
+    );
+    assert_eq!((single.compared, single.two_phase), (3199, 0));
+}
+
+/// PLAN.md M7.8 (map 01 R4: CoolProp has no SU), class `Flash`: SU of the core subset's 6 × 6 (p, T) truths returns
+/// each one's phase, T and ρ within 1e-9.
+#[test]
+fn su_round_trips() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut check = FlashCheck::default();
+    for (path, text) in FLASH_CORE {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
+        check.su_round_trips(&fixture, registry.get(name).unwrap());
+    }
+    assert_eq!(check.report(20), None);
+    assert_eq!(check.compared, 14 * 36);
+}
+
+/// PLAN.md M7.8, class `Flash`: states on the domain's bounds round-trip through the caloric pairs as states inside it
+/// do. A solved T or p within 1e-12 of a bound is on it, and at the domain's lowest temperature, where no colder state
+/// brackets the root, a residual within the acceptance gate's tolerance is the root. For Water, CarbonDioxide, Nitrogen
+/// and R134a: the liquid and the gas at the lowest temperature, and states at pmax, at Tmax and at both, through HS, SU,
+/// DH, DS and DU ([`FlashCheck`]), and those below pmax through HP, PS, PU and DP (T within 1e-9). And an x colder than
+/// the lowest temperature's (the EOS's gas 5 % below it) is `BelowMinTemperature` for HP, DH and DP, as is a DH 1e-11
+/// of its scale under the liquid's there, while one 1e-14 under it is that liquid.
+#[test]
+fn caloric_pairs_round_trip_on_the_domain_bounds() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let (mut check, mut failures, mut compared) = (FlashCheck::default(), Vec::new(), 0);
+    let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
+    let m = Basis::Molar;
+    for name in ["Water", "CarbonDioxide", "Nitrogen", "R134a"] {
+        let fluid = registry.get(name).unwrap();
+        let record = phasekit_core::internal::record(&registry, name).unwrap();
+        let limits = record.limits;
+        let t_low = limits.t_triple().map_or(limits.t_min(), |t| t.max(limits.t_min()));
+        let p_sat = record.superancillary_curve().unwrap().at_t(t_low).unwrap().bubble.p;
+        let t_c = record.critical.unwrap().t;
+        let pt = |p: f64, t: f64, opts: &FlashOptions| {
+            fluid.flash(Input::pt(Pressure::new(p).unwrap(), Temperature::new(t).unwrap()), opts)
+        };
+        let enforce = FlashOptions::new();
+        let compressed = (10.0 * p_sat).max(1e6);
+        let truths = [
+            pt(compressed, t_low, &enforce),
+            pt(0.5 * p_sat, t_low, &enforce),
+            pt(limits.p_max(), 1.2 * t_c, &enforce),
+            pt(1e6, limits.t_max(), &enforce),
+            pt(limits.p_max(), limits.t_max(), &enforce),
+        ];
+        for truth in truths.map(Result::unwrap) {
+            check.hs_round_trip(name, fluid, &truth);
+            check.su_round_trip(name, fluid, &truth);
+            check.dx_round_trip(name, fluid, &truth);
+            // A state at pmax reads its p back a few ulp over it, an input P+X and DP refuse until M7.9.
+            if truth.p() >= limits.p_max() {
+                continue;
+            }
+            let (p, rho) = (truth.p(), truth.rho(m));
+            let pairs =
+                [(Pair::HP, truth.h(m), p), (Pair::PS, p, truth.s(m)), (Pair::PU, p, truth.u(m)), (Pair::DP, rho, p)];
+            for (pair, x, y) in pairs {
+                compared += 1;
+                match fluid.state(Input::new(pair, x, y, m).unwrap()) {
+                    Ok(back) if (back.t() / truth.t() - 1.0).abs() < 1e-9 => {}
+                    other => failures.push(format!("{name} {pair:?} of {truth:?}: {other:?}")),
+                }
+            }
+        }
+        // An h within 1e-13 of its scale under the lowest temperature's liquid's (D+X's tolerance there) is that state;
+        // one 1e-11 under it is colder than the domain.
+        let liquid = pt(compressed, t_low, &enforce).unwrap();
+        let scale = liquid.h(m).abs().max(liquid.gas_constant() * t_low);
+        let dh = |under: f64| fluid.state(Input::new(Pair::DH, liquid.rho(m), liquid.h(m) - under * scale, m).unwrap());
+        match dh(1e-14) {
+            Ok(back) if (back.t() / t_low - 1.0).abs() < 1e-12 => {}
+            other => failures.push(format!("{name} DH 1e-14 under the lowest temperature's liquid: {other:?}")),
+        }
+        if !matches!(dh(1e-11), Err(Error::Domain(DomainError::BelowMinTemperature { .. }))) {
+            failures.push(format!("{name} DH 1e-11 under the lowest temperature's liquid: {:?}", dh(1e-11)));
+        }
+        // A gas: a cold liquid's isochore can meet its isobar again inside the domain (Water's density maximum).
+        let cold = pt(0.1 * p_sat, 0.95 * t_low, &extrapolate).unwrap();
+        for (pair, x, y) in
+            [(Pair::HP, cold.h(m), cold.p()), (Pair::DH, cold.rho(m), cold.h(m)), (Pair::DP, cold.rho(m), cold.p())]
+        {
+            let refused = fluid.state(Input::new(pair, x, y, m).unwrap());
+            if !matches!(refused, Err(Error::Domain(DomainError::BelowMinTemperature { .. }))) {
+                failures.push(format!("{name} {pair:?} colder than the domain: {refused:?}"));
+            }
+        }
+    }
+    assert_eq!(check.report(20), None);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    // Every state below pmax, and those at pmax whose p reads back at or under it.
+    assert!(compared >= 4 * 3 * 4 && check.compared == 4 * 5 * 5, "{compared} {}", check.compared);
+}
+
+/// PLAN.md M7.8: the issue-mined D+X and HS cases of CoolProp's `CoolProp-Tests-HSU_D.cpp` (map 03 §8), class `Flash`
+/// where they round-trip a state. #2486: DH, DS and DU of the saturated liquid and vapour of Water, n-Propane, R134a,
+/// CarbonDioxide and Nitrogen at 60 temperatures from the triple point + 0.5 K to Tc − 0.5 K. #2157, #1698, #1054: DU
+/// and DS inside the dome of R1233zd(E), R32, R134a and R245fa, 40 temperatures × Q 0.01 to 0.9. #2154, #2173: the
+/// (T, ρ) box around the critical point of eight fluids (T from 0.9 to 1.1 Tc, ρ from 0.5 to 2 ρc), every D+X pair; the
+/// critical isochore crossed from 0.92 to 1.12 Tc by DU; the dome's edge 10 K to 1 mK below Tc. And single points:
+/// Hydrogen at 31.46258141 kg/m³ and 2 391 760.261 J/kg (#2154: T between 233 and 414 K), Nitrogen at 313.305125
+/// kg/m³ and 154 834.285193 J/kg (#1965, a singular matrix in CoolProp), R245fa's isolated D, S failures (#1054), and
+/// Air's HS (#2022), including h = 435 kJ/kg, s = 2654 J/kg/K, where CoolProp still diverges: each solved, its inputs
+/// reproduced within 1e-9.
+#[test]
+fn hsu_d_issue_cases() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut check = FlashCheck::default();
+    let lin = |a: f64, b: f64, n: usize, k: usize| a + (b - a) * k as f64 / (n - 1) as f64;
+    let qt = |q: f64, t: f64| Input::qt(Quality::new(q).unwrap(), Temperature::new(t).unwrap());
+    let curve_of =
+        |name: &str| phasekit_core::internal::record(&registry, name).unwrap().superancillary_curve().unwrap();
+    for name in ["Water", "n-Propane", "R134a", "CarbonDioxide", "Nitrogen"] {
+        let (fluid, (t_triple, t_c)) = (registry.get(name).unwrap(), curve_of(name).t_range());
+        for k in 0..60 {
+            for q in [0.0, 1.0] {
+                let truth = fluid.state(qt(q, lin(t_triple + 0.5, t_c - 0.5, 60, k))).unwrap();
+                check.dx_round_trip(name, fluid, &truth);
+            }
+        }
+    }
+    for name in ["R1233zd(E)", "R32", "R134a", "R245fa"] {
+        let (fluid, (t_triple, t_c)) = (registry.get(name).unwrap(), curve_of(name).t_range());
+        for k in 0..40 {
+            for q in [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9] {
+                let truth = fluid.state(qt(q, lin(t_triple + 1.0, t_c - 1.0, 40, k))).unwrap();
+                check.dx_round_trip(name, fluid, &truth);
+            }
+        }
+    }
+    let box_fluids = ["Water", "CarbonDioxide", "n-Propane", "R134a", "Nitrogen", "Hydrogen", "Helium", "Methane"];
+    let rho_factors =
+        [0.5, 0.75, 0.9, 0.95, 0.98, 0.99, 0.995, 0.999, 1.0, 1.001, 1.005, 1.01, 1.02, 1.05, 1.1, 1.25, 1.5, 2.0];
+    let t_factors = [0.9, 0.95, 0.98, 0.99, 0.995, 1.0, 1.005, 1.01, 1.02, 1.05, 1.1];
+    for name in box_fluids {
+        let fluid = registry.get(name).unwrap();
+        let c = phasekit_core::internal::record(&registry, name).unwrap().critical.unwrap();
+        for (tf, rf) in t_factors.iter().flat_map(|tf| rho_factors.iter().map(move |rf| (*tf, *rf))) {
+            if (tf, rf) != (1.0, 1.0) {
+                let truth =
+                    fluid.state(Input::dt(Density::molar(rf * c.rho).unwrap(), Temperature::new(tf * c.t).unwrap()));
+                check.dx_round_trip(name, fluid, &truth.unwrap());
+            }
+        }
+        for rf in [0.97, 0.99, 1.0, 1.01, 1.03] {
+            for k in 0..40 {
+                let t = lin(0.92 * c.t, 1.12 * c.t, 40, k);
+                let truth = fluid.state(Input::dt(Density::molar(rf * c.rho).unwrap(), Temperature::new(t).unwrap()));
+                check.dx_round_trip(name, fluid, &truth.unwrap());
+            }
+        }
+        let (t_triple, t_c) = curve_of(name).t_range();
+        for d_t in [10.0, 1.0, 0.1, 0.01, 0.001].into_iter().filter(|d_t| t_c - d_t > t_triple + 0.1) {
+            for q in [0.1, 0.3, 0.5, 0.7, 0.9] {
+                check.dx_round_trip(name, fluid, &fluid.state(qt(q, t_c - d_t)).unwrap());
+            }
+        }
+    }
+    assert_eq!(check.report(20), None);
+
+    let mass = |name: &str, pair: Pair, x: f64, y: f64| {
+        let fluid = registry.get(name).unwrap();
+        let state = fluid.state(Input::new(pair, x, y, Basis::Mass).unwrap());
+        state.unwrap_or_else(|e| panic!("{name} {pair:?} ({x}, {y}): {e:?}"))
+    };
+    let near = |got: f64, want: f64| (got / want - 1.0).abs() < 1e-9;
+    let hydrogen = mass("Hydrogen", Pair::DU, 31.46258141, 2_391_760.261);
+    assert!(
+        hydrogen.t() > 233.0 && hydrogen.t() < 414.0 && near(hydrogen.u(Basis::Mass), 2_391_760.261),
+        "{hydrogen:?}"
+    );
+    let nitrogen = mass("Nitrogen", Pair::DU, 313.305125, 154_834.285193);
+    assert!(near(nitrogen.u(Basis::Mass), 154_834.285193) && near(nitrogen.rho(Basis::Mass), 313.305125));
+    for d in [17.04, 17.05, 17.048_396_706_125_065] {
+        for s in [1617.4, 1617.5, 1_617.463_750_828_963] {
+            let r245fa = mass("R245fa", Pair::DS, d, s);
+            assert!(
+                near(r245fa.s(Basis::Mass), s) && near(r245fa.rho(Basis::Mass), d),
+                "R245fa ({d}, {s}): {r245fa:?}"
+            );
+        }
+    }
+    let air = [
+        (429_667.306_4, 2735.612747),
+        (430_867.419_3, 2732.980272),
+        (427_500.0, 2740.0),
+        (435_000.0, 2724.0),
+        (435_000.0, 2654.0),
+    ];
+    for (h, s) in air {
+        let state = mass("Air", Pair::HS, h, s);
+        assert!(near(state.h(Basis::Mass), h) && near(state.s(Basis::Mass), s), "Air ({h}, {s}): {state:?}");
+    }
 }
 
 /// VERIFICATION.md §3.2, §11.3: the `flash` files come from the pinned runner image, like every committed oracle

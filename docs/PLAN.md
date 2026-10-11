@@ -1025,7 +1025,12 @@ bands (map 03 §8; map 10 §8.5 L4).
 - **M7.8 HS and SU.** *Failing tests:* `hs_round_trips` (two-phase 25 T × 5 Q and single-phase 20 × 20 grids; map 03
   §8 HS tests), `hsu_d_issue_cases` (#2486, #2157, #1698, #1054, #2154, #2173, #1965, #2022, #2685, #2426),
   `su_round_trips` (no CoolProp arm, map 01 R4: truth from (p, T) only). *Do:* two-phase screen, legs and corrector;
-  acceptance needs dp/dρ > 0 and cv > 0 (map 03 §8 agent notes). *Done when:* green.
+  acceptance needs dp/dρ > 0 and cv > 0 (map 03 §8 agent notes). *Done when:* green. Done at M7.8 without the
+  screen and the legs: along an isentrope h and u rise with p (dh = v·dp, du = −p·dv), through the dome too, so HS
+  and SU are a root in ln p of x(PS(p, s)) − x, PS holding the dome, the domain and its acceptance gate; the search
+  steps over where the isentrope leaves the domain (water's s at its triple point's temperature turns at 38.6 MPa) and
+  splits its bracket around a dip out of it. #2685 and #2426 are REFPROP's and have no HEOS case. SU of a liquid at
+  low p is conditioned by (∂u/∂p)_s = (p/ρ²)(∂ρ/∂p)_s: Methanol's at 168 Pa holds p only within 230 Pa.
 - **M7.9 Capability matrix.** *Failing tests:* `capability_matrix_19x2` (each pair × {single, two-phase} declared and
   round-tripped; conformance kit `capability_matrix`), `phase_hints_never_leak` (QS then PH(30 MPa, h(700 K)) gives
   ≈ 700 K, where CoolProp's reused state gives 270.79 K; map 03 §6), `phase_hint_is_honoured_by_every_pair`,
