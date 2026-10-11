@@ -295,8 +295,7 @@ impl<'a> Fixture<'a> {
 
     /// Compares `got` with the fixture's value in `row` (0-based) and `column` under the column's class.
     pub fn check(&self, row: usize, column: &str, got: f64) -> Result<(), CheckError> {
-        let no_number = || CheckError::NoNumber { row, column: column.to_string() };
-        let want = self.value(row, column).ok_or_else(no_number)?;
+        let want = self.want(row, column)?;
         let class = match self.columns.iter().position(|c| *c == column).and_then(|i| self.roles.get(i)) {
             Some(ColumnRole::Output(class)) => *class,
             _ => ToleranceClass::Exact,
@@ -307,16 +306,7 @@ impl<'a> Fixture<'a> {
         if canonical_bits(got) == canonical_bits(want) {
             return Ok(());
         }
-        Err(CheckError::Mismatch(FixtureMismatch {
-            fixture: self.name.to_string(),
-            line: self.rows.get(row).map_or(0, |r| r.line),
-            column: column.to_string(),
-            class: class.name(),
-            provenance: self.header("source").unwrap_or_default().to_string(),
-            got,
-            want,
-            error: (got - want).abs(),
-        }))
+        Err(self.mismatch(row, column, class, (got, want)))
     }
 
     /// Compares `got` with the fixture's value in `row` (0-based) and `column` under the column's class, whose bound
@@ -337,7 +327,7 @@ impl<'a> Fixture<'a> {
     /// Returns the headroom, error / bound; two NaNs agree.
     pub fn check_bound(&self, row: usize, column: &str, got: f64, bound: f64) -> Result<f64, CheckError> {
         let class = self.output_class(row, column)?;
-        let want = self.value(row, column).ok_or_else(|| CheckError::NoNumber { row, column: column.to_string() })?;
+        let want = self.want(row, column)?;
         let error = (got - want).abs();
         if error <= bound {
             return Ok(error / bound);
@@ -345,7 +335,17 @@ impl<'a> Fixture<'a> {
         if got.is_nan() && want.is_nan() {
             return Ok(0.0);
         }
-        Err(CheckError::Mismatch(FixtureMismatch {
+        Err(self.mismatch(row, column, class, (got, want)))
+    }
+
+    /// The fixture's number in `row` (0-based) and `column`; `NoNumber` where it has none.
+    fn want(&self, row: usize, column: &str) -> Result<f64, CheckError> {
+        self.value(row, column).ok_or_else(|| CheckError::NoNumber { row, column: column.to_string() })
+    }
+
+    /// `got` against the fixture's `want` in `row` and `column` under `class`, a mismatch: its line and provenance.
+    fn mismatch(&self, row: usize, column: &str, class: ToleranceClass, (got, want): (f64, f64)) -> CheckError {
+        CheckError::Mismatch(FixtureMismatch {
             fixture: self.name.to_string(),
             line: self.rows.get(row).map_or(0, |r| r.line),
             column: column.to_string(),
@@ -353,8 +353,8 @@ impl<'a> Fixture<'a> {
             provenance: self.header("source").unwrap_or_default().to_string(),
             got,
             want,
-            error,
-        }))
+            error: (got - want).abs(),
+        })
     }
 
     /// The tolerance class of an output column; `NoNumber` for inputs, labels and unknown columns.
