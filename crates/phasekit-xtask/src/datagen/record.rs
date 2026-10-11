@@ -115,90 +115,87 @@ fn same_lengths(lists: &[(&str, usize)]) -> Result<usize, String> {
     }
 }
 
+/// One list of a block of parallel lists (map 02 §3.1): real coefficients or integer exponents.
+#[derive(Clone, Copy)]
+enum List<'a> {
+    /// Real coefficients.
+    Real(&'a [f64]),
+    /// Integer exponents, each checked by [`exponent`].
+    Exponent(&'a [Num]),
+}
+
+/// The rows of a block's parallel lists, each named by its JSON key: one length for all ([`same_lengths`]), then each
+/// exponent list checked ([`exponent`]), in order. Row i holds entry i of every list, an exponent as its value (exact).
+fn rows<const N: usize>(names: [&str; N], lists: [List<'_>; N]) -> Result<Vec<[f64; N]>, String> {
+    let lengths: Vec<(&str, usize)> = names
+        .into_iter()
+        .zip(lists)
+        .map(|(name, list)| match list {
+            List::Real(xs) => (name, xs.len()),
+            List::Exponent(xs) => (name, xs.len()),
+        })
+        .collect();
+    let k = same_lengths(&lengths)?;
+    let mut columns = Vec::with_capacity(N);
+    for list in lists {
+        columns.push(match list {
+            List::Real(xs) => xs.to_vec(),
+            List::Exponent(xs) => exponents(xs)?.into_iter().map(f64::from).collect(),
+        });
+    }
+    Ok((0..k).map(|i| core::array::from_fn(|j| columns[j][i])).collect())
+}
+
 fn residual(block: &ResidualBlock, eos: &mut EosRecord) -> Result<(), String> {
+    use List::{Exponent, Real};
     match block {
         ResidualBlock::Power { n, t, d, l } => {
-            let k = same_lengths(&[("n", n.len()), ("t", t.len()), ("d", d.len()), ("l", l.len())])?;
-            let (d, l) = (exponents(d)?, exponents(l)?);
-            for i in 0..k {
-                let c = if l[i] > 0 { 1.0 } else { 0.0 };
-                eos.power.push(PowerTerm::new(n[i], t[i], d[i], l[i], c));
+            for [n, t, d, l] in rows(["n", "t", "d", "l"], [Real(n), Real(t), Exponent(d), Exponent(l)])? {
+                let c = if l > 0.0 { 1.0 } else { 0.0 };
+                eos.power.push(PowerTerm::new(n, t, d as u8, l as u8, c));
             }
         }
         ResidualBlock::Exponential { n, t, d, l, g } => {
-            let k = same_lengths(&[("n", n.len()), ("t", t.len()), ("d", d.len()), ("l", l.len()), ("g", g.len())])?;
-            let (d, l) = (exponents(d)?, exponents(l)?);
-            for i in 0..k {
-                if l[i] == 0 && g[i] != 0.0 {
-                    return Err(format!("term {i}: l = 0 with g = {} (CoolProp drops e^(-g))", g[i]));
+            let lists = [Real(n), Real(t), Exponent(d), Exponent(l), Real(g)];
+            for (i, [n, t, d, l, g]) in rows(["n", "t", "d", "l", "g"], lists)?.into_iter().enumerate() {
+                if l == 0.0 && g != 0.0 {
+                    return Err(format!("term {i}: l = 0 with g = {g} (CoolProp drops e^(-g))"));
                 }
-                eos.power.push(PowerTerm::new(n[i], t[i], d[i], l[i], g[i]));
+                eos.power.push(PowerTerm::new(n, t, d as u8, l as u8, g));
             }
         }
         ResidualBlock::Lemmon2005 { n, t, d, l, m } => {
-            let k = same_lengths(&[("n", n.len()), ("t", t.len()), ("d", d.len()), ("l", l.len()), ("m", m.len())])?;
-            let (d, l) = (exponents(d)?, exponents(l)?);
-            eos.lemmon2005.extend((0..k).map(|i| Lemmon2005Term { n: n[i], t: t[i], d: d[i], l: l[i], m: m[i] }));
+            let lists = [Real(n), Real(t), Exponent(d), Exponent(l), Real(m)];
+            for [n, t, d, l, m] in rows(["n", "t", "d", "l", "m"], lists)? {
+                eos.lemmon2005.push(Lemmon2005Term { n, t, d: d as u8, l: l as u8, m });
+            }
         }
         ResidualBlock::DoubleExponential { n, t, d, gd, ld, gt, lt } => {
-            let lists = [("n", n.len()), ("t", t.len()), ("d", d.len()), ("gd", gd.len())];
-            let k = same_lengths(&[&lists[..], &[("ld", ld.len()), ("gt", gt.len()), ("lt", lt.len())]].concat())?;
-            let (d, ld) = (exponents(d)?, exponents(ld)?);
-            eos.double_exponential.extend((0..k).map(|i| DoubleExponentialTerm {
-                n: n[i],
-                t: t[i],
-                d: d[i],
-                gd: gd[i],
-                ld: ld[i],
-                gt: gt[i],
-                lt: lt[i],
-            }));
+            let lists = [Real(n), Real(t), Exponent(d), Real(gd), Exponent(ld), Real(gt), Real(lt)];
+            for [n, t, d, gd, ld, gt, lt] in rows(["n", "t", "d", "gd", "ld", "gt", "lt"], lists)? {
+                eos.double_exponential.push(DoubleExponentialTerm { n, t, d: d as u8, gd, ld: ld as u8, gt, lt });
+            }
         }
         ResidualBlock::Gaussian { n, t, d, eta, epsilon, beta, gamma } => {
-            let lists = [("n", n.len()), ("t", t.len()), ("d", d.len()), ("eta", eta.len())];
-            let more = [("epsilon", epsilon.len()), ("beta", beta.len()), ("gamma", gamma.len())];
-            let k = same_lengths(&[&lists[..], &more[..]].concat())?;
-            let d = exponents(d)?;
-            eos.gaussian.extend((0..k).map(|i| GaussianTerm {
-                n: n[i],
-                t: t[i],
-                d: d[i],
-                eta: eta[i],
-                epsilon: epsilon[i],
-                beta: beta[i],
-                gamma: gamma[i],
-            }));
+            let lists = [Real(n), Real(t), Exponent(d), Real(eta), Real(epsilon), Real(beta), Real(gamma)];
+            for [n, t, d, eta, epsilon, beta, gamma] in rows(["n", "t", "d", "eta", "epsilon", "beta", "gamma"], lists)?
+            {
+                eos.gaussian.push(GaussianTerm { n, t, d: d as u8, eta, epsilon, beta, gamma });
+            }
         }
         ResidualBlock::GaoB { n, t, d, eta, epsilon, beta, gamma, b } => {
-            let lists = [("n", n.len()), ("t", t.len()), ("d", d.len()), ("eta", eta.len())];
-            let more = [("epsilon", epsilon.len()), ("beta", beta.len()), ("gamma", gamma.len()), ("b", b.len())];
-            let k = same_lengths(&[&lists[..], &more[..]].concat())?;
-            let d = exponents(d)?;
-            eos.gao_b.extend((0..k).map(|i| GaoBTerm {
-                n: n[i],
-                t: t[i],
-                d: d[i],
-                eta: -eta[i],
-                epsilon: epsilon[i],
-                beta: beta[i],
-                gamma: gamma[i],
-                b: b[i],
-            }));
+            let lists = [Real(n), Real(t), Exponent(d), Real(eta), Real(epsilon), Real(beta), Real(gamma), Real(b)];
+            let names = ["n", "t", "d", "eta", "epsilon", "beta", "gamma", "b"];
+            for [n, t, d, eta, epsilon, beta, gamma, b] in rows(names, lists)? {
+                eos.gao_b.push(GaoBTerm { n, t, d: d as u8, eta: -eta, epsilon, beta, gamma, b }); // the paper's sign
+            }
         }
         ResidualBlock::NonAnalytic { n, a, b, beta, big_a, big_b, big_c, big_d } => {
-            let lists = [("n", n.len()), ("a", a.len()), ("b", b.len()), ("beta", beta.len())];
-            let more = [("A", big_a.len()), ("B", big_b.len()), ("C", big_c.len()), ("D", big_d.len())];
-            let k = same_lengths(&[&lists[..], &more[..]].concat())?;
-            eos.non_analytic.extend((0..k).map(|i| NonAnalyticTerm {
-                n: n[i],
-                a: a[i],
-                b: b[i],
-                beta: beta[i],
-                big_a: big_a[i],
-                big_b: big_b[i],
-                big_c: big_c[i],
-                big_d: big_d[i],
-            }));
+            let lists = [Real(n), Real(a), Real(b), Real(beta), Real(big_a), Real(big_b), Real(big_c), Real(big_d)];
+            for [n, a, b, beta, big_a, big_b, big_c, big_d] in rows(["n", "a", "b", "beta", "A", "B", "C", "D"], lists)?
+            {
+                eos.non_analytic.push(NonAnalyticTerm { n, a, b, beta, big_a, big_b, big_c, big_d });
+            }
         }
         ResidualBlock::Associating { .. } => {
             return Err("ResidualHelmholtzAssociating is not ported (ROT-068; only an alternate EOS uses it)".into());
@@ -215,30 +212,25 @@ fn positive(name: &str, x: f64) -> Result<(), String> {
 const ALY_LEE_ZERO: f64 = 1e-14;
 
 fn ideal(block: &IdealBlock, terms: &mut Vec<IdealTerm>) -> Result<(), String> {
+    use List::Real;
     match block {
         IdealBlock::Lead { a1, a2, .. } => terms.push(IdealTerm::Lead { a1: *a1, a2: *a2 }),
         IdealBlock::LogTau { a } => terms.push(IdealTerm::LogTau { a: *a }),
         IdealBlock::Power { n, t } => {
-            let k = same_lengths(&[("n", n.len()), ("t", t.len())])?;
-            terms.extend((0..k).map(|i| IdealTerm::Power { n: n[i], t: t[i] }));
+            terms.extend(rows(["n", "t"], [Real(n), Real(t)])?.into_iter().map(|[n, t]| IdealTerm::Power { n, t }));
         }
         IdealBlock::PlanckEinstein { n, t } => {
-            let k = same_lengths(&[("n", n.len()), ("t", t.len())])?;
-            terms.extend((0..k).map(|i| IdealTerm::PlanckEinstein { n: n[i], theta: t[i] }));
+            let pairs = rows(["n", "t"], [Real(n), Real(t)])?.into_iter();
+            terms.extend(pairs.map(|[n, theta]| IdealTerm::PlanckEinstein { n, theta }));
         }
         IdealBlock::PlanckEinsteinFunctionT { n, v, t_crit, .. } => {
-            let k = same_lengths(&[("n", n.len()), ("v", v.len())])?;
+            let pairs = rows(["n", "v"], [Real(n), Real(v)])?.into_iter();
             positive("Tcrit", *t_crit)?;
-            terms.extend((0..k).map(|i| IdealTerm::PlanckEinstein { n: n[i], theta: v[i] / t_crit }));
+            terms.extend(pairs.map(|[n, v]| IdealTerm::PlanckEinstein { n, theta: v / t_crit }));
         }
         IdealBlock::PlanckEinsteinGeneralized { n, t, c, d } => {
-            let k = same_lengths(&[("n", n.len()), ("t", t.len()), ("c", c.len()), ("d", d.len())])?;
-            terms.extend((0..k).map(|i| IdealTerm::PlanckEinsteinGeneralized {
-                n: n[i],
-                theta: t[i],
-                c: c[i],
-                d: d[i],
-            }));
+            let quads = rows(["n", "t", "c", "d"], [Real(n), Real(t), Real(c), Real(d)])?.into_iter();
+            terms.extend(quads.map(|[n, theta, c, d]| IdealTerm::PlanckEinsteinGeneralized { n, theta, c, d }));
         }
         IdealBlock::EnthalpyEntropyOffset { a1, a2, reference } => {
             let reference = match reference.as_str() {
@@ -251,8 +243,8 @@ fn ideal(block: &IdealBlock, terms: &mut Vec<IdealTerm>) -> Result<(), String> {
             terms.push(IdealTerm::Offset { a1: *a1, a2: *a2, reference });
         }
         IdealBlock::Cp0PolyT { c, t, tc, t0, .. } => {
-            let k = same_lengths(&[("c", c.len()), ("t", t.len())])?;
-            terms.extend((0..k).map(|i| IdealTerm::Cp0Power { c: c[i], t: t[i], tc: *tc, t0: *t0 }));
+            let pairs = rows(["c", "t"], [Real(c), Real(t)])?.into_iter();
+            terms.extend(pairs.map(|[c, t]| IdealTerm::Cp0Power { c, t, tc: *tc, t0: *t0 }));
         }
         IdealBlock::Cp0Constant { cp_over_r, tc, t0 } => {
             terms.push(IdealTerm::Cp0Power { c: *cp_over_r, t: 0.0, tc: *tc, t0: *t0 });
