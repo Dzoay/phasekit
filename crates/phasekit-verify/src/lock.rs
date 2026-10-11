@@ -82,6 +82,31 @@ fn scalar(text: &str) -> Option<&str> {
     (number || matches!(token, "true" | "false" | "null")).then_some(rest)
 }
 
+/// The environment a committed oracle fixture's generator ran in: its `generator` header without the per-file
+/// `sha256=` fields (VERIFICATION.md §3.2, §11.3).
+pub fn generator_environment((path, text): (&str, &str)) -> Result<String, String> {
+    let fixture = crate::Fixture::parse(path, text).map_err(|e| format!("{e:?}"))?;
+    let generator = fixture.header("generator").unwrap_or_default();
+    Ok(generator.split(' ').filter(|field| !field.starts_with("sha256=")).collect::<Vec<_>>().join(" "))
+}
+
+/// VERIFICATION.md §3.2, §11.3: whether every file of `files` names the pinned runner image's generator environment,
+/// the one `facts/smoke.csv` names (`oracle_lock_pins_the_runner_image` in tests/fixtures.rs checks that one against
+/// the lock). How many files it checked, or each other one with its environment.
+pub fn on_the_pinned_image<'a>(files: impl IntoIterator<Item = (&'a str, &'a str)>) -> Result<usize, Vec<String>> {
+    let pinned = generator_environment(crate::fixture!("coolprop-8.0.0/facts/smoke.csv")).map_err(|e| vec![e])?;
+    let (mut checked, mut others) = (0, Vec::new());
+    for file in files {
+        checked += 1;
+        match generator_environment(file) {
+            Ok(environment) if environment == pinned => {}
+            Ok(environment) => others.push(format!("{}: {environment}", file.0)),
+            Err(e) => others.push(format!("{}: {e}", file.0)),
+        }
+    }
+    if others.is_empty() { Ok(checked) } else { Err(others) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

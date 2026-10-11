@@ -20,7 +20,7 @@ pub use conformance::{
     Mismatch, Outcome, capability_matrix, fd_first_order, gauge_invariance, gauged_pair, input_of, policy_equivalence,
 };
 pub use fixture::{Cell, CheckError, ColumnRole, Fixture, FixtureError, FixtureMismatch, Kind, Row};
-pub use lock::{ORACLE_LOCK, OracleLock};
+pub use lock::{ORACLE_LOCK, OracleLock, generator_environment, on_the_pinned_image};
 pub use register::{
     DIVERGENCES, DivStatus, Divergence, Exempt, Fix, Part, Policy, RegisterError, Rows, check_register, missing_proofs,
     unregistered_proofs,

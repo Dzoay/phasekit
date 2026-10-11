@@ -230,14 +230,10 @@ fn alphar_totals_match_oracle_for_134_fluids() {
 /// fixture (`oracle_lock_pins_the_runner_image` in tests/fixtures.rs checks the others).
 #[test]
 fn term_fixtures_name_the_pinned_generator_environment() {
-    let environment = |(path, text): (&str, &str)| {
-        let generator = Fixture::parse(path, text).unwrap().header("generator").unwrap_or_default();
-        generator.split(' ').filter(|field| !field.starts_with("sha256=")).collect::<Vec<_>>().join(" ")
-    };
-    let smoke = environment(fixture!("coolprop-8.0.0/facts/smoke.csv"));
-    for file in TERM_CORE.into_iter().chain([fixture!("coolprop-8.0.0/all/term.csv")]) {
-        assert_eq!(environment(file), smoke, "{}", file.0);
-    }
+    assert_eq!(
+        phasekit_verify::on_the_pinned_image(TERM_CORE.into_iter().chain([fixture!("coolprop-8.0.0/all/term.csv")])),
+        Ok(15)
+    );
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/all/term.csv, the α⁰ rows (`block_idx = ideal`, PLAN.md M4.3): α⁰

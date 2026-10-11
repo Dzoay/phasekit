@@ -276,8 +276,9 @@ impl<'a> Fixture<'a> {
         &self.rows
     }
 
-    /// The text of the cell in `row` (0-based) and `column` exactly as the file has it: a printed table's string,
-    /// whose last digit sets its tolerance (`from_printed`, VERIFICATION.md §4.2).
+    /// The text of the cell in `row` (0-based) and `column` exactly as the file has it: a label (a fluid's name, an
+    /// input pair, a status), or a printed table's string, whose last digit sets its tolerance (`from_printed`,
+    /// VERIFICATION.md §4.2).
     pub fn printed(&self, row: usize, column: &str) -> Option<&'a str> {
         let index = self.columns.iter().position(|c| *c == column)?;
         self.rows.get(row)?.printed.get(index).copied()

@@ -11,11 +11,11 @@ use phasekit_core::{
     Quality, State, Temperature,
 };
 
-use crate::eos::{Majorants, carried};
+use crate::eos::{Majorants, Setup, carried};
 use crate::fixture::Kind;
 use crate::register::{DIVERGENCES, RowKey, exempt_row};
 use crate::term::{IdealScale, report};
-use crate::{Cell, Fixture, ToleranceClass, Window};
+use crate::{Fixture, ToleranceClass, Window};
 
 /// CoolProp's name of a phase.
 pub fn coolprop_name(phase: Phase) -> &'static str {
@@ -86,18 +86,11 @@ impl FlashCheck {
         keep: impl Fn(usize) -> bool,
     ) {
         let path = name;
-        let (Some(eos), Ok(ideal)) = (fluid.model().helmholtz(), IdealScale::new(record)) else {
+        let Some(Setup { eos, ideal, r, molar_mass: m, .. }) = Setup::of(fluid, record) else {
             self.failures.push(format!("{path}: not a Helmholtz fluid"));
             return;
         };
-        let (r, m) = (record.eos.gas_constant, fluid.info().molar_mass());
-        let label = |row: usize, column: &str| {
-            let i = fixture.columns().iter().position(|c| *c == column);
-            match i.and_then(|i| fixture.rows().get(row)?.cells.get(i).copied()) {
-                Some(Cell::Text(text)) => text,
-                _ => "",
-            }
-        };
+        let label = |row: usize, column: &str| fixture.printed(row, column).unwrap_or_default();
         for row in (0..fixture.rows().len()).filter(|&row| keep(row)) {
             let number = |column: &str| fixture.value(row, column).unwrap_or(f64::NAN);
             let (x1, t) = (number("x1"), number("x2"));

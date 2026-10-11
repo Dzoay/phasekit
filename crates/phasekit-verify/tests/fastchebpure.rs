@@ -4,7 +4,7 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_verify::{Cell, Fixture, fixture, sha256_hex};
+use phasekit_verify::{Fixture, fixture, sha256_hex};
 
 /// The core subset's fluids with a v8.0.0 superancillary (VERIFICATION.md §3.6; Air and R410A are pseudo-pure).
 const FILES: [(&str, &str); 12] = [
@@ -24,15 +24,6 @@ const FILES: [(&str, &str); 12] = [
 
 /// The pin: tag, URL, the zip's sha256 and one sha256 per converted file (`cargo xtask fetch-fastchebpure`).
 const LOCK: &str = include_str!("../fixtures/mp/fastchebpure.lock");
-
-/// The text in `column` of `row`.
-fn label<'a>(fixture: &Fixture<'a>, row: usize, column: &str) -> &'a str {
-    let i = fixture.columns().iter().position(|c| *c == column).unwrap();
-    match fixture.rows()[row].cells[i] {
-        Cell::Text(text) => text,
-        Cell::Num(_) | Cell::Blank => "",
-    }
-}
 
 /// Arbiter: fastchebpure 2026.06.02-v2 (NIST; Bell 2024, JPCRD 53), the release CoolProp v8.0.0 pins
 /// (`Web/scripts/fluid_properties.Superancillary.py:15-18`). Each committed file is the one the lock names, by sha256;
@@ -55,7 +46,7 @@ fn fastchebpure_files_match_the_v8_eos() {
         let fluid = dense.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
         assert!(dense.header("fluid").is_some_and(|f| f.contains(" source_eos_hash=")), "{path}");
         assert!(dense.rows().len() > 1_000, "{path}: {} rows", dense.rows().len());
-        for point in (0..check_points.rows().len()).filter(|&r| label(&check_points, r, "fluid") == fluid) {
+        for point in (0..check_points.rows().len()).filter(|&r| check_points.printed(r, "fluid").unwrap() == fluid) {
             let t = check_points.value(point, "T").unwrap();
             let row = (0..dense.rows().len()).find(|&r| dense.value(r, "T") == Some(t));
             let row = row.unwrap_or_else(|| panic!("{path}: no dense row at the check point T = {t} K"));

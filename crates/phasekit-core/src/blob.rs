@@ -486,37 +486,72 @@ pub(crate) fn assemble(bodies: &[Vec<u8>; SECTION_COUNT]) -> Vec<u8> {
         offset += bytes.len();
     }
     let checked: Vec<u8> = table.into_iter().chain(body).collect();
-    let mut out = Vec::with_capacity(HEADER + checked.len());
-    out.extend_from_slice(MAGIC);
-    put_u32(&mut out, VERSION);
-    put_u32(&mut out, SECTIONS.len() as u32);
-    out.extend_from_slice(&((HEADER + checked.len()) as u64).to_le_bytes());
-    out.extend_from_slice(&ModelKey::from_content(&checked).get().to_le_bytes());
-    out.extend_from_slice(&checked);
-    out
+    BLOB.wrap(SECTIONS.len(), &checked)
+}
+
+/// The 32-byte header that frames a blob and a pack: magic, version, item count, total length and the checksum of all
+/// that follows the header.
+struct Frame {
+    magic: &'static [u8; 8],
+    version: u32,
+    /// What the frame holds, as errors name it.
+    what: &'static str,
+    /// Its header, as a short header's error names it.
+    header: &'static str,
+}
+
+/// A blob's frame; its items are sections.
+const BLOB: Frame = Frame { magic: MAGIC, version: VERSION, what: "blob", header: "header" };
+
+/// A pack's frame; its items are fluids.
+const PACK: Frame = Frame { magic: PACK_MAGIC, version: PACK_VERSION, what: "pack", header: "pack header" };
+
+impl Frame {
+    /// `body` behind this frame's header, which counts `count` items.
+    fn wrap(&self, count: usize, body: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(HEADER + body.len());
+        out.extend_from_slice(self.magic);
+        put_u32(&mut out, self.version);
+        put_u32(&mut out, count as u32);
+        out.extend_from_slice(&((HEADER + body.len()) as u64).to_le_bytes());
+        out.extend_from_slice(&ModelKey::from_content(body).get().to_le_bytes());
+        out.extend_from_slice(body);
+        out
+    }
+
+    /// The header of `bytes` checked against this frame (magic, version, total length, checksum): its item count and
+    /// the bytes after the header.
+    fn open<'b>(&self, bytes: &'b [u8]) -> Result<(usize, &'b [u8]), LoadError> {
+        let what = self.what;
+        let header =
+            bytes.get(..HEADER).ok_or_else(|| bad(format!("{what} of {} bytes has no header", bytes.len())))?;
+        let mut h = Reader::new(header, self.header);
+        if h.take::<8>()? != *self.magic {
+            return Err(bad(format!("not a phasekit {what}")));
+        }
+        let (version, expected) = (h.u32()?, self.version);
+        if version != expected {
+            return Err(bad(format!(
+                "{what} version {version}; this build reads version {expected} (regenerate the pack)"
+            )));
+        }
+        let (count, length, checksum) = (h.u32()? as usize, h.u64()?, h.u64()?);
+        if length != bytes.len() as u64 {
+            return Err(bad(format!("{what} says {length} bytes, has {}", bytes.len())));
+        }
+        let body = bytes.get(HEADER..).unwrap_or_default();
+        if ModelKey::from_content(body).get() != checksum {
+            return Err(bad(format!("{what} checksum mismatch")));
+        }
+        Ok((count, body))
+    }
 }
 
 /// The header, checksum and section table of a v1 blob, checked whole: its sections, in id order.
 fn validated_sections(bytes: &[u8]) -> Result<Vec<&[u8]>, LoadError> {
-    let header = bytes.get(..HEADER).ok_or_else(|| bad(format!("blob of {} bytes has no header", bytes.len())))?;
-    let mut h = Reader::new(header, "header");
-    if h.take::<8>()? != *MAGIC {
-        return Err(bad("not a phasekit blob".into()));
-    }
-    let version = h.u32()?;
-    if version != VERSION {
-        return Err(bad(format!("blob version {version}; this build reads version {VERSION} (regenerate the pack)")));
-    }
-    let (count, length, checksum) = (h.u32()? as usize, h.u64()?, h.u64()?);
-    if length != bytes.len() as u64 {
-        return Err(bad(format!("blob says {length} bytes, has {}", bytes.len())));
-    }
+    let (count, _) = BLOB.open(bytes)?;
     if count != SECTIONS.len() {
         return Err(bad(format!("blob lists {count} sections; version {VERSION} has {}", SECTIONS.len())));
-    }
-    let checked = bytes.get(HEADER..).unwrap_or_default();
-    if ModelKey::from_content(checked).get() != checksum {
-        return Err(bad("blob checksum mismatch".into()));
     }
     let mut table = Reader::new(bytes.get(HEADER..HEADER + ENTRY * count).unwrap_or_default(), "section table");
     let mut next = HEADER + ENTRY * count;
@@ -596,37 +631,12 @@ pub(crate) fn pack(fluids: &[PackFluid]) -> Vec<u8> {
         body.resize(body.len() + padding, 0);
         body.extend_from_slice(blob);
     }
-    let mut out = Vec::with_capacity(HEADER + body.len());
-    out.extend_from_slice(PACK_MAGIC);
-    put_u32(&mut out, PACK_VERSION);
-    put_u32(&mut out, fluids.len() as u32);
-    out.extend_from_slice(&((HEADER + body.len()) as u64).to_le_bytes());
-    out.extend_from_slice(&ModelKey::from_content(&body).get().to_le_bytes());
-    out.extend_from_slice(&body);
-    out
+    PACK.wrap(fluids.len(), &body)
 }
 
 /// Reads a v1 pack: header and checksum, then each fluid's names, references and blob, every blob validated whole.
 pub(crate) fn unpack(bytes: &[u8]) -> Result<Vec<PackFluid>, LoadError> {
-    let header = bytes.get(..HEADER).ok_or_else(|| bad(format!("pack of {} bytes has no header", bytes.len())))?;
-    let mut h = Reader::new(header, "pack header");
-    if h.take::<8>()? != *PACK_MAGIC {
-        return Err(bad("not a phasekit pack".into()));
-    }
-    let version = h.u32()?;
-    if version != PACK_VERSION {
-        return Err(bad(format!(
-            "pack version {version}; this build reads version {PACK_VERSION} (regenerate the pack)"
-        )));
-    }
-    let (count, length, checksum) = (h.u32()?, h.u64()?, h.u64()?);
-    if length != bytes.len() as u64 {
-        return Err(bad(format!("pack says {length} bytes, has {}", bytes.len())));
-    }
-    let body = bytes.get(HEADER..).unwrap_or_default();
-    if ModelKey::from_content(body).get() != checksum {
-        return Err(bad("pack checksum mismatch".into()));
-    }
+    let (count, body) = PACK.open(bytes)?;
     let mut r = Reader::new(body, "pack");
     let mut fluids = Vec::new();
     for _ in 0..count {

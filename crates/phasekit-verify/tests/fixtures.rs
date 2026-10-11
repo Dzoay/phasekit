@@ -35,16 +35,14 @@ fn oracle_lock_pins_the_runner_image() {
     let image = lock.get("runner_image").unwrap_or_default();
     let digest = image.rsplit_once("@sha256:").map_or("", |(_, digest)| digest);
     assert!(digest.len() == 64 && digest.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')), "`{image}`");
-    let environment = |(path, text): (&str, &str)| {
-        let generator = Fixture::parse(path, text).unwrap().header("generator").unwrap_or_default();
-        generator.split(' ').filter(|field| !field.starts_with("sha256=")).collect::<Vec<_>>().join(" ")
-    };
-    let smoke = environment(fixture!("coolprop-8.0.0/facts/smoke.csv"));
+    let smoke = phasekit_verify::generator_environment(fixture!("coolprop-8.0.0/facts/smoke.csv")).unwrap();
     assert!(smoke.contains(" python=3.12.") && smoke.contains(" libc=glibc-"), "{smoke}");
-    assert_eq!(environment(fixture!("coolprop-8.0.0/facts/register.csv")), smoke);
-    assert_eq!(environment(fixture!("mp/check-points.csv")), smoke);
-    assert_eq!(environment(fixture!("coolprop-8.0.0/all/crit.csv")), smoke);
-    assert!(CRIT_CORE.iter().all(|&file| environment(file) == smoke));
+    let others = [
+        fixture!("coolprop-8.0.0/facts/register.csv"),
+        fixture!("mp/check-points.csv"),
+        fixture!("coolprop-8.0.0/all/crit.csv"),
+    ];
+    assert_eq!(phasekit_verify::on_the_pinned_image(others.into_iter().chain(CRIT_CORE)), Ok(17));
 }
 
 /// PLAN.md M1.17 (map 09 §8, map 10 §8.1): the superancillary check points of CoolProp's fluid files, 3 for each of

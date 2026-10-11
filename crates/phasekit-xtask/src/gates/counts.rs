@@ -118,13 +118,17 @@ fn junit_counts(xml: &str) -> Result<Vec<(String, usize)>, String> {
             .ok_or("junit: a <testcase> without a classname")?;
         let body = if head.ends_with('/') { "" } else { rest.split("</testcase>").next().unwrap_or_default() };
         let passed = !["<failure", "<error", "<skipped"].iter().any(|tag| body.contains(tag));
-        let binary = binary_of(id);
-        match counts.iter_mut().find(|(b, _)| *b == binary) {
-            Some((_, n)) => *n += usize::from(passed),
-            None => counts.push((binary, usize::from(passed))),
-        }
+        add(&mut counts, binary_of(id), usize::from(passed));
     }
     Ok(counts)
+}
+
+/// Adds `passed` to `binary`'s count, a new entry at the end for a binary not yet counted.
+fn add(counts: &mut Vec<(String, usize)>, binary: String, passed: usize) {
+    match counts.iter_mut().find(|(b, _)| *b == binary) {
+        Some((_, n)) => *n += passed,
+        None => counts.push((binary, passed)),
+    }
 }
 
 /// The manifest's `<package>::<binary>` for a nextest binary id: `phasekit-core` (unit tests of a library) is
@@ -158,10 +162,7 @@ fn doc_counts(output: &str, packages: &[String]) -> Result<Vec<(String, usize)>,
                 .and_then(|counts| counts.split_once(" passed"))
                 .and_then(|(n, _)| n.parse::<usize>().ok())
                 .ok_or(format!("{binary}: {line}"))?;
-            match counts.iter_mut().find(|(b, _)| *b == binary) {
-                Some((_, n)) => *n += passed,
-                None => counts.push((binary, passed)),
-            }
+            add(&mut counts, binary, passed);
         }
     }
     match current {

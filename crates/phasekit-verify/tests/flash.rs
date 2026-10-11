@@ -4,8 +4,9 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
+use phasekit_core::internal::FluidRecord;
 use phasekit_core::{
-    Basis, DataSet, Density, DomainError, DomainPolicy, Error, FlashOptions, Input, Pair, Phase, Pressure, Prop,
+    Basis, DataSet, Density, DomainError, DomainPolicy, Error, FlashOptions, Fluid, Input, Pair, Phase, Pressure, Prop,
     Quality, Registry, Temperature, math,
 };
 use phasekit_verify::flash::FlashCheck;
@@ -29,6 +30,20 @@ const FLASH_CORE: [(&str, &str); 14] = [
     fixture!("coolprop-8.0.0/flash/n-Heptane.csv"),
 ];
 
+/// Every core fluid's flash fixture, checked by `rows` (a [`FlashCheck`] pair's rows or round trips) on its `Parity`
+/// fluid and record.
+fn every_core_flash(rows: impl Fn(&mut FlashCheck, &Fixture<'_>, &Fluid, &FluidRecord)) -> FlashCheck {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut check = FlashCheck::default();
+    for (path, text) in FLASH_CORE {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
+        let record = phasekit_core::internal::record(&registry, name).unwrap();
+        rows(&mut check, &fixture, registry.get(name).unwrap(), &record);
+    }
+    check
+}
+
 /// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/flash/<Fluid>.csv, the DT rows (PLAN.md M5.3): (ρ, T) read off 6 × 6
 /// (p, T) and 4 × 4 (T, Q) truth states per core fluid, flashed with no phase imposed. The phase label, Q (class
 /// `Flash`, 1e-8 absolute) and p, h, s, u (class `Flash`, 1e-9 of max(|v|, floor); for a single-phase state with `Term`
@@ -38,14 +53,7 @@ const FLASH_CORE: [(&str, &str); 14] = [
 /// pure VLE of their EOS, as CoolProp's.
 #[test]
 fn dt_two_phase_matches_oracle() {
-    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
-    let mut check = FlashCheck::default();
-    for (path, text) in FLASH_CORE {
-        let fixture = Fixture::parse(path, text).unwrap();
-        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
-        let record = phasekit_core::internal::record(&registry, name).unwrap();
-        check.dt_rows(&fixture, registry.get(name).unwrap(), &record);
-    }
+    let check = every_core_flash(FlashCheck::dt_rows);
     assert_eq!(check.report(20), None);
     // 14 × 36 PT truths and 14 × 16 QT truths, the pseudo-pure Air's and R410A's `dome` truths (M6.9), of which two
     // of Air's are gas.
@@ -59,14 +67,7 @@ fn dt_two_phase_matches_oracle() {
 /// truth checks against the oracle's DT (`dt_two_phase_matches_oracle`).
 #[test]
 fn pt_matches_oracle() {
-    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
-    let mut check = FlashCheck::default();
-    for (path, text) in FLASH_CORE {
-        let fixture = Fixture::parse(path, text).unwrap();
-        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
-        let record = phasekit_core::internal::record(&registry, name).unwrap();
-        check.pt_rows(&fixture, registry.get(name).unwrap(), &record);
-    }
+    let check = every_core_flash(FlashCheck::pt_rows);
     assert_eq!(check.report(20), None);
     assert_eq!((check.two_phase, check.compared, check.exempt), (0, 14 * 36, 4 * 14 * 36));
 }
@@ -112,13 +113,7 @@ fn pt_round_trips_on_a_40x40_log_p_t_grid() {
 /// and, in the dome, its quality within 1e-8 (`FlashCheck::px_round_trips`).
 #[test]
 fn p_x_round_trips() {
-    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
-    let mut check = FlashCheck::default();
-    for (path, text) in FLASH_CORE {
-        let fixture = Fixture::parse(path, text).unwrap();
-        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
-        check.px_round_trips(&fixture, registry.get(name).unwrap());
-    }
+    let check = every_core_flash(|check, fixture, fluid, _| check.px_round_trips(fixture, fluid));
     assert_eq!(check.report(20), None);
     assert_eq!((check.two_phase, check.compared), (3 * (14 * 16 - 2), 3 * (14 * (36 + 16) - 2)));
 }
@@ -132,16 +127,11 @@ fn p_x_round_trips() {
 /// the search passes where Air's VLE fails, just below its published Tc (`flash::isochore_x`).
 #[test]
 fn d_x_round_trips() {
-    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
-    let mut check = FlashCheck::default();
-    for (path, text) in FLASH_CORE {
-        let fixture = Fixture::parse(path, text).unwrap();
-        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
-        check.dx_round_trips(&fixture, registry.get(name).unwrap());
-    }
+    let check = every_core_flash(|check, fixture, fluid, _| check.dx_round_trips(fixture, fluid));
     assert_eq!(check.report(20), None);
     assert_eq!((check.two_phase, check.compared), (3 * (14 * 16 - 2), 3 * 14 * (36 + 16)));
 
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let mut air = FlashCheck::default();
     let fluid = registry.get("Air").unwrap();
     let c = phasekit_core::internal::record(&registry, "Air").unwrap().critical.unwrap();
@@ -224,13 +214,7 @@ fn hs_round_trips() {
 /// each one's phase, T and ρ within 1e-9.
 #[test]
 fn su_round_trips() {
-    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
-    let mut check = FlashCheck::default();
-    for (path, text) in FLASH_CORE {
-        let fixture = Fixture::parse(path, text).unwrap();
-        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
-        check.su_round_trips(&fixture, registry.get(name).unwrap());
-    }
+    let check = every_core_flash(|check, fixture, fluid, _| check.su_round_trips(fixture, fluid));
     assert_eq!(check.report(20), None);
     assert_eq!(check.compared, 14 * 36);
 }
@@ -416,14 +400,7 @@ fn hsu_d_issue_cases() {
 /// fixture.
 #[test]
 fn flash_fixtures_name_the_pinned_generator_environment() {
-    let environment = |(path, text): (&str, &str)| {
-        let generator = Fixture::parse(path, text).unwrap().header("generator").unwrap_or_default();
-        generator.split(' ').filter(|field| !field.starts_with("sha256=")).collect::<Vec<_>>().join(" ")
-    };
-    let smoke = environment(fixture!("coolprop-8.0.0/facts/smoke.csv"));
-    for file in FLASH_CORE {
-        assert_eq!(environment(file), smoke, "{}", file.0);
-    }
+    assert_eq!(phasekit_verify::on_the_pinned_image(FLASH_CORE), Ok(14));
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/all/flash.csv (PLAN.md M6.9; D4, user decision 4; map 04 U4): the
