@@ -75,14 +75,14 @@ pub enum Error {
 pub enum DomainError {
     /// T below the model's minimum temperature (or its triple point, if higher).
     BelowMinTemperature {
-        /// Requested temperature, K.
+        /// Requested or solved temperature, K; where a P+X input lies below every state at its p, the limit itself.
         t: f64,
         /// Limit, K.
         t_min: f64,
     },
     /// T above the model's maximum temperature.
     AboveMaxTemperature {
-        /// Requested temperature, K.
+        /// Requested or solved temperature, K; where a P+X input lies beyond 1.5·Tmax, that bound.
         t: f64,
         /// Limit, K.
         t_max: f64,

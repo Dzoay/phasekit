@@ -49,6 +49,8 @@ pub enum Strategy {
     Vle,
     /// A pseudo-pure fluid's ancillary definition of saturation, each side's density the EOS's at its (T, p) (D4).
     Ancillary,
+    /// TOMS 748 in T along an isobar (P+X), each iterate a density solve at (T, p).
+    Isobar,
 }
 
 /// The strategy and its iteration count.
