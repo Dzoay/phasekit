@@ -40,11 +40,12 @@ exclude_re = [
     # falls on that node and the pieces hold the same roots. A piece is searched where an end's residual is exactly 0 or
     # the ends' signs differ; with `&&` for the first `||`, a root exactly on a node is still found from the cell that
     # it ends, unless x only touches the value there. And a fluid whose saturation at T fails with `NoConvergence` from
-    # the VLE is a pseudo-pure one: a pure fluid's below its curve's top comes from the curve.
+    # the VLE is a pseudo-pure one: a pure fluid's below its curve's top comes from the curve (T+X; DP's `isochore_p`).
     "flash\\.rs:[0-9]+:[0-9]+: replace \\* with / in cell_roots",
     "flash\\.rs:[0-9]+:[0-9]+: replace < with <= in cell_roots",
     "flash\\.rs:[0-9]+:[0-9]+: replace \\|\\| with && in cell_roots",
     "flash\\.rs:[0-9]+:[0-9]+: replace match guard pseudo_pure with true in tx",
+    "flash\\.rs:[0-9]+:[0-9]+: replace match guard pseudo_pure\\(\\) with true in isochore_p",
     # Each gate's `run` gathers its input through `repo` and is exercised by G8, not by unit tests; the rules it
     # applies live in the module's pure functions, which are mutated.
     "replace run -> Verdict",
