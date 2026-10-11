@@ -111,6 +111,19 @@ for bin in cmake g++; do
   fi
 done
 
+# Lints .github/workflows after an edit; no gate runs it, so warn only. actionlint runs shellcheck on each workflow's
+# `run:` scripts when shellcheck is on PATH, and skips them silently when it is not.
+if command -v actionlint >/dev/null 2>&1; then
+  ok "actionlint $(actionlint -version 2>&1 | head -n 1)"
+else
+  warn "actionlint: not found (lints .github/workflows; https://github.com/rhysd/actionlint/blob/main/docs/install.md)"
+fi
+if command -v shellcheck >/dev/null 2>&1; then
+  ok "shellcheck $(shellcheck --version | sed -n 's/^version: //p')"
+else
+  warn "shellcheck: not found (actionlint uses it for the workflows' run: scripts; https://www.shellcheck.net/)"
+fi
+
 if ((${#path_fix[@]} > 0)); then
   printf '\nSome tools are installed but not on PATH. Add this to your shell profile:\n'
   printf "  export PATH=\"%s:\$PATH\"\n" "$(printf '%s\n' "${path_fix[@]}" | sort -u | paste -sd:)"

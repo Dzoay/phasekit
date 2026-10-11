@@ -29,7 +29,7 @@ Follow [PLAN.md §0](docs/PLAN.md#0-how-to-use-this-plan): write the named faili
 arbiter, show it red, implement, make all gates green, update affected docs, open the PR. If a step fails its gate in
 a way the plan did not foresee, stop and re-plan ([PLAN.md §0.4](docs/PLAN.md#04-when-a-step-fails-its-gate-stop-and-re-plan)).
 Do not start the next step in the same PR. `scripts/check-toolchain.sh` checks that the tools the gates need are
-installed.
+installed. After editing `.github/workflows/`, run `actionlint` (no gate does) and fix what it reports.
 
 Gates are defined once in [PLAN.md §2.4](docs/PLAN.md#24-standard-gates) (G1-G8). Agents always set
 `CARGO_TARGET_DIR` to a scratch directory outside the repository.
