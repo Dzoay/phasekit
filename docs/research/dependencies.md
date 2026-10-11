@@ -545,6 +545,7 @@ Crate names below are placeholders. The tiers are the decision.
 
 1. **MSRV level.** Should core stay at 1.85 (Debian 13 / kernel parity), or use one workspace-wide 1.89? The single value is simpler, enables safe SIMD everywhere and matches nalgebra, num-dual, wide and fearless_simd.
    - The answer depends on whether distro packaging of coolprop-rs is a goal.
+   - **Decided 2026-10-10 (user decision MS1):** one workspace-wide 1.89. Users build with rustup, common practice in Rust; Debian 13's packaged 1.85 is not a target.
 2. **Bit-reproducibility.** Is it a product requirement across Linux, Windows and WASM? If yes, `libm` becomes the default math backend and a speed cost must be measured. If no, it stays opt-in.
 3. **Shape of the in-house AD.** Should it be a tiny published crate (`coolprop-ad`) that other projects can reuse, or a private module? And which form wins in benchmarks against CoolProp's recurrence: truncated-Taylor `Jet<N>` or nested duals?
 4. **SIMD acceptance bar.** Is the bar in §3.5 (≥ about 1.5× per batch, ≤ 2 ulp) right? Which kernel goes first: SA Clenshaw or αʳ power terms?

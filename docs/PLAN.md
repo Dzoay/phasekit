@@ -200,7 +200,8 @@ CONTRIBUTING.md is the one definition of these rules; this is the summary agents
   are versioned on their own, not by the crate version.
 - Generated files (`phasekit-data` blobs and index, fixtures and their manifest lines, cbindgen header) are committed in
   the step that changes their generator; CI regenerates and diffs them.
-- No `rust-toolchain.toml` (D17). Develop on the latest stable (1.99.0 today); the workspace MSRV is 1.85. CI installs
+- No `rust-toolchain.toml` (D17). Develop on the latest stable (1.99.0 today); the workspace MSRV is 1.89 (user
+  decision MS1; 1.85 until 2026-10-10). CI installs
   the stable version named once, as the default of `.github/actions/rust/action.yml`. A new stable that turns any gate
   red (for example a new clippy lint under `-D warnings`) is handled in a dedicated `chore: rust 1.NN` PR that fixes the
   code and bumps that version; a blanket `allow` is never the fix (section 0.4). Agents use the version CI names.
@@ -262,7 +263,8 @@ use the gitignored `target/`.
 | G7 | `cargo clippy -p phasekit-core --no-default-features --all-targets -- -D warnings` (+ `-p phasekit-compat` from M5.9) | local; CI linux | M0.2 |
 | G8 | `cargo xtask gates all`: `deps`, `lints`, `counts`, `ignores`, `doc-excerpts`, `rot` (M0.4); `assertions`, `mutants` (M0.4a); `fixtures`, `register` (M1); `datagen` (M2); `features` (M5); `perf` (M9); `abi` (M10); `core-frozen` (M11, M14). Rules: VERIFICATION.md §11.2 | local; CI linux (needs `reference/CoolProp`, fetched and cached by the job) | M0.4 |
 
-CI-only work (M0.6): Windows MSVC and aarch64 test runs, MSRV (`cargo +1.85 check --lib` for core, data and compat),
+CI-only work (M0.6): Windows MSVC and aarch64 test runs, MSRV (G3 on 1.89 since user decision MS1; `cargo +1.85 check
+--lib` for core, data and compat before),
 the nightly oracle sweep, the weekly latest-dependency test, gungraun benches (from M9). `cargo deny check`, `reuse
 lint` and `cargo shear` run locally and in CI.
 
@@ -650,7 +652,8 @@ ROT-056. M2.10: ROT-142, ROT-143, ROT-144. (ROT-057's datagen half lands in M2.3
 
 **Goal.** Every separable residual kind evaluated to order 4 on real data, each checked against AD of the paper
 formula and against the oracle block by block (L1, L3); α^r totals for every fluid without NonAnalytic terms.
-**Prerequisites.** M2; `num-dual` as a dev-dependency (MSRV 1.89, so MSRV CI runs `check --lib` only).
+**Prerequisites.** M2; `num-dual` as a dev-dependency (MSRV 1.89, so MSRV CI ran `check --lib` only until user decision
+MS1 raised the workspace to 1.89).
 
 - **M3.1 Power blocks against the oracle.** *Failing test:* `power_blocks_match_oracle_term_fixtures` (class `Term`,
   all 15 A_ij up to order 4, the `term` grid of VERIFICATION.md §3.5 with δ log-spaced down to 1e-8, core subset;
@@ -1264,7 +1267,7 @@ conformance kit (VERIFICATION.md §10) and, where marked, a **zero-line core dif
 | M | Crate | Entry trigger | Scope | Exit gate |
 |---|---|---|---|---|
 | M11 | `phasekit-cubic` | v0.1 released | vdW/SRK/PR via Δ1/Δ2, Soave/MC/Twu alpha, parameters from the canonical fluid records, borrowed HEOS ideal gas, cubic superancillary (map 06 U1-U5) | Zero-line core diff; `new_family` conformance; cubic-R register entry (below); DIV-0010 proof by the entropy identity (oracle PR propane 400 K, 1 bar: T(∂s/∂T)_p = 91.35 vs cp = 93.89 J/mol/K; map 12 §6.3); Z_c = 1/3 (SRK), 0.30740 (PR) (map 06 §8) |
-| M12 | core `simd` feature | v0.1 released: a time-boxed SIMD spike (the user's follow-up asks to investigate SIMD), about ten steps *(judgement)* | `fearless_simd` optional dependency, core-local `Lanes<W>` implementing sealed `Real`, crate-private `exec`, batch hooks and an `ExecPolicy` variant; wasm `simd128` build; in-house vector exp/ln (D9, ARCHITECTURE.md §7) | ≥ 2.5× α^r batch throughput on AVX2 over the M9 baseline, then the feature ships; otherwise the spike's measurements are recorded and the branch closed (D9); `policy_equivalence` bitwise; arbiter rows pass on every dispatch level; MSRV raised to 1.89 workspace-wide |
+| M12 | core `simd` feature | v0.1 released: a time-boxed SIMD spike (the user's follow-up asks to investigate SIMD), about ten steps *(judgement)* | `fearless_simd` optional dependency, core-local `Lanes<W>` implementing sealed `Real`, crate-private `exec`, batch hooks and an `ExecPolicy` variant; wasm `simd128` build; in-house vector exp/ln (D9, ARCHITECTURE.md §7) | ≥ 2.5× α^r batch throughput on AVX2 over the M9 baseline, then the feature ships; otherwise the spike's measurements are recorded and the branch closed (D9); `policy_equivalence` bitwise; arbiter rows pass on every dispatch level; the workspace MSRV is already 1.89 (user decision MS1) |
 | M13 | `phasekit-mix` | v0.1 + demand for mixtures | `Mixture: HelmholtzModel` at fixed z, own `ThermoModel` (VLE, stability, `from_split`), `MixtureModel` with AD composition derivatives, GERG-2008 datasets, compat `A[x]&B[y]`, true-mixture variants (`R410A.mix`) registered beside the pseudo-pure names (D4, user decision 4) | x = [1, 0] equals the pure fluid under any gauge (map 04 §8, map 15 §8); GERG teqp vectors (map 06 U7); Bell 2023 Table XIII; DIV-0013 resolved or kept; core diff zero expected |
 | M14 | `phasekit-iapws` | v0.1 + a water/steam or solid use case | IF97 regions 1-5 with backward equations, ice Ih (R10-06) and sublimation (R14-08) on `bundle_from_gibbs`, `from_split` for ice + vapour (map 07 §9) | **Zero-line core diff**; IAPWS tables first, oracle second; `gibbs_seam` conformance on real models |
 | M15 | `phasekit-pcsaft` | M11 done + demand | Hard chain, dispersion, association, polar terms on `Jet4` (map 06 U9-U11) | Zero-line core diff; teqp/FeOs cross-checks; oracle only where map 06 §8 says it is usable |

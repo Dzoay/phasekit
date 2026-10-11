@@ -5,7 +5,7 @@ set -euo pipefail
 
 # Keep in step with the workspace `rust-version` (docs/PLAN.md §2.2).
 MIN_RUST_MAJOR=1
-MIN_RUST_MINOR=85
+MIN_RUST_MINOR=89
 TARGETS=(x86_64-unknown-linux-gnu wasm32-unknown-unknown wasm32-wasip2 x86_64-pc-windows-msvc)
 INSTALL_CMD="cargo install --locked --root ~/.local wasmtime-cli cargo-deny cargo-shear cargo-mutants cargo-nextest"
 # Where `cargo install` may have put a binary that is not on PATH.

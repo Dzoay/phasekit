@@ -57,12 +57,10 @@ pub fn parse(file: &str, text: &str) -> Result<Source, String> {
     let fluid: mirror::Fluid = serde_json::from_value(tree.to_value()).map_err(|e| format!("{file}: {e}"))?;
     for (i, eos) in fluid.eos.iter().enumerate() {
         let mut polyt = eos.alpha0.iter().filter_map(mirror::IdealBlock::polyt_constants);
-        if let Some(first) = polyt.next() {
-            if polyt.any(|other| other != first) {
-                return Err(format!(
-                    "{file}: EOS[{i}]: c_p0 blocks with different Tc or T0 (CoolProp would join them)"
-                ));
-            }
+        if let Some(first) = polyt.next()
+            && polyt.any(|other| other != first)
+        {
+            return Err(format!("{file}: EOS[{i}]: c_p0 blocks with different Tc or T0 (CoolProp would join them)"));
         }
     }
     Ok(Source { file: file.to_string(), tree, fluid, waivers })

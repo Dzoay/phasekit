@@ -873,9 +873,9 @@ checked further). Constraints it meets *(inference)*:
 - Not fluid-only, because materials are coming.
 
 **D17 Edition, MSRV, tooling, CI, lints, unsafe.**
-- Edition 2024, resolver 3. One workspace `rust-version = "1.85"`, raised workspace-wide only for a concrete feature
-  (e.g. to fearless_simd's 1.89 if the `simd` feature lands; dependencies R3, Q1). Developed on 1.99.0; no nightly
-  (R3, R4).
+- Edition 2024, resolver 3. One workspace `rust-version = "1.89"` (user decision MS1, 2026-10-10: let-chains,
+  `f64::next_up`, and every test, num-dual's included, builds and runs on it; it was 1.85, the edition-2024 floor),
+  raised workspace-wide only for a concrete feature (dependencies R3, Q1). Developed on 1.99.0; no nightly (R3, R4).
 - Lints: `unsafe_code = "forbid"`, `missing_docs`, clippy `all`, with `unwrap_used`, `expect_used`, `dbg_macro`,
   `todo`, `unimplemented`, `panic`, `print_stdout` and `print_stderr` denied (tests may unwrap and panic;
   `phasekit-xtask` may print); `indexing_slicing` denied in `batch` and `flash`.
