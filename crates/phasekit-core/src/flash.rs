@@ -2,7 +2,8 @@
 //! options. No global configuration, no sticky phase, no exception cascade (map 01 R12, map 03 §6, map 12
 //! R3/R4). Each pair runs a fixed, ordered list of strategies returning `Result`; the winner is recorded in
 //! `State::path`. DT (M5.3), QT and PQ (M6.8), PT (M7.1; its phase rule complete at M7.2), PH, PS and PU (M7.3), DH,
-//! DS and DU (M7.4) and HT, ST and TU (M7.5) are implemented; the other pairs land at M7 behind `IMPLEMENTED`.
+//! DS and DU (M7.4), HT, ST and TU (M7.5) and DP (M7.6) are implemented; the other pairs land at M7 behind
+//! `IMPLEMENTED`.
 #![deny(clippy::indexing_slicing)] // E12: no panicking index on the flash path
 
 use crate::derivs::{Bundle, Order};
@@ -117,6 +118,7 @@ pub(crate) fn flash(fluid: &PureFluid, input: NativeInput, opts: &FlashOptions) 
         Pair::HT => named(Pair::HT, tx(fluid, y, x, Caloric::H, opts)),
         Pair::ST => named(Pair::ST, tx(fluid, y, x, Caloric::S, opts)),
         Pair::TU => named(Pair::TU, tx(fluid, x, y, Caloric::U, opts)),
+        Pair::DP => named(Pair::DP, dp(fluid, x, y, opts)),
         pair => Err(Error::Unsupported { pair }),
     }
 }
@@ -811,6 +813,41 @@ fn dx(fluid: &PureFluid, rho: f64, x: f64, var: Caloric, opts: &FlashOptions) ->
         return Err(Error::NoConvergence { strategy: Strategy::Isochore, iterations });
     }
     Ok(state.with_path(SolvePath { strategy: Strategy::Isochore, iterations }))
+}
+
+/// DP (PLAN.md M7.6; map 03 §3.1, §9 `flash::dp`): T where DT's pressure at (T, ρ) is p ([`isochore_p`]), by the root
+/// search in T along the isochore ([`root_in_t`], `Strategy::Isochore`), and the state DT's at it, with DT's checks and
+/// p reproduced. In the dome DT's p is the saturation pressure at T; on either side it rises with T, (∂p/∂T)_ρ > 0, but
+/// in water's liquid by its density maximum, where the search takes the highest root. An imposed phase is honoured, as
+/// by every pair (ROT-070: CoolProp's DP ignores one, map 03 §6): an imposed single phase is the EOS's along the whole
+/// isochore, an imposed `TwoPhase` holds at the root. Errors name this pair ([`named`]).
+fn dp(fluid: &PureFluid, rho: f64, p: f64, opts: &FlashOptions) -> Result<State, Error> {
+    if opts.domain() == DomainPolicy::Enforce {
+        fluid.limits().check_p(p)?;
+    }
+    let along = if opts.phase_hint() == Some(Phase::TwoPhase) { FlashOptions::new() } else { *opts };
+    let residual = |t: f64| Ok(isochore_p(fluid, t, rho, &along)? - p);
+    let (t, iterations) = root_in_t(fluid, t_search(fluid), (None, None), Strategy::Isochore, residual)?;
+    let state = dt(fluid, t, rho, opts)?;
+    if (state.p() - p).abs() > REPRODUCED_X * p {
+        return Err(Error::NoConvergence { strategy: Strategy::Isochore, iterations });
+    }
+    Ok(state.with_path(SolvePath { strategy: Strategy::Isochore, iterations }))
+}
+
+/// p at (T, ρ) as DT's state has it: the EOS's for a single phase, the saturation pressure in the dome (DT's phase rule);
+/// where a pseudo-pure fluid's VLE fails just below its published Tc, the EOS's (see [`isochore_x`]).
+fn isochore_p(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<f64, Error> {
+    let r = fluid.eos().gas_constant();
+    let p = relations::pressure(r, t, rho, &total(fluid, t, rho)?);
+    let pseudo_pure = || fluid.saturation().is_ok_and(|c| c.is_some_and(|c| c.accuracy() == SatAccuracy::Definition));
+    Ok(match region(fluid, t, rho, p, opts) {
+        Err(Error::NoConvergence { strategy: Strategy::Vle, .. }) if pseudo_pure() => p,
+        region => match region? {
+            Region::Single(_) => p,
+            Region::Dome(sat, _) => sat.bubble.p,
+        },
+    })
 }
 
 /// x at (T, ρ) as DT's state has it: the EOS's for a single phase; in the dome (DT's phase rule) the lever rule's on
@@ -2419,5 +2456,30 @@ mod tests {
         let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
         let state = r410a.flash(dt(1.0, 190.0), &extrapolate);
         assert!(state.as_ref().is_ok_and(|s| s.phase() == Phase::Gas && s.is_extrapolated()), "{state:?}");
+    }
+
+    /// ROT-070 (map 03 §6 row 2): CoolProp's DP ignores an imposed phase. Water at 1.05 ρ″(400 K), 79.81 mol/m³, and
+    /// psat(400 K), 245.77 kPa, is two-phase at 400 K, Q 0.95231, with or without an imposed gas. Here DP without a
+    /// hint is that state (T and Q within 1e-9 of CoolProp's), and with `Gas` imposed the vapour at that ρ and p,
+    /// supercooled below 395 K, whose DT under the same hint gives p back.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn dp_honours_the_phase_hint() {
+        let water = embedded("Water");
+        let sat = record_of("Water").superancillary_curve().unwrap().at_t(400.0).unwrap();
+        let (rho, p) = (1.05 * sat.dew.rho, sat.dew.p);
+        let input = Input::dp(Density::molar(rho).unwrap(), Pressure::new(p).unwrap());
+        let free = water.state(input).unwrap();
+        let q = free.quality();
+        assert!(free.phase() == Phase::TwoPhase && (free.t() / 400.0 - 1.0).abs() < 1e-9, "{free:?}");
+        assert!(q.is_some_and(|q| (q - 0.952_311_292_382_732_8).abs() < 1e-9), "{q:?}");
+        let gas = FlashOptions::new().with_phase(Phase::Gas);
+        let imposed = water.flash(input, &gas).unwrap();
+        assert!(
+            imposed.phase() == Phase::Gas && imposed.t() < 395.0 && (imposed.p() / p - 1.0).abs() < 1e-9,
+            "{imposed:?}"
+        );
+        let back = water.flash(dt(rho, imposed.t()), &gas).unwrap();
+        assert!((back.p() / p - 1.0).abs() < 1e-9, "{back:?}");
     }
 }
