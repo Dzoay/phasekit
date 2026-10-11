@@ -5,7 +5,9 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use num_dual::{DualNum, HyperDual};
-use phasekit_core::internal::{EosRecord, FluidRecord};
+use phasekit_core::internal::{
+    DoubleExponentialTerm, EosRecord, FluidRecord, GaoBTerm, GaussianTerm, Lemmon2005Term, NonAnalyticTerm, PowerTerm,
+};
 use phasekit_core::{Basis, Error, HelmholtzModel, Jet4, Order, Phase, Prop, Real, Registry, State, ThermoModel};
 use phasekit_verify::{SplitMix64, ToleranceClass, majorant, term};
 
@@ -171,18 +173,43 @@ fn check_ad(
     checked
 }
 
-/// The paper formula `Σ n τ^t δ^d e^(−cδ^l)` of power and Exponential terms in num-dual.
-fn power_paper(e: &EosRecord, tau: &D4, delta: &D4) -> D4 {
+/// [`check_ad`] for one kind of terms, `list` of the EOS: `select`'s choice of `fluid`'s terms, the paper formula
+/// summed over them from each term's `paper`, the `Term` scale from each term's `scale`.
+fn check_terms<T: Clone>(
+    fluid: &str,
+    list: fn(&mut EosRecord) -> &mut Vec<T>,
+    select: impl Fn(&[T]) -> Vec<T>,
+    paper: impl Fn(&T, &D4, &D4) -> D4,
+    scale: impl Fn(&T, f64, f64, usize, usize) -> f64,
+) -> usize {
+    let mut source = phasekit_core::internal::record(Registry::embedded().unwrap(), fluid).unwrap().eos;
+    let terms = select(list(&mut source));
+    check_ad(
+        fluid,
+        |_, eos| *list(eos) = terms.clone(),
+        |_, tau, delta| total(&terms, |k| paper(k, tau, delta)),
+        |_, tau, delta, i, j| terms.iter().map(|k| scale(k, tau, delta, i, j)).sum(),
+    )
+}
+
+/// `Σ term(k)` over `terms` in num-dual, from 0 and in order: a paper formula's sum.
+fn total<T>(terms: &[T], term: impl Fn(&T) -> D4) -> D4 {
     let mut sum = var(0.0, [false; 4]);
-    for k in &e.power {
-        let damping = (delta.powi(i32::from(k.l)) * -k.c).exp();
-        sum += tau.powf(k.t) * delta.powi(i32::from(k.d)) * damping * k.n;
+    for k in terms {
+        sum += term(k);
     }
     sum
 }
 
-fn power_scale(e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
-    e.power.iter().map(|term| majorant::power(term, tau, delta, i, j)).sum()
+/// The paper formula `n τ^t δ^d e^(−cδ^l)` of a power or Exponential term in num-dual.
+fn power_term(k: &PowerTerm, tau: &D4, delta: &D4) -> D4 {
+    let damping = (delta.powi(i32::from(k.l)) * -k.c).exp();
+    tau.powf(k.t) * delta.powi(i32::from(k.d)) * damping * k.n
+}
+
+/// [`power_term`] summed over `e`'s power list.
+fn power_paper(e: &EosRecord, tau: &D4, delta: &D4) -> D4 {
+    total(&e.power, |k| power_term(k, tau, delta))
 }
 
 /// AD oracle: num-dual 0.15 on the paper formula (map 02 §3.1). The power list of every core-subset fluid that has
@@ -193,8 +220,8 @@ fn power_scale(e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
 fn jets_match_num_dual_ad() {
     let core = ["Air", "Ammonia", "CarbonDioxide", "HFE143m", "Helium", "Methanol", "Nitrogen", "R1130(E)", "R1234yf"];
     let core = [&core[..], &["R1234ze(E)", "R410A", "Water", "n-Heptane"]].concat();
-    let select = |e: &EosRecord, eos: &mut EosRecord| eos.power.clone_from(&e.power);
-    let checked: usize = core.iter().map(|fluid| check_ad(fluid, select, power_paper, power_scale)).sum();
+    let check = |fluid: &&str| check_terms(fluid, |e| &mut e.power, <[_]>::to_vec, power_term, majorant::power);
+    let checked: usize = core.iter().map(check).sum();
     assert_eq!(checked, 13 * 300 * 15);
 }
 
@@ -203,13 +230,13 @@ fn jets_match_num_dual_ad() {
 #[test]
 fn exponential_matches_ad_of_the_paper_formula() {
     let tail = |from: usize| {
-        move |e: &EosRecord, eos: &mut EosRecord| {
-            assert_eq!(e.power.len(), from + if from == 0 { 36 } else { 5 });
-            eos.power = e.power[from..].to_vec();
+        move |all: &[PowerTerm]| {
+            assert_eq!(all.len(), from + if from == 0 { 36 } else { 5 });
+            all[from..].to_vec()
         }
     };
-    let checked = check_ad("R1130(E)", tail(6), power_paper, power_scale)
-        + check_ad("Methanol", tail(0), power_paper, power_scale);
+    let check = |fluid, from| check_terms(fluid, |e| &mut e.power, tail(from), power_term, majorant::power);
+    let checked = check("R1130(E)", 6) + check("Methanol", 0);
     assert_eq!(checked, 2 * 300 * 15);
 }
 
@@ -217,64 +244,43 @@ fn exponential_matches_ad_of_the_paper_formula() {
 /// (Lemmon & Jacobsen 2005), R125's 18 terms; scale [`majorant::lemmon2005`].
 #[test]
 fn lemmon2005_matches_ad_of_the_paper_formula() {
-    let paper = |e: &EosRecord, tau: &D4, delta: &D4| {
-        let mut sum = var(0.0, [false; 4]);
-        for k in &e.lemmon2005 {
-            let mut exponent = var(0.0, [false; 4]);
-            if k.l > 0 {
-                exponent -= delta.powi(i32::from(k.l));
-            }
-            if k.m > 0.0 {
-                exponent -= tau.powf(k.m);
-            }
-            sum += tau.powf(k.t) * delta.powi(i32::from(k.d)) * exponent.exp() * k.n;
+    let paper = |k: &Lemmon2005Term, tau: &D4, delta: &D4| {
+        let mut exponent = var(0.0, [false; 4]);
+        if k.l > 0 {
+            exponent -= delta.powi(i32::from(k.l));
         }
-        sum
+        if k.m > 0.0 {
+            exponent -= tau.powf(k.m);
+        }
+        tau.powf(k.t) * delta.powi(i32::from(k.d)) * exponent.exp() * k.n
     };
-    let scale = |e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize| {
-        e.lemmon2005.iter().map(|term| majorant::lemmon2005(term, tau, delta, i, j)).sum()
-    };
-    let select = |e: &EosRecord, eos: &mut EosRecord| eos.lemmon2005.clone_from(&e.lemmon2005);
-    assert_eq!(check_ad("R125", select, paper, scale), 300 * 15);
+    assert_eq!(check_terms("R125", |e| &mut e.lemmon2005, <[_]>::to_vec, paper, majorant::lemmon2005), 300 * 15);
 }
 
 /// AD oracle: num-dual 0.15 on `n τ^t δ^d e^(−g_d δ^(l_d) − g_t τ^(l_t))` (de Reuck & Craven 1993), Methanol's 8
 /// terms with g_t < 0; scale [`majorant::double_exponential`].
 #[test]
 fn double_exponential_matches_ad_of_the_paper_formula() {
-    let paper = |e: &EosRecord, tau: &D4, delta: &D4| {
-        let mut sum = var(0.0, [false; 4]);
-        for k in &e.double_exponential {
-            let exponent = -(delta.powi(i32::from(k.ld)) * k.gd) - tau.powf(k.lt) * k.gt;
-            sum += tau.powf(k.t) * delta.powi(i32::from(k.d)) * exponent.exp() * k.n;
-        }
-        sum
+    let paper = |k: &DoubleExponentialTerm, tau: &D4, delta: &D4| {
+        let exponent = -(delta.powi(i32::from(k.ld)) * k.gd) - tau.powf(k.lt) * k.gt;
+        tau.powf(k.t) * delta.powi(i32::from(k.d)) * exponent.exp() * k.n
     };
-    let scale = |e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize| {
-        e.double_exponential.iter().map(|term| majorant::double_exponential(term, tau, delta, i, j)).sum()
-    };
-    let select = |e: &EosRecord, eos: &mut EosRecord| eos.double_exponential.clone_from(&e.double_exponential);
-    assert_eq!(check_ad("Methanol", select, paper, scale), 300 * 15);
+    let checked =
+        check_terms("Methanol", |e| &mut e.double_exponential, <[_]>::to_vec, paper, majorant::double_exponential);
+    assert_eq!(checked, 300 * 15);
 }
 
 /// AD oracle: num-dual 0.15 on `n τ^t δ^d e^(−η(δ − ε)² − β(τ − γ)²)`, the Gaussian blocks of R1234yf (7 terms) and
 /// Water (3 terms, β up to 250; map 02 §3.1); scale [`majorant::gaussian`].
 #[test]
 fn gaussian_matches_ad_of_the_paper_formula() {
-    let paper = |e: &EosRecord, tau: &D4, delta: &D4| {
-        let mut sum = var(0.0, [false; 4]);
-        for k in &e.gaussian {
-            let (wt, wd) = (*tau - k.gamma, *delta - k.epsilon);
-            let exponent = -(wd * wd * k.eta) - wt * wt * k.beta;
-            sum += tau.powf(k.t) * delta.powi(i32::from(k.d)) * exponent.exp() * k.n;
-        }
-        sum
+    let paper = |k: &GaussianTerm, tau: &D4, delta: &D4| {
+        let (wt, wd) = (*tau - k.gamma, *delta - k.epsilon);
+        let exponent = -(wd * wd * k.eta) - wt * wt * k.beta;
+        tau.powf(k.t) * delta.powi(i32::from(k.d)) * exponent.exp() * k.n
     };
-    let scale = |e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize| {
-        e.gaussian.iter().map(|term| majorant::gaussian(term, tau, delta, i, j)).sum()
-    };
-    let select = |e: &EosRecord, eos: &mut EosRecord| eos.gaussian.clone_from(&e.gaussian);
-    let checked = check_ad("R1234yf", select, paper, scale) + check_ad("Water", select, paper, scale);
+    let check = |fluid| check_terms(fluid, |e| &mut e.gaussian, <[_]>::to_vec, paper, majorant::gaussian);
+    let checked = check("R1234yf") + check("Water");
     assert_eq!(checked, 2 * 300 * 15);
 }
 
@@ -282,20 +288,12 @@ fn gaussian_matches_ad_of_the_paper_formula() {
 /// scale [`majorant::gao_b`].
 #[test]
 fn gao_b_matches_ad_of_the_paper_formula() {
-    let paper = |e: &EosRecord, tau: &D4, delta: &D4| {
-        let mut sum = var(0.0, [false; 4]);
-        for k in &e.gao_b {
-            let (wt, wd) = (*tau - k.gamma, *delta - k.epsilon);
-            let exponent = (wt * wt * k.beta + k.b).recip() - wd * wd * k.eta;
-            sum += tau.powf(k.t) * delta.powi(i32::from(k.d)) * exponent.exp() * k.n;
-        }
-        sum
+    let paper = |k: &GaoBTerm, tau: &D4, delta: &D4| {
+        let (wt, wd) = (*tau - k.gamma, *delta - k.epsilon);
+        let exponent = (wt * wt * k.beta + k.b).recip() - wd * wd * k.eta;
+        tau.powf(k.t) * delta.powi(i32::from(k.d)) * exponent.exp() * k.n
     };
-    let scale = |e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize| {
-        e.gao_b.iter().map(|term| majorant::gao_b(term, tau, delta, i, j)).sum()
-    };
-    let select = |e: &EosRecord, eos: &mut EosRecord| eos.gao_b.clone_from(&e.gao_b);
-    assert_eq!(check_ad("Ammonia", select, paper, scale), 300 * 15);
+    assert_eq!(check_terms("Ammonia", |e| &mut e.gao_b, <[_]>::to_vec, paper, majorant::gao_b), 300 * 15);
 }
 
 /// PLAN.md M3.7 (map 02 §3.1): at ρ = 0 every `A_ij` of every fluid (all 136; Water's and CarbonDioxide's
@@ -377,23 +375,16 @@ fn delta_factors_are_cancellation_free_near_zero_density() {
 /// [`points`] of each fluid, those within 1e-2 of τ = δ = 1 included; class `Term`, scale [`majorant::non_analytic`].
 #[test]
 fn nonanalytic_matches_ad_of_the_paper_formula() {
-    let paper = |e: &EosRecord, tau: &D4, delta: &D4| {
-        let mut sum = var(0.0, [false; 4]);
-        for k in &e.non_analytic {
-            let (w, u) = (*delta - 1.0, *tau - 1.0);
-            let w2 = w * w;
-            let theta = -*tau + 1.0 + w2.powf(1.0 / (2.0 * k.beta)) * k.big_a;
-            let big_delta = theta * theta + w2.powf(k.a) * k.big_b;
-            let psi = (-(w2 * k.big_c) - u * u * k.big_d).exp();
-            sum += big_delta.powf(k.b) * *delta * psi * k.n;
-        }
-        sum
+    let paper = |k: &NonAnalyticTerm, tau: &D4, delta: &D4| {
+        let (w, u) = (*delta - 1.0, *tau - 1.0);
+        let w2 = w * w;
+        let theta = -*tau + 1.0 + w2.powf(1.0 / (2.0 * k.beta)) * k.big_a;
+        let big_delta = theta * theta + w2.powf(k.a) * k.big_b;
+        let psi = (-(w2 * k.big_c) - u * u * k.big_d).exp();
+        big_delta.powf(k.b) * *delta * psi * k.n
     };
-    let scale = |e: &EosRecord, tau: f64, delta: f64, i: usize, j: usize| {
-        e.non_analytic.iter().map(|term| majorant::non_analytic(term, tau, delta, i, j)).sum()
-    };
-    let select = |e: &EosRecord, eos: &mut EosRecord| eos.non_analytic.clone_from(&e.non_analytic);
-    let checked = check_ad("Water", select, paper, scale) + check_ad("CarbonDioxide", select, paper, scale);
+    let check = |fluid| check_terms(fluid, |e| &mut e.non_analytic, <[_]>::to_vec, paper, majorant::non_analytic);
+    let checked = check("Water") + check("CarbonDioxide");
     assert_eq!(checked, 2 * 300 * 15);
 }
 

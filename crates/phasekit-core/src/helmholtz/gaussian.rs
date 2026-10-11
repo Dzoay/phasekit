@@ -4,8 +4,10 @@
 //! `u = −η(z − ε)²` (Hermite polynomials in `w = z − ε`). Working in `w` keeps sharp Gaussians (β up to 1888)
 //! accurate near their centre, where a polynomial expanded in z would cancel (PLAN.md M3.4).
 
+use core::fmt;
+
 use super::GaussianTerm;
-use super::power::Vars;
+use super::power::{Vars, falling};
 use crate::derivs::Derivs;
 use crate::error::{Error, LoadError};
 use crate::num::{Real, math};
@@ -18,11 +20,6 @@ const BINOMIAL: [[f64; 5]; 5] = [
     [1.0, 3.0, 3.0, 1.0, 0.0],
     [1.0, 4.0, 6.0, 4.0, 1.0],
 ];
-
-/// `[1, p, p(p−1), p(p−1)(p−2), p(p−1)(p−2)(p−3)]`: the scaled derivatives `z^k ∂^k z^p / z^p`.
-pub(super) fn falling(p: f64) -> [f64; 5] {
-    [1.0, p, p * (p - 1.0), p * (p - 1.0) * (p - 2.0), p * (p - 1.0) * (p - 2.0) * (p - 3.0)]
-}
 
 /// The scaled derivatives `z^j ∂^j (z^p e^u) / (z^p e^u)`, j ≤ ORD, from the falling factorials of p and
 /// `h_k = z^k u⁽ᵏ⁾`: Leibniz's rule over the complete Bell polynomials `B_m(h_1, …, h_m) = z^m ∂^m e^u / e^u`.
@@ -62,42 +59,99 @@ pub(super) fn delta_series(eta: f64, epsilon: f64) -> [f64; 3] {
     [1.0, 2.0 * eta * epsilon, 2.0 * eta * eta * epsilon * epsilon - eta]
 }
 
-/// A structure-of-arrays block of Gaussian terms, compiled once at decode.
+/// The τ-side `τ^t e^u` of a term `n τ^t δ^d e^(u(τ) − η(δ − ε)²)` whose δ-side is Gaussian: all a family adds to
+/// [`GaussianBlock`] (Gaussian: `u = −β(τ − γ)²`; GaoB: `u = 1/(β(τ − γ)² + b)`).
+pub(crate) trait TauSide: Copy + fmt::Debug + PartialEq {
+    /// The family's term data (`terms.rs`).
+    type Term;
+    /// The family's name in a `LoadError`.
+    const NAME: &'static str;
+    /// `([n, t, η, ε], d, τ-side)` of a term.
+    fn split(term: &Self::Term) -> ([f64; 4], u8, Self);
+    /// Every coefficient of the τ-side finite.
+    fn finite(&self) -> bool;
+    /// What the family refuses in finite data, as the `LoadError`'s text.
+    fn refused(&self) -> Option<&'static str> {
+        None
+    }
+    /// `(u, [τ u', τ² u'', τ³ u''', τ⁴ u''''])` at τ.
+    fn jet<R: Real>(&self, tau: R) -> (R, [R; 4]);
+    /// `(t ln τ + u, t + τ u')` at a real τ, as the paper writes them: the δ → 0 series' τ-factor `f = n e^(t ln τ + u)`
+    /// and `τ f' / f`.
+    fn series(&self, t: f64, tau: f64) -> (f64, f64);
+}
+
+/// The τ-side of a Gaussian term, `u = −β(τ − γ)²`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct GaussianTau {
+    beta: f64,
+    gamma: f64,
+}
+
+impl TauSide for GaussianTau {
+    type Term = GaussianTerm;
+    const NAME: &'static str = "Gaussian";
+
+    fn split(p: &GaussianTerm) -> ([f64; 4], u8, Self) {
+        ([p.n, p.t, p.eta, p.epsilon], p.d, Self { beta: p.beta, gamma: p.gamma })
+    }
+
+    fn finite(&self) -> bool {
+        self.beta.is_finite() && self.gamma.is_finite()
+    }
+
+    #[inline(always)]
+    fn jet<R: Real>(&self, tau: R) -> (R, [R; 4]) {
+        gaussian_side(tau, self.beta, self.gamma)
+    }
+
+    /// `τ f' = f·(t − 2βτ(τ − γ))`.
+    fn series(&self, t: f64, tau: f64) -> (f64, f64) {
+        let w = tau - self.gamma;
+        (t * math::ln(tau) - self.beta * w * w, t - 2.0 * self.beta * tau * w)
+    }
+}
+
+/// A structure-of-arrays block of terms with a Gaussian δ-side and the τ-side `S`, compiled once at decode.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct GaussianBlock {
+pub(crate) struct GaussianBlock<S> {
     n: Box<[f64]>,
     t: Box<[f64]>,
     d: Box<[u8]>,
     eta: Box<[f64]>,
     epsilon: Box<[f64]>,
-    beta: Box<[f64]>,
-    gamma: Box<[f64]>,
+    side: Box<[S]>,
     ft: Box<[[f64; 5]]>,
     fd: Box<[[f64; 5]]>,
 }
 
-impl GaussianBlock {
-    /// Validates and compiles terms: non-finite data and `d` beyond [`super::MAX_POW`] are a `LoadError`.
-    pub(crate) fn new(terms: &[GaussianTerm]) -> Result<Self, Error> {
-        for p in terms {
-            if ![p.n, p.t, p.eta, p.epsilon, p.beta, p.gamma].iter().all(|x| x.is_finite()) {
-                return Err(Error::Load(LoadError::Format("non-finite Gaussian term coefficient".into())));
+impl<S: TauSide> GaussianBlock<S> {
+    /// Validates and compiles terms: non-finite data, `d` beyond [`super::MAX_POW`] and what the family refuses
+    /// ([`TauSide::refused`]) are a `LoadError`.
+    pub(crate) fn new(terms: &[S::Term]) -> Result<Self, Error> {
+        let bad = |m: &str| Error::Load(LoadError::Format(m.into()));
+        let parts: Vec<([f64; 4], u8, S)> = terms.iter().map(S::split).collect();
+        for (shared, d, side) in &parts {
+            if !(shared.iter().all(|x| x.is_finite()) && side.finite()) {
+                return Err(bad(&format!("non-finite {} term coefficient", S::NAME)));
             }
-            if usize::from(p.d) > super::MAX_POW {
-                return Err(Error::Load(LoadError::Format("Gaussian term exponent out of range".into())));
+            if usize::from(*d) > super::MAX_POW {
+                return Err(bad(&format!("{} term exponent out of range", S::NAME)));
+            }
+            if let Some(why) = side.refused() {
+                return Err(bad(why));
             }
         }
-        let column = |f: fn(&GaussianTerm) -> f64| terms.iter().map(f).collect();
+        let column = |i: usize| parts.iter().map(|(shared, _, _)| shared[i]).collect();
         Ok(Self {
-            n: column(|p| p.n),
-            t: column(|p| p.t),
-            d: terms.iter().map(|p| p.d).collect(),
-            eta: column(|p| p.eta),
-            epsilon: column(|p| p.epsilon),
-            beta: column(|p| p.beta),
-            gamma: column(|p| p.gamma),
-            ft: terms.iter().map(|p| falling(p.t)).collect(),
-            fd: terms.iter().map(|p| falling(f64::from(p.d))).collect(),
+            n: column(0),
+            t: column(1),
+            d: parts.iter().map(|(_, d, _)| *d).collect(),
+            eta: column(2),
+            epsilon: column(3),
+            side: parts.iter().map(|(_, _, side)| *side).collect(),
+            ft: parts.iter().map(|(shared, _, _)| falling(shared[1])).collect(),
+            fd: parts.iter().map(|(_, d, _)| falling(f64::from(*d))).collect(),
         })
     }
 
@@ -105,7 +159,7 @@ impl GaussianBlock {
     pub(crate) fn accumulate<R: Real, const ORD: usize>(&self, v: &Vars<R>, acc: &mut Derivs<R>) {
         let delta = v.delta_pow[1];
         for k in 0..self.n.len() {
-            let (ut, ht) = gaussian_side(v.tau, self.beta[k], self.gamma[k]);
+            let (ut, ht) = self.side[k].jet(v.tau);
             let (ud, hd) = gaussian_side(delta, self.eta[k], self.epsilon[k]);
             let phi = (v.ln_tau * self.t[k] + ut + ud).exp() * v.delta_pow[usize::from(self.d[k])] * self.n[k];
             acc.add_separable::<ORD>(phi, &leibniz::<R, ORD>(&self.ft[k], ht), &leibniz::<R, ORD>(&self.fd[k], hd));
@@ -113,14 +167,14 @@ impl GaussianBlock {
     }
 
     /// Exact δ → 0 Taylor coefficients `[a_k(τ), τ·da_k/dτ]`, k = 0, 1, 2: `δ^d e^(−η(δ−ε)²) = e^(−ηε²) δ^d (1 + 2ηε δ +
-    /// (2η²ε² − η) δ² + …)`; the τ-factor `f = n τ^t e^(−β(τ−γ)²)` has `τ f' = f·(t − 2βτ(τ − γ))`.
+    /// (2η²ε² − η) δ² + …)`, times the τ-factor `f = n τ^t e^u` and `τ f'` ([`TauSide::series`]).
     pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 2]; 3] {
         let mut out = [[0.0; 2]; 3];
         for k in 0..self.n.len() {
-            let (eta, eps, beta, gamma) = (self.eta[k], self.epsilon[k], self.beta[k], self.gamma[k]);
-            let w = tau - gamma;
-            let f = self.n[k] * math::exp(self.t[k] * math::ln(tau) - beta * w * w - eta * eps * eps);
-            let tf = f * (self.t[k] - 2.0 * beta * tau * w);
+            let (eta, eps) = (self.eta[k], self.epsilon[k]);
+            let (log_f, scaled) = self.side[k].series(self.t[k], tau);
+            let f = self.n[k] * math::exp(log_f - eta * eps * eps);
+            let tf = f * scaled;
             for (q, c) in delta_series(eta, eps).into_iter().enumerate() {
                 if let Some(slot) = out.get_mut(usize::from(self.d[k]) + q) {
                     slot[0] += c * f;
@@ -136,17 +190,18 @@ impl GaussianBlock {
 mod tests {
     use super::*;
     use crate::derivs::Order;
+    use crate::helmholtz::power::{ad_misses, sum_of};
     use crate::num::Jet4;
+
+    type Block = GaussianBlock<GaussianTau>;
 
     /// The paper formula, written independently of the block.
     fn paper<R: Real>(terms: &[GaussianTerm], tau: R, delta: R) -> R {
-        let mut sum = R::from_f64(0.0);
-        for p in terms {
+        sum_of(terms, |p| {
             let (wt, wd) = (tau + -p.gamma, delta + -p.epsilon);
             let e = -(wd * wd * p.eta) - wt * wt * p.beta;
-            sum = sum + tau.powf(p.t) * delta.powi(i32::from(p.d)) * e.exp() * p.n;
-        }
-        sum
+            tau.powf(p.t) * delta.powi(i32::from(p.d)) * e.exp() * p.n
+        })
     }
 
     /// IAPWS-95's three Gaussian terms (Wagner & Pruß 2002, Table 2: i = 52-54).
@@ -162,17 +217,13 @@ mod tests {
     /// The block against `Jet4` AD of the paper formula, all 15 A_ij, near the Gaussians' centre and away from it.
     #[test]
     fn gaussian_terms_match_jet4_ad() {
-        let block = GaussianBlock::new(&water()).unwrap();
+        let block = Block::new(&water()).unwrap();
         for (tau, delta) in [(1.22, 1.05), (1.6, 0.3), (0.9, 2.1)] {
             let mut acc = Derivs::zero(Order::Four);
             block.accumulate::<f64, 4>(&Vars::new(tau, delta), &mut acc);
             let ad = paper(&water(), Jet4::tau(tau), Jet4::delta(delta)).derivs(tau, delta);
-            for n in 0..=4 {
-                for i in 0..=n {
-                    let (got, want) = (acc.get(i, n - i).unwrap(), ad.get(i, n - i).unwrap());
-                    assert!(((got - want) / want).abs() < 1e-11, "({tau}, {delta}) A{i}{}: {got} vs {want}", n - i);
-                }
-            }
+            let misses = ad_misses(&acc, &ad, 1e-11);
+            assert!(misses.is_empty(), "({tau}, {delta}) {misses:?}");
         }
     }
 
@@ -180,9 +231,9 @@ mod tests {
     /// with d = 0 (Methane's terms) the series carries α^r itself.
     #[test]
     fn gaussian_zero_density_series() {
-        assert_eq!(GaussianBlock::new(&water()).unwrap().zero_density_series(1.3), [[0.0; 2]; 3]);
+        assert_eq!(Block::new(&water()).unwrap().zero_density_series(1.3), [[0.0; 2]; 3]);
         let d0 = [GaussianTerm { n: 0.7, t: 1.5, d: 0, eta: 3.0, epsilon: 0.5, beta: 2.0, gamma: 1.1 }];
-        let block = GaussianBlock::new(&d0).unwrap();
+        let block = Block::new(&d0).unwrap();
         let (tau, delta) = (1.3, 1e-8);
         let [a0, a1, a2] = block.zero_density_series(tau);
         let mut acc = Derivs::zero(Order::One);
@@ -210,7 +261,7 @@ mod tests {
         let tau = 1.3;
         let f = 0.7 * math::exp(1.5 * math::ln(tau) - 2.0 * 0.2 * 0.2 - 3.0 * 0.16);
         let tf = f * (1.5 - 2.0 * 2.0 * tau * 0.2);
-        let got = GaussianBlock::new(&[term]).unwrap().zero_density_series(tau);
+        let got = Block::new(&[term]).unwrap().zero_density_series(tau);
         // 2ηε = 2.4, 2η²ε² − η = 2.88 − 3 = −0.12.
         let want = [[f, tf], [2.4 * f, 2.4 * tf], [-0.12 * f, -0.12 * tf]];
         for (g, w) in got.iter().flatten().zip(want.iter().flatten()) {
@@ -218,15 +269,17 @@ mod tests {
         }
     }
 
-    /// Non-finite data and exponents past `MAX_POW` are refused at decode.
+    /// Non-finite data and exponents past `MAX_POW` are refused at decode; `d = MAX_POW` is not.
     #[test]
     fn bad_gaussian_terms_are_load_errors() {
         let mut terms = water();
-        assert!(GaussianBlock::new(&terms).is_ok());
+        assert!(Block::new(&terms).is_ok());
         terms[1].beta = f64::INFINITY;
-        assert!(GaussianBlock::new(&terms).is_err());
+        assert!(Block::new(&terms).is_err());
         let mut terms = water();
         terms[0].d = 17;
-        assert!(GaussianBlock::new(&terms).is_err());
+        assert!(Block::new(&terms).is_err());
+        terms[0].d = 16;
+        assert!(Block::new(&terms).is_ok());
     }
 }

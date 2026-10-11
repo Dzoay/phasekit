@@ -1,7 +1,8 @@
 //! CoolProp's multiparameter Helmholtz EOS: the built-in family.
 
 use super::{
-    GaoBBlock, GaussianBlock, HelmholtzModel, IdealGas, NonAnalyticBlock, PowerBlock, TauExpBlock, power::Vars,
+    GaoBTau, GaussianBlock, GaussianTau, HelmholtzModel, IdealGas, NonAnalyticBlock, PowerBlock, TauExpBlock,
+    power::Vars,
 };
 use crate::derivs::{Derivs, Order, Virials};
 use crate::error::{Error, LoadError};
@@ -16,9 +17,9 @@ pub(crate) enum ResidualBlock {
     /// Lemmon2005 and DoubleExponential terms: an exponential on the τ-side too.
     TauExp(TauExpBlock),
     /// Gaussian bell-shaped terms.
-    Gaussian(GaussianBlock),
+    Gaussian(GaussianBlock<GaussianTau>),
     /// GaoB terms (Ammonia).
-    GaoB(GaoBBlock),
+    GaoB(GaussianBlock<GaoBTau>),
     /// Non-analytic terms (Water, CarbonDioxide): not separable, evaluated on `Jet4`.
     NonAnalytic(NonAnalyticBlock),
 }

@@ -33,6 +33,12 @@ fn binomial(n: usize, k: usize) -> f64 {
     (0..k).fold(1.0, |acc, i| acc * (n - i) as f64 / (i + 1) as f64)
 }
 
+/// Leibniz's rule with every summand positive: `Σ_m C(k, m) p^(k−m) B_m(a)`, the scale of the k-th scaled derivative
+/// of `z^p e^u` from the rising factorials of p and the `h_n = z^n u⁽ⁿ⁾` in absolute value, `a`.
+fn leibniz(p: f64, a: &[f64; 4], k: usize) -> f64 {
+    (0..=k).map(|m| binomial(k, m) * rising(p, k - m) * bell(m, a)).sum()
+}
+
 /// The scale of one side of a separable term: `Σ_m C(k, m) p^(k−m) B_m(q^(1)|x|, …, q^(m)|x|)` for the factor
 /// `z^p e^(−x)`, `x = c·z^q`, whose scaled derivative `z^k ∂^k (z^p e^(−x)) / (z^p e^(−x))` is, by Leibniz and Faà
 /// di Bruno, `Σ_m C(k, m) (p)_(k−m) B_m(−(q)_1 x, …, −(q)_m x)` with every falling factorial made rising.
@@ -41,7 +47,7 @@ fn side(p: f64, q: f64, x: f64, k: usize) -> f64 {
     for (n, slot) in a.iter_mut().enumerate() {
         *slot = rising(q, n + 1) * x.abs();
     }
-    (0..=k).map(|m| binomial(k, m) * rising(p, k - m) * bell(m, &a)).sum()
+    leibniz(p, &a, k)
 }
 
 /// The `Term` scale of entry `(i, j)`, `i + j ≤ 4`, of the separable term `n τ^t e^(−aτ^m) δ^d e^(−cδ^l)` at
@@ -79,16 +85,28 @@ pub fn double_exponential(term: &DoubleExponentialTerm, tau: f64, delta: f64, i:
 /// `w = z − ε`, as the block and CoolProp evaluate it).
 fn gaussian_side(p: f64, eta: f64, epsilon: f64, z: f64, k: usize) -> f64 {
     let a = [2.0 * eta.abs() * (z - epsilon).abs() * z, 2.0 * eta.abs() * z * z, 0.0, 0.0];
-    (0..=k).map(|m| binomial(k, m) * rising(p, k - m) * bell(m, &a)).sum()
+    leibniz(p, &a, k)
+}
+
+/// `|φ| · tau_side ·` [`gaussian_side`]`(d, η, ε, δ, j)` for a term `n e^(u_τ) δ^d e^(−η(δ − ε)²)` with a Gaussian
+/// δ-side, from its τ-exponent `u_τ` (`t ln τ` included) and the scale of its τ-side: Gaussian and GaoB terms.
+fn gaussian_delta(
+    (n, d, eta, epsilon): (f64, u8, f64, f64),
+    (u_tau, tau_side): (f64, f64),
+    delta: f64,
+    j: usize,
+) -> f64 {
+    let wd = delta - epsilon;
+    let phi = n * math::exp(u_tau - eta * wd * wd) * math::powi(delta, i32::from(d));
+    phi.abs() * tau_side * gaussian_side(f64::from(d), eta, epsilon, delta, j)
 }
 
 /// The `Term` scale of entry `(i, j)` of a Gaussian term `n τ^t δ^d e^(−η(δ − ε)² − β(τ − γ)²)`.
 pub fn gaussian(term: &GaussianTerm, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
-    let (wt, wd) = (tau - term.gamma, delta - term.epsilon);
-    let exponent = term.t * math::ln(tau) - term.beta * wt * wt - term.eta * wd * wd;
-    let phi = term.n * math::exp(exponent) * math::powi(delta, i32::from(term.d));
+    let wt = tau - term.gamma;
+    let u_tau = term.t * math::ln(tau) - term.beta * wt * wt;
     let tau_side = gaussian_side(term.t, term.beta, term.gamma, tau, i);
-    phi.abs() * tau_side * gaussian_side(f64::from(term.d), term.eta, term.epsilon, delta, j)
+    gaussian_delta((term.n, term.d, term.eta, term.epsilon), (u_tau, tau_side), delta, j)
 }
 
 /// The `Term` scale of entry `(i, j)` of a GaoB term `n τ^t δ^d e^(−η(δ − ε)² + 1/(β(τ − γ)² + b))`. The δ-side is a
@@ -96,10 +114,8 @@ pub fn gaussian(term: &GaussianTerm, tau: f64, delta: f64, i: usize, j: usize) -
 /// `|q′| = 2|β||τ − γ|`, `|q″| = 2|β|`, `r = 1/|q|`: `|v′| = |q′|r²`, `|v″| = (2q′²r + |q″|)r²`,
 /// `|v‴| = 6|q′|(|q″| + q′²r)r³`, `|v⁗| = (6q″² + 36q′²|q″|r + 24q′⁴r²)r³`.
 pub fn gao_b(term: &GaoBTerm, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
-    let (wt, wd) = (tau - term.gamma, delta - term.epsilon);
+    let wt = tau - term.gamma;
     let q = term.beta * wt * wt + term.b;
-    let exponent = term.t * math::ln(tau) + 1.0 / q - term.eta * wd * wd;
-    let phi = term.n * math::exp(exponent) * math::powi(delta, i32::from(term.d));
     let (q1, q2, r) = (2.0 * term.beta.abs() * wt.abs(), 2.0 * term.beta.abs(), 1.0 / q.abs());
     let (r2, r3, q11) = (r * r, r * r * r, q1 * q1);
     let v = [
@@ -109,8 +125,8 @@ pub fn gao_b(term: &GaoBTerm, tau: f64, delta: f64, i: usize, j: usize) -> f64 {
         (6.0 * q2 * q2 + 36.0 * q11 * q2 * r + 24.0 * q11 * q11 * r2) * r3,
     ];
     let a = [tau * v[0], tau * tau * v[1], tau * tau * tau * v[2], tau * tau * tau * tau * v[3]];
-    let tau_side: f64 = (0..=i).map(|m| binomial(i, m) * rising(term.t, i - m) * bell(m, &a)).sum();
-    phi.abs() * tau_side * gaussian_side(f64::from(term.d), term.eta, term.epsilon, delta, j)
+    let u_tau = term.t * math::ln(tau) + 1.0 / q;
+    gaussian_delta((term.n, term.d, term.eta, term.epsilon), (u_tau, leibniz(term.t, &a, i)), delta, j)
 }
 
 /// `(i + j)(i + j + 1)/2 + i`: the slot of the Taylor coefficient of `h^i k^j`, as in `phasekit_core::Derivs`.
