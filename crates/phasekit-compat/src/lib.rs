@@ -190,7 +190,7 @@ mod tests {
     /// input key builds its own pair (refused by name where the kernel has no flash for it yet) and basis.
     #[test]
     fn every_key_reaches_its_kernel_name() {
-        use phasekit_core::{Density, Pressure, Quality, Temperature};
+        use phasekit_core::{Density, Enthalpy, Pressure, Quality, Temperature};
         let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
         let water = registry.get("Water").unwrap();
         let dt = |rho| Input::dt(rho, Temperature::new(700.0).unwrap());
@@ -257,9 +257,10 @@ mod tests {
             let refused = props_si_in(&registry, "P", "T", 700.0, key, 0.5, "Water");
             assert_eq!(refused, Err(CompatError::Core(Error::Unsupported { pair })), "{key}");
         }
-        // Two keys of one basis pass the basis check; two of different bases do not.
+        // Two keys of one basis pass the basis check, to the kernel's DH (M7.4); two of different bases do not.
         let same = props_si_in(&registry, "P", "Dmolar", 10.0, "Hmolar", 1.0, "Water");
-        assert_eq!(same, Err(CompatError::Core(Error::Unsupported { pair: Pair::DH })));
+        let dh = Input::dh(Density::molar(10.0).unwrap(), Enthalpy::molar(1.0).unwrap());
+        assert_eq!(same, water.state(dh).map(|s| s.p()).map_err(CompatError::Core));
         let mixed = props_si_in(&registry, "P", "Dmass", 0.18, "Hmolar", 1.0, "Water");
         assert_eq!(mixed, Err(CompatError::InvalidPair("Dmass".into(), "Hmolar".into())));
     }

@@ -4,7 +4,7 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::{DataSet, DomainError, Error, Phase, Prop, Registry, math};
+use phasekit_core::{DataSet, DomainError, Error, Input, Phase, Pressure, Prop, Registry, Temperature, math};
 use phasekit_verify::flash::FlashCheck;
 use phasekit_verify::{Fixture, fixture};
 
@@ -118,6 +118,45 @@ fn p_x_round_trips() {
     }
     assert_eq!(check.report(20), None);
     assert_eq!((check.two_phase, check.compared), (3 * (14 * 16 - 2), 3 * (14 * (36 + 16) - 2)));
+}
+
+/// PLAN.md M7.4 (VERIFICATION.md §8.2), class `Flash`: DH, DS and DU of every truth in the core subset's `flash` files,
+/// 6 × 6 (p, T) and 4 × 4 (T, Q) truths per fluid and the pseudo-pure fluids' `dome` truths as their DT states (two of
+/// Air's gas), return the truth's phase, T and ρ within 1e-9 and, in the dome, its quality within 1e-8
+/// (`FlashCheck::dx_round_trips`). And map 03 §8 AirCritical (`CoolProp-Tests-AirCritical.cpp:33`): Air, pseudo-pure,
+/// on CoolProp's 60 × 40 grid of T/Tc in [0.96, 2] and p/pc in [0.5, 5], every single-phase PT state round-trips the
+/// same way, where CoolProp asks 2e-4 (its D+X threw "p is not a valid number" near ρc before that test). On the way
+/// the search passes where Air's VLE fails, just below its published Tc (`flash::isochore_x`).
+#[test]
+fn d_x_round_trips() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut check = FlashCheck::default();
+    for (path, text) in FLASH_CORE {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
+        check.dx_round_trips(&fixture, registry.get(name).unwrap());
+    }
+    assert_eq!(check.report(20), None);
+    assert_eq!((check.two_phase, check.compared), (3 * (14 * 16 - 2), 3 * 14 * (36 + 16)));
+
+    let mut air = FlashCheck::default();
+    let fluid = registry.get("Air").unwrap();
+    let c = phasekit_core::internal::record(&registry, "Air").unwrap().critical.unwrap();
+    let mut refused = Vec::new();
+    for i in 0..60 {
+        let t = (0.96 + (2.0 - 0.96) * f64::from(i) / 59.0) * c.t;
+        for j in 0..40 {
+            let p = (0.5 + (5.0 - 0.5) * f64::from(j) / 39.0) * c.p;
+            match fluid.state(Input::pt(Pressure::new(p).unwrap(), Temperature::new(t).unwrap())) {
+                Ok(truth) => air.dx_round_trip("Air", fluid, &truth),
+                Err(e) => refused.push((i, j, e)),
+            }
+        }
+    }
+    assert_eq!(air.report(20), None);
+    // As CoolProp's test skips its PT throws: one point lies between Air's pressure ancillaries, 131.90 K at 3.64 MPa.
+    assert_eq!(refused, [(2, 4, Error::Undefined { prop: Prop::Q, phase: Phase::TwoPhase })]);
+    assert_eq!(air.compared, 3 * (2400 - 1));
 }
 
 /// VERIFICATION.md §3.2, §11.3: the `flash` files come from the pinned runner image, like every committed oracle
