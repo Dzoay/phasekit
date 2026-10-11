@@ -6,7 +6,10 @@
 //! it too (user decision TC1).
 
 use phasekit_core::internal::FluidRecord;
-use phasekit_core::{Basis, Density, Fluid, Input, Order, Phase, Pressure, Temperature};
+use phasekit_core::{
+    Basis, Density, Enthalpy, Entropy, Fluid, Input, InternalEnergy, Order, Phase, Pressure, Quality, State,
+    Temperature,
+};
 
 use crate::eos::{Majorants, carried};
 use crate::fixture::Kind;
@@ -193,16 +196,112 @@ impl FlashCheck {
         Ok(())
     }
 
+    /// PLAN.md M7.3 (VERIFICATION.md §8.2): the P+X round trips of every truth in a one-fluid `flash` file. A PT truth
+    /// is the PT state at its (p, T), a QT truth the QT state at its (T, Q), and a pseudo-pure fluid's two-phase `dome`
+    /// truth the PQ state at its (p, Q): inside its dome CoolProp's PH, like its PQ, follows the ancillaries, T linear in
+    /// Q between the bubble and dew temperatures. A single-phase `dome` truth is left out: two of Air's are gas by
+    /// CoolProp's density bands (M6.9) yet lie inside its ancillary dome at their own p, where CoolProp's PH, and
+    /// phasekit's, is two-phase (Air at 68.85 K and 18.2 kPa: PH gives 69.599 K at Q 0.99641, both alike to 3e-14). PH, PS and PU of each truth's p and h, s or u give its phase, its T and
+    /// ρ within class `Flash` (1e-9 of each) and, in the dome, its quality within 1e-8.
+    pub fn px_round_trips(&mut self, fixture: &Fixture<'_>, fluid: &Fluid) {
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap_or_default();
+        let label = |row: usize, column: &str| fixture.printed(row, column).unwrap_or_default();
+        for row in 0..fixture.rows().len() {
+            let number = |column: &str| fixture.value(row, column).unwrap_or(f64::NAN);
+            let (temperature, pressure) = (Temperature::new(number("x2")), Pressure::new(number("p")));
+            let truth = match (label(row, "pair"), label(row, "truth")) {
+                ("PT", "PT") => Pressure::new(number("x1")).and_then(|p| Ok(Input::pt(p, temperature?))),
+                ("DT", "QT") => Quality::new(number("Q")).and_then(|q| Ok(Input::qt(q, temperature?))),
+                ("DT", "dome") if label(row, "phase") == "twophase" => {
+                    Quality::new(number("Q")).and_then(|q| Ok(Input::pq(pressure?, q)))
+                }
+                _ => continue,
+            };
+            match truth.and_then(|input| fluid.state(input)) {
+                Ok(truth) => self.px_round_trip(name, fluid, &truth),
+                Err(e) => self.failures.push(format!("{name} row {row}: the truth fails: {e:?}")),
+            }
+        }
+    }
+
+    /// [`Self::px_round_trips`] of one truth state.
+    fn px_round_trip(&mut self, name: &str, fluid: &Fluid, truth: &State) {
+        let m = Basis::Molar;
+        let inputs = Pressure::new(truth.p()).and_then(|p| {
+            Ok([
+                Input::hp(Enthalpy::molar(truth.h(m))?, p),
+                Input::ps(p, Entropy::molar(truth.s(m))?),
+                Input::pu(p, InternalEnergy::molar(truth.u(m))?),
+            ])
+        });
+        let Ok(inputs) = inputs else {
+            self.failures.push(format!("{name}: no P+X inputs from {truth:?}"));
+            return;
+        };
+        for input in inputs {
+            self.compared += 1;
+            self.two_phase += usize::from(truth.phase() == Phase::TwoPhase);
+            let back = match fluid.state(input) {
+                Ok(back) => back,
+                Err(e) => {
+                    self.failures.push(format!("{name} {input:?} of {truth:?}: {e:?}"));
+                    continue;
+                }
+            };
+            if !agrees(coordinates(&back), coordinates(truth)) {
+                self.failures.push(format!("{name} {input:?}: {back:?} against {truth:?}"));
+            }
+        }
+    }
+
     /// `None` when every row agreed, else the first `shown` disagreements.
     pub fn report(&self, shown: usize) -> Option<String> {
         report(&self.failures, self.compared, 0.0, "Flash", shown)
     }
 }
 
+/// A state's phase, T, molar ρ and quality, which a round trip compares.
+type Coordinates = (Phase, f64, f64, Option<f64>);
+
+/// The coordinates of `state`.
+fn coordinates(state: &State) -> Coordinates {
+    (state.phase(), state.t(), state.rho(Basis::Molar), state.quality())
+}
+
+/// Whether a round trip's state agrees with its truth (class `Flash`): the same phase, T and ρ within 1e-9 of the
+/// truth's, and its quality within 1e-8, or no quality on both.
+fn agrees((phase, t, rho, q): Coordinates, truth: Coordinates) -> bool {
+    let off = |got: f64, want: f64| beyond(got, want, ToleranceClass::Flash.bound(want.abs()).unwrap_or(0.0));
+    let quality = match (q, truth.3) {
+        (Some(got), Some(want)) => beyond(got, want, ToleranceClass::FLASH_QUALITY),
+        (got, want) => got.is_some() != want.is_some(),
+    };
+    !(phase != truth.0 || off(t, truth.1) || off(rho, truth.2) || quality)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use phasekit_core::{DataSet, Registry, State};
+
+    /// A round trip agrees with its truth only where its phase, T, ρ and quality all do, each within class `Flash`.
+    #[test]
+    fn round_trips_compare_every_coordinate() {
+        let truth = (Phase::Liquid, 300.0, 5e4, None);
+        assert!(agrees(truth, truth) && agrees((Phase::Liquid, 300.0 * (1.0 + 5e-10), 5e4, None), truth));
+        let apart = [
+            (Phase::Gas, 300.0, 5e4, None),
+            (Phase::Liquid, 300.0 * (1.0 + 2e-9), 5e4, None),
+            (Phase::Liquid, 300.0, 5e4 * (1.0 + 2e-9), None),
+            (Phase::Liquid, 300.0, 5e4, Some(0.5)),
+        ];
+        for back in apart {
+            assert!(!agrees(back, truth), "{back:?}");
+        }
+        let wet = (Phase::TwoPhase, 300.0, 5e4, Some(0.5));
+        assert!(agrees((Phase::TwoPhase, 300.0, 5e4, Some(0.5 + 5e-9)), wet));
+        assert!(!agrees((Phase::TwoPhase, 300.0, 5e4, Some(0.5 + 2e-8)), wet));
+    }
 
     /// Hand-made DT rows in a `flash/v1` file (source `mp:` only so that no oracle header is required).
     fn file(fluid: &str, rows: &[String]) -> String {

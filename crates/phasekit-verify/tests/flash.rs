@@ -103,6 +103,23 @@ fn pt_round_trips_on_a_40x40_log_p_t_grid() {
     assert_eq!(check.compared, 14 * 1600 - 2);
 }
 
+/// PLAN.md M7.3 (VERIFICATION.md §8.2), class `Flash`: PH, PS and PU of every truth in the core subset's `flash` files,
+/// 6 × 6 (p, T) truths and 4 × 4 (T, Q) truths per fluid (the pseudo-pure Air's and R410A's (p, Q) `dome` truths, all
+/// but two of Air's, gas by CoolProp's bands and two-phase by its PH), return the truth's phase, T and ρ within 1e-9
+/// and, in the dome, its quality within 1e-8 (`FlashCheck::px_round_trips`).
+#[test]
+fn p_x_round_trips() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut check = FlashCheck::default();
+    for (path, text) in FLASH_CORE {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
+        check.px_round_trips(&fixture, registry.get(name).unwrap());
+    }
+    assert_eq!(check.report(20), None);
+    assert_eq!((check.two_phase, check.compared), (3 * (14 * 16 - 2), 3 * (14 * (36 + 16) - 2)));
+}
+
 /// VERIFICATION.md §3.2, §11.3: the `flash` files come from the pinned runner image, like every committed oracle
 /// fixture.
 #[test]
