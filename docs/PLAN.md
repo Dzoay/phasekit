@@ -1000,7 +1000,11 @@ bands (map 03 §8; map 10 §8.5 L4).
   i7-1165G7 laptop (RM1: against its own C++ baseline): n-Heptane 13.4 µs, R134a 17.0, n-Propane 23.1, Methane 34.4,
   Water 296 µs; its C++ 32.6, 43.5, 43.5, 76.6 and 223 µs. About ten PT solves per PH; fewer is M9's.
 - **M7.4 DH, DS, DU.** *Failing test:* `d_x_round_trips` incl. the Air near-critical cases (map 03 §8 AirCritical).
-  *Do:* the interval method (map 03 §9 `flash::dx`). *Done when:* green.
+  *Do:* the interval method (map 03 §9 `flash::dx`). *Done when:* green. Measured at M7.4: x(T) along the isochore is
+  DT's, continuous through the dome's edge, so one root search in T, the one P+X uses, replaces the intervals. The core
+  subset's 2 184 D+X round trips (666 two-phase) and 2 399 of AirCritical's 2 400 states are within `Flash`; the other
+  lies between Air's pressure ancillaries, where PT refuses it. Where Air's VLE fails just below its published Tc (131 K
+  to 132.53 K at 13 119 mol/m³, above its EOS's own Tc) the search follows the EOS's single phase.
 - **M7.5 HT, ST, TU.** *Failing tests:* `compressed_liquid_ht_is_ambiguous` (Water 300 K at 1/10/50 MPa: the oracle
   silently returns two-phase at 3536.8 Pa with Q = 0.00038/0.0038/0.0185; ST and UT at 275 K; map 03 §6),
   `low_density_round_trips` (Water 1.3 T_c, ρ = 1e-8…1e-6, ST and HT; the oracle's ST is 6.1 % off at 1e-8). *Do:*
