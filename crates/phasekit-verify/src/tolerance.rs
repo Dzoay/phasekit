@@ -211,7 +211,7 @@ impl ToleranceClass {
             ToleranceClass::SatMp,
             "ρ max(1e-11, 4·ε·Θ^−1.5·μ); p, T max(1e-11, 4·ε·μ/Θ); Θ = (Tc − T)/Tc, μ the carried `Term` scale of g",
         ),
-        (ToleranceClass::Flash, "T, ρ, p, h, s, u 1e-9; Q 1e-8 abs; nc: ρ 1e-6, T 1e-8"),
+        (ToleranceClass::Flash, "T, ρ, p, h, s, u 1e-9; Q 1e-8 abs; nc: ρ 1e-6, T 1e-8, Q 1e-6 abs"),
         (ToleranceClass::TransportDirect, "1e-12"),
         (ToleranceClass::TransportEcs, "1e-8"),
         (ToleranceClass::Paper, "half a unit in the last printed digit (`from_printed`)"),

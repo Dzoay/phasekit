@@ -424,10 +424,10 @@ mod tests {
             |s: &State| [Prop::T, Prop::P, Prop::Hmolar, Prop::Cpmolar].map(|p| fluid.prop(s, p).map(f64::to_bits));
         let state = fluid.flash(dt(300.0), &liquid).unwrap();
         let before = (state, read(&state));
-        // Above the 420 K limit, and a pair the toy model does not declare.
+        // Above the 420 K limit, and an (h, s) colder than the toy's liquid at its lowest temperature.
         assert!(matches!(fluid.flash(dt(500.0), &liquid), Err(Error::Domain(_))));
         let hs = Input::hs(Enthalpy::molar(1e4).unwrap(), Entropy::molar(10.0).unwrap());
-        assert_eq!(fluid.flash(hs, &liquid), Err(Error::Unsupported { pair: Pair::HS }));
+        assert!(matches!(fluid.flash(hs, &liquid), Err(Error::Domain(_))));
         assert_eq!((state, read(&state)), before);
         let again = fluid.flash(dt(300.0), &liquid).unwrap();
         assert_eq!((again, read(&again)), before, "the handle carries nothing over from the failure");
