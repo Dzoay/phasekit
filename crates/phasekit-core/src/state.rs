@@ -51,6 +51,8 @@ pub enum Strategy {
     Ancillary,
     /// TOMS 748 in T along an isobar (P+X), each iterate a density solve at (T, p).
     Isobar,
+    /// TOMS 748 in T along an isochore (D+X), each iterate DT's state at (T, ρ).
+    Isochore,
 }
 
 /// The strategy and its iteration count.
@@ -171,6 +173,12 @@ impl State {
         let body = Body::TwoPhase { q: q.get(), liquid: l, vapour: v };
         let extrapolated = liquid.extrapolated || vapour.extrapolated;
         Ok(State { t, p, phase: Phase::TwoPhase, body, path, extrapolated, ..liquid })
+    }
+
+    /// The same state with the path of the solve that found it.
+    pub(crate) fn with_path(mut self, path: SolvePath) -> State {
+        self.path = path;
+        self
     }
 
     pub(crate) fn with_gauge(mut self, gauge: Gauge) -> State {

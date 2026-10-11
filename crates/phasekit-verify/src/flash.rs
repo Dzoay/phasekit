@@ -7,7 +7,7 @@
 
 use phasekit_core::internal::FluidRecord;
 use phasekit_core::{
-    Basis, Density, Enthalpy, Entropy, Fluid, Input, InternalEnergy, Order, Phase, Pressure, Quality, State,
+    Basis, Density, Enthalpy, Entropy, Error, Fluid, Input, InternalEnergy, Order, Phase, Pressure, Quality, State,
     Temperature,
 };
 
@@ -218,24 +218,44 @@ impl FlashCheck {
                 _ => continue,
             };
             match truth.and_then(|input| fluid.state(input)) {
-                Ok(truth) => self.px_round_trip(name, fluid, &truth),
+                Ok(truth) => self.round_trip(name, fluid, &truth, p_x(&truth)),
                 Err(e) => self.failures.push(format!("{name} row {row}: the truth fails: {e:?}")),
             }
         }
     }
 
-    /// [`Self::px_round_trips`] of one truth state.
-    fn px_round_trip(&mut self, name: &str, fluid: &Fluid, truth: &State) {
-        let m = Basis::Molar;
-        let inputs = Pressure::new(truth.p()).and_then(|p| {
-            Ok([
-                Input::hp(Enthalpy::molar(truth.h(m))?, p),
-                Input::ps(p, Entropy::molar(truth.s(m))?),
-                Input::pu(p, InternalEnergy::molar(truth.u(m))?),
-            ])
-        });
+    /// PLAN.md M7.4 (VERIFICATION.md §8.2): the D+X round trips of every truth in a one-fluid `flash` file, as
+    /// [`Self::px_round_trips`] but every `dome` truth its DT state: DH, DS and DU invert DT along the isochore, so a
+    /// state DT labels is its own truth.
+    pub fn dx_round_trips(&mut self, fixture: &Fixture<'_>, fluid: &Fluid) {
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap_or_default();
+        let label = |row: usize, column: &str| fixture.printed(row, column).unwrap_or_default();
+        for row in 0..fixture.rows().len() {
+            let number = |column: &str| fixture.value(row, column).unwrap_or(f64::NAN);
+            let temperature = Temperature::new(number("x2"));
+            let truth = match (label(row, "pair"), label(row, "truth")) {
+                ("PT", "PT") => Pressure::new(number("x1")).and_then(|p| Ok(Input::pt(p, temperature?))),
+                ("DT", "QT") => Quality::new(number("Q")).and_then(|q| Ok(Input::qt(q, temperature?))),
+                ("DT", "dome") => Density::molar(number("x1")).and_then(|d| Ok(Input::dt(d, temperature?))),
+                _ => continue,
+            };
+            match truth.and_then(|input| fluid.state(input)) {
+                Ok(truth) => self.dx_round_trip(name, fluid, &truth),
+                Err(e) => self.failures.push(format!("{name} row {row}: the truth fails: {e:?}")),
+            }
+        }
+    }
+
+    /// DH, DS and DU of one truth state give its phase, T and ρ within class `Flash` and, in the dome, its quality
+    /// within 1e-8.
+    pub fn dx_round_trip(&mut self, name: &str, fluid: &Fluid, truth: &State) {
+        self.round_trip(name, fluid, truth, d_x(truth));
+    }
+
+    /// The round trips of one truth state through `inputs`, read off it.
+    fn round_trip(&mut self, name: &str, fluid: &Fluid, truth: &State, inputs: Result<[Input; 3], Error>) {
         let Ok(inputs) = inputs else {
-            self.failures.push(format!("{name}: no P+X inputs from {truth:?}"));
+            self.failures.push(format!("{name}: no inputs from {truth:?}"));
             return;
         };
         for input in inputs {
@@ -277,6 +297,27 @@ fn agrees((phase, t, rho, q): Coordinates, truth: Coordinates) -> bool {
         (got, want) => got.is_some() != want.is_some(),
     };
     !(phase != truth.0 || off(t, truth.1) || off(rho, truth.2) || quality)
+}
+
+/// The P+X inputs of a state, molar: (p, h), (p, s) and (p, u).
+fn p_x(state: &State) -> Result<[Input; 3], Error> {
+    let (p, m) = (Pressure::new(state.p())?, Basis::Molar);
+    Ok([
+        Input::hp(Enthalpy::molar(state.h(m))?, p),
+        Input::ps(p, Entropy::molar(state.s(m))?),
+        Input::pu(p, InternalEnergy::molar(state.u(m))?),
+    ])
+}
+
+/// The D+X inputs of a state, molar: (ρ, h), (ρ, s) and (ρ, u).
+fn d_x(state: &State) -> Result<[Input; 3], Error> {
+    let m = Basis::Molar;
+    let d = Density::molar(state.rho(m))?;
+    Ok([
+        Input::dh(d, Enthalpy::molar(state.h(m))?),
+        Input::ds(d, Entropy::molar(state.s(m))?),
+        Input::du(d, InternalEnergy::molar(state.u(m))?),
+    ])
 }
 
 #[cfg(test)]

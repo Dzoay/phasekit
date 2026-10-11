@@ -1,8 +1,8 @@
 //! L4 the Helmholtz flash (D6): a pure function of an immutable package, a native input and per-call
 //! options. No global configuration, no sticky phase, no exception cascade (map 01 R12, map 03 §6, map 12
 //! R3/R4). Each pair runs a fixed, ordered list of strategies returning `Result`; the winner is recorded in
-//! `State::path`. DT (M5.3), QT and PQ (M6.8), PT (M7.1; its phase rule complete at M7.2) and PH, PS and PU (M7.3) are
-//! implemented; the other pairs land at M7 behind `IMPLEMENTED`.
+//! `State::path`. DT (M5.3), QT and PQ (M6.8), PT (M7.1; its phase rule complete at M7.2), PH, PS and PU (M7.3) and DH,
+//! DS and DU (M7.4) are implemented; the other pairs land at M7 behind `IMPLEMENTED`.
 #![deny(clippy::indexing_slicing)] // E12: no panicking index on the flash path
 
 use crate::derivs::{Bundle, Order};
@@ -16,7 +16,7 @@ use crate::relations;
 use crate::roots::{Tol, toms748};
 use crate::saturation::{SatAccuracy, SatPair, SatSide, SaturationCurve};
 use crate::state::{Phase, SolvePath, State, Strategy};
-use crate::units::Quality;
+use crate::units::{Basis, Quality};
 
 /// How to choose among several roots of a non-unique pair (T+H in compressed liquid, Q-pairs with 2-3 roots;
 /// map 03 §6). The default never guesses.
@@ -108,9 +108,12 @@ pub(crate) fn flash(fluid: &PureFluid, input: NativeInput, opts: &FlashOptions) 
         Pair::PT => pt(fluid, x, y, opts),
         Pair::QT => qt(fluid, x, y, opts),
         Pair::PQ => pq(fluid, x, y, opts),
-        Pair::HP => px(fluid, y, x, Caloric::H, opts),
-        Pair::PS => px(fluid, x, y, Caloric::S, opts),
-        Pair::PU => px(fluid, x, y, Caloric::U, opts),
+        Pair::HP => named(Pair::HP, px(fluid, y, x, Caloric::H, opts)),
+        Pair::PS => named(Pair::PS, px(fluid, x, y, Caloric::S, opts)),
+        Pair::PU => named(Pair::PU, px(fluid, x, y, Caloric::U, opts)),
+        Pair::DH => named(Pair::DH, dx(fluid, x, y, Caloric::H, opts)),
+        Pair::DS => named(Pair::DS, dx(fluid, x, y, Caloric::S, opts)),
+        Pair::DU => named(Pair::DU, dx(fluid, x, y, Caloric::U, opts)),
         pair => Err(Error::Unsupported { pair }),
     }
 }
@@ -477,12 +480,12 @@ enum Caloric {
 }
 
 impl Caloric {
-    /// The pair it makes with p.
-    fn pair(self) -> Pair {
+    /// Its value on a state of the flash (native gauge).
+    fn of(self, state: &State) -> f64 {
         match self {
-            Caloric::H => Pair::HP,
-            Caloric::S => Pair::PS,
-            Caloric::U => Pair::PU,
+            Caloric::H => state.h(Basis::Molar),
+            Caloric::S => state.s(Basis::Molar),
+            Caloric::U => state.u(Basis::Molar),
         }
     }
 
@@ -501,18 +504,35 @@ impl Caloric {
     }
 }
 
-/// The relative tolerance on T of a P+X solve: a hundredth of class `Flash`'s 1e-9 even where (∂ln ρ/∂ln T)_p is 1e3.
-const ISOBAR_TOL: f64 = 1e-14;
+/// The relative tolerance on T of a P+X or D+X solve: a hundredth of class `Flash`'s 1e-9 even where
+/// (∂ln ρ/∂ln T)_p is 1e3.
+const T_TOL: f64 = 1e-14;
 
-/// Iterations allowed to a P+X solve in T.
-const ISOBAR_ITER: u16 = 100;
+/// Iterations allowed to a P+X or D+X solve in T.
+const T_ITER: u16 = 100;
 
-/// The share of its scale (`Caloric::scale`) to which a P+X state reproduces x (class `Flash`).
+/// The share of its scale (`Caloric::scale`) to which a P+X or D+X state reproduces x (class `Flash`).
 const REPRODUCED_X: f64 = 1e-9;
 
 /// The acceptance gate's "inputs reproduced" for a caloric input (D6): `got` within [`REPRODUCED_X`] of x's scale.
 fn reproduces_x(var: Caloric, r: f64, t: f64, x: f64, got: f64) -> bool {
     (got - x).abs() <= REPRODUCED_X * var.scale(r, t, x)
+}
+
+/// The domain's lowest temperature, the higher of Tmin and the triple point, and the highest a P+X or D+X solve
+/// searches, 1.5·Tmax (CoolProp's bound).
+fn t_search(fluid: &PureFluid) -> (f64, f64) {
+    let limits = fluid.limits();
+    (limits.t_triple().map_or(limits.t_min(), |t| t.max(limits.t_min())), 1.5 * limits.t_max())
+}
+
+/// A P+X or D+X result with another pair's refusal from inside it named for `pair` (ROT-021: CoolProp's PH and PS
+/// brackets raise "Pressure to PQ_flash"): a curve with no pressure inverse, a model with no phase rule.
+fn named(pair: Pair, result: Result<State, Error>) -> Result<State, Error> {
+    result.map_err(|e| match e {
+        Error::Unsupported { .. } => Error::Unsupported { pair },
+        e => e,
+    })
 }
 
 /// P+X: PH, PS and PU (PLAN.md M7.3; map 03 §3.1, §9 `flash::px`). The saturation at p ([`saturation_at_p`]) splits
@@ -525,24 +545,12 @@ fn reproduces_x(var: Caloric, r: f64, t: f64, x: f64, got: f64) -> bool {
 /// under `Extrapolate`, as PT's. A pseudo-pure fluid's dome follows its ancillaries, as its PQ and CoolProp's PH: T
 /// linear in the quality between the bubble and dew temperatures. An imposed single phase is solved on its branch from
 /// T_low to 1.5·Tmax, without the stability check; an imposed `TwoPhase` needs the saturation at p and a quality in
-/// [0, 1]. Another pair's refusal from inside (a curve with no pressure inverse, a model with no phase rule) is this
-/// pair's (ROT-021: CoolProp's PH and PS brackets raise "Pressure to PQ_flash").
+/// [0, 1]. Errors name this pair ([`named`]).
 fn px(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions) -> Result<State, Error> {
-    let pair = var.pair();
-    px_solve(fluid, p, x, var, opts).map_err(|e| match e {
-        Error::Unsupported { .. } => Error::Unsupported { pair },
-        e => e,
-    })
-}
-
-/// [`px`] before its errors are named.
-fn px_solve(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions) -> Result<State, Error> {
-    let limits = fluid.limits();
     if opts.domain() == DomainPolicy::Enforce {
-        limits.check_p(p)?;
+        fluid.limits().check_p(p)?;
     }
-    let t_low = limits.t_triple().map_or(limits.t_min(), |t| t.max(limits.t_min()));
-    let t_high = 1.5 * limits.t_max();
+    let (t_low, t_high) = t_search(fluid);
     let hint = opts.phase_hint();
     let along = |lo, hi, ends, liquid| isobar(fluid, p, x, var, opts, Span { lo, hi, ends, liquid });
     if hint.is_some_and(|h| h != Phase::TwoPhase) {
@@ -630,7 +638,7 @@ fn generic_sat_p(fluid: &PureFluid, p: f64, t_low: f64) -> Result<Option<(SatPai
         )
     };
     let at_low = gap(t_low);
-    let root = (at_low < 0.0).then(|| toms748(&mut gap, t_low, t_c, Tol::Relative(ISOBAR_TOL), ISOBAR_ITER));
+    let root = (at_low < 0.0).then(|| toms748(&mut gap, t_low, t_c, Tol::Relative(T_TOL), T_ITER));
     if let Some(e) = failure {
         return Err(e);
     }
@@ -650,66 +658,28 @@ struct Span {
     liquid: bool,
 }
 
-/// The single-phase state of x on `span` of the isobar at p ([`Strategy::Isobar`]): TOMS 748 in T on x(T) − x, each
-/// iterate PT's density at (T, p) by its branch rule ([`pt_branch`]), seeded by the last iterate's. x(T) rises along a
-/// branch ((∂h/∂T)_p = c_p, (∂s/∂T)_p = c_p/T), so x beyond the span's ends is refused (see [`px`]); but an EOS can turn
-/// back far below its melting line, where its states are solid: Helium's s at 362 MPa is higher at 2.2 K than at 168 K.
-/// So where x lies below the span's low end the root is searched for downward from the high end, in steps of 20 % in T,
-/// and the highest sign change brackets it; x is refused as too cold only if none is found. The acceptance gate: p and
-/// x reproduced, and unless a phase is imposed the state stable; then the domain, as PT's.
+/// The single-phase state of x on `span` of the isobar at p ([`Strategy::Isobar`]): the root in T of x(T) − x
+/// ([`root_in_t`]), each iterate PT's density at (T, p) by its branch rule ([`pt_branch`]), seeded by the last
+/// iterate's ([`Walk`]). The acceptance gate: p and x reproduced, and unless a phase is imposed the state stable; then
+/// the domain, as PT's.
 fn isobar(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions, span: Span) -> Result<State, Error> {
-    let (eos, limits) = (fluid.eos(), fluid.limits());
+    let eos = fluid.eos();
     let (r, m, key) = (eos.gas_constant(), fluid.info().molar_mass(), fluid.info().key());
-    let Span { lo, hi, ends, .. } = span;
-    let colder = DomainError::BelowMinTemperature { t: lo, t_min: lo };
-    if lo >= hi {
-        return Err(colder.into()); // the liquid's bubble temperature at p lies below T_low
-    }
-    let mut walk = Walk { fluid, p, x, var, opts, span, seed: f64::NAN, failure: None };
-    let at_lo = ends.0.map_or_else(|| walk.residual(lo), |end| end - x);
-    let at_hi = ends.1.map_or_else(|| walk.residual(hi), |end| end - x);
-    walk.failed()?;
-    if at_hi < 0.0 {
-        return Err(DomainError::AboveMaxTemperature { t: hi, t_max: limits.t_max() }.into());
-    }
-    let (mut a, mut b, mut at_a, mut at_b) = (lo, hi, at_lo, at_hi);
-    for _ in 0..ISOBAR_ITER {
-        if at_a <= 0.0 {
-            break;
-        }
-        let next = (0.8 * b).max(lo);
-        if next == lo {
-            return Err(colder.into());
-        }
-        let at_next = walk.residual(next);
-        walk.failed()?;
-        if at_next > 0.0 {
-            (b, at_b) = (next, at_next);
-        } else {
-            (a, at_a) = (next, at_next);
-        }
-    }
-    let ended = |t: f64| {
-        if t == a {
-            at_a
-        } else if t == b {
-            at_b
-        } else {
-            walk.residual(t)
-        }
+    let (lo, hi, ends) = (span.lo, span.hi, (span.ends.0.map(|end| end - x), span.ends.1.map(|end| end - x)));
+    let mut walk = Walk { fluid, p, opts, span, seed: f64::NAN };
+    let residual = |t: f64| {
+        let (_, rho) = walk.density(t)?;
+        Ok(var.at(r, t, &total(fluid, t, rho)?) - x)
     };
-    let root = toms748(ended, a, b, Tol::Relative(ISOBAR_TOL), ISOBAR_ITER);
-    walk.failed()?;
-    let root = root.converged(Strategy::Isobar)?;
-    let path = SolvePath { strategy: Strategy::Isobar, iterations: root.iterations };
-    let t = root.x;
+    let (t, iterations) = root_in_t(fluid, (lo, hi), ends, Strategy::Isobar, residual)?;
+    let path = SolvePath { strategy: Strategy::Isobar, iterations };
     let (branch, rho) = walk.density(t)?;
     let b = total(fluid, t, rho)?;
     if !crate::density::reproduces(r, t, rho, p, &b) {
-        return Err(Error::NoConvergence { strategy: Strategy::DensityNewton, iterations: path.iterations });
+        return Err(Error::NoConvergence { strategy: Strategy::DensityNewton, iterations });
     }
     if !reproduces_x(var, r, t, x, var.at(r, t, &b)) {
-        return Err(Error::NoConvergence { strategy: Strategy::Isobar, iterations: path.iterations });
+        return Err(Error::NoConvergence { strategy: Strategy::Isobar, iterations });
     }
     if opts.phase_hint().is_none() {
         accept(r, t, &b)?;
@@ -717,17 +687,130 @@ fn isobar(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions, 
     within_domain(fluid, State::single(key, t, rho, r, m, branch.phase, &b, path)?, opts)
 }
 
-/// An [`isobar`] solve between its iterates: the last density, the next iterate's seed, and the first error, which
-/// ends the solve.
+/// The root in T, with its iterations, of `residual`, x(T) − x along a path of the state space (an isobar, an
+/// isochore), between `lo` and `hi`; a residual known at an end is given (`ends`). The root is bracketed from the top:
+/// down from `hi` in steps of 20 % in T until x(T) falls below x, so the search never evaluates far below its root,
+/// where a state can be costly or have no solution (a pseudo-pure fluid's VLE near its critical point), and of several
+/// roots it takes the highest. x rises with T along such a path ((∂h/∂T)_p = c_p, (∂s/∂T)_p = c_p/T, (∂u/∂T)_ρ = c_v),
+/// but an EOS can turn back far below its melting line, where its states are solid: Helium's s at 362 MPa is higher at
+/// 2.2 K than at 168 K. Then TOMS 748 in the step that brackets it, to [`T_TOL`]. An x above x(`hi`) is refused as
+/// `AboveMaxTemperature` at `hi`, one that no step reaches down to `lo` as `BelowMinTemperature` at `lo` (`lo` above
+/// `hi` too: a liquid whose bubble temperature lies below the domain). A state that fails during the descent is stepped
+/// over, not one between the bracket's ends; where no state above or below x holds, the first failure is the answer; a
+/// failed TOMS 748 is `NoConvergence` of `strategy`.
+fn root_in_t(
+    fluid: &PureFluid,
+    (lo, hi): (f64, f64),
+    ends: (Option<f64>, Option<f64>),
+    strategy: Strategy,
+    mut residual: impl FnMut(f64) -> Result<f64, Error>,
+) -> Result<(f64, u16), Error> {
+    let colder = DomainError::BelowMinTemperature { t: lo, t_min: lo };
+    if lo >= hi {
+        return Err(colder.into());
+    }
+    // Down from `hi` in steps of 20 % in T to the first T where x(T) falls below x, the last T above it the bracket's
+    // top. A state that fails on the way is stepped over (an imposed liquid beyond its superheat limit), but not one
+    // between the two that bracket the root.
+    let (mut t, mut above, mut below, mut failed) = (hi, None, None, None);
+    for _ in 0..T_ITER {
+        let at = match (t == hi, t == lo) {
+            (true, _) => ends.1.map_or_else(|| residual(t), Ok),
+            (_, true) => ends.0.map_or_else(|| residual(t), Ok),
+            _ => residual(t),
+        };
+        match at {
+            Ok(at) if at > 0.0 => (above, failed) = (Some((t, at)), None),
+            Ok(at) => {
+                below = Some((t, at));
+                break;
+            }
+            Err(e) => {
+                failed.get_or_insert(e);
+            }
+        }
+        if t == lo {
+            break;
+        }
+        t = (0.8 * t).max(lo);
+    }
+    let above_max = || DomainError::AboveMaxTemperature { t: hi, t_max: fluid.limits().t_max() }.into();
+    let Some((b, at_b)) = above else { return Err(failed.unwrap_or_else(above_max)) };
+    let Some((a, at_a)) = below else { return Err(failed.unwrap_or(colder.into())) };
+    if let Some(e) = failed {
+        return Err(e);
+    }
+    let mut failure = None;
+    let ended = |t: f64| {
+        if t == a {
+            at_a
+        } else if t == b {
+            at_b
+        } else {
+            residual(t).unwrap_or_else(|e| {
+                failure.get_or_insert(e);
+                f64::NAN
+            })
+        }
+    };
+    let root = toms748(ended, a, b, Tol::Relative(T_TOL), T_ITER);
+    if let Some(e) = failure {
+        return Err(e);
+    }
+    let root = root.converged(strategy)?;
+    Ok((root.x, root.iterations))
+}
+
+/// D+X: DH, DS and DU (PLAN.md M7.4; map 03 §3.1, §9 `flash::dx`). Along the isochore x(T) is DT's ([`isochore_x`]): a
+/// single phase's from the EOS at (T, ρ), in the dome the lever rule's on the saturation at T (DT's phase rule,
+/// [`region`]), so it is continuous through the dome's edge, where ρ is a saturated density. T is the root of
+/// x(T) − x from T_low to 1.5·Tmax ([`root_in_t`], `Strategy::Isochore`), and the state DT's at it, with DT's acceptance
+/// and domain checks and x reproduced. CoolProp splits the range at the saturation crossings and classifies each
+/// interval (map 03 §3.1); a residual continuous through the dome needs no intervals. An imposed single phase holds
+/// along the whole isochore; an imposed `TwoPhase` holds at the root, so a single-phase answer is refused there (a
+/// quality outside [0, 1]). Errors name this pair ([`named`]).
+fn dx(fluid: &PureFluid, rho: f64, x: f64, var: Caloric, opts: &FlashOptions) -> Result<State, Error> {
+    let along = if opts.phase_hint() == Some(Phase::TwoPhase) { FlashOptions::new() } else { *opts };
+    let residual = |t: f64| Ok(isochore_x(fluid, t, rho, var, &along)? - x);
+    let (t, iterations) = root_in_t(fluid, t_search(fluid), (None, None), Strategy::Isochore, residual)?;
+    let state = dt(fluid, t, rho, opts)?;
+    let r = fluid.eos().gas_constant();
+    if !reproduces_x(var, r, t, x, var.of(&state)) {
+        return Err(Error::NoConvergence { strategy: Strategy::Isochore, iterations });
+    }
+    Ok(state.with_path(SolvePath { strategy: Strategy::Isochore, iterations }))
+}
+
+/// x at (T, ρ) as DT's state has it: the EOS's for a single phase; in the dome (DT's phase rule) the lever rule's on
+/// molar volume between the saturated sides at T. Where a pseudo-pure fluid's VLE fails just below its published
+/// critical temperature, above its EOS's own (Air at 13 119 mol/m³ from 131 K to 132.53 K; R407C's EOS critical point is
+/// 356.60 K, the published one 359.345 K), the EOS has no dome and its single phase's x is the one the search follows,
+/// continuous with the lever rule's where that dome closes; DT itself refuses those states.
+fn isochore_x(fluid: &PureFluid, t: f64, rho: f64, var: Caloric, opts: &FlashOptions) -> Result<f64, Error> {
+    let r = fluid.eos().gas_constant();
+    let b = total(fluid, t, rho)?;
+    let pseudo_pure = || fluid.saturation().is_ok_and(|c| c.is_some_and(|c| c.accuracy() == SatAccuracy::Definition));
+    Ok(match region(fluid, t, rho, relations::pressure(r, t, rho, &b), opts) {
+        Err(Error::NoConvergence { strategy: Strategy::Vle, .. }) if pseudo_pure() => var.at(r, t, &b),
+        region => match region? {
+            Region::Single(_) => var.at(r, t, &b),
+            Region::Dome(sat, _) => {
+                let (rl, rv) = (sat.bubble.rho, sat.dew.rho);
+                let q = (1.0 / rho - 1.0 / rl) / (1.0 / rv - 1.0 / rl);
+                let (xl, xv) = (var.at(r, t, &total(fluid, t, rl)?), var.at(r, t, &total(fluid, t, rv)?));
+                xl + q * (xv - xl)
+            }
+        },
+    })
+}
+
+/// An [`isobar`] solve between its iterates: the last density, the next iterate's seed.
 struct Walk<'a> {
     fluid: &'a PureFluid,
     p: f64,
-    x: f64,
-    var: Caloric,
     opts: &'a FlashOptions,
     span: Span,
     seed: f64,
-    failure: Option<Error>,
 }
 
 impl Walk<'_> {
@@ -749,22 +832,6 @@ impl Walk<'_> {
         let (rho, _) = solve_branch(fluid, p, t, &branch, seed)?;
         self.seed = rho;
         Ok((branch, rho))
-    }
-
-    /// x(T) − x, or NaN after recording the error that ended the solve.
-    fn residual(&mut self, t: f64) -> f64 {
-        match self.density(t).and_then(|(_, rho)| total(self.fluid, t, rho)) {
-            Ok(b) => self.var.at(self.fluid.eos().gas_constant(), t, &b) - self.x,
-            Err(e) => {
-                self.failure.get_or_insert(e);
-                f64::NAN
-            }
-        }
-    }
-
-    /// The error that ended the solve, if any.
-    fn failed(&mut self) -> Result<(), Error> {
-        self.failure.take().map_or(Ok(()), Err)
     }
 }
 
