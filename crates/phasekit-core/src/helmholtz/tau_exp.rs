@@ -3,7 +3,7 @@
 //! derivatives are exact polynomials of its exponential's argument ([`exp_poly`], E4), combined by an outer product
 //! as for power terms; the τ-side costs one more `exp` per term, and only where a ≠ 0.
 
-use super::power::{Poly, Vars, exp_poly, horner};
+use super::power::{Poly, Vars, exp_poly, exp_series, horner};
 use super::{DoubleExponentialTerm, Lemmon2005Term, MAX_POW};
 use crate::derivs::Derivs;
 use crate::error::{Error, LoadError};
@@ -76,18 +76,10 @@ impl TauExpBlock {
             let y = if self.a[k] == 0.0 { 0.0 } else { self.a[k] * math::powf(tau, self.m[k]) };
             let f = self.n[k] * math::powf(tau, self.t[k]) * math::exp(-y);
             let tf = f * (self.t[k] - self.m[k] * y);
-            let (d, l) = (usize::from(self.d[k]), usize::from(self.l[k]));
-            let mut coef = 1.0; // (−c)^q / q!
-            for q in 0..3u8 {
-                if q > 0 && l == 0 {
-                    break;
-                }
-                if let Some(slot) = out.get_mut(d + usize::from(q) * l) {
-                    slot[0] += coef * f;
-                    slot[1] += coef * tf;
-                }
-                coef *= -self.c[k] / f64::from(q + 1);
-            }
+            exp_series(&mut out, (self.d[k], self.l[k], self.c[k]), |slot, coef| {
+                slot[0] += coef * f;
+                slot[1] += coef * tf;
+            });
         }
         out
     }
@@ -97,6 +89,7 @@ impl TauExpBlock {
 mod tests {
     use super::*;
     use crate::derivs::Order;
+    use crate::helmholtz::power::ad_misses;
     use crate::num::Jet4;
 
     /// The paper formulas, written independently of the block: Lemmon2005 with "0 means absent", DoubleExponential.
@@ -139,12 +132,8 @@ mod tests {
         let mut acc = Derivs::zero(Order::Four);
         block.accumulate::<f64, 4>(&Vars::new(tau, delta), &mut acc);
         let ad = paper(&lemmon, &double, Jet4::tau(tau), Jet4::delta(delta)).derivs(tau, delta);
-        for n in 0..=4 {
-            for i in 0..=n {
-                let (got, want) = (acc.get(i, n - i).unwrap(), ad.get(i, n - i).unwrap());
-                assert!(((got - want) / want).abs() < 1e-13, "A{i}{}: {got} vs {want}", n - i);
-            }
-        }
+        let misses = ad_misses(&acc, &ad, 1e-13);
+        assert!(misses.is_empty(), "{misses:?}");
     }
 
     /// δ → 0: the series agrees with the block's own values at δ = 1e-8 (A_00 ≈ a_1 δ + a_2 δ², and its τ-derivative;

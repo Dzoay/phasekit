@@ -12,8 +12,8 @@ mod terms;
 use core::fmt;
 
 pub(crate) use eos::{MultiParameterEos, ResidualBlock};
-pub(crate) use gao_b::GaoBBlock;
-pub(crate) use gaussian::GaussianBlock;
+pub(crate) use gao_b::GaoBTau;
+pub(crate) use gaussian::{GaussianBlock, GaussianTau};
 pub(crate) use ideal::IdealGas;
 pub use ideal::{IdealTerm, OffsetReference};
 pub(crate) use non_analytic::NonAnalyticBlock;

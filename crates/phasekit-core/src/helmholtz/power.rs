@@ -120,6 +120,27 @@ pub(super) fn horner<R: Real, const ORD: usize>(polys: &[Poly; 5], x: R) -> [R; 
     b
 }
 
+/// `[1, p, p(p−1), p(p−1)(p−2), p(p−1)(p−2)(p−3)]`: the scaled derivatives `z^k ∂^k z^p / z^p`.
+pub(super) fn falling(p: f64) -> [f64; 5] {
+    [1.0, p, p * (p - 1.0), p * (p - 1.0) * (p - 2.0), p * (p - 1.0) * (p - 2.0) * (p - 3.0)]
+}
+
+/// The δ → 0 series of `δ^d e^(−cδ^l) = Σ_q (−c)^q δ^(d+ql) / q!` (E4): `add(slot, (−c)^q / q!)` for the slot of each
+/// power `d + ql` up to δ², once if `l = 0`.
+pub(super) fn exp_series(out: &mut [[f64; 2]; 3], (d, l, c): (u8, u8, f64), mut add: impl FnMut(&mut [f64; 2], f64)) {
+    let (d, l) = (usize::from(d), usize::from(l));
+    let mut coef = 1.0; // (−c)^q / q!
+    for q in 0..3u8 {
+        if q > 0 && l == 0 {
+            break;
+        }
+        if let Some(slot) = out.get_mut(d + usize::from(q) * l) {
+            add(slot, coef);
+        }
+        coef *= -c / f64::from(q + 1);
+    }
+}
+
 /// A structure-of-arrays block of power terms, compiled once at decode.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PowerBlock {
@@ -144,8 +165,6 @@ impl PowerBlock {
                 return Err(bad("power-term exponent out of range"));
             }
         }
-        let falling =
-            |t: f64| [1.0, t, t * (t - 1.0), t * (t - 1.0) * (t - 2.0), t * (t - 1.0) * (t - 2.0) * (t - 3.0)];
         Ok(Self {
             n: terms.iter().map(|p| p.n).collect(),
             t: terms.iter().map(|p| p.t).collect(),
@@ -179,19 +198,11 @@ impl PowerBlock {
     pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 2]; 3] {
         let mut a = [[0.0; 2]; 3];
         for k in 0..self.n.len() {
-            let f = self.n[k] * crate::num::math::powf(tau, self.t[k]);
-            let (d, l) = (usize::from(self.d[k]), usize::from(self.l[k]));
-            let mut coef = 1.0; // (−c)^m / m!
-            for m in 0..3u8 {
-                if m > 0 && l == 0 {
-                    break;
-                }
-                if let Some(slot) = a.get_mut(d + usize::from(m) * l) {
-                    slot[0] += coef * f;
-                    slot[1] += coef * f * self.t[k];
-                }
-                coef *= -self.c[k] / f64::from(m + 1);
-            }
+            let (f, t) = (self.n[k] * crate::num::math::powf(tau, self.t[k]), self.t[k]);
+            exp_series(&mut a, (self.d[k], self.l[k], self.c[k]), |slot, coef| {
+                slot[0] += coef * f;
+                slot[1] += coef * f * t;
+            });
         }
         a
     }
@@ -206,6 +217,29 @@ impl PowerBlock {
         }
         sum
     }
+}
+
+/// A block's `A_ij` (`got`) against `want` (`Jet4` AD of the paper formula), the 15 with `i + j ≤ 4`: each one not
+/// within `tol` of `want` relative to it, a NaN included (test oracle).
+#[cfg(test)]
+pub(super) fn ad_misses(got: &Derivs, want: &Derivs, tol: f64) -> Vec<String> {
+    let mut misses = Vec::new();
+    for n in 0..=4 {
+        for i in 0..=n {
+            let (g, w) = (got.get(i, n - i).unwrap_or(f64::NAN), want.get(i, n - i).unwrap_or(f64::NAN));
+            if ((g - w) / w).abs() < tol {
+                continue;
+            }
+            misses.push(format!("A{i}{}: {g} vs {w}", n - i));
+        }
+    }
+    misses
+}
+
+/// `Σ term(p)` over `terms`, from 0 and in order: a paper formula's sum (test oracle).
+#[cfg(test)]
+pub(super) fn sum_of<T, R: Real>(terms: &[T], term: impl Fn(&T) -> R) -> R {
+    terms.iter().fold(R::from_f64(0.0), |sum, p| sum + term(p))
 }
 
 #[cfg(test)]
@@ -278,12 +312,8 @@ mod tests {
         let (tau, delta) = (1.7, 0.8);
         let mut acc = Derivs::zero(Order::Four);
         block.accumulate::<f64, 4>(&Vars::new(tau, delta), &mut acc);
-        let ad = block.value(Jet4::tau(tau), Jet4::delta(delta)).derivs(tau, delta);
-        for n in 0..=4 {
-            for i in 0..=n {
-                assert!(rel(acc.get(i, n - i).unwrap(), ad.get(i, n - i).unwrap()) < 1e-14, "A{i}{}", n - i);
-            }
-        }
+        let misses = ad_misses(&acc, &block.value(Jet4::tau(tau), Jet4::delta(delta)).derivs(tau, delta), 1e-14);
+        assert!(misses.is_empty(), "{misses:?}");
     }
 
     /// The fast path is generic: run on `Jet4`, its value parts are bitwise those of `f64`.

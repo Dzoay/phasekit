@@ -9,9 +9,9 @@ use std::sync::Arc;
 use crate::error::{Error, LoadError};
 use crate::fluid::{PureFluid, PureFluidBuilder};
 use crate::helmholtz::{
-    DoubleExponentialTerm, GaoBBlock, GaoBTerm, GaussianBlock, GaussianTerm, IdealGas, IdealTerm, Lemmon2005Term,
-    MAX_POW, MultiParameterEos, NonAnalyticBlock, NonAnalyticTerm, OffsetReference, PowerBlock, PowerTerm,
-    ResidualBlock, TauExpBlock,
+    DoubleExponentialTerm, GaoBTau, GaoBTerm, GaussianBlock, GaussianTau, GaussianTerm, IdealGas, IdealTerm,
+    Lemmon2005Term, MAX_POW, MultiParameterEos, NonAnalyticBlock, NonAnalyticTerm, OffsetReference, PowerBlock,
+    PowerTerm, ResidualBlock, TauExpBlock,
 };
 use crate::model::{CriticalOrigin, CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source};
 
@@ -804,10 +804,10 @@ impl FluidRecord {
             blocks.push(ResidualBlock::TauExp(TauExpBlock::new(&e.lemmon2005, &e.double_exponential)?));
         }
         if !e.gaussian.is_empty() {
-            blocks.push(ResidualBlock::Gaussian(GaussianBlock::new(&e.gaussian)?));
+            blocks.push(ResidualBlock::Gaussian(GaussianBlock::<GaussianTau>::new(&e.gaussian)?));
         }
         if !e.gao_b.is_empty() {
-            blocks.push(ResidualBlock::GaoB(GaoBBlock::new(&e.gao_b)?));
+            blocks.push(ResidualBlock::GaoB(GaussianBlock::<GaoBTau>::new(&e.gao_b)?));
         }
         if !e.non_analytic.is_empty() {
             blocks.push(ResidualBlock::NonAnalytic(NonAnalyticBlock::new(&e.non_analytic)?));
