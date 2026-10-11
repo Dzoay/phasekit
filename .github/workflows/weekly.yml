@@ -13,6 +13,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_MUTANTS_VERSION: "27.1.0"
+  CARGO_NEXTEST_VERSION: "0.9.146"
 
 defaults:
   run:
@@ -32,34 +33,57 @@ jobs:
       - name: G3 cargo test --workspace
         run: cargo test --workspace
 
+  # The full run in 8 shards, each its own job: about 6,700 mutants would take longer than a job may (6 h), and a job
+  # killed at its limit would leave no report (user decision CI1). The tests run as in `gates mutants`: nextest
+  # (`.cargo/mutants.toml`) and the pinned CoolProp checkout. Each shard reports what survived, also after a timeout.
   mutants:
-    name: mutants (report)
+    name: mutants (report, shard ${{ matrix.shard }} of 8)
     runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/rust
         with:
-          components: clippy
+          components: clippy # clippy_bans_fire runs clippy on the lint probe
       - name: Tool cache
         id: tools
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.tools
-          key: tools-${{ runner.os }}-${{ runner.arch }}-mutants-${{ env.CARGO_MUTANTS_VERSION }}
-      - name: Install cargo-mutants
+          key: tools-${{ runner.os }}-${{ runner.arch }}-mutants-${{ env.CARGO_MUTANTS_VERSION }}-nextest-${{ env.CARGO_NEXTEST_VERSION }}
+      - name: Install cargo-mutants and cargo-nextest
         if: steps.tools.outputs.cache-hit != 'true'
-        run: cargo install --locked --root ~/.tools "cargo-mutants@$CARGO_MUTANTS_VERSION"
+        run: cargo install --locked --root ~/.tools "cargo-mutants@$CARGO_MUTANTS_VERSION" "cargo-nextest@$CARGO_NEXTEST_VERSION"
       - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
-      - name: cargo mutants --workspace (report only)
+      - name: CoolProp checkout cache
+        id: coolprop
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reference/CoolProp
+          key: coolprop-${{ hashFiles('scripts/fetch-coolprop.sh') }} # the script pins the commit
+      - name: Fetch CoolProp (anonymous clone of the pinned commit)
+        if: steps.coolprop.outputs.cache-hit != 'true'
+        run: scripts/fetch-coolprop.sh
+      - name: cargo mutants --workspace, one shard (report only)
+        run: cargo mutants --workspace --shard "${{ matrix.shard }}/8" --output "$RUNNER_TEMP" || true
+      - name: Surviving mutants (job summary)
+        if: always()
         run: |
-          cargo mutants --workspace --output "$RUNNER_TEMP" || true
           out="$RUNNER_TEMP/mutants.out"
           {
-            echo "## Surviving mutants"
+            echo "## Surviving mutants, shard ${{ matrix.shard }} of 8"
             echo
-            if [ -s "$out/missed.txt" ]; then echo '```'; cat "$out/missed.txt"; echo '```'; else echo "None."; fi
+            if [ -s "$out/missed.txt" ]; then echo '```'; cat "$out/missed.txt"; echo '```'
+            elif [ -f "$out/outcomes.json" ]; then echo "None."
+            else echo "No report: the run did not finish."; fi
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
         with:
-          name: mutants.out
+          name: mutants.out-${{ matrix.shard }}
           path: ${{ runner.temp }}/mutants.out
+          if-no-files-found: warn
