@@ -3,7 +3,7 @@
 
 # `cargo nextest run` and the mutants gate (`.cargo/mutants.toml`, `test_tool = "nextest"`): stop at the first failure
 # and end the tests still running, so a caught mutant does not wait for the slowest in-flight test (the datagen tests
-# take about 20 s each).
+# take up to about 10 s each, phasekit-core optimised; user decision SP1).
 [profile.default]
 fail-fast = { max-fail = 1, terminate = "immediate" }
 
