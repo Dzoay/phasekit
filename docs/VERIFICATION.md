@@ -866,7 +866,7 @@ MS1; `cargo +1.85 check --lib` for core, data and compat before). Before a relea
 | wasm-browser | x86_64 Linux | G5; `cargo build -p phasekit-core --no-default-features --features fluids-core --target wasm32-unknown-unknown`, baseline and `RUSTFLAGS="-C target-feature=+simd128"`; from M10 also `phasekit-wasm` and the JS smoke test (section 13) | K15 |
 | aarch64 | aarch64 Linux | G3 with `--exclude phasekit-xtask` | D17 |
 | hash-compare | the four targets above | from M9.4: `tests/cross_target.rs` with std and with `--features libm`; collects and compares the hashes (9.4) | |
-| weekly | Linux | `cargo update` then G3; a full `cargo mutants` run, published as a report (surviving mutants of code no PR has touched since) | dependencies §3.4 item 4; user decision TQ2 |
+| weekly | Linux | `cargo update` then G3; a full `cargo mutants` run in 8 shards, each a job, published as a report (surviving mutants of code no PR has touched since) | dependencies §3.4 item 4; user decisions TQ2, CI1 |
 | nightly | pinned `runner_image` | until M1.16 only the L5 step, as `-- --include-ignored`; then `cargo xtask oracle --check` twice over the committed files (drift, determinism; 3.6), then `--tier full` into `fixtures-full/`, from M6 `cargo xtask fetch-fastchebpure --all crates/phasekit-verify/fixtures-full`, then `cargo nextest run -p phasekit-verify --cargo-profile release --run-ignored only --profile ci` (L5), then the report | fail closed |
 
 The workflows live in `.github/workflows/{ci,weekly,nightly}.yml` (M0.6); every `ci.yml` job is a required check on
