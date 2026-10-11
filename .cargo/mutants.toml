@@ -72,10 +72,15 @@ exclude_re = [
     # Equivalent in practice: the density Newton refuses a slope (∂p/∂ln ρ)_T ≤ 0; one exactly 0 from double arithmetic
     # at an iterate never occurs, so `>` and `>=` agree; slopes of either sign are tested.
     "density\\.rs:[0-9]+:[0-9]+: replace > with >= in newton",
-    # Equivalent in practice: P+X's search in T compares x(T) − x with 0 at its bracket's ends and scan steps, so `<`
-    # and `<=`, `>` and `>=` differ only where x is met bit for bit at such a T, which no input reaches reliably; either
-    # side of each comparison is tested (PLAN.md M7.3).
-    "flash\\.rs:[0-9]+:[0-9]+: replace (< with <=|<= with <|> with >=|>= with >) in isobar",
+    # Equivalent in practice: the search in T of P+X and D+X compares x(T) − x with 0 at its bracket's ends and scan
+    # steps, so `<` and `<=`, `>` and `>=` differ only where x is met bit for bit at such a T, which no input reaches
+    # reliably; either side of each comparison is tested (PLAN.md M7.3, M7.4).
+    "flash\\.rs:[0-9]+:[0-9]+: replace (< with <=|<= with <|> with >=|>= with >) in root_in_t",
+    # Equivalent in practice: a pure fluid's phase rule labels by its EOS's own critical point (M6), so its VLE runs only
+    # where the EOS has a dome, and no tested input makes it fail there; only a pseudo-pure fluid, labelled by its
+    # published critical point above its EOS's, reaches a VLE that fails (Air from 131 K to 132.53 K at 13 119 mol/m³,
+    # `d_x_round_trips`), so following the single phase for every fluid changes no tested result.
+    "flash\\.rs:[0-9]+:[0-9]+: replace match guard pseudo_pure\\(\\) with true in isochore_x",
     # Equivalent in practice: the generic VLE's pressure at T_low equals a P+X input's p bit for bit only by chance;
     # pressures below and above it are tested (`p_x_without_a_curve_uses_the_eos_vle`).
     "flash\\.rs:[0-9]+:[0-9]+: replace < with <= in generic_sat_p",
