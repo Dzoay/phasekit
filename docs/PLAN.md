@@ -1036,7 +1036,17 @@ bands (map 03 §8; map 10 §8.5 L4).
   ≈ 700 K, where CoolProp's reused state gives 270.79 K; map 03 §6), `phase_hint_is_honoured_by_every_pair`,
   `domain_errors_are_uniform_across_pairs` (T > Tmax, p > pmax for all 19 pairs), `dt_mass_basis_reproduces_input`,
   `robustness_corpus_never_panics` (~100 issue-linked states, map 10 §8.1: a state that passes acceptance or a typed
-  error). *Done when:* green for the core subset; all 136 *(nightly)*.
+  error). *Done when:* green for the core subset; all 136 *(nightly)*. Measured at M7.9: the core subset's 14 fluids ×
+  19 pairs × 8 truths hold their tables, and all 136 fluids nightly, SES36's 13 departures listed (its dew ancillary's
+  state lies inside its EOS's dome; its HS of the saturated liquid finds a second root, as on an ancillary dome
+  dh = v·dp does not hold). The matrix and the phase-hint tests found faults fixed here: a value within 1e-12 of a
+  domain bound now counts as on it (CO₂'s PT state at pmax read back 6.6e-14 over it); an imposed `TwoPhase` above the
+  labelling Tc, and a Q-pair under a single phase, are `Undefined { Q }`; an imposed `TwoPhase` on the dome's edge is
+  that side; HS and SU under `TwoPhase` search the dome, as on a liquid's side u moves so little with p that a root
+  there holds p only to 1e-6; and the Q-pairs halve their grid's last cell 30 times towards the critical point, where
+  R1234yf's QS and HQ at Q = ½ 0.05 K below it missed their root (CoolProp's #2598 recipe takes the superancillary's
+  critical point, which labels states here too). The corpus holds 193 states from 31 issues and test files, each as it
+  names; the melting-line refusals (#2639, #1936) wait for M8's melting lines.
 - **M7.9a Duplication refactor** (user decision DR1). *Failing test:* none; a refactor changes no behaviour. *Do:* the
   duplication audit's areas 1-3, 5 and 6 (`04-user-decisions.md`, DR1): a shared helper module for phasekit-verify's
   integration tests (`tests/common/mod.rs`: `label()`, the pinned-generator-environment test, the paper-formula AD

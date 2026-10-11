@@ -722,6 +722,17 @@ R134a and R124 at 1e-8 absolute (map 01 §8). M13: x = [1, 0] equals the pure fl
 error; nothing panics. The declared set grows DT (M5) → + QT, PQ (M6) → all 19 (M7) (D6); the test holds the expected
 matrix per milestone as a table.
 
+As built at M7.9 (`tests/capability.rs`): a cell reads the pair's inputs off the truth, molar, and passes when the
+state, or one root of an `Ambiguous` taken by `Nearest`, has the truth's phase, T, ρ and Q in class `Flash` (its
+near-critical bounds in the window). Eight truths, built in (p, T), (T, Q), (p, Q) or (T, ρ): a liquid, a gas and a
+supercritical state, Q = 0, ½ and 1, Q = ½ 0.05 K below the curve's top (ROT-086) and a DT state in the dome. Two
+tables: a pure fluid's, where only a single phase's quality (`Undefined { Q }`) and PT inside the dome (`Ambiguous`) are
+refused, and a pseudo-pure fluid's (D4), where each pair recovers the truths of its own dome (the ancillaries' for PQ,
+P+X, HS and SU; the EOS's VLE for DT, T+X, DP and D+X), the other dome's cells hold that dome's state or a typed
+refusal, and QT and the Q-pairs take only Q = 0 and 1 (`InvalidInput`). The 14 core fluids run in G3; all 136 run
+nightly, where SES36's departures are listed with their reason (its ancillaries and EOS disagree beyond the other
+pseudo-pure fluids').
+
 ### 8.6 Property-based and structural tests
 
 - proptest (std only, dependencies R18), fixed CI seed, committed `proptest-regressions/`: `Input::new` over NaN, ±∞,
