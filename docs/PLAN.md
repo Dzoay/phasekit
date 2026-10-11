@@ -1071,7 +1071,16 @@ bands (map 03 §8; map 10 §8.5 L4).
 - **M7.9b EOS term scaffolding** (user decision DR2). *Failing test:* none. *Do:* the audit's area 4: each EOS term
   family's scaffolding once, not in core (`helmholtz/gaussian.rs`, `gao_b.rs`), xtask datagen (`record.rs`'s residual
   and ideal arms) and verify (`majorant.rs`, `tests/terms.rs`) separately, so a new family is one addition. *Done when:*
-  as M7.9a.
+  as M7.9a. Measured at M7.9b: the tests per binary are M7.9a's (485 with the ignored ones), datagen bit-identical, 288
+  mutants on the diff with one missed, then pinned (an equivalent `break` replaced by a loop bound). jscpd reports 361
+  clones and 3 951 lines (M7.9a: 384, 4 165); what it still reports in area 4 is each family's own addition (its
+  `TauSide` impl, its term struct, its datagen arm), `cp0_integral` (core's closed form and the integral it is checked
+  against: an independent oracle, kept), and test shapes. As built: Gaussian and GaoB terms are one
+  `GaussianBlock<S: TauSide>`, a family with a Gaussian δ-side being one `impl TauSide` (the τ-factor's jet, its δ → 0
+  series as the paper writes it, its checks); power and τ-exponential terms share `falling` and `exp_series`; datagen
+  reads every block through `rows` (named lists, one length and one exponent check each); verify's majorants share
+  `leibniz` and `gaussian_delta`, `term::residual_part` clones the record without its ideal part, and `tests/terms.rs`
+  writes one term's paper formula per family (`check_terms`).
 - **M7.9c Complexity gate** (user decisions CX1, CX2, CX4). *Failing tests:*
   `cognitive_complexity_follows_the_white_paper` (the worked examples of G. Ann Campbell's *Cognitive Complexity*
   specification, SonarSource, in Rust), `else_if_chains_and_closures_nest_as_specified`; then `cargo xtask gates
