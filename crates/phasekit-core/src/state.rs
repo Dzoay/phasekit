@@ -53,6 +53,8 @@ pub enum Strategy {
     Isobar,
     /// TOMS 748 in T along an isochore (D+X), each iterate DT's state at (T, ρ).
     Isochore,
+    /// TOMS 748 in ln ρ along an isotherm (T+X), on each monotonic piece of x(ρ), each iterate DT's state at (T, ρ).
+    Isotherm,
 }
 
 /// The strategy and its iteration count.
