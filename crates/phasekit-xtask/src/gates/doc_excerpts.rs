@@ -39,26 +39,31 @@ fn check(docs: &[(String, String)], sources: &[(String, String)]) -> Result<usiz
                 continue;
             }
             checked += 1;
-            // Chunks are separated by blank lines; each must appear in order in one source.
-            let mut chunk_start = start + 1;
-            for i in start + 1..=close {
-                if i < close && !lines[i].trim().is_empty() {
-                    continue;
-                }
-                let chunk = normalized(lines[chunk_start..i].iter().copied());
-                if !chunk.is_empty() && !sources.iter().any(|source| in_order(source, &chunk)) {
-                    errors.push(format!(
-                        "{path}:{}: the excerpt starting `{}` is not in any source under crates/ or docs/design/sketch/ \
-                         (lines in order, modulo indentation and doc comments); fix it or mark it {ILLUSTRATIVE}",
-                        chunk_start + 1,
-                        chunk[0]
-                    ));
-                }
-                chunk_start = i + 1;
-            }
+            check_block(path, (&lines[start + 1..close], start + 1), &sources, &mut errors);
         }
     }
     if errors.is_empty() { Ok(checked) } else { Err(errors) }
+}
+
+/// Checks the lines of one rust block, `body`, the first of them line `first` (0-based) of the document at `path`:
+/// chunks are separated by blank lines, and each must appear in order in one of `sources`.
+fn check_block(path: &str, (body, first): (&[&str], usize), sources: &[Vec<&str>], errors: &mut Vec<String>) {
+    let mut chunk_start = 0;
+    for i in 0..=body.len() {
+        if i < body.len() && !body[i].trim().is_empty() {
+            continue;
+        }
+        let chunk = normalized(body[chunk_start..i].iter().copied());
+        if !chunk.is_empty() && !sources.iter().any(|source| in_order(source, &chunk)) {
+            errors.push(format!(
+                "{path}:{}: the excerpt starting `{}` is not in any source under crates/ or docs/design/sketch/ \
+                 (lines in order, modulo indentation and doc comments); fix it or mark it {ILLUSTRATIVE}",
+                first + chunk_start + 1,
+                chunk[0]
+            ));
+        }
+        chunk_start = i + 1;
+    }
 }
 
 /// Lines compared modulo indentation, without blank lines and `///`/`//!` doc comments.
@@ -109,6 +114,8 @@ mod tests {
         // A drifted line, or the right lines in the wrong order, is rejected with the chunk's location.
         let errors = check(&doc("", &excerpt.replace("Gauge::NATIVE", "Gauge::default()")), &sources).unwrap_err();
         assert!(errors.len() == 1 && errors[0].starts_with("docs/ARCHITECTURE.md:4:"), "{errors:?}");
+        let errors = check(&doc("", &excerpt.replace("r: f64", "r: f32")), &sources).unwrap_err();
+        assert!(errors.len() == 1 && errors[0].starts_with("docs/ARCHITECTURE.md:9:"), "the second chunk: {errors:?}");
         let swapped = "pub fn gauge(&self) -> Gauge {\npub fn new(model: Arc<dyn ThermoModel>) -> Fluid {\n";
         assert!(check(&doc("", swapped), &sources).is_err());
         // An unterminated block is an error; a block marked illustrative is not checked.

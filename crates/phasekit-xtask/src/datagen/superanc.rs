@@ -85,11 +85,28 @@ fn eval(breaks: &[f64], curve: &[[f64; 13]], t: f64) -> f64 {
 /// exact zero between them, by bisection within one piece, or at the boundary when the two samples are the ends of
 /// neighbouring pieces.
 pub fn extrema(breaks: &[f64], curve: &[[f64; 13]]) -> Vec<f64> {
-    let mut found = Vec::new();
-    // The last nonzero slope (its piece, x and value) and the first exact zero since it, as T.
-    let (mut last, mut zero): (Option<(usize, f64, f64)>, Option<f64>) = (None, None);
+    let mut scan = Scan::default();
     for (i, coef) in curve.iter().enumerate() {
-        let (a, b) = (breaks[i], breaks[i + 1]);
+        scan.piece(i, (breaks[i], breaks[i + 1]), coef);
+    }
+    // Strictly inside the range: a change of sign needs a nonzero sample on each side of it.
+    scan.found
+}
+
+/// The scan of [`extrema`] across the pieces.
+#[derive(Default)]
+struct Scan {
+    /// The extrema so far.
+    found: Vec<f64>,
+    /// The last nonzero slope: its piece, x and value.
+    last: Option<(usize, f64, f64)>,
+    /// The first exact zero since it, as T.
+    zero: Option<f64>,
+}
+
+impl Scan {
+    /// The samples of piece `i`, on [a, b] with the coefficients `coef`.
+    fn piece(&mut self, i: usize, (a, b): (f64, f64), coef: &[f64; 13]) {
         let d = chebyshev_derivative(coef);
         let slope = |x: f64| clenshaw(&d, x);
         let t_of = |x: f64| a + (x + 1.0) * (b - a) / 2.0;
@@ -97,21 +114,19 @@ pub fn extrema(breaks: &[f64], curve: &[[f64; 13]]) -> Vec<f64> {
             let x = -1.0 + 2.0 * k as f64 / SAMPLES as f64;
             let s = slope(x);
             if s == 0.0 {
-                zero = zero.or(Some(t_of(x)));
+                self.zero = self.zero.or(Some(t_of(x)));
                 continue;
             }
-            if let Some((j, x0, _)) = last.filter(|&(_, _, s0): &(usize, f64, f64)| s0.signum() != s.signum()) {
-                found.push(match zero {
+            if let Some((j, x0, _)) = self.last.filter(|&(_, _, s0): &(usize, f64, f64)| s0.signum() != s.signum()) {
+                self.found.push(match self.zero {
                     Some(t) => t,
                     None if j == i => t_of(bisect(&slope, x0, x)),
                     None => a,
                 });
             }
-            (last, zero) = (Some((i, x, s)), None);
+            (self.last, self.zero) = (Some((i, x, s)), None);
         }
     }
-    // Strictly inside the range: a change of sign needs a nonzero sample on each side of it.
-    found
 }
 
 /// The root of `f` between `lo` and `hi`, where f changes sign, bisected until the midpoint repeats an end.

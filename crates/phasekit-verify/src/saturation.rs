@@ -100,30 +100,49 @@ impl SaturationCheck {
                 ("rhoL", sa.bubble.rho, rho_l, rho_l_ratio),
                 ("rhoV", sa.dew.rho, rho_v, rho_v_ratio),
             ];
-            for (column, got, want, ratio) in sa_fit {
-                let bound = ToleranceClass::sa_fit(ratio, want);
-                let within = (got - want).abs() <= bound; // false for NaN too
-                if !within {
-                    self.failures.push(format!("{at} superancillary {column}: {got} against {want} (bound {bound:e})"));
-                }
-            }
+            self.sa_fit(&at, sa_fit);
             self.superancillary += 1;
-            if theta < THETA_VLE_MIN {
-                self.near_critical += 1;
-                continue;
+            self.seeded_vle((name, &at), (record, &ideal, eos), &sa, (t, theta), [p, rho_l, rho_v]);
+        }
+    }
+
+    /// The superancillary at a row's T against the file's values: each cell (column, got, want, ratio) within
+    /// `SaFit` of its misfit ratio.
+    fn sa_fit(&mut self, at: &str, cells: [(&str, f64, f64, f64); 3]) {
+        for (column, got, want, ratio) in cells {
+            let bound = ToleranceClass::sa_fit(ratio, want);
+            let within = (got - want).abs() <= bound; // false for NaN too
+            if !within {
+                self.failures.push(format!("{at} superancillary {column}: {got} against {want} (bound {bound:e})"));
             }
-            if rho_l == rho_v {
-                self.unsplit += 1;
-                continue;
+        }
+    }
+
+    /// The VLE at a row's (T, Θ), seeded with the superancillary's densities `sa`, against `[p, ρ′, ρ″]`
+    /// ([`Self::vle_row`]); not compared below [`THETA_VLE_MIN`] or where the file's ρ′ equals its ρ″.
+    fn seeded_vle(
+        &mut self,
+        (name, at): (&str, &str),
+        (record, ideal, eos): (&FluidRecord, &IdealScale, &dyn HelmholtzModel),
+        sa: &SatPair,
+        (t, theta): (f64, f64),
+        [p, rho_l, rho_v]: [f64; 3],
+    ) {
+        if theta < THETA_VLE_MIN {
+            self.near_critical += 1;
+            return;
+        }
+        if rho_l == rho_v {
+            self.unsplit += 1;
+            return;
+        }
+        match vle_at_t(eos, t, (sa.bubble.rho, sa.dew.rho)) {
+            Ok(sat) => {
+                let mu = carried_scale(record, ideal, eos, t, rho_l);
+                self.vle_row((name, at), &sat, (t, theta, mu), [p, rho_l, rho_v]);
+                self.vle += 1;
             }
-            match vle_at_t(eos, t, (sa.bubble.rho, sa.dew.rho)) {
-                Ok(sat) => {
-                    let mu = carried_scale(record, &ideal, eos, t, rho_l);
-                    self.vle_row((name, &at), &sat, (t, theta, mu), [p, rho_l, rho_v]);
-                    self.vle += 1;
-                }
-                Err(e) => self.failures.push(format!("{at}: VLE {e:?}")),
-            }
+            Err(e) => self.failures.push(format!("{at}: VLE {e:?}")),
         }
     }
 

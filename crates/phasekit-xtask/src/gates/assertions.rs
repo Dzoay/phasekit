@@ -27,36 +27,50 @@ fn check(files: &[(String, String)]) -> Result<usize, Vec<String>> {
     let (mut tests, mut errors) = (0, Vec::new());
     for (path, text) in files {
         let code = code_only(text);
-        let line = |offset: usize| text[..offset].matches('\n').count() + 1;
-        for (at, _) in code.match_indices("#[test]") {
-            tests += 1;
-            let Some((name, fn_at, body)) = test_fn(&code, at) else {
-                errors.push(format!("{path}:{}: a #[test] without a function body", line(at)));
-                continue;
-            };
-            // Attributes before and after `#[test]`, back to the end of the previous item.
-            let item = code[..at].rfind(['}', ';', '{']).unwrap_or(0);
-            let should_panic = code[item..fn_at].contains("#[should_panic");
-            if !should_panic && !["assert!(", "assert_eq!(", "assert_ne!("].iter().any(|m| body.contains(m)) {
-                errors.push(format!("{path}:{}: `{name}` asserts nothing (map 10 R3)", line(fn_at)));
-            }
-        }
+        tests += test_assertions(path, text, &code, &mut errors);
         for mac in ["assert_eq!(", "assert_ne!("] {
-            for (at, _) in code.match_indices(mac) {
-                let sides = arguments(&code, at + mac.len());
-                if let [a, b, ..] = sides.as_slice() {
-                    let (a, b) = (squash(&text[a.0..a.1]), squash(&text[b.0..b.1]));
-                    if !a.is_empty() && a == b {
-                        errors.push(format!("{path}:{}: `{mac}` compares `{a}` with itself (map 07 I11)", line(at)));
-                    }
-                }
-            }
+            errors.extend(code.match_indices(mac).filter_map(|(at, _)| same_sides(path, text, &code, (mac, at))));
         }
     }
     if tests == 0 {
         errors.push("no tests found".to_string());
     }
     if errors.is_empty() { Ok(tests) } else { Err(errors) }
+}
+
+/// The 1-based line of byte `offset` in `text`.
+fn line(text: &str, offset: usize) -> usize {
+    text[..offset].matches('\n').count() + 1
+}
+
+/// Checks each `#[test]` of one file (`code` its [`code_only`] text) asserts something or is `#[should_panic]`;
+/// returns how many tests it holds.
+fn test_assertions(path: &str, text: &str, code: &str, errors: &mut Vec<String>) -> usize {
+    let mut tests = 0;
+    for (at, _) in code.match_indices("#[test]") {
+        tests += 1;
+        let Some((name, fn_at, body)) = test_fn(code, at) else {
+            errors.push(format!("{path}:{}: a #[test] without a function body", line(text, at)));
+            continue;
+        };
+        // Attributes before and after `#[test]`, back to the end of the previous item.
+        let item = code[..at].rfind(['}', ';', '{']).unwrap_or(0);
+        let should_panic = code[item..fn_at].contains("#[should_panic");
+        if !should_panic && !["assert!(", "assert_eq!(", "assert_ne!("].iter().any(|m| body.contains(m)) {
+            errors.push(format!("{path}:{}: `{name}` asserts nothing (map 10 R3)", line(text, fn_at)));
+        }
+    }
+    tests
+}
+
+/// The error of the macro `mac` at `at` in one file (`code` its [`code_only`] text) if its first two arguments are the
+/// same expression.
+fn same_sides(path: &str, text: &str, code: &str, (mac, at): (&str, usize)) -> Option<String> {
+    let sides = arguments(code, at + mac.len());
+    let [a, b, ..] = sides.as_slice() else { return None };
+    let (a, b) = (squash(&text[a.0..a.1]), squash(&text[b.0..b.1]));
+    (!a.is_empty() && a == b)
+        .then(|| format!("{path}:{}: `{mac}` compares `{a}` with itself (map 07 I11)", line(text, at)))
 }
 
 /// The test function after the `#[test]` at `at`: its name, where `fn` starts and its body.
@@ -107,75 +121,94 @@ fn squash(text: &str) -> String {
 fn code_only(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = bytes.to_vec();
-    let mut blank = |from: usize, to: usize| {
-        for byte in &mut out[from..to.min(bytes.len())] {
-            if *byte != b'\n' {
-                *byte = b' ';
-            }
-        }
-    };
     let mut i = 0;
     while i < bytes.len() {
         let next = bytes.get(i + 1).copied();
-        match bytes[i] {
-            b'/' if next == Some(b'/') => {
-                let end = text[i..].find('\n').map_or(bytes.len(), |n| i + n);
-                blank(i, end);
+        let token = match bytes[i] {
+            b'/' if next == Some(b'/') => Some(line_comment(text, i)),
+            b'/' if next == Some(b'*') => Some(block_comment(bytes, i)),
+            b'"' => Some(string(bytes, i)),
+            b'r' => raw_string(text, i),
+            b'\'' => char_literal(text, i),
+            _ => None,
+        };
+        match token {
+            Some((from, to, end)) => {
+                blank(&mut out, from, to);
                 i = end;
             }
-            b'/' if next == Some(b'*') => {
-                let (mut depth, mut j) = (0, i);
-                while j < bytes.len() {
-                    match (bytes[j], bytes.get(j + 1)) {
-                        (b'/', Some(b'*')) => (depth, j) = (depth + 1, j + 2),
-                        (b'*', Some(b'/')) if depth == 1 => break,
-                        (b'*', Some(b'/')) => (depth, j) = (depth - 1, j + 2),
-                        _ => j += 1,
-                    }
-                }
-                blank(i, j + 2);
-                i = j + 2;
-            }
-            b'"' => {
-                let mut j = i + 1;
-                while j < bytes.len() && bytes[j] != b'"' {
-                    j += if bytes[j] == b'\\' { 2 } else { 1 };
-                }
-                blank(i + 1, j);
-                i = j + 1;
-            }
-            // r"...", r#"..."#, br"...", cr"...": in valid Rust an `r` before `#*"` always opens a raw string.
-            b'r' => {
-                let hashes = bytes[i + 1..].iter().take_while(|&&b| b == b'#').count();
-                if bytes.get(i + 1 + hashes) != Some(&b'"') {
-                    i += 1;
-                    continue;
-                }
-                let close = format!("\"{}", "#".repeat(hashes));
-                let start = i + 2 + hashes;
-                let end = text[start..].find(&close).map_or(bytes.len(), |n| start + n);
-                blank(start, end);
-                i = end + close.len();
-            }
-            // A char literal ('x', '\n', '\u{1F600}', 'é'); anything else after `'` is a lifetime or a label.
-            b'\'' => {
-                let end = if next == Some(b'\\') {
-                    text[i + 2..].find('\'').map(|n| i + 2 + n.max(1))
-                } else {
-                    text[i + 1..].chars().next().map(|c| i + 1 + c.len_utf8()).filter(|&j| bytes.get(j) == Some(&b'\''))
-                };
-                match end {
-                    Some(end) => {
-                        blank(i + 1, end);
-                        i = end + 1;
-                    }
-                    None => i += 1,
-                }
-            }
-            _ => i += 1,
+            None => i += 1,
         }
     }
     String::from_utf8(out).unwrap_or_default()
+}
+
+/// A token of [`code_only`]: the bytes it blanks, `from` to `to`, and where the scan goes on.
+type Token = (usize, usize, usize);
+
+/// `out[from..to]` (clipped at its end) as spaces, but newlines.
+fn blank(out: &mut [u8], from: usize, to: usize) {
+    let to = to.min(out.len());
+    for byte in &mut out[from..to] {
+        if *byte != b'\n' {
+            *byte = b' ';
+        }
+    }
+}
+
+/// The `//` comment at `i`, to the end of its line.
+fn line_comment(text: &str, i: usize) -> Token {
+    let end = text[i..].find('\n').map_or(text.len(), |n| i + n);
+    (i, end, end)
+}
+
+/// The `/*` comment at `i`, nested ones within it, to its `*/` or the end of the file.
+fn block_comment(bytes: &[u8], i: usize) -> Token {
+    let (mut depth, mut j) = (0, i);
+    while j < bytes.len() {
+        match (bytes[j], bytes.get(j + 1)) {
+            (b'/', Some(b'*')) => (depth, j) = (depth + 1, j + 2),
+            (b'*', Some(b'/')) if depth == 1 => break,
+            (b'*', Some(b'/')) => (depth, j) = (depth - 1, j + 2),
+            _ => j += 1,
+        }
+    }
+    (i, j + 2, j + 2)
+}
+
+/// The string literal opening at `i`, its contents to the closing quote, escapes skipped.
+fn string(bytes: &[u8], i: usize) -> Token {
+    let mut j = i + 1;
+    while j < bytes.len() && bytes[j] != b'"' {
+        j += if bytes[j] == b'\\' { 2 } else { 1 };
+    }
+    (i + 1, j, j + 1)
+}
+
+/// The raw string at the `r` at `i` (r"...", r#"..."#, br"...", cr"..."), its contents to its closing quote and
+/// hashes; `None` for any other `r`: in valid Rust an `r` before `#*"` always opens a raw string.
+fn raw_string(text: &str, i: usize) -> Option<Token> {
+    let bytes = text.as_bytes();
+    let hashes = bytes[i + 1..].iter().take_while(|&&b| b == b'#').count();
+    if bytes.get(i + 1 + hashes) != Some(&b'"') {
+        return None;
+    }
+    let close = format!("\"{}", "#".repeat(hashes));
+    let start = i + 2 + hashes;
+    let end = text[start..].find(&close).map_or(bytes.len(), |n| start + n);
+    Some((start, end, end + close.len()))
+}
+
+/// The char literal at the `'` at `i` ('x', '\n', '\u{1F600}', 'é'); `None` for anything else after `'`, a lifetime
+/// or a label.
+fn char_literal(text: &str, i: usize) -> Option<Token> {
+    let bytes = text.as_bytes();
+    let end = if bytes.get(i + 1) == Some(&b'\\') {
+        text[i + 2..].find('\'').map(|n| i + 2 + n.max(1))
+    } else {
+        text[i + 1..].chars().next().map(|c| i + 1 + c.len_utf8()).filter(|&j| bytes.get(j) == Some(&b'\''))
+    };
+    end.map(|end| (i + 1, end, end + 1))
 }
 
 #[cfg(test)]

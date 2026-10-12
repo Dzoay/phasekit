@@ -100,12 +100,10 @@ impl Repo {
                 let entry = entry.map_err(|e| format!("cannot list {rel}: {e}"))?;
                 let name = entry.file_name().to_string_lossy().into_owned();
                 let path = format!("{rel}/{name}");
-                let kind = entry.file_type().map_err(|e| format!("cannot stat {path}: {e}"))?;
-                if kind.is_dir() {
-                    if recursive && name != "target" && !name.starts_with('.') {
-                        pending.push(path);
-                    }
-                } else if name.ends_with(ext) {
+                let is_dir = entry.file_type().map_err(|e| format!("cannot stat {path}: {e}"))?.is_dir();
+                if is_dir && recursive && name != "target" && !name.starts_with('.') {
+                    pending.push(path);
+                } else if !is_dir && name.ends_with(ext) {
                     let text = self.read(&path)?;
                     found.push((path, text));
                 }
@@ -312,17 +310,11 @@ impl Repo {
         let mut found = Vec::new();
         while let Some(dir) = pending.pop() {
             let Ok(entries) = std::fs::read_dir(&dir) else { continue };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    if path.file_name().is_some_and(|n| n == "new") {
-                        let read = |f: &str| {
-                            std::fs::read_to_string(path.join(f)).map_err(|e| format!("{}: {e}", path.display()))
-                        };
-                        found.push((read("benchmark.json")?, read("estimates.json")?));
-                    } else {
-                        pending.push(path);
-                    }
+            for path in entries.flatten().map(|entry| entry.path()).filter(|path| path.is_dir()) {
+                if path.file_name().is_some_and(|n| n == "new") {
+                    found.push(criterion_run(&path)?);
+                } else {
+                    pending.push(path);
                 }
             }
         }
@@ -411,4 +403,10 @@ impl Repo {
             .map(str::to_string)
             .ok_or_else(|| "rustc -vV printed no host".to_string())
     }
+}
+
+/// One criterion run's `new/` directory: its `benchmark.json` and `estimates.json`.
+fn criterion_run(new: &Path) -> Result<(String, String), String> {
+    let read = |f: &str| std::fs::read_to_string(new.join(f)).map_err(|e| format!("{}: {e}", new.display()));
+    Ok((read("benchmark.json")?, read("estimates.json")?))
 }

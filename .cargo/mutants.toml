@@ -96,7 +96,7 @@ exclude_re = [
     # Equivalent in practice: the saturation check's Θ = (Tc − T)/Tc of a file row equals 1e-8 (where the VLE stops
     # being compared) or 1e-2 (where its conditioning starts being measured) bit for bit in no file; rows on either
     # side of both are tested.
-    "phasekit-verify/src/saturation\\.rs:[0-9]+:[0-9]+: replace < with <= in SaturationCheck::(rows|vle_row)",
+    "phasekit-verify/src/saturation\\.rs:[0-9]+:[0-9]+: replace < with <= in SaturationCheck::(seeded_vle|vle_row)",
     # Equivalent: the ancillaries section's flags are two disjoint bits (exponential, τ_r), so `|` and `^` give one byte.
     "blob\\.rs:[0-9]+:[0-9]+: replace \\| with \\^ in ancillaries",
     # Equivalent in practice: the density Newton refuses a slope (∂p/∂ln ρ)_T ≤ 0; one exactly 0 from double arithmetic
