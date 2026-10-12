@@ -221,8 +221,9 @@ fn dt_drho2(x: DerivVar, at: &At<'_>, d: &Derivs) -> Option<[f64; 3]> {
 
 /// `(∂/∂wrt₂ (∂of/∂wrt₁)_at₁)_at₂` from the order-3 total `d`: the first partial's ratio `N/D` (see
 /// [`first_partial`]) differentiated in (T, ρ) and divided by `wrt₂`'s Jacobian at constant `at₂` (CoolProp's
-/// `calc_second_partial_deriv`). `None` where either derivative holds the quantity it differentiates by, or a
-/// denominator vanishes; exactly 0 where `of` and `at₁` measure one quantity (the first partial is then 0).
+/// `calc_second_partial_deriv`). `None` where either derivative holds the quantity it differentiates by, or the result
+/// is not finite (a vanishing denominator, or the critical point's order-3 entries); exactly 0 where `of` and `at₁`
+/// measure one quantity (the first partial is then 0).
 pub(crate) fn second_partial(
     (of, wrt1, at1): (DerivVar, DerivVar, DerivVar),
     (wrt2, at2): (DerivVar, DerivVar),
@@ -243,9 +244,8 @@ pub(crate) fn second_partial(
     let (den_t, den_r) = (ytt * zr + yt * ztr - ytr * zt - yr * ztt, ytr * zr + yt * zrr - yrr * zt - yr * ztr);
     let (f_t, f_r) = ((num_t * den - num * den_t) / (den * den), (num_r * den - num * den_r) / (den * den));
     let ((wt, wr), (vt, vr)) = (dt_drho(wrt2, at), dt_drho(at2, at));
-    let outer = wt * vr - wr * vt;
-    let v = (f_t * vr - f_r * vt) / outer;
-    (den != 0.0 && outer != 0.0 && v.is_finite()).then_some(v)
+    let v = (f_t * vr - f_r * vt) / (wt * vr - wr * vt);
+    v.is_finite().then_some(v)
 }
 
 /// Molar Gibbs energy and its (T, p) derivatives to order 2. IF97 regions 1/2/5, IAPWS-06 ice Ih and

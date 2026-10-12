@@ -381,9 +381,25 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::derivs::Order;
 
     const KEY: ModelKey = ModelKey::from_content(b"test");
     const R: f64 = 8.314_462_618;
+
+    /// M7.10: where (∂p/∂ρ)_s is exactly 0 (A01 = A11 = 1, A02 = −2: (∂p/∂ρ)_T and (∂p/∂T)_ρ vanish) the fundamental
+    /// derivative is refused as mechanically unstable, as w is, not divided by 0; κ_T is not finite there either.
+    #[test]
+    fn fundamental_derivative_needs_a_positive_speed_of_sound() {
+        let total = Derivs::from_fn(Order::Three, |i, j| match (i, j) {
+            (0, 1) | (1, 1) => 1.0,
+            (2, 0) => -1.0,
+            (0, 2) => -2.0,
+            _ => 0.0,
+        });
+        let s = State::from_total(KEY, 300.0, 1_000.0, R, 0.018, Phase::Gas, &total.bundle().unwrap()).unwrap();
+        assert_eq!(s.fundamental_derivative(&total), Err(DomainError::MechanicallyUnstable.into()));
+        assert_eq!(s.speed_of_sound(), Err(DomainError::MechanicallyUnstable.into()));
+    }
 
     /// E17: at a non-analytic critical point A20 (cv) diverges. p, h and s survive; cv, cp and w are
     /// `Undefined` instead of the whole state failing.

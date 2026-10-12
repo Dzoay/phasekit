@@ -446,6 +446,74 @@ mod tests {
         assert_eq!((again, read(&again)), before, "the handle carries nothing over from the failure");
     }
 
+    /// M7.10: a second partial is undefined where either derivative holds the quantity it differentiates by (h, s, u
+    /// or g in two bases, on either side: the Jacobian vanishes only up to rounding), and exactly 0 where the first
+    /// partial holds its own variable constant.
+    #[test]
+    fn degenerate_second_partials() {
+        use DerivVar::{Dmolar, Gmass, Gmolar, Hmass, Hmolar, P, Smass, Smolar, T, Umass, Umolar};
+        let fluid = Fluid::new(Arc::new(FluidRecord::synthetic("X").unwrap().compile().unwrap()));
+        let gas = FlashOptions::new().with_phase(Phase::Gas);
+        let input = Input::dt(Density::molar(500.0).unwrap(), Temperature::new(350.0).unwrap());
+        let state = fluid.flash(input, &gas).unwrap();
+        let second = |first: (DerivVar, DerivVar, DerivVar), wrt, at| {
+            let p = SecondPartial { first: Partial { of: first.0, wrt: first.1, at: first.2 }, wrt, at };
+            fluid.prop(&state, Prop::SecondPartial(p))
+        };
+        let pairs = [(Hmolar, Hmass), (Smolar, Smass), (Umolar, Umass), (Gmolar, Gmass)];
+        let cases = pairs.into_iter().flat_map(|(a, b)| [((P, a, b), T, Dmolar), ((P, T, Dmolar), a, b)]);
+        for (first, wrt, at) in cases {
+            let prop = Prop::SecondPartial(SecondPartial {
+                first: Partial { of: first.0, wrt: first.1, at: first.2 },
+                wrt,
+                at,
+            });
+            assert_eq!(second(first, wrt, at), Err(Error::Undefined { prop, phase: Phase::Gas }));
+        }
+        assert_eq!(second((Umolar, T, Umass), T, Dmolar), Ok(0.0));
+    }
+
+    /// M7.10: where one quantity in two bases makes a Jacobian vanish only up to rounding, the check before the ratio
+    /// refuses it: Water's dilute gas at 300 K and 0.1 mol/m³, where the ratio alone gives finite nonsense (about
+    /// 1e16) for h, s, u and g in two bases on either side.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn degenerate_second_partials_of_a_dilute_gas() {
+        use DerivVar::{Dmolar, Gmass, Gmolar, Hmass, Hmolar, P, Smass, Smolar, T, Umass, Umolar};
+        let registry = crate::Registry::from_embedded(crate::DataSet::Corrected).unwrap();
+        let water = registry.get("Water").unwrap();
+        let input = Input::dt(Density::molar(0.1).unwrap(), Temperature::new(300.0).unwrap());
+        let state = water.flash(input, &FlashOptions::new().with_phase(Phase::Gas)).unwrap();
+        let pairs = [(Hmolar, Hmass), (Smolar, Smass), (Umolar, Umass), (Gmolar, Gmass)];
+        for (a, b) in pairs {
+            for (first, wrt, at) in
+                [(Partial { of: P, wrt: a, at: b }, T, Dmolar), (Partial { of: P, wrt: T, at: Dmolar }, a, b)]
+            {
+                let prop = Prop::SecondPartial(SecondPartial { first, wrt, at });
+                assert_eq!(water.prop(&state, prop), Err(Error::Undefined { prop, phase: Phase::Gas }));
+            }
+        }
+    }
+
+    /// M7.10: at Water's critical point the order-3 entries have no limit (NaN), so the second partials and the
+    /// fundamental derivative are undefined there; κ_T and β, of order 2, are not finite either way.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn order_three_outputs_are_undefined_at_the_critical_point() {
+        use DerivVar::{Dmolar, P, T};
+        let registry = crate::Registry::from_embedded(crate::DataSet::Corrected).unwrap();
+        let water = registry.get("Water").unwrap();
+        let c = water.model().critical_point().unwrap();
+        let input = Input::dt(Density::molar(c.rho).unwrap(), Temperature::new(c.t).unwrap());
+        let state = water.state(input).unwrap();
+        let first = Partial { of: P, wrt: T, at: Dmolar };
+        let p = Prop::SecondPartial(SecondPartial { first, wrt: T, at: Dmolar });
+        let phase = state.phase();
+        assert_eq!(water.prop(&state, p), Err(Error::Undefined { prop: p, phase }));
+        let gamma = water.prop(&state, Prop::FundamentalDerivative);
+        assert!(gamma.is_err(), "{gamma:?}");
+    }
+
     /// M7.10: a second partial along T at constant ρ, or along ρ at constant T, is the central difference of its
     /// first partial at T(1 ± 1e-5) or ρ(1 ± 1e-5), within 1e-6 of the larger of it and the first partial over T or
     /// ρ, for first partials of p, h, s, u and g in both bases; and the mixed second partial of p is symmetric.

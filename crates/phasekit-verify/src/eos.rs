@@ -196,7 +196,7 @@ fn order_three_outputs(which: OrderThree, fluid: &Fluid, state: &State) -> Vec<(
         OrderThree::SecondPartials => second_partials()
             .into_iter()
             .map(|p| {
-                let floor = (value(p.first.of) / (value(p.first.wrt) * value(p.wrt))).abs();
+                let floor = second_partial_floor(value(p.first.of), value(p.first.wrt), value(p.wrt));
                 let evaluate: Evaluate = Box::new(move |s, d| s.second_partial(p, d).unwrap_or(f64::NAN));
                 (second_partial_column(p), Prop::SecondPartial(p), evaluate, floor)
             })
@@ -221,6 +221,11 @@ fn order_three_outputs(which: OrderThree, fluid: &Fluid, state: &State) -> Vec<(
     }
 }
 
+/// The `Prop` floor of a second partial (∂/∂W (∂X/∂Y)_Z)_V (VERIFICATION.md §5): |X|/(|Y|·|W|) at the state.
+pub fn second_partial_floor(x: f64, y: f64, w: f64) -> f64 {
+    (x / (y * w)).abs()
+}
+
 /// The `Term` scales M_ij of the order-3 total bundle at (T, ρ), i + j ≤ 3: [`Majorants`]' sums, to order 3.
 fn order_three_scales(setup: &Setup<'_>, t: f64, rho: f64) -> Derivs {
     let e = &setup.record.eos;
@@ -238,15 +243,19 @@ fn carried_order_three(x: &dyn Fn(&State, &Derivs) -> f64, d: &Derivs, scales: &
         let state = d.bundle().and_then(|b| State::from_total(key, t, rho, r, molar_mass, Phase::Gas, &b).ok());
         state.map_or(f64::NAN, |s| x(&s, d))
     };
-    let shifted = |(i, j): (usize, usize), step: f64| {
+    let shifted = |(i, j): (usize, usize), by: &dyn Fn(f64) -> f64| {
         Derivs::from_fn(Order::Three, |k, l| {
-            d.get(k, l).unwrap_or(f64::NAN) + if (k, l) == (i, j) { step } else { 0.0 }
+            let a = d.get(k, l).unwrap_or(f64::NAN);
+            if (k, l) == (i, j) { by(a) } else { a }
         })
     };
     let sensitivity = |ij: (usize, usize)| {
         let scale = scales.get(ij.0, ij.1).unwrap_or(f64::NAN);
         let size = scale.max(d.get(ij.0, ij.1).unwrap_or(f64::NAN).abs());
-        let slope = |step: f64| ((at(&shifted(ij, step)) - at(&shifted(ij, -step))) / (2.0 * step)).abs();
+        let slope = |step: f64| {
+            let (up, down) = (at(&shifted(ij, &|a| a + step)), at(&shifted(ij, &|a| a - step)));
+            ((up - down) / (2.0 * step)).abs()
+        };
         (8..=12).map(|k| slope(size * math::powi(10.0, -k))).fold(0.0, f64::max) * scale
     };
     (0..=3usize).flat_map(|n| (0..=n).map(move |i| (i, n - i))).map(sensitivity).sum()
@@ -593,6 +602,30 @@ mod tests {
         let want = [s.t(), s.p(), s.rho(m), s.rho(k), s.h(m), s.h(k), s.s(m), s.s(k), s.u(m), s.u(k), s.g(m), s.g(k)];
         let got = VARIABLES.map(|v| variable(registry.get("Water").unwrap(), &s, v));
         assert_eq!(got.map(f64::to_bits), want.map(f64::to_bits), "{VARIABLES:?}");
+    }
+
+    /// M7.10: the carried scale of an order-3 output linear in the bundle is its coefficients times the scales:
+    /// (∂²p/∂T²)_ρ = (ρR/T)·A21 carries (ρR/T)·M21 and (∂²p/∂ρ²)_T = (RT/ρ)·(2A01 + 4A02 + A03) carries
+    /// (RT/ρ)·(2M01 + 4M02 + M03), at Water's (700 K, 5 000 mol/m³); a second partial's floor is |X|/(|Y|·|W|).
+    #[test]
+    fn carried_order_three_of_a_linear_output_is_its_sensitivities() {
+        use DerivVar::{Dmolar, P, T};
+        assert_eq!((second_partial_floor(6.0, -3.0, 2.0), second_partial_floor(-1.0, 4.0, -0.5)), (1.0, 0.5));
+        let (state, record, _) = water();
+        let (r, m, t, rho) = (record.eos.gas_constant, record.molar_mass, state.t(), state.rho(Basis::Molar));
+        let registry = phasekit_core::Registry::from_embedded(phasekit_core::DataSet::Parity).unwrap();
+        let eos = registry.get("Water").unwrap().model().helmholtz().unwrap();
+        let total = eos.ideal(t, rho, Order::Three) + eos.residual(t, rho, Order::Three);
+        let scales = Derivs::from_fn(Order::Three, |i, j| [1.0, 2.0, 3.0, 5.0][i] + [0.0, 7.0, 11.0, 13.0][j]);
+        let carried = |of, wrt, at| {
+            let p = SecondPartial { first: Partial { of, wrt, at }, wrt, at };
+            carried_order_three(&|s, d| s.second_partial(p, d).unwrap_or(f64::NAN), &total, &scales, [r, t, rho, m])
+        };
+        let m_ = |i, j| scales.get(i, j).unwrap();
+        let want = rho * r / t * m_(2, 1);
+        assert!((carried(P, T, Dmolar) / want - 1.0).abs() < 1e-3, "{} against {want}", carried(P, T, Dmolar));
+        let want = r * t / rho * (2.0 * m_(0, 1) + 4.0 * m_(0, 2) + m_(0, 3));
+        assert!((carried(P, Dmolar, T) / want - 1.0).abs() < 1e-3, "{} against {want}", carried(P, Dmolar, T));
     }
 
     /// TC1: the carried scale of a partial linear in the bundle is exact. (∂p/∂T)_ρ = ρR(1 + A01 − A11) and (∂p/∂ρ)_T =
