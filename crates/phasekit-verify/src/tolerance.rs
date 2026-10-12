@@ -153,6 +153,8 @@ impl ToleranceClass {
             ToleranceClass::Fd => Some(1e-7 * scale),
             // Far from Tc; nearer, `sat_mp_density` and `sat_mp_pressure` carry the VLE's conditioning (NC1).
             ToleranceClass::SatMp => Some(1e-11 * scale),
+            // Relative to the oracle's total, which every stage of a direct correlation is checked against (M8.5).
+            ToleranceClass::TransportDirect => Some(1e-12 * scale),
             _ => None,
         }
     }
@@ -322,6 +324,7 @@ mod tests {
         assert_eq!(ToleranceClass::CaloricFit.bound(4.0), Some(8e-6));
         assert_eq!(ToleranceClass::Flash.bound_in(2.0, Window::NearCritical), Some(2e-9));
         assert_eq!(ToleranceClass::Fd.bound_in(3.0, Window::NearCritical), Some(3e-7));
+        assert_eq!(ToleranceClass::TransportDirect.bound_in(3.0, Window::NearCritical), Some(3e-12));
         // `SatMp`: 1e-11 far from Tc; nearer, the VLE's conditioning (VERIFICATION.md §5, NC1).
         assert_eq!(ToleranceClass::SatMp.bound(4.0), Some(4e-11));
         assert_eq!(ToleranceClass::SatMp.bound_in(4.0, Window::NearCritical), Some(4e-11));

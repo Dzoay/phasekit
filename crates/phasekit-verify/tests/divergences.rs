@@ -14,6 +14,9 @@ use phasekit_verify::{
     Cell, DIVERGENCES, Fixture, MILESTONE, fixture, from_printed, missing_proofs, unregistered_proofs,
 };
 
+#[path = "common/transport_rows.rs"]
+mod transport_rows;
+
 /// Every proof function, by register id.
 const PROOFS: &[(&str, fn())] = &[
     ("DIV-0001", div_0001),
@@ -32,6 +35,8 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0018", div_0018),
     ("DIV-0019", div_0019),
     ("DIV-0020", div_0020),
+    ("DIV-0021", div_0021),
+    ("DIV-0022", div_0022),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -382,4 +387,81 @@ fn div_0020() {
     let dt_h = flash.value(row + 1, "h").unwrap();
     assert!((state.h(Basis::Molar) / dt_h - 1.0).abs() <= 1e-9, "{} against {dt_h}", state.h(Basis::Molar));
     assert!((flash.value(row, "p").unwrap() / p - 1.0).abs() > 1e-9, "the exempt cell still differs");
+}
+
+/// The text of one of CoolProp's transport test tables (PLAN.md M8.3).
+fn transport_text(file: &str) -> &'static str {
+    transport_rows::ROWS.iter().find(|((path, _), _)| *path == file).map(|((_, text), _)| *text).unwrap()
+}
+
+/// η of `fluid` at a CoolProp test row's T and density (`x_kind` `Dmolar` or `Dmass`), the density `rho`.
+fn row_viscosity(fluid: &str, table: &Fixture<'_>, row: usize, rho: f64) -> f64 {
+    let fluid = Registry::embedded().unwrap().get(fluid).unwrap();
+    let rho = match table.printed(row, "x_kind").unwrap() {
+        "Dmolar" => Density::molar(rho).unwrap(),
+        _ => Density::mass(rho).unwrap(),
+    };
+    let state = fluid.state(Input::dt(rho, Temperature::new(table.value(row, "T").unwrap()).unwrap())).unwrap();
+    fluid.prop(&state, Prop::Viscosity).unwrap()
+}
+
+/// The rows of a CoolProp test table whose η lies beyond half a unit of its printed digits, each within the bound DIV
+/// entry `id` registers for the table.
+fn beyond_printed(id: &str, fluid: &str) -> Vec<usize> {
+    let file = format!("paper/{fluid}/CoolProp-Tests.eta.csv");
+    let (bound, text) = (registered_table_bound(id, &file), transport_text(&file));
+    let table = Fixture::parse(&file, text).unwrap();
+    let beyond: Vec<usize> = (0..table.rows().len())
+        .filter(|&row| {
+            let (eta, want) =
+                (row_viscosity(fluid, &table, row, table.value(row, "x").unwrap()), table.value(row, "value"));
+            let want = want.unwrap();
+            assert!((eta / want - 1.0).abs() <= bound, "{file} row {row}: {eta} against {want}");
+            (eta - want).abs() > half_unit(&table, row, "value")
+        })
+        .collect();
+    assert!(!beyond.is_empty(), "{file} needs its registered bound no more");
+    beyond
+}
+
+/// DIV-0021 (`Investigate`; map 10 §8.1): two papers' check values are off their own correlations, which v8.0.0
+/// transcribes exactly and phasekit evaluates as the oracle does (`viscosity_stages_match_contributions`).
+/// Quiñones-Cisneros, Huber & Deiters 2012 (SF₆): Eq. (6) with Table 2's printed dᵢ (mPa s) and T_c = 318.7232 K is
+/// phasekit's dilute-gas η to 1e-12, and Table 8's ρ = 0 rows (CoolProp's rows 169 and 172, at 1e-14 kg/m³) are 3.9e-5
+/// and 3.1e-5 above it, beyond their printed digits. Huber & Laesecke 2006 (R125): the 300 K point (10.5969998 mol/L,
+/// nine digits) is 9.3e-5 off, the 400 K point within its digits. Both tables within their registered bounds.
+/// Resolution: the user accepts the correlations as printed (`KeepOracle`), or the authors' unprinted digits are found.
+fn div_0021() {
+    let d = [0.118561, -0.378103, 0.416428, -0.165295, 0.0245381];
+    let file = "paper/SulfurHexafluoride/CoolProp-Tests.eta.csv";
+    let table = Fixture::parse(file, transport_text(file)).unwrap();
+    for (row, t) in [(0, 300.0), (3, 400.0)] {
+        let tr = t / 318.7232;
+        let eq6 =
+            1e-3 * d.iter().enumerate().fold(0.0, |s, (i, d)| s + d * phasekit_core::math::powf(tr, i as f64 / 4.0));
+        let eta = row_viscosity("SulfurHexafluoride", &table, row, table.value(row, "x").unwrap());
+        assert!((eta / eq6 - 1.0).abs() <= 1e-12, "{t} K: {eta} against Eq. (6) {eq6}");
+    }
+    assert_eq!(beyond_printed("DIV-0021", "SulfurHexafluoride"), [0, 1, 2, 3, 4, 5]);
+    assert_eq!(beyond_printed("DIV-0021", "R125"), [0]);
+}
+
+/// DIV-0022 (`Investigate`; map 10 §8.1): CoolProp's test rows print these densities to fewer digits than η needs.
+/// Every row beyond its printed η digits is explained by its density's: the printed η lies within the η of the densities
+/// half a printed unit either side, widened by η's own half unit; and each table within its registered bound.
+/// Resolution: transcribe the papers' own tables (Fenghour 1995, Tanaka 1996, Huber 2004, Vogel 1998), and with them
+/// decide whether a row's printed inputs carry their half unit into the `Paper` class.
+fn div_0022() {
+    for (fluid, rows) in [("Ammonia", &[1][..]), ("R123", &[0]), ("n-Octane", &[0]), ("n-Propane", &[0, 1, 2, 3])] {
+        let file = format!("paper/{fluid}/CoolProp-Tests.eta.csv");
+        let table = Fixture::parse(&file, transport_text(&file)).unwrap();
+        assert_eq!(beyond_printed("DIV-0022", fluid), rows, "{fluid}");
+        for &row in rows {
+            let (rho, half_rho) = (table.value(row, "x").unwrap(), half_unit(&table, row, "x"));
+            let (low, high) =
+                (row_viscosity(fluid, &table, row, rho - half_rho), row_viscosity(fluid, &table, row, rho + half_rho));
+            let (want, half) = (table.value(row, "value").unwrap(), half_unit(&table, row, "value"));
+            assert!(low.min(high) - half <= want && want <= low.max(high) + half, "{file} row {row}: {low}..{high}");
+        }
+    }
 }

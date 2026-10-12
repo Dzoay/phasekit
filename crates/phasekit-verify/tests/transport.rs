@@ -4,11 +4,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use phasekit_core::State;
 use phasekit_core::internal::{ConductivityModel, FluidRecord, TransportRecord, ViscosityModel};
 use phasekit_core::{
-    DataSet, Density, Error, FlashOptions, Fluid, Input, LoadError, Prop, Registry, Temperature, math,
+    DataSet, Density, DomainPolicy, Error, FlashOptions, Fluid, Input, LoadError, Phase, Pressure, Prop, Quality,
+    Registry, Temperature, math,
 };
-use phasekit_verify::{Fixture, fixture};
+use phasekit_verify::{DIVERGENCES, Fixture, Tolerance, fixture};
 
 #[path = "common/transport_rows.rs"]
 mod transport_rows;
@@ -41,11 +43,13 @@ fn answered(reg: &Registry, name: &str) -> Result<TransportRecord, String> {
     let t = (1.05 * record.eos.t_reducing).min(record.limits.t_max());
     let input = Input::dt(Density::molar(1e-3 * record.eos.rho_reducing).unwrap(), Temperature::new(t).unwrap());
     let state = fluid.flash(input, &FlashOptions::new()).map_err(|e| at(&e))?;
-    let viscosity = (Prop::Viscosity, transport.viscosity.is_some(), "M8.5");
-    for (prop, model, step) in [viscosity, (Prop::Conductivity, transport.conductivity.is_some(), "M8.6")] {
-        match fluid.prop(&state, prop) {
+    let viscosity = (Prop::Viscosity, transport.viscosity.is_some());
+    for (prop, model) in [viscosity, (Prop::Conductivity, transport.conductivity.is_some())] {
+        let answer = fluid.prop(&state, prop);
+        match answer {
             Err(Error::NoModel { prop: p }) if p == prop && !model => {}
-            Err(Error::Load(LoadError::Format(m))) if model && m.ends_with(&format!("lands at {step}")) => {}
+            Ok(value) if model && value.is_finite() && value > 0.0 => {}
+            _ if model && lands_later(&answer) => {}
             other => return Err(at(&format!("{prop:?}: {other:?}"))),
         }
     }
@@ -54,8 +58,8 @@ fn answered(reg: &Registry, name: &str) -> Result<TransportRecord, String> {
 
 /// PLAN.md M8.1 (map 10 §8.2): every embedded fluid's transport section decodes, under both datasets. 70 of the 136
 /// fluids have no viscosity model and 73 no conductivity model, so the kernel answers `NoModel` for them; the others
-/// hold v8.0.0's default forms, as many of each as map 05 §4 counts, and report that evaluating them lands at M8.5
-/// (viscosity) and M8.6 (conductivity).
+/// hold v8.0.0's default forms, as many of each as map 05 §4 counts, and evaluate (a staged viscosity, from M8.5) or say
+/// the step that evaluates them.
 #[test]
 fn all_transport_blocks_decode() {
     let want: BTreeMap<String, usize> = [
@@ -302,4 +306,200 @@ fn sigma_matches_oracle() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
     assert_eq!((rows, fluids.len()), (432 + 11 * 50, 108));
+}
+
+/// The oracle's transport files: the all-fluid tier (8 states per fluid) and the core subset's (200 each).
+const TRANSPORT_FIXTURES: [(&str, &str); 15] = [
+    fixture!("coolprop-8.0.0/all/transport.csv"),
+    fixture!("coolprop-8.0.0/transport/Air.csv"),
+    fixture!("coolprop-8.0.0/transport/Ammonia.csv"),
+    fixture!("coolprop-8.0.0/transport/CarbonDioxide.csv"),
+    fixture!("coolprop-8.0.0/transport/HFE143m.csv"),
+    fixture!("coolprop-8.0.0/transport/Helium.csv"),
+    fixture!("coolprop-8.0.0/transport/Methanol.csv"),
+    fixture!("coolprop-8.0.0/transport/Nitrogen.csv"),
+    fixture!("coolprop-8.0.0/transport/R1130(E).csv"),
+    fixture!("coolprop-8.0.0/transport/R1234yf.csv"),
+    fixture!("coolprop-8.0.0/transport/R1234ze(E).csv"),
+    fixture!("coolprop-8.0.0/transport/R125.csv"),
+    fixture!("coolprop-8.0.0/transport/R410A.csv"),
+    fixture!("coolprop-8.0.0/transport/Water.csv"),
+    fixture!("coolprop-8.0.0/transport/n-Heptane.csv"),
+];
+
+/// Calls `each` with every row of the transport fixtures whose `column` (`eta_model`, `lambda_model`) is `model`: the
+/// table, the row, the fluid's name and record, and the fluid's state at the row's (T, ρ).
+fn for_transport_rows(
+    column: &str,
+    model: &str,
+    mut each: impl FnMut(&Fixture<'_>, usize, &str, &FluidRecord, &State),
+) {
+    let registry = Registry::embedded().unwrap();
+    let mut records: BTreeMap<String, FluidRecord> = BTreeMap::new();
+    for (path, text) in TRANSPORT_FIXTURES {
+        let table = Fixture::parse(path, text).unwrap();
+        let file_fluid = path.rsplit('/').next().unwrap().trim_end_matches(".csv");
+        for row in (0..table.rows().len()).filter(|&r| table.printed(r, column) == Some(model)) {
+            let name = table.printed(row, "fluid").unwrap_or(file_fluid);
+            let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rho").unwrap());
+            let input = Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap());
+            let state = registry.get(name).unwrap().flash(input, &FlashOptions::new()).unwrap();
+            let record = records
+                .entry(name.to_string())
+                .or_insert_with(|| phasekit_core::internal::record(registry, name).unwrap());
+            each(&table, row, name, record, &state);
+        }
+    }
+}
+
+/// Whether `result` is the typed error of a form a later step evaluates.
+fn lands_later<T>(result: &Result<T, Error>) -> bool {
+    matches!(result, Err(Error::Load(LoadError::Format(m))) if m.contains(" lands at M8."))
+}
+
+/// PLAN.md M8.5 (map 05 U3): staged viscosity stage by stage against CoolProp's `viscosity_contributions` at the
+/// oracle's states (all-fluid tier and core subset), each stage and the total in class `TransportDirect` at the scale of
+/// the oracle's total. A staged model with a hardcoded stage (map 05 U10) says it lands at M8.9.
+#[test]
+fn viscosity_stages_match_contributions() {
+    let (mut checked, mut later, mut failures) = (BTreeSet::new(), BTreeSet::new(), Vec::new());
+    let columns = [("eta_dilute", 0), ("eta_initial_density", 1), ("eta_residual", 2)];
+    for_transport_rows("eta_model", "staged", |table, row, name, record, state| {
+        if table.printed(row, "eta_status") != Some("ok") {
+            failures.push(format!("{name} row {row}: the oracle has no viscosity"));
+            return;
+        }
+        let stages = phasekit_core::internal::viscosity_stages(record, state);
+        if lands_later(&stages) {
+            later.insert(name.to_string());
+            return;
+        }
+        let stages = stages.unwrap();
+        let scale = table.value(row, "eta").unwrap();
+        let got = [stages.dilute, stages.initial_density, stages.residual];
+        for (column, i) in columns {
+            let checked = table.check_scaled(row, column, got[i], scale);
+            failures.extend(checked.err().map(|e| format!("{name} row {row} {column}: {e:?}")));
+        }
+        let total = table.check_scaled(row, "eta", stages.total(), scale);
+        failures.extend(total.err().map(|e| format!("{name} row {row} eta: {e:?}")));
+        checked.insert(name.to_string());
+    });
+    assert!(failures.is_empty(), "{failures:#?}");
+    assert_eq!((checked.len(), later.len()), (25, 9), "{checked:?} {later:?}");
+}
+
+/// PLAN.md M8.5: the arbiter rows of M8.3 (`CoolProp-Tests.cpp`'s paper and IAPWS viscosity rows, Helium's excepted)
+/// within their printed digits, for every fluid whose viscosity this step evaluates; the friction-theory fluids with
+/// paper rows (SF₆, H₂S) among them. The others say the step that evaluates them. A row beyond its printed digits passes
+/// only within the `Measured` bound a register entry records for its table (DIV-0021, DIV-0022; VERIFICATION.md §6),
+/// and those rows are pinned. The nine rows outside the EOS's range (CO₂ at 100 and 10 000 K, Methanol at 630 K, the
+/// xylenes above p_max) are evaluated with `DomainPolicy::Extrapolate`; their hardcoded models land at M8.9.
+#[test]
+fn viscosity_paper_rows() {
+    let registry = Registry::embedded().unwrap();
+    let (mut checked, mut later, mut extrapolated, mut beyond, mut failures) =
+        (BTreeMap::new(), 0, Vec::new(), Vec::new(), Vec::new());
+    for ((path, text), _) in transport_rows::ROWS.iter().filter(|((p, _), _)| p.ends_with(".eta.csv")) {
+        let table = Fixture::parse(path, text).unwrap();
+        let fluid = path.split('/').nth(1).unwrap();
+        for row in (0..table.rows().len()).filter(|&r| arbitrates(fluid, table.printed(r, "provenance").unwrap())) {
+            let line = table.value(row, "line").unwrap();
+            let (outside, outcome) = paper_row(registry.get(fluid).unwrap(), path, &table, row);
+            extrapolated.extend(outside.then(|| format!("{fluid} {line}")));
+            match outcome {
+                Ok(None) => later += 1,
+                Ok(Some(id)) => {
+                    *checked.entry(fluid).or_insert(0) += 1;
+                    beyond.extend(id.map(|id| (id, fluid)));
+                }
+                Err(e) => failures.push(format!("{path} line {line}: {e}")),
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    assert_eq!((checked.get("SulfurHexafluoride"), checked.get("HydrogenSulfide")), (Some(&6), Some(&4)));
+    assert_eq!((checked.len(), checked.values().sum::<usize>(), later), (14, 53, 104), "{checked:?}");
+    let outside = ["CarbonDioxide 133", "CarbonDioxide 135", "Methanol 218", "Methanol 219", "m-Xylene 252"];
+    assert_eq!(
+        extrapolated,
+        [&outside[..], &["m-Xylene 259", "o-Xylene 265", "o-Xylene 269", "o-Xylene 272"]].concat()
+    );
+    let beyond = beyond.into_iter().fold(BTreeMap::new(), |mut n, key| {
+        *n.entry(key).or_insert(0) += 1;
+        n
+    });
+    let registered = [
+        (("DIV-0021", "R125"), 1),
+        (("DIV-0021", "SulfurHexafluoride"), 6),
+        (("DIV-0022", "Ammonia"), 1),
+        (("DIV-0022", "R123"), 1),
+        (("DIV-0022", "n-Octane"), 1),
+        (("DIV-0022", "n-Propane"), 4),
+    ];
+    assert_eq!(beyond.into_iter().collect::<Vec<_>>(), registered, "rows beyond their printed digits, by entry");
+}
+
+/// One arbiter row: whether it lies outside the EOS's range (evaluated only on request), and `None` when its form
+/// lands later, else the register entry whose bound it needs beyond its printed digits.
+fn paper_row(
+    fluid: &Fluid,
+    path: &str,
+    table: &Fixture<'_>,
+    row: usize,
+) -> (bool, Result<Option<Option<&'static str>>, String>) {
+    let eta = paper_row_viscosity(fluid, table, row, DomainPolicy::Enforce);
+    if matches!(eta, Err(Error::Domain(_))) {
+        // A row outside the EOS's range, inside the correlation's.
+        return (
+            true,
+            paper_row_check(path, table, row, paper_row_viscosity(fluid, table, row, DomainPolicy::Extrapolate)),
+        );
+    }
+    (false, paper_row_check(path, table, row, eta))
+}
+
+/// `eta` against its row: `None` when its form lands later, else the register entry whose bound it needs beyond its
+/// printed digits.
+fn paper_row_check(
+    path: &str,
+    table: &Fixture<'_>,
+    row: usize,
+    eta: Result<f64, Error>,
+) -> Result<Option<Option<&'static str>>, String> {
+    if lands_later(&eta) {
+        return Ok(None);
+    }
+    let eta = eta.map_err(|e| e.to_string())?;
+    let Err(error) = table.check(row, "value", eta) else { return Ok(Some(None)) };
+    let want = table.value(row, "value").unwrap();
+    match registered_bound(path) {
+        Some((id, bound)) if (eta / want - 1.0).abs() <= bound => Ok(Some(Some(id))),
+        _ => Err(format!("{error:?}")),
+    }
+}
+
+/// The `Measured` bound a register entry records for the table `path` (VERIFICATION.md §6.2), with the entry's id.
+fn registered_bound(path: &str) -> Option<(&'static str, f64)> {
+    DIVERGENCES.iter().find_map(|d| match d.table_tolerances.iter().find(|(f, _)| *f == path) {
+        Some((_, Tolerance::Relative(bound))) => Some((d.id, *bound)),
+        _ => None,
+    })
+}
+
+/// η at a CoolProp test row's inputs (T and a molar or mass density, a quality, or a pressure) under `domain`.
+fn paper_row_viscosity(fluid: &Fluid, table: &Fixture<'_>, row: usize, domain: DomainPolicy) -> Result<f64, Error> {
+    let t = Temperature::new(table.value(row, "T").unwrap())?;
+    let x = table.value(row, "x").unwrap();
+    let input = match table.printed(row, "x_kind").unwrap() {
+        "Dmolar" => Input::dt(Density::molar(x)?, t),
+        "Dmass" | "D" => Input::dt(Density::mass(x)?, t),
+        "Q" => Input::qt(Quality::new(x)?, t),
+        _ => Input::pt(Pressure::new(x)?, t),
+    };
+    let options = FlashOptions::new().with_domain(domain);
+    // CoolProp's zero-density rows (1e-5 kg/m³) outside the range: below the triple point no VLE can label them.
+    let dilute = domain == DomainPolicy::Extrapolate && x <= 1e-3;
+    let options = if dilute { options.with_phase(Phase::Gas) } else { options };
+    fluid.prop(&fluid.flash(input, &options)?, Prop::Viscosity)
 }

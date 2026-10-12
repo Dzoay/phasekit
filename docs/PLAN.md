@@ -1220,7 +1220,18 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
 - **M8.5 Staged viscosity.** *Failing tests:* `viscosity_stages_match_contributions` (dilute, initial-density,
   residual vs `viscosity_contributions` for staged fluids), `viscosity_paper_rows` (the arbiter rows of M8.3),
   friction-theory paper rows (Methane, n-Pentane, SF₆, H₂S). *Do:* add the `transport` kind; `transport` forms over
-  `TransportInputs` (map 05 U1, U3). *Done when:* green.
+  `TransportInputs` (map 05 U1, U3). *Done when:* green. Measured at M8.5: of the 34 fluids whose v8.0.0 viscosity is
+  staged, 25 evaluate stage by stage within `TransportDirect` of CoolProp's contributions at every oracle state (the
+  all-fluid tier and the core subset); the other 9 have a hardcoded stage (Benzene, CarbonDioxide, CycloHexane, Ethane,
+  Hydrogen, ParaHydrogen, Toluene, n-Heptane, n-Hexane) and land at M8.9. Of CoolProp's 262 arbiter rows, 53 viscosity
+  rows over 14 fluids are evaluated; 39 agree within their printed digits, H₂S's and SF₆'s friction theory among them.
+  The 14 others agree only within two `Investigate` entries' measured bounds: DIV-0021, where the papers' own check
+  values miss their own equations (SF₆ Table 8 at ρ = 0 by 3.9e-5, R125's 300 K point by 9.3e-5), and DIV-0022, where
+  CoolProp's rows print ρ to fewer digits than η needs (n-Propane's to four; each printed η lies within the η of ρ ±
+  half a printed unit). Nine rows lie outside the EOS's range, inside the correlation's (CO₂ at 100 and 10 000 K,
+  Methanol at 630 K, the xylenes above p_max): they are flashed with `DomainPolicy::Extrapolate`, and their models,
+  hardcoded or with a hardcoded stage, land at M8.9. Methane's and
+  n-Pentane's friction theory has no paper rows yet: Quiñones-Cisneros & Deiters 2006 is not open access.
 - **M8.6 Staged conductivity and Olchowy-Sengers.** *Failing tests:* `conductivity_stages_match`, the arbiter rows
   among the 141 active conductivity rows, `methane_lambda_is_independent_of_the_saturation_source`. *Do:* η passed
   explicitly to the critical term (map 05 R6), joint {η, λ} evaluation (map 05 U6). *Done when:* green.

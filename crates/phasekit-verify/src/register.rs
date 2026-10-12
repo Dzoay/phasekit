@@ -455,6 +455,50 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[7],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0021",
+        fluids: &["SulfurHexafluoride", "R125"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 10 §8.1, M8.5: printed check values off their own correlations, which v8.0.0 transcribes \
+                   exactly: Quinones-Cisneros et al. 2012 Table 8 at rho = 0, 15.2887 and 19.6796 uPa s, against its \
+                   Eq. (6) with its Table 2, 15.288107 and 19.678983 (-3.9e-5 at 300 K, -3.1e-5 at 400 K); Huber & \
+                   Laesecke 2006 at 300 K and 10.5969998 mol/L, 177.37 against 177.38653 (+9.3e-5), its 400 K point \
+                   within its digits (2026-10-12)",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[
+            ("paper/SulfurHexafluoride/CoolProp-Tests.eta.csv", Tolerance::Relative(4e-5)),
+            ("paper/R125/CoolProp-Tests.eta.csv", Tolerance::Relative(1e-4)),
+        ],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0022",
+        fluids: &["Ammonia", "R123", "n-Octane", "n-Propane"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 10 §8.1, M8.5: CoolProp-Tests prints these viscosity rows' densities to fewer digits than eta \
+                   needs, and each printed eta lies within eta(rho +- half a printed unit of rho) +- half its own: \
+                   Ammonia at 200 K and 42754.4 mol/m3 -1.1e-5, R123 at 265 K and 1545.8 kg/m3 +1.15e-4, n-Octane at \
+                   300 K and 6177.2 mol/m3 -4.9e-5, n-Propane at 90 to 600 K and 4-digit densities up to -3.3e-3 \
+                   (2026-10-12); to transcribe: the papers' own tables",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[
+            ("paper/Ammonia/CoolProp-Tests.eta.csv", Tolerance::Relative(2e-5)),
+            ("paper/R123/CoolProp-Tests.eta.csv", Tolerance::Relative(2e-4)),
+            ("paper/n-Octane/CoolProp-Tests.eta.csv", Tolerance::Relative(5e-5)),
+            ("paper/n-Propane/CoolProp-Tests.eta.csv", Tolerance::Relative(4e-3)),
+        ],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an

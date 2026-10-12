@@ -315,6 +315,20 @@ fn div_0018_to_0020(facts: &Fixture<'_>) -> Vec<&'static str> {
     checked
 }
 
+/// DIV-0021 and DIV-0022: the oracle's η at the transport check rows its correlations miss, as far off the printed
+/// values (CoolProp-Tests.cpp, in Pa s) as the entries cite.
+fn div_0021_to_0022(facts: &Fixture<'_>) -> Vec<&'static str> {
+    let off = |name: &str, printed: f64| ok_fact(facts, name) / printed - 1.0;
+    assert!(cites(off("div0021_eta_sf6_t300_rho0", 15.2887e-6), "-3.9e-5"), "DIV-0021: SF6 at 300 K");
+    assert!(cites(off("div0021_eta_sf6_t400_rho0", 19.6796e-6), "-3.1e-5"), "DIV-0021: SF6 at 400 K");
+    assert!(cites(off("div0021_eta_r125_t300", 177.37e-6), "9.3e-5"), "DIV-0021: R125 at 300 K");
+    assert!(cites(off("div0022_eta_ammonia_t200", 507.28e-6), "-1.1e-5"), "DIV-0022: Ammonia");
+    assert!(cites(off("div0022_eta_r123_t265", 627.1e-6), "1.15e-4"), "DIV-0022: R123");
+    assert!(cites(off("div0022_eta_noctane_t300", 553.60e-6), "-4.9e-5"), "DIV-0022: n-Octane");
+    assert!(cites(off("div0022_eta_npropane_t150", 656.9e-6), "-3.3e-3"), "DIV-0022: n-Propane");
+    vec!["DIV-0021", "DIV-0022"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -322,7 +336,7 @@ fn register_cites_reproducible_oracle_facts() {
     let (path, text) = fixture!("coolprop-8.0.0/facts/register.csv");
     let facts = Fixture::parse(path, text).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!((facts.kind(), facts.provenance()), ("facts", Provenance::Oracle { version: "8.0.0" }));
-    let checked: Vec<&str> = [div_0001_to_0005, div_0006_to_0012, div_0013_to_0017, div_0018_to_0020]
+    let checked: Vec<&str> = [div_0001_to_0005, div_0006_to_0012, div_0013_to_0017, div_0018_to_0020, div_0021_to_0022]
         .iter()
         .flat_map(|group| group(&facts))
         .collect();
