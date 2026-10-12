@@ -7,8 +7,11 @@
 //! It runs in two passes (user decision CI5). No crate depends on phasekit-xtask and no other crate's tests run it,
 //! so only its own tests can catch its mutants: they run those alone, not the whole workspace's, which made each one
 //! wait about 50 s for tests that could not fail. Every other mutant runs the whole workspace's tests.
+//!
+//! `--shard k/n` runs the k-th of n slices of both passes, so CI spreads one PR's mutants over n jobs (user decision
+//! CI6); together the n shards test every mutant once.
 
-use super::{Verdict, no_args};
+use super::Verdict;
 use crate::repo::Repo;
 
 /// The branch every PR is squash-merged into.
@@ -29,7 +32,7 @@ struct Outcomes<'a> {
 }
 
 pub fn run(repo: &Repo, args: &[String]) -> Verdict {
-    no_args(args)?;
+    let shard = shard(args)?;
     let base = repo.git(&["merge-base", "HEAD", BASE]).map_err(|e| vec![e])?;
     let mut diff = repo.git(&["diff", base.trim(), "--", "*.rs"]).map_err(|e| vec![e])?;
     // `git diff` leaves out files git does not track yet; a run before the first commit must mutate them too.
@@ -41,8 +44,9 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
     }
     let mut summary = format!("mutants of the changes since {BASE}:");
     let mut hung = Vec::new();
-    for (pass, mutants, args) in PASSES {
-        let run = repo.cargo_mutants(pass, &diff, args).map_err(|e| vec![e])?;
+    for (pass, mutants, selection) in PASSES {
+        let args: Vec<&str> = selection.iter().copied().chain(shard.iter().map(String::as_str)).collect();
+        let run = repo.cargo_mutants(pass, &diff, &args).map_err(|e| vec![e])?;
         let [caught, missed, timeout, unviable] = run.outcomes.each_ref().map(String::as_str);
         let (caught, timeouts) = check(run.success, &Outcomes { caught, missed, timeout }).map_err(|errors| {
             errors.into_iter().chain([format!("cargo mutants output: {}", run.output)]).collect::<Vec<_>>()
@@ -60,6 +64,22 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
         summary.push_str(&mutant);
     }
     Ok(summary)
+}
+
+/// The cargo-mutants arguments that select this run's shard: none without arguments, `--shard k/n` for one of n.
+fn shard(args: &[String]) -> Result<Vec<String>, Vec<String>> {
+    let [flag, slice] = args else {
+        return if args.is_empty() {
+            Ok(Vec::new())
+        } else {
+            Err(vec![format!("unexpected arguments: {}", args.join(" "))])
+        };
+    };
+    let parsed = slice.split_once('/').and_then(|(k, n)| Some((k.parse::<u32>().ok()?, n.parse::<u32>().ok()?)));
+    match parsed {
+        Some((k, n)) if flag == "--shard" && k < n => Ok(vec![flag.clone(), slice.clone()]),
+        _ => Err(vec![format!("expected --shard <k>/<n> with k < n, not: {flag} {slice}")]),
+    }
 }
 
 /// Checks one cargo-mutants run (`success` is its exit status, which is also false after a timeout); returns how many
@@ -120,6 +140,25 @@ mod tests {
         // Fail closed: a failed run that names no mutant (the unmutated tests failed, say) is not a pass.
         assert!(check(false, &outcomes("", "")).is_err());
         assert!(check(true, &outcomes(MISSED, "")).is_err());
+    }
+
+    /// User decision CI6: a shard is `k/n` with k < n, passed on to cargo-mutants; anything else is refused.
+    #[test]
+    fn a_shard_selects_one_slice_of_the_mutants() {
+        let args = |args: &[&str]| args.iter().map(ToString::to_string).collect::<Vec<_>>();
+        assert_eq!(shard(&[]), Ok(vec![]));
+        assert_eq!(shard(&args(&["--shard", "0/4"])), Ok(args(&["--shard", "0/4"])));
+        assert_eq!(shard(&args(&["--shard", "3/4"])), Ok(args(&["--shard", "3/4"])));
+        for bad in [
+            &["--shard", "4/4"][..],
+            &["--shard", "1/0"],
+            &["--shard", "a/4"],
+            &["--shard", "1"],
+            &["--shard"],
+            &["--jobs", "2"],
+        ] {
+            assert!(shard(&args(bad)).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

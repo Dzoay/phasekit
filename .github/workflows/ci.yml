@@ -112,9 +112,15 @@ jobs:
 
   # G8's mutants gate as its own job, beside linux rather than after it (user decision CI2): `gates mutants` mutates the
   # PR's own changes against origin/main and runs the workspace tests on each, so it needs what those tests need.
-  mutants:
-    name: mutants
+  mutants-shard:
+    # User decision CI6: the PR's mutants in four jobs, each `gates mutants --shard k/4`; `mutants` below is the
+    # required check and passes only when every shard did.
+    name: mutants (shard ${{ matrix.shard }} of 4)
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -141,8 +147,21 @@ jobs:
       - name: Fetch CoolProp (anonymous clone of the pinned commit)
         if: steps.coolprop.outputs.cache-hit != 'true'
         run: scripts/fetch-coolprop.sh
-      - name: G8 cargo xtask gates mutants
-        run: cargo xtask gates mutants
+      - name: G8 cargo xtask gates mutants, one shard
+        run: cargo xtask gates mutants --shard ${{ matrix.shard }}/4
+
+  mutants:
+    name: mutants
+    needs: mutants-shard
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Every mutants shard passed
+        env:
+          RESULT: ${{ needs.mutants-shard.result }}
+        run: |
+          echo "mutants shards: $RESULT"
+          test "$RESULT" = success
 
   msrv:
     name: msrv

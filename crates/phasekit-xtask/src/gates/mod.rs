@@ -84,7 +84,10 @@ fn select(args: &[String]) -> Option<Vec<(&'static str, Gate, &[String])>> {
 
 fn usage() -> ExitCode {
     let names: Vec<&str> = GATES.iter().map(|(name, _)| *name).collect();
-    eprintln!("usage: cargo xtask gates <all [--except <gate>]|{}> (counts also takes --update)", names.join("|"));
+    eprintln!(
+        "usage: cargo xtask gates <all [--except <gate>]|{}> (counts also takes --update, mutants --shard <k>/<n>)",
+        names.join("|")
+    );
     ExitCode::FAILURE
 }
 
