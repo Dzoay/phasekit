@@ -267,8 +267,8 @@ impl ThermoModel for PureFluid {
     fn helmholtz(&self) -> Option<&dyn HelmholtzModel> {
         Some(&*self.eos)
     }
-    fn viscosity(&self, _state: &State) -> Result<f64, Error> {
-        self.transport()?.viscosity()
+    fn viscosity(&self, state: &State) -> Result<f64, Error> {
+        self.transport()?.viscosity(&crate::transport::TransportInputs::new(state, self.info.molar_mass()))
     }
     fn conductivity(&self, _state: &State) -> Result<f64, Error> {
         self.transport()?.conductivity()

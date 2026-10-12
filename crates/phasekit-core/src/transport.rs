@@ -10,6 +10,11 @@
 //! it has parallel lists (map 05 R11). [`Part`] describes each type once, field by field, for the blob codec and
 //! `cargo xtask fluid`'s dump alike.
 
+mod viscosity;
+
+pub use viscosity::ViscosityStages;
+pub(crate) use viscosity::{TransportInputs, lands};
+
 use crate::data::{DataSet, Edit, Patch};
 use crate::error::{DomainError, Error, LoadError};
 use crate::fluid::Fluid;
@@ -1128,6 +1133,28 @@ impl Part for EcsConductivity {
     }
 }
 
+impl Viscosity {
+    /// The stages at `x` of a staged model; another form says the step that evaluates it.
+    pub(crate) fn stages(&self, x: &TransportInputs<'_>) -> Result<ViscosityStages, Error> {
+        match &self.model {
+            ViscosityModel::Staged(staged) => viscosity::stages(staged, self.lennard_jones, x),
+            ViscosityModel::Ecs(_) => Err(lands("evaluating an ECS viscosity", "M8.8")),
+            ViscosityModel::RhoSrCs(_) | ViscosityModel::Chung(_) => {
+                Err(lands("evaluating this viscosity model", "M8.9"))
+            }
+            ViscosityModel::Hardcoded(HardcodedViscosity::Water | HardcodedViscosity::HeavyWater) => {
+                Err(lands("evaluating the IAPWS viscosity", "M8.7"))
+            }
+            ViscosityModel::Hardcoded(h) => Err(lands(&format!("evaluating the {} viscosity", h.name()), "M8.9")),
+        }
+    }
+
+    /// η at `x`, Pa s.
+    pub(crate) fn evaluate(&self, x: &TransportInputs<'_>) -> Result<f64, Error> {
+        self.stages(x).map(|s| s.total())
+    }
+}
+
 impl TransportRecord {
     /// Applies one edit of the corrections overlay (E15); an edit of another part of the record is not this one's.
     pub fn apply(&mut self, edit: Edit) -> Result<(), LoadError> {
@@ -1225,12 +1252,10 @@ pub(crate) struct TransportSet {
 }
 
 impl TransportSet {
-    /// η, or `NoModel`.
-    pub(crate) fn viscosity(&self) -> Result<f64, Error> {
-        match self.record.viscosity {
-            None => Err(Error::NoModel { prop: Prop::Viscosity }),
-            Some(_) => Err(LoadError::Format("evaluating a viscosity model lands at M8.5".into()).into()),
-        }
+    /// η at `x`, or `NoModel`.
+    pub(crate) fn viscosity(&self, x: &TransportInputs<'_>) -> Result<f64, Error> {
+        let viscosity = self.record.viscosity.as_ref().ok_or(Error::NoModel { prop: Prop::Viscosity })?;
+        viscosity.evaluate(x)
     }
 
     /// λ, or `NoModel`.
@@ -1579,8 +1604,8 @@ pub(crate) mod tests {
         assert_eq!(err, Err(LoadError::Format("no rhosr-CS viscosity to edit".into())));
     }
 
-    /// A record compiled without the registry carries its transport models: a fluid with one says when its evaluation
-    /// lands, a fluid without one answers `NoModel`.
+    /// A record compiled without the registry carries its transport models: a fluid with one evaluates it or says when
+    /// its evaluation lands, a fluid without one answers `NoModel`.
     #[test]
     fn a_compiled_record_carries_its_transport() {
         use crate::{Density, FlashOptions, Input, Phase, Temperature};
@@ -1590,11 +1615,12 @@ pub(crate) mod tests {
             let state = fluid.flash(input, &FlashOptions::new().with_phase(Phase::Gas)).unwrap();
             [Prop::Viscosity, Prop::Conductivity].map(|prop| fluid.prop(&state, prop))
         };
-        let lands = |step: &str| Err(Error::Load(LoadError::Format(format!("evaluating a {step}").into())));
-        assert_eq!(
-            answers(every_form().swap_remove(0)),
-            [lands("viscosity model lands at M8.5"), lands("conductivity model lands at M8.6")]
-        );
+        let lands = |what: &str| Err(Error::Load(LoadError::Format(what.into())));
+        let [viscosity, conductivity] = answers(every_form().swap_remove(1));
+        assert!(viscosity.as_ref().is_ok_and(|eta| eta.is_finite()), "{viscosity:?}");
+        assert_eq!(conductivity, lands("evaluating a conductivity model lands at M8.6"));
+        let missing_lj = lands("the Chung estimate of missing Lennard-Jones parameters lands at M8.9");
+        assert_eq!(answers(every_form().swap_remove(0))[0], missing_lj);
         let none = [Err(Error::NoModel { prop: Prop::Viscosity }), Err(Error::NoModel { prop: Prop::Conductivity })];
         assert_eq!(answers(TransportRecord::default()), none);
     }

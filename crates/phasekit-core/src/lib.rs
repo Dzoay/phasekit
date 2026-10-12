@@ -96,8 +96,16 @@ pub mod internal {
         HardcodedConductivity, HardcodedCriticalConductivity, HardcodedDiluteConductivity, HardcodedDiluteViscosity,
         HardcodedHigherViscosity, HardcodedViscosity, Kappa, LennardJones, OlchowySengers, Part, Put, RhoSrCs, Series,
         StagedConductivity, StagedViscosity, SurfaceTension, Take, TransportRecord, Viscosity, ViscosityDilute,
-        ViscosityHigher, ViscosityInitial, ViscosityModel,
+        ViscosityHigher, ViscosityInitial, ViscosityModel, ViscosityStages,
     };
+
+    /// The stages of `record`'s staged viscosity at `state` (PLAN.md M8.5): crate-private seams, not API (ROT-115),
+    /// for the stage-by-stage checks against CoolProp's `viscosity_contributions`. `state` must be the record's.
+    pub fn viscosity_stages(record: &FluidRecord, state: &crate::State) -> Result<ViscosityStages, crate::Error> {
+        let viscosity = record.transport.as_ref().and_then(|t| t.viscosity.as_ref());
+        let viscosity = viscosity.ok_or(crate::Error::NoModel { prop: crate::Prop::Viscosity })?;
+        viscosity.stages(&crate::transport::TransportInputs::new(state, record.molar_mass))
+    }
 
     /// Saturation of a Helmholtz model at `t` by the pure-fluid VLE from seed densities `(ρ′, ρ″)` (PLAN.md M6.3).
     pub fn vle_at_t(eos: &dyn crate::HelmholtzModel, t: f64, seed: (f64, f64)) -> Result<crate::SatPair, crate::Error> {
