@@ -31,8 +31,8 @@ Every step in section 3 is one focused change, roughly one PR. Execute it like t
 6. **Run the gates**: G1-G8 (section 2.4) plus the step's own checks. In the same PR: raise the minimums in
    `ci/test-counts.txt` (`cargo xtask gates counts --update`), update the divergence register, and tick the step's
    ROT rows (section 2.1).
-7. **Collapse the step** in the same PR: its text in section 3 becomes one ledger row (ID, what landed, PR and
-   commit; user decision DL4). What it measured goes into the PR description, which becomes the squash commit's body,
+7. **Collapse the step** in the same PR: its text in section 3 becomes one ledger row, its ID and what landed (user
+   decisions DL4, DL5). What it measured goes into the PR description, which becomes the squash commit's body,
    and into the test that pins it; work it leaves for a later step goes into that step's text; nothing else in the
    docs restates it.
 8. **Commit and merge** (section 2.2). `main` is green after every merge.
@@ -243,9 +243,9 @@ sweep, the weekly latest-dependency and full mutants runs, and from M9 the gungr
 
 ## 3. Milestones to v0.1
 
-A finished step is one ledger row: its ID, what landed, and its PR and squash commit (`git show <commit>`), whose
-description holds the step's tests, red evidence and measurements (section 0.1 item 7). An open step keeps its full
-text.
+A finished step is one ledger row: its ID and what landed (section 0.1 item 7). Its squash commit, whose body is the
+PR description with the step's tests, red evidence and measurements, is `git log --grep '^Plan-Step: M7.5$'`. An open
+step keeps its full text.
 
 | M | Deliverable (D15, refined) |
 |---|---|
@@ -263,151 +263,151 @@ text.
 
 ### M0 Toolchain, workspace and CI
 
-| Step | Landed | PR, commit |
-|---|---|---|
-| M0.1 | Toolchain check and wasmtime | #2 `063c19c` |
-| M0.2 | Workspace seeded from the sketch | #3 `4080365` |
-| M0.3 | Lint probes | #4 `1c505a7` |
-| M0.4 | xtask gates v0 | #5 `1a5729c` |
-| M0.4a | Test-quality gates | #6 `f1b60ab` |
-| M0.5 | wasip2 tests under wasmtime | #7 `b851f2a` |
-| M0.6 | CI | #8 `3330fc7` |
-| M0.7 | Licences, REUSE, supply chain | #12 `3d04955` |
+| Step | Landed |
+|---|---|
+| M0.1 | Toolchain check and wasmtime |
+| M0.2 | Workspace seeded from the sketch |
+| M0.3 | Lint probes |
+| M0.4 | xtask gates v0 |
+| M0.4a | Test-quality gates |
+| M0.5 | wasip2 tests under wasmtime |
+| M0.6 | CI |
+| M0.7 | Licences, REUSE, supply chain |
 
 ### M1 Verification kit and oracle
 
-| Step | Landed | PR, commit |
-|---|---|---|
-| M1.1 | Fixture reader | #13 `4e0e8db` |
-| M1.2 | SplitMix64 sampler | #14 `0b80249` |
-| M1.3 | Oracle generator and lock | #15 `86f11e7` |
-| M1.4 | First fixtures and the manifest | #16 `c339a3d` |
-| M1.5 | Tolerance classes and printed digits | #17 `bd46abf` |
-| M1.6 | Register schema and proof dispatcher | #18 `ce43651` |
-| M1.7 | Arbiter records | #19 `2833fe5` |
-| M1.8 | Paper corpus: format, fetch list, double entry, IAPWS-95 | #20 `79dbefd` |
-| M1.9 | Lemmon et al. 2016 Table 7 | #21 `4d14120` |
-| M1.10 | Thol et al. 2016 Table 3 | #22 `037c6f7` |
-| M1.11 | NIST IR 8474 Tables 3 and 4 | #23 `89eb6bd` |
-| M1.12 | CoolProp test rows | #24 `11de96d` |
-| M1.13 | Register facts reproduced | #25 `c4f188c` |
-| M1.14 | Property tests | #26 `c491338` |
-| M1.15 | C++ CoolProp baseline | #27 `e3bdb71` |
-| M1.15a | C++ baseline: memory and thread scaling | #29 `a6dbf1c` |
-| M1.16 | Nightly sweep | #30 `3344de7` |
-| M1.17 | Superancillary check points | #31 `198827d` |
+| Step | Landed |
+|---|---|
+| M1.1 | Fixture reader |
+| M1.2 | SplitMix64 sampler |
+| M1.3 | Oracle generator and lock |
+| M1.4 | First fixtures and the manifest |
+| M1.5 | Tolerance classes and printed digits |
+| M1.6 | Register schema and proof dispatcher |
+| M1.7 | Arbiter records |
+| M1.8 | Paper corpus: format, fetch list, double entry, IAPWS-95 |
+| M1.9 | Lemmon et al. 2016 Table 7 |
+| M1.10 | Thol et al. 2016 Table 3 |
+| M1.11 | NIST IR 8474 Tables 3 and 4 |
+| M1.12 | CoolProp test rows |
+| M1.13 | Register facts reproduced |
+| M1.14 | Property tests |
+| M1.15 | C++ CoolProp baseline |
+| M1.15a | C++ baseline: memory and thread scaling |
+| M1.16 | Nightly sweep |
+| M1.17 | Superancillary check points |
 
 ### M2 Data pipeline
 
-| Step | Landed | PR, commit |
-|---|---|---|
-| M2.1 | Serde mirror | #32 `99b35e8` |
-| M2.2 | FNV-1a stamps | #33 `8f2af06` |
-| M2.3 | Closed enums and validation | #34 `c59f240` |
-| M2.4 | Blob format v1 | #36 `1da6a6e` |
-| M2.5 | Index, features, references | #37 `a6be784` |
-| M2.6 | Real data in the registry; toy path removed | #38 `c189fa1` |
-| M2.7 | Parity and Corrected | #39 `94f96cf` |
-| M2.8 | Superancillary freshness | #40 `51deb34` |
-| M2.9 | Lookup cost | #41 `dac56c4` |
-| M2.9a | Readable fluid data | #42 `6837050` |
-| M2.10 | Citations | #43 `4514434` |
-| M2.11 | Caloric-curve contract | #44 `3921f5d` |
+| Step | Landed |
+|---|---|
+| M2.1 | Serde mirror |
+| M2.2 | FNV-1a stamps |
+| M2.3 | Closed enums and validation |
+| M2.4 | Blob format v1 |
+| M2.5 | Index, features, references |
+| M2.6 | Real data in the registry; toy path removed |
+| M2.7 | Parity and Corrected |
+| M2.8 | Superancillary freshness |
+| M2.9 | Lookup cost |
+| M2.9a | Readable fluid data |
+| M2.10 | Citations |
+| M2.11 | Caloric-curve contract |
 
 ### M3 Separable residual kinds and `Jet4`
 
-| Step | Landed | PR, commit |
-|---|---|---|
-| M3.1 | Power blocks against the oracle | #45 `dcc3767` |
-| M3.2 | `Jet4` with a num-dual oracle | #46 `e8efeb0` |
-| M3.3 | Exponential, Lemmon2005, DoubleExponential | #47 `749857a` |
-| M3.4 | Gaussian | #48 `3612ae4` |
-| M3.5 | GaoB | #49 `1b8073f` |
-| M3.6 | α^r totals | #50 `f480590` |
-| M3.7 | Zero density on real data | #51 `e0c6191` |
-| M3.8 | α^r bench | #52 `6a779ef` |
+| Step | Landed |
+|---|---|
+| M3.1 | Power blocks against the oracle |
+| M3.2 | `Jet4` with a num-dual oracle |
+| M3.3 | Exponential, Lemmon2005, DoubleExponential |
+| M3.4 | Gaussian |
+| M3.5 | GaoB |
+| M3.6 | α^r totals |
+| M3.7 | Zero density on real data |
+| M3.8 | α^r bench |
 
 ### M4 NonAnalytic, ideal kinds, all 136 fluids
 
-| Step | Landed | PR, commit |
-|---|---|---|
-| M4.1 | NonAnalytic | #53 `1468002` |
-| M4.2 | Ideal kinds | #54 `52e6e66` |
-| M4.3 | α⁰ against the oracle | #55 `b0508dd` |
-| M4.4 | All fluids compile | #56 `7e8b073` |
-| M4.5 | IAPWS-95 Table 6 | #57 `c4dc241` |
-| M4.6 | Critical point | #58 `0a9b349` |
-| M4.7 | Constants audit | #59 `db81bc2` |
+| Step | Landed |
+|---|---|
+| M4.1 | NonAnalytic |
+| M4.2 | Ideal kinds |
+| M4.3 | α⁰ against the oracle |
+| M4.4 | All fluids compile |
+| M4.5 | IAPWS-95 Table 6 |
+| M4.6 | Critical point |
+| M4.7 | Constants audit |
 
 ### M5 Properties, DT, superancillary, gauge, batch, compat, seams
 
-| Step | Landed | PR, commit |
-|---|---|---|
-| M5.1 | Properties at (T, ρ) | #61 `78820af` |
-| M5.2 | Superancillary evaluation | #62 `039533b` |
-| M5.2a | Caloric curves | #67 `64751ed` |
-| M5.3 | DT below the critical temperature | #68 `37a36fb` |
-| M5.4 | Gauge and custom reference states | #69 `408bf41` |
-| M5.5 | First partials, Cp0, residual parts | #70 `63951cb` |
-| M5.6 | Exact virials | #71 `0c676c4` |
-| M5.7 | Paper arbiters | #72 `39404a4` |
-| M5.8 | Batch on real fluids | #73 `5f90abb` |
-| M5.9 | `phasekit-compat` joins | #74 `fbb0683` |
-| M5.10 | Seam gates with a subcritical point | #75 `616b460` |
-| M5.11 | DT bench | #76 `f818750` |
+| Step | Landed |
+|---|---|
+| M5.1 | Properties at (T, ρ) |
+| M5.2 | Superancillary evaluation |
+| M5.2a | Caloric curves |
+| M5.3 | DT below the critical temperature |
+| M5.4 | Gauge and custom reference states |
+| M5.5 | First partials, Cp0, residual parts |
+| M5.6 | Exact virials |
+| M5.7 | Paper arbiters |
+| M5.8 | Batch on real fluids |
+| M5.9 | `phasekit-compat` joins |
+| M5.10 | Seam gates with a subcritical point |
+| M5.11 | DT bench |
 
 ### M6 Saturation, VLE and critical points
 
-| Step | Landed | PR, commit |
-|---|---|---|
-| M6.1 | fastchebpure outputcheck files | #77 `42b01ee` |
-| M6.2 | Root toolbox and small solves | #78 `c473986` |
-| M6.3 | Pure VLE | #80 `29ddd39` |
-| M6.4 | Superancillary vs VLE | #81 `f61de25` |
-| M6.5 | Exact rescaling proved | #82 `4b556b9` |
-| M6.6 | Stale curve polish | #83 `413799d` |
-| M6.7 | Critical points | #84 `00fa155` |
-| M6.8 | QT and PQ | #85 `1c2198d` |
-| M6.9 | Pseudo-pure rules | #86 `733e394` |
-| M6.10 | Saturation arbiters | #87 `e05960f` |
-| M6.11 | Saturation benches | #88 `72e2b3a` |
+| Step | Landed |
+|---|---|
+| M6.1 | fastchebpure outputcheck files |
+| M6.2 | Root toolbox and small solves |
+| M6.3 | Pure VLE |
+| M6.4 | Superancillary vs VLE |
+| M6.5 | Exact rescaling proved |
+| M6.6 | Stale curve polish |
+| M6.7 | Critical points |
+| M6.8 | QT and PQ |
+| M6.9 | Pseudo-pure rules |
+| M6.10 | Saturation arbiters |
+| M6.11 | Saturation benches |
 
 ### M7 All input pairs
 
-| Step | Landed | PR, commit |
-|---|---|---|
-| M7.1 | Density solver ρ(T, p) | #89 `4fc512d` |
-| M7.2 | PT and DT phase rule complete | #92 `4cf7d28` |
-| M7.3 | PH, PS, PU | #94 `5c54b33` |
-| M7.4 | DH, DS, DU | #95 `5a458e2` |
-| M7.5 | HT, ST, TU | #96 `30808eb` |
-| M7.6 | DP | #98 `0b2b185` |
-| M7.7 | QS, HQ, DQ | #99 `30e0e23` |
-| M7.8 | HS and SU | #103 `3e0af23` |
-| M7.9 | Capability matrix | #104 `c094914` |
-| M7.9a | Duplication refactor | #107 `a78789b` |
-| M7.9b | EOS term scaffolding | #108 `74b5a7e` |
-| M7.9c | Complexity gate | #109 `2dd22ff` |
-| M7.9d | Test nesting | #110 `ca7b464` |
-| M7.9e | Flash search scaffolds | #111 `b1ab342` |
-| M7.9f | Verify library and xtask | #112 `8a5ffd9` |
-| M7.10 | Order-3 outputs | #113 `3541591` |
+| Step | Landed |
+|---|---|
+| M7.1 | Density solver ρ(T, p) |
+| M7.2 | PT and DT phase rule complete |
+| M7.3 | PH, PS, PU |
+| M7.4 | DH, DS, DU |
+| M7.5 | HT, ST, TU |
+| M7.6 | DP |
+| M7.7 | QS, HQ, DQ |
+| M7.8 | HS and SU |
+| M7.9 | Capability matrix |
+| M7.9a | Duplication refactor |
+| M7.9b | EOS term scaffolding |
+| M7.9c | Complexity gate |
+| M7.9d | Test nesting |
+| M7.9e | Flash search scaffolds |
+| M7.9f | Verify library and xtask |
+| M7.10 | Order-3 outputs |
 
 ### M8 Transport, surface tension, melting
 
 **Goal.** σ, viscosity and conductivity where v8.0.0 has models, verified stage by stage against papers; melting lines
 with per-segment domains; two-phase transport refused (D7 transport section, map 05 §9). **Prerequisites.** M7.
 
-| Step | Landed | PR, commit |
-|---|---|---|
-| M8.1 | Transport decode and closed enums | #117 `423c3d4` |
-| M8.2 | Transport, σ and melting arbiters transcribed | #118 `0d3ae04` |
-| M8.3 | CoolProp transport rows relabelled | #119 `9c9a0cc` |
-| M8.4 | Surface tension | #120 `114c364` |
-| M8.5 | Staged viscosity | #121 `a89d400` |
-| M8.6 | Staged conductivity and Olchowy-Sengers | #122 `cb458ed` |
-| M8.7 | IAPWS water and heavy water | #123 `19f46a5` |
-| M8.8 | ECS | #124 `939abf1` |
+| Step | Landed |
+|---|---|
+| M8.1 | Transport decode and closed enums |
+| M8.2 | Transport, σ and melting arbiters transcribed |
+| M8.3 | CoolProp transport rows relabelled |
+| M8.4 | Surface tension |
+| M8.5 | Staged viscosity |
+| M8.6 | Staged conductivity and Olchowy-Sengers |
+| M8.7 | IAPWS water and heavy water |
+| M8.8 | ECS |
 
 - **M8.9 rhosr-CS, Chung, other hard-coded models.** *Failing tests:* `hardcoded_models_match_their_paper_tables`
   then `hardcoded_models_match_oracle`, one case per model of map 05 U9 (rho*sr-CS; the Chung LJ estimate) and U10
