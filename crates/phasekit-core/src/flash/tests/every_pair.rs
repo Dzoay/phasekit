@@ -136,30 +136,54 @@ fn phase_hint_is_honoured_by_every_pair() {
     for (input, phase) in truths {
         let truth = water.state(input).unwrap();
         assert_eq!(truth.phase(), phase, "{input:?}");
-        for (pair, hint) in Pair::ALL.iter().flat_map(|&pair| labels.map(|hint| (pair, hint))) {
-            let Some(input) = input_of(pair, &truth) else { continue };
-            let with = FlashOptions::new().with_phase(hint);
-            let result = water.flash(input, &with);
-            let states = states_of(&water, input, with, &result);
-            let at = format!("{hint:?} {input:?} of {truth:?}: {result:?}");
-            assert!(states.iter().all(|s| s.phase() == hint && reproduces(s, input)), "{at}");
-            let quality_pair = pair.vars().0 == Var::Q || pair.vars().1 == Var::Q;
-            let no_quality = |phase| Err(Error::Undefined { prop: Prop::Q, phase });
-            if quality_pair && hint != Phase::TwoPhase {
-                assert_eq!(result, no_quality(hint), "{at}");
-            } else if hint == phase && !(pair == Pair::PT && phase == Phase::TwoPhase) {
-                assert!(states.iter().any(|s| is_truth(s, &truth)), "{at}");
-            } else if hint == Phase::TwoPhase && phase != Phase::TwoPhase {
-                let refused = matches!(result, Err(Error::InvalidInput { quantity: "quality", .. }))
-                    || result == no_quality(Phase::TwoPhase);
-                assert!(refused || !states.is_empty(), "{at}");
-            } else {
-                assert!(!matches!(result, Err(Error::Unsupported { .. })), "{at}");
-            }
-            checked += 1;
-        }
+        checked +=
+            product(Pair::ALL, &labels).map(|(pair, hint)| honours_the_hint(&water, &truth, pair, hint)).sum::<usize>();
     }
     assert_eq!(checked, 6 * (5 * 14 + 3 * 19));
+}
+
+/// One cell of [`phase_hint_is_honoured_by_every_pair`]: `pair` read off `truth` under the label `hint`, as that test
+/// says; asserts it and returns 1, or 0 where the state defines no input of `pair`.
+#[cfg(feature = "fluids-all")]
+fn honours_the_hint(water: &Fluid, truth: &State, pair: Pair, hint: Phase) -> usize {
+    let Some(input) = input_of(pair, truth) else { return 0 };
+    let phase = truth.phase();
+    let with = FlashOptions::new().with_phase(hint);
+    let result = water.flash(input, &with);
+    let states = states_of(water, input, with, &result);
+    let at = format!("{hint:?} {input:?} of {truth:?}: {result:?}");
+    assert!(states.iter().all(|s| s.phase() == hint && reproduces(s, input)), "{at}");
+    let quality_pair = pair.vars().0 == Var::Q || pair.vars().1 == Var::Q;
+    let no_quality = |phase| Err(Error::Undefined { prop: Prop::Q, phase });
+    if quality_pair && hint != Phase::TwoPhase {
+        assert_eq!(result, no_quality(hint), "{at}");
+    } else if hint == phase && !(pair == Pair::PT && phase == Phase::TwoPhase) {
+        assert!(states.iter().any(|s| is_truth(s, truth)), "{at}");
+    } else if hint == Phase::TwoPhase && phase != Phase::TwoPhase {
+        let refused = matches!(result, Err(Error::InvalidInput { quantity: "quality", .. }))
+            || result == no_quality(Phase::TwoPhase);
+        assert!(refused || !states.is_empty(), "{at}");
+    } else {
+        assert!(!matches!(result, Err(Error::Unsupported { .. })), "{at}");
+    }
+    1
+}
+
+/// The fluids of the domain's tests: Water, CO₂ and Air.
+#[cfg(feature = "fluids-all")]
+const DOMAIN_FLUIDS: [&str; 3] = ["Water", "CarbonDioxide", "Air"];
+
+/// `name`, its model's (Tmax, pmax), and its states beyond them under `Extrapolate`, each with whether it lies above
+/// Tmax: at 1.25·Tmax and 10 MPa (true), and at 1000 K and 2·pmax (false).
+#[cfg(feature = "fluids-all")]
+fn beyond_the_domain(name: &str) -> (Fluid, (f64, f64), [(State, bool); 2]) {
+    let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
+    let fluid = embedded(name);
+    let pure = record_of(name).builder().unwrap().build();
+    let (t_max, p_max) = (pure.limits().t_max(), pure.limits().p_max());
+    let hot = fluid.flash(pt(1e7, 1.25 * t_max), &extrapolate).unwrap();
+    let dense = fluid.flash(pt(2.0 * p_max, 1000.0), &extrapolate).unwrap();
+    (fluid, (t_max, p_max), [(hot, true), (dense, false)])
 }
 
 /// ROT-079 (map 03 §6 row 12): CoolProp's PT accepts 1e5 K for Water (Tmax 2000 K), its DP refuses T above
@@ -167,81 +191,131 @@ fn phase_hint_is_honoured_by_every_pair() {
 /// pair (D6, user decision 6). Water's, CO₂'s and Air's states at 1.25·Tmax and 10 MPa, and at 1000 K and 2·pmax:
 /// each pair without a quality refuses them under `Enforce` with `AboveMaxTemperature` at the state's T, or
 /// `AboveMaxPressure` at its p, or returns another root inside the domain (CO₂'s TU at 1000 K, at 244 MPa), and
-/// under `Extrapolate` returns the state, flagged (or roots that include it). States at Tmax and at pmax themselves
-/// are in the domain for every pair. HS and SU search p up to pmax only, so above it they refuse at pmax under
-/// either policy, as P+X refuses at 1.5·Tmax. QT at that T and PQ at that p lie beyond the saturation curve, whose
-/// end (below the domain's bound) they name. QS, HQ and DQ have no input beyond the domain: every saturated state
-/// lies below the critical point.
+/// under `Extrapolate` returns the state, flagged (or roots that include it). HS and SU search p up to pmax only, so
+/// above it they refuse at pmax under either policy, as P+X refuses at 1.5·Tmax. States at Tmax and at pmax
+/// themselves are in the domain ([`states_on_the_domain_bounds_are_in_it_for_every_pair`]); QT and PQ beyond them
+/// name the saturation curve's end ([`qt_and_pq_beyond_the_domain_name_the_curve_end`]).
 #[cfg(feature = "fluids-all")]
 #[test]
 fn domain_errors_are_uniform_across_pairs() {
-    let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
     let mut checked = 0;
-    for name in ["Water", "CarbonDioxide", "Air"] {
-        let fluid = embedded(name);
-        let pure = record_of(name).builder().unwrap().build();
-        let (t_max, p_max) = (pure.limits().t_max(), pure.limits().p_max());
-        let hot = fluid.flash(pt(1e7, 1.25 * t_max), &extrapolate).unwrap();
-        let dense = fluid.flash(pt(2.0 * p_max, 1000.0), &extrapolate).unwrap();
-        let near = |a: f64, b: f64| (a / b - 1.0).abs() <= 1e-9;
-        for (truth, above_t) in [(hot, true), (dense, false)] {
-            let at = |pair: Pair| format!("{name} {pair:?} of {truth:?}");
+    for name in DOMAIN_FLUIDS {
+        let (fluid, bounds, beyond) = beyond_the_domain(name);
+        let cells = product(&beyond, Pair::ALL);
+        checked += cells.map(|(truth, pair)| refused_beyond(name, &fluid, bounds, truth, pair)).sum::<usize>();
+    }
+    assert_eq!(checked, 3 * 2 * 14);
+}
+
+/// One cell of [`domain_errors_are_uniform_across_pairs`]: `pair` read off `truth`, beyond the domain's `bounds` (above
+/// Tmax if `above_t`), refused under `Enforce` and flagged under `Extrapolate`, as that test says; asserts it and
+/// returns 1, or 0 where the state defines no input of `pair`.
+#[cfg(feature = "fluids-all")]
+fn refused_beyond(name: &str, fluid: &Fluid, bounds: (f64, f64), (truth, above_t): (State, bool), pair: Pair) -> usize {
+    let Some(input) = input_of(pair, &truth) else { return 0 };
+    let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
+    let at = format!("{name} {pair:?} of {truth:?}");
+    let searched = !above_t && matches!(pair, Pair::HS | Pair::SU);
+    let enforced = fluid.state(input);
+    assert!(enforced_refuses(fluid, bounds, (&truth, above_t), searched, (input, &enforced)), "{at}: {enforced:?}");
+    let flagged = fluid.flash(input, &extrapolate);
+    if searched {
+        assert_eq!(flagged, enforced, "{at}");
+    } else {
+        let states = states_of(fluid, input, extrapolate, &flagged);
+        let ok = states.iter().any(|s| is_truth(s, &truth) && s.is_extrapolated());
+        assert!(ok, "{at}: {flagged:?}");
+    }
+    1
+}
+
+/// Whether `Enforce` refused `input` (its result `enforced`), read off `truth` beyond the domain's (Tmax, pmax), at the
+/// bound it crosses: at the state's T above Tmax (`above_t`), at its p above pmax, or at pmax itself for a pair that
+/// searches p up to it (`searched`); or returns roots inside the domain, unflagged, that reproduce the input.
+#[cfg(feature = "fluids-all")]
+fn enforced_refuses(
+    fluid: &Fluid,
+    (t_max, p_max): (f64, f64),
+    (truth, above_t): (&State, bool),
+    searched: bool,
+    (input, enforced): (Input, &Result<State, Error>),
+) -> bool {
+    let near = |a: f64, b: f64| (a / b - 1.0).abs() <= 1e-9;
+    match *enforced {
+        Err(Error::Domain(DomainError::AboveMaxTemperature { t, t_max: bound })) => {
+            above_t && near(t, truth.t()) && bound == t_max
+        }
+        Err(Error::Domain(DomainError::AboveMaxPressure { p, p_max: bound })) => {
+            !above_t && bound == p_max && if searched { p == p_max } else { near(p, truth.p()) }
+        }
+        // A pair with several roots returns the one in the domain (CO₂'s TU at 1000 K: 244 MPa).
+        _ => states_of(fluid, input, FlashOptions::new(), enforced)
+            .iter()
+            .all(|s| reproduces(s, input) && s.t() <= t_max && s.p() <= p_max && !s.is_extrapolated()),
+    }
+}
+
+/// ROT-079: on the domain's bounds every state is in the domain. Water's, CO₂'s and Air's PT states at Tmax and 10
+/// MPa and at pmax and 1000 K round-trip through every pair without a quality under `Enforce` (or are among its
+/// roots).
+#[cfg(feature = "fluids-all")]
+#[test]
+fn states_on_the_domain_bounds_are_in_it_for_every_pair() {
+    let mut checked = 0;
+    for name in DOMAIN_FLUIDS {
+        let (fluid, (t_max, p_max), _) = beyond_the_domain(name);
+        let truths = [pt(1e7, t_max), pt(p_max, 1000.0)].map(|input| fluid.state(input).unwrap());
+        for (truth, pair) in product(&truths, Pair::ALL) {
+            let Some(input) = input_of(pair, &truth) else { continue };
+            let result = fluid.state(input);
+            let states = states_of(&fluid, input, FlashOptions::new(), &result);
+            assert!(states.iter().any(|s| is_truth(s, &truth)), "{name} {pair:?} of {truth:?}: {result:?}");
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 3 * 2 * 14);
+}
+
+/// ROT-079: QT at the T of Water's, CO₂'s and Air's states above Tmax, and PQ at the p of their states above pmax, lie
+/// beyond the saturation curve, and under either policy are refused at the curve's end (below the domain's bound),
+/// which the error names. QS, HQ and DQ have no input beyond the domain: every saturated state lies below the
+/// critical point.
+#[cfg(feature = "fluids-all")]
+#[test]
+fn qt_and_pq_beyond_the_domain_name_the_curve_end() {
+    let policies = [FlashOptions::new(), FlashOptions::new().with_domain(DomainPolicy::Extrapolate)];
+    let mut checked = 0;
+    for name in DOMAIN_FLUIDS {
+        let (fluid, bounds, beyond) = beyond_the_domain(name);
+        for ((truth, above_t), policy) in product(&beyond, &policies) {
             let qt = Input::qt(Quality::new(1.0).unwrap(), Temperature::new(truth.t()).unwrap());
             let pq = Input::pq(Pressure::new(truth.p()).unwrap(), Quality::new(1.0).unwrap());
             let beyond_curve = if above_t { qt } else { pq };
-            for policy in [FlashOptions::new(), extrapolate] {
-                let got = fluid.flash(beyond_curve, &policy);
-                let curve_end = match got {
-                    Err(Error::Domain(DomainError::AboveMaxTemperature { t, t_max: end })) => {
-                        above_t && t == truth.t() && end < t_max
-                    }
-                    Err(Error::Domain(DomainError::AboveMaxPressure { p, p_max: end })) => {
-                        !above_t && p == truth.p() && end < p_max
-                    }
-                    _ => false,
-                };
-                assert!(curve_end, "{name} {beyond_curve:?}: {got:?}");
-            }
-            for &pair in Pair::ALL {
-                let Some(input) = input_of(pair, &truth) else { continue };
-                let searched = !above_t && matches!(pair, Pair::HS | Pair::SU);
-                let enforced = fluid.state(input);
-                let refused = match enforced {
-                    Err(Error::Domain(DomainError::AboveMaxTemperature { t, t_max: bound })) => {
-                        above_t && near(t, truth.t()) && bound == t_max
-                    }
-                    Err(Error::Domain(DomainError::AboveMaxPressure { p, p_max: bound })) => {
-                        !above_t && bound == p_max && if searched { p == p_max } else { near(p, truth.p()) }
-                    }
-                    // A pair with several roots returns the one in the domain (CO₂'s TU at 1000 K: 244 MPa).
-                    _ => states_of(&fluid, input, FlashOptions::new(), &enforced)
-                        .iter()
-                        .all(|s| reproduces(s, input) && s.t() <= t_max && s.p() <= p_max && !s.is_extrapolated()),
-                };
-                assert!(refused, "{}: {enforced:?}", at(pair));
-                let flagged = fluid.flash(input, &extrapolate);
-                if searched {
-                    assert_eq!(flagged, enforced, "{}", at(pair));
-                } else {
-                    let states = states_of(&fluid, input, extrapolate, &flagged);
-                    let ok = states.iter().any(|s| is_truth(s, &truth) && s.is_extrapolated());
-                    assert!(ok, "{}: {flagged:?}", at(pair));
-                }
-                checked += 1;
-            }
-        }
-        // On the bounds themselves every state is in the domain: PT's at Tmax and at pmax round-trip.
-        for truth in [pt(1e7, t_max), pt(p_max, 1000.0)].map(|input| fluid.state(input).unwrap()) {
-            for &pair in Pair::ALL {
-                let Some(input) = input_of(pair, &truth) else { continue };
-                let result = fluid.state(input);
-                let states = states_of(&fluid, input, FlashOptions::new(), &result);
-                assert!(states.iter().any(|s| is_truth(s, &truth)), "{name} {pair:?} of {truth:?}: {result:?}");
-                checked += 1;
-            }
+            let got = fluid.flash(beyond_curve, &policy);
+            assert!(names_the_curve_end(&got, (&truth, above_t), bounds), "{name} {beyond_curve:?}: {got:?}");
+            checked += 1;
         }
     }
-    assert_eq!(checked, 3 * 4 * 14);
+    assert_eq!(checked, 3 * 2 * 2);
+}
+
+/// Whether `got` refuses a Q-pair at `truth`'s T (`above_t`) or p beyond the curve's end, which it names below the
+/// domain's (Tmax, pmax).
+#[cfg(feature = "fluids-all")]
+fn names_the_curve_end(
+    got: &Result<State, Error>,
+    (truth, above_t): (&State, bool),
+    (t_max, p_max): (f64, f64),
+) -> bool {
+    match *got {
+        Err(Error::Domain(DomainError::AboveMaxTemperature { t, t_max: end })) => {
+            above_t && t == truth.t() && end < t_max
+        }
+        Err(Error::Domain(DomainError::AboveMaxPressure { p, p_max: end })) => {
+            !above_t && p == truth.p() && end < p_max
+        }
+        _ => false,
+    }
 }
 
 /// ROT-007 (map 01 R4; map 12 COO-6): CoolProp's DmassT returns a density off its input, its HmassT fails where
@@ -259,38 +333,36 @@ fn dt_mass_basis_reproduces_input() {
         ("CarbonDioxide", [pt(7.4e6, 305.0), pt(7.3e6, 300.0), dt(10_000.0, 304.2), q_t(0.5, 304.0)]),
     ] {
         let fluid = embedded(name);
-        let m = fluid.info().molar_mass();
         for truth in inputs.map(|input| fluid.state(input).unwrap()) {
             let mass = truth.rho(Basis::Mass);
             let dt_mass = Input::dt(Density::mass(mass).unwrap(), Temperature::new(truth.t()).unwrap());
             let back = fluid.state(dt_mass).unwrap().rho(Basis::Mass);
             assert!((back - mass).abs() <= 2.0 * f64::EPSILON * mass, "{name}: {back} against {mass}");
-            for &pair in Pair::ALL {
-                let Some(molar) = input_of(pair, &truth) else { continue };
-                let (vx, vy) = pair.vars();
-                let (x, y) = molar.values();
-                let per_kg = |var: Var, v: f64| match var {
-                    Var::D => v * m,
-                    Var::H | Var::S | Var::U => v / m,
-                    _ => v,
-                };
-                let mass_input = Input::new(pair, per_kg(vx, x), per_kg(vy, y), Basis::Mass).unwrap();
-                let opts = FlashOptions::new();
-                let (a, b) = (fluid.state(molar), fluid.state(mass_input));
-                let (sa, sb) = (states_of(&fluid, molar, opts, &a), states_of(&fluid, mass_input, opts, &b));
-                let close = |s: &State, t: &State| {
-                    let near = |u: f64, v: f64| (u - v).abs() <= 1e-9 * v.abs();
-                    let q = match (s.quality(), t.quality()) {
-                        (Some(u), Some(v)) => (u - v).abs() <= 1e-9,
-                        (u, v) => u == v,
-                    };
-                    s.phase() == t.phase() && near(s.t(), t.t()) && near(s.rho(Basis::Molar), t.rho(Basis::Molar)) && q
-                };
-                let same = !sa.is_empty() && sa.len() == sb.len() && sa.iter().zip(&sb).all(|(s, t)| close(s, t));
-                assert!(same, "{name} {pair:?}: {a:?} against {b:?}");
-                checked += 1;
-            }
+            checked += Pair::ALL.iter().map(|&pair| same_in_mass_units(name, &fluid, &truth, pair)).sum::<usize>();
         }
     }
     assert!(checked >= 4 * 14 + 2 * 19, "{checked}");
+}
+
+/// One cell of [`dt_mass_basis_reproduces_input`]: `pair` read off `truth` in mass units returns the states (or the
+/// roots) its molar inputs return, each `truth`'s within class `Flash` ([`is_truth`]); asserts it and returns 1, or 0
+/// where the state defines no input of `pair`.
+#[cfg(feature = "fluids-all")]
+fn same_in_mass_units(name: &str, fluid: &Fluid, truth: &State, pair: Pair) -> usize {
+    let Some(molar) = input_of(pair, truth) else { return 0 };
+    let m = fluid.info().molar_mass();
+    let (vx, vy) = pair.vars();
+    let (x, y) = molar.values();
+    let per_kg = |var: Var, v: f64| match var {
+        Var::D => v * m,
+        Var::H | Var::S | Var::U => v / m,
+        _ => v,
+    };
+    let mass_input = Input::new(pair, per_kg(vx, x), per_kg(vy, y), Basis::Mass).unwrap();
+    let opts = FlashOptions::new();
+    let (a, b) = (fluid.state(molar), fluid.state(mass_input));
+    let (sa, sb) = (states_of(fluid, molar, opts, &a), states_of(fluid, mass_input, opts, &b));
+    let same = !sa.is_empty() && sa.len() == sb.len() && sa.iter().zip(&sb).all(|(s, t)| is_truth(s, t));
+    assert!(same, "{name} {pair:?}: {a:?} against {b:?}");
+    1
 }

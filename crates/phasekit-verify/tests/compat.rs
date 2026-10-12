@@ -23,36 +23,47 @@ fn props_si_dt_matches_oracle() {
     for (path, text) in files {
         let fixture = Fixture::parse(path, text).unwrap();
         let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
-        let fluid = registry.get(name).unwrap();
         for row in (0..fixture.rows().len()).filter(|&row| fixture.printed(row, "pair") == Some("DT")) {
-            let (rho, t) = (fixture.value(row, "x1").unwrap(), fixture.value(row, "x2").unwrap());
-            let typed = fluid.state(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap()));
-            for (key, prop) in [
-                ("P", phasekit_core::Prop::P),
-                ("Hmolar", phasekit_core::Prop::Hmolar),
-                ("Smolar", phasekit_core::Prop::Smolar),
-                ("Hmass", phasekit_core::Prop::Hmass),
-            ] {
-                let want = typed.as_ref().map_err(Clone::clone).and_then(|s| fluid.prop(s, prop));
-                let got = props_si_in(&registry, key, "T", t, "Dmolar", rho, name).map_err(|e| format!("{e}"));
-                let swapped = props_si_in(&registry, key, "Dmolar", rho, "T", t, name).map_err(|e| format!("{e}"));
-                let want = want.map_err(|e| format!("{e}"));
-                assert_eq!(
-                    got.as_ref().map(|v| v.to_bits()),
-                    want.as_ref().map(|v| v.to_bits()),
-                    "{path} row {row} {key}"
-                );
-                assert_eq!(swapped, got, "{path} row {row} {key}, inputs swapped");
-                if got.is_ok() { answered += 1 } else { refused += 1 }
-            }
-            if let Ok(state) = &typed {
-                let (oracle, p) = (fixture.value(row, "p").unwrap(), state.p());
-                let bound = phasekit_verify::ToleranceClass::Flash.bound(oracle.abs()).unwrap() * 1e3;
-                assert!((p - oracle).abs() <= bound, "{path} row {row}: p {p} against {oracle}");
-                let _ = state.h(Basis::Molar);
-            }
+            let (a, r) = props_si_dt_row(&registry, (path, name), &fixture, row);
+            (answered, refused) = (answered + a, refused + r);
         }
     }
     // 3 × 52 rows, 4 keys each, R410A's dome rows too since M6.9 (none is refused any more).
     assert_eq!((answered, refused), (3 * 52 * 4, 0));
+}
+
+/// One DT row of [`props_si_dt_matches_oracle`], of `name`'s file at `path`: each key's `PropsSI`, in both input
+/// orders, asserted the typed DT flash's value bit for bit or its refusal, and the flash's p the oracle's within class
+/// `Flash`; returns the keys answered and refused.
+fn props_si_dt_row(
+    registry: &Registry,
+    (path, name): (&str, &str),
+    fixture: &Fixture<'_>,
+    row: usize,
+) -> (usize, usize) {
+    let fluid = registry.get(name).unwrap();
+    let (rho, t) = (fixture.value(row, "x1").unwrap(), fixture.value(row, "x2").unwrap());
+    let typed = fluid.state(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap()));
+    let (mut answered, mut refused) = (0, 0);
+    for (key, prop) in [
+        ("P", phasekit_core::Prop::P),
+        ("Hmolar", phasekit_core::Prop::Hmolar),
+        ("Smolar", phasekit_core::Prop::Smolar),
+        ("Hmass", phasekit_core::Prop::Hmass),
+    ] {
+        let want = typed.as_ref().map_err(Clone::clone).and_then(|s| fluid.prop(s, prop));
+        let got = props_si_in(registry, key, "T", t, "Dmolar", rho, name).map_err(|e| format!("{e}"));
+        let swapped = props_si_in(registry, key, "Dmolar", rho, "T", t, name).map_err(|e| format!("{e}"));
+        let want = want.map_err(|e| format!("{e}"));
+        assert_eq!(got.as_ref().map(|v| v.to_bits()), want.as_ref().map(|v| v.to_bits()), "{path} row {row} {key}");
+        assert_eq!(swapped, got, "{path} row {row} {key}, inputs swapped");
+        if got.is_ok() { answered += 1 } else { refused += 1 }
+    }
+    if let Ok(state) = &typed {
+        let (oracle, p) = (fixture.value(row, "p").unwrap(), state.p());
+        let bound = phasekit_verify::ToleranceClass::Flash.bound(oracle.abs()).unwrap() * 1e3;
+        assert!((p - oracle).abs() <= bound, "{path} row {row}: p {p} against {oracle}");
+        let _ = state.h(Basis::Molar);
+    }
+    (answered, refused)
 }

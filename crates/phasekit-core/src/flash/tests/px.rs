@@ -120,23 +120,27 @@ fn p_x_at_the_dome_edge_and_under_a_hint() {
     let refused = water.flash(p_x(&compressed)[0], &FlashOptions::new().with_phase(Phase::TwoPhase));
     assert!(matches!(refused, Err(Error::InvalidInput { quantity: "quality", .. })), "{refused:?}");
     let (p, two_phase) = (Pressure::new(1e6).unwrap(), FlashOptions::new().with_phase(Phase::TwoPhase));
-    for (side, q, outwards) in [(&liquid, 0.0, -1.0), (&vapour, 1.0, 1.0)] {
-        for share in [1e-11, 1e-7] {
-            let past = |x: f64| x * (1.0 + outwards * share);
-            let inputs = [
-                Input::hp(Enthalpy::molar(past(side.h(m))).unwrap(), p),
-                Input::ps(p, Entropy::molar(past(side.s(m))).unwrap()),
-                Input::pu(p, InternalEnergy::molar(past(side.u(m))).unwrap()),
-            ];
-            for input in inputs {
-                let back = water.flash(input, &two_phase);
-                let expected = match &back {
-                    Ok(state) => share < 1e-9 && state.phase() == Phase::TwoPhase && state.quality() == Some(q),
-                    Err(e) => share > 1e-9 && matches!(e, Error::InvalidInput { quantity: "quality", .. }),
-                };
-                assert!(expected, "{input:?}: {back:?}");
-            }
+    for ((side, q, outwards), share) in product(&[(liquid, 0.0, -1.0), (vapour, 1.0, 1.0)], &[1e-11, 1e-7]) {
+        let past = |x: f64| x * (1.0 + outwards * share);
+        let inputs = [
+            Input::hp(Enthalpy::molar(past(side.h(m))).unwrap(), p),
+            Input::ps(p, Entropy::molar(past(side.s(m))).unwrap()),
+            Input::pu(p, InternalEnergy::molar(past(side.u(m))).unwrap()),
+        ];
+        for input in inputs {
+            let back = water.flash(input, &two_phase);
+            assert!(past_a_side_is_gated(&back, q, share), "{input:?}: {back:?}");
         }
+    }
+}
+
+/// Whether a P+X under `TwoPhase` of an x past the side at quality `q` by `share` of it is as the acceptance gate
+/// says: within it (1e-11) that side, Q `q` exactly; beyond it (1e-7) refused, its quality outside [0, 1].
+#[cfg(feature = "fluids-all")]
+fn past_a_side_is_gated(back: &Result<State, Error>, q: f64, share: f64) -> bool {
+    match back {
+        Ok(state) => share < 1e-9 && state.phase() == Phase::TwoPhase && state.quality() == Some(q),
+        Err(e) => share > 1e-9 && matches!(e, Error::InvalidInput { quantity: "quality", .. }),
     }
 }
 

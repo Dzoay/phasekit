@@ -124,12 +124,8 @@ fn a_guess_is_only_a_seed() {
 fn a_guess_changes_no_output() {
     use DerivVar::*;
     let vars = [T, P, Dmolar, Dmass, Hmolar, Hmass, Smolar, Smass, Umolar, Umass, Gmolar, Gmass];
-    let mut props = Vec::new();
-    for of in vars {
-        for wrt in vars {
-            props.extend(vars.map(|at| Prop::Partial(Partial { of, wrt, at })));
-        }
-    }
+    let mut props: Vec<Prop> =
+        product(&vars, &vars).flat_map(|(of, wrt)| vars.map(|at| Prop::Partial(Partial { of, wrt, at }))).collect();
     props.extend([
         Prop::T,
         Prop::P,
@@ -175,14 +171,19 @@ fn a_guess_changes_no_output() {
             let opts = FlashOptions::new().with_guess(t, factor * plain.rho(Basis::Molar));
             let warm = fluid.flash(pt(p, t), &opts).unwrap();
             for &prop in &props {
-                match (fluid.prop(&plain, prop), fluid.prop(&warm, prop)) {
-                    (Ok(a), Ok(b)) => {
-                        assert!((a - b).abs() <= 1e-9 * a.abs().max(b.abs()), "{name} {prop:?}: {a} and {b}");
-                    }
-                    (a, b) => assert_eq!(a, b, "{name} {prop:?}"),
-                }
+                let (a, b) = (fluid.prop(&plain, prop), fluid.prop(&warm, prop));
+                assert!(same_output(&a, &b), "{name} {prop:?}: {a:?} and {b:?}");
             }
         }
+    }
+}
+
+/// Whether two reads of one output agree: values within `Flash` (1e-9 of the larger), errors equal.
+#[cfg(feature = "fluids-all")]
+fn same_output(a: &Result<f64, Error>, b: &Result<f64, Error>) -> bool {
+    match (a, b) {
+        (Ok(a), Ok(b)) => (a - b).abs() <= 1e-9 * a.abs().max(b.abs()),
+        (a, b) => a == b,
     }
 }
 

@@ -11,6 +11,8 @@ use crate::model::Limits;
 #[cfg(feature = "fluids-all")]
 use crate::prop::{DerivVar, Partial};
 use crate::saturation::{SatSide, SaturationCurve};
+#[cfg(feature = "fluids-all")]
+use crate::test_support::product;
 use crate::units::{Basis, Density, Pressure, Temperature};
 #[cfg(feature = "fluids-all")]
 use crate::units::{Enthalpy, Entropy, InternalEnergy};

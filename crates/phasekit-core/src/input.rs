@@ -213,27 +213,30 @@ impl Capabilities {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::product;
+
+    /// Whether the raw gate may let `v` through as a value of `var`: finite, and positive for T, p and ρ, within
+    /// [0, 1] for Q.
+    fn representable(var: Var, v: f64) -> bool {
+        let in_range = match var {
+            Var::T | Var::P | Var::D => v > 0.0,
+            Var::Q => (0.0..=1.0).contains(&v),
+            _ => true,
+        };
+        v.is_finite() && in_range
+    }
 
     /// E12: the raw gate never panics and lets through only representable values.
     #[test]
     fn raw_gate_refuses_every_invalid_value_without_panicking() {
         let specials = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1.0, 0.0, 0.5, 1.0, 2.0, 1e300, -1e300];
-        for &pair in Pair::ALL {
-            for x in specials {
-                for y in specials {
-                    for basis in [Basis::Molar, Basis::Mass] {
-                        let Ok(input) = Input::new(pair, x, y, basis) else { continue };
-                        let (vx, vy) = pair.vars();
-                        for (var, v) in [(vx, input.values().0), (vy, input.values().1)] {
-                            assert!(v.is_finite());
-                            match var {
-                                Var::T | Var::P | Var::D => assert!(v > 0.0),
-                                Var::Q => assert!((0.0..=1.0).contains(&v)),
-                                _ => {}
-                            }
-                        }
-                    }
-                }
+        let values: Vec<(f64, f64)> = product(&specials, &specials).collect();
+        let raw: Vec<(Pair, (f64, f64))> = product(Pair::ALL, &values).collect();
+        for ((pair, (x, y)), basis) in product(&raw, &[Basis::Molar, Basis::Mass]) {
+            let Ok(input) = Input::new(pair, x, y, basis) else { continue };
+            let ((vx, vy), (x_in, y_in)) = (pair.vars(), input.values());
+            for (var, v) in [(vx, x_in), (vy, y_in)] {
+                assert!(representable(var, v), "{pair:?} ({x}, {y}) {basis:?}: {var:?} {v}");
             }
         }
         assert_eq!(Pair::ALL.len(), 19);

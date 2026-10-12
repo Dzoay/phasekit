@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::internal::FluidRecord;
-use phasekit_core::{DataSet, Fluid, Registry};
+use phasekit_core::{DataSet, Fluid, Registry, SaturationCurve};
 use phasekit_verify::eos::EosCheck;
 use phasekit_verify::flash::FlashCheck;
 use phasekit_verify::saturation::SaturationCheck;
@@ -13,6 +13,10 @@ use phasekit_verify::{Cell, Fixture};
 
 #[path = "common/capability.rs"]
 mod capability;
+#[path = "common/sweep.rs"]
+mod sweep;
+
+use sweep::Failures;
 
 /// The full set's root, fixed at compile time (clippy bans run-time environment reads, D17).
 const FULL: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures-full/coolprop-8.0.0");
@@ -89,7 +93,7 @@ fn eos_fixtures_match_oracle_on_the_nightly_grid() {
 #[ignore = "nightly: reads the full sat set (cargo xtask oracle --kind sat --tier full)"]
 fn superancillary_matches_oracle_on_the_nightly_grid() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
-    let (mut failures, mut checked, mut fluids) = (Vec::new(), 0, 0);
+    let (mut failures, mut checked, mut fluids) = (Failures::default(), 0, 0);
     for f in phasekit_data::FLUIDS {
         let record = phasekit_core::internal::record(&registry, f.name).unwrap();
         let Some(curve) = record.superancillary_curve() else { continue };
@@ -97,20 +101,27 @@ fn superancillary_matches_oracle_on_the_nightly_grid() {
         let text = read(&path);
         let fixture = Fixture::parse(&path, &text).unwrap();
         assert_eq!(fixture.rows().len(), 600, "{path}: 200 sa rows, then 200 QT (M5.2a) and 200 PQ rows (M6.8)");
-        let sa = |row: &usize| fixture.rows()[*row].cells.first() == Some(&Cell::Text("sa"));
-        for row in (0..fixture.rows().len()).filter(sa) {
-            let sat = curve.at_t(fixture.value(row, "T").unwrap()).unwrap();
-            for (column, got) in [("p", sat.bubble.p), ("rhoL", sat.bubble.rho), ("rhoV", sat.dew.rho)] {
-                checked += 1;
-                if let Err(e) = fixture.check_scaled(row, column, got, fixture.value(row, column).unwrap().abs()) {
-                    failures.push(format!("{e:?}"));
-                }
-            }
-        }
+        checked += superancillary_sa_rows(&fixture, &*curve, &mut failures);
         fluids += 1;
     }
     assert_eq!((fluids, checked), (130, 130 * 200 * 3));
     assert_eq!(failures.iter().take(20).collect::<Vec<_>>(), Vec::<&String>::new(), "{} failures", failures.len());
+}
+
+/// One fluid's `sa` rows of [`superancillary_matches_oracle_on_the_nightly_grid`]: p, ρ′ and ρ″ of `curve` within
+/// `SaCoeff`, each failure into `failures`; returns the cells compared.
+fn superancillary_sa_rows(fixture: &Fixture<'_>, curve: &dyn SaturationCurve, failures: &mut Failures) -> usize {
+    let mut checked = 0;
+    let sa = |row: &usize| fixture.rows()[*row].cells.first() == Some(&Cell::Text("sa"));
+    for row in (0..fixture.rows().len()).filter(sa) {
+        let sat = curve.at_t(fixture.value(row, "T").unwrap()).unwrap();
+        for (column, got) in [("p", sat.bubble.p), ("rhoL", sat.bubble.rho), ("rhoV", sat.dew.rho)] {
+            checked += 1;
+            let scaled = fixture.check_scaled(row, column, got, fixture.value(row, column).unwrap().abs());
+            failures.ok(scaled, |e| format!("{e:?}"));
+        }
+    }
+    checked
 }
 
 /// Every fluid's full flash fixture, checked by `rows` (a [`FlashCheck`] pair's) on its `Parity` fluid and record.

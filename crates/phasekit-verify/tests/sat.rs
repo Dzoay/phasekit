@@ -8,14 +8,19 @@ use std::collections::HashMap;
 
 use phasekit_core::internal::{FluidRecord, IdealTerm};
 use phasekit_core::{
-    Basis, DataSet, Density, DomainPolicy, Error, FlashOptions, Fluid, Input, Order, Phase, Pressure, Quality,
-    Registry, RootPolicy, SatAccuracy, SaturationCurve, State, Strategy, Temperature,
+    Basis, CriticalPoint, DataSet, Density, DomainPolicy, Error, FlashOptions, Fluid, Input, Order, Phase, Pressure,
+    Quality, Registry, RootPolicy, SatAccuracy, SaturationCurve, State, Strategy, Temperature,
 };
 use phasekit_verify::eos::{Majorants, carried};
 use phasekit_verify::fixture::Kind;
 use phasekit_verify::register::{RowKey, exempt_row};
 use phasekit_verify::term::IdealScale;
 use phasekit_verify::{CheckError, DIVERGENCES, Fixture, ToleranceClass, Window, fixture};
+
+#[path = "common/sweep.rs"]
+mod sweep;
+
+use sweep::Failures;
 
 /// The superancillary of `name` from the embedded blob, under `data_set` and the hash gate.
 fn curve(registry: &Registry, name: &str, data_set: DataSet) -> Box<dyn SaturationCurve> {
@@ -169,42 +174,64 @@ fn caloric_curves_match_oracle_sat_rows() {
     let (path, text) = fixture!("coolprop-8.0.0/all/sat.csv");
     let fixture = Fixture::parse(path, text).unwrap();
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
-    let (mut failures, mut checked) = (Vec::new(), 0);
-    let mut cached: Option<(&str, FluidRecord, IdealScale)> = None;
+    let (mut failures, mut checked) = (Failures::default(), 0);
+    let mut cache = None;
     let superancillary_qt = |row: &usize| {
         (fixture.printed(*row, "input").unwrap(), fixture.printed(*row, "path").unwrap()) == ("T", "superanc")
     };
     for row in (0..fixture.rows().len()).filter(superancillary_qt) {
         assert_eq!(fixture.printed(row, "status").unwrap(), "ok", "row {row}");
         let name = fixture.printed(row, "fluid").unwrap();
-        if cached.as_ref().is_none_or(|(n, ..)| *n != name) {
-            let record = phasekit_core::internal::record(&registry, name).unwrap();
-            let ideal = IdealScale::new(&record).unwrap();
-            cached = Some((name, record, ideal));
-        }
-        let Some((_, record, ideal)) = cached.as_ref() else { continue };
-        let (fluid, t) = (registry.get(name).unwrap(), fixture.value(row, "T").unwrap());
-        let r = record.eos.gas_constant;
-        let (liquid, vapour) = saturated(fluid, &*record.superancillary_curve().unwrap(), t);
-        let curves = record.caloric_view().unwrap().at(t).unwrap();
-        let columns =
-            [("hL", &liquid, 0, false), ("hV", &vapour, 1, false), ("sL", &liquid, 2, true), ("sV", &vapour, 3, true)];
-        for (column, state, curve, entropy) in columns {
-            let rho = state.rho(Basis::Molar);
-            let want = fixture.value(row, column).unwrap();
-            let got = if entropy { state.s(Basis::Molar) } else { state.h(Basis::Molar) };
-            let bound = eos_bound(fluid, (record, ideal), t, rho, entropy, want);
-            checked += 2;
-            if let Err(e) = fixture.check_bound(row, column, got, bound) {
-                failures.push(format!("{name} EOS: {e:?}"));
-            }
-            if (curves[curve] - want).abs() > caloric_fit(want, r, t, entropy) {
-                failures.push(format!("{name} curve {column} at {t} K: {} against {want}", curves[curve]));
-            }
-        }
+        let model = (registry.get(name).unwrap(), cached(&mut cache, &registry, name));
+        checked += caloric_row(&fixture, row, model, &mut failures);
     }
     assert_eq!(checked, 130 * 8 * 4 * 2);
     assert_eq!(failures.iter().take(20).collect::<Vec<_>>(), Vec::<&String>::new(), "{} failures", failures.len());
+}
+
+/// The decoded record of `name` and its ideal-gas scale, from `cache` if it holds `name`'s, else decoded into it: a
+/// fixture's rows of one fluid follow each other.
+fn cached<'c, 'a>(
+    cache: &'c mut Option<(&'a str, FluidRecord, IdealScale)>,
+    registry: &Registry,
+    name: &'a str,
+) -> (&'c FluidRecord, &'c IdealScale) {
+    if cache.as_ref().is_some_and(|(n, ..)| *n != name) {
+        *cache = None;
+    }
+    let (_, record, ideal) = cache.get_or_insert_with(|| {
+        let record = phasekit_core::internal::record(registry, name).unwrap();
+        let ideal = IdealScale::new(&record).unwrap();
+        (name, record, ideal)
+    });
+    (record, ideal)
+}
+
+/// One row of [`caloric_curves_match_oracle_sat_rows`]: h′, h″, s′ and s″ of the EOS at the superancillary's
+/// densities within `Prop`, and of the caloric curves within `CaloricFit`, each failure into `failures`; returns the
+/// cells compared.
+fn caloric_row(
+    fixture: &Fixture<'_>,
+    row: usize,
+    (fluid, (record, ideal)): (&Fluid, (&FluidRecord, &IdealScale)),
+    failures: &mut Failures,
+) -> usize {
+    let (name, t) = (fixture.printed(row, "fluid").unwrap(), fixture.value(row, "T").unwrap());
+    let r = record.eos.gas_constant;
+    let (liquid, vapour) = saturated(fluid, &*record.superancillary_curve().unwrap(), t);
+    let curves = record.caloric_view().unwrap().at(t).unwrap();
+    let columns =
+        [("hL", &liquid, 0, false), ("hV", &vapour, 1, false), ("sL", &liquid, 2, true), ("sV", &vapour, 3, true)];
+    for (column, state, curve, entropy) in columns {
+        let rho = state.rho(Basis::Molar);
+        let want = fixture.value(row, column).unwrap();
+        let got = if entropy { state.s(Basis::Molar) } else { state.h(Basis::Molar) };
+        let bound = eos_bound(fluid, (record, ideal), t, rho, entropy, want);
+        failures.ok(fixture.check_bound(row, column, got, bound), |e| format!("{name} EOS: {e:?}"));
+        let off = (curves[curve] - want).abs() > caloric_fit(want, r, t, entropy);
+        failures.check(!off, || format!("{name} curve {column} at {t} K: {} against {want}", curves[curve]));
+    }
+    2 * columns.len()
 }
 
 /// PLAN.md M2.11, M5.2a: another α⁰ offset, as CoolProp's IIR and NBP reference states write one, moves h and u by
@@ -329,108 +356,134 @@ struct QRows {
     ambiguous: Vec<String>,
     /// A pseudo-pure fluid's QT and PQ rows (path `ancillary`).
     ancillary: AncillaryRows,
-    failures: Vec<String>,
+    failures: Failures,
 }
 
 /// The QT and PQ rows of `fixture` (`fluid_of(row)` the fluid of a row) against phasekit's flash (PLAN.md M6.8), every
-/// row `ok` and on the superancillary's path. CoolProp's superancillary flashes do not check the model's limits, so the
-/// rows are flashed under `Extrapolate`: a state outside them is flagged, and refused by default (D6). A QT row: p, ρ′
-/// and ρ″ within `SaCoeff`, h and s within `Prop`, read off the states at Q = 0 and 1. A PQ row (user decision PQ1): T
-/// within `SaCoeff` of the QT row whose p it was given (the root nearest it, where p has several), and its state
-/// phasekit's QT at that T, bit for bit, but for p, the given one; the oracle's own PQ cells are DIV-0018's.
+/// row `ok` and on the superancillary's path, a QT row as [`qt_row`] checks it and a PQ row as [`pq_row`] does, with
+/// the T of the QT row whose p it was given; a pseudo-pure fluid's rows as [`ancillary_row`] does. CoolProp's
+/// superancillary flashes do not check the model's limits, so the rows are flashed under `Extrapolate`: a state outside
+/// them is flagged, and refused by default (D6).
 fn q_rows<'a>(fixture: &Fixture<'a>, fluid_of: impl Fn(usize) -> &'a str, registry: &Registry, out: &mut QRows) {
     let mut generated: HashMap<(&str, u64), f64> = HashMap::new();
-    let mut cached: Option<(&str, FluidRecord, IdealScale)> = None;
-    let m = Basis::Molar;
-    let opts = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
-    let at_t = |fluid: &Fluid, q: f64, t: f64| fluid.flash(qt(q, t), &opts);
-    for row in 0..fixture.rows().len() {
-        let input = fixture.printed(row, "input").unwrap();
-        if input != "T" && input != "p" {
-            continue;
-        }
-        let name = fluid_of(row);
-        let at = format!("{name} row {row} ({input})");
+    let mut cache = None;
+    let q_input = |row: &usize| matches!(fixture.printed(*row, "input").unwrap(), "T" | "p");
+    for row in (0..fixture.rows().len()).filter(q_input) {
+        let (name, input) = (fluid_of(row), fixture.printed(row, "input").unwrap());
         let (status, path) = (fixture.printed(row, "status").unwrap(), fixture.printed(row, "path").unwrap());
         if path == "ancillary" {
             ancillary_row(fixture, row, (name, registry.get(name).unwrap()), out);
             continue;
         }
+        let at = format!("{name} row {row} ({input})");
         if (status, path) != ("ok", "superanc") {
             out.failures.push(format!("{at}: {status}, {path}"));
             continue;
         }
-        if cached.as_ref().is_none_or(|(n, ..)| *n != name) {
-            let record = phasekit_core::internal::record(registry, name).unwrap();
-            let ideal = IdealScale::new(&record).unwrap();
-            cached = Some((name, record, ideal));
-        }
-        let Some((_, record, ideal)) = cached.as_ref() else { continue };
-        let fluid = registry.get(name).unwrap();
+        let (record, ideal) = cached(&mut cache, registry, name);
         let [q, t, p] = ["Q", "T", "p"].map(|column| fixture.value(row, column).unwrap());
-        let t_qt = generated.get(&(name, p.to_bits())).copied();
-        let flashed = match (input, t_qt) {
-            ("T", _) => at_t(fluid, q, t),
-            (_, Some(t_qt)) => fluid.flash(pq(p, q), &opts.with_roots(RootPolicy::Nearest(t_qt))),
-            (_, None) => {
-                out.failures.push(format!("{at}: no QT row gave p = {p}"));
-                continue;
-            }
-        };
+        let q_row = QRow { fixture, row, at, name, fluid: registry.get(name).unwrap(), record, ideal, q, t, p };
+        if input == "p" {
+            pq_row(&q_row, generated.get(&(name, p.to_bits())).copied(), out);
+        } else if qt_row(&q_row, out) {
+            generated.insert((name, p.to_bits()), t);
+        }
+    }
+}
+
+/// The options of the QT and PQ rows' flashes: CoolProp's superancillary flashes do not check the model's limits.
+const EXTRAPOLATE: FlashOptions = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
+
+/// A QT or PQ row on the superancillary's path, with its fluid's model.
+struct QRow<'f, 'a> {
+    fixture: &'f Fixture<'a>,
+    row: usize,
+    /// The fluid, row and input, for a failure's message.
+    at: String,
+    name: &'a str,
+    fluid: &'f Fluid,
+    record: &'f FluidRecord,
+    ideal: &'f IdealScale,
+    /// The row's Q, T and p.
+    q: f64,
+    t: f64,
+    p: f64,
+}
+
+impl QRow<'_, '_> {
+    /// QT of the row's fluid at quality `q` and temperature `t`, under `Extrapolate`.
+    fn at_t(&self, q: f64, t: f64) -> Result<State, Error> {
+        self.fluid.flash(qt(q, t), &EXTRAPOLATE)
+    }
+
+    /// The row's state, `flashed`, if it is the superancillary's; flagged exactly where it lies outside the model's
+    /// limits, those counted. A failure is recorded in `out`.
+    fn state(&self, flashed: Result<State, Error>, out: &mut QRows) -> Option<State> {
         let state = match flashed {
             Ok(state) if state.path().strategy == Strategy::Superancillary => state,
             other => {
-                out.failures.push(format!("{at}: {other:?}"));
-                continue;
+                out.failures.push(format!("{}: {other:?}", self.at));
+                return None;
             }
         };
-        let outside = record.limits.check_t(state.t()).is_err() || record.limits.check_p(state.p()).is_err();
+        let limits = &self.record.limits;
+        let outside = limits.check_t(state.t()).is_err() || limits.check_p(state.p()).is_err();
         out.outside += usize::from(outside);
-        if state.is_extrapolated() != outside {
-            out.failures.push(format!("{at}: flagged {}, outside the limits {outside}", state.is_extrapolated()));
-        }
-        if input == "T" {
-            out.qt += 1;
-            generated.insert((name, p.to_bits()), t);
-            let sides = [0.0, 1.0].map(|q| at_t(fluid, q, t).unwrap());
-            for (column, got) in [("p", state.p()), ("rhoL", sides[0].rho(m)), ("rhoV", sides[1].rho(m))] {
-                let scale = fixture.value(row, column).unwrap().abs();
-                if let Err(e) = fixture.check_scaled(row, column, got, scale) {
-                    out.failures.push(format!("{at}: {e:?}"));
-                }
-            }
-            for (column, side, entropy) in [("hL", 0, false), ("hV", 1, false), ("sL", 0, true), ("sV", 1, true)] {
-                let (want, side) = (fixture.value(row, column).unwrap(), &sides[side]);
-                let got = if entropy { side.s(m) } else { side.h(m) };
-                let bound = eos_bound(fluid, (record, ideal), t, side.rho(m), entropy, want);
-                if let Err(e) = fixture.check_bound(row, column, got, bound) {
-                    out.failures.push(format!("{at}: {e:?}"));
-                }
-            }
-            continue;
-        }
-        out.pq += 1;
-        for column in ["T", "rhoL", "rhoV", "hL", "hV", "sL", "sV"] {
-            match exempt_row(DIVERGENCES, name, Kind::Sat, column, RowKey { t, input: Some("p"), two_phase: false }) {
-                Some("DIV-0018") => out.exempt += 1,
-                other => out.failures.push(format!("{at}: {column} exempt by {other:?}")),
-            }
-        }
-        let t_qt = t_qt.unwrap_or(f64::NAN);
-        let within = (state.t() - t_qt).abs() <= ToleranceClass::SaCoeff.bound(t_qt).unwrap(); // false for NaN too
-        if !within {
-            out.failures.push(format!("{at}: T {} against the QT row's {t_qt}", state.t()));
-        }
-        if let Err(Error::Ambiguous { roots }) = fluid.flash(pq(p, q), &opts) {
-            out.ambiguous.push(format!("{name}: {} roots", roots.as_slice().len()));
-        }
-        let same = at_t(fluid, q, state.t()).unwrap();
-        let bits = |s: &State| [s.rho(m), s.h(m), s.s(m)].map(f64::to_bits);
-        let p_close = (same.p() - p).abs() <= ToleranceClass::SaCoeff.bound(p).unwrap();
-        if bits(&same) != bits(&state) || state.p() != p || !p_close {
-            out.failures.push(format!("{at}: {state:?} is not QT at its T, {same:?}"));
+        let flagged = state.is_extrapolated();
+        out.failures
+            .check(flagged == outside, || format!("{}: flagged {flagged}, outside the limits {outside}", self.at));
+        Some(state)
+    }
+}
+
+/// A QT row of [`q_rows`]: p, ρ′ and ρ″ within `SaCoeff`, and h and s within `Prop`, read off the states at Q = 0
+/// and 1; returns whether its state is the superancillary's, so that a PQ row can take its T.
+fn qt_row(row: &QRow<'_, '_>, out: &mut QRows) -> bool {
+    let Some(state) = row.state(row.at_t(row.q, row.t), out) else { return false };
+    out.qt += 1;
+    let (fixture, m, t) = (row.fixture, Basis::Molar, row.t);
+    let sides = [0.0, 1.0].map(|q| row.at_t(q, t).unwrap());
+    for (column, got) in [("p", state.p()), ("rhoL", sides[0].rho(m)), ("rhoV", sides[1].rho(m))] {
+        let scale = fixture.value(row.row, column).unwrap().abs();
+        out.failures.ok(fixture.check_scaled(row.row, column, got, scale), |e| format!("{}: {e:?}", row.at));
+    }
+    for (column, side, entropy) in [("hL", 0, false), ("hV", 1, false), ("sL", 0, true), ("sV", 1, true)] {
+        let (want, side) = (fixture.value(row.row, column).unwrap(), &sides[side]);
+        let got = if entropy { side.s(m) } else { side.h(m) };
+        let bound = eos_bound(row.fluid, (row.record, row.ideal), t, side.rho(m), entropy, want);
+        out.failures.ok(fixture.check_bound(row.row, column, got, bound), |e| format!("{}: {e:?}", row.at));
+    }
+    true
+}
+
+/// A PQ row of [`q_rows`] (user decision PQ1), `t_qt` the T of the QT row whose p it was given: T within `SaCoeff` of
+/// it (the root nearest it, where p has several), and its state phasekit's QT at that T, bit for bit, but for p, the
+/// given one; the oracle's own PQ cells are DIV-0018's.
+fn pq_row(row: &QRow<'_, '_>, t_qt: Option<f64>, out: &mut QRows) {
+    let Some(t_qt) = t_qt else {
+        out.failures.push(format!("{}: no QT row gave p = {}", row.at, row.p));
+        return;
+    };
+    let nearest = EXTRAPOLATE.with_roots(RootPolicy::Nearest(t_qt));
+    let Some(state) = row.state(row.fluid.flash(pq(row.p, row.q), &nearest), out) else { return };
+    out.pq += 1;
+    for column in ["T", "rhoL", "rhoV", "hL", "hV", "sL", "sV"] {
+        let key = RowKey { t: row.t, input: Some("p"), two_phase: false };
+        match exempt_row(DIVERGENCES, row.name, Kind::Sat, column, key) {
+            Some("DIV-0018") => out.exempt += 1,
+            other => out.failures.push(format!("{}: {column} exempt by {other:?}", row.at)),
         }
     }
+    let within = (state.t() - t_qt).abs() <= ToleranceClass::SaCoeff.bound(t_qt).unwrap();
+    out.failures.check(within, || format!("{}: T {} against the QT row's {t_qt}", row.at, state.t()));
+    if let Err(Error::Ambiguous { roots }) = row.fluid.flash(pq(row.p, row.q), &EXTRAPOLATE) {
+        out.ambiguous.push(format!("{}: {} roots", row.name, roots.as_slice().len()));
+    }
+    let same = row.at_t(row.q, state.t()).unwrap();
+    let bits = |s: &State| [s.rho(Basis::Molar), s.h(Basis::Molar), s.s(Basis::Molar)].map(f64::to_bits);
+    let p_close = (same.p() - row.p).abs() <= ToleranceClass::SaCoeff.bound(row.p).unwrap();
+    let is_qt = bits(&same) == bits(&state) && state.p() == row.p && p_close;
+    out.failures.check(is_qt, || format!("{}: {state:?} is not QT at its T, {same:?}", row.at));
 }
 
 /// A pseudo-pure fluid's QT or PQ row (path `ancillary`; PLAN.md M6.9, D4) against phasekit's flash (user decisions
@@ -449,58 +502,75 @@ fn ancillary_row(fixture: &Fixture<'_>, row: usize, (name, fluid): (&str, &Fluid
     }
     let [q, t, p] = ["Q", "T", "p"].map(|column| fixture.value(row, column).unwrap_or(f64::NAN));
     let given_t = fixture.printed(row, "input").unwrap() == "T";
-    let state = match fluid.state(if given_t { qt(q, t) } else { pq(p, q) }) {
-        Ok(state) if state.path().strategy == Strategy::Ancillary => state,
-        Err(Error::Domain(_)) => {
-            out.ancillary.refused += 1;
-            return;
-        }
-        other => {
-            out.failures.push(format!("{at}: {other:?}"));
-            return;
-        }
-    };
-    let (m, eos) = (Basis::Molar, fluid.model().helmholtz().unwrap());
-    let (r, critical) = (eos.gas_constant(), fluid.model().critical_point().unwrap());
-    let mut compare = |column: &str, got: f64, floor: f64, (t_side, rho_side): (f64, f64)| {
-        let want = fixture.value(row, column).unwrap_or(f64::NAN);
-        out.ancillary.cells += 1;
-        let window = Window::at(t_side, rho_side, critical.t, critical.rho);
-        let bound = ToleranceClass::Prop.bound_in(want.abs().max(floor), window).unwrap();
-        let within = (got - want).abs() <= bound; // false for NaN too
-        if !within {
-            out.failures.push(format!("{at} {column}: {got} against {want} (bound {bound:e})"));
-        }
-    };
+    let flashed = fluid.state(if given_t { qt(q, t) } else { pq(p, q) });
+    let Some(state) = ancillary_state(flashed, &at, out) else { return };
+    let (m, r) = (Basis::Molar, fluid.model().helmholtz().unwrap().gas_constant());
+    let cells = AncillaryCells { fixture, row, at: &at, critical: fluid.model().critical_point().unwrap() };
     let rho = state.rho(m);
-    if given_t {
-        compare("p", state.p(), 0.0, (t, rho));
-    } else {
-        compare("T", state.t(), 0.0, (t, rho));
-        if q != 0.0 && q != 1.0 {
-            return;
-        }
+    let (column, got) = if given_t { ("p", state.p()) } else { ("T", state.t()) };
+    cells.compare(column, got, 0.0, (t, rho), out);
+    if !given_t && q != 0.0 && q != 1.0 {
+        return;
     }
     // The side Q names: QT's own; PQ's from the EOS at the oracle's T and the given p, seeded by phasekit's side.
     let liquid = q == 0.0;
-    let side = if given_t {
-        state
-    } else {
-        let rho = match phasekit_core::internal::density_at_t_p(eos, t, p, rho, liquid) {
-            Ok(rho) => rho,
-            Err(e) => {
-                out.failures.push(format!("{at}: no density at the oracle's T: {e:?}"));
-                return;
-            }
-        };
-        let phase = if liquid { Phase::Liquid } else { Phase::Gas };
-        let opts = FlashOptions::new().with_phase(phase).with_domain(DomainPolicy::Extrapolate);
-        fluid.flash(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap()), &opts).unwrap()
+    let Some(side) = (if given_t { Some(state) } else { eos_side(fluid, (t, p, rho), liquid, &at, out) }) else {
+        return;
     };
     let (names, ts) = (if liquid { ["rhoL", "hL", "sL"] } else { ["rhoV", "hV", "sV"] }, (side.t(), side.rho(m)));
-    compare(names[0], side.rho(m), 0.0, ts);
-    compare(names[1], side.h(m), r * side.t(), ts);
-    compare(names[2], side.s(m), r, ts);
+    cells.compare(names[0], side.rho(m), 0.0, ts, out);
+    cells.compare(names[1], side.h(m), r * side.t(), ts, out);
+    cells.compare(names[2], side.s(m), r, ts, out);
+}
+
+/// An ancillary row's state, `flashed`, if on the ancillaries' path; where phasekit's definition has no answer (a
+/// `DomainError`), counted; any other outcome a failure recorded in `out`.
+fn ancillary_state(flashed: Result<State, Error>, at: &str, out: &mut QRows) -> Option<State> {
+    match flashed {
+        Ok(state) if state.path().strategy == Strategy::Ancillary => Some(state),
+        Err(Error::Domain(_)) => {
+            out.ancillary.refused += 1;
+            None
+        }
+        other => {
+            out.failures.push(format!("{at}: {other:?}"));
+            None
+        }
+    }
+}
+
+/// The saturated liquid (`liquid`) or vapour of a PQ row at Q = 0 or 1: the EOS's state at the oracle's T and the
+/// given p, `(t, p)`, seeded by the density of phasekit's side, `rho`; where it has none, a failure recorded in `out`.
+fn eos_side(fluid: &Fluid, (t, p, rho): (f64, f64, f64), liquid: bool, at: &str, out: &mut QRows) -> Option<State> {
+    let eos = fluid.model().helmholtz().unwrap();
+    let density = phasekit_core::internal::density_at_t_p(eos, t, p, rho, liquid);
+    let rho = out.failures.ok(density, |e| format!("{at}: no density at the oracle's T: {e:?}"))?;
+    let phase = if liquid { Phase::Liquid } else { Phase::Gas };
+    let opts = FlashOptions::new().with_phase(phase).with_domain(DomainPolicy::Extrapolate);
+    Some(fluid.flash(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap()), &opts).unwrap())
+}
+
+/// The cells of one ancillary row, each compared within `Prop`.
+struct AncillaryCells<'f, 'a> {
+    fixture: &'f Fixture<'a>,
+    row: usize,
+    /// The fluid and row, for a failure's message.
+    at: &'f str,
+    /// The model's critical point, for the near-critical bounds.
+    critical: CriticalPoint,
+}
+
+impl AncillaryCells<'_, '_> {
+    /// `column`'s cell against `got`, within `Prop` of max(|want|, `floor`) at the side's (T, ρ); counted, and a
+    /// failure recorded in `out` if outside.
+    fn compare(&self, column: &str, got: f64, floor: f64, (t_side, rho_side): (f64, f64), out: &mut QRows) {
+        let want = self.fixture.value(self.row, column).unwrap_or(f64::NAN);
+        out.ancillary.cells += 1;
+        let window = Window::at(t_side, rho_side, self.critical.t, self.critical.rho);
+        let bound = ToleranceClass::Prop.bound_in(want.abs().max(floor), window).unwrap();
+        let within = (got - want).abs() <= bound; // false for NaN too
+        out.failures.check(within, || format!("{} {column}: {got} against {want} (bound {bound:e})", self.at));
+    }
 }
 
 /// The core subset's `sat` files: the 12 fluids with a superancillary and the pseudo-pure Air and R410A (M6.9).

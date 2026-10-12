@@ -171,13 +171,17 @@ pub fn mismatches(registry: &Registry, name: &str) -> (Vec<String>, usize) {
             assert_eq!(pair, want_pair);
             for (cell, column) in cells.iter().zip([single, two_phase]) {
                 compared += 1;
-                let exception = EXCEPTIONS.iter().find(|e| (e.0, e.1, e.2) == (name, *pair, column));
-                let want = exception.map_or(wants[column], |e| e.3);
-                if !holds(cell, want) {
-                    bad.push(format!("{name} {pair:?} {}: {cell:?}, want {want:?}", COLUMNS[column]));
-                }
+                bad.extend(mismatch(name, *pair, column, cell, wants));
             }
         }
     }
     (bad, compared)
+}
+
+/// The cell of `pair` and the truth in `column`, if it does not hold what its table's row (`wants`), or an exception
+/// of `name`'s, wants: what it holds and what is wanted.
+fn mismatch(name: &str, pair: Pair, column: usize, cell: &Outcome, wants: &[Want; 8]) -> Option<String> {
+    let exception = EXCEPTIONS.iter().find(|e| (e.0, e.1, e.2) == (name, pair, column));
+    let want = exception.map_or(wants[column], |e| e.3);
+    (!holds(cell, want)).then(|| format!("{name} {pair:?} {}: {cell:?}, want {want:?}", COLUMNS[column]))
 }

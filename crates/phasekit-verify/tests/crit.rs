@@ -51,30 +51,34 @@ fn published_critical_point_is_exact() {
 fn numerical_critical_point_satisfies_the_criticality_conditions() {
     let (crit, registry) = (crit(), Registry::from_embedded(DataSet::Parity).unwrap());
     let mut solved = 0;
-    for r in 0..crit.rows().len() {
-        let name = crit.printed(r, "fluid").unwrap();
-        if ["Water", "CarbonDioxide"].contains(&name) {
-            continue;
-        }
-        let v = |c: &str| crit.value(r, c).unwrap();
-        let fluid = registry.get(name).unwrap();
-        let eos = fluid.model().helmholtz().unwrap();
-        let (t, rho, p) = phasekit_core::internal::numerical_critical_point(eos, v("Tc_pub"), v("rhoc_pub")).unwrap();
-        let (k1, k2) = conditions(eos, t, rho);
-        assert!(k1.abs() <= 1e-9 && k2.abs() <= 1e-9, "{name}: K1 {k1}, K2 {k2}");
-        let pseudo_pure = v("Tc_num") == v("Tc_pub") && v("rhoc_num") == v("rhoc_pub");
-        if !pseudo_pure {
-            for (got, column, bound) in [(t, "Tc_num", 1e-8), (rho, "rhoc_num", 1e-6), (p, "pc_num", 1e-9)] {
-                if exempt_at(DIVERGENCES, name, Kind::Crit, column, t).is_some() {
-                    continue;
-                }
-                let bound = bound * v(column);
-                assert!((got - v(column)).abs() <= bound, "{name} {column}: {got} against {}", v(column));
-            }
-        }
+    let singular = |r: &usize| ["Water", "CarbonDioxide"].contains(&crit.printed(*r, "fluid").unwrap());
+    for r in (0..crit.rows().len()).filter(|r| !singular(r)) {
+        numerical_critical_point_of_row(&crit, &registry, r);
         solved += 1;
     }
     assert_eq!(solved, 134);
+}
+
+/// The numerical critical point of crit row `r`'s fluid, from its published one, asserted to satisfy both conditions
+/// and, for a pure fluid, its T, ρ and p the oracle's computed ones within `Flash`'s near-critical bounds but where
+/// DIV-0017 exempts them.
+fn numerical_critical_point_of_row(crit: &Fixture<'_>, registry: &Registry, r: usize) {
+    let name = crit.printed(r, "fluid").unwrap();
+    let v = |c: &str| crit.value(r, c).unwrap();
+    let eos = registry.get(name).unwrap().model().helmholtz().unwrap();
+    let (t, rho, p) = phasekit_core::internal::numerical_critical_point(eos, v("Tc_pub"), v("rhoc_pub")).unwrap();
+    let (k1, k2) = conditions(eos, t, rho);
+    assert!(k1.abs() <= 1e-9 && k2.abs() <= 1e-9, "{name}: K1 {k1}, K2 {k2}");
+    let pseudo_pure = v("Tc_num") == v("Tc_pub") && v("rhoc_num") == v("rhoc_pub");
+    if !pseudo_pure {
+        let cells = [(t, "Tc_num", 1e-8), (rho, "rhoc_num", 1e-6), (p, "pc_num", 1e-9)];
+        for (got, column, bound) in
+            cells.into_iter().filter(|c| exempt_at(DIVERGENCES, name, Kind::Crit, c.1, t).is_none())
+        {
+            let bound = bound * v(column);
+            assert!((got - v(column)).abs() <= bound, "{name} {column}: {got} against {}", v(column));
+        }
+    }
 }
 
 /// Map 02 §6 (ROT-084: CoolProp's `T_critical()` follows a global flag): R13's published critical point, 301.88 K,
