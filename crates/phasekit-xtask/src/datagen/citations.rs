@@ -159,12 +159,14 @@ pub fn attach(
     if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
-/// Each transport model's DOI (M8.1): the `.bib`'s, else the reviewed file's. A key in neither keeps none
+/// Each transport model's and the surface-tension fit's DOI (M8.1, M8.4): the `.bib`'s, else the reviewed file's. A key in neither keeps none
 /// (EthylBenzene's viscosity cites `Huber-RP912`, a NIST report the `.bib` lacks).
 fn transport_dois(record: &mut FluidRecord, bib: &[(String, Option<String>)], reviewed: &[Reviewed]) {
     let Some(transport) = record.transport.as_mut() else { return };
     let viscosity = transport.viscosity.iter_mut().map(|v| &mut v.source);
-    for source in viscosity.chain(transport.conductivity.iter_mut().map(|c| &mut c.source)) {
+    let conductivity = transport.conductivity.iter_mut().map(|c| &mut c.source);
+    let sigma = record.surface_tension.iter_mut().map(|s| &mut s.source);
+    for source in viscosity.chain(conductivity).chain(sigma) {
         let key = &*source.bibkey;
         let doi = bib.iter().find(|(k, _)| k == key).and_then(|(_, doi)| doi.clone());
         let doi = doi.or_else(|| reviewed.iter().find(|r| r.key == key).and_then(|r| r.doi.clone()));

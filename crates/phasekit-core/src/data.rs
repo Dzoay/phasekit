@@ -14,7 +14,7 @@ use crate::helmholtz::{
     PowerTerm, ResidualBlock, TauExpBlock,
 };
 use crate::model::{CriticalOrigin, CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source};
-use crate::transport::{TransportRecord, TransportSet};
+use crate::transport::{SurfaceTension, TransportRecord, TransportSet};
 
 /// Position of a data-backed fluid in its source's index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -687,6 +687,9 @@ pub struct FluidRecord {
     /// The transport models (M8.1); `None` until decoded: the registry leaves them in the blob and decodes them on
     /// the first transport call.
     pub transport: Option<TransportRecord>,
+    /// The surface-tension fit (M8.4); `None` without one, and until decoded: the registry decodes it with the
+    /// transport models.
+    pub surface_tension: Option<SurfaceTension>,
 }
 
 impl FluidRecord {
@@ -712,6 +715,7 @@ impl FluidRecord {
             caloric: None,
             pseudo_pure: None,
             transport: Some(TransportRecord::default()),
+            surface_tension: None,
         }
     }
 
@@ -862,7 +866,8 @@ impl FluidRecord {
         }
         // A whole record carries its transport models; the registry's eager parts leave them to its lazy closure.
         if let Some(record) = self.transport {
-            builder = builder.transport(TransportSet { record, ..TransportSet::default() });
+            let surface_tension = self.surface_tension;
+            builder = builder.transport(TransportSet { record, surface_tension, ..TransportSet::default() });
         }
         Ok(match self.critical {
             Some(c) => builder.critical(c),

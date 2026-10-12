@@ -68,6 +68,8 @@ pub fn to_record(source: &super::Source) -> Result<FluidRecord, String> {
     fluid_record.melting = melting(&fluid.ancillaries).map_err(|e| at(&format!("ANCILLARIES.melting_line: {e}")))?;
     fluid_record.pseudo_pure = pseudo_pure(fluid, eos).map_err(|e| at(&e))?;
     fluid_record.transport = Some(super::transport::record(file, fluid.transport.as_ref()).map_err(|e| at(&e))?);
+    let fit = fluid.ancillaries.get("surface_tension");
+    fluid_record.surface_tension = super::transport::surface_tension(file, fit).map_err(|e| at(&e))?;
     check_constants(&fluid_record).map_err(|e| at(&e))?;
     fluid_record.eos.rho_max = largest_density(&fluid_record).map_err(|e| at(&e))?;
     if let Some(sa) = fluid_record.superancillary.clone() {

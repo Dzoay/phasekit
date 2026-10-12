@@ -983,8 +983,60 @@ def flash(CP, lock, config, files, args):
     return out
 
 
+
+# The `sigma` kind (section 3.5): CoolProp's surface tension of its saturated liquid at T, sampled uniformly over the
+# fit's range [Tmin, Tc], Tc the fit's own (ANCILLARIES.surface_tension.Tc, Mulero's) and Tmin CoolProp's. CoolProp needs
+# a two-phase state, so a T above the EOS's critical point is an err row (map 05 R13).
+SIGMA_COLUMNS = ["T", "status", "sigma"]
+SIGMA_UNITS = ["K", "-", "N/m"]
+SIGMA_TOL = ["in", "label", "prop"]
+SIGMA_ROWS = {"core": 50, "all": 4, "full": 500}  # temperatures per fluid
+
+
+def sigma_rows(CP, name, tc, rows, seed):
+    """One fluid's rows: (floats, lines), its temperatures from its own SplitMix64 stream."""
+    state = CP.AbstractState("HEOS", name)
+    t_min, rng = state.Tmin(), splitmix64(seed)
+    floats, lines = [], []
+    for _ in range(rows):
+        t = uniform(rng, t_min, tc)
+        try:
+            state.update(CP.QT_INPUTS, 0, t)
+            value, status = state.surface_tension(), "ok"
+        except Exception as exception:  # every oracle failure becomes a status, never a crash
+            value, status = math.nan, f"err:{error_class(exception)}"
+        floats += [t, value]
+        lines.append(f"{cell(t)},{status},{cell(value)}\n")
+    return floats, lines
+
+
+def sigma(CP, lock, config, files, args):
+    """The `sigma` kind for the fluids with a surface-tension fit: sigma/<Fluid>.csv in the core tier (50 rows),
+    all/sigma.csv (4 per fluid) and the full set's files (500)."""
+    rows = args.rows or SIGMA_ROWS[args.tier]
+    results, shas = [], {}
+    for name in tier_fluids(args, files):
+        fit = json.loads(files[name].read_text(encoding="utf-8"))["ANCILLARIES"].get("surface_tension")
+        if fit is None:
+            continue
+        shas[name] = assert_fluid(CP, files, name)
+        results.append((name, *sigma_rows(CP, name, fit["Tc"], rows, args.seed)))
+    grid = f"T~U[Tmin,Tc] n={rows} Tc=the fit's own (ANCILLARIES.surface_tension.Tc); saturated liquid (QT, Q=0) at T"
+    if args.tier == "all":
+        floats = [value for _, values, _ in results for value in values]
+        fluids = f"{len(results)} with a surface-tension fit, fluids_sha256={lock['fluids_sha256']}"
+        columns, tol, units = ["fluid", *SIGMA_COLUMNS], ["label", *SIGMA_TOL], ["-", *SIGMA_UNITS]
+        text = header("sigma", lock, config, fluids, columns, tol, floats, units=units, grid=grid)
+        return {"all/sigma.csv": text + "".join(f"{name},{line}" for name, _, lines in results for line in lines)}
+    out = {}
+    for name, floats, lines in results:
+        text = header("sigma", lock, config, [(name, shas[name])], SIGMA_COLUMNS, SIGMA_TOL, floats, units=SIGMA_UNITS,
+                      grid=grid)
+        out[f"sigma/{name}.csv"] = text + "".join(lines)
+    return out
+
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "sat": sat,
-              "flash": flash}
+              "flash": flash, "sigma": sigma}
 
 
 def write(out, files):

@@ -24,7 +24,7 @@ use phasekit_core::internal::{
     ConductivityResidual, EcsConductivity, EcsViscosity, FrictionCubic, FrictionSecond, FrictionTheory,
     HardcodedConductivity, HardcodedCriticalConductivity, HardcodedDiluteConductivity, HardcodedDiluteViscosity,
     HardcodedHigherViscosity, HardcodedViscosity, Kappa, LennardJones, MAX_POW, OlchowySengers, RhoSrCs, Series,
-    StagedConductivity, StagedViscosity, TransportRecord, Viscosity, ViscosityDilute, ViscosityHigher,
+    StagedConductivity, StagedViscosity, SurfaceTension, TransportRecord, Viscosity, ViscosityDilute, ViscosityHigher,
     ViscosityInitial, ViscosityModel,
 };
 use phasekit_core::{DataTerms, Source};
@@ -199,6 +199,25 @@ pub fn record(file: &str, transport: Option<&Value>) -> Result<TransportRecord, 
     }
     b.finish()?;
     Ok(record)
+}
+
+/// The formula every `ANCILLARIES.surface_tension` block states in its `description`, the one the record evaluates.
+const SIGMA_FORMULA: &str = "sigma = sum(a_i*(1-T/Tc)^n_i)";
+
+/// The surface-tension fit of a file's `ANCILLARIES.surface_tension` block (PLAN.md M8.4), read as strictly as
+/// `TRANSPORT`: its source, its own `Tc` (Mulero's, not the EOS's; map 13 §3) and its terms; the `description` must
+/// state the form evaluated. A file without one has none (28 of 136; map 05 §3.6).
+pub fn surface_tension(file: &str, fit: Option<&Value>) -> Result<Option<SurfaceTension>, String> {
+    let Some(fit) = fit else { return Ok(None) };
+    let mut b = Block::new(file, "ANCILLARIES.surface_tension".into(), fit)?;
+    let source = source(&mut b)?;
+    let description = b.text("description")?;
+    if description != SIGMA_FORMULA {
+        return Err(b.err(format!("description {description:?}, not {SIGMA_FORMULA:?}")));
+    }
+    let (t_c, terms) = (b.num("Tc")?, b.series(["a", "n"])?);
+    b.finish()?;
+    Ok(Some(SurfaceTension { source, t_c, terms }))
 }
 
 /// The viscosity block, or the first entry of a list (CoolProp's default; ROT-109).

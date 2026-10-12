@@ -11,7 +11,7 @@
 //! `cargo xtask fluid`'s dump alike.
 
 use crate::data::{DataSet, Edit, Patch};
-use crate::error::{Error, LoadError};
+use crate::error::{DomainError, Error, LoadError};
 use crate::fluid::Fluid;
 use crate::math;
 use crate::model::{DataTerms, Source};
@@ -1169,23 +1169,47 @@ impl TransportRecord {
     }
 }
 
-/// Surface tension `σ(T) = Σ a_i (1 − T/Tc)^n_i` (108 fluids; map 05 U5).
+/// A surface-tension fit σ(T) = Σ aᵢ (1 − T/T_c)ⁿⁱ (108 fluids; map 05 U5), with the T_c it was fitted with (Mulero's
+/// own, not the EOS's; map 13 §3) and its own source (D14).
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SurfaceTension {
-    /// Critical temperature the correlation was fitted with, K.
-    t_c: f64,
-    /// `(a_i, n_i)` pairs.
-    terms: Box<[(f64, f64)]>,
+pub struct SurfaceTension {
+    /// The fit's `BibTeX` key, and its DOI when CoolProp's bibliography has one.
+    pub source: Source,
+    /// The critical temperature the fit was made with, K.
+    pub t_c: f64,
+    /// The coefficients aᵢ (`a`) and exponents nᵢ (`t`).
+    pub terms: Series,
 }
 
 impl SurfaceTension {
-    /// σ in N/m; refuses T ≥ Tc instead of returning 0 or NaN.
-    fn eval(&self, t: f64) -> Result<f64, Error> {
-        if !(t > 0.0 && t < self.t_c) {
-            return Err(Error::NoModel { prop: Prop::SurfaceTension });
+    /// σ in N/m at `t`, over the fit's range: from `t_min`, the fluid's, to the lower of the fit's own T_c and `t_c_eos`,
+    /// the model's critical temperature, above which there is no interface. A fit is never evaluated outside its range
+    /// (user decision 6; ROT-114): CoolProp throws for T_c,σ < T ≤ T_c,EOS (map 05 R13), and map 05 Q4's σ = 0 there is
+    /// not taken.
+    pub(crate) fn eval(&self, t: f64, t_min: f64, t_c_eos: f64) -> Result<f64, Error> {
+        if !t.is_finite() {
+            return Err(Error::InvalidInput { quantity: "T", value: t });
+        }
+        if t < t_min {
+            return Err(DomainError::BelowMinTemperature { t, t_min }.into());
+        }
+        let t_max = self.t_c.min(t_c_eos);
+        if t > t_max {
+            return Err(DomainError::AboveMaxTemperature { t, t_max }.into());
         }
         let x = 1.0 - t / self.t_c;
-        Ok(self.terms.iter().map(|&(a, n)| a * math::powf(x, n)).sum())
+        Ok(self.terms.a.iter().zip(&self.terms.t).map(|(a, n)| a * math::powf(x, *n)).sum())
+    }
+}
+
+impl Part for SurfaceTension {
+    fn put(&self, p: &mut dyn Put) {
+        part(p, "source", &self.source);
+        p.num("Tc", self.t_c);
+        part(p, "terms", &self.terms);
+    }
+    fn take(t: &mut dyn Take) -> Result<Self, String> {
+        Ok(SurfaceTension { source: take_part(t, "source")?, t_c: t.num("Tc")?, terms: take_part(t, "terms")? })
     }
 }
 
@@ -1215,11 +1239,6 @@ impl TransportSet {
             None => Err(Error::NoModel { prop: Prop::Conductivity }),
             Some(_) => Err(LoadError::Format("evaluating a conductivity model lands at M8.6".into()).into()),
         }
-    }
-
-    /// σ(T) or `NoModel`.
-    pub(crate) fn surface_tension(&self, t: f64) -> Result<f64, Error> {
-        self.surface_tension.as_ref().ok_or(Error::NoModel { prop: Prop::SurfaceTension })?.eval(t)
     }
 }
 

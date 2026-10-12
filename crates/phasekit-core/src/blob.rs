@@ -26,7 +26,7 @@ use crate::data::{
 };
 use crate::error::LoadError;
 use crate::model::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataTerms, Limits, ModelKey, Source};
-use crate::transport::{Part, Put, Take, TransportRecord};
+use crate::transport::{Part, Put, SurfaceTension, Take, TransportRecord};
 
 /// The first eight bytes of every v1 blob.
 const MAGIC: &[u8; 8] = b"PKITBLOB";
@@ -47,7 +47,7 @@ pub(crate) const SECTIONS: [(u32, &str, Option<&str>); 10] = [
     (5, "caloric curves", None),
     (6, "ancillaries", None),
     (7, "transport", None),
-    (8, "surface tension", Some("M8.4")),
+    (8, "surface tension", None),
     (9, "melting", None),
     (10, "corrections", None),
 ];
@@ -396,6 +396,26 @@ fn transport(record: Option<&TransportRecord>) -> Vec<u8> {
     out
 }
 
+/// The surface-tension section (M8.4): empty for a fluid without a fit, else the fit as [`Part`] describes it, in the
+/// transport section's encoding.
+fn surface_tension(fit: Option<&SurfaceTension>) -> Vec<u8> {
+    let mut out = Vec::new();
+    if let Some(fit) = fit {
+        fit.put(&mut out);
+    }
+    out
+}
+
+fn read_surface_tension(bytes: &[u8]) -> Result<Option<SurfaceTension>, LoadError> {
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    let mut r = Reader::new(bytes, "surface tension");
+    let fit = SurfaceTension::take(&mut r).map_err(|e| bad(format!("surface tension section: {e}")))?;
+    r.done()?;
+    Ok(Some(fit))
+}
+
 fn read_transport(bytes: &[u8]) -> Result<TransportRecord, LoadError> {
     if bytes.is_empty() {
         return Ok(TransportRecord::default());
@@ -565,6 +585,7 @@ pub(crate) fn sections(record: &FluidRecord) -> [Vec<u8>; SECTION_COUNT] {
     bodies[4] = caloric(record.caloric.as_ref());
     bodies[5] = ancillaries(record.pseudo_pure.as_ref());
     bodies[6] = transport(record.transport.as_ref());
+    bodies[7] = surface_tension(record.surface_tension.as_ref());
     bodies[8] = melting(&record.melting);
     bodies[9] = corrections(&record.corrections);
     bodies
@@ -686,6 +707,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
     record.superancillary = read_superancillary(sections[3])?;
     record.caloric = read_caloric(sections[4], record.superancillary_fit)?;
     record.transport = Some(read_transport(sections[6])?);
+    record.surface_tension = read_surface_tension(sections[7])?;
     Ok(record)
 }
 
@@ -708,6 +730,11 @@ pub(crate) fn decode_eager_parts(bytes: &[u8]) -> Result<FluidRecord, LoadError>
 /// The transport models of a v1 blob, validated whole again.
 pub(crate) fn decode_transport(bytes: &[u8]) -> Result<TransportRecord, LoadError> {
     read_transport(validated_sections(bytes)?[6])
+}
+
+/// The surface-tension fit of a v1 blob, validated whole again; `None` for a fluid without one.
+pub(crate) fn decode_surface_tension(bytes: &[u8]) -> Result<Option<SurfaceTension>, LoadError> {
+    read_surface_tension(validated_sections(bytes)?[7])
 }
 
 /// The superancillary of a v1 blob, validated whole again; `None` for a fluid without one.
