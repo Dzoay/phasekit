@@ -3,6 +3,7 @@
 //! point recomputed.
 
 use super::*;
+use serde_json::json;
 
 /// PLAN.md M2.1: every v8.0.0 fluid parses into the closed mirror, after the lock check. 136 files, 136 distinct
 /// `INFO.NAME`s and 159 EOS entries (113 fluids with one, 23 with an alternate; map 09 §4.1).
@@ -62,6 +63,53 @@ fn unknown_block_type_is_an_error() {
         assert!(nitrogen.contains(from), "{from}");
         let err = parse("Nitrogen.json", &nitrogen.replacen(from, to, 1)).unwrap_err();
         assert!(err.starts_with("Nitrogen.json: ") && err.contains(why), "{from} -> {to}: {err}");
+    }
+
+    // Rot: ROT-116 (map 05 R9). The transport forms are closed too (M8.1): an unknown `type`, a hardcoded name of
+    // another slot, CoolProp's dead terms (CO₂'s Vesovic dilute term, its `RESIDUAL_CO2`, which parses and then throws,
+    // and Scalabrin's critical term) and a misspelt key are refused.
+    let transport_cases = [
+        (
+            "Nitrogen.json",
+            "/viscosity/dilute/type",
+            json!("collision_integrals"),
+            "dilute: unknown type \"collision_integrals\"",
+        ),
+        ("R11.json", "/viscosity/type", json!("ECSX"), "viscosity: unknown type \"ECSX\""),
+        ("Water.json", "/viscosity/hardcoded", json!("Methane"), "viscosity: unknown hardcoded model \"Methane\""),
+        (
+            "CarbonDioxide.json",
+            "/conductivity/dilute/hardcoded",
+            json!("CO2"),
+            "dilute: unknown hardcoded model \"CO2\"",
+        ),
+        (
+            "CarbonDioxide.json",
+            "/conductivity/residual",
+            json!({"hardcoded": "CO2"}),
+            "residual: unknown hardcoded model \"CO2\"",
+        ),
+        (
+            "CarbonDioxide.json",
+            "/conductivity/critical",
+            json!({"hardcoded": "CarbonDioxideScalabrinJPCRD2006"}),
+            "critical: unknown hardcoded model \"CarbonDioxideScalabrinJPCRD2006\"",
+        ),
+        (
+            "Nitrogen.json",
+            "/viscosity/sigma_etta",
+            json!(3.656e-10),
+            "TRANSPORT.viscosity: unknown field \"sigma_etta\"",
+        ),
+        ("R11.json", "/conductivity/psi/b", json!([1.0]), "TRANSPORT.conductivity.psi: unknown field \"b\""),
+    ];
+    for (file, key, value, why) in transport_cases {
+        let mut block = serde_json::from_str::<serde_json::Value>(&text(file)).unwrap()["TRANSPORT"].take();
+        assert!(transport::record(file, Some(&block)).is_ok(), "{file}");
+        let (parent, name) = key.rsplit_once('/').unwrap();
+        block.pointer_mut(parent).unwrap()[name] = value;
+        let err = transport::record(file, Some(&block)).unwrap_err();
+        assert!(err.starts_with("TRANSPORT.") && err.ends_with(why), "{file} {key}: {err}");
     }
 }
 

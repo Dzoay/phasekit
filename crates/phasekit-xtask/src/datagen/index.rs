@@ -54,15 +54,12 @@ pub fn feature_name(name: &str) -> String {
     format!("fluid-{}", slug.trim_end_matches('-'))
 }
 
-/// The ECS reference fluids a file's transport names (`TRANSPORT.{viscosity,conductivity}.reference_fluid`),
-/// as written.
-fn references(source: &Source) -> Vec<String> {
-    let transport = source.fluid.transport.as_ref();
-    let named = ["viscosity", "conductivity"].into_iter().filter_map(|model| {
-        let reference = transport?.get(model)?.get("reference_fluid")?;
-        reference.as_str().map(str::to_string)
-    });
-    named.collect()
+/// The ECS reference fluids a file's transport models name, as written (M8.1: from the typed record, so an alternate
+/// entry's reference is never a dependency).
+fn references(source: &Source) -> Result<Vec<String>, String> {
+    let record = super::transport::record(&source.file, source.fluid.transport.as_ref())
+        .map_err(|e| format!("{}: {e}", source.file))?;
+    Ok(record.references().into_iter().map(str::to_string).collect())
 }
 
 /// The index of `fluids` (parsed file, blob), sorted by name: keys collapsed and checked, references resolved to
@@ -82,7 +79,7 @@ pub fn index(fluids: &[(&Source, Vec<u8>)]) -> Result<Vec<Entry>, String> {
         let entry = Entry {
             name: info.name.clone(),
             aliases,
-            requires: references(source),
+            requires: references(source)?,
             feature: feature_name(&info.name),
             blob: blob.clone(),
         };

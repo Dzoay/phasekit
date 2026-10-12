@@ -661,7 +661,8 @@ covers `EosRecord::encode`, the canonical encoder datagen also uses (E14).
 
 Also: `every_eos_field_is_hashed` flips each field once and the hash moves (the shape hash only for shape fields);
 datagen recomputes all 130 CoolProp `source_eos_hash` stamps (FNV-1a, self-test `8e75626511d00b5c`; map 09 §8);
-`MolarMass` and `MeltingP0` edits leave the SA `Fresh` (the SA is molar; melting is outside the EOS section).
+`MolarMass` and `MeltingP0` edits leave the SA `Fresh` (the SA is molar; melting is outside the EOS section), and so
+do the transport edits `EcsQd` and `RhosrCritical` (M8.1).
 
 ### 7.4 Exact rescaling (M6)
 

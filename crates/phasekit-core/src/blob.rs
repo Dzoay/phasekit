@@ -26,6 +26,7 @@ use crate::data::{
 };
 use crate::error::LoadError;
 use crate::model::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataTerms, Limits, ModelKey, Source};
+use crate::transport::{Part, Put, Take, TransportRecord};
 
 /// The first eight bytes of every v1 blob.
 const MAGIC: &[u8; 8] = b"PKITBLOB";
@@ -45,7 +46,7 @@ pub(crate) const SECTIONS: [(u32, &str, Option<&str>); 10] = [
     (4, "superancillary", None),
     (5, "caloric curves", None),
     (6, "ancillaries", None),
-    (7, "transport", Some("M8.1")),
+    (7, "transport", None),
     (8, "surface tension", Some("M8.4")),
     (9, "melting", None),
     (10, "corrections", None),
@@ -384,6 +385,95 @@ fn read_ancillaries(bytes: &[u8]) -> Result<Option<PseudoPure>, LoadError> {
     Ok(Some(PseudoPure { p_l, p_v, rho_l, rho_v, t_range }))
 }
 
+/// The transport section (M8.1): empty for a fluid without models, else the record as [`Part`] describes it, field by
+/// field in order: numbers as f64, lists as a u32 count and their numbers, exponents as u8, strings as in the
+/// metadata, a variant as its u8 position in its list of names, an optional part as a presence byte.
+fn transport(record: Option<&TransportRecord>) -> Vec<u8> {
+    let mut out = Vec::new();
+    if let Some(record) = record.filter(|r| **r != TransportRecord::default()) {
+        record.put(&mut out);
+    }
+    out
+}
+
+fn read_transport(bytes: &[u8]) -> Result<TransportRecord, LoadError> {
+    if bytes.is_empty() {
+        return Ok(TransportRecord::default());
+    }
+    let mut r = Reader::new(bytes, "transport");
+    let record = TransportRecord::take(&mut r).map_err(|e| bad(format!("transport section: {e}")))?;
+    r.done()?;
+    Ok(record)
+}
+
+impl Put for Vec<u8> {
+    fn num(&mut self, _: &'static str, x: f64) {
+        put_f64(self, x);
+    }
+    fn nums(&mut self, _: &'static str, xs: &[f64]) {
+        put_u32(self, xs.len() as u32);
+        xs.iter().for_each(|x| put_f64(self, *x));
+    }
+    fn small(&mut self, _: &'static str, x: u8) {
+        self.push(x);
+    }
+    fn text(&mut self, _: &'static str, x: &str) {
+        put_str(self, x);
+    }
+    fn choice(&mut self, _: &'static str, _: &'static [&'static str], index: usize) {
+        self.push(index as u8);
+    }
+    fn present(&mut self, _: &'static str, present: bool) {
+        self.push(u8::from(present));
+    }
+    fn open(&mut self, _: &'static str) {}
+    fn close(&mut self) {}
+}
+
+/// A format error's message, without `LoadError`'s prefix: the transport section prefixes its own.
+fn message(e: LoadError) -> String {
+    match e {
+        LoadError::Format(m) => m.into(),
+        other => other.to_string(),
+    }
+}
+
+impl Take for Reader<'_> {
+    fn num(&mut self, _: &'static str) -> Result<f64, String> {
+        self.f64().map_err(message)
+    }
+    fn nums(&mut self, name: &'static str) -> Result<Vec<f64>, String> {
+        let count = self.u32().map_err(message)? as usize;
+        if count > self.bytes.len().saturating_sub(self.at) / 8 {
+            return Err(format!("{name} lists {count} numbers past the section's end"));
+        }
+        (0..count).map(|_| self.f64().map_err(message)).collect()
+    }
+    fn small(&mut self, _: &'static str) -> Result<u8, String> {
+        self.u8().map_err(message)
+    }
+    fn text(&mut self, _: &'static str) -> Result<String, String> {
+        self.str().map_err(message)
+    }
+    fn choice(&mut self, name: &'static str, names: &'static [&'static str]) -> Result<usize, String> {
+        let tag = usize::from(self.u8().map_err(message)?);
+        if tag < names.len() { Ok(tag) } else { Err(format!("{name}: unknown tag {tag}")) }
+    }
+    fn present(&mut self, name: &'static str) -> Result<bool, String> {
+        match self.u8().map_err(message)? {
+            0 => Ok(false),
+            1 => Ok(true),
+            flag => Err(format!("{name}: presence byte {flag}")),
+        }
+    }
+    fn open(&mut self, _: &'static str) -> Result<(), String> {
+        Ok(())
+    }
+    fn close(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 fn melting(segments: &[MeltingSegment]) -> Vec<u8> {
     let mut out = Vec::new();
     for s in segments {
@@ -423,6 +513,14 @@ fn corrections(patches: &[Patch]) -> Vec<u8> {
                 out.push(segment);
                 put_f64(&mut out, p0);
             }
+            Edit::EcsQd(q_d) => {
+                out.push(5);
+                put_f64(&mut out, q_d);
+            }
+            Edit::RhosrCritical(x) => {
+                out.push(6);
+                put_f64(&mut out, x);
+            }
         }
     }
     out
@@ -438,6 +536,8 @@ fn read_corrections(bytes: &[u8]) -> Result<Vec<Patch>, LoadError> {
             2 => Edit::ReducingDensity(r.f64()?),
             3 => Edit::MolarMass(r.f64()?),
             4 => Edit::MeltingP0 { segment: r.u8()?, p0: r.f64()? },
+            5 => Edit::EcsQd(r.f64()?),
+            6 => Edit::RhosrCritical(r.f64()?),
             tag => return Err(bad(format!("corrections section: unknown edit tag {tag}"))),
         };
         patches.push(Patch { divergence, edit });
@@ -464,6 +564,7 @@ pub(crate) fn sections(record: &FluidRecord) -> [Vec<u8>; SECTION_COUNT] {
     bodies[3] = superancillary(record.superancillary.as_ref());
     bodies[4] = caloric(record.caloric.as_ref());
     bodies[5] = ancillaries(record.pseudo_pure.as_ref());
+    bodies[6] = transport(record.transport.as_ref());
     bodies[8] = melting(&record.melting);
     bodies[9] = corrections(&record.corrections);
     bodies
@@ -584,12 +685,14 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
     let sections = validated_sections(bytes)?;
     record.superancillary = read_superancillary(sections[3])?;
     record.caloric = read_caloric(sections[4], record.superancillary_fit)?;
+    record.transport = Some(read_transport(sections[6])?);
     Ok(record)
 }
 
 /// [`decode`] without the superancillary, which the registry decodes on first saturation use
-/// ([`decode_superancillary`]), and without the caloric curves, which a compiled fluid decodes on first use by a
-/// Q-pair ([`decode_caloric`]); together they are most of a fluid's bytes (map 09).
+/// ([`decode_superancillary`]), without the caloric curves, which a compiled fluid decodes on first use by a
+/// Q-pair ([`decode_caloric`]) (together they are most of a fluid's bytes, map 09), and without the transport models,
+/// which the registry decodes on the first transport call ([`decode_transport`]).
 pub(crate) fn decode_eager_parts(bytes: &[u8]) -> Result<FluidRecord, LoadError> {
     let sections = validated_sections(bytes)?;
     let eos = EosRecord::decode(sections[1])?;
@@ -598,7 +701,13 @@ pub(crate) fn decode_eager_parts(bytes: &[u8]) -> Result<FluidRecord, LoadError>
     record.pseudo_pure = read_ancillaries(sections[5])?;
     record.melting = read_melting(sections[8])?;
     record.corrections = read_corrections(sections[9])?;
+    record.transport = None;
     Ok(record)
+}
+
+/// The transport models of a v1 blob, validated whole again.
+pub(crate) fn decode_transport(bytes: &[u8]) -> Result<TransportRecord, LoadError> {
+    read_transport(validated_sections(bytes)?[6])
 }
 
 /// The superancillary of a v1 blob, validated whole again; `None` for a fluid without one.

@@ -1048,10 +1048,13 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
    integral-float d/l, cp0 `Tc` = `T_r` (R123, R11 recorded). Associating and alternate-EOS entries are carried or
    skipped explicitly (P7).
 3. **Validate.** Unknown kinds, non-finite values, out-of-range exponents (power d ≤ 15, l ≤ 6 → `MAX_POW` 16) and
-   unequal lengths are real errors, not debug asserts (map 10 R8).
+   unequal lengths are real errors, not debug asserts (map 10 R8). `TRANSPORT` is read key by key (M8.1): every key
+   reaches the record or is documentation, a list's alternates are logged, an empty list is refused, and four blocks
+   whose one stray exponent CoolProp never reads are logged waivers.
 4. **Corrections.** `data/corrections.csv` rows (DIV id, fluid, field, v8.0.0 value, corrected value, citation) are
    checked against the JSON value they replace and encoded into that fluid's blob as a corrections section. `Edit`
-   covers R, ρ_r, M and melting p0 now; transport-coefficient edits join with the M8 transport section (E15).
+   covers R, ρ_r, M and melting p0, and the transport section's ECS `q_D` and ρ*_sr-CS `rhosr_critical` (E15, M8.1),
+   which apply when that section is decoded on the first transport call.
 5. **Precompute** derived data CoolProp builds at run time: superancillary extrema, the T(ln p) inverse, caloric
    curves (map 03 §6), and the superancillary stamp (shape hash, R, ρ_r). No derived h/s states are stored (map 12 R10).
 6. **ECS dependency graph.** Proved acyclic; each fluid's references are written into the index; generated

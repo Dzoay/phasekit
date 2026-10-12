@@ -150,8 +150,6 @@ impl PureFluidBuilder {
         self.fluid.saturation = LazyLock::new(Box::new(init));
         self
     }
-    /// Transport materialised on first use; the decoder's closure holds the blob and strong handles to its
-    /// ECS reference fluids (E5). Crate-private: CoolProp's transport forms are closed data (§11).
     /// The saturated caloric curves (M5.2a), eagerly available.
     pub(crate) fn calorics(mut self, calorics: Calorics) -> Self {
         self.fluid.calorics = ready(Some(calorics));
@@ -167,6 +165,14 @@ impl PureFluidBuilder {
         self
     }
 
+    /// Transport, eagerly available (a whole record's).
+    pub(crate) fn transport(mut self, set: TransportSet) -> Self {
+        self.fluid.transport = ready(set);
+        self
+    }
+
+    /// Transport materialised on first use; the decoder's closure holds the blob and strong handles to its
+    /// ECS reference fluids (E5). Crate-private: CoolProp's transport forms are closed data (§11).
     pub(crate) fn lazy_transport(
         mut self,
         init: impl FnOnce() -> Result<TransportSet, LoadError> + Send + 'static,
@@ -262,9 +268,10 @@ impl ThermoModel for PureFluid {
         Some(&*self.eos)
     }
     fn viscosity(&self, _state: &State) -> Result<f64, Error> {
-        // Materialises the transport set and its ECS reference fluid; evaluating the forms lands at M8.
-        self.transport()?;
-        Err(Error::NoModel { prop: Prop::Viscosity })
+        self.transport()?.viscosity()
+    }
+    fn conductivity(&self, _state: &State) -> Result<f64, Error> {
+        self.transport()?.conductivity()
     }
     fn surface_tension(&self, t: f64) -> Result<f64, Error> {
         self.transport()?.surface_tension(t)

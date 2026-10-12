@@ -14,6 +14,7 @@ use crate::helmholtz::{
     PowerTerm, ResidualBlock, TauExpBlock,
 };
 use crate::model::{CriticalOrigin, CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source};
+use crate::transport::{TransportRecord, TransportSet};
 
 /// Position of a data-backed fluid in its source's index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -101,7 +102,8 @@ pub enum DataSet {
 }
 
 /// One typed edit of the overlay. Closed: datagen validates every row of `data/corrections.csv` against it
-/// and checks the v8.0.0 value it replaces. Transport-coefficient edits join with the M8 transport section.
+/// and checks the v8.0.0 value it replaces. The transport edits (E15, M8.1) apply when the transport section is
+/// decoded, on the first transport call.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Edit {
@@ -118,6 +120,10 @@ pub enum Edit {
         /// New reference pressure.
         p0: f64,
     },
+    /// Replace q_D, 1/m, of the ECS conductivity model (map 05 R2: R13, R14, R142b, R218 and RC318 store their own).
+    EcsQd(f64),
+    /// Replace ρ s_r at the critical point of the ρ*_sr-CS viscosity model (map 05 R4: R1234yf's is stale).
+    RhosrCritical(f64),
 }
 
 /// A correction shipped with the data it patches, citing the divergence-register entry that proves it.
@@ -678,6 +684,9 @@ pub struct FluidRecord {
     pub caloric: Option<CaloricCurves>,
     /// A pseudo-pure fluid's saturation definition (M6.9); `None` for every other fluid.
     pub pseudo_pure: Option<PseudoPure>,
+    /// The transport models (M8.1); `None` until decoded: the registry leaves them in the blob and decodes them on
+    /// the first transport call.
+    pub transport: Option<TransportRecord>,
 }
 
 impl FluidRecord {
@@ -702,6 +711,7 @@ impl FluidRecord {
             environmental: None,
             caloric: None,
             pseudo_pure: None,
+            transport: Some(TransportRecord::default()),
         }
     }
 
@@ -778,6 +788,12 @@ impl FluidRecord {
                     let seg = self.melting.get_mut(usize::from(segment));
                     seg.ok_or(LoadError::Format("melting segment out of range".into()))?.p0 = p0;
                 }
+                // Without decoded transport (the registry's eager parts) its transport closure applies them.
+                Edit::EcsQd(_) | Edit::RhosrCritical(_) => {
+                    if let Some(transport) = &mut self.transport {
+                        transport.apply(patch.edit)?;
+                    }
+                }
             }
             self.applied.push(patch.divergence.clone());
         }
@@ -843,6 +859,10 @@ impl FluidRecord {
         let mut builder = PureFluid::builder(info.with_aliases(&aliases), eos, self.limits);
         if let Some(calorics) = self.calorics() {
             builder = builder.calorics(calorics);
+        }
+        // A whole record carries its transport models; the registry's eager parts leave them to its lazy closure.
+        if let Some(record) = self.transport {
+            builder = builder.transport(TransportSet { record, ..TransportSet::default() });
         }
         Ok(match self.critical {
             Some(c) => builder.critical(c),
@@ -967,7 +987,10 @@ mod tests {
             Patch { divergence: "DIV-0003".into(), edit: Edit::ReducingDensity(11_183.9) },
             Patch { divergence: "DIV-0006".into(), edit: Edit::MolarMass(0.028) },
             Patch { divergence: "DIV-0002".into(), edit: Edit::MeltingP0 { segment: 0, p0: 632.4e6 } },
+            Patch { divergence: "DIV-0015".into(), edit: Edit::EcsQd(2e9) },
+            Patch { divergence: "DIV-0016".into(), edit: Edit::RhosrCritical(-54_095.5) },
         ];
+        r.transport = crate::transport::tests::every_form().pop();
         r
     }
 
@@ -1096,11 +1119,12 @@ mod tests {
             edit(&mut bodies[i]);
             crate::blob::assemble(&bodies)
         };
-        let steps = [(6, "transport", "M8.1"), (7, "surface tension", "M8.4")];
-        for (i, name, step) in steps {
-            let err = format_error(&blob_with(i, |b| b.extend([0; 8])));
-            assert_eq!(err, format!("the {name} section lands at {step}"));
-        }
+        let err = format_error(&blob_with(7, |b| b.extend([0; 8])));
+        assert_eq!(err, "the surface tension section lands at M8.4");
+        // Filled at M8.1: an ECS conductivity ends with q_D.
+        assert_eq!(format_error(&blob_with(6, |b| b.extend([0; 8]))), "transport section has bytes left over (8)");
+        let truncated = "transport section: conductivity: model: transport section is truncated";
+        assert_eq!(format_error(&blob_with(6, |b| _ = b.pop())), truncated);
         // Filled at M5.2: a superancillary section is read, so stray bytes there are a format error, not a refusal.
         assert_eq!(format_error(&blob_with(3, |b| b.extend([0; 8]))), "superancillary section has bytes left over (8)");
         assert_eq!(format_error(&blob_with(3, |b| _ = b.pop())), "superancillary section is truncated");

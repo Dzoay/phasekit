@@ -306,7 +306,8 @@ fn embedded_water_initialises_once_under_16_threads() {
 /// materialises once under 16 racing threads. The blob is shared through an `Arc`: decoding the fluid keeps no handle
 /// to it, the package's lazy saturation keeps one until its single run (std's `LazyLock` drops the initialiser after
 /// it, S-08), and every thread's DT state inside the dome, whose phase needs the curve, has the same bits. The caloric
-/// curves (M7.7) likewise keep their handle until a Q-pair first needs them: DQ does not, QS does.
+/// curves (M7.7) likewise keep their handle until a Q-pair first needs them: DQ does not, QS does; and the transport
+/// models (M8.1) until the first transport call, which no thermodynamic state makes.
 #[cfg(not(target_family = "wasm"))]
 #[test]
 fn saturation_materialises_once_under_contention() {
@@ -327,18 +328,21 @@ fn saturation_materialises_once_under_contention() {
     let bytes: Arc<[u8]> = phasekit_data::FLUIDS.iter().find(|f| f.name == "Water").unwrap().blob.into();
     let reg = Registry::empty().with_source(Box::new(SharedWater(Arc::clone(&bytes))), DataSet::Corrected).unwrap();
     let water = reg.get("Water").unwrap();
-    assert_eq!(Arc::strong_count(&bytes), 4, "the test, the source, the lazy saturation and calorics hold the blob");
+    let holders = "the test, the source, the lazy saturation, calorics and transport hold the blob";
+    assert_eq!(Arc::strong_count(&bytes), 5, "{holders}");
     // Inside the dome near its vapour side (ρ″ ≈ 76 mol/m³ at 400 K), where the single-phase p stays below pmax.
     let input = Input::dt(Density::molar(100.0).unwrap(), Temperature::new(400.0).unwrap());
     let states = race(|_| water.state(input).map(|s| (s.phase(), s.quality().map(f64::to_bits), s.p().to_bits())));
-    assert_eq!(Arc::strong_count(&bytes), 3, "the lazy saturation ran once and let go of the blob");
+    assert_eq!(Arc::strong_count(&bytes), 4, "the lazy saturation ran once and let go of the blob");
     assert!(states.iter().all(|s| *s == states[0]), "{states:?}");
     assert_eq!(states[0].as_ref().map(|s| s.0), Ok(Phase::TwoPhase));
     let vapour = water.state(Input::qt(Quality::new(1.0).unwrap(), Temperature::new(300.0).unwrap())).unwrap();
     let dq = Input::dq(Density::molar(vapour.rho(Basis::Molar)).unwrap(), Quality::new(1.0).unwrap());
     assert!(water.state(dq).is_ok_and(|s| (s.t() / 300.0 - 1.0).abs() < 1e-9));
-    assert_eq!(Arc::strong_count(&bytes), 3, "DQ reads the superancillary's densities, not the caloric curves");
+    assert_eq!(Arc::strong_count(&bytes), 4, "DQ reads the superancillary's densities, not the caloric curves");
     let qs = Input::qs(Quality::new(1.0).unwrap(), Entropy::molar(vapour.s(Basis::Molar)).unwrap());
     assert!(water.state(qs).is_ok_and(|s| (s.t() / 300.0 - 1.0).abs() < 1e-9));
-    assert_eq!(Arc::strong_count(&bytes), 2, "the caloric curves materialised on the first Q-pair and let go too");
+    assert_eq!(Arc::strong_count(&bytes), 3, "the caloric curves materialised on the first Q-pair and let go too");
+    let _ = water.prop(&vapour, Prop::Viscosity);
+    assert_eq!(Arc::strong_count(&bytes), 2, "the transport models materialised on the first transport call");
 }

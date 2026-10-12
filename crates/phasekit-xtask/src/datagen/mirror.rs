@@ -6,7 +6,9 @@
 //! mirror stays close to the file: documentation fields (`*_units`, `_note`) are carried so datagen can check them
 //! (M2.3), and every EOS entry is mirrored, alternates included, so skipping them is explicit (ROT-041, ROT-068).
 //! Subtrees no step reads yet stay `serde_json::Value` until the step that types them: ancillaries (M4.x, M6),
-//! the superancillary expansions (M5.2), the critical-region splines (M6) and transport (M8).
+//! the superancillary expansions (M5.2) and the critical-region splines (M6). `TRANSPORT` stays a `Value` that
+//! [`super::transport`] reads key by key into core's closed forms (M8.1): its blocks are told apart by a `type` or a
+//! `hardcoded` name, or by neither, which serde's tagged enums cannot express.
 #![expect(
     dead_code,
     reason = "a schema: every field exists so the closed structs accept the file; the identity strings no record \
