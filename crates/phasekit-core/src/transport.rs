@@ -1621,4 +1621,66 @@ pub(crate) mod tests {
         assert_eq!(HardcodedCriticalConductivity::from_name("CarbonDioxideScalabrinJPCRD2006"), None);
         assert_eq!(HardcodedConductivity::from_name("Methanol"), None, "Methanol's conductivity is staged");
     }
+
+    /// The embedded fluids with a surface-tension fit: (name, fit, fluid).
+    fn fits() -> Vec<(&'static str, SurfaceTension, Fluid)> {
+        let registry = crate::Registry::embedded().unwrap();
+        let fits = phasekit_data::FLUIDS.iter().filter_map(|f| {
+            let fit = registry.record(f.name).unwrap().surface_tension?;
+            Some((f.name, fit, registry.get(f.name).unwrap().clone()))
+        });
+        fits.collect()
+    }
+
+    /// Rot: ROT-114 (map 05 R13). σ is a pure function of T over its fit's range, from the fluid's T_min to the lower of
+    /// the fit's own T_c and the model's critical temperature. Between the two, where CoolProp throws ("T > Tc"), it is a
+    /// `Domain` error, never 0 and never an extrapolation (user decision 6). One case per affected fluid: 62 of the 108
+    /// fits have T_c,σ below the model's T_c, map 05's nine (measured against the published critical point) among them,
+    /// and 20 by more than 1 mK.
+    #[test]
+    fn surface_tension_between_tc_sigma_and_tc_eos() {
+        let fits = fits();
+        assert_eq!(fits.len(), 108);
+        let mut affected = Vec::new();
+        for (name, fit, fluid) in &fits {
+            let t_c = fluid.model().critical_point().unwrap().t;
+            let model = fluid.model();
+            if fit.t_c < t_c {
+                let t = 0.5 * (fit.t_c + t_c);
+                let refused = DomainError::AboveMaxTemperature { t, t_max: fit.t_c };
+                assert_eq!(model.surface_tension(t), Err(refused.into()), "{name}");
+                assert_eq!(model.surface_tension(fit.t_c), Ok(0.0), "{name}: σ(T_c,σ) = 0");
+                affected.push((*name, t_c - fit.t_c > 1e-3));
+            } else {
+                let refused = DomainError::AboveMaxTemperature { t: fit.t_c, t_max: t_c };
+                assert!(fit.t_c == t_c || model.surface_tension(fit.t_c) == Err(refused.into()), "{name}");
+            }
+        }
+        let names: Vec<&str> = affected.iter().map(|(name, _)| *name).collect();
+        let map05 = ["Ammonia", "CarbonDioxide", "Ethanol", "IsoButane", "R1234ze(E)", "R404A", "R407C", "R507A"];
+        assert!(map05.iter().chain(["SulfurHexafluoride"].iter()).all(|f| names.contains(f)), "{names:?}");
+        assert_eq!((affected.len(), affected.iter().filter(|(_, wide)| *wide).count()), (62, 20));
+        let (name, _, fluid) = &fits[0];
+        let t_min = crate::Registry::embedded().unwrap().record(name).unwrap().limits.t_min();
+        let below = DomainError::BelowMinTemperature { t: t_min - 1.0, t_min };
+        assert_eq!(fluid.model().surface_tension(t_min - 1.0), Err(below.into()), "{name}");
+        let nan = fluid.model().surface_tension(f64::NAN);
+        assert!(matches!(nan, Err(Error::InvalidInput { quantity: "T", .. })), "{nan:?}");
+    }
+
+    /// Rot: ROT-123 (map 10 §8.4). Water's σ is CoolProp's model, Mulero 2012's two-term fit, and its source says so,
+    /// not IAPWS. Against IAPWS R1-76(2014)'s equation (page 3: σ = Bτ^µ(1 + bτ), τ = 1 − T/T_c, T_c = 647.096 K,
+    /// B = 235.8 mN/m, b = −0.625, µ = 1.256) it is 0.12 % high at 300 K and 0.90 % low at 600 K: IAPWS σ is a separate,
+    /// labelled comparison, not this model's arbiter.
+    #[test]
+    fn water_sigma_is_labelled_coolprop_model() {
+        let (_, fit, water) = fits().into_iter().find(|(name, ..)| *name == "Water").unwrap();
+        assert_eq!((&*fit.source.bibkey, fit.t_c, fit.terms.a.len()), ("Mulero-JPCRD-2012", 647.096, 2));
+        let iapws = |t: f64| {
+            let tau = 1.0 - t / 647.096;
+            235.8e-3 * math::powf(tau, 1.256) * (1.0 - 0.625 * tau)
+        };
+        let percent = |t: f64| format!("{:+.2}", 100.0 * (water.model().surface_tension(t).unwrap() / iapws(t) - 1.0));
+        assert_eq!((percent(300.0), percent(600.0)), ("+0.12".to_string(), "-0.90".to_string()));
+    }
 }

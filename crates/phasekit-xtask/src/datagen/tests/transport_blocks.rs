@@ -245,3 +245,29 @@ fn transport_source_is_the_active_entry() {
     assert_eq!(&*swapped.source.bibkey, "Klein-IJR-1997");
     assert!(matches!(mapped("R22.json", |_| {}).unwrap().conductivity.unwrap().model, ConductivityModel::Ecs(_)));
 }
+
+/// PLAN.md M8.4: the `ANCILLARIES.surface_tension` blocks are read as strictly as `TRANSPORT`: the source, the fit's own
+/// `Tc`, equal-length `a` and `n`, and a `description` stating the form evaluated. Another formula, unequal lists and an
+/// unknown key are refused. 108 of the 136 files have a fit.
+#[test]
+fn surface_tension_blocks_are_read_strictly() {
+    let fit = |file: &str, edit: &dyn Fn(&mut Value)| {
+        let mut value: Value = serde_json::from_str(&text(file)).unwrap();
+        let mut block = value["ANCILLARIES"]["surface_tension"].take();
+        edit(&mut block);
+        transport::surface_tension(file, Some(&block))
+    };
+    let water = fit("Water.json", &|_| {}).unwrap().unwrap();
+    assert_eq!((&*water.source.bibkey, water.t_c), ("Mulero-JPCRD-2012", 647.096));
+    assert_eq!((&water.terms.a[..], &water.terms.t[..]), (&[-0.1306, 0.2151][..], &[2.471, 1.233][..]));
+    let at = "ANCILLARIES.surface_tension";
+    let formula = fit("Water.json", &|b| b["description"] = json!("sigma = a*T")).unwrap_err();
+    assert_eq!(formula, format!("{at}: description \"sigma = a*T\", not \"sigma = sum(a_i*(1-T/Tc)^n_i)\""));
+    let short = fit("Water.json", &|b| _ = b["n"].as_array_mut().unwrap().pop()).unwrap_err();
+    assert_eq!(short, format!("{at}: n has 1 entries, a has 2"));
+    let unknown = fit("Water.json", &|b| b["Tmin"] = json!(273.16)).unwrap_err();
+    assert_eq!(unknown, format!("{at}: unknown field \"Tmin\""));
+    assert_eq!(transport::surface_tension("x.json", None), Ok(None));
+    let fits = sources().iter().filter(|s| s.fluid.ancillaries.get("surface_tension").is_some()).count();
+    assert_eq!(fits, 108);
+}

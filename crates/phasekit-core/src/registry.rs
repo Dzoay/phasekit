@@ -91,11 +91,13 @@ impl Slot {
             record.caloric = crate::blob::decode_caloric(calorics_blob.bytes(), record.superancillary_fit)?;
             Ok(record.calorics())
         });
-        // And the transport models until the first transport call, which also loads the reference fluids (E5).
+        // And the transport models and the surface-tension fit until the first transport or σ call, which also loads the
+        // reference fluids (E5).
         let builder = builder.lazy_transport(move || {
             let record = crate::blob::decode_transport(transport_blob.bytes())?.corrected(&patches, data_set)?;
+            let surface_tension = crate::blob::decode_surface_tension(transport_blob.bytes())?;
             let references = deps.iter().map(Dep::fluid).collect::<Result<_, _>>()?;
-            Ok(TransportSet { record, references, ..TransportSet::default() })
+            Ok(TransportSet { record, surface_tension, references })
         });
         Ok(Fluid::new(Arc::new(builder.build())))
     }

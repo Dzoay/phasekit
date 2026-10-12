@@ -4,9 +4,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use phasekit_core::internal::{ConductivityModel, TransportRecord, ViscosityModel};
-use phasekit_core::{DataSet, Density, Error, FlashOptions, Input, LoadError, Prop, Registry, Temperature};
-use phasekit_verify::Fixture;
+use phasekit_core::internal::{ConductivityModel, FluidRecord, TransportRecord, ViscosityModel};
+use phasekit_core::{
+    DataSet, Density, Error, FlashOptions, Fluid, Input, LoadError, Prop, Registry, Temperature, math,
+};
+use phasekit_verify::{Fixture, fixture};
 
 #[path = "common/transport_rows.rs"]
 mod transport_rows;
@@ -202,4 +204,102 @@ fn transport_rows_carry_their_provenance() {
     let want: BTreeMap<_, _> = ARBITER_ROWS.iter().map(|&(fluid, prop, n)| ((fluid, prop), n)).collect();
     assert_eq!(arbiters, want);
     assert_eq!(arbiters.values().sum::<usize>(), 262);
+}
+
+/// Every embedded fluid with a surface-tension fit, with its decoded record.
+fn sigma_fits() -> Vec<(FluidRecord, &'static Fluid)> {
+    let registry = Registry::embedded().unwrap();
+    let records = phasekit_data::FLUIDS.iter().map(|f| phasekit_core::internal::record(registry, f.name).unwrap());
+    let fits = records.filter(|r| r.surface_tension.is_some());
+    fits.map(|r| {
+        let fluid = registry.get(&r.name).unwrap();
+        (r, fluid)
+    })
+    .collect()
+}
+
+/// PLAN.md M8.4 (map 13 §3): each of the 108 fits evaluates to Σ aᵢ (1 − T/T_c)ⁿⁱ with its own coefficients and its own
+/// T_c, Mulero's (or Okada's, IAPWS's or Kondou's), not the EOS's. Twenty fits state a T_c other than the fluid's
+/// published critical temperature (map 05 §3.6), and for each of them the kernel follows the fit's.
+#[test]
+fn sigma_matches_the_mulero_closed_form() {
+    let (mut sources, mut own) = (BTreeMap::new(), 0);
+    for (record, fluid) in sigma_fits() {
+        let fit = record.surface_tension.as_ref().unwrap();
+        let terms = || fit.terms.a.iter().zip(&fit.terms.t);
+        let closed = |t: f64, t_c: f64| terms().map(|(a, n)| a * math::powf(1.0 - t / t_c, *n)).sum::<f64>();
+        let t_min = record.limits.t_min();
+        let t_max = fit.t_c.min(fluid.model().critical_point().unwrap().t);
+        for k in 0..4 {
+            let t = t_min + (t_max - t_min) * f64::from(k) / 4.0;
+            assert_eq!(fluid.model().surface_tension(t), Ok(closed(t, fit.t_c)), "{} at {t} K", record.name);
+        }
+        // Fourteen published T_c differ from the fit's only in their last digit (`418.09000000000003`): not a different T_c.
+        let published = record.critical.unwrap().t;
+        if (fit.t_c - published).abs() > 1e-9 {
+            own += 1;
+            let t = 0.99 * fit.t_c.min(published);
+            assert_ne!(closed(t, published), closed(t, fit.t_c), "{}", record.name);
+        }
+        *sources.entry(fit.source.bibkey.to_string()).or_insert(0) += 1;
+    }
+    let want = [
+        ("IAPWS-SurfaceTension-1994", 1),
+        ("Kondou-IJR-2015", 1),
+        ("Mulero-JPCRD-2012", 75),
+        ("Mulero-JPCRD-2014", 27),
+        ("Okada-IJT-1999", 4),
+    ];
+    assert_eq!(sources, want.map(|(key, n)| (key.to_string(), n)).into_iter().collect());
+    assert_eq!(own, 20);
+}
+
+/// The oracle's σ files: the all-fluid tier (4 rows per fit) and the core subset's (50 rows each).
+const SIGMA_FIXTURES: [(&str, &str); 12] = [
+    fixture!("coolprop-8.0.0/all/sigma.csv"),
+    fixture!("coolprop-8.0.0/sigma/Ammonia.csv"),
+    fixture!("coolprop-8.0.0/sigma/CarbonDioxide.csv"),
+    fixture!("coolprop-8.0.0/sigma/Helium.csv"),
+    fixture!("coolprop-8.0.0/sigma/Methanol.csv"),
+    fixture!("coolprop-8.0.0/sigma/Nitrogen.csv"),
+    fixture!("coolprop-8.0.0/sigma/R1234yf.csv"),
+    fixture!("coolprop-8.0.0/sigma/R1234ze(E).csv"),
+    fixture!("coolprop-8.0.0/sigma/R125.csv"),
+    fixture!("coolprop-8.0.0/sigma/R410A.csv"),
+    fixture!("coolprop-8.0.0/sigma/Water.csv"),
+    fixture!("coolprop-8.0.0/sigma/n-Heptane.csv"),
+];
+
+/// PLAN.md M8.4 (VERIFICATION.md §3.5): σ against CoolProp 8.0.0 for all 108 fits at 4 temperatures each over the fit's
+/// range (the all-fluid tier), and at 50 for each of the 11 core-subset fluids with one, in class `Prop` against the
+/// fit's terms Σ |aᵢ| (1 − T/T_c)ⁿⁱ. A row the oracle cannot evaluate is one the kernel refuses too.
+#[test]
+fn sigma_matches_oracle() {
+    let fits: BTreeMap<String, (FluidRecord, &Fluid)> =
+        sigma_fits().into_iter().map(|f| (f.0.name.clone(), f)).collect();
+    let (mut rows, mut fluids, mut failures) = (0, BTreeSet::new(), Vec::new());
+    for (path, text) in SIGMA_FIXTURES {
+        let table = Fixture::parse(path, text).unwrap();
+        let file_fluid = path.rsplit('/').next().unwrap().trim_end_matches(".csv");
+        for row in 0..table.rows().len() {
+            let name = table.printed(row, "fluid").unwrap_or(file_fluid);
+            let t = table.value(row, "T").unwrap();
+            let (record, fluid) = &fits[name];
+            let fit = record.surface_tension.as_ref().unwrap();
+            let terms = fit.terms.a.iter().zip(&fit.terms.t);
+            let scale: f64 = terms.map(|(a, n)| (a * math::powf(1.0 - t / fit.t_c, *n)).abs()).sum();
+            let checked = match (table.printed(row, "status"), fluid.model().surface_tension(t)) {
+                (Some("ok"), Ok(sigma)) => {
+                    table.check_scaled(row, "sigma", sigma, scale).map(drop).map_err(|e| format!("{e:?}"))
+                }
+                (Some("ok"), Err(e)) => Err(format!("{e}")),
+                (_, got) => got.err().map(drop).ok_or_else(|| "the oracle refuses this row".to_string()),
+            };
+            failures.extend(checked.err().map(|e| format!("{path}:{row} {name} {t} K: {e}")));
+            fluids.insert(name);
+            rows += 1;
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    assert_eq!((rows, fluids.len()), (432 + 11 * 50, 108));
 }
