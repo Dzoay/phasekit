@@ -1,0 +1,12 @@
+# fixture: paper/v1
+# source: paper:CoolProp-Tests-8.0.0/lambda
+# citation: report=CoolProp-8.0.0-tests table=lambda tests=src/Tests/CoolProp-Tests.cpp:558-561@ae81610e erratum-checked=2026-10-12 cpp_sha256=da633f3da9ea90507094960ae93103dd46735760eda20bb6e6522847406434fb
+# kind: Rows
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,x,value,cp_tol,line,x_kind,source,provenance
+# units: K,x_kind,W/(m K),-,-,-,-,-
+# tol: in,in,paper,in,in,label,label,label
+100,1e-12,9.83e-3,1e-3,558,D,Friend-JPCRD-1989,paper
+400,1e-12,49.96e-3,1e-3,559,D,Friend-JPCRD-1989,paper
+182,0,82.5e-3,5e-3,560,Q,Friend-JPCRD-1989,paper
+100,28.8e3,234e-3,1e-2,561,Dmolar,Friend-JPCRD-1989,paper

@@ -7,11 +7,12 @@ use phasekit_verify::{
 
 #[path = "common/sweep.rs"]
 mod sweep;
+#[path = "common/transport_rows.rs"]
+mod transport_rows;
 
 use sweep::product;
 
-/// A committed fixture: (path, text).
-type Text = (&'static str, &'static str);
+use transport_rows::Text;
 
 /// Every transcribed table and its independent second transcription.
 const PAPERS: &[(Text, Text)] = &[
@@ -99,14 +100,19 @@ const PAPERS: &[(Text, Text)] = &[
 
 const REUSE: &str = include_str!("../../../REUSE.toml");
 
+/// Every transcribed table with its second transcription: the papers' and CoolProp's transport rows (M8.3).
+fn pairs() -> impl Iterator<Item = &'static (Text, Text)> {
+    PAPERS.iter().chain(transport_rows::ROWS)
+}
+
 fn files() -> impl Iterator<Item = (&'static str, &'static str)> {
-    PAPERS.iter().flat_map(|(first, second)| [*first, *second])
+    pairs().flat_map(|(first, second)| [*first, *second])
 }
 
 /// VERIFICATION.md §4.2 step 4: the two transcriptions agree string for string, every line.
 #[test]
 fn paper_tables_double_entry_agree() {
-    for ((path, first), (check_path, second)) in PAPERS {
+    for ((path, first), (check_path, second)) in pairs() {
         assert_eq!(*check_path, path.replace(".csv", ".check.csv"));
         let differ: Vec<String> = first
             .lines()

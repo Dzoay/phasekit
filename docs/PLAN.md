@@ -1201,7 +1201,11 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
 - **M8.3 CoolProp transport rows relabelled.** *Failing test:* `transport_rows_carry_their_provenance` (each of the
   318 active rows of `CoolProp-Tests.cpp:44-301, 347-581` has a provenance; R-other, R-self and unsourced rows are not
   arbiters; map 10 §8.1, R6). *Do:* transcribe the rows into `paper/` files with per-row provenance tags, keeping only
-  P and P-IAPWS rows as arbiters. *Done when:* green; the arbiter-row counts per fluid recorded.
+  P and P-IAPWS rows as arbiters. *Done when:* green; the arbiter-row counts per fluid recorded. Measured at M8.3: one
+  file per fluid and property, `paper/<Fluid>/CoolProp-Tests.{eta,lambda}.csv` (70 files, 40 fluids; map 10's 41
+  counts an alias), each row with its source line, its block's source and a provenance: 259 `paper` and 23 `iapws`
+  rows, 26 `refprop`, 2 `self`, 2 `experiment` and 6 unsourced. 262 rows over 56 fluid-property pairs arbitrate
+  (`ARBITER_ROWS` in `tests/transport.rs`); Helium's 20 do not (ROT-124).
 - **M8.4 Surface tension.** *Failing tests:* `sigma_matches_the_mulero_closed_form` (Mulero's own T_c; map 13 §3),
   `sigma_matches_oracle` (108 fluids; all-fluid tier), `water_sigma_is_labelled_coolprop_model` (vs IAPWS R1-76:
   +0.12 % at 300 K, −0.90 % at 600 K; map 10 §8.4), `surface_tension_between_tc_sigma_and_tc_eos` (σ for

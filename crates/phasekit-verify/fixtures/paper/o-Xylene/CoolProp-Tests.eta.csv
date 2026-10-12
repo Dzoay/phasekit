@@ -1,0 +1,19 @@
+# fixture: paper/v1
+# source: paper:CoolProp-Tests-8.0.0/eta
+# citation: report=CoolProp-8.0.0-tests table=eta tests=src/Tests/CoolProp-Tests.cpp:262-272@ae81610e erratum-checked=2026-10-12 cpp_sha256=da633f3da9ea90507094960ae93103dd46735760eda20bb6e6522847406434fb
+# kind: Rows
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,x,value,cp_tol,line,x_kind,source,provenance
+# units: K,x_kind,Pa s,-,-,-,-,-
+# tol: in,in,paper,in,in,label,label,label
+300,1e-10,6.670e-6,1e-4,262,Dmolar,Cao-JPCRD-2016,paper
+300,0.04e3,6.598e-6,1e-4,263,Dmolar,Cao-JPCRD-2016,paper
+300,8.2369e3,738.286e-6,1e-4,264,Dmolar,Cao-JPCRD-2016,paper
+300,8.7845e3,1645.436e-6,1e-4,265,Dmolar,Cao-JPCRD-2016,paper
+400,1e-10,8.658e-6,1e-4,266,Dmolar,Cao-JPCRD-2016,paper
+400,0.04e3,8.634e-6,1e-4,267,Dmolar,Cao-JPCRD-2016,paper
+400,7.4060e3,279.954e-6,1e-4,268,Dmolar,Cao-JPCRD-2016,paper
+400,8.2291e3,595.652e-6,1e-4,269,Dmolar,Cao-JPCRD-2016,paper
+600,1e-10,12.904e-6,1e-4,270,Dmolar,Cao-JPCRD-2016,paper
+600,0.04e3,13.018e-6,1e-4,271,Dmolar,Cao-JPCRD-2016,paper
+600,7.2408e3,253.530e-6,1e-4,272,Dmolar,Cao-JPCRD-2016,paper

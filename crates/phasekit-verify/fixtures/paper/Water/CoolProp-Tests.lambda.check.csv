@@ -1,0 +1,20 @@
+# fixture: paper/v1
+# source: paper:CoolProp-Tests-8.0.0/lambda
+# citation: report=CoolProp-8.0.0-tests table=lambda tests=src/Tests/CoolProp-Tests.cpp:485-496@ae81610e erratum-checked=2026-10-12 cpp_sha256=da633f3da9ea90507094960ae93103dd46735760eda20bb6e6522847406434fb
+# kind: Rows
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,x,value,cp_tol,line,x_kind,source,provenance
+# units: K,x_kind,W/(m K),-,-,-,-,-
+# tol: in,in,paper,in,in,label,label,label
+298.15,1e-14,18.4341883e-3,1e-6,485,Dmass,Huber-JPCRD-2012,paper
+298.15,998,607.712868e-3,1e-6,486,Dmass,Huber-JPCRD-2012,paper
+298.15,1200,799.038144e-3,1e-6,487,Dmass,Huber-JPCRD-2012,paper
+873.15,1e-14,79.1034659e-3,1e-6,488,Dmass,Huber-JPCRD-2012,paper
+647.35,1,51.9298924e-3,1e-6,489,Dmass,Huber-JPCRD-2012,paper
+647.35,122,130.922885e-3,2e-4,490,Dmass,Huber-JPCRD-2012,paper
+647.35,222,367.787459e-3,2e-4,491,Dmass,Huber-JPCRD-2012,paper
+647.35,272,757.959776e-3,2e-4,492,Dmass,Huber-JPCRD-2012,paper
+647.35,322,1443.75556e-3,2e-4,493,Dmass,Huber-JPCRD-2012,paper
+647.35,372,650.319402e-3,2e-4,494,Dmass,Huber-JPCRD-2012,paper
+647.35,422,448.883487e-3,2e-4,495,Dmass,Huber-JPCRD-2012,paper
+647.35,750,600.961346e-3,2e-4,496,Dmass,Huber-JPCRD-2012,paper

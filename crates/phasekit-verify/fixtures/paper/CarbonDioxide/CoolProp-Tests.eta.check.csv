@@ -1,0 +1,17 @@
+# fixture: paper/v1
+# source: paper:CoolProp-Tests-8.0.0/eta
+# citation: report=CoolProp-8.0.0-tests table=eta tests=src/Tests/CoolProp-Tests.cpp:133-141@ae81610e erratum-checked=2026-10-12 cpp_sha256=da633f3da9ea90507094960ae93103dd46735760eda20bb6e6522847406434fb
+# kind: Rows
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,x,value,cp_tol,line,x_kind,source,provenance
+# units: K,x_kind,Pa s,-,-,-,-,-
+# tol: in,in,paper,in,in,label,label,label
+100,1e-5,0.0053757e-3,1e-4,133,Dmass,Laesecke-Muzny-JPCRD-2017,paper
+2000,1e-5,0.066079e-3,1e-4,134,Dmass,Laesecke-Muzny-JPCRD-2017,paper
+10000,1e-5,0.17620e-3,1e-4,135,Dmass,Laesecke-Muzny-JPCRD-2017,paper
+220,3,0.011104e-3,1e-4,136,Dmass,Laesecke-Muzny-JPCRD-2017,paper
+225,1150,0.22218e-3,1e-4,137,Dmass,Laesecke-Muzny-JPCRD-2017,paper
+300,65,0.015563e-3,1e-4,138,Dmass,Laesecke-Muzny-JPCRD-2017,paper
+300,1400,0.50594e-3,1e-4,139,Dmass,Laesecke-Muzny-JPCRD-2017,paper
+700,100,0.033112e-3,1e-4,140,Dmass,Laesecke-Muzny-JPCRD-2017,paper
+700,1200,0.22980e-3,1e-4,141,Dmass,Laesecke-Muzny-JPCRD-2017,paper
