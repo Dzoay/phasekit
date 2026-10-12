@@ -1,7 +1,7 @@
 # Contributing to phasekit
 
-This file is the one definition of how changes land. [AGENTS.md](AGENTS.md) points here, and
-[docs/PLAN.md §2.2](docs/PLAN.md#22-branches-commits-prs-versions-toolchain) summarises it per step.
+This file is the one definition of how changes land; [AGENTS.md](AGENTS.md) and [docs/PLAN.md](docs/PLAN.md) point
+here. A plan step follows the step loop of [PLAN.md §0.1](docs/PLAN.md#01-the-step-loop).
 
 ## The short version
 
@@ -97,6 +97,15 @@ git config tag.gpgsign true
 Add the same public key on GitHub (Settings → SSH and GPG keys → New SSH key, key type **Signing key**). Release tags
 `vX.Y.Z` are always signed.
 
+## Toolchain and generated files
+
+- No `rust-toolchain.toml` (D17). Develop on the latest stable; CI installs the version named once, as the default of
+  `.github/actions/rust/action.yml`, and agents use that one. The MSRV is the workspace's `rust-version`. A new stable
+  that turns a gate red (a new clippy lint under `-D warnings`, say) gets its own `chore: rust 1.NN` PR that fixes the
+  code and bumps that version; a blanket `allow` is never the fix.
+- Generated files (the `phasekit-data` blobs and index, fixtures and their manifest lines, the cbindgen header) are
+  committed in the PR that changes their generator; CI regenerates and diffs them. `Cargo.lock` is committed.
+
 ## Versions: SemVer 2.0
 
 - All published crates share one version (`[workspace.package] version` in the root `Cargo.toml`).
@@ -115,11 +124,12 @@ Add the same public key on GitHub (Settings → SSH and GPG keys → New SSH key
 
 - For a test-first step: the failing test and its red output (paste it in the PR description).
 - All standard gates green: G1-G8 locally, and the `ci` workflow's required checks on the PR.
-- Docs that the change affects updated in the same PR (PLAN.md, VERIFICATION.md, ROT-REGISTER.md, ARCHITECTURE.md).
+- Docs: each fact changed in its one home ([PLAN.md §2.1](docs/PLAN.md#21-ids-and-references)) and nowhere else. A plan
+  step collapses its own step text to a ledger row and puts what it measured in the PR description
+  ([PLAN.md §0.1](docs/PLAN.md#01-the-step-loop) item 7).
 - When results differ from CoolProp: the divergence workflow in
   [VERIFICATION.md §6](docs/VERIFICATION.md#6-divergence-register). Never widen a tolerance to make CoolProp pass.
-- No new dependency unless the step names it and it fits the tiers in
-  [docs/research/dependencies.md §3.1](docs/research/dependencies.md).
+- No new dependency unless the step names it and it fits the tiers in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
 
 ## Licence
 

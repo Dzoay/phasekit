@@ -3,30 +3,35 @@
 phasekit is a from-scratch, idiomatic Rust successor to CoolProp (thermophysical properties of fluids, later
 materials). It is **not** a binding. Work proceeds test-first, one plan step per pull request.
 
-**Current state:** milestones M0-M6 are done (tags `m0` to `m6`; M6 closed by M6.11); M7 is next. The next step is the first one in
-[docs/PLAN.md](docs/PLAN.md) section 3 that has no commit on `main` (`git log --oneline --grep '^Plan-Step:'` lists the
-finished ones); `phasekit_verify::MILESTONE` is the first open milestone. `docs/design/sketch/` is the compiled type
-sketch (its own Cargo workspace) that seeded the workspace; it is never edited, and later steps copy from it only when
-they say so.
+**Where the work is:** read it from git, never from a doc. `git tag` lists the closed milestones (`m0` …);
+`phasekit_verify::MILESTONE` is the first open one; the next step is the first in [docs/PLAN.md](docs/PLAN.md) §3
+with no `Plan-Step:` commit on `main` (`git log --oneline --grep '^Plan-Step:'`).
 
 ## Sources of truth, in order
 
 1. [docs/BRIEF.md](docs/BRIEF.md) §1: the user's requirements, verbatim. They are the contract.
-2. [docs/design/04-user-decisions.md](docs/design/04-user-decisions.md): the user's decisions. They override anything
-   older.
-3. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): crates, types, decisions D1-D17, milestones.
-4. [docs/PLAN.md](docs/PLAN.md): the steps (M0.1 …), gates, conventions. [docs/VERIFICATION.md](docs/VERIFICATION.md):
-   fixtures, tolerances, the divergence register, CI. [docs/ROT-REGISTER.md](docs/ROT-REGISTER.md): CoolProp problems
+2. [docs/DECISIONS.md](docs/DECISIONS.md): the user's decisions, each by its id. They override anything older.
+3. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the design, decisions D1-D17, seams and invariants. For what is
+   built, the code in `crates/` is the truth.
+4. [docs/PLAN.md](docs/PLAN.md): the steps, gates and what is open. [docs/VERIFICATION.md](docs/VERIFICATION.md):
+   fixtures, tolerances, the divergence workflow, CI. [docs/ROT-REGISTER.md](docs/ROT-REGISTER.md): CoolProp problems
    designed out, each with its proof.
-5. Evidence: `docs/coolprop-map/01..15-*.md` (CoolProp v8.0.0, cite as "map NN §X" or the item id) and
-   `docs/research/*.md`. Search them by heading; they are long.
 
-If two sources disagree, follow the higher one and fix the lower one in the same PR, or stop and ask.
+Each fact has one home ([PLAN.md §2.1](docs/PLAN.md#21-ids-and-references), which also defines the citation forms):
+change it there and link to it, never copy it. If two sources disagree, follow the higher one and fix the lower one in
+the same PR, or stop and ask.
+
+**Evidence and history are not instructions.** `docs/coolprop-map/` (CoolProp v8.0.0) and `docs/research/` are frozen
+evidence: open them only to resolve a citation that a living doc or the step gives, and read only that section. Their
+recommendations, rankings, type names and open questions were inputs to decisions that sometimes went the other way;
+where they disagree with the documents above, the documents above win (say so in the PR). `docs/history/` is the
+frozen record of how the design was chosen: open it only to resolve an S-## or E## id, or when the user asks.
 
 ## How to work a step
 
 Follow [PLAN.md §0](docs/PLAN.md#0-how-to-use-this-plan): write the named failing test first from its oracle or
-arbiter, show it red, implement, make all gates green, update affected docs, open the PR. If a step fails its gate in
+arbiter, show it red, implement, make all gates green, collapse the step to its ledger row (§0.1 item 7), open the
+PR. If a step fails its gate in
 a way the plan did not foresee, stop and re-plan ([PLAN.md §0.4](docs/PLAN.md#04-when-a-step-fails-its-gate-stop-and-re-plan)).
 Do not start the next step in the same PR. `scripts/check-toolchain.sh` checks that the tools the gates need are
 installed. After editing `.github/workflows/`, run `actionlint` (no gate does) and fix what it reports.
@@ -60,25 +65,25 @@ The rules are defined in [CONTRIBUTING.md](CONTRIBUTING.md). The ones agents get
 - **Oracle:** `uv run --no-project --python 3.12 --with CoolProp==8.0.0 python …`. CoolProp is a *provisional* oracle;
   printed literature arbitrates. **Never widen a tolerance to make CoolProp pass.** A disagreement goes through the
   divergence workflow ([VERIFICATION.md §6](docs/VERIFICATION.md#6-divergence-register)).
-- **Dependencies:** none unless the step names one and it fits the tiers in `docs/research/dependencies.md` §3.1.
+- **Dependencies:** none unless the step names one and it fits the tiers in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
   `phasekit-core` uses std only until M9.
 - **Safety:** `unsafe` only in `phasekit-capi`. No panics on user input (`todo!`, `unimplemented!`, `unwrap`,
   `expect` are denied by lints). No global mutable state in the kernel.
 - **Papers and data:** PDFs of papers live in `reference/papers/` (gitignored) and are never committed. Only
   transcribed check values with citations are committed, as the plan describes. Restricted data (map 09 §9) never
   enters default features.
-- **Do not edit historical records** in `docs/design/` (`proposal-*`, `01-*`, `02-*`, `03-*`, `05-review-*`). They use
-  the old placeholder names `cprs-*`/`cp_*` on purpose. `04-user-decisions.md` changes only when the user decides
-  something, with the date.
+- **Do not edit `docs/history/`.** It is the frozen record of how the design was chosen, the type sketch included
+  ([its README](docs/history/README.md)); it uses the old placeholder names `cprs-*`/`cp_*` on purpose.
+  `docs/DECISIONS.md` changes only when the user decides something, with the date.
 - **Decisions that belong to the user** stop the step: naming, licensing, publishing, accounts, scope changes, and
   anything [PLAN.md §6](docs/PLAN.md#6-resolved-follow-ups-and-remaining-user-decisions) lists as open. Ask, then
-  record the answer in `docs/design/04-user-decisions.md`.
+  record the answer in `docs/DECISIONS.md`.
 
 ## Repository map
 
 | Path | What |
 |---|---|
-| `docs/` | Brief, architecture, plan, verification, rot register; `coolprop-map/` and `research/` evidence; `design/` history and the type sketch |
+| `docs/` | brief, decisions, architecture, plan, verification, rot register, dependencies; `coolprop-map/` and `research/` (frozen evidence); `history/` (frozen, with the type sketch) |
 | `scripts/` | `fetch-coolprop.sh`, `check-toolchain.sh`, `oracle/gen.py` (the fixture generator), `baseline/` (the C++ CoolProp baseline) |
 | `crates/phasekit-*` | the workspace: core, data, verify, xtask, compat; capi, wasm and py later |
 | `reference/` | gitignored: the CoolProp checkout and local papers |

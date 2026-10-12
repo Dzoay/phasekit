@@ -341,7 +341,7 @@ fn acceptance_gate_needs_mechanical_stability() {
     assert_eq!(accept(r, 300.0, &Bundle { a20: 0.0, ..stable }), unstable); // cv = 0
 }
 
-/// The density bands (user decision PS3; `HelmholtzEOSMixtureBackend.cpp:2340-2380`) on a synthetic pair, ρ′ 1000
+/// The density bands (user decision PP3; `HelmholtzEOSMixtureBackend.cpp:2340-2380`) on a synthetic pair, ρ′ 1000
 /// and ρ″ 100 mol/m³, p′ 1 MPa: gas below 0.95·ρ″ (not at it), liquid above 1.05·ρ′ (not at it); between, the strip
 /// within 0.9975 of either side asks for stability, and nothing else does; in the liquid strip, liquid when the
 /// ancillary quality is below 0.01, p above 1.05·p′ (not at it) and the state stable. Near the top (ρ″ 990) the
@@ -391,7 +391,7 @@ fn strip_rule_and_stability_are_exact() {
     }
 }
 
-/// PS3 on real blends: R407C's EOS has no dome at 358 K (its critical point is 356.60 K, the published one 359.345
+/// PP3 on real blends: R407C's EOS has no dome at 358 K (its critical point is 356.60 K, the published one 359.345
 /// K), where the bands alone decide gas and liquid (above pc a supercritical liquid), as CoolProp's; between them
 /// its VLE fails. An imposed `TwoPhase` skips the bands: R410A at 280 K and 100 mol/m³, gas by the bands, is
 /// refused (a quality outside [0, 1]).

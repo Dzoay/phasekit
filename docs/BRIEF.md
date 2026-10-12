@@ -1,4 +1,7 @@
-# coolprop-rs design brief (requirements + decisions the architecture must make)
+# phasekit design brief
+
+§1 is the contract ([AGENTS.md](../AGENTS.md)). §2-§4 are the brief the design stage answered on 2026-10-04/05
+([ARCHITECTURE.md](ARCHITECTURE.md) D1-D17), kept as written: their facts and placeholder names are that day's.
 
 ## 1. The user's requirements, verbatim
 

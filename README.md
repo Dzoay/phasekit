@@ -4,9 +4,8 @@ A modular, memory-safe Rust library for thermophysical properties, starting with
 and all states of matter. It is a from-scratch successor to [CoolProp](https://github.com/CoolProp/CoolProp), not a
 binding, verified against CoolProp 8.0.0 and the published literature.
 
-> **Status: milestone M0 (toolchain, workspace, gates and CI) is done; M1 (verification kit and oracle) is next.**
-> This repository holds the architecture, the step-by-step test-driven plan and the verification design. There is no
-> usable library yet; progress follows [docs/PLAN.md](docs/PLAN.md).
+> **Status: in development, not yet released.** The closed milestones are the repository's `m*` tags; the steps and
+> what v0.1 holds are in [docs/PLAN.md](docs/PLAN.md).
 
 ## Goals
 
@@ -38,26 +37,25 @@ follow afterwards ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)).
 | [docs/PLAN.md](docs/PLAN.md) | The test-first implementation plan, step by step (M0-M10 to v0.1, then the roadmap) |
 | [docs/VERIFICATION.md](docs/VERIFICATION.md) | Oracle fixtures, literature arbiters, tolerances, the divergence register, CI gates |
 | [docs/ROT-REGISTER.md](docs/ROT-REGISTER.md) | Every CoolProp problem found, how phasekit avoids it, and the test that proves it |
-| [docs/design/04-user-decisions.md](docs/design/04-user-decisions.md) | The maintainer's decisions on the open questions |
-| `docs/coolprop-map/`, `docs/research/` | The evidence: a 15-part map of CoolProp 8.0.0 and fact-checked research |
-| `docs/design/` | How the architecture was chosen (four proposals, judges, critiques) and the compiled type sketch |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | The maintainer's decisions, dated; they override older text |
+| [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) | The dependency tiers |
+| `docs/coolprop-map/`, `docs/research/` | Frozen evidence: a 15-part map of CoolProp 8.0.0 and the design-stage research |
+| `docs/history/` | Frozen: how the architecture was chosen (four proposals, judges, critiques) and the type sketch |
 
 ## Repository layout
 
 ```text
 docs/        design, plan and evidence (above)
-scripts/     fetch-coolprop.sh, check-toolchain.sh; later the oracle generator and the C++ baseline harness
-crates/      the Cargo workspace: phasekit-core, -data, -verify, -xtask; -compat from M5.9; later -capi, -wasm, -py
+scripts/     fetch-coolprop.sh, check-toolchain.sh, the oracle generator (oracle/) and the C++ baseline (baseline/)
+crates/      the Cargo workspace: phasekit-core, -data, -compat, -verify, -xtask; later -capi, -wasm, -py
 reference/   gitignored: the pinned CoolProp checkout and local papers
 ```
 
 ## Getting started (contributors)
 
-Requirements: stable Rust (1.99 or newer; the targets `wasm32-unknown-unknown`, `wasm32-wasip2` and
-`x86_64-pc-windows-msvc`), [uv](https://docs.astral.sh/uv/) for the CoolProp oracle, and `wasmtime`, `cargo-deny`,
-`cargo-shear`, `cargo-mutants` and `cargo-nextest` (`cargo install --locked wasmtime-cli cargo-deny cargo-shear cargo-mutants
-cargo-nextest`). To edit the CI workflows, also [actionlint](https://github.com/rhysd/actionlint) and
-[shellcheck](https://www.shellcheck.net/), which actionlint runs on each `run:` script.
+Requirements: the latest stable Rust with the `wasm32-unknown-unknown`, `wasm32-wasip2` and `x86_64-pc-windows-msvc`
+targets, [uv](https://docs.astral.sh/uv/) for the CoolProp oracle, and the cargo tools that
+`scripts/check-toolchain.sh` lists; it reports what is missing and how to install it.
 
 ```sh
 scripts/check-toolchain.sh         # reports which of the tools above are missing
@@ -73,14 +71,8 @@ Then read [CONTRIBUTING.md](CONTRIBUTING.md). AI coding agents start with [AGENT
 
 ## How changes land
 
-- **Linear history:** every change is a pull request, squash-merged, so `main` has one commit per PR and every commit
-  passed CI.
-- **[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):** PR titles like
-  `feat(core): power-term jets match the oracle`, with a `Plan-Step: M3.2` footer for plan steps.
-- **[SemVer](https://semver.org/):** one version for all crates; before 1.0 a breaking change bumps the minor version.
-  Releases are tags `vX.Y.Z`, published to crates.io and npm from CI.
-
-Details: [CONTRIBUTING.md](CONTRIBUTING.md).
+Every change is a pull request with a Conventional Commit title, squash-merged once CI is green, so `main` is linear;
+versions follow SemVer. The rules: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Reporting problems
 

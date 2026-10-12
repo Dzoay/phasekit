@@ -66,7 +66,7 @@ pub enum Rows {
     All,
     /// Two-phase rows (0 < Q < 1).
     TwoPhase,
-    /// Rows outside the model's domain (the `.edge` files).
+    /// Rows outside the model's domain.
     BelowDomain,
     /// Rows with lo ≤ T ≤ hi.
     TBand {
@@ -141,9 +141,9 @@ pub struct Divergence {
     pub status: DivStatus,
 }
 
-/// The register, seeded from map 12 §6.3 and the map 10 §8.5 seed list (E15) with VERIFICATION.md §6.6's values; it
-/// grows by PR with a proof per entry. `Investigate` stubs become `UsePaper` once their arbiter row is transcribed
-/// (M1-M8), or `KeepOracle` when the user accepts the oracle value (DIV-0005, docs/design/04-user-decisions.md).
+/// The register (VERIFICATION.md §6), seeded from map 12 §6.3 and the map 10 §8.5 seed list (E15); it grows by PR
+/// with a proof per entry. `Investigate` stubs become `UsePaper` once their arbiter row is transcribed
+/// (M1-M8), or `KeepOracle` when the user accepts the oracle value (DIV-0005, docs/DECISIONS.md).
 pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
         id: "DIV-0001",
@@ -212,7 +212,7 @@ pub static DIVERGENCES: &[Divergence] = &[
         arbiter: None,
         policy: Policy::KeepOracle,
         fix: Fix::None,
-        evidence: "map 13 §3.4, R3: R 8.3144598 kept; IR 8474 Table 3 fails with its Table 1 R; tolerance 5e-7; \
+        evidence: "map 13 §3 item 4, R3: R 8.3144598 kept; IR 8474 Table 3 fails with its Table 1 R; tolerance 5e-7; \
                    M6.10: Table 4 fails too (12 cells, 3.5e-6), the shipped model within 1.05e-6 of it, tolerance 2e-6",
         exempt: None,
         tolerance: Some(Tolerance::Relative(5e-7)),

@@ -35,7 +35,7 @@ fn corrections_cite_use_paper_entries() {
 }
 
 /// DIV-0005 (Helium) is an accepted divergence: CoolProp's R is kept, so no correction may cite it and
-/// Corrected equals Parity for helium (docs/design/04-user-decisions.md, question 5).
+/// Corrected equals Parity for helium (docs/DECISIONS.md, question 5).
 #[test]
 fn accepted_divergences_ship_no_patch() {
     let helium = DIVERGENCES.iter().find(|d| d.id == "DIV-0005").unwrap();
