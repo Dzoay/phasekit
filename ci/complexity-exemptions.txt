@@ -2,8 +2,6 @@
 # complexity 15 (S3776) and control-flow nesting 3 (S134), each with its ceilings and the reason it stays there for
 # now, usually the step that brings it under the bars. One per line: `<file> <function> cog=<n> nest=<n> <reason>`.
 # An entry whose function is under the bars, over its ceilings or gone fails the gate: the list only shrinks.
-crates/phasekit-core/src/data.rs EosRecord::decode cog=16 nest=3 M7.9e: its sections, or an exemption with its reason
-crates/phasekit-core/src/registry.rs Registry::push_source cog=20 nest=4 M7.9e: its three phases
 crates/phasekit-core/src/roots.rs toms748 cog=29 nest=3 stays: TOMS 748 as printed (Alefeld, Potra & Shi 1995, Algorithm 748), step for step
 crates/phasekit-core/src/roots/aps.rs problem cog=18 nest=2 stays: a data table, the 28 test problems as Algorithm 748's driver defines them
 crates/phasekit-verify/src/fixture.rs Fixture::parse cog=30 nest=2 M7.9f: the verify library, one helper per section
