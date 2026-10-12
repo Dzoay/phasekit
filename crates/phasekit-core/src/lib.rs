@@ -21,7 +21,7 @@
 //!         Ok(state) => {
 //!             let _ = (state.h(Basis::Mass), state.path());
 //!         }
-//!         // Until the DT flash lands (M5) it is a typed "not yet", never a wrong value.
+//!         // An input pair a model cannot serve is a typed error, never a wrong value.
 //!         Err(Error::Unsupported { .. }) => {}
 //!         Err(e) => return Err(e),
 //!     },

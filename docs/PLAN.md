@@ -242,9 +242,8 @@ Every artefact has one path and one defining section. VERIFICATION.md uses the s
 | CI workflows | `.github/workflows/{ci,nightly,weekly}.yml`, toolchain action `.github/actions/rust`; `pr-title.yml` (exists since 2026-10-05, CONTRIBUTING.md) | VERIFICATION.md §11.3; M0.6 |
 | C header (M10) | `crates/phasekit-capi/include/phasekit.h` (cbindgen CLI output, committed; R15) | M10.4 |
 
-Committed fixtures are read with `include_str!`, so the corpus runs on wasip2 without filesystem access. Their sizes:
-the core subset about 8 MiB, the all-fluid tier about 2.5 MiB *(inference)*, within the 16 MiB budget that `gates
-fixtures` enforces (VERIFICATION.md §3.6). The full set (~3.5 GB) is regenerated nightly, never committed (user
+Committed fixtures are read with `include_str!`, so the corpus runs on wasip2 without filesystem access. They stay
+within the 16 MiB budget that `gates fixtures` enforces (VERIFICATION.md §3.6). The full set (~3.5 GB) is regenerated nightly, never committed (user
 decision 3b).
 
 ### 2.4 Standard gates
@@ -261,7 +260,7 @@ use the gitignored `target/`.
 | G5 | `cargo check --workspace --target wasm32-unknown-unknown` | local; CI wasm-browser | M0.2 |
 | G6 | `cargo check --workspace --all-targets --target x86_64-pc-windows-msvc` | local (check only: no MSVC linker); CI windows runs G3 | M0.2 |
 | G7 | `cargo clippy -p phasekit-core --no-default-features --all-targets -- -D warnings` (+ `-p phasekit-compat` from M5.9) | local; CI linux | M0.2 |
-| G8 | `cargo xtask gates all`: `deps`, `lints`, `counts`, `ignores`, `doc-excerpts`, `rot` (M0.4); `assertions`, `mutants` (M0.4a); `fixtures`, `register` (M1); `datagen` (M2); `features` (M5); `perf` (M9); `abi` (M10); `core-frozen` (M11, M14). Rules: VERIFICATION.md §11.2 | local; CI linux (needs `reference/CoolProp`, fetched and cached by the job) | M0.4 |
+| G8 | `cargo xtask gates all`: `deps`, `lints`, `counts`, `ignores`, `doc-excerpts`, `rot` (M0.4); `assertions`, `mutants` (M0.4a); `complexity` (M7.9c); `fixtures`, `register` (M1); `datagen` (M2); `features` (M5); `perf` (M9); `abi` (M10); `core-frozen` (M11, M14). Rules: VERIFICATION.md §11.2 | local; CI linux (needs `reference/CoolProp`, fetched and cached by the job) | M0.4 |
 
 CI-only work (M0.6): Windows MSVC and aarch64 test runs, MSRV (G3 on 1.89 since user decision MS1; `cargo +1.85 check
 --lib` for core, data and compat before),
@@ -1318,7 +1317,8 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
   recorded (no §7 target; CoolProp 34 µs for Water, map 10 §8.2). Close M8: set `MILESTONE = 9`. *Done when:* row
   recorded.
 
-**Exit gate.** G1-G8; every transport arbiter row within printed digits, stage by stage where staged; oracle classes
+**Exit gate.** G1-G8; every transport arbiter row within printed digits or within a registered entry's measured
+bound (DIV-0021, DIV-0022), stage by stage where staged, but for the rows that wait for a paper (user decision FT1); oracle classes
 `TransportDirect` and `TransportEcs` where it converges, outside registered exemptions; DIV-0002 three-part proof;
 DIV-0004 (η, λ) refusal; DIV-0009 recorded; the new q_D, Ammonia, R1234yf, ECS-LJ and Hydrogen entries proved;
 thermo-only workloads read 0 transport sections.
@@ -1534,8 +1534,8 @@ from M9.6 `gates perf` enforces gungraun regressions on Linux CI and the referen
 
 ### 5.2 Documentation
 
-- Rustdoc on every public item (`missing_docs`, enforced by G2); `cargo doc --no-deps` with broken intra-doc links
-  denied from M5; the crate-level doctest of `phasekit-core` executes (the seed's does).
+- Rustdoc on every public item (`missing_docs`, enforced by G2); a `cargo doc --no-deps` check that denies broken intra-doc
+  links is planned, but no workflow runs it yet; the crate-level doctest of `phasekit-core` executes (the seed's does).
 - `docs/`: this plan, ARCHITECTURE.md, VERIFICATION.md and ROT-REGISTER.md stay current. A step that changes a
   decision's evidence edits the document in the same PR (for example M6.5 removing an *(inference)* tag, M9.5 recording
   the `libm` outcome). Rust code blocks in `docs/*.md` are either verbatim excerpts of the workspace or the sketch, or

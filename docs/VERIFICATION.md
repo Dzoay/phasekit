@@ -49,10 +49,10 @@ Numbering is ARCHITECTURE.md §10's; map 10 §8.5's L1-L5 (term, EOS, saturation
 | L0 unit values | newtypes, `math`, `powi` chain, `Jet4`, δ-factor polynomials, FNV-1a, fixture reader | private functions | hand derivations; literal vectors (FNV self-test `8e75626511d00b5c`, map 10 §3) | `Exact`, `Term` | M0 | `#[cfg(test)]` per crate |
 | L1 two derivative mechanisms | every term kind, value and all A_ij to order 4 | `accumulate` vs `Jet4` vs num-dual AD of the paper formula | AD; oracle block isolation (L3) second | `Term` | M3 | core unit tests; `tests/terms.rs` |
 | L2 printed tables | compiled record: EOS, α⁰, transport, σ, melting | `FluidRecord` → `compile` → rows | self-consistent paper, IAPWS, P-mp rows (section 4) | `Paper`, `SatMp`, `SaFit`, `Measured` | M4 | `tests/arbiters.rs` |
-| L3 oracle fixtures | everything CoolProp computes, on `DataSet::Parity` | fixture kinds (3.5) | CoolProp 8.0.0 (provisional) | per column | M2 | `tests/oracle_<kind>.rs` |
-| L4 identities, round trips | relations, partials, gauge, flash, saturation equilibrium, virials, capability matrix | `State`, `relations`, `Fluid::with_gauge` | identities; no data | `Identity`, `Fd`, `Flash`, `Exact` | M5 | `tests/eos.rs` (`identities_hold` at the `eos` grid, M5.1), `tests/{round_trip,capability}.rs`; conformance kit |
+| L3 oracle fixtures | everything CoolProp computes, on `DataSet::Parity` | fixture kinds (3.5) | CoolProp 8.0.0 (provisional) | per column | M2 | one test file per kind (`tests/oracle_term.rs`, `tests/eos.rs`, `tests/sat.rs`, …) |
+| L4 identities, round trips | relations, partials, gauge, flash, saturation equilibrium, virials, capability matrix | `State`, `relations`, `Fluid::with_gauge` | identities; no data | `Identity`, `Fd`, `Flash`, `Exact` | M5 | `tests/eos.rs` (`identities_hold` at the `eos` grid, M5.1), `tests/{flash,capability}.rs`; conformance kit |
 | L5 nightly sweeps | L3 + L4 over 136 fluids, all pairs, full grids | `--ignored` | as L3, L4 | as L3, L4 | M1 (drift check), M3 on (sweeps) | `tests/sweeps.rs` |
-| L6 execution | every `ExecPolicy`, 1..N threads, batch vs scalar, later lanes | `batch::evaluate`, `policy_equivalence` | the `Reference` scalar path | `Exact` | M1; rayon M9 | `tests/policy.rs` |
+| L6 execution | every `ExecPolicy`, 1..N threads, batch vs scalar, later lanes | `batch::evaluate`, `policy_equivalence` | the `Reference` scalar path | `Exact` | M1; rayon M9 | `tests/batch.rs`; the kit's `policy_equivalence` (`tests/new_family.rs`) |
 
 **When sources disagree:**
 1. An L0, L1 or L4 failure is a phasekit bug (no external data involved): fix the code, never a class.
@@ -190,7 +190,6 @@ crates/phasekit-verify/
     oracle.lock
     MANIFEST.sha256                           "<sha256> <bytes> <rows> <path>" for every COMMITTED fixture
     coolprop-8.0.0/<kind>/<Fluid>.csv         core subset (14 fluids, 3.6)
-    coolprop-8.0.0/<kind>/<Fluid>.edge.csv    domain-edge rows (below Tmin, near Tc) where a kind has them
     coolprop-8.0.0/all/<kind>.csv             all-fluid tier: a leading `fluid` column, a few rows per fluid (3.6)
     coolprop-8.0.0/facts/<set>.csv            named oracle facts: `smoke`, `register` (3.5)
     paper/<Fluid>/<bibkey>.<table>.csv        transcribed check tables (4.2)
@@ -220,7 +219,7 @@ never skips them.
 | `eos` | `region, status, p, h, s, u, cv, cp, w, Z, dpdrho_T, dpdT_rho, Bvirial, Cvirial, dBvirial_dT, dCvirial_dT` and the partial, `cp0molar` and residual columns (molar SI); since M7.10 ten second partials (`second_partial_deriv` over the ten variables it differentiates twice), `fundamental_derivative`, `isothermal_compressibility` and `isobaric_expansion` | T ~ U[T_low, Tmax], ρ ~ logU[1e-6·ρL(T_low), ρL(T_low)], phase imposed (gas), T_low = max(Tmin, Ttriple) (map 09 R8); `region` from the oracle's QT densities at T, or its saturated-density ancillary where QT finds no root (pseudo-pure fluids within about 2 K of Tc): 500 / 8 / 10,000 | M5.1, M5.5, M7.10 | `Prop` (with `Term` carried through the relation, §5) |
 | `crit` | `Tc_pub, pc_pub, rhoc_pub` (SA off), `Tc_num, pc_num, rhoc_num` (SA on), `Ttriple, ptriple, Tmin, Tmax, pmax, M, R`; `Ttriple` and `ptriple` are CoolProp's, i.e. the saturation minimum (map 09 R8), not the record's triple point; the all-fluid tier adds a leading `fluid` column | 1 / 1 / 1 | M2.3 published, M6.7 numerical | `Exact` (data constants); `Flash` (numerical point) |
 | `sat` | `input, Q, T, p, rhoL, rhoV, hL, hV, sL, sV, path`; `input` ∈ {T, p, `sa`}: `sa` rows come straight from `CP.SuperAncillary(json).eval_sat` (p, ρ′, ρ″; map 03 §8) | Θ = 1 − T/Tc log-spaced 1e-7 … 1 − Tt/Tc (Tt, Tc the superancillary's range), Q ∈ {0, 1}, T and p inputs, a PQ row's p the QT row's at its temperature: 100 (25 T, QT and PQ at both Q) / 8 `sa` + 8 QT (Q = 0) + 8 PQ (Q = 1) / 600 (200 T, as the all-fluid tier); M5.2 writes `sa` rows to `all/sat.csv` and the full set, M5.2a a QT row at Q = 0 at each `sa` temperature, M6.8 the PQ rows and the core files. A PQ row's T, ρ and h, s cells are DIV-0018's: they are checked against the QT row that gave the row its p (user decision PQ1). Pseudo-pure (M6.9; path `ancillary`): Θ = 1 − T/T_max log-spaced 1e-3 … 1 − T_min/T_max over QT's range, QT at Q ∈ {0, 1} (only the side Q names: CoolProp computes no other), PQ at Q ∈ {0, 0.5, 1} at the QT bubble pressure (none where the oracle's QT failed), checked as user decisions PP1, PP2 decide; the in-dome DT rows are the `flash` kind's `dome` truths | M5.2 (`sa`), M6.8, M6.9 | `SaCoeff` (`sa` and `superanc` rows), `Prop` (`ancillary` rows) |
-| `flash` | `pair, x1, x2, truth, status, T, rho, p, h, s, u, Q, phase` (truth PT, QT or `dome`; x1, x2 the pair's inputs: DT ρ, T; PT p, T) | truth states on (log p, T) and (T, Q) grids, all pairs read off each, never density bands (map 12 §6.4): 6×6 + 4×4 / the six pseudo-pure fluids' 4×4 `dome` truths (`all/flash.csv`) / 40×40 + 20×20 (map 10 §2.3); CoolProp has no QT at 0 < Q < 1 for a pseudo-pure fluid, so its (T, Q) cells are `dome` truths, (ρ, T) with ρ between its QT densities at Q = 0 and 1 (M6.9). A PT truth's PT row (M7.1) is the truth itself, CoolProp's PT flash of its own inputs, ρ an output too; its p, h, s and u are DIV-0020's | M5.3 (DT), M6.9 (`dome`), M7.1 (PT) on | `Flash` |
+| `flash` | `pair, x1, x2, truth, status, T, rho, p, h, s, u, Q, phase` (truth PT, QT or `dome`; x1, x2 the pair's inputs: DT ρ, T; PT p, T) | truth states on (log p, T) and (T, Q) grids, read off as the DT and PT pairs (the other pairs are round trips, `tests/flash.rs`), never density bands (map 12 §6.4): 6×6 + 4×4 / the six pseudo-pure fluids' 4×4 `dome` truths (`all/flash.csv`) / 40×40 + 20×20 (map 10 §2.3); CoolProp has no QT at 0 < Q < 1 for a pseudo-pure fluid, so its (T, Q) cells are `dome` truths, (ρ, T) with ρ between its QT densities at Q = 0 and 1 (M6.9). A PT truth's PT row (M7.1) is the truth itself, CoolProp's PT flash of its own inputs, ρ an output too; its p, h, s and u are DIV-0020's | M5.3 (DT), M6.9 (`dome`), M7.1 (PT) on | `Flash` |
 | `transport` | `T, rho, phase, eta_status, eta, eta_{dilute,initial_density,residual,critical}, lambda_status, lambda, lambda_{dilute,initial_density,residual,critical}, eta_model, lambda_model` (models: staged, ecs, rhosr, chung, hardcoded, none; the stages are CoolProp's `*_contributions`, which put a whole model's total under `critical`, map 05 R8) | stable single phase only (map 10 §8.5): T uniform, log p uniform, ρ from the PT flash, transport at DT(ρ, T): 200 / 8 / 5,000; `--set probes` adds fixed DT states for the branches no random state reaches (M8.6: Methane's ancillary and near-critical χ, 13 states) | M8.5 | `TransportDirect` / `TransportEcs` by model |
 | `sigma` | `T, status, sigma` | 50 / 4 / 500 over the fitted range | M8.4 | `Prop` |
 | `melt` | `input, T, p, status` | 50 / 4 / 500 per segment | M8.11 | `Prop` |
@@ -236,9 +235,8 @@ SA-off saturation is never a fixture *(decision)*: near Tc it uses critical spli
 This section is the one definition of the committed fluid set; PLAN.md §2.3 and ARCHITECTURE.md §10 link here. 14
 fluids are committed at full core-grid density *(decision)*: map 13 §8's 10 (its answer to map 10 Q6) plus 4 for
 proofs and block coverage. Every other fluid is reached per PR through the all-fluid tier below, so a fluid needs a
-core-subset place only for dense or multi-block coverage, a divergence proof or a pseudo-pure rule. Budget: core subset
-about 8 MiB, all-fluid tier about 2.5 MiB *(inference: about 22 B per cell)*, paper and mp files under 1 MiB; 16 MiB
-in total, enforced by `gates fixtures`.
+core-subset place only for dense or multi-block coverage, a divergence proof or a pseudo-pure rule. Budget: 16 MiB in total,
+enforced by `gates fixtures`.
 
 | Fluid | Why (map 13 §8 unless stated) |
 |---|---|
@@ -818,15 +816,15 @@ This is the one definition of the hash grid; PLAN.md M9.4 runs it and M9.5 appli
 ## 10. Conformance kit for model families
 
 Any family crate, in tree or out, dev-depends on `phasekit-verify` and runs the kit unchanged; it is identity-based,
-so it needs no oracle (sketch `conformance.rs`).
+so it needs no oracle (`crates/phasekit-verify/src/conformance.rs`).
 
 | Check | Function | Asserts | Class | From |
 |---|---|---|---|---|
-| FD | `fd_first_order` | A10, A01 vs FD in dimensional T, ρ | `Fd` | M1 (in sketch) |
-| Gauge | `gauge_invariance` | 8.4 | `Exact` / `Identity` | M1 (in sketch) |
-| Executors | `policy_equivalence` | 9.1 | `Exact` | M1 (in sketch) |
-| Identities | `identities(fluid, states)` | the 8.1 list | `Identity` | M5 |
-| Part additivity | `part_additivity` | `ThermoModel::derivs`: total = ideal + residual | `Identity` | M5 |
+| FD | `fd_first_order` | A10, A01 vs FD in dimensional T, ρ | `Fd` | M1 |
+| Gauge | `gauge_invariance` | 8.4 | `Exact` / `Identity` | M1 |
+| Executors | `policy_equivalence` | 9.1 | `Exact` | M1 |
+| Identities | `identities(fluid, states)` | the 8.1 list | `Identity` | not yet in the kit: `tests/eos.rs` checks them |
+| Part additivity | `part_additivity` | `ThermoModel::derivs`: total = ideal + residual | `Identity` | not yet in the kit |
 | Capability | `capability_matrix` | 8.5 | `Flash` | M7 |
 | Threads | `thread_invariance` | 1..N threads and racing first use, bitwise | `Exact` | M9 |
 

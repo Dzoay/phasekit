@@ -45,7 +45,7 @@ value. Concurrency then follows from the types, not from locks. Nothing ships in
 | "a kernal we can optimize for speed and scalability" | One kernel crate; scalar reference + side-by-side executors (§7); benches from M2, perf gates from M9 (§7) |
 | "parallel requests on the same and different fluids ... at the same time" | Lock-free registry, `&Fluid` lookups, `Copy` `State` (§5, §6) |
 | "Rusts immutability should help us here" | Models never mutate after construction; std's one-shot `OnceLock`/`LazyLock` are the only interior mutability (clippy bans `Mutex`, `RwLock`, `Cell`, `RefCell`, `OnceCell`); Send + Sync asserted at compile time |
-| "using coolprop as varification but with source material when we find bugs" | Parity/Corrected datasets (Corrected by default), a 14-entry divergence register, three-part proofs (§10) |
+| "using coolprop as varification but with source material when we find bugs" | Parity/Corrected datasets (Corrected by default), a divergence register, three-part proofs (§10) |
 | "We will TDD this step by step" | Capability set grows per milestone, so every milestone is green; no reachable panic (`todo`, `unimplemented`, `panic` denied) (D6, D12, D15) |
 | "extend it to be a *material* properties library" / "all states of matter" | `ThermoModel`, `State::from_total` and `from_split`, Gibbs transform, `ThermoModel::derivs`, `Phase::Solid`, gauge on every handle (§11) |
 | "coolprop fluids are first" | v0.1 = 136 pure and pseudo-pure HEOS fluids (bubble/dew typed), all 19 input pairs, transport (D15) |
@@ -146,8 +146,8 @@ for nothing (kernel-performance §3.1, P11). A future crate appears only when it
 
 ## 3. Core abstractions
 
-Excerpts are from the sketch with `///` doc comments trimmed. Every module is private; `lib.rs` re-exports 59 names
-plus the `batch` module (5 items) and the `math` module (10 functions); verify and xtask reach the growing records
+Excerpts are from the sketch with `///` doc comments trimmed. Every module is private; `lib.rs` re-exports the public
+names plus the `batch` and `math` modules; verify and xtask reach the growing records
 through one `#[doc(hidden)] pub mod internal`, semver-exempt by convention *(inference)* (S-03).
 
 | Who | Concepts (re-exported names) |
@@ -272,7 +272,7 @@ Sketch tests:
   within 1e-15 relative of the hand formula.
 - `zero_density_series_is_exact` and `virials_are_exact_taylor_coefficients`: B, C, dB/dT, dC/dT against hand
   derivations, including an MBWR d = 0 pair.
-- `delta_exp_delta_closed_form`, `jets_match_hyperdual_ad`, `generic_fast_path_is_bitwise_scalar`,
+- `delta_exp_delta_closed_form`, `jets_match_num_dual_ad`, `generic_fast_path_is_bitwise_scalar`,
   `finite_at_zero_density`, `ideal_delta_gives_mechanical_derivatives`, `planck_einstein_matches_ad` (all four
   τ-orders of `n ln(1 − e^(−θτ))`, written with `expm1`). The AD oracle in the sketch is a test-only hyper-dual; the
   real crate uses `num-dual` as a dev-dependency (S-07).
@@ -679,7 +679,7 @@ fluid under any gauge (map 04, map 15 §8); GERG vectors from teqp (map 06, P10)
 call (Extensible); composition in `Input` or `State`; a separate `MixtureState` that `flash` cannot return (E2).
 
 **D5 State and properties.**
-- `State` is `Copy`, 208 B (asserted ≤ 256): T, p, phase, one or two phase points (each T, ρ and the order-2 total
+- `State` is `Copy`, at most 256 B (asserted): T, p, phase, one or two phase points (each T, ρ and the order-2 total
   `Bundle`), R, M, gauge, `SolvePath`, `ModelKey` and an extrapolation flag (D6); fields are private.
 - The bundle is eager; first-order properties and first partial derivatives are relations on demand (every family).
   Order ≥ 3 and the ideal/residual split come from `ThermoModel::derivs`; virials from `HelmholtzModel::zero_density`
@@ -982,13 +982,13 @@ sequenceDiagram
   and ice; map 07 H3) takes a `Fluid` at construction.
 - **Send/Sync.** Asserted at compile time for `Registry`, `Fluid`, `PureFluid`, the EOS, every trait object, `State`,
   `FlashOptions` and `Error` (§3.8). std's one-shot `OnceLock` and `LazyLock` are the only interior mutability; clippy
-  bans `Mutex`, `RwLock`, `Cell`, `RefCell` and `OnceCell`. Atomics are not banned; only tests use them.
+  bans `Mutex`, `RwLock`, `Cell`, `RefCell` and `OnceCell`. Atomics are banned too (ROT-031; clippy.toml).
 - **No hot-path locks.** Lookups are atomic loads after first touch. Evaluation reads immutable data and writes only the
   stack and caller buffers. Even CoolProp's superancillary inverse, built under a per-call mutex (map 11 F7), becomes
   datagen output.
 - **Memory budget** (K19 targets, recorded from M3, enforced at M9): per fluid, EOS ≤ 25 KiB (the δ-factor polynomials
   cost 200 B per power term, about 13 KiB for Water's 56 terms *(inference)*) + superancillary ≤ 25 KiB (v8.0.0: 2.81
-  MiB raw for 136 fluids, map 09); all 136 loaded ≤ 8 MiB RSS *(inference)*; per state 208 B on the stack; per batch
+  MiB raw for 136 fluids, map 09); all 136 loaded ≤ 8 MiB RSS *(inference)*; per state ≤ 256 B on the stack; per batch
   point 0 heap bytes. CoolProp: 100-300 KiB and 6 fluid copies per state (map 11), +67 MiB on first use (map 14).
 - **WASM memory.** Active data segments are copied into linear memory at instantiation (dependencies §2.6). The browser
   build therefore embeds `fluids-core` (feature forwarding, E7) and adds fetched packs as layers, so per-instance memory
@@ -1041,7 +1041,7 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
 
 ## 8. Data pipeline
 
-`xtask datagen` (M2) runs these steps on pinned `dev/fluids/*.json` v8.0.0 (sha256 in `oracle.lock`):
+`xtask datagen` (M2) runs these steps on the pinned v8.0.0 `reference/CoolProp/dev/fluids/*.json` (sha256 in `data/fluids.lock`):
 1. **Parse** with the one serde mirror (in xtask) and a literal-kind-preserving reader (the FNV-1a `source_eos_hash`
    tells 1 from 1.0; all 130 stamps recompute; Chlorine's duplicate key is a logged waiver; map 09).
 2. **Resolve each JSON quirk into closed enums** (map 02 §9): "0 means absent", GaoB η negated, PlanckEinstein θ sign,
@@ -1067,7 +1067,7 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
 
 ```mermaid
 flowchart LR
-  json["CoolProp v8.0.0<br/>dev/fluids/*.json<br/>(sha256 in oracle.lock)"]
+  json["CoolProp v8.0.0<br/>dev/fluids/*.json<br/>(sha256 in data/fluids.lock)"]
   subgraph datagen["xtask datagen (M2)"]
     direction TB
     parse["parse: one serde mirror,<br/>FNV source_eos_hash recomputed"]
@@ -1128,7 +1128,7 @@ sha, all 38 config keys and the scrubbed environment (map 10 §8.3, map 01 §8).
   D6), `NoConvergence{strategy, iterations}`, `Ambiguous{roots}`, `Undefined{prop, phase}`, `NoModel{prop}`,
   `ForeignState`, `InvalidState{reason}` (a family built an inconsistent state), `Load(LoadError)`,
   `Shape{expected, found}`. `LoadError` adds `MissingReference` and `ReferenceCycle` and has no `Detached`.
-  - `Error` is 48 B (asserted) and `Clone`, so `Result<State, Error>` stays 208 B and decode failures can be cached.
+  - `Error` is at most 48 B (asserted) and `Clone`, so `Result<State, Error>` stays within 256 B and decode failures can be cached.
     It implements `std::error::Error`, without `thiserror` (R10).
   - Compat wraps it in `CompatError`; bindings map variants exhaustively (map 14).
 - **Panics.** None reachable from library code: `todo`, `unimplemented`, `panic`, `unwrap_used` and `expect_used` are
@@ -1210,7 +1210,7 @@ flowchart LR
   - `KeepOracle`, an accepted and documented divergence: DIV-0005 Helium (user decision 5). CoolProp's R = 8.3144598
     is kept, so Corrected = Parity for helium, and `check_register` refuses any patch that cites the entry. NIST IR
     8474 Table 3 does not reproduce with its own Table 1 R (8.314472); the oracle is within 4.8e-7 of Table 3, so
-    the Table 3 fixture tolerance is 5e-7 (map 13 §3.4, R3).
+    the Table 3 fixture tolerance is 5e-7 (map 13 §3 item 4, R3).
   - `Investigate`: DIV-0006..0008 Ethylene/OrthoHydrogen/n-Undecane ρ_r (and M), DIV-0009 R1233zd(E) viscosity,
     DIV-0013 R1234yf/R1234ze(E) mixture α^r, DIV-0014 R1224YDZ p.
   - At M11 the cubic family adds an entry for its gas-constant split (user decision 10, §11); PLAN.md specifies it.
@@ -1306,7 +1306,7 @@ no model cache: the registry is the cache, bounded by the named fluids and relea
 | Pseudo-pure "not EOS-consistent" semantics hidden (map 04 U4) | `SatPair` bubble/dew typed; `Definition` accuracy; rules from oracle fixtures |
 | Reference state as global mutation; six gauge mechanisms (map 15 X1-X12) | `Gauge` on the handle, applied at the boundary for every family; registry-level `with_reference` for strings and C |
 | Eager whole-library load, ~1.9 s, +67 MiB (map 14, map 12) | 4 lazy levels; per-fluid features; packs as layers |
-| Per-state deep copies 100-300 KiB; mutable term caches (map 11 F11) | 208 B `Copy` `State`; one shared model |
+| Per-state deep copies 100-300 KiB; mutable term caches (map 11 F11) | ≤ 256 B `Copy` `State`; one shared model |
 | Hot-path superancillary mutex; melting cache mutex (map 11 F7/F8) | Datagen precomputes; `OnceLock`/`LazyLock` only |
 | Hidden ECS coupling built by name at first use (map 12 R12, map 05 R7) | References declared in data, resolved and cycle-checked when a registry layer is built, held strongly, decoded on first need |
 | Unknown JSON kinds skipped; asserts compiled out (map 10 R8, map 09 R7) | Closed enums; real `LoadError`s |
