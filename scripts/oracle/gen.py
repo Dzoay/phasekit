@@ -110,6 +110,15 @@ FACTS = {
         # CoolProp's in-dome p of SES36 at one T and two densities: it changes with Q (DIV-0019).
         ("div0019_p_t206.2675_rho1.97058", "PropsSI", ("P", "T", 206.2675, "Dmolar", 1.97058, "SES36")),
         ("div0019_p_t206.2675_rho0.656961", "PropsSI", ("P", "T", 206.2675, "Dmolar", 0.656961, "SES36")),
+        # CoolProp's eta at the transport check rows its correlations miss beyond their printed digits (DIV-0021: the
+        # papers' own equations; DIV-0022: the rows' densities, printed to fewer digits than eta needs).
+        ("div0021_eta_sf6_t300_rho0", "PropsSI", ("V", "T", 300, "Dmass", 1e-14, "SulfurHexafluoride")),
+        ("div0021_eta_sf6_t400_rho0", "PropsSI", ("V", "T", 400, "Dmass", 1e-14, "SulfurHexafluoride")),
+        ("div0021_eta_r125_t300", "PropsSI", ("V", "T", 300, "Dmolar", 10596.9998, "R125")),
+        ("div0022_eta_ammonia_t200", "PropsSI", ("V", "T", 200, "Dmolar", 42754.4, "Ammonia")),
+        ("div0022_eta_r123_t265", "PropsSI", ("V", "T", 265, "Dmass", 1545.8, "R123")),
+        ("div0022_eta_noctane_t300", "PropsSI", ("V", "T", 300, "Dmolar", 6177.2, "n-Octane")),
+        ("div0022_eta_npropane_t150", "PropsSI", ("V", "T", 150, "Dmolar", 15140, "n-Propane")),
     ],
 }
 
@@ -1035,8 +1044,100 @@ def sigma(CP, lock, config, files, args):
         out[f"sigma/{name}.csv"] = text + "".join(lines)
     return out
 
+
+# The `transport` kind (section 3.5): CoolProp's viscosity and conductivity, totals and contributions, at stable
+# single-phase states (map 10 section 8.5): T uniform in [T_low, Tmax] and p log-uniform in [max(ptriple, 1 Pa), pmax]
+# from a SplitMix64 stream, rho from CoolProp's PT flash there, then transport on a fresh DT state at (T, rho), so a
+# model reading p reads the EOS's p(T, rho) (map 05 R14). The contributions are CoolProp's `*_contributions`, which
+# report a whole model's total as `critical` (map 05 R8); the model columns name each property's kind.
+TRANSPORT_STAGES = ["dilute", "initial_density", "residual", "critical"]
+TRANSPORT_COLUMNS = ["T", "rho", "phase",
+                     "eta_status", "eta", *(f"eta_{s}" for s in TRANSPORT_STAGES),
+                     "lambda_status", "lambda", *(f"lambda_{s}" for s in TRANSPORT_STAGES), "eta_model", "lambda_model"]
+TRANSPORT_UNITS = ["K", "mol/m3", "-", "-", *["Pa s"] * 5, "-", *["W/(m K)"] * 5, "-", "-"]
+TRANSPORT_TOL = ["in", "in", "label", "label", *["transport_direct"] * 5, "label", *["transport_direct"] * 5, "label",
+                 "label"]
+TRANSPORT_ROWS = {"core": 200, "all": 8, "full": 5000}  # states per fluid
+
+
+def transport_model(block):
+    """A model's kind from its JSON block (a list's first entry): staged, ecs, rhosr, chung, hardcoded, or none."""
+    if block is None:
+        return "none"
+    block = block[0] if isinstance(block, list) else block
+    kind = {"ECS": "ecs", "rhosr-CS": "rhosr", "Chung": "chung"}.get(block.get("type"))
+    return kind or ("hardcoded" if "hardcoded" in block else "staged")
+
+
+def transport_values(state, prop):
+    """A property's total and contributions at `state`: (status, five values)."""
+    try:
+        total = getattr(state, prop)()
+        parts = getattr(state, f"{prop}_contributions")()
+        return "ok", [total, *(parts[s] for s in TRANSPORT_STAGES)]
+    except Exception as exception:  # every oracle failure becomes a status, never a crash
+        return f"err:{error_class(exception)}", [math.nan] * 5
+
+
+def transport_rows(job):
+    """One fluid's rows, in a pool child: (floats, lines). A (T, p) the PT flash cannot make gives no row."""
+    import CoolProp.CoolProp as CP  # the parent's module, inherited through fork
+
+    name, rows, seed, models = job
+    flash_state = CP.AbstractState("HEOS", name)
+    t_low, t_max = max(flash_state.Tmin(), flash_state.Ttriple()), flash_state.Tmax()
+    p_low, p_max = max(flash_state.p_triple(), 1.0), flash_state.pmax()
+    rng = splitmix64(seed)
+    floats, lines = [], []
+    for _ in range(rows):
+        t, p = uniform(rng, t_low, t_max), log_uniform(rng, p_low, p_max)
+        try:
+            flash_state.update(CP.PT_INPUTS, p, t)
+            rho = flash_state.rhomolar()
+            state = CP.AbstractState("HEOS", name)
+            state.update(CP.DmolarT_INPUTS, rho, t)
+            phase = flash_phase(CP, state)
+        except Exception:  # noqa: BLE001 - no state at this (T, p): no row
+            continue
+        eta_status, eta = transport_values(state, "viscosity")
+        lambda_status, conductivity = transport_values(state, "conductivity")
+        floats += [t, rho, *eta, *conductivity]
+        cells = [cell(t), cell(rho), phase, eta_status, *map(cell, eta), lambda_status, *map(cell, conductivity), *models]
+        lines.append(",".join(cells) + "\n")
+    return floats, lines
+
+
+def transport(CP, lock, config, files, args):
+    """The `transport` kind: transport/<Fluid>.csv for the core subset (200 states each), all/transport.csv (8 per
+    fluid) and the full set's files (5000)."""
+    rows = args.rows or TRANSPORT_ROWS[args.tier]
+    names = tier_fluids(args, files)
+    jobs, shas = [], {}
+    for name in names:
+        shas[name] = assert_fluid(CP, files, name)
+        block = json.loads(files[name].read_text(encoding="utf-8")).get("TRANSPORT") or {}
+        models = [transport_model(block.get("viscosity")), transport_model(block.get("conductivity"))]
+        jobs.append((name, rows, args.seed, models))
+    results = pool_map(transport_rows, jobs, args.jobs)
+    grid = (f"T~U[Tlow,Tmax] log p~U[max(ptriple,1 Pa),pmax] n={rows}, Tlow=max(Tmin,Ttriple); rho from the PT flash; "
+            "transport at DT(rho, T); stable single phase only")
+    if args.tier == "all":
+        floats = [value for values, _ in results for value in values]
+        fluids = f"{len(names)} fluids, fluids_sha256={lock['fluids_sha256']}"
+        columns, tol, units = ["fluid", *TRANSPORT_COLUMNS], ["label", *TRANSPORT_TOL], ["-", *TRANSPORT_UNITS]
+        text = header("transport", lock, config, fluids, columns, tol, floats, units=units, grid=grid)
+        body = "".join(f"{name},{line}" for name, (_, lines) in zip(names, results) for line in lines)
+        return {"all/transport.csv": text + body}
+    out = {}
+    for name, (floats, lines) in zip(names, results):
+        text = header("transport", lock, config, [(name, shas[name])], TRANSPORT_COLUMNS, TRANSPORT_TOL, floats,
+                      units=TRANSPORT_UNITS, grid=grid)
+        out[f"transport/{name}.csv"] = text + "".join(lines)
+    return out
+
+
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "sat": sat,
-              "flash": flash, "sigma": sigma}
+              "flash": flash, "sigma": sigma, "transport": transport}
 
 
 def write(out, files):

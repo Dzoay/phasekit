@@ -5,7 +5,7 @@
 
 use std::iter::Peekable;
 
-use crate::tolerance::{Provenance, ToleranceClass, Window};
+use crate::tolerance::{Provenance, Tolerance, ToleranceClass, Window, from_printed};
 
 /// The header keys in the only order they may appear (VERIFICATION.md §3.3).
 const KEYS: [&str; 12] =
@@ -233,17 +233,24 @@ impl<'a> Fixture<'a> {
         }
     }
 
-    /// Compares `got` with the fixture's value in `row` (0-based) and `column` under the column's class.
+    /// Compares `got` with the fixture's value in `row` (0-based) and `column` under the column's class: bitwise for
+    /// `Exact`, within half a unit in the cell's last printed digit for `Paper` (`from_printed`, VERIFICATION.md §5).
+    /// The classes whose bound scales with a magnitude go through [`Self::check_scaled`].
     pub fn check(&self, row: usize, column: &str, got: f64) -> Result<(), CheckError> {
         let want = self.want(row, column)?;
         let class = match self.columns.iter().position(|c| *c == column).and_then(|i| self.roles.get(i)) {
             Some(ColumnRole::Output(class)) => *class,
             _ => ToleranceClass::Exact,
         };
-        if class != ToleranceClass::Exact {
-            return Err(CheckError::NoBound { class });
-        }
-        if canonical_bits(got) == canonical_bits(want) {
+        let agrees = match class {
+            ToleranceClass::Exact => canonical_bits(got) == canonical_bits(want),
+            ToleranceClass::Paper => match self.printed(row, column).and_then(from_printed) {
+                Some(Tolerance::Absolute(half)) => (got - want).abs() <= half,
+                _ => return Err(CheckError::NoBound { class }),
+            },
+            _ => return Err(CheckError::NoBound { class }),
+        };
+        if agrees {
             return Ok(());
         }
         Err(self.mismatch(row, column, class, (got, want)))
@@ -688,6 +695,18 @@ mod tests {
         let paper = paper.unwrap();
         assert_eq!(paper.provenance(), Provenance::Paper { citation: "lemmon2016", table: "7" });
         assert_eq!(paper.check(0, "p", 1.5), Err(CheckError::NoBound { class: ToleranceClass::Prop }));
+    }
+
+    /// VERIFICATION.md §5: a `Paper` column agrees within half a unit in its cell's last printed digit, the edge
+    /// included; a mismatch names the class.
+    #[test]
+    fn paper_class_allows_half_a_printed_unit() {
+        let paper =
+            parse("# fixture: eos/v1\n# source: paper:lemmon2016/7\n# columns: eta\n# tol: paper\n1.5e1\n".into());
+        let paper = paper.unwrap();
+        assert_eq!((paper.check(0, "eta", 15.5), paper.check(0, "eta", 14.5)), (Ok(()), Ok(())));
+        let Err(CheckError::Mismatch(m)) = paper.check(0, "eta", 15.5_f64.next_up()) else { panic!() };
+        assert_eq!((m.class, m.want), ("paper", 15.0));
     }
 
     /// VERIFICATION.md §5: a `Term` column is within 1e-13 of the caller's Σ_k |φ_k| (floor 1e-300); a pass reports
