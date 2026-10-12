@@ -195,7 +195,7 @@ pub(crate) fn cyclohexane_dilute(t: f64) -> f64 {
 
 /// CO₂'s dilute viscosity, Laesecke and Muzny 2017 Eq. (4) (`TransportRoutines.cpp:600-612`), Pa s.
 pub(crate) fn co2_dilute(t: f64) -> f64 {
-    let a = [1749.354893188350, -369.069300007128, 5423856.34887691, -2.21283852168356, -269503.247933569];
+    let a = [1749.35489318835, -369.069300007128, 5423856.34887691, -2.21283852168356, -269503.247933569];
     let a = [a[0], a[1], a[2], a[3], a[4], 73145.021531826, 5.34368649509278];
     let (t6, t3) = (math::powf(t, 1.0 / 6.0), math::powf(t, 1.0 / 3.0));
     let den =
@@ -420,6 +420,10 @@ pub(crate) fn r123_critical(x: &TransportInputs<'_>, r: &Reducing) -> f64 {
 /// and the EOS's, 405.56 K, inside which the term's divergence has no meaning (DIV-0030).
 pub(crate) const AMMONIA_T_FLOOR: f64 = (405.56 - 405.4) / 405.4;
 
+/// CoolProp's π in Tufeu's ammonia term (`TransportRoutines.cpp:983`).
+#[expect(clippy::approx_constant, reason = "CoolProp's truncated π, kept for oracle parity (map 05 R12)")]
+const PI_COOLPROP: f64 = 3.141592654;
+
 /// Ammonia's critical conductivity, Tufeu et al. 1984 as CoolProp codes it (`TransportRoutines.cpp:972-1003`), W/(m K),
 /// with CoolProp's k_B and π. It diverges at its own T_c, 405.4 K, at every density (map 05 R3: CoolProp gives 6.26
 /// W/(m K) at 405.3999 K and 50 kg/m³, NaN at 405.4 K), so its reduced temperature is floored at `AMMONIA_T_FLOOR`:
@@ -427,7 +431,7 @@ pub(crate) const AMMONIA_T_FLOOR: f64 = (405.56 - 405.4) / 405.4;
 pub(crate) fn ammonia_critical(x: &TransportInputs<'_>) -> f64 {
     let (t, tc, rhoc, rho) = (x.t(), 405.4, 235.0, x.rho_mass());
     let (lambda, nu, gamma, delta_exp, zeta_0, a_zeta, gamma_0) = (1.2, 0.63, 1.24, 0.50, 1.34e-10, 1.0, 0.423e-8);
-    let (pi, k_b) = (3.141592654, 1.3806504e-23);
+    let (pi, k_b) = (PI_COOLPROP, 1.3806504e-23);
     let tt = ((t - tc) / tc).abs();
     let tt = if tt < AMMONIA_T_FLOOR { AMMONIA_T_FLOOR } else { tt };
     let a_chi = a_zeta / 0.7;

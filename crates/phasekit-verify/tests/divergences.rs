@@ -601,7 +601,7 @@ fn div_0028() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let record = phasekit_core::internal::record(&registry, "R1234yf").unwrap();
     let model = record.transport.as_ref().and_then(|t| t.viscosity.as_ref()).map(|v| &v.model);
-    let Some(ViscosityModel::RhoSrCs(stored)) = model else { panic!("rhosr-CS") };
+    let stored = model.and_then(|m| if let ViscosityModel::RhoSrCs(r) = m { Some(r) } else { None }).unwrap();
     let (t, rho) = (record.eos.t_reducing, record.eos.rho_reducing);
     let a = record.clone().compile().unwrap().eos().residual(t, rho, Order::One);
     let derived = rho * record.eos.gas_constant * (a.get(1, 0).unwrap() - a.get(0, 0).unwrap());
@@ -634,7 +634,8 @@ fn div_0029() {
         let record = record(name, DataSet::Parity);
         let mut edited = record.clone();
         let conductivity = edited.transport.as_mut().unwrap().conductivity.as_mut().unwrap();
-        let ConductivityModel::Ecs(ecs) = &mut conductivity.model else { panic!("{name}: ECS") };
+        let ecs = if let ConductivityModel::Ecs(ecs) = &mut conductivity.model { Some(ecs) } else { None };
+        let ecs = ecs.unwrap();
         assert_eq!(ecs.lennard_jones, LjSource::chung(record.eos.t_reducing, record.eos.rho_reducing), "{name}");
         ecs.lennard_jones = LjSource::Model(LennardJones { sigma, epsilon_over_k });
         let (fluid, references) = (registry.get(name).unwrap(), [registry.get(reference).unwrap().clone()]);
