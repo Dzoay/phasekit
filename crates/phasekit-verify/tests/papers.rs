@@ -5,6 +5,11 @@ use phasekit_verify::{
     Cell, ColumnRole, DIVERGENCES, Fixture, ORACLE_LOCK, OracleLock, ToleranceClass, fixture, from_printed,
 };
 
+#[path = "common/sweep.rs"]
+mod sweep;
+
+use sweep::product;
+
 /// A committed fixture: (path, text).
 type Text = (&'static str, &'static str);
 
@@ -108,15 +113,14 @@ fn printed_strings_parse() {
     for (path, text) in files() {
         let table = Fixture::parse(path, text).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(table.kind(), "paper");
-        for (column, role) in table.columns().iter().zip(table.roles()) {
-            for row in 0..table.rows().len() {
-                let printed = table.printed(row, column).unwrap_or_default();
-                assert_eq!(table.value(row, column), printed.parse().ok(), "{path} {column} row {row}");
-                // A blank is a value the source does not give (VERIFICATION.md §4.2).
-                if *role == ColumnRole::Output(ToleranceClass::Paper) && !printed.is_empty() {
-                    assert!(from_printed(printed).is_some(), "{path} {column} row {row}: `{printed}`");
-                }
-            }
+        let columns: Vec<(&str, &ColumnRole)> = table.columns().iter().copied().zip(table.roles()).collect();
+        let rows: Vec<usize> = (0..table.rows().len()).collect();
+        for ((column, role), row) in product(&columns, &rows) {
+            let printed = table.printed(row, column).unwrap_or_default();
+            assert_eq!(table.value(row, column), printed.parse().ok(), "{path} {column} row {row}");
+            // A blank is a value the source does not give (VERIFICATION.md §4.2).
+            let paper_output = *role == ColumnRole::Output(ToleranceClass::Paper) && !printed.is_empty();
+            assert!(!paper_output || from_printed(printed).is_some(), "{path} {column} row {row}: `{printed}`");
         }
     }
 }

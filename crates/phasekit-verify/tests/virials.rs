@@ -77,21 +77,8 @@ fn bvirial_matches_oracle_within_the_registered_bound() {
     let (mut checked, mut worst) = (0, 0.0_f64);
     for (path, text) in files {
         let fixture = Fixture::parse(path, text).unwrap();
-        let single = fixture.header("fluid").and_then(|f| f.split(' ').next()).filter(|_| !path.contains("/all/"));
         for row in 0..fixture.rows().len() {
-            let name = match single {
-                Some(name) => name,
-                None => match fixture.rows()[row].cells[0] {
-                    phasekit_verify::Cell::Text(name) => name,
-                    _ => panic!("{path}: row {row} has no fluid"),
-                },
-            };
-            let eos = registry.get(name).unwrap().model().helmholtz().unwrap();
-            let v = eos.zero_density(fixture.value(row, "T").unwrap()).unwrap();
-            for (column, got) in [("Bvirial", v.b), ("dBvirial_dT", v.db_dt)] {
-                let want = fixture.value(row, column).unwrap();
-                let error = (got - want).abs() / want.abs();
-                assert!(error <= bound, "{path} row {row} {column}: {got:e} against {want:e} ({error:e})");
+            for error in bvirial_errors(&registry, (path, &fixture), row, bound) {
                 worst = worst.max(error);
                 checked += 1;
             }
@@ -99,4 +86,23 @@ fn bvirial_matches_oracle_within_the_registered_bound() {
     }
     assert_eq!(checked, (14 * 500 + 136 * 8) * 2);
     assert!(worst > 1e-8, "the oracle's δ = 1e-12 evaluation shows: {worst:e}");
+}
+
+/// The relative errors of B and dB/dT at row `row` of the `eos` file at `path`, each asserted within `bound`: the
+/// row's fluid is the file's, or for the all-fluid tier the row's first cell.
+fn bvirial_errors(registry: &Registry, (path, fixture): (&str, &Fixture<'_>), row: usize, bound: f64) -> [f64; 2] {
+    let single = fixture.header("fluid").and_then(|f| f.split(' ').next()).filter(|_| !path.contains("/all/"));
+    let of_row = || match fixture.rows()[row].cells[0] {
+        phasekit_verify::Cell::Text(name) => Some(name),
+        _ => None,
+    };
+    let name = single.or_else(of_row).ok_or_else(|| format!("{path}: row {row} has no fluid")).unwrap();
+    let eos = registry.get(name).unwrap().model().helmholtz().unwrap();
+    let v = eos.zero_density(fixture.value(row, "T").unwrap()).unwrap();
+    [("Bvirial", v.b), ("dBvirial_dT", v.db_dt)].map(|(column, got)| {
+        let want = fixture.value(row, column).unwrap();
+        let error = (got - want).abs() / want.abs();
+        assert!(error <= bound, "{path} row {row} {column}: {got:e} against {want:e} ({error:e})");
+        error
+    })
 }

@@ -31,33 +31,39 @@ fn points(registry: &Registry, name: &str, n: usize, seed: u64) -> (Vec<f64>, Ve
 fn batch_equals_scalar_bitwise() {
     let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
     for (seed, name) in [(1, "Water"), (2, "CarbonDioxide"), (3, "R1234yf")] {
-        let fluid = registry.get(name).unwrap();
-        let (x, y) = points(&registry, name, 10_000, seed);
-        let req = BatchRequest::new(Pair::DT, Basis::Molar, &x, &y, &OUTPUTS);
-        let (mut out, mut status) = (vec![0.0; x.len() * OUTPUTS.len()], vec![Status::Other; x.len() * OUTPUTS.len()]);
-        batch::evaluate(fluid, &req, &mut out, &mut status).unwrap();
-        let (mut two_phase, mut refused) = (0, 0);
-        for (i, (rho, t)) in x.iter().zip(&y).enumerate() {
-            let state = fluid.state(Input::dt(Density::molar(*rho).unwrap(), Temperature::new(*t).unwrap()));
-            two_phase += usize::from(state.as_ref().is_ok_and(|s| s.quality().is_some()));
-            for (k, prop) in OUTPUTS.iter().enumerate() {
-                let scalar = state.as_ref().map_err(Clone::clone).and_then(|s| fluid.prop(s, *prop));
-                let (cell, cell_status) = (out[i * OUTPUTS.len() + k], status[i * OUTPUTS.len() + k]);
-                match scalar {
-                    Ok(v) => assert_eq!(
-                        (cell.to_bits(), cell_status),
-                        (v.to_bits(), Status::Ok),
-                        "{name} point {i} {prop:?}"
-                    ),
-                    Err(e) => {
-                        assert!(cell.is_nan() && cell_status == Status::from(&e), "{name} point {i} {prop:?}: {e:?}");
-                        refused += 1;
-                    }
+        let (two_phase, refused) = batch_against_scalar(&registry, name, seed);
+        assert!(two_phase > 100 && refused > 0, "{name}: {two_phase} two-phase points, {refused} refused cells");
+    }
+}
+
+/// One fluid of [`batch_equals_scalar_bitwise`]: its 10,000 points (from `seed`) through `batch::evaluate`, each cell
+/// asserted bitwise the scalar flash's and `Fluid::prop`'s, with its status; returns the two-phase points and the
+/// refused cells.
+fn batch_against_scalar(registry: &Registry, name: &str, seed: u64) -> (usize, usize) {
+    let fluid = registry.get(name).unwrap();
+    let (x, y) = points(registry, name, 10_000, seed);
+    let req = BatchRequest::new(Pair::DT, Basis::Molar, &x, &y, &OUTPUTS);
+    let (mut out, mut status) = (vec![0.0; x.len() * OUTPUTS.len()], vec![Status::Other; x.len() * OUTPUTS.len()]);
+    batch::evaluate(fluid, &req, &mut out, &mut status).unwrap();
+    let (mut two_phase, mut refused) = (0, 0);
+    for (i, (rho, t)) in x.iter().zip(&y).enumerate() {
+        let state = fluid.state(Input::dt(Density::molar(*rho).unwrap(), Temperature::new(*t).unwrap()));
+        two_phase += usize::from(state.as_ref().is_ok_and(|s| s.quality().is_some()));
+        for (k, prop) in OUTPUTS.iter().enumerate() {
+            let scalar = state.as_ref().map_err(Clone::clone).and_then(|s| fluid.prop(s, *prop));
+            let (cell, cell_status) = (out[i * OUTPUTS.len() + k], status[i * OUTPUTS.len() + k]);
+            match scalar {
+                Ok(v) => {
+                    assert_eq!((cell.to_bits(), cell_status), (v.to_bits(), Status::Ok), "{name} point {i} {prop:?}")
+                }
+                Err(e) => {
+                    assert!(cell.is_nan() && cell_status == Status::from(&e), "{name} point {i} {prop:?}: {e:?}");
+                    refused += 1;
                 }
             }
         }
-        assert!(two_phase > 100 && refused > 0, "{name}: {two_phase} two-phase points, {refused} refused cells");
     }
+    (two_phase, refused)
 }
 
 /// User decision 11 (ARCHITECTURE.md §7): `out[i·M + k]` is output k of point i, and `status` has the same layout.

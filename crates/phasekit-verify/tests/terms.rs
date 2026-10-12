@@ -85,33 +85,42 @@ fn jet4_matches_num_dual_on_every_real_method() {
     for _ in 0..100 {
         let (tau, delta) = (rng.uniform(0.5, 2.0), rng.uniform(0.5, 2.0));
         for m in &METHODS {
-            let g = |t: Jet4, d: Jet4| (t * d + t) * m.scale;
-            let inner = g(Jet4::tau(tau), Jet4::delta(delta));
-            let got = (m.jet)(inner);
-            // |m⁽ⁿ⁾(g₀)| from num-dual on one variable, then the expansion's scale.
-            let g0 = inner.value();
-            let eps = inner + -g0;
-            let mut power = Jet4::constant(1.0);
-            let mut scale = Jet4::constant(0.0);
-            for n in 0..=4 {
-                let x = var(g0, [0, 1, 2, 3].map(|k| k < n));
-                let factorial = [1.0, 1.0, 2.0, 6.0, 24.0][n];
-                scale = scale + power * (part(&(m.dual)(&x), n).abs() / factorial);
-                power = power * eps;
-            }
-            for (i, j) in entries() {
-                let (t, d) = tau_delta(tau, delta, i, j);
-                let want = part(&(m.dual)(&((t * d + t) * m.scale)), i + j);
-                let (got, bound) = (got.derivative(i, j).unwrap(), scale.derivative(i, j).unwrap());
-                checked += 1;
-                if (got - want).abs() > ToleranceClass::Term.bound(bound).unwrap() {
-                    failures.push(format!("{} at ({tau}, {delta}), ∂{i}{j}: jet {got:e}, num-dual {want:e}", m.name));
-                }
-            }
+            checked += jet4_against_num_dual(m, (tau, delta), &mut failures);
         }
     }
     assert_eq!(checked, 100 * 14 * 15);
     assert!(failures.is_empty(), "{} of {checked} outside Term:\n{}", failures.len(), failures.join("\n"));
+}
+
+/// One method and point of [`jet4_matches_num_dual_on_every_real_method`]: `m` of `g = s·(τδ + τ)` at (τ, δ), all 15
+/// derivatives to order 4 against num-dual's within `Term` of the Faà di Bruno scale, each failure into `failures`;
+/// returns the derivatives compared.
+fn jet4_against_num_dual(m: &Method, (tau, delta): (f64, f64), failures: &mut Vec<String>) -> usize {
+    let g = |t: Jet4, d: Jet4| (t * d + t) * m.scale;
+    let inner = g(Jet4::tau(tau), Jet4::delta(delta));
+    let got = (m.jet)(inner);
+    // |m⁽ⁿ⁾(g₀)| from num-dual on one variable, then the expansion's scale.
+    let g0 = inner.value();
+    let eps = inner + -g0;
+    let mut power = Jet4::constant(1.0);
+    let mut scale = Jet4::constant(0.0);
+    for n in 0..=4 {
+        let x = var(g0, [0, 1, 2, 3].map(|k| k < n));
+        let factorial = [1.0, 1.0, 2.0, 6.0, 24.0][n];
+        scale = scale + power * (part(&(m.dual)(&x), n).abs() / factorial);
+        power = power * eps;
+    }
+    let mut checked = 0;
+    for (i, j) in entries() {
+        let (t, d) = tau_delta(tau, delta, i, j);
+        let want = part(&(m.dual)(&((t * d + t) * m.scale)), i + j);
+        let (got, bound) = (got.derivative(i, j).unwrap(), scale.derivative(i, j).unwrap());
+        checked += 1;
+        if (got - want).abs() > ToleranceClass::Term.bound(bound).unwrap() {
+            failures.push(format!("{} at ({tau}, {delta}), ∂{i}{j}: jet {got:e}, num-dual {want:e}", m.name));
+        }
+    }
+    checked
 }
 
 /// 300 SplitMix64 points for a fluid's terms: τ ~ U[T_r/Tmax, T_r/Tmin], δ ~ logU[1e-12, ρ_max/ρ_r], 10 of them at

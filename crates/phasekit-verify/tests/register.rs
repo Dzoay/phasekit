@@ -105,20 +105,21 @@ fn residuals(table: &Fixture, column: &str, scale: f64, oracle: impl Fn(usize) -
     (rel.iter().copied().fold(f64::INFINITY, f64::min), rel.iter().copied().fold(f64::NEG_INFINITY, f64::max))
 }
 
-/// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
-/// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
-#[test]
-#[expect(clippy::too_many_lines, reason = "M7.9d: one check per kind of fact")]
-fn register_cites_reproducible_oracle_facts() {
-    let (path, text) = fixture!("coolprop-8.0.0/facts/register.csv");
-    let facts = Fixture::parse(path, text).unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!((facts.kind(), facts.provenance()), ("facts", Provenance::Oracle { version: "8.0.0" }));
-    let ok = |name: &str| match fact(&facts, name) {
-        Some(("ok", value)) => value,
-        other => panic!("fact `{name}`: {other:?}"),
-    };
-    let paper =
-        |(path, text): (&'static str, &'static str)| Fixture::parse(path, text).unwrap_or_else(|e| panic!("{e}"));
+/// The value of the fact `name`, whose call must have succeeded.
+fn ok_fact(facts: &Fixture<'_>, name: &str) -> f64 {
+    let found = fact(facts, name);
+    assert!(matches!(found, Some(("ok", _))), "fact `{name}`: {found:?}");
+    found.map_or(f64::NAN, |(_, value)| value)
+}
+
+/// A committed paper table.
+fn paper((path, text): (&'static str, &'static str)) -> Fixture<'static> {
+    Fixture::parse(path, text).map_err(|e| e.to_string()).unwrap()
+}
+
+/// The facts of DIV-0001 to DIV-0005, each asserted; returns the entries checked.
+fn div_0001_to_0005(facts: &Fixture<'_>) -> Vec<&'static str> {
+    let ok = |name: &str| ok_fact(facts, name);
     let mut checked = Vec::new();
 
     // DIV-0001: the stored R is 8.314472, and the oracle's p is +1.0e-6..+1.4e-6 above Thol's Table 3 at the five
@@ -154,6 +155,13 @@ fn register_cites_reproducible_oracle_facts() {
     }
     assert!(cites(lo, "-4.8e-7") && cites(hi, "-0.9e-7"), "DIV-0005: {lo:e}..{hi:e}");
     checked.push("DIV-0005");
+    checked
+}
+
+/// The facts of DIV-0006 to DIV-0012, each asserted; returns the entries checked.
+fn div_0006_to_0012(facts: &Fixture<'_>) -> Vec<&'static str> {
+    let ok = |name: &str| ok_fact(facts, name);
+    let mut checked = Vec::new();
 
     // DIV-0006..0008: the v8.0.0 reducing densities (and molar masses) corrected upstream in 2acbbc82.
     assert_eq!((ok("div0006_rhomolar_reducing"), ok("div0006_molar_mass")), (7636.76598074554, 0.02805376));
@@ -162,7 +170,7 @@ fn register_cites_reproducible_oracle_facts() {
     checked.extend(["DIV-0006", "DIV-0007", "DIV-0008"]);
 
     // DIV-0009: R1233zd(E) has no viscosity model in v8.0.0.
-    assert_eq!(fact(&facts, "div0009_eta_t300_p101325").map(|(status, _)| status), Some("err:notimpl"));
+    assert_eq!(fact(facts, "div0009_eta_t300_p101325").map(|(status, _)| status), Some("err:notimpl"));
     checked.push("DIV-0009");
 
     // DIV-0010: PR propane at 400 K, 1 bar: T (∂s/∂T)_p = 91.35 against c_p = 93.89 J/(mol K).
@@ -183,8 +191,15 @@ fn register_cites_reproducible_oracle_facts() {
     checked.push("DIV-0011");
 
     // DIV-0012: Water below Tmin, (55018.5 mol/m³, 250 K), gives a pressure without error.
-    assert_eq!(fact(&facts, "div0012_p_t250_rho55018.5"), Some(("ok", -5.9277123935677105)));
+    assert_eq!(fact(facts, "div0012_p_t250_rho55018.5"), Some(("ok", -5.9277123935677105)));
     checked.push("DIV-0012");
+    checked
+}
+
+/// The facts of DIV-0013 to DIV-0017, each asserted; returns the entries checked.
+fn div_0013_to_0017(facts: &Fixture<'_>) -> Vec<&'static str> {
+    let ok = |name: &str| ok_fact(facts, name);
+    let mut checked = Vec::new();
 
     // DIV-0013: R1234yf + R1234ze(E), z₁ = 0.4, 469 K, 3399 mol/m³: αʳ = −0.464679 against Bell's −0.460595.
     assert!(cites(ok("div0013_alphar_t469_rho3399"), "-0.464679"));
@@ -235,6 +250,13 @@ fn register_cites_reproducible_oracle_facts() {
     let (chlorine, rho) = k2_at_oracle("Chlorine");
     assert!(dmc > 5e-11 && chlorine.abs() < 1e-11 && (rho / 7949.83 - 1.0).abs() < 1e-6, "DIV-0017: {dmc}, {chlorine}");
     checked.push("DIV-0017");
+    checked
+}
+
+/// The facts of DIV-0018 to DIV-0020, each asserted; returns the entries checked.
+fn div_0018_to_0020(facts: &Fixture<'_>) -> Vec<&'static str> {
+    let ok = |name: &str| ok_fact(facts, name);
+    let mut checked = Vec::new();
 
     // DIV-0018: in all/sat.csv, the oracle's PQ at R245fa's p at Θ = 1e-7 misses the QT row that gave it that p by
     // 2.0e-11 in T and 1.1e-6 in ρ (its T(ln p) inverse, unpolished).
@@ -290,7 +312,20 @@ fn register_cites_reproducible_oracle_facts() {
     let h = |row| air.value(row, "h").unwrap();
     assert!(cites(apart(h(pt), h(pt + 1)), "6.1e-10"), "DIV-0020: {} and {}", h(pt), h(pt + 1));
     checked.push("DIV-0020");
+    checked
+}
 
+/// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
+/// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
+#[test]
+fn register_cites_reproducible_oracle_facts() {
+    let (path, text) = fixture!("coolprop-8.0.0/facts/register.csv");
+    let facts = Fixture::parse(path, text).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!((facts.kind(), facts.provenance()), ("facts", Provenance::Oracle { version: "8.0.0" }));
+    let checked: Vec<&str> = [div_0001_to_0005, div_0006_to_0012, div_0013_to_0017, div_0018_to_0020]
+        .iter()
+        .flat_map(|group| group(&facts))
+        .collect();
     let ids: Vec<&str> = DIVERGENCES.iter().map(|d| d.id).collect();
     assert_eq!(checked, ids, "every register entry has its facts checked");
     for row in facts.rows() {

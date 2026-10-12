@@ -9,6 +9,11 @@ use phasekit_verify::{
     ARBITERS, ArbiterStatus, DIVERGENCES, Fixture, MILESTONE, Part, Tolerance, fixture, from_printed,
 };
 
+#[path = "common/sweep.rs"]
+mod sweep;
+
+use sweep::Failures;
+
 const MANIFEST: &str = include_str!("../fixtures/MANIFEST.sha256");
 
 fn committed(file: &str) -> bool {
@@ -106,7 +111,7 @@ fn within_printed(table: &Fixture<'_>, row: usize, column: &str, got: f64) -> Re
 fn iapws95_table6_within_printed_digits() {
     let (path, text) = fixture!("paper/Water/IAPWS-R6-95-2018.6.csv");
     let table = Fixture::parse(path, text).unwrap();
-    let mut failures = Vec::new();
+    let mut failures = Failures::default();
     for (label, model, m) in iapws95_models() {
         let (t, rho) = (table.value(0, "T").unwrap(), table.value(0, "rho").unwrap() / m);
         let eos = model.eos();
@@ -116,9 +121,7 @@ fn iapws95_table6_within_printed_digits() {
                 |i: usize, j: usize| a.get(i, j).unwrap() / (math::powi(tau, i as i32) * math::powi(delta, j as i32));
             let entries = [("", at(0, 0)), ("_d", at(0, 1)), ("_dd", at(0, 2)), ("_t", at(1, 0)), ("_tt", at(2, 0))];
             for (suffix, got) in entries.into_iter().chain([("_dt", at(1, 1))]) {
-                if let Err(e) = within_printed(&table, 0, &format!("{prefix}{suffix}"), got) {
-                    failures.push(format!("{label}: {e}"));
-                }
+                failures.ok(within_printed(&table, 0, &format!("{prefix}{suffix}"), got), |e| format!("{label}: {e}"));
             }
         }
     }
@@ -133,19 +136,13 @@ fn iapws95_table7_within_printed_digits() {
     let (path, text) = fixture!("paper/Water/IAPWS-R6-95-2018.7.csv");
     let table = Fixture::parse(path, text).unwrap();
     assert_eq!(table.rows().len(), 11);
-    let mut failures = Vec::new();
+    let mut failures = Failures::default();
     for (label, model, m) in iapws95_models() {
         let eos = model.eos();
         for row in 0..table.rows().len() {
             let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rho").unwrap() / m);
             let total = (eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two)).bundle().unwrap();
-            let phase = if t > 647.096 {
-                Phase::Supercritical
-            } else if rho * m > 322.0 {
-                Phase::Liquid
-            } else {
-                Phase::Gas
-            };
+            let phase = iapws95_phase(t, rho * m);
             let state = State::from_total(model.info().key(), t, rho, eos.gas_constant(), m, phase, &total).unwrap();
             let values = [
                 ("p", state.p() / 1e6),
@@ -154,13 +151,22 @@ fn iapws95_table7_within_printed_digits() {
                 ("s", state.s(Basis::Mass) / 1e3),
             ];
             for (column, got) in values {
-                if let Err(e) = within_printed(&table, row, column, got) {
-                    failures.push(format!("{label}: {e}"));
-                }
+                failures.ok(within_printed(&table, row, column, got), |e| format!("{label}: {e}"));
             }
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// The phase of a Table 7 state at `t` and the mass density `rho`: supercritical above T_c, else liquid above ρ_c.
+fn iapws95_phase(t: f64, rho: f64) -> Phase {
+    if t > 647.096 {
+        Phase::Supercritical
+    } else if rho > 322.0 {
+        Phase::Liquid
+    } else {
+        Phase::Gas
+    }
 }
 
 /// The cells of a K3 (saturation) table outside their printed digits for `model` (class `Paper`), each row through
