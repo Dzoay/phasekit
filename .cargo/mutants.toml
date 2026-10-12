@@ -135,4 +135,12 @@ exclude_re = [
     # instead of 10ε changes only numerators below 2.2e-15, where the enhancement is about 1e-20 W/(m K).
     "transport/conductivity\\.rs:201:36: replace / with \\* in friend_chi",
     "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace \\* with /$",
+    # Equivalent (M8.7): the IAPWS water forms' comparisons are CoolProp's strict ones, and differ from `<=` or `>=` only
+    # at equality, where both sides give the same value: Δχ̄ = 0 is clamped to 0 either way; R12-08's two Y(ξ) branches
+    # meet at ξ = 0.3817016416 nm, the release's switch point; at q_C ξ = 1, w = 0 and both forms of L are 0; at
+    # y = 1.2e-7, Z(y) is 0 to rounding (R15-11 Eq. (21)). Each branch either side is reached by the release tables.
+    "transport/iapws\\.rs:[0-9]+:[0-9]+: replace < with <= in correlation_length",
+    "transport/iapws\\.rs:[0-9]+:[0-9]+: replace < with <= in y_of_xi",
+    "transport/iapws\\.rs:[0-9]+:[0-9]+: replace > with >= in y_of_xi",
+    "transport/iapws\\.rs:[0-9]+:[0-9]+: replace < with <= in water_conductivity",
 ]
