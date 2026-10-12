@@ -97,7 +97,7 @@ pub mod internal {
         HardcodedDiluteConductivity, HardcodedDiluteViscosity, HardcodedHigherViscosity, HardcodedViscosity, Kappa,
         LennardJones, OlchowySengers, Part, Put, Reducing, RhoSrCs, Series, StagedConductivity, StagedViscosity,
         SurfaceTension, Take, TransportRecord, Viscosity, ViscosityDilute, ViscosityHigher, ViscosityInitial,
-        ViscosityModel, ViscosityStages,
+        ViscosityModel, ViscosityStages, WaterConductivity, WaterViscosity,
     };
 
     /// The stages of `record`'s staged viscosity at `state` (PLAN.md M8.5): crate-private seams, not API (ROT-115),
@@ -110,6 +110,18 @@ pub mod internal {
     /// viscosity passed in: the seam of the checks against CoolProp's `conductivity_contributions`.
     pub fn conductivity_stages(record: &FluidRecord, state: &crate::State) -> Result<ConductivityStages, crate::Error> {
         transport_stages(record, state)?.1
+    }
+
+    /// IAPWS R12-08's and R15-11's factors at `state` from `record`'s EOS (PLAN.md M8.7): the seam of the release tables'
+    /// stage-by-stage checks, whatever transport model the record holds. λ̄₂ reads the η of these factors.
+    pub fn water_transport(
+        record: &FluidRecord,
+        state: &crate::State,
+    ) -> Result<(WaterViscosity, WaterConductivity), crate::Error> {
+        let eos = record.eos.compile()?;
+        let x = crate::transport::TransportInputs::new(state, record.molar_mass, &eos);
+        let eta = crate::transport::water_viscosity(&x);
+        Ok((eta, crate::transport::water_conductivity(&x, eta.reduced() * 1e-6)?))
     }
 
     /// Both seams' stages, from the record's EOS and transport models.

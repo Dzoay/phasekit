@@ -130,6 +130,12 @@ pub mod math {
         cosh => cosh;
         /// Arctangent.
         atan => atan;
+        /// Arccosine (IAPWS R12-08's Y(ξ)).
+        acos => acos;
+        /// Sine (IAPWS R12-08's Y(ξ)).
+        sin => sin;
+        /// Tangent (IAPWS R12-08's Y(ξ)).
+        tan => tan;
         /// Cosine (datagen's Chebyshev-Lobatto nodes).
         cos => cos;
     }

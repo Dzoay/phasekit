@@ -50,6 +50,11 @@ impl<'a> TransportInputs<'a> {
         self.state.rho(Basis::Molar)
     }
 
+    /// The molar mass, kg/mol.
+    pub(super) fn molar_mass(&self) -> f64 {
+        self.molar_mass
+    }
+
     /// The mass density, as CoolProp forms it: ρ times M.
     pub(super) fn rho_mass(&self) -> f64 {
         self.rho() * self.molar_mass
@@ -87,8 +92,9 @@ impl<'a> TransportInputs<'a> {
     }
 }
 
-/// The stages of a staged viscosity, Pa s: CoolProp's `viscosity_contributions`, whose `critical` is 0 for every staged
-/// fluid (`HelmholtzEOSMixtureBackend.cpp:916-917`).
+/// The stages of a viscosity, Pa s: CoolProp's `viscosity_contributions` for a staged model, whose `critical` is 0
+/// (`HelmholtzEOSMixtureBackend.cpp:916-917`). Water's critical enhancement is the only one (IAPWS R12-08); its and
+/// heavy water's multiplied factors are split into these terms (`iapws`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ViscosityStages {
     /// The dilute-gas term η₀.
@@ -97,12 +103,14 @@ pub struct ViscosityStages {
     pub initial_density: f64,
     /// The higher-order term Δη.
     pub residual: f64,
+    /// The critical enhancement Δη_c (0 but for Water).
+    pub critical: f64,
 }
 
 impl ViscosityStages {
-    /// η = η₀ + η₁ + Δη, summed as CoolProp sums them.
+    /// η = η₀ + η₁ + Δη + Δη_c, summed as CoolProp sums a staged model's terms.
     pub fn total(&self) -> f64 {
-        self.dilute + self.initial_density + self.residual
+        self.dilute + self.initial_density + self.residual + self.critical
     }
 }
 
@@ -132,7 +140,7 @@ pub(crate) fn stages(
         None => 0.0,
     };
     let residual = higher(&model.higher, x)?;
-    Ok(ViscosityStages { dilute, initial_density, residual })
+    Ok(ViscosityStages { dilute, initial_density, residual, critical: 0.0 })
 }
 
 /// η₀, Pa s (`TransportRoutines.cpp:9-102`).
