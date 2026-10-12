@@ -136,7 +136,7 @@ fn p_x_round_trips() {
 /// (`FlashCheck::dx_round_trips`). And map 03 §8 AirCritical (`CoolProp-Tests-AirCritical.cpp:33`): Air, pseudo-pure,
 /// on CoolProp's 60 × 40 grid of T/Tc in [0.96, 2] and p/pc in [0.5, 5], every single-phase PT state round-trips the
 /// same way, where CoolProp asks 2e-4 (its D+X threw "p is not a valid number" near ρc before that test). On the way
-/// the search passes where Air's VLE fails, just below its published Tc (`flash::isochore_x`).
+/// the search passes where Air's VLE fails, just below its published Tc (`flash::isochore::isochore_x`).
 #[test]
 fn d_x_round_trips() {
     let check = every_core_flash(|check, fixture, fluid, _| check.dx_round_trips(fixture, fluid));
