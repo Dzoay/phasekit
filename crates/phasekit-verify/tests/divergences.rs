@@ -4,7 +4,9 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::internal::{ConductivityModel, Edit, FluidRecord, IdealTerm};
+use phasekit_core::internal::{
+    ConductivityModel, Edit, FluidRecord, IdealTerm, LennardJones, LjSource, ViscosityModel,
+};
 use phasekit_core::{
     Basis, DataSet, Density, DomainError, Error, FlashOptions, Input, Order, Phase, Pressure, Prop, Quality, Registry,
     Temperature, ThermoModel,
@@ -42,6 +44,8 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0025", div_0025),
     ("DIV-0026", div_0026),
     ("DIV-0027", div_0027),
+    ("DIV-0028", div_0028),
+    ("DIV-0029", div_0029),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -583,4 +587,59 @@ fn div_0027() {
     assert!((lambda(300.0) - 9.71).abs() <= 0.005, "within the table's digits at 300 K");
     let off = lambda(600.0) / 41.14 - 1.0;
     assert!((off + 1.3e-4).abs() <= 0.05e-4 && (lambda(600.0) - 41.1347).abs() <= 0.00005, "{off:e}");
+}
+
+/// DIV-0028 (`Investigate`; map 05 R4, M8.9): R1234yf's stored (ρ s_r)_c is 6.85e-3 from ρ_r R (τα^r_τ − α^r) at its
+/// current EOS's reducing state, and with that derived value its saturated liquid's viscosity rises by 1.6e-2 at 250 K
+/// and 7.8e-3 at 340 K; the vapour's moves by under 7e-4. Resolution: derive the constant from the EOS.
+fn div_0028() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let record = phasekit_core::internal::record(&registry, "R1234yf").unwrap();
+    let model = record.transport.as_ref().and_then(|t| t.viscosity.as_ref()).map(|v| &v.model);
+    let Some(ViscosityModel::RhoSrCs(stored)) = model else { panic!("rhosr-CS") };
+    let (t, rho) = (record.eos.t_reducing, record.eos.rho_reducing);
+    let a = record.clone().compile().unwrap().eos().residual(t, rho, Order::One);
+    let derived = rho * record.eos.gas_constant * (a.get(1, 0).unwrap() - a.get(0, 0).unwrap());
+    assert!((derived / stored.rhosr_critical - 1.0 + 6.85e-3).abs() < 1e-5, "{derived}");
+    let mut edited = record.clone();
+    edited.transport.as_mut().unwrap().apply(Edit::RhosrCritical(derived)).unwrap();
+    let fluid = registry.get("R1234yf").unwrap();
+    let eta = |record: &FluidRecord, t: f64, q: f64| {
+        let state = fluid.state(Input::qt(Quality::new(q).unwrap(), Temperature::new(t).unwrap())).unwrap();
+        phasekit_core::internal::transport_stages_with(record, &state, &[]).unwrap().0.unwrap().total()
+    };
+    let off = |t: f64, q: f64| eta(&edited, t, q) / eta(&record, t, q) - 1.0;
+    assert!((off(250.0, 0.0) - 1.56e-2).abs() < 5e-4 && (off(340.0, 0.0) - 7.8e-3).abs() < 5e-4);
+    assert!([250.0, 300.0, 340.0].iter().all(|&t| off(t, 1.0).abs() < 7e-4));
+}
+
+/// DIV-0029 (`Investigate`; map 05 R17, M8.9): the four fluids' ECS conductivity reads Chung's Lennard-Jones estimate
+/// from the EOS reducing state, as CoolProp does; the parameters in each file's unread second viscosity entry, which
+/// ship with the same ECS model, lower the dilute-gas conductivity at 250 to 400 K by up to the cited amounts.
+/// Resolution: the papers' own parameters (Huber 2003, Klein 1997, McLinden 2000).
+fn div_0029() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let published = [
+        ("R124", 5.501e-10, 275.8, "Propane", -0.1053),
+        ("R22", 4.666e-10, 284.72, "R134a", -0.0834),
+        ("R245fa", 5.529e-10, 329.72, "R134a", -0.1204),
+        ("R32", 4.098e-10, 289.65, "Propane", -0.0567),
+    ];
+    for (name, sigma, epsilon_over_k, reference, cited) in published {
+        let record = record(name, DataSet::Parity);
+        let mut edited = record.clone();
+        let conductivity = edited.transport.as_mut().unwrap().conductivity.as_mut().unwrap();
+        let ConductivityModel::Ecs(ecs) = &mut conductivity.model else { panic!("{name}: ECS") };
+        assert_eq!(ecs.lennard_jones, LjSource::chung(record.eos.t_reducing, record.eos.rho_reducing), "{name}");
+        ecs.lennard_jones = LjSource::Model(LennardJones { sigma, epsilon_over_k });
+        let (fluid, references) = (registry.get(name).unwrap(), [registry.get(reference).unwrap().clone()]);
+        let worst = [250.0, 300.0, 350.0, 400.0].into_iter().fold(0.0_f64, |worst, t| {
+            let state = fluid.state(Input::dt(Density::molar(1.0).unwrap(), Temperature::new(t).unwrap())).unwrap();
+            let dilute = |r: &FluidRecord| {
+                phasekit_core::internal::transport_stages_with(r, &state, &references).unwrap().1.unwrap().dilute
+            };
+            worst.min(dilute(&edited) / dilute(&record) - 1.0)
+        });
+        assert!((worst - cited).abs() < 5e-4, "{name}: {worst}");
+    }
 }

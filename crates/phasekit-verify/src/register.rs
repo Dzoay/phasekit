@@ -600,6 +600,45 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[8],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0028",
+        fluids: &["R1234yf"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 05 R4, M8.9: a rhosr-CS block's (rho s_r)_c is rho_r R (tau a^r_tau - a^r) at its EOS's reducing \
+                   state; six of v8.0.0's seven match their EOS within 2e-6, but R1234yf's stored -54468.48 is 6.9e-3 \
+                   from its current EOS's -54095.50 (its EOS was replaced after the value was derived); with the \
+                   derived value its saturated-liquid viscosity rises +1.6e-2 at 250 K and +7.8e-3 at 340 K, its vapour \
+                   below 7e-4 (2026-10-12); both data sets keep the stored value, as CoolProp does; to decide: derive \
+                   it from the EOS",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0029",
+        fluids: &["R124", "R22", "R245fa", "R32"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 05 R17, M8.9: these four have a rhosr-CS viscosity, whose block has no Lennard-Jones parameters, \
+                   and an ECS conductivity, whose dilute terms CoolProp evaluates with the Chung estimate it fills in \
+                   from the EOS reducing state (named LjSource::Chung in the record); the parameters that ship with the \
+                   same ECS model, in each file's unread second viscosity entry (R245fa sigma 0.5529 nm against Chung's \
+                   0.5151), lower the dilute-gas conductivity at 250-400 K by up to 1.1e-1 (R124), 8.3e-2 (R22), 1.2e-1 \
+                   (R245fa) and 5.7e-2 (R32) (2026-10-12); to transcribe: Huber, Laesecke and Perkins 2003, Klein et \
+                   al. 1997 and McLinden et al. 2000",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an

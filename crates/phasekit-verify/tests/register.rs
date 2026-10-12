@@ -400,6 +400,31 @@ fn div_0027(_: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0027"]
 }
 
+/// DIV-0028 and DIV-0029: the oracle evaluates R1234yf's viscosity with its stored (ρ s_r)_c, and the four fluids'
+/// ECS conductivity with Chung's Lennard-Jones estimate: phasekit, with both as stored, matches its η and λ at the
+/// all-fluid tier's states (`TransportDirect` and `TransportEcs`).
+fn div_0028_to_0029(_: &Fixture<'_>) -> Vec<&'static str> {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let (path, text) = fixture!("coolprop-8.0.0/all/transport.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let ecs = |name| (name, Prop::Conductivity, "lambda", 1e-8);
+    let cases = [("R1234yf", Prop::Viscosity, "eta", 1e-12), ecs("R124"), ecs("R22"), ecs("R245fa"), ecs("R32")];
+    for (name, prop, column, bound) in cases {
+        let fluid = registry.get(name).unwrap();
+        let rows = (0..table.rows().len()).filter(|&r| table.printed(r, "fluid") == Some(name));
+        let rows: Vec<usize> = rows.filter(|&r| table.printed(r, &format!("{column}_status")) == Some("ok")).collect();
+        for &r in &rows {
+            let (t, rho) = (table.value(r, "T").unwrap(), table.value(r, "rho").unwrap());
+            let state = fluid.state(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap())).unwrap();
+            let want = table.value(r, column).unwrap();
+            let got = fluid.prop(&state, prop).unwrap();
+            assert!((got / want - 1.0).abs() <= bound, "{name} row {r}: {got} against {want}");
+        }
+        assert!(rows.len() >= 7, "{name}");
+    }
+    vec!["DIV-0028", "DIV-0029"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -416,6 +441,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0023_to_0025,
         div_0026,
         div_0027,
+        div_0028_to_0029,
     ]
     .iter()
     .flat_map(|group| group(&facts))
