@@ -949,7 +949,7 @@ the steps that record each row.
   one-thread time over the N-thread time.
 - **Recording:** `cargo xtask bench --record` writes `crates/phasekit-verify/benches/results/<milestone>-<machine>.csv`
   (date, commit, step, bench, fluid, median, unit, CPU, OS, rustc, governor). At each milestone close the results are
-  compared with the ARCHITECTURE.md §7 table. Another machine than the reference machine (PLAN.md §6 P3, user decision
+  compared with the ARCHITECTURE.md §7 table. Another machine than the reference machine (user decisions P3 and
   RM1) records its own C++ baseline before its first bench and compares its results with that baseline only; the §7
   targets are checked on the reference machine. The dev laptop's (i7-1165G7, 4 cores / 8 threads, 2026-10-11): one
   thread runs every workload in 0.71-0.89 of the i7-8700K's time; its 6- and 12-thread scaling rows oversubscribe its

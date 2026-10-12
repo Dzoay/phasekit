@@ -1054,7 +1054,9 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
    sources bypass datagen.
 7. **Emit** one versioned LE blob per fluid (header, checksum, section table; the EOS section is written by
    `EosRecord::encode`, the same encoder the runtime hash gate uses), the sorted index (556 keys, 0 collisions, map 09)
-   and `DATASET`. Everything is committed and diffed in CI.
+   and `DATASET`. Everything is committed and diffed in CI. The blob reserves a section id for every planned section;
+   filling an empty one changes bytes, not the version, and only a layout change to a filled section bumps the
+   version (`blob::VERSION`). The decoder refuses any other version: packs are regenerated, never migrated.
 
 
 ```mermaid
