@@ -109,10 +109,10 @@ fn unknown_block_type_is_an_error() {
     ];
     for (file, key, value, why) in transport_cases {
         let mut block = serde_json::from_str::<serde_json::Value>(&text(file)).unwrap()["TRANSPORT"].take();
-        assert!(transport::record(file, Some(&block)).is_ok(), "{file}");
+        assert!(transport::record(file, Some(&block), &from_fluid(file)).is_ok(), "{file}");
         let (parent, name) = key.rsplit_once('/').unwrap();
         block.pointer_mut(parent).unwrap()[name] = value;
-        let err = transport::record(file, Some(&block)).unwrap_err();
+        let err = transport::record(file, Some(&block), &from_fluid(file)).unwrap_err();
         assert!(err.starts_with("TRANSPORT.") && err.ends_with(why), "{file} {key}: {err}");
     }
 }

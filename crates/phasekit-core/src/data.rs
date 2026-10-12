@@ -157,6 +157,25 @@ pub struct EosRecord {
 }
 
 impl EosRecord {
+    /// The model these coefficients describe.
+    pub(crate) fn compile(&self) -> Result<MultiParameterEos, Error> {
+        let ideal = IdealGas::new(self.t_reducing, self.rho_reducing, self.ideal.clone())?;
+        let mut blocks = vec![ResidualBlock::Power(PowerBlock::new(&self.power)?)];
+        if !(self.lemmon2005.is_empty() && self.double_exponential.is_empty()) {
+            blocks.push(ResidualBlock::TauExp(TauExpBlock::new(&self.lemmon2005, &self.double_exponential)?));
+        }
+        if !self.gaussian.is_empty() {
+            blocks.push(ResidualBlock::Gaussian(GaussianBlock::<GaussianTau>::new(&self.gaussian)?));
+        }
+        if !self.gao_b.is_empty() {
+            blocks.push(ResidualBlock::GaoB(GaussianBlock::<GaoBTau>::new(&self.gao_b)?));
+        }
+        if !self.non_analytic.is_empty() {
+            blocks.push(ResidualBlock::NonAnalytic(NonAnalyticBlock::new(&self.non_analytic)?));
+        }
+        Ok(MultiParameterEos::new(self.gas_constant, self.t_reducing, self.rho_reducing, self.rho_max, blocks, ideal)?)
+    }
+
     /// An EOS with its constants and no terms yet.
     pub fn new(gas_constant: f64, t_reducing: f64, rho_reducing: f64, rho_max: f64) -> EosRecord {
         EosRecord {
@@ -839,22 +858,7 @@ impl FluidRecord {
 
     /// A package builder (the registry's decoder adds the lazy saturation and transport parts).
     pub fn builder(self) -> Result<PureFluidBuilder, Error> {
-        let e = &self.eos;
-        let ideal = IdealGas::new(e.t_reducing, e.rho_reducing, e.ideal.clone())?;
-        let mut blocks = vec![ResidualBlock::Power(PowerBlock::new(&e.power)?)];
-        if !(e.lemmon2005.is_empty() && e.double_exponential.is_empty()) {
-            blocks.push(ResidualBlock::TauExp(TauExpBlock::new(&e.lemmon2005, &e.double_exponential)?));
-        }
-        if !e.gaussian.is_empty() {
-            blocks.push(ResidualBlock::Gaussian(GaussianBlock::<GaussianTau>::new(&e.gaussian)?));
-        }
-        if !e.gao_b.is_empty() {
-            blocks.push(ResidualBlock::GaoB(GaussianBlock::<GaoBTau>::new(&e.gao_b)?));
-        }
-        if !e.non_analytic.is_empty() {
-            blocks.push(ResidualBlock::NonAnalytic(NonAnalyticBlock::new(&e.non_analytic)?));
-        }
-        let eos = MultiParameterEos::new(e.gas_constant, e.t_reducing, e.rho_reducing, e.rho_max, blocks, ideal)?;
+        let eos = self.eos.compile()?;
         let aliases: Vec<&str> = self.aliases.iter().map(String::as_str).collect();
         let mut info = FluidInfo::new(&self.name, self.molar_mass, self.source.clone(), self.model_key())?;
         if let Some(c) = self.critical.filter(|c| c.origin == CriticalOrigin::Published) {

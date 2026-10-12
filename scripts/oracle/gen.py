@@ -119,6 +119,20 @@ FACTS = {
         ("div0022_eta_r123_t265", "PropsSI", ("V", "T", 265, "Dmass", 1545.8, "R123")),
         ("div0022_eta_noctane_t300", "PropsSI", ("V", "T", 300, "Dmolar", 6177.2, "n-Octane")),
         ("div0022_eta_npropane_t150", "PropsSI", ("V", "T", 150, "Dmolar", 15140, "n-Propane")),
+        # CoolProp's lambda at the conductivity check rows off their printed digits (DIV-0023: near the critical point
+        # and a coarse density; DIV-0024: Friend's methane; DIV-0025: n-Pentane's critical term, with the viscosity
+        # it reads).
+        ("div0023_lambda_air_t132.64", "PropsSI", ("L", "T", 132.64, "Dmolar", 10400, "Air")),
+        ("div0023_lambda_argon_t150.69", "PropsSI", ("L", "T", 150.69, "Dmolar", 13400, "Argon")),
+        ("div0023_lambda_nitrogen_t126.195", "PropsSI", ("L", "T", 126.195, "Dmolar", 11180, "Nitrogen")),
+        ("div0023_lambda_oxygen_t154.6", "PropsSI", ("L", "T", 154.6, "Dmolar", 13600, "Oxygen")),
+        ("div0023_lambda_sf6_t310", "PropsSI", ("L", "T", 310, "Dmass", 1200, "SulfurHexafluoride")),
+        ("div0023_lambda_nonane_t300", "PropsSI", ("L", "T", 300, "Dmolar", 5619.4, "n-Nonane")),
+        ("div0024_lambda_methane_t400", "PropsSI", ("L", "T", 400, "Dmass", 1e-12, "Methane")),
+        ("div0024_lambda_methane_t182_q0", "PropsSI", ("L", "T", 182, "Q", 0, "Methane")),
+        ("div0024_lambda_methane_t100", "PropsSI", ("L", "T", 100, "Dmolar", 28800, "Methane")),
+        ("div0025_lambda_npentane_t460", "PropsSI", ("L", "T", 460, "Dmass", 377.687, "n-Pentane")),
+        ("div0025_eta_npentane_t460", "PropsSI", ("V", "T", 460, "Dmass", 377.687, "n-Pentane")),
     ],
 }
 

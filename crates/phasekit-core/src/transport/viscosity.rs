@@ -7,7 +7,9 @@ use super::{
     BatschinskiHildebrand, FrictionSecond, FrictionTheory, Kappa, LennardJones, Series, StagedViscosity,
     ViscosityDilute, ViscosityHigher, ViscosityInitial,
 };
+use crate::derivs::Order;
 use crate::error::{Error, LoadError};
+use crate::helmholtz::HelmholtzModel;
 use crate::math;
 use crate::prop::{DerivVar, Partial};
 use crate::state::State;
@@ -17,30 +19,71 @@ use crate::units::Basis;
 const AVOGADRO: f64 = 6.02214129e23;
 
 /// What a transport form reads of a state (map 05 U1): T, the molar density, the molar mass and R, and, only when a form
-/// needs them, the EOS's p and (∂p/∂T)_ρ at (T, ρ): a state's p is the EOS's at its (T, ρ), never a flash input
-/// (map 05 R14).
+/// needs them, the EOS's p and (∂p/∂T)_ρ at (T, ρ), c_p and c_v, and α's derivatives there or at another T: a state's
+/// p is the EOS's at its (T, ρ), never a flash input (map 05 R14).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct TransportInputs<'a> {
     state: &'a State,
     molar_mass: f64,
+    eos: &'a dyn HelmholtzModel,
+}
+
+/// The residual Helmholtz energy's reduced derivatives at a state: δα^r_δ, δ²α^r_δδ and τδα^r_τδ.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ResidualDerivs {
+    pub(crate) a01: f64,
+    pub(crate) a02: f64,
+    pub(crate) a11: f64,
 }
 
 impl<'a> TransportInputs<'a> {
-    /// The inputs at `state` of a fluid of molar mass `molar_mass`, kg/mol.
-    pub(crate) fn new(state: &'a State, molar_mass: f64) -> Self {
-        TransportInputs { state, molar_mass }
+    /// The inputs at `state` of a fluid of molar mass `molar_mass`, kg/mol, whose EOS is `eos`.
+    pub(crate) fn new(state: &'a State, molar_mass: f64, eos: &'a dyn HelmholtzModel) -> Self {
+        TransportInputs { state, molar_mass, eos }
     }
 
-    fn t(&self) -> f64 {
+    pub(super) fn t(&self) -> f64 {
         self.state.t()
     }
 
-    fn rho(&self) -> f64 {
+    pub(super) fn rho(&self) -> f64 {
         self.state.rho(Basis::Molar)
+    }
+
+    /// The mass density, as CoolProp forms it: ρ times M.
+    pub(super) fn rho_mass(&self) -> f64 {
+        self.rho() * self.molar_mass
     }
 
     fn dp_dt(&self) -> Result<f64, Error> {
         self.state.partial(Partial { of: DerivVar::P, wrt: DerivVar::T, at: DerivVar::Dmolar })
+    }
+
+    pub(super) fn cp(&self) -> Result<f64, Error> {
+        self.state.cp(Basis::Molar)
+    }
+
+    pub(super) fn cv(&self) -> Result<f64, Error> {
+        self.state.cv(Basis::Molar)
+    }
+
+    /// (∂p/∂ρ)_T at this density and temperature `t`, from the EOS, as CoolProp forms it: R T (1 + 2δα^r_δ + δ²α^r_δδ).
+    pub(super) fn dp_drho_at(&self, t: f64) -> f64 {
+        let a = self.eos.residual(t, self.rho(), Order::Two);
+        let (a01, a02) = (a.get(0, 1).unwrap_or(f64::NAN), a.get(0, 2).unwrap_or(f64::NAN));
+        self.eos.gas_constant() * t * (1.0 + 2.0 * a01 + a02)
+    }
+
+    /// The residual derivatives at the state.
+    pub(super) fn residual(&self) -> ResidualDerivs {
+        let a = self.eos.residual(self.t(), self.rho(), Order::Two);
+        let at = |i, j| a.get(i, j).unwrap_or(f64::NAN);
+        ResidualDerivs { a01: at(0, 1), a02: at(0, 2), a11: at(1, 1) }
+    }
+
+    /// τ²α⁰_ττ at the state.
+    pub(super) fn ideal_tau_tau(&self) -> f64 {
+        self.eos.ideal(self.t(), self.rho(), Order::Two).get(2, 0).unwrap_or(f64::NAN)
     }
 }
 
@@ -73,7 +116,7 @@ fn lennard_jones(lj: Option<LennardJones>) -> Result<LennardJones, Error> {
 }
 
 /// Σ aᵢ xᵗⁱ in the series' order.
-fn sum(terms: &Series, x: f64) -> f64 {
+pub(super) fn sum(terms: &Series, x: f64) -> f64 {
     terms.a.iter().zip(&terms.t).fold(0.0, |s, (a, t)| s + a * math::powf(x, *t))
 }
 

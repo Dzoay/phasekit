@@ -57,7 +57,8 @@ pub fn feature_name(name: &str) -> String {
 /// The ECS reference fluids a file's transport models name, as written (M8.1: from the typed record, so an alternate
 /// entry's reference is never a dependency).
 fn references(source: &Source) -> Result<Vec<String>, String> {
-    let record = super::transport::record(&source.file, source.fluid.transport.as_ref())
+    let from = super::transport::FromFluid::of(&source.fluid).map_err(|e| format!("{}: {e}", source.file))?;
+    let record = super::transport::record(&source.file, source.fluid.transport.as_ref(), &from)
         .map_err(|e| format!("{}: {e}", source.file))?;
     Ok(record.references().into_iter().map(str::to_string).collect())
 }

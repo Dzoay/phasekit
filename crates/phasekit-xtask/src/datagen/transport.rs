@@ -21,11 +21,11 @@ use core::convert::Infallible;
 
 use phasekit_core::internal::{
     BatschinskiHildebrand, Chung, Conductivity, ConductivityCritical, ConductivityDilute, ConductivityModel,
-    ConductivityResidual, EcsConductivity, EcsViscosity, FrictionCubic, FrictionSecond, FrictionTheory,
+    ConductivityResidual, EcsConductivity, EcsViscosity, FrictionCubic, FrictionSecond, FrictionTheory, FriendMethane,
     HardcodedConductivity, HardcodedCriticalConductivity, HardcodedDiluteConductivity, HardcodedDiluteViscosity,
-    HardcodedHigherViscosity, HardcodedViscosity, Kappa, LennardJones, MAX_POW, OlchowySengers, RhoSrCs, Series,
-    StagedConductivity, StagedViscosity, SurfaceTension, TransportRecord, Viscosity, ViscosityDilute, ViscosityHigher,
-    ViscosityInitial, ViscosityModel,
+    HardcodedHigherViscosity, HardcodedViscosity, Kappa, LennardJones, MAX_POW, OlchowySengers, Reducing, RhoSrCs,
+    Series, StagedConductivity, StagedViscosity, SurfaceTension, TransportRecord, Viscosity, ViscosityDilute,
+    ViscosityHigher, ViscosityInitial, ViscosityModel,
 };
 use phasekit_core::{DataTerms, Source};
 use serde_json::{Map, Value};
@@ -182,8 +182,32 @@ fn unknown<T>(b: &Block<'_>, kind: &str) -> Result<T, String> {
     Err(b.err(format!("unknown type {kind:?}")))
 }
 
+/// What a fluid's conductivity forms read of the rest of its file, snapshotted into the record (map 05 R10, ROT-117).
+pub struct FromFluid {
+    /// The default EOS's `STATES.reducing`.
+    pub reducing: Reducing,
+    /// The default EOS's `SUPERANCILLARY.meta`, whose `Tcrittrue` and `rhocrittrue` are the critical point CoolProp's
+    /// default configuration reports.
+    pub superancillary_meta: Option<Value>,
+    /// `ANCILLARIES.rhoV`.
+    pub rho_v: Option<Value>,
+}
+
+impl FromFluid {
+    /// What `fluid`'s file holds of it.
+    pub fn of(fluid: &super::mirror::Fluid) -> Result<FromFluid, String> {
+        let eos = fluid.eos.first().ok_or("no EOS")?;
+        let r = &eos.states.reducing;
+        Ok(FromFluid {
+            reducing: Reducing { t: r.t, rho: r.rhomolar, p: r.p },
+            superancillary_meta: eos.superancillary.as_ref().map(|sa| sa.meta.clone()),
+            rho_v: fluid.ancillaries.get("rhoV").cloned(),
+        })
+    }
+}
+
 /// The record of a file's `TRANSPORT` block; a file without one has no models.
-pub fn record(file: &str, transport: Option<&Value>) -> Result<TransportRecord, String> {
+pub fn record(file: &str, transport: Option<&Value>, from: &FromFluid) -> Result<TransportRecord, String> {
     let mut record = TransportRecord::default();
     let Some(transport) = transport else { return Ok(record) };
     let mut b = Block::new(file, "TRANSPORT".into(), transport)?;
@@ -195,7 +219,7 @@ pub fn record(file: &str, transport: Option<&Value>) -> Result<TransportRecord, 
         if entry.is_array() {
             return Err("TRANSPORT.conductivity is a list; v8.0.0 has one conductivity model per fluid".into());
         }
-        record.conductivity = Some(conductivity(Block::new(file, "TRANSPORT.conductivity".into(), entry)?)?);
+        record.conductivity = Some(conductivity(Block::new(file, "TRANSPORT.conductivity".into(), entry)?, from)?);
     }
     b.finish()?;
     Ok(record)
@@ -403,7 +427,7 @@ fn chung(b: &mut Block<'_>) -> Result<Chung, String> {
     })
 }
 
-fn conductivity(mut b: Block<'_>) -> Result<Conductivity, String> {
+fn conductivity(mut b: Block<'_>, from: &FromFluid) -> Result<Conductivity, String> {
     let source = source(&mut b)?;
     let model = if b.has("type") {
         match b.text("type")? {
@@ -411,15 +435,20 @@ fn conductivity(mut b: Block<'_>) -> Result<Conductivity, String> {
             other => return unknown(&b, other),
         }
     } else if b.has("hardcoded") {
-        let name = b.text("hardcoded")?;
-        let model = HardcodedConductivity::from_name(name);
-        ConductivityModel::Hardcoded(model.ok_or_else(|| b.err(format!("unknown hardcoded model {name:?}")))?)
+        match b.text("hardcoded")? {
+            "Methane" => ConductivityModel::Methane(friend_methane(&b, from)?),
+            name => {
+                let model = HardcodedConductivity::from_name(name);
+                ConductivityModel::Hardcoded(model.ok_or_else(|| b.err(format!("unknown hardcoded model {name:?}")))?)
+            }
+        }
     } else {
         // All three stages: CoolProp throws at the first call without one.
         ConductivityModel::Staged(StagedConductivity {
             dilute: conductivity_dilute(b.block("dilute")?)?,
             residual: conductivity_residual(b.block("residual")?)?,
             critical: conductivity_critical(b.block("critical")?)?,
+            reducing: from.reducing,
         })
     };
     b.finish()?;
@@ -433,6 +462,22 @@ fn ecs_conductivity(b: &mut Block<'_>) -> Result<EcsConductivity, String> {
     let (terms, f_int_t_r) = (f_int.series(["a", "t"])?, f_int.num("T_reducing")?);
     f_int.finish()?;
     Ok(EcsConductivity { reference, psi, psi_rho_r, f_int: terms, f_int_t_r, q_d: b.num("q_D")? })
+}
+
+/// Methane's model with what it reads of the rest of the file (`TransportRoutines.cpp:1063-1140`): the critical point
+/// CoolProp's default configuration reports, its superancillary's (map 05 §5: 190.5640027 K and 10139.1377 mol/m³, not
+/// the reducing state's 190.564 K and 10139.128 mol/m³), and `ANCILLARIES.rhoV`. A file without them is refused.
+fn friend_methane(b: &Block<'_>, from: &FromFluid) -> Result<FriendMethane, String> {
+    let meta = from
+        .superancillary_meta
+        .as_ref()
+        .ok_or_else(|| b.err("Methane's model reads the superancillary's critical point"))?;
+    let number = |key: &str| meta.get(key).and_then(Value::as_f64).ok_or_else(|| b.err(format!("no meta {key:?}")));
+    let (t_c, rho_c) = (number("Tcrittrue / K")?, number("rhocrittrue / mol/m^3")?);
+    let r = from.reducing;
+    let rho_v = from.rho_v.as_ref().ok_or_else(|| b.err("Methane's model reads ANCILLARIES.rhoV"))?;
+    let rho_v = super::record::ancillary(rho_v).map_err(|e| b.err(format!("ANCILLARIES.rhoV: {e}")))?;
+    Ok(FriendMethane { t_c, rho_c, rho_v, reducing: r })
 }
 
 fn conductivity_dilute(mut b: Block<'_>) -> Result<ConductivityDilute, String> {
