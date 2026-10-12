@@ -598,6 +598,22 @@ EOS_OUTPUTS += [
      lambda CP, s, of=of, wrt=wrt, at=at: s.first_partial_deriv(*(getattr(CP, f"i{v}") for v in (of, wrt, at))))
     for of, wrt, at in EOS_PARTIALS
 ]
+# Since M7.10, 10 second partials (∂/∂wrt2 (∂of/∂wrt1)_at1)_at2 over the 10 variables CoolProp differentiates twice (its
+# `get_dT_drho_second_derivatives` refuses g): of = v[i], wrt1 = v[i + 2], at1 = v[i + 5], wrt2 = v[i + 3], at2 =
+# v[i + 6] (mod 10), so no partial holds the quantity it differentiates by, in either basis; then the fundamental
+# derivative of gas dynamics, the isothermal compressibility and the isobaric expansion coefficient.
+EOS_SECOND_VARS = ["T", "P", "Dmolar", "Dmass", "Hmolar", "Hmass", "Smolar", "Smass", "Umolar", "Umass"]
+EOS_SECONDS = [tuple(EOS_SECOND_VARS[(i + k) % 10] for k in (0, 2, 5, 3, 6)) for i in range(10)]
+EOS_OUTPUTS += [
+    ("d2{}_d{}_{}_d{}_{}".format(*vs), "-",
+     lambda CP, s, vs=vs: s.second_partial_deriv(*(getattr(CP, f"i{v}") for v in vs)))
+    for vs in EOS_SECONDS
+]
+EOS_OUTPUTS += [
+    ("fundamental_derivative", "-", lambda CP, s: s.fundamental_derivative_of_gas_dynamics()),
+    ("isothermal_compressibility", "1/Pa", lambda CP, s: s.isothermal_compressibility()),
+    ("isobaric_expansion", "1/K", lambda CP, s: s.isobaric_expansion_coefficient()),
+]
 EOS_COLUMNS = ["T", "rhomolar", "region", "status", *(name for name, _, _ in EOS_OUTPUTS)]
 EOS_UNITS = ["K", "mol/m3", "-", "-", *(unit for _, unit, _ in EOS_OUTPUTS)]
 EOS_TOL = ["in", "in", "label", "label", *["prop"] * len(EOS_OUTPUTS)]

@@ -1157,10 +1157,15 @@ bands (map 03 §8; map 10 §8.5 L4).
   broken in every field and of the repository's walks agree with the old code. Four assertions pin what the gates did
   but no test held: a GAP row while its milestone is open, an `allow` naming a lint that starts with `ignore`, a short
   DIV id's message, and a second chunk's line.
-- **M7.10 Order-3 outputs.** *Failing tests:* `second_partials_match_oracle` (`second_partial_deriv`), Thorade &
-  Saadat identities (class `Identity`), `fundamental_derivative_matches_oracle`, `kappa_and_beta_match_oracle`. *Do:*
-  additive `Prop` variants via `ThermoModel::derivs` (ARCHITECTURE.md §3.7). Close M7: set `MILESTONE = 8`. *Done
-  when:* green.
+- **M7.10 Order-3 outputs.** *Failing tests:* `second_partials_match_oracle` (`second_partial_deriv`), Thorade & Saadat
+  identities (class `Identity`), `fundamental_derivative_matches_oracle`, `kappa_and_beta_match_oracle`. *Do:* additive
+  `Prop` variants via `ThermoModel::derivs` (ARCHITECTURE.md §3.7). Close M7: set `MILESTONE = 8`. *Done when:* green.
+  Measured at M7.10 (user decisions OD1-OD5): `Prop::SecondPartial` (a first partial differentiated once more),
+  `FundamentalDerivative`, `IsothermalCompressibility` and `IsobaricExpansion`; Cv, Cp, w, τ and δ as derivative
+  variables are deferred (§6). The `eos` fixtures, regenerated on the pinned image, carry ten second partials over the
+  ten variables CoolProp differentiates twice, Γ, κ_T and β: 80 880, 8 088 and 16 176 entries agree in class `Prop` with
+  the order-3 `Term` scales carried; Γ is refused where w² ≤ 0, where the oracle's is nan. The identities hold at 48 658
+  points in class `Identity`. `MILESTONE` is 8; PT and PH benches are recorded on this machine (OD4).
 
 **Exit gate.** G1-G8; 19 × 2 capability matrix for the core subset (136 *(nightly)*); round trips in class `Flash`;
 every map 03 §6 oracle-defect case returns a value passing acceptance or a typed error; ~100 corpus states without a
@@ -1512,6 +1517,7 @@ from M9.6 `gates perf` enforces gungraun regressions on Linux CI and the referen
 | `libm` default threshold (12) | Set in M9.5: bit-identical hash on 4 targets **and** geometric-mean slowdown ≤ 5 % with no bench > 10 %. |
 | DIV-0005 accepted divergence; cubic-R entry (10) | DIV-0005 done (`KeepOracle`), proved at M5.7 (Table 3) and M6.10 (Table 4). The cubic-R entry is specified in section 4 and added in the first M11 step. |
 | ARCHITECTURE.md §14 | Done; its remaining "for PLAN.md" items are answered here (M9 threshold, M11 entry, humid air = M18). |
+| Cv, Cp, w, τ and δ as derivative variables (ARCHITECTURE.md §3.7; user decision OD1) | Deferred from M7.10: no oracle (CoolProp's second derivatives refuse Cv, Cp and w), and τ and δ need the model trait to expose its reducing constants. To be planned as a step of its own before M10's compat grammar needs them. |
 
 **Settled in this plan without a new user decision** (ROT-REGISTER.md section 3 open details)
 

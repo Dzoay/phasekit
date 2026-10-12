@@ -55,6 +55,15 @@ pub enum Prop {
     /// A first partial derivative `(∂of/∂wrt)_at` (CoolProp `d(X)/d(Y)|Z`), from the stored order-2 bundle,
     /// so it works for every family, Gibbs solids included (E1).
     Partial(Partial),
+    /// A second partial derivative, a first partial differentiated once more (CoolProp `d(d(X)/d(Y)|Z)/d(W)|V`):
+    /// order 3, from the model's `derivs` (E1).
+    SecondPartial(SecondPartial),
+    /// The fundamental derivative of gas dynamics Γ = 1 + (ρ/w)(∂w/∂ρ)_s, dimensionless: order 3.
+    FundamentalDerivative,
+    /// The isothermal compressibility κ_T = (1/ρ)(∂ρ/∂p)_T, 1/Pa.
+    IsothermalCompressibility,
+    /// The isobaric expansion coefficient β = −(1/ρ)(∂ρ/∂T)_p, 1/K.
+    IsobaricExpansion,
 }
 
 /// A first-order state function a partial derivative can be taken of, with respect to, or at constant
@@ -103,6 +112,18 @@ impl From<DerivVar> for Prop {
 pub struct Partial {
     /// The differentiated variable.
     pub of: DerivVar,
+    /// The variable it is differentiated by.
+    pub wrt: DerivVar,
+    /// The variable held constant.
+    pub at: DerivVar,
+}
+
+/// `(∂/∂wrt (∂of/∂wrt₁)_at₁)_at` at a single-phase state: the first partial `first` differentiated by `wrt` at
+/// constant `at`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SecondPartial {
+    /// The first partial differentiated.
+    pub first: Partial,
     /// The variable it is differentiated by.
     pub wrt: DerivVar,
     /// The variable held constant.

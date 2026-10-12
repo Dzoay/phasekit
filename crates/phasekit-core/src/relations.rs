@@ -2,8 +2,9 @@
 //! every potential: Helmholtz families directly, Gibbs families after [`bundle_from_gibbs`]. Molar SI.
 //! Crate-private except the Gibbs seam: users reach these through `State` and `Fluid::prop`.
 
-use crate::derivs::Bundle;
+use crate::derivs::{Bundle, Derivs, SLOTS, idx};
 use crate::error::{DomainError, Error};
+use crate::num::math;
 use crate::prop::DerivVar;
 
 /// p = ρRT·A01.
@@ -129,6 +130,122 @@ fn molar(v: DerivVar) -> DerivVar {
         DerivVar::Gmass => DerivVar::Gmolar,
         v => v,
     }
+}
+
+/// The `(i, j)` of `A_ij` to order 3.
+const ORDER_3: [(u8, u8); 10] = [(0, 0), (1, 0), (0, 1), (2, 0), (1, 1), (0, 2), (3, 0), (2, 1), (1, 2), (0, 3)];
+
+/// A linear combination `Σ c_ij A_ij` of the scaled derivatives of α to order 3 (slots as in `Derivs`).
+#[derive(Clone, Copy, Debug)]
+struct Lin([f64; SLOTS]);
+
+impl Lin {
+    /// `Σ c A_ij` over `terms`.
+    fn of(terms: &[(u8, u8, f64)]) -> Lin {
+        let mut lin = Lin([0.0; SLOTS]);
+        terms.iter().for_each(|&(i, j, c)| lin.add(i, j, c));
+        lin
+    }
+
+    /// `c_ij += c`.
+    fn add(&mut self, i: u8, j: u8, c: f64) {
+        if let Some(slot) = self.0.get_mut(idx(usize::from(i), usize::from(j))) {
+            *slot += c;
+        }
+    }
+
+    /// `c_ij`.
+    fn coef(&self, i: u8, j: u8) -> f64 {
+        self.0.get(idx(usize::from(i), usize::from(j))).copied().unwrap_or(0.0)
+    }
+
+    /// `self + k·other`.
+    fn plus(mut self, k: f64, other: &Lin) -> Lin {
+        ORDER_3.iter().for_each(|&(i, j)| self.add(i, j, k * other.coef(i, j)));
+        self
+    }
+
+    /// `T(∂/∂T)_ρ`, which takes `A_ij` to `−(i·A_ij + A_(i+1)j)` (`τ∂/∂τ = −T∂/∂T`).
+    fn t_log(&self) -> Lin {
+        let mut out = Lin([0.0; SLOTS]);
+        for (i, j) in ORDER_3 {
+            let c = self.coef(i, j);
+            out.add(i, j, -f64::from(i) * c);
+            out.add(i + 1, j, -c);
+        }
+        out
+    }
+
+    /// `ρ(∂/∂ρ)_T`, which takes `A_ij` to `j·A_ij + A_i(j+1)` (`δ∂/∂δ = ρ∂/∂ρ`).
+    fn rho_log(&self) -> Lin {
+        let mut out = Lin([0.0; SLOTS]);
+        for (i, j) in ORDER_3 {
+            let c = self.coef(i, j);
+            out.add(i, j, f64::from(j) * c);
+            out.add(i, j + 1, c);
+        }
+        out
+    }
+
+    /// `Σ c_ij A_ij` with the values of `d`; `None` past its order.
+    fn value(&self, d: &Derivs) -> Option<f64> {
+        ORDER_3
+            .iter()
+            .filter(|&&(i, j)| self.coef(i, j) != 0.0)
+            .try_fold(0.0, |sum, &(i, j)| d.get(usize::from(i), usize::from(j)).map(|a| sum + self.coef(i, j) * a))
+    }
+}
+
+/// `[(∂²X/∂T²)_ρ, ∂²X/∂T∂ρ, (∂²X/∂ρ²)_T]` of a first-order state function from the order-3 total `d` (CoolProp's
+/// `get_dT_drho_second_derivatives`): `X = R·T^m·ρ^n·L` with `L` linear in the `A_ij` (p: `TρA01`; h: `T(A10 + A01)`;
+/// s: `A10 − A00`; u: `TA10`; g: `T(A00 + A01)`), differentiated through `T∂/∂T` and `ρ∂/∂ρ`. T and ρ have none; a
+/// mass-basis quantity is its molar one over M, and a gauge term is at most linear in T. `None` past `d`'s order.
+fn dt_drho2(x: DerivVar, at: &At<'_>, d: &Derivs) -> Option<[f64; 3]> {
+    let (m, n, l) = match molar(x) {
+        DerivVar::P => (1, 1, Lin::of(&[(0, 1, 1.0)])),
+        DerivVar::Hmolar => (1, 0, Lin::of(&[(1, 0, 1.0), (0, 1, 1.0)])),
+        DerivVar::Smolar => (0, 0, Lin::of(&[(1, 0, 1.0), (0, 0, -1.0)])),
+        DerivVar::Umolar => (1, 0, Lin::of(&[(1, 0, 1.0)])),
+        DerivVar::Gmolar => (1, 0, Lin::of(&[(0, 0, 1.0), (0, 1, 1.0)])),
+        _ => return Some([0.0; 3]),
+    };
+    let per = if molar(x) == x { 1.0 } else { 1.0 / at.molar_mass };
+    let (t, rho, fm, fn_) = (at.t, at.rho, f64::from(m), f64::from(n));
+    let x0 = at.r * math::powi(t, m) * math::powi(rho, n) * per;
+    let (lt, lr) = (l.t_log(), l.rho_log());
+    let tt = Lin::of(&[]).plus(fm * fm - fm, &l).plus(2.0 * fm - 1.0, &lt).plus(1.0, &lt.t_log());
+    let tr = Lin::of(&[]).plus(fn_ * fm, &l).plus(fn_, &lt).plus(fm, &lr).plus(1.0, &lr.t_log());
+    let rr = Lin::of(&[]).plus(fn_ * fn_ - fn_, &l).plus(2.0 * fn_ - 1.0, &lr).plus(1.0, &lr.rho_log());
+    Some([x0 / (t * t) * tt.value(d)?, x0 / (t * rho) * tr.value(d)?, x0 / (rho * rho) * rr.value(d)?])
+}
+
+/// `(∂/∂wrt₂ (∂of/∂wrt₁)_at₁)_at₂` from the order-3 total `d`: the first partial's ratio `N/D` (see
+/// [`first_partial`]) differentiated in (T, ρ) and divided by `wrt₂`'s Jacobian at constant `at₂` (CoolProp's
+/// `calc_second_partial_deriv`). `None` where either derivative holds the quantity it differentiates by, or the result
+/// is not finite (a vanishing denominator, or the critical point's order-3 entries); exactly 0 where `of` and `at₁`
+/// measure one quantity (the first partial is then 0).
+pub(crate) fn second_partial(
+    (of, wrt1, at1): (DerivVar, DerivVar, DerivVar),
+    (wrt2, at2): (DerivVar, DerivVar),
+    at: &At<'_>,
+    d: &Derivs,
+) -> Option<f64> {
+    if molar(wrt1) == molar(at1) || molar(wrt2) == molar(at2) {
+        return None;
+    }
+    if molar(of) == molar(at1) {
+        return Some(0.0);
+    }
+    let ((xt, xr), (yt, yr), (zt, zr)) = (dt_drho(of, at), dt_drho(wrt1, at), dt_drho(at1, at));
+    let ([xtt, xtr, xrr], [ytt, ytr, yrr], [ztt, ztr, zrr]) =
+        (dt_drho2(of, at, d)?, dt_drho2(wrt1, at, d)?, dt_drho2(at1, at, d)?);
+    let (num, den) = (xt * zr - xr * zt, yt * zr - yr * zt);
+    let (num_t, num_r) = (xtt * zr + xt * ztr - xtr * zt - xr * ztt, xtr * zr + xt * zrr - xrr * zt - xr * ztr);
+    let (den_t, den_r) = (ytt * zr + yt * ztr - ytr * zt - yr * ztt, ytr * zr + yt * zrr - yrr * zt - yr * ztr);
+    let (f_t, f_r) = ((num_t * den - num * den_t) / (den * den), (num_r * den - num * den_r) / (den * den));
+    let ((wt, wr), (vt, vr)) = (dt_drho(wrt2, at), dt_drho(at2, at));
+    let v = (f_t * vr - f_r * vt) / (wt * vr - wr * vt);
+    v.is_finite().then_some(v)
 }
 
 /// Molar Gibbs energy and its (T, p) derivatives to order 2. IF97 regions 1/2/5, IAPWS-06 ice Ih and

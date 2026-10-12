@@ -2,12 +2,12 @@
 //! No `Arc`, no cache, no setters (map 01 R11-R13, kernel-performance K1). Built by a flash, or by any
 //! family through [`State::from_total`] (one phase) and [`State::from_split`] (two coexisting phases).
 
-use crate::derivs::Bundle;
+use crate::derivs::{Bundle, Derivs};
 use crate::error::{DomainError, Error};
 use crate::fluid::Gauge;
 use crate::math;
 use crate::model::ModelKey;
-use crate::prop::{Partial, Prop};
+use crate::prop::{DerivVar, Partial, Prop, SecondPartial};
 use crate::relations::{self, At};
 use crate::units::{Basis, Quality};
 
@@ -320,6 +320,55 @@ impl State {
         relations::first_partial(p.of, p.wrt, p.at, &at).ok_or(Error::Undefined { prop, phase: self.phase })
     }
 
+    /// The isothermal compressibility κ_T = (1/ρ)(∂ρ/∂p)_T, 1/Pa, from the stored order-2 bundle; undefined in the
+    /// dome.
+    pub fn isothermal_compressibility(&self) -> Result<f64, Error> {
+        let p = Partial { of: DerivVar::Dmolar, wrt: DerivVar::P, at: DerivVar::T };
+        self.per_density(Prop::IsothermalCompressibility, p, 1.0)
+    }
+
+    /// The isobaric expansion coefficient β = −(1/ρ)(∂ρ/∂T)_p, 1/K, from the stored order-2 bundle; undefined in the
+    /// dome.
+    pub fn isobaric_expansion(&self) -> Result<f64, Error> {
+        let p = Partial { of: DerivVar::Dmolar, wrt: DerivVar::T, at: DerivVar::P };
+        self.per_density(Prop::IsobaricExpansion, p, -1.0)
+    }
+
+    /// `sign·p/ρ` for the first partial `p` of the density, as `prop`.
+    fn per_density(&self, prop: Prop, p: Partial, sign: f64) -> Result<f64, Error> {
+        let pt = self.single_point(prop)?;
+        let at = At { r: self.r, t: pt.t, rho: pt.rho, molar_mass: self.molar_mass, ds: self.gauge.ds(), b: &pt.b };
+        let v = relations::first_partial(p.of, p.wrt, p.at, &at).ok_or(Error::Undefined { prop, phase: self.phase })?;
+        Ok(sign * v / pt.rho)
+    }
+
+    /// A second partial derivative from `total`, the model's order-3 bundle at this state (`ThermoModel::derivs`,
+    /// E1); undefined in the dome and where the derivative is (a degenerate pair, a vanishing Jacobian).
+    pub fn second_partial(&self, p: SecondPartial, total: &Derivs) -> Result<f64, Error> {
+        let prop = Prop::SecondPartial(p);
+        let (pt, b) = (self.single_point(prop)?, total.bundle().ok_or(Error::NoModel { prop })?);
+        let at = At { r: self.r, t: pt.t, rho: pt.rho, molar_mass: self.molar_mass, ds: self.gauge.ds(), b: &b };
+        let first = (p.first.of, p.first.wrt, p.first.at);
+        relations::second_partial(first, (p.wrt, p.at), &at, total).ok_or(Error::Undefined { prop, phase: self.phase })
+    }
+
+    /// The fundamental derivative of gas dynamics Γ = 1 + ρ(∂²p/∂ρ²)_s / (2(∂p/∂ρ)_s) from `total`, the model's
+    /// order-3 bundle at this state; mechanically unstable where (∂p/∂ρ)_s ≤ 0, as the speed of sound is.
+    pub fn fundamental_derivative(&self, total: &Derivs) -> Result<f64, Error> {
+        let prop = Prop::FundamentalDerivative;
+        let (pt, b) = (self.single_point(prop)?, total.bundle().ok_or(Error::NoModel { prop })?);
+        let at = At { r: self.r, t: pt.t, rho: pt.rho, molar_mass: self.molar_mass, ds: self.gauge.ds(), b: &b };
+        let (p, rho, s) = (DerivVar::P, DerivVar::Dmolar, DerivVar::Smolar);
+        let undefined = || Error::Undefined { prop, phase: self.phase };
+        let w2 = relations::first_partial(p, rho, s, &at).ok_or_else(undefined)?;
+        if w2 > 0.0 {
+            let curvature = relations::second_partial((p, rho, s), (rho, s), &at, total).ok_or_else(undefined)?;
+            Ok(1.0 + pt.rho * curvature / (2.0 * w2))
+        } else {
+            Err(DomainError::MechanicallyUnstable.into())
+        }
+    }
+
     /// (T, ρ) of the single phase point (what `ThermoModel::derivs` evaluates at); `None` in the dome.
     pub(crate) fn single_t_rho(&self) -> Option<(f64, f64)> {
         match self.body {
@@ -332,9 +381,25 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::derivs::Order;
 
     const KEY: ModelKey = ModelKey::from_content(b"test");
     const R: f64 = 8.314_462_618;
+
+    /// M7.10: where (∂p/∂ρ)_s is exactly 0 (A01 = A11 = 1, A02 = −2: (∂p/∂ρ)_T and (∂p/∂T)_ρ vanish) the fundamental
+    /// derivative is refused as mechanically unstable, as w is, not divided by 0; κ_T is not finite there either.
+    #[test]
+    fn fundamental_derivative_needs_a_positive_speed_of_sound() {
+        let total = Derivs::from_fn(Order::Three, |i, j| match (i, j) {
+            (0, 1) | (1, 1) => 1.0,
+            (2, 0) => -1.0,
+            (0, 2) => -2.0,
+            _ => 0.0,
+        });
+        let s = State::from_total(KEY, 300.0, 1_000.0, R, 0.018, Phase::Gas, &total.bundle().unwrap()).unwrap();
+        assert_eq!(s.fundamental_derivative(&total), Err(DomainError::MechanicallyUnstable.into()));
+        assert_eq!(s.speed_of_sound(), Err(DomainError::MechanicallyUnstable.into()));
+    }
 
     /// E17: at a non-analytic critical point A20 (cv) diverges. p, h and s survive; cv, cp and w are
     /// `Undefined` instead of the whole state failing.
