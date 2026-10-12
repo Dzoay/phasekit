@@ -1108,7 +1108,13 @@ bands (map 03 §8; map 10 §8.5 L4).
   split into its three tests; datagen's `mod.rs` tests moved to `datagen/tests/`, as DR3 moved flash.rs's. Each
   `#[test]` keeps an assertion in its own body (`gates assertions`); no tolerance changes. *Done when:* G1-G8 green; the
   executed-test counts unchanged per binary but for the split tests, which the PR lists; mutants clean on the diff; the
-  step's exemptions gone.
+  step's exemptions gone. Measured at M7.9d: the 26 tests and the register test are under the bars, with 28 exemptions
+  left (M7.9e's, M7.9f's and the two that stay); the core library's tests are 177 → 179,
+  `domain_errors_are_uniform_across_pairs` split into itself, `states_on_the_domain_bounds_are_in_it_for_every_pair` and
+  `qt_and_pq_beyond_the_domain_name_the_curve_end`, and every other binary runs the same tests. `q_rows` is split by
+  input into `qt_row` and `pq_row`, one test still, since a PQ row needs the T of the QT row that gave its p. The kit is
+  `tests/common/sweep.rs` (`product`, `Failures`) and core's `test_support::product`; datagen's 34 tests are in
+  `datagen/tests/` by stage. No mutants: the diff is test code only.
 - **M7.9e Flash search scaffolds** (user decision CX3). *Failing test:* none. *Do:* core `flash.rs`'s three hand-rolled
   scaffolds once each (TOMS 748 with the bracket's ends cached and the first failure kept; stepping down to a bracket
   and bisecting towards a refusal; the choice among roots by `RootPolicy`), so that `sx`, `root_in_t`, `qx`, `tx`, `px`,
