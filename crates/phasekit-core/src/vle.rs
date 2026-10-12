@@ -393,35 +393,46 @@ mod tests {
         (record.clone(), record.compile().unwrap())
     }
 
+    /// The Jacobian at T of `name` at (ρ′, ρ″) against central differences of its residuals in ln ρ′ and ln ρ″, each
+    /// entry within class `Fd` (1e-7); returns the entries checked.
+    #[cfg(feature = "fluids-all")]
+    fn jacobian_t_against_differences(name: &str, eos: &dyn HelmholtzModel, t: f64, (rl, rv): (f64, f64)) -> usize {
+        let (j, _) = jacobian_at(eos, t, rl, rv).unwrap();
+        let h = 1e-6;
+        let diff = |which: usize| {
+            let at = |s: f64| {
+                let (l, v) = if which == 0 { (rl * math::exp(s), rv) } else { (rl, rv * math::exp(s)) };
+                jacobian_at(eos, t, l, v).unwrap().1
+            };
+            let (up, down) = (at(h), at(-h));
+            [(up[0] - down[0]) / (2.0 * h), (up[1] - down[1]) / (2.0 * h)]
+        };
+        let mut checked = 0;
+        for (col, fd) in [diff(0), diff(1)].into_iter().enumerate() {
+            for (row, fd) in fd.into_iter().enumerate() {
+                let scale = j[row][col].abs().max(1e-300);
+                assert!((fd - j[row][col]).abs() <= 1e-7 * scale, "{name} {row}{col}: {} vs {fd}", j[row][col]);
+                checked += 1;
+            }
+        }
+        checked
+    }
+
     #[cfg(feature = "fluids-all")]
     /// map 04 U3 (the AD Jacobian): the Jacobian from the model's order-2 bundle, whose derivatives are exact, equals
     /// central differences of the residuals in ln ρ′ and ln ρ″ within class `Fd` (1e-7), for Water at 450 K and
     /// CarbonDioxide at 280 K, at the superancillary's densities and off them.
     #[test]
     fn vle_jacobian_matches_ad() {
+        let mut checked = 0;
         for (name, t) in [("Water", 450.0), ("CarbonDioxide", 280.0)] {
             let (record, fluid) = model(name);
             let sat = record.superancillary_curve().unwrap().at_t(t).unwrap();
-            let eos = fluid.eos();
-            for (rl, rv) in [(sat.bubble.rho, sat.dew.rho), (sat.bubble.rho * 0.999, sat.dew.rho * 1.05)] {
-                let (j, _) = jacobian_at(eos, t, rl, rv).unwrap();
-                let h = 1e-6;
-                let diff = |which: usize| {
-                    let at = |s: f64| {
-                        let (l, v) = if which == 0 { (rl * math::exp(s), rv) } else { (rl, rv * math::exp(s)) };
-                        jacobian_at(eos, t, l, v).unwrap().1
-                    };
-                    let (up, down) = (at(h), at(-h));
-                    [(up[0] - down[0]) / (2.0 * h), (up[1] - down[1]) / (2.0 * h)]
-                };
-                for (col, fd) in [diff(0), diff(1)].into_iter().enumerate() {
-                    for (row, fd) in fd.into_iter().enumerate() {
-                        let scale = j[row][col].abs().max(1e-300);
-                        assert!((fd - j[row][col]).abs() <= 1e-7 * scale, "{name} {row}{col}: {} vs {fd}", j[row][col]);
-                    }
-                }
+            for rho in [(sat.bubble.rho, sat.dew.rho), (sat.bubble.rho * 0.999, sat.dew.rho * 1.05)] {
+                checked += jacobian_t_against_differences(name, fluid.eos(), t, rho);
             }
         }
+        assert_eq!(checked, 2 * 2 * 4);
     }
 
     #[cfg(feature = "fluids-all")]
@@ -562,42 +573,55 @@ mod tests {
         assert_eq!((reported.bubble.p, reported.dew.p, reported.bubble.rho, reported.dew.t), (7.0, 7.0, 4.0, 3.0));
     }
 
+    /// The Jacobian at p of `name` at (T, ρ′, ρ″) against central differences of its residuals in T, ln ρ′ and ln ρ″,
+    /// each entry within class `Fd` (1e-7); returns the entries checked.
+    #[cfg(feature = "fluids-all")]
+    fn jacobian_p_against_differences(
+        name: &str,
+        eos: &dyn HelmholtzModel,
+        p: f64,
+        (t0, rl, rv): (f64, f64, f64),
+    ) -> usize {
+        let r = eos.gas_constant();
+        let at = |t: f64, rl: f64, rv: f64| {
+            let (l, v) = (Point::at(eos, t, rl).unwrap(), Point::at(eos, t, rv).unwrap());
+            (jacobian_p(r, t, p, &l, &v), residual_p(r, t, p, &l, &v).0)
+        };
+        let (j, _) = at(t0, rl, rv);
+        let h = 1e-6;
+        let moved = |k: usize, s: f64| match k {
+            0 => at(t0 + s * t0, rl, rv).1,
+            1 => at(t0, rl * math::exp(s), rv).1,
+            _ => at(t0, rl, rv * math::exp(s)).1,
+        };
+        let mut checked = 0;
+        for (col, scale) in [t0, 1.0, 1.0].into_iter().enumerate() {
+            let (up, down) = (moved(col, h), moved(col, -h));
+            for (row, entries) in j.iter().enumerate() {
+                let fd = (up[row] - down[row]) / (2.0 * h * scale);
+                let want = entries[col];
+                assert!((fd - want).abs() <= 1e-7 * want.abs().max(1e-12), "{name} [{row}][{col}]: {want} vs {fd}");
+                checked += 1;
+            }
+        }
+        checked
+    }
+
     #[cfg(feature = "fluids-all")]
     /// The Jacobian at a given p against central differences of its residuals in T, ln ρ′ and ln ρ″ (class `Fd`),
     /// for Water at 450 K and CarbonDioxide at 280 K, at the superancillary's state and off it.
     #[test]
     fn vle_jacobian_at_p_matches_ad() {
+        let mut checked = 0;
         for (name, t) in [("Water", 450.0), ("CarbonDioxide", 280.0)] {
             let (record, fluid) = model(name);
             let sat = record.superancillary_curve().unwrap().at_t(t).unwrap();
-            let (eos, r, p) = (fluid.eos(), fluid.eos().gas_constant(), sat.dew.p);
-            let at = |t: f64, rl: f64, rv: f64| {
-                let (l, v) = (Point::at(eos, t, rl).unwrap(), Point::at(eos, t, rv).unwrap());
-                (jacobian_p(r, t, p, &l, &v), residual_p(r, t, p, &l, &v).0)
-            };
-            for (t0, rl, rv) in
-                [(t, sat.bubble.rho, sat.dew.rho), (t * 1.001, sat.bubble.rho * 0.999, sat.dew.rho * 1.05)]
-            {
-                let (j, _) = at(t0, rl, rv);
-                let h = 1e-6;
-                let moved = |k: usize, s: f64| match k {
-                    0 => at(t0 + s * t0, rl, rv).1,
-                    1 => at(t0, rl * math::exp(s), rv).1,
-                    _ => at(t0, rl, rv * math::exp(s)).1,
-                };
-                for (col, scale) in [t0, 1.0, 1.0].into_iter().enumerate() {
-                    let (up, down) = (moved(col, h), moved(col, -h));
-                    for (row, entries) in j.iter().enumerate() {
-                        let fd = (up[row] - down[row]) / (2.0 * h * scale);
-                        let want = entries[col];
-                        assert!(
-                            (fd - want).abs() <= 1e-7 * want.abs().max(1e-12),
-                            "{name} [{row}][{col}]: {want} vs {fd}"
-                        );
-                    }
-                }
+            let states = [(t, sat.bubble.rho, sat.dew.rho), (t * 1.001, sat.bubble.rho * 0.999, sat.dew.rho * 1.05)];
+            for state in states {
+                checked += jacobian_p_against_differences(name, fluid.eos(), sat.dew.p, state);
             }
         }
+        assert_eq!(checked, 2 * 2 * 9);
     }
 
     #[cfg(feature = "fluids-all")]

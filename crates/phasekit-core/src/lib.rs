@@ -50,6 +50,8 @@ mod relations;
 mod roots;
 mod saturation;
 mod state;
+#[cfg(test)]
+mod test_support;
 mod transport;
 mod units;
 mod vle;

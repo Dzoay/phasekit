@@ -10,19 +10,11 @@ crates/phasekit-core/src/flash.rs qx cog=37 nest=4 M7.9e: the flash search scaff
 crates/phasekit-core/src/flash.rs region cog=21 nest=2 M7.9e: the flash search scaffolds, each once
 crates/phasekit-core/src/flash.rs root_in_t cog=37 nest=5 M7.9e: the flash search scaffolds, each once
 crates/phasekit-core/src/flash.rs sx cog=38 nest=3 M7.9e: the flash search scaffolds, each once
-crates/phasekit-core/src/flash/tests/every_pair.rs domain_errors_are_uniform_across_pairs cog=46 nest=5 M7.9d: split into its three tests
-crates/phasekit-core/src/flash/tests/every_pair.rs dt_mass_basis_reproduces_input cog=19 nest=4 M7.9d: the per-fluid body a named function over a product of cases
-crates/phasekit-core/src/flash/tests/every_pair.rs phase_hint_is_honoured_by_every_pair cog=16 nest=3 M7.9d: the per-fluid body a named function over a product of cases
-crates/phasekit-core/src/flash/tests/pt.rs a_guess_changes_no_output cog=13 nest=4 M7.9d: the per-fluid body a named function over a product of cases
-crates/phasekit-core/src/flash/tests/px.rs p_x_at_the_dome_edge_and_under_a_hint cog=15 nest=4 M7.9d: the per-fluid body a named function over a product of cases
-crates/phasekit-core/src/input.rs tests::raw_gate_refuses_every_invalid_value_without_panicking cog=22 nest=6 M7.9d: the per-fluid body a named function over a product of cases
 crates/phasekit-core/src/registry.rs Registry::push_source cog=20 nest=4 M7.9e: its three phases
 crates/phasekit-core/src/roots.rs bracketed cog=30 nest=2 M7.9e: its end checks pulled out, as roots::bracketed's
 crates/phasekit-core/src/roots.rs toms748 cog=29 nest=3 stays: TOMS 748 as printed (Alefeld, Potra & Shi 1995, Algorithm 748), step for step
 crates/phasekit-core/src/roots/aps.rs problem cog=18 nest=2 stays: a data table, the 28 test problems as Algorithm 748's driver defines them
 crates/phasekit-core/src/saturation.rs SuperancillaryCurve::at_p cog=17 nest=2 M7.9e: its search for the bracketing cell pulled out
-crates/phasekit-core/src/vle.rs tests::vle_jacobian_at_p_matches_ad cog=14 nest=4 M7.9d: the per-fluid body a named function over a product of cases
-crates/phasekit-core/src/vle.rs tests::vle_jacobian_matches_ad cog=16 nest=4 M7.9d: the per-fluid body a named function over a product of cases
 crates/phasekit-verify/src/fixture.rs Fixture::parse cog=30 nest=2 M7.9f: the verify library, one helper per section
 crates/phasekit-verify/src/flash.rs FlashCheck::rows_where cog=26 nest=3 M7.9f: the verify library, one helper per section
 crates/phasekit-verify/src/majorant.rs Bound::mul cog=10 nest=4 M7.9f: the verify library, one helper per section
