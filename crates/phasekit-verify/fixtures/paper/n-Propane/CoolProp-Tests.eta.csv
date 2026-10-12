@@ -1,0 +1,12 @@
+# fixture: paper/v1
+# source: paper:CoolProp-Tests-8.0.0/eta
+# citation: report=CoolProp-8.0.0-tests table=eta tests=src/Tests/CoolProp-Tests.cpp:46-49@ae81610e erratum-checked=2026-10-12 cpp_sha256=da633f3da9ea90507094960ae93103dd46735760eda20bb6e6522847406434fb
+# kind: Rows
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,x,value,cp_tol,line,x_kind,source,provenance
+# units: K,x_kind,Pa s,-,-,-,-,-
+# tol: in,in,paper,in,in,label,label,label
+90,16.52e3,7388e-6,1e-3,46,Dmolar,Vogel-JPCRD-1998,paper
+150,15.14e3,656.9e-6,5e-3,47,Dmolar,Vogel-JPCRD-1998,paper
+600,10.03e3,73.92e-6,5e-3,48,Dmolar,Vogel-JPCRD-1998,paper
+280,11.78e3,117.4e-6,1e-3,49,Dmolar,Vogel-JPCRD-1998,paper

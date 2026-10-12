@@ -1,0 +1,25 @@
+# fixture: paper/v1
+# source: paper:CoolProp-Tests-8.0.0/lambda
+# citation: report=CoolProp-8.0.0-tests table=lambda tests=src/Tests/CoolProp-Tests.cpp:508-524@ae81610e erratum-checked=2026-10-12 cpp_sha256=da633f3da9ea90507094960ae93103dd46735760eda20bb6e6522847406434fb
+# kind: Rows
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,x,value,cp_tol,line,x_kind,source,provenance
+# units: K,x_kind,W/(m K),-,-,-,-,-
+# tol: in,in,paper,in,in,label,label,label
+800,1e5,0.3085,1e-2,508,P,Hands-Cryogenics-1981,paper
+300,1e5,0.1560,1e-2,509,P,Hands-Cryogenics-1981,paper
+20,1e5,0.0262,1e-2,510,P,Hands-Cryogenics-1981,paper
+8,1e5,0.0145,1e-2,511,P,Hands-Cryogenics-1981,paper
+4,20e5,0.0255,1e-2,512,P,Hands-Cryogenics-1981,paper
+8,20e5,0.0308,1e-2,513,P,Hands-Cryogenics-1981,paper
+20,20e5,0.0328,1e-2,514,P,Hands-Cryogenics-1981,paper
+4,100e5,0.0385,3e-2,515,P,Hands-Cryogenics-1981,paper
+8,100e5,0.0566,3e-2,516,P,Hands-Cryogenics-1981,paper
+20,100e5,0.0594,1e-2,517,P,Hands-Cryogenics-1981,paper
+4,1e5,0.0186,1e-2,518,P,Hands-Cryogenics-1981,paper
+4,2e5,0.0194,1e-2,519,P,Hands-Cryogenics-1981,paper
+5.180,2.3e5,0.0195,1e-1,520,P,Hands-Cryogenics-1981,paper
+5.2,2.3e5,0.0202,1e-1,521,P,Hands-Cryogenics-1981,paper
+5.230,2.3e5,0.0181,1e-1,522,P,Hands-Cryogenics-1981,paper
+5.260,2.3e5,0.0159,1e-1,523,P,Hands-Cryogenics-1981,paper
+5.3,2.3e5,0.0149,1e-1,524,P,Hands-Cryogenics-1981,paper

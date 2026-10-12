@@ -1,0 +1,17 @@
+# fixture: paper/v1
+# source: paper:CoolProp-Tests-8.0.0/eta
+# citation: report=CoolProp-8.0.0-tests table=eta tests=src/Tests/CoolProp-Tests.cpp:230-238@ae81610e erratum-checked=2026-10-12 cpp_sha256=da633f3da9ea90507094960ae93103dd46735760eda20bb6e6522847406434fb
+# kind: Rows
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,x,value,cp_tol,line,x_kind,source,provenance
+# units: K,x_kind,Pa s,-,-,-,-,-
+# tol: in,in,paper,in,in,label,label,label
+300,1e-10,7.058e-6,1e-4,230,Dmolar,Tariq-JPCRD-2014,paper
+300,0.0430e3,6.977e-6,1e-4,231,Dmolar,Tariq-JPCRD-2014,paper
+300,9.1756e3,863.66e-6,1e-4,232,Dmolar,Tariq-JPCRD-2014,paper
+300,9.9508e3,2850.18e-6,1e-4,233,Dmolar,Tariq-JPCRD-2014,paper
+500,1e-10,11.189e-6,1e-4,234,Dmolar,Tariq-JPCRD-2014,paper
+500,6.0213e3,94.842e-6,1e-4,235,Dmolar,Tariq-JPCRD-2014,paper
+500,8.5915e3,380.04e-6,1e-4,236,Dmolar,Tariq-JPCRD-2014,paper
+700,1e-10,15.093e-6,1e-4,237,Dmolar,Tariq-JPCRD-2014,paper
+700,7.4765e3,176.749e-6,1e-4,238,Dmolar,Tariq-JPCRD-2014,paper
