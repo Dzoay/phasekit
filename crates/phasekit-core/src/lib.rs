@@ -70,7 +70,7 @@ pub use model::{
     Citation, CitationRole, CriticalOrigin, CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source, ThermoModel,
 };
 pub use num::{Jet4, Real};
-pub use prop::{DerivVar, Partial, Prop};
+pub use prop::{DerivVar, Partial, Prop, SecondPartial};
 pub use registry::Registry;
 pub use relations::{GibbsDerivs, bundle_from_gibbs};
 pub use saturation::{SatAccuracy, SatPair, SatSide, SaturationCurve};

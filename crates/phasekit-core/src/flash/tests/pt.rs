@@ -118,7 +118,8 @@ fn a_guess_is_only_a_seed() {
 /// per-call seed, and every `Prop` reads the same with and without one, within `Flash` (a warm start is another
 /// path, never `Exact`; VERIFICATION.md §11), errors included (`Undefined` Q, `NoModel`): Water's liquid, vapour
 /// and supercritical states and Nitrogen's dense supercritical one, each from guesses at half and twice ρ. The
-/// partial derivatives are every (of, wrt, at) of the twelve variables.
+/// partial derivatives are every (of, wrt, at) of the twelve variables, and twelve second partials, one per variable
+/// (M7.10).
 #[cfg(feature = "fluids-all")]
 #[test]
 fn a_guess_changes_no_output() {
@@ -161,7 +162,15 @@ fn a_guess_changes_no_output() {
         Prop::Viscosity,
         Prop::Conductivity,
         Prop::SurfaceTension,
+        Prop::FundamentalDerivative,
+        Prop::IsothermalCompressibility,
+        Prop::IsobaricExpansion,
     ]);
+    let v = |i: usize| vars.get(i % 12).copied().unwrap();
+    props.extend((0..12).map(|i| {
+        let first = Partial { of: v(i), wrt: v(i + 2), at: v(i + 5) };
+        Prop::SecondPartial(SecondPartial { first, wrt: v(i + 3), at: v(i + 6) })
+    }));
     for (name, p, t) in
         [("Water", 10e6, 300.0), ("Water", 1e4, 400.0), ("Water", 30e6, 700.0), ("Nitrogen", 10e6, 200.0)]
     {

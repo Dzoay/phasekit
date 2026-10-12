@@ -18,7 +18,7 @@ use crate::input::Input;
 use crate::model::Limits;
 use crate::num::math;
 #[cfg(feature = "fluids-all")]
-use crate::prop::{DerivVar, Partial};
+use crate::prop::{DerivVar, Partial, SecondPartial};
 use crate::saturation::{SatAccuracy, SatSide, SaturationCurve};
 #[cfg(feature = "fluids-all")]
 use crate::test_support::product;
