@@ -155,6 +155,8 @@ impl ToleranceClass {
             ToleranceClass::SatMp => Some(1e-11 * scale),
             // Relative to the oracle's total, which every stage of a direct correlation is checked against (M8.5).
             ToleranceClass::TransportDirect => Some(1e-12 * scale),
+            // An ECS total, whose conformal solve the oracle stops at |r| ≤ 1e-9 (M8.8).
+            ToleranceClass::TransportEcs => Some(1e-8 * scale),
             _ => None,
         }
     }

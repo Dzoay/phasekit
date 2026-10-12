@@ -302,7 +302,7 @@ refused, never approximated at a small δ (map 12 R8). The out-of-tree van der W
 ### 3.4 The package seam: `ThermoModel`, `PureFluid`, `Fluid` (D3, D10)
 
 ```rust
-pub trait ThermoModel: Send + Sync + fmt::Debug {
+pub trait ThermoModel: Any + Send + Sync + fmt::Debug {
     fn info(&self) -> &FluidInfo;
 
     fn capabilities(&self) -> Capabilities;

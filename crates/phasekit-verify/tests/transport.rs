@@ -8,9 +8,9 @@ use phasekit_core::State;
 use phasekit_core::internal::{ConductivityModel, FluidRecord, TransportRecord, ViscosityModel};
 use phasekit_core::{
     DataSet, Density, DomainPolicy, Error, FlashOptions, Fluid, Input, LoadError, Phase, Pressure, Prop, Quality,
-    Registry, Temperature, math,
+    Registry, Strategy, Temperature, math,
 };
-use phasekit_verify::{DIVERGENCES, Fixture, Tolerance, fixture};
+use phasekit_verify::{DIVERGENCES, Fixture, Kind, Tolerance, ToleranceClass, fixture, register};
 
 #[path = "common/transport_rows.rs"]
 mod transport_rows;
@@ -330,12 +330,12 @@ const TRANSPORT_FIXTURES: [(&str, &str); 16] = [
 ];
 
 /// Calls `each` with every row of the transport fixtures whose `column` (`eta_model`, `lambda_model`) is `model`: the
-/// table, the row, the fluid's name and record, and the fluid's state at the row's (T, ρ), all under `Parity`, the data
-/// the oracle has (VERIFICATION.md §6.2).
+/// table, the row, the fluid's name and record, its state at the row's (T, ρ) and its ECS reference fluids, all under
+/// `Parity`, the data the oracle has (VERIFICATION.md §6.2).
 fn for_transport_rows(
     column: &str,
     model: &str,
-    mut each: impl FnMut(&Fixture<'_>, usize, &str, &FluidRecord, &State),
+    mut each: impl FnMut(&Fixture<'_>, usize, &str, &FluidRecord, &State, &[Fluid]),
 ) {
     let registry = &Registry::from_embedded(DataSet::Parity).unwrap();
     let mut records: BTreeMap<String, FluidRecord> = BTreeMap::new();
@@ -350,7 +350,10 @@ fn for_transport_rows(
             let record = records
                 .entry(name.to_string())
                 .or_insert_with(|| phasekit_core::internal::record(registry, name).unwrap());
-            each(&table, row, name, record, &state);
+            let transport = record.transport.as_ref().unwrap();
+            let references: Vec<Fluid> =
+                transport.references().iter().map(|r| registry.get(r).unwrap().clone()).collect();
+            each(&table, row, name, record, &state, &references);
         }
     }
 }
@@ -367,7 +370,7 @@ fn lands_later<T>(result: &Result<T, Error>) -> bool {
 fn viscosity_stages_match_contributions() {
     let (mut checked, mut later, mut failures) = (BTreeSet::new(), BTreeSet::new(), Vec::new());
     let columns = [("eta_dilute", 0), ("eta_initial_density", 1), ("eta_residual", 2), ("eta_critical", 3)];
-    for_transport_rows("eta_model", "staged", |table, row, name, record, state| {
+    for_transport_rows("eta_model", "staged", |table, row, name, record, state, _| {
         if table.printed(row, "eta_status") != Some("ok") {
             failures.push(format!("{name} row {row}: the oracle has no viscosity"));
             return;
@@ -395,36 +398,39 @@ fn viscosity_stages_match_contributions() {
 /// PLAN.md M8.6 (map 05 U4, R6): staged conductivity stage by stage against CoolProp's `conductivity_contributions` at
 /// the oracle's states (all-fluid tier and core subset), each stage and the total in class `TransportDirect` at the
 /// scale of the oracle's total; the oracle's initial-density column, which staged models do not have, is 0. The
-/// Olchowy-Sengers term and `eta0_and_poly` read the fluid's own η, passed in explicitly. Methane's hard-coded model
-/// (Friend, Ely and Ingham 1989) by its total, which the oracle reports as `initial_density`. A model with a hardcoded
-/// stage, or whose η a later step evaluates, says the step that evaluates it.
+/// Olchowy-Sengers term and `eta0_and_poly` read the fluid's own η, passed in explicitly; where that η is ECS
+/// (EthylBenzene, M8.8) the stages are checked in its class, `TransportEcs`. Methane's hard-coded model (Friend, Ely and
+/// Ingham 1989) by its total, which the oracle reports as `initial_density`. A model with a hardcoded stage, or whose η
+/// a later step evaluates, says the step that evaluates it.
 #[test]
 fn conductivity_stages_match_contributions() {
     let (mut checked, mut later, mut failures) = (BTreeSet::new(), BTreeSet::new(), Vec::new());
     let columns = [("lambda_dilute", 0), ("lambda_residual", 1), ("lambda_critical", 2), ("lambda_initial_density", 3)];
-    for_transport_rows("lambda_model", "staged", |table, row, name, record, state| {
+    for_transport_rows("lambda_model", "staged", |table, row, name, record, state, references| {
         if table.printed(row, "lambda_status") != Some("ok") {
             failures.push(format!("{name} row {row}: the oracle has no conductivity"));
             return;
         }
-        let stages = phasekit_core::internal::conductivity_stages(record, state);
+        let stages = phasekit_core::internal::transport_stages_with(record, state, references).unwrap().1;
         if lands_later(&stages) {
             later.insert(name.to_string());
             return;
         }
         let stages = stages.unwrap();
         let scale = table.value(row, "lambda").unwrap();
+        let ecs = matches!(record.transport.as_ref().and_then(|t| t.viscosity.as_ref()), Some(v) if matches!(v.model, ViscosityModel::Ecs(_)));
+        let class = if ecs { ToleranceClass::TransportEcs } else { ToleranceClass::TransportDirect };
         let got = [stages.dilute, stages.residual, stages.critical, 0.0];
         for (column, i) in columns {
-            let checked = table.check_scaled(row, column, got[i], scale);
+            let checked = table.check_bound(row, column, got[i], class.bound(scale).unwrap());
             failures.extend(checked.err().map(|e| format!("{name} row {row} {column}: {e:?}")));
         }
-        let total = table.check_scaled(row, "lambda", stages.total(), scale);
+        let total = table.check_bound(row, "lambda", stages.total(), class.bound(scale).unwrap());
         failures.extend(total.err().map(|e| format!("{name} row {row} lambda: {e:?}")));
         checked.insert(name.to_string());
     });
     let mut methane = 0;
-    for_transport_rows("lambda_model", "hardcoded", |table, row, name, record, state| {
+    for_transport_rows("lambda_model", "hardcoded", |table, row, name, record, state, _| {
         if name == "Methane" {
             let lambda = phasekit_core::internal::conductivity_stages(record, state).unwrap().total();
             let total = table.check_scaled(row, "lambda", lambda, table.value(row, "lambda").unwrap());
@@ -433,7 +439,7 @@ fn conductivity_stages_match_contributions() {
         }
     });
     assert!(failures.is_empty(), "{failures:#?}");
-    assert_eq!((checked.len(), later.len(), methane), (20, 20, 21), "{checked:?} {later:?}");
+    assert_eq!((checked.len(), later.len(), methane), (21, 19, 21), "{checked:?} {later:?}");
 }
 
 /// PLAN.md M8.7 (map 05 U7): Water's and heavy water's IAPWS releases against CoolProp's totals at the oracle's
@@ -443,7 +449,7 @@ fn conductivity_stages_match_contributions() {
 #[test]
 fn iapws_transport_matches_oracle() {
     let (mut rows, mut failures) = (BTreeMap::new(), Vec::new());
-    for_transport_rows("eta_model", "hardcoded", |table, row, name, record, state| {
+    for_transport_rows("eta_model", "hardcoded", |table, row, name, record, state, _| {
         if name != "Water" && name != "HeavyWater" {
             return;
         }
@@ -461,6 +467,100 @@ fn iapws_transport_matches_oracle() {
     assert_eq!(rows, BTreeMap::from([("HeavyWater".to_string(), 8), ("Water".to_string(), 208)]));
 }
 
+/// PLAN.md M8.8 (map 05 U8; map 10 §8.4): ECS viscosity and conductivity against CoolProp's totals at the oracle's
+/// states where it converged, in class `TransportEcs`, through the registry under `Parity`, whose handles hold the
+/// reference fluids. CoolProp files an ECS model's whole η under `critical` and λ under `initial_density`, so only the
+/// totals compare. 172 cells agree. The oracle's failed cells stay `status=err` (14 η and 16 λ, in 16 of the all-fluid
+/// tier's 152 ECS states, all gas; map 10 §8.4): no conformal state matches there, and phasekit refuses the 28 it
+/// evaluates with `NoConvergence`. DIV-0026's 32 λ cells are exempt (its replacing check is `div_0026`), and the λ of the
+/// four fluids whose η is ρ*_sr-CS lands with it at M8.9.
+#[test]
+fn ecs_matches_oracle_where_the_oracle_converges() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let (mut checked, mut oracle_failed, mut exempt, mut later) = (0, BTreeMap::new(), 0, BTreeSet::new());
+    let (mut fluids, mut failures) = (BTreeSet::new(), Vec::new());
+    for (path, text) in TRANSPORT_FIXTURES {
+        let table = Fixture::parse(path, text).unwrap();
+        let file_fluid = path.rsplit('/').next().unwrap().trim_end_matches(".csv");
+        let models = [(Prop::Viscosity, "eta", "eta_model"), (Prop::Conductivity, "lambda", "lambda_model")];
+        for (row, (prop, column, _)) in (0..table.rows().len())
+            .flat_map(|row| models.into_iter().map(move |m| (row, m)))
+            .filter(|(row, (_, _, model))| table.printed(*row, model) == Some("ecs"))
+        {
+            let name = table.printed(row, "fluid").unwrap_or(file_fluid);
+            fluids.insert(name);
+            let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rho").unwrap());
+            let fluid = registry.get(name).unwrap();
+            let input = Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap());
+            let got = fluid.prop(&fluid.flash(input, &FlashOptions::new()).unwrap(), prop);
+            if lands_later(&got) {
+                later.insert(name);
+                continue;
+            }
+            if table.printed(row, &format!("{column}_status")) != Some("ok") {
+                let refused = matches!(got, Err(Error::NoConvergence { strategy: Strategy::Conformal, .. }));
+                *oracle_failed.entry(refused).or_insert(0) += 1;
+                continue;
+            }
+            let got = got.unwrap_or_else(|e| panic!("{name} row {row} {column}: {e}"));
+            if register::exempt_at(DIVERGENCES, name, Kind::Transport, column, t).is_some() {
+                exempt += 1;
+                continue;
+            }
+            let want = table.value(row, column).unwrap();
+            let bound = ToleranceClass::TransportEcs.bound(want).unwrap();
+            let checked_row = table.check_bound(row, column, got, bound);
+            failures.extend(checked_row.err().map(|e| format!("{name} row {row} {column}: {e:?}")));
+            checked += 1;
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    assert_eq!(fluids.len(), 19);
+    assert_eq!(later, BTreeSet::from(["R124", "R22", "R245fa", "R32"]));
+    assert_eq!((checked, exempt), (172, 32));
+    assert_eq!(oracle_failed, BTreeMap::from([(true, 28)]), "refused, where the oracle failed");
+}
+
+/// PLAN.md M8.8 (map 05 R2, DIV-0026): an ECS conductivity's critical term reads its own q_D. Of the 18 ECS models five
+/// have one other than CoolProp's default, 2e9 1/m (R13, R14, R142b, R218, RC318). Near each one's critical point
+/// (1.02 T_c, ρ_c) λ is the record's, and with q_D edited to the default only the critical term moves, by more than
+/// 1e-3 of λ.
+#[test]
+fn q_d_is_read() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let (path, text) = fixture!("coolprop-8.0.0/all/transport.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let ecs: BTreeSet<&str> = (0..table.rows().len())
+        .filter(|&r| table.printed(r, "lambda_model") == Some("ecs"))
+        .map(|r| table.printed(r, "fluid").unwrap())
+        .collect();
+    let mut own_q_d = Vec::new();
+    for name in &ecs {
+        let record = phasekit_core::internal::record(&registry, name).unwrap();
+        let mut edited = record.clone();
+        let transport = edited.transport.as_mut().unwrap();
+        let Some(ConductivityModel::Ecs(model)) = transport.conductivity.as_ref().map(|c| &c.model) else { panic!() };
+        let (q_d, references) = (model.q_d, [registry.get(&model.reference).unwrap().clone()]);
+        if (q_d / 2e9 - 1.0).abs() < 1e-15 {
+            continue;
+        }
+        own_q_d.push(*name);
+        transport.apply(phasekit_core::internal::Edit::EcsQd(2e9)).unwrap();
+        let fluid = registry.get(name).unwrap();
+        let c = fluid.model().critical_point().unwrap();
+        let input = Input::dt(Density::molar(c.rho).unwrap(), Temperature::new(1.02 * c.t).unwrap());
+        let state = fluid.flash(input, &FlashOptions::new()).unwrap();
+        let stages = |r| phasekit_core::internal::transport_stages_with(r, &state, &references).unwrap().1.unwrap();
+        let (own, default) = (stages(&record), stages(&edited));
+        // The registry's model and the seam's start the solve from critical points equal to rounding.
+        let lambda = fluid.prop(&state, Prop::Conductivity).unwrap();
+        assert!((lambda / own.total() - 1.0).abs() < 1e-12, "{name}: {lambda} {own:?}");
+        assert_eq!((own.dilute, own.residual), (default.dilute, default.residual), "{name}");
+        assert!((own.total() / default.total() - 1.0).abs() > 1e-3, "{name}: {own:?} {default:?}");
+    }
+    assert_eq!((ecs.len(), own_q_d), (18, vec!["R13", "R14", "R142b", "R218", "RC318"]));
+}
+
 /// PLAN.md M8.5: the arbiter rows of M8.3 (`CoolProp-Tests.cpp`'s paper and IAPWS viscosity rows, Helium's excepted)
 /// within their printed digits, for every fluid whose viscosity this step evaluates; the friction-theory fluids with
 /// paper rows (SF₆, H₂S) among them. The others say the step that evaluates them. A row beyond its printed digits passes
@@ -474,7 +574,7 @@ fn viscosity_paper_rows() {
     let checked = &rows.checked;
     assert_eq!((checked.get("SulfurHexafluoride"), checked.get("HydrogenSulfide")), (Some(&6), Some(&4)));
     assert_eq!((checked.get("Water"), checked.get("HeavyWater")), (Some(&17), Some(&3)));
-    assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (16, 73, 84), "{checked:?}");
+    assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (17, 74, 83), "{checked:?}");
     let outside = ["CarbonDioxide 133", "CarbonDioxide 135", "Methanol 218", "Methanol 219", "m-Xylene 252"];
     assert_eq!(
         rows.extrapolated,
@@ -500,7 +600,7 @@ fn conductivity_paper_rows() {
     assert!(rows.failures.is_empty(), "{:#?}", rows.failures);
     let checked = &rows.checked;
     assert_eq!((checked.get("Water"), checked.get("HeavyWater")), (Some(&12), Some(&3)));
-    assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (13, 60, 45), "{checked:?}");
+    assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (14, 62, 43), "{checked:?}");
     assert_eq!(rows.extrapolated, Vec::<String>::new());
     let registered = [
         (("DIV-0023", "Air"), 1),
@@ -511,6 +611,7 @@ fn conductivity_paper_rows() {
         (("DIV-0023", "n-Nonane"), 1),
         (("DIV-0024", "Methane"), 3),
         (("DIV-0025", "n-Pentane"), 1),
+        (("DIV-0027", "EthylBenzene"), 1),
         (("IAPWS-R4-84(2007)", "HeavyWater"), 3),
     ];
     assert_eq!(rows.beyond(), registered, "rows beyond their printed digits, by entry");

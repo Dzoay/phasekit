@@ -247,7 +247,7 @@ impl PureFluid {
 
     /// What the transport forms read at `state`.
     fn transport_inputs<'a>(&'a self, state: &'a State) -> crate::transport::TransportInputs<'a> {
-        crate::transport::TransportInputs::new(state, self.info.molar_mass(), &*self.eos)
+        crate::transport::TransportInputs::new(state, self.info.molar_mass(), &*self.eos).with_model(self)
     }
 }
 

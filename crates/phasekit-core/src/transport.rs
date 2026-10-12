@@ -11,6 +11,7 @@
 //! `cargo xtask fluid`'s dump alike.
 
 mod conductivity;
+mod ecs;
 mod iapws;
 mod viscosity;
 
@@ -580,8 +581,10 @@ pub struct EcsConductivity {
     pub f_int: Series,
     /// f_int's T_r, K.
     pub f_int_t_r: f64,
-    /// The critical term's cutoff wavenumber q_D, 1/m (CoolProp never reads it, map 05 R2; read at M8.8).
+    /// The critical term's cutoff wavenumber q_D, 1/m (CoolProp never reads it, map 05 R2; read from M8.8).
     pub q_d: f64,
+    /// The EOS reducing state the critical term reads, as `StagedConductivity::reducing` (ROT-117).
+    pub reducing: Reducing,
 }
 
 /// Writes a transport record field by field, each with its name. The blob encoder writes the values in order and the
@@ -1212,6 +1215,7 @@ impl Part for EcsConductivity {
         part(p, "f_int", &self.f_int);
         p.num("f_int_T_reducing", self.f_int_t_r);
         p.num("q_D", self.q_d);
+        part(p, "reducing", &self.reducing);
     }
     fn take(t: &mut dyn Take) -> Result<Self, String> {
         Ok(EcsConductivity {
@@ -1221,16 +1225,18 @@ impl Part for EcsConductivity {
             f_int: take_part(t, "f_int")?,
             f_int_t_r: t.num("f_int_T_reducing")?,
             q_d: t.num("q_D")?,
+            reducing: take_part(t, "reducing")?,
         })
     }
 }
 
 impl Viscosity {
-    /// The stages at `x` of a staged model or an IAPWS release; another form says the step that evaluates it.
-    pub(crate) fn stages(&self, x: &TransportInputs<'_>) -> Result<ViscosityStages, Error> {
+    /// The stages at `x` of a staged model, an ECS model against one of `references` or an IAPWS release; another
+    /// form says the step that evaluates it.
+    pub(crate) fn stages(&self, x: &TransportInputs<'_>, references: &[Fluid]) -> Result<ViscosityStages, Error> {
         match &self.model {
             ViscosityModel::Staged(staged) => viscosity::stages(staged, self.lennard_jones, x),
-            ViscosityModel::Ecs(_) => Err(lands("evaluating an ECS viscosity", "M8.8")),
+            ViscosityModel::Ecs(model) => ecs::viscosity(model, self.lennard_jones, x, references),
             ViscosityModel::RhoSrCs(_) | ViscosityModel::Chung(_) => {
                 Err(lands("evaluating this viscosity model", "M8.9"))
             }
@@ -1239,25 +1245,23 @@ impl Viscosity {
             ViscosityModel::Hardcoded(h) => Err(lands(&format!("evaluating the {} viscosity", h.name()), "M8.9")),
         }
     }
-
-    /// η at `x`, Pa s.
-    pub(crate) fn evaluate(&self, x: &TransportInputs<'_>) -> Result<f64, Error> {
-        self.stages(x).map(|s| s.total())
-    }
 }
 
 impl Conductivity {
-    /// The stages at `x` of a staged model, Methane's or an IAPWS release; `eta` is the fluid's own viscosity there,
-    /// read only by the forms that need it (map 05 R6). Another form says the step that evaluates it.
+    /// The stages at `x` of a staged model, Methane's, an ECS model against one of `references` or an IAPWS release;
+    /// `eta` is the fluid's own viscosity there, read only by the forms that need it (map 05 R6), and `lj` its
+    /// viscosity block's Lennard-Jones parameters, ECS's dilute η. Another form says the step that evaluates it.
     pub(crate) fn stages(
         &self,
         x: &TransportInputs<'_>,
         eta: &Result<ViscosityStages, Error>,
+        lj: Option<LennardJones>,
+        references: &[Fluid],
     ) -> Result<ConductivityStages, Error> {
         match &self.model {
             ConductivityModel::Staged(staged) => conductivity::stages(staged, x, eta),
             ConductivityModel::Methane(methane) => conductivity::friend_methane(methane, x),
-            ConductivityModel::Ecs(_) => Err(lands("evaluating an ECS conductivity", "M8.8")),
+            ConductivityModel::Ecs(model) => ecs::conductivity(model, lj, x, eta, references),
             ConductivityModel::Hardcoded(HardcodedConductivity::Water) => iapws::water_conductivity_stages(x, eta),
             ConductivityModel::Hardcoded(HardcodedConductivity::HeavyWater) => Ok(iapws::heavy_water_conductivity(x)),
             ConductivityModel::Hardcoded(h) => Err(lands(&format!("evaluating the {} conductivity", h.name()), "M8.9")),
@@ -1360,7 +1364,6 @@ pub(crate) type Stages = (Result<ViscosityStages, Error>, Result<ConductivitySta
 pub(crate) struct TransportSet {
     pub(crate) record: TransportRecord,
     pub(crate) surface_tension: Option<SurfaceTension>,
-    #[expect(dead_code, reason = "the ECS evaluator reads its reference fluid at M8.8")]
     pub(crate) references: Box<[Fluid]>,
 }
 
@@ -1368,7 +1371,7 @@ impl TransportSet {
     /// η at `x`, or `NoModel`.
     pub(crate) fn viscosity(&self, x: &TransportInputs<'_>) -> Result<f64, Error> {
         let viscosity = self.record.viscosity.as_ref().ok_or(Error::NoModel { prop: Prop::Viscosity })?;
-        viscosity.evaluate(x)
+        viscosity.stages(x, &self.references).map(|s| s.total())
     }
 
     /// λ at `x`, or `NoModel`.
@@ -1379,9 +1382,10 @@ impl TransportSet {
     /// η's and λ's stages at `x`, η evaluated once and passed to λ explicitly (map 05 R6, U6).
     pub(crate) fn evaluate(&self, x: &TransportInputs<'_>) -> Stages {
         let viscosity = self.record.viscosity.as_ref().ok_or(Error::NoModel { prop: Prop::Viscosity });
-        let eta = viscosity.and_then(|v| v.stages(x));
+        let eta = viscosity.and_then(|v| v.stages(x, &self.references));
         let conductivity = self.record.conductivity.as_ref().ok_or(Error::NoModel { prop: Prop::Conductivity });
-        let lambda = conductivity.and_then(|c| c.stages(x, &eta));
+        let lj = self.record.viscosity.as_ref().and_then(|v| v.lennard_jones);
+        let lambda = conductivity.and_then(|c| c.stages(x, &eta, lj, &self.references));
         (eta, lambda)
     }
 }
@@ -1536,6 +1540,7 @@ pub(crate) mod tests {
             f_int,
             f_int_t_r: 1.0,
             q_d: 917069412.9838686,
+            reducing: Reducing { t: 395.425, rho: 3330.0, p: 4.1e6 },
         };
         models.push(ConductivityModel::Ecs(ecs));
         models.extend(HardcodedConductivity::ALL.iter().map(|&h| ConductivityModel::Hardcoded(h)));
@@ -1836,15 +1841,17 @@ pub(crate) mod tests {
         let x = TransportInputs::new(&state, record.molar_mass, &eos);
         let transport = record.transport.unwrap();
         let (viscosity, conductivity) = (transport.viscosity.unwrap(), transport.conductivity.unwrap());
-        let eta = viscosity.stages(&x).unwrap();
+        let eta = viscosity.stages(&x, &[]).unwrap();
         let doubled = ViscosityStages {
             dilute: 2.0 * eta.dilute,
             initial_density: 2.0 * eta.initial_density,
             residual: 2.0 * eta.residual,
             critical: 2.0 * eta.critical,
         };
-        let (once, twice) =
-            (conductivity.stages(&x, &Ok(eta)).unwrap(), conductivity.stages(&x, &Ok(doubled)).unwrap());
+        let (once, twice) = (
+            conductivity.stages(&x, &Ok(eta), None, &[]).unwrap(),
+            conductivity.stages(&x, &Ok(doubled), None, &[]).unwrap(),
+        );
         assert!(once.critical > 1e-3 * once.total(), "{once:?}");
         assert!((twice.critical / once.critical - 0.5).abs() < 1e-15, "{once:?} {twice:?}");
         // eta0_and_poly reads η₀ too: Nitrogen's dilute term moves with it, its residual term does not.

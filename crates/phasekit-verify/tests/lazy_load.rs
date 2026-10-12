@@ -136,21 +136,90 @@ fn references_are_resolved_when_the_layer_is_built() {
     assert_eq!(missing.reads(), [0]);
 }
 
-/// E5 + S-05: an A → B (ECS) edge reads B zero times on the thermo path and once on the first transport
-/// call, and the `Fluid` keeps working after its registry is dropped (no `Detached`).
+/// The embedded fluids `names` as a `DataSource` whose blob reads the test counts, each with the references its index
+/// entry declares (its ECS reference fluids).
+#[derive(Debug, Clone)]
+#[allow(clippy::disallowed_types, reason = "a test-only load counter; the library has no atomics (ROT-031)")]
+struct Embedded(Arc<(Vec<&'static phasekit_data::FluidEntry>, Vec<AtomicUsize>)>);
+
+impl Embedded {
+    #[allow(clippy::disallowed_types, reason = "a test-only load counter; the library has no atomics (ROT-031)")]
+    fn new(names: &[&str]) -> Self {
+        let entry = |name: &&str| phasekit_data::FLUIDS.iter().find(|f| f.name == *name).unwrap();
+        let entries: Vec<_> = names.iter().map(entry).collect();
+        let reads = entries.iter().map(|_| AtomicUsize::new(0)).collect();
+        Embedded(Arc::new((entries, reads)))
+    }
+    fn reads(&self) -> Vec<usize> {
+        self.0.1.iter().map(|r| r.load(Ordering::SeqCst)).collect()
+    }
+    fn entry(&self, id: FluidId) -> Result<&'static phasekit_data::FluidEntry, LoadError> {
+        self.0.0.get(id.0 as usize).copied().ok_or(LoadError::Format("id".into()))
+    }
+}
+
+impl DataSource for Embedded {
+    fn names(&self) -> Vec<Vec<String>> {
+        let names = |f: &&phasekit_data::FluidEntry| std::iter::once(f.name).chain(f.aliases.iter().copied());
+        self.0.0.iter().map(|f| names(f).map(str::to_string).collect()).collect()
+    }
+    fn blob(&self, id: FluidId) -> Result<Blob, LoadError> {
+        self.0.1[id.0 as usize].fetch_add(1, Ordering::SeqCst);
+        Ok(Blob::Static(self.entry(id)?.blob))
+    }
+    fn references(&self, id: FluidId) -> Vec<String> {
+        self.entry(id).map(|f| f.requires.iter().map(|r| r.to_string()).collect()).unwrap_or_default()
+    }
+}
+
+/// E5 + S-05 (PLAN.md M8.8, real data): R14's ECS edge to Nitrogen reads Nitrogen zero times on the thermo path and once
+/// on the first transport call, and R14's `Fluid` keeps evaluating its ECS viscosity after its registry is dropped (no
+/// `Detached`), to the same bits as the embedded registry's.
 #[test]
 fn a_reference_is_read_once_on_first_need_and_outlives_its_registry() {
-    let source = Shared::new(&[(&["A"], &["B"], true), (&["B"], &[], true)]);
-    let reg = layer(&Registry::empty(), &source).unwrap();
-    let a = reg.get("A").unwrap().clone();
-    let state = gas_state(&reg, "A");
-    assert_eq!(source.reads(), [1, 0]); // thermo never touches B
+    let source = Embedded::new(&["R14", "Nitrogen"]);
+    let reg = Registry::empty().with_source(Box::new(source.clone()), DataSet::Corrected).unwrap();
+    let a = reg.get("R14").unwrap().clone();
+    let state = gas_state(&reg, "R14");
+    assert_eq!(source.reads(), [1, 0]); // thermo never touches Nitrogen
     drop(reg);
-    let viscosity = a.prop(&state, Prop::Viscosity);
-    assert_eq!(viscosity, Err(Error::NoModel { prop: Prop::Viscosity })); // sketch: ECS evaluation lands at M8
+    let viscosity = a.prop(&state, Prop::Viscosity).unwrap();
     assert_eq!(source.reads(), [1, 1]);
-    let _ = a.prop(&state, Prop::Viscosity);
+    assert_eq!(a.prop(&state, Prop::Viscosity), Ok(viscosity));
     assert_eq!(source.reads(), [1, 1]);
+    let embedded = Registry::embedded().unwrap().get("R14").unwrap();
+    let input = Input::dt(Density::molar(100.0).unwrap(), Temperature::new(300.0).unwrap());
+    let state = embedded.flash(input, &FlashOptions::new().with_phase(Phase::Gas)).unwrap();
+    assert_eq!(embedded.prop(&state, Prop::Viscosity), Ok(viscosity));
+}
+
+/// PLAN.md M8.8 (ARCHITECTURE.md §5, counting): every fluid with an ECS model answers a thermodynamic workload (a gas
+/// state with its h, s, c_p and w, and its saturated liquid at 0.8 T_c) without reading its reference fluid's blob; its
+/// first transport call reads each reference once, however many fluids share it.
+#[test]
+fn thermo_only_workloads_never_load_references() {
+    let ecs: Vec<&str> = phasekit_data::FLUIDS.iter().filter(|f| !f.requires.is_empty()).map(|f| f.name).collect();
+    let references = ["Nitrogen", "R134a", "n-Propane"];
+    let source = Embedded::new(&[&ecs[..], &references].concat());
+    let reg = Registry::empty().with_source(Box::new(source.clone()), DataSet::Corrected).unwrap();
+    for name in &ecs {
+        let fluid = reg.get(name).unwrap();
+        let c = fluid.model().critical_point().unwrap();
+        let state = fluid.state(Input::dt(Density::molar(0.01 * c.rho).unwrap(), Temperature::new(0.9 * c.t).unwrap()));
+        let state = state.unwrap();
+        let _ = (state.h(Basis::Molar), state.s(Basis::Molar), state.cp(Basis::Molar), state.speed_of_sound());
+        let liquid = fluid.state(Input::qt(Quality::new(0.0).unwrap(), Temperature::new(0.8 * c.t).unwrap())).unwrap();
+        assert!(liquid.rho(Basis::Molar) > c.rho, "{name}");
+    }
+    let reads = source.reads();
+    assert_eq!((ecs.len(), &reads[ecs.len()..]), (19, &[0, 0, 0][..]), "thermo never touches a reference");
+    for name in &ecs {
+        let fluid = reg.get(name).unwrap();
+        let c = fluid.model().critical_point().unwrap();
+        let state = fluid.state(Input::dt(Density::molar(0.01 * c.rho).unwrap(), Temperature::new(0.9 * c.t).unwrap()));
+        let _ = fluid.prop(&state.unwrap(), Prop::Conductivity);
+    }
+    assert_eq!(&source.reads()[ecs.len()..], [1, 1, 1], "each reference read once");
 }
 
 #[cfg(not(target_family = "wasm"))]

@@ -4,14 +4,14 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::internal::{FluidRecord, IdealTerm};
+use phasekit_core::internal::{ConductivityModel, Edit, FluidRecord, IdealTerm};
 use phasekit_core::{
-    Basis, DataSet, Density, DomainError, Error, Input, Order, Phase, Pressure, Prop, Quality, Registry, Temperature,
-    ThermoModel,
+    Basis, DataSet, Density, DomainError, Error, FlashOptions, Input, Order, Phase, Pressure, Prop, Quality, Registry,
+    Temperature, ThermoModel,
 };
 use phasekit_verify::arbiters::{k3_values, table_text};
 use phasekit_verify::{
-    Cell, DIVERGENCES, Fixture, MILESTONE, fixture, from_printed, missing_proofs, unregistered_proofs,
+    Cell, DIVERGENCES, Fixture, MILESTONE, ToleranceClass, fixture, from_printed, missing_proofs, unregistered_proofs,
 };
 
 #[path = "common/transport_rows.rs"]
@@ -40,6 +40,8 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0023", div_0023),
     ("DIV-0024", div_0024),
     ("DIV-0025", div_0025),
+    ("DIV-0026", div_0026),
+    ("DIV-0027", div_0027),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -516,4 +518,69 @@ fn div_0025() {
     assert!(printed(mw(lambda.dilute), 34.048) && printed(mw(lambda.residual), 33.325), "{lambda:?}");
     assert!(printed(mw(lambda.critical), 7.313) && printed(eta * 1e6, 27.152), "{lambda:?} {eta}");
     assert!(printed(mw(lambda.critical) * eta / 49.465e-6, 4.014), "{}", mw(lambda.critical) * eta / 49.465e-6);
+}
+
+/// DIV-0026 (`SkipOracle`; map 05 R2, M8.8): with q_D edited to CoolProp's default, 2e9 1/m, each of the five fluids'
+/// λ is the oracle's within `TransportEcs` at every state of the all-fluid tier where the oracle converged, through the
+/// registry's reference fluid; with its own q_D at least one of those exempt cells differs beyond that bound.
+fn div_0026() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let (path, text) = fixture!("coolprop-8.0.0/all/transport.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    for name in ["R13", "R14", "R142b", "R218", "RC318"] {
+        let fluid = registry.get(name).unwrap();
+        let own = record(name, DataSet::Parity);
+        let mut edited = own.clone();
+        let transport = edited.transport.as_mut().unwrap();
+        transport.apply(Edit::EcsQd(2e9)).unwrap();
+        let ecs = transport.conductivity.as_ref().and_then(|c| match &c.model {
+            ConductivityModel::Ecs(ecs) => Some(ecs),
+            _ => None,
+        });
+        let references = [registry.get(&ecs.unwrap().reference).unwrap().clone()];
+        let (mut rows, mut differs) = (0, 0);
+        for row in (0..table.rows().len()).filter(|&r| table.printed(r, "fluid") == Some(name)) {
+            if table.printed(row, "lambda_status") != Some("ok") {
+                continue;
+            }
+            let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rho").unwrap());
+            let input = Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap());
+            let state = fluid.flash(input, &FlashOptions::new()).unwrap();
+            let stages = phasekit_core::internal::transport_stages_with(&edited, &state, &references).unwrap().1;
+            let want = table.value(row, "lambda").unwrap();
+            let bound = ToleranceClass::TransportEcs.bound(want).unwrap();
+            let got = stages.unwrap().total();
+            assert!((got - want).abs() <= bound, "{name} row {row}: {got} against {want}");
+            let lambda = fluid.prop(&state, Prop::Conductivity).unwrap();
+            differs += usize::from((lambda - want).abs() > bound);
+            rows += 1;
+        }
+        assert!(rows >= 4 && differs >= 1, "{name}: {rows} rows, {differs} differ");
+    }
+}
+
+/// Mylona et al. 2014 Eq. (18), EthylBenzene's dilute-gas λ in mW/(m K) at `t`, from the paper's printed coefficients and
+/// the T_c it adopts (617.12 K).
+fn mylona_eq_18(t: f64) -> f64 {
+    let tr = t / 617.12;
+    let a = [-1.10708, 10.8026, -28.9015, 41.9227, 20.9133, -4.01492];
+    let numerator = a.iter().rev().fold(0.0, |s, a| s * tr + a);
+    numerator / (0.259475 - 0.343879 * tr + tr * tr)
+}
+
+/// DIV-0027 (`Investigate`; map 10 §8.1, M8.8): at 600 K and 1e-12 kg/m³ EthylBenzene's λ is Mylona et al.'s Eq. (18),
+/// 41.1347 mW/(m K), 1.3e-4 below their Table 21's 41.14, which `CoolProp-Tests.cpp:555` takes; at 300 K the table and
+/// the equation agree to the table's digits. Resolution: what Table 21 was computed with.
+fn div_0027() {
+    let fluid = Registry::embedded().unwrap().get("EthylBenzene").unwrap();
+    let lambda = |t: f64| {
+        let state = fluid.state(Input::dt(Density::mass(1e-12).unwrap(), Temperature::new(t).unwrap())).unwrap();
+        fluid.prop(&state, Prop::Conductivity).unwrap() * 1e3
+    };
+    for t in [300.0, 600.0] {
+        assert!((lambda(t) / mylona_eq_18(t) - 1.0).abs() < 1e-12, "{t} K: {} against {}", lambda(t), mylona_eq_18(t));
+    }
+    assert!((lambda(300.0) - 9.71).abs() <= 0.005, "within the table's digits at 300 K");
+    let off = lambda(600.0) / 41.14 - 1.0;
+    assert!((off + 1.3e-4).abs() <= 0.05e-4 && (lambda(600.0) - 41.1347).abs() <= 0.00005, "{off:e}");
 }

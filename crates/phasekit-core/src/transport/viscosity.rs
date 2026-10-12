@@ -11,6 +11,7 @@ use crate::derivs::Order;
 use crate::error::{Error, LoadError};
 use crate::helmholtz::HelmholtzModel;
 use crate::math;
+use crate::model::{CriticalPoint, ThermoModel};
 use crate::prop::{DerivVar, Partial};
 use crate::state::State;
 use crate::units::Basis;
@@ -26,6 +27,8 @@ pub(crate) struct TransportInputs<'a> {
     state: &'a State,
     molar_mass: f64,
     eos: &'a dyn HelmholtzModel,
+    /// The fluid's model, for the critical point an ECS solve starts from; `None` where a seam has only the record.
+    model: Option<&'a dyn ThermoModel>,
 }
 
 /// The residual Helmholtz energy's reduced derivatives at a state: δα^r_δ, δ²α^r_δδ and τδα^r_τδ.
@@ -39,7 +42,32 @@ pub(crate) struct ResidualDerivs {
 impl<'a> TransportInputs<'a> {
     /// The inputs at `state` of a fluid of molar mass `molar_mass`, kg/mol, whose EOS is `eos`.
     pub(crate) fn new(state: &'a State, molar_mass: f64, eos: &'a dyn HelmholtzModel) -> Self {
-        TransportInputs { state, molar_mass, eos }
+        TransportInputs { state, molar_mass, eos, model: None }
+    }
+
+    /// These inputs with the fluid's model, whose critical point an ECS solve starts from.
+    pub(crate) fn with_model(self, model: &'a dyn ThermoModel) -> Self {
+        TransportInputs { model: Some(model), ..self }
+    }
+
+    /// The fluid's own critical point, if its model is known and has one.
+    pub(super) fn critical(&self) -> Option<CriticalPoint> {
+        self.model.and_then(ThermoModel::critical_point)
+    }
+
+    /// The fluid's EOS.
+    pub(super) fn eos(&self) -> &'a dyn HelmholtzModel {
+        self.eos
+    }
+
+    /// The EOS's molar gas constant, J/(mol K).
+    pub(super) fn gas_constant(&self) -> f64 {
+        self.eos.gas_constant()
+    }
+
+    /// The ideal-gas molar isobaric heat capacity, R (1 − τ²α⁰_ττ), J/(mol K).
+    pub(super) fn cp0(&self) -> f64 {
+        self.gas_constant() * (1.0 - self.ideal_tau_tau())
     }
 
     pub(super) fn t(&self) -> f64 {
@@ -119,7 +147,7 @@ pub(crate) fn lands(what: &str, step: &str) -> Error {
     LoadError::Format(format!("{what} lands at {step}").into()).into()
 }
 
-fn lennard_jones(lj: Option<LennardJones>) -> Result<LennardJones, Error> {
+pub(super) fn lennard_jones(lj: Option<LennardJones>) -> Result<LennardJones, Error> {
     lj.ok_or_else(|| lands("the Chung estimate of missing Lennard-Jones parameters", "M8.9"))
 }
 
@@ -153,19 +181,22 @@ fn dilute(form: &ViscosityDilute, lj: Option<LennardJones>, x: &TransportInputs<
             let s = math::exp(sum(terms, math::ln(t_star)));
             c * math::sqrt(m * t) / (sigma_nm * sigma_nm * s)
         }
-        ViscosityDilute::KineticTheory => {
-            let lj = lennard_jones(lj)?;
-            let (t_star, sigma_nm, m) = (t / lj.epsilon_over_k, lj.sigma * 1e9, x.molar_mass * 1000.0);
-            let omega22 = 1.16145 * math::powf(t_star, -0.14874)
-                + 0.52487 * math::exp(-0.77320 * t_star)
-                + 2.16178 * math::exp(-2.43787 * t_star);
-            26.692e-9 * math::sqrt(m * t) / (sigma_nm * sigma_nm * omega22)
-        }
+        ViscosityDilute::KineticTheory => kinetic_theory(lennard_jones(lj)?, x.molar_mass, t),
         ViscosityDilute::PowersOfT(terms) => sum(terms, t),
         ViscosityDilute::PowersOfTr { terms, t_r } => sum(terms, t / t_r),
         ViscosityDilute::CollisionIntegralPowersOfTstar { terms, t_r, c } => c * math::sqrt(t) / sum(terms, t / t_r),
         ViscosityDilute::Hardcoded(h) => return Err(lands(&format!("the {} dilute viscosity term", h.name()), "M8.9")),
     })
+}
+
+/// The Chapman-Enskog dilute viscosity, Pa s, with Neufeld's Ω₂₂ (`TransportRoutines.cpp:9-26`): of a fluid of molar
+/// mass `molar_mass`, kg/mol, at `t` with the Lennard-Jones parameters `lj`.
+pub(super) fn kinetic_theory(lj: LennardJones, molar_mass: f64, t: f64) -> f64 {
+    let (t_star, sigma_nm, m) = (t / lj.epsilon_over_k, lj.sigma * 1e9, molar_mass * 1000.0);
+    let omega22 = 1.16145 * math::powf(t_star, -0.14874)
+        + 0.52487 * math::exp(-0.77320 * t_star)
+        + 2.16178 * math::exp(-2.43787 * t_star);
+    26.692e-9 * math::sqrt(m * t) / (sigma_nm * sigma_nm * omega22)
 }
 
 /// η₁, Pa s (`TransportRoutines.cpp:140-180`; the host's product, `HelmholtzEOSMixtureBackend.cpp:758-762`).
