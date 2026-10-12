@@ -252,9 +252,15 @@ impl State {
         }
     }
 
-    /// Density in the given basis.
+    /// Density in the given basis: a single point's own, times M on a mass basis (CoolProp's `rhomass`), not the
+    /// reciprocal of its reciprocal, which is an ulp off (M8.9: methanol's viscosity amplifies that past
+    /// `TransportDirect`); in the dome the lever rule on molar volume.
     pub fn rho(&self, basis: Basis) -> f64 {
-        1.0 / (self.mix(|pt| 1.0 / pt.rho) * self.per(basis))
+        match (&self.body, basis) {
+            (Body::Single(pt), Basis::Molar) => pt.rho,
+            (Body::Single(pt), Basis::Mass) => pt.rho * self.molar_mass,
+            (Body::TwoPhase { .. }, _) => 1.0 / (self.mix(|pt| 1.0 / pt.rho) * self.per(basis)),
+        }
     }
     /// Enthalpy in the handle's reference state.
     pub fn h(&self, basis: Basis) -> f64 {

@@ -95,9 +95,9 @@ pub mod internal {
         ConductivityResidual, ConductivityStages, EcsConductivity, EcsViscosity, FrictionCubic, FrictionSecond,
         FrictionTheory, FriendMethane, HardcodedConductivity, HardcodedCriticalConductivity,
         HardcodedDiluteConductivity, HardcodedDiluteViscosity, HardcodedHigherViscosity, HardcodedViscosity, Kappa,
-        LennardJones, OlchowySengers, Part, Put, Reducing, RhoSrCs, Series, StagedConductivity, StagedViscosity,
-        SurfaceTension, Take, TransportRecord, Viscosity, ViscosityDilute, ViscosityHigher, ViscosityInitial,
-        ViscosityModel, ViscosityStages, WaterConductivity, WaterViscosity,
+        LennardJones, LjSource, OlchowySengers, Part, Put, Reducing, RhoSrCs, Series, StagedConductivity,
+        StagedViscosity, SurfaceTension, Take, TransportRecord, Viscosity, ViscosityDilute, ViscosityHigher,
+        ViscosityInitial, ViscosityModel, ViscosityStages, WaterConductivity, WaterViscosity,
     };
 
     /// η's and λ's stages at one state, each or why there is none.

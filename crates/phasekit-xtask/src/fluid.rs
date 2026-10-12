@@ -750,7 +750,8 @@ mod tests {
         assert_eq!(read.len(), phasekit_core::internal::BLOB_SECTIONS.len(), "every section of v1 is filled");
     }
 
-    /// The transport section writes an absent model, part or field as `null`, as the other sections do (M8.1).
+    /// The transport section writes an absent model, part or field as `null`, as the other sections do (M8.1); a
+    /// viscosity always has Lennard-Jones parameters, its own or Chung's (M8.9).
     #[test]
     fn absent_transport_parts_dump_as_null() {
         let records = records(&Repo::locate()).unwrap();
@@ -759,7 +760,7 @@ mod tests {
         let ethylbenzene = transport("EthylBenzene");
         assert_eq!(ethylbenzene["viscosity"]["source"].get("doi"), Some(&Value::Null), "Huber-RP912 has no DOI");
         let water = transport("Water");
-        assert_eq!(water["viscosity"].get("lennard_jones"), Some(&Value::Null));
+        assert_eq!(water["viscosity"]["lennard_jones"]["kind"], json!("Chung"), "named, never null (M8.9)");
         assert!(water["viscosity"]["source"]["doi"].is_string());
     }
 

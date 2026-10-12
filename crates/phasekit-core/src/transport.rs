@@ -12,14 +12,15 @@
 
 mod conductivity;
 mod ecs;
+mod hardcoded;
 mod iapws;
 mod viscosity;
 
 pub use conductivity::ConductivityStages;
 pub use iapws::{WaterConductivity, WaterViscosity};
 pub(crate) use iapws::{water_conductivity, water_viscosity};
+pub(crate) use viscosity::TransportInputs;
 pub use viscosity::ViscosityStages;
-pub(crate) use viscosity::{TransportInputs, lands};
 
 use crate::data::{Ancillary, DataSet, Edit, Patch};
 use crate::error::{DomainError, Error, LoadError};
@@ -177,9 +178,8 @@ pub struct TransportRecord {
 pub struct Viscosity {
     /// The active entry's `BibTeX` key, and its DOI when CoolProp's bibliography has one.
     pub source: Source,
-    /// Lennard-Jones 12-6 parameters, when the block gives both; otherwise CoolProp estimates both by Chung's method
-    /// from the EOS's reducing state (`FluidLibrary.h:1005-1013`; map 05 R17, M8.9).
-    pub lennard_jones: Option<LennardJones>,
+    /// Lennard-Jones 12-6 parameters: the block's own, or Chung's estimate where it gives none (map 05 R4, R17).
+    pub lennard_jones: LjSource,
     /// The form.
     pub model: ViscosityModel,
 }
@@ -191,6 +191,32 @@ pub struct LennardJones {
     pub sigma: f64,
     /// Well depth over Boltzmann's constant ε/k, K.
     pub epsilon_over_k: f64,
+}
+
+/// Where a model's Lennard-Jones parameters come from: its block's own, or Chung et al.'s estimate from the EOS reducing
+/// state, σ = 0.809/(ρ_r in mol/L)^(1/3) nm and ε/k = T_r/1.2593, which CoolProp fills in silently for a viscosity block
+/// without them (`FluidLibrary.h:724-726, 1005-1013`; map 05 R4, R17). Datagen names the choice; it is never silent.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LjSource {
+    /// The block's own σ and ε/k.
+    Model(LennardJones),
+    /// Chung's estimate.
+    Chung(LennardJones),
+}
+
+impl LjSource {
+    /// The parameters, whichever their source.
+    pub fn parameters(self) -> LennardJones {
+        match self {
+            LjSource::Model(lj) | LjSource::Chung(lj) => lj,
+        }
+    }
+
+    /// Chung's estimate from a reducing temperature `t_r`, K, and molar density `rho_r`, mol/m³, as CoolProp computes it.
+    pub fn chung(t_r: f64, rho_r: f64) -> LjSource {
+        let sigma = 0.809 / math::powf(rho_r / 1000.0, 1.0 / 3.0) / 1e9;
+        LjSource::Chung(LennardJones { sigma, epsilon_over_k: t_r / 1.2593 })
+    }
 }
 
 /// The viscosity forms of v8.0.0 (map 05 §3.1-§3.2).
@@ -585,6 +611,9 @@ pub struct EcsConductivity {
     pub q_d: f64,
     /// The EOS reducing state the critical term reads, as `StagedConductivity::reducing` (ROT-117).
     pub reducing: Reducing,
+    /// The Lennard-Jones parameters of the dilute η its λ_int and λ_dil read: CoolProp takes the viscosity block's, Chung's
+    /// estimate where that block has none (R124, R22, R245fa, R32; map 05 R17).
+    pub lennard_jones: LjSource,
 }
 
 /// Writes a transport record field by field, each with its name. The blob encoder writes the values in order and the
@@ -748,15 +777,31 @@ impl Part for TransportRecord {
 impl Part for Viscosity {
     fn put(&self, p: &mut dyn Put) {
         part(p, "source", &self.source);
-        opt_part(p, "lennard_jones", self.lennard_jones.as_ref());
+        part(p, "lennard_jones", &self.lennard_jones);
         part(p, "model", &self.model);
     }
     fn take(t: &mut dyn Take) -> Result<Self, String> {
         Ok(Viscosity {
             source: take_part(t, "source")?,
-            lennard_jones: take_opt_part(t, "lennard_jones")?,
+            lennard_jones: take_part(t, "lennard_jones")?,
             model: take_part(t, "model")?,
         })
+    }
+}
+
+const LJ_SOURCES: &[&str] = &["model", "Chung"];
+
+impl Part for LjSource {
+    fn put(&self, p: &mut dyn Put) {
+        match self {
+            LjSource::Model(lj) => variant(p, LJ_SOURCES, 0, lj),
+            LjSource::Chung(lj) => variant(p, LJ_SOURCES, 1, lj),
+        }
+    }
+    fn take(t: &mut dyn Take) -> Result<Self, String> {
+        let source = t.choice("kind", LJ_SOURCES)?;
+        let lj = LennardJones::take(t)?;
+        Ok(if source == 0 { LjSource::Model(lj) } else { LjSource::Chung(lj) })
     }
 }
 
@@ -1216,6 +1261,7 @@ impl Part for EcsConductivity {
         p.num("f_int_T_reducing", self.f_int_t_r);
         p.num("q_D", self.q_d);
         part(p, "reducing", &self.reducing);
+        part(p, "lennard_jones", &self.lennard_jones);
     }
     fn take(t: &mut dyn Take) -> Result<Self, String> {
         Ok(EcsConductivity {
@@ -1226,6 +1272,7 @@ impl Part for EcsConductivity {
             f_int_t_r: t.num("f_int_T_reducing")?,
             q_d: t.num("q_D")?,
             reducing: take_part(t, "reducing")?,
+            lennard_jones: take_part(t, "lennard_jones")?,
         })
     }
 }
@@ -1235,36 +1282,44 @@ impl Viscosity {
     /// form says the step that evaluates it.
     pub(crate) fn stages(&self, x: &TransportInputs<'_>, references: &[Fluid]) -> Result<ViscosityStages, Error> {
         match &self.model {
-            ViscosityModel::Staged(staged) => viscosity::stages(staged, self.lennard_jones, x),
-            ViscosityModel::Ecs(model) => ecs::viscosity(model, self.lennard_jones, x, references),
-            ViscosityModel::RhoSrCs(_) | ViscosityModel::Chung(_) => {
-                Err(lands("evaluating this viscosity model", "M8.9"))
-            }
-            ViscosityModel::Hardcoded(HardcodedViscosity::Water) => Ok(iapws::water_viscosity_stages(x)),
-            ViscosityModel::Hardcoded(HardcodedViscosity::HeavyWater) => Ok(iapws::heavy_water_viscosity(x)),
-            ViscosityModel::Hardcoded(h) => Err(lands(&format!("evaluating the {} viscosity", h.name()), "M8.9")),
+            ViscosityModel::Staged(staged) => viscosity::stages(staged, self.lennard_jones.parameters(), x),
+            ViscosityModel::Ecs(model) => ecs::viscosity(model, self.lennard_jones.parameters(), x, references),
+            ViscosityModel::RhoSrCs(model) => Ok(hardcoded::rhosr(model, self.lennard_jones.parameters(), x)),
+            ViscosityModel::Chung(model) => Ok(hardcoded::chung(model, x)),
+            ViscosityModel::Hardcoded(h) => Ok(match h {
+                HardcodedViscosity::Water => iapws::water_viscosity_stages(x),
+                HardcodedViscosity::HeavyWater => iapws::heavy_water_viscosity(x),
+                HardcodedViscosity::Helium => hardcoded::helium(x),
+                HardcodedViscosity::R23 => hardcoded::r23(x),
+                HardcodedViscosity::Methanol => hardcoded::methanol(x),
+                HardcodedViscosity::MXylene => hardcoded::m_xylene(x),
+                HardcodedViscosity::OXylene => hardcoded::o_xylene(x),
+                HardcodedViscosity::PXylene => hardcoded::p_xylene(x),
+            }),
         }
     }
 }
 
 impl Conductivity {
     /// The stages at `x` of a staged model, Methane's, an ECS model against one of `references` or an IAPWS release;
-    /// `eta` is the fluid's own viscosity there, read only by the forms that need it (map 05 R6), and `lj` its
-    /// viscosity block's Lennard-Jones parameters, ECS's dilute η. Another form says the step that evaluates it.
+    /// `eta` is the fluid's own viscosity there, read only by the forms that need it (map 05 R6). Another form says the
+    /// step that evaluates it.
     pub(crate) fn stages(
         &self,
         x: &TransportInputs<'_>,
         eta: &Result<ViscosityStages, Error>,
-        lj: Option<LennardJones>,
         references: &[Fluid],
     ) -> Result<ConductivityStages, Error> {
         match &self.model {
             ConductivityModel::Staged(staged) => conductivity::stages(staged, x, eta),
             ConductivityModel::Methane(methane) => conductivity::friend_methane(methane, x),
-            ConductivityModel::Ecs(model) => ecs::conductivity(model, lj, x, eta, references),
+            ConductivityModel::Ecs(model) => ecs::conductivity(model, x, eta, references),
             ConductivityModel::Hardcoded(HardcodedConductivity::Water) => iapws::water_conductivity_stages(x, eta),
             ConductivityModel::Hardcoded(HardcodedConductivity::HeavyWater) => Ok(iapws::heavy_water_conductivity(x)),
-            ConductivityModel::Hardcoded(h) => Err(lands(&format!("evaluating the {} conductivity", h.name()), "M8.9")),
+            ConductivityModel::Hardcoded(HardcodedConductivity::R23) => Ok(hardcoded::r23_conductivity(x)),
+            ConductivityModel::Hardcoded(HardcodedConductivity::Helium) => {
+                hardcoded::helium_conductivity(x, eta.clone()?.total())
+            }
         }
     }
 }
@@ -1384,8 +1439,7 @@ impl TransportSet {
         let viscosity = self.record.viscosity.as_ref().ok_or(Error::NoModel { prop: Prop::Viscosity });
         let eta = viscosity.and_then(|v| v.stages(x, &self.references));
         let conductivity = self.record.conductivity.as_ref().ok_or(Error::NoModel { prop: Prop::Conductivity });
-        let lj = self.record.viscosity.as_ref().and_then(|v| v.lennard_jones);
-        let lambda = conductivity.and_then(|c| c.stages(x, &eta, lj, &self.references));
+        let lambda = conductivity.and_then(|c| c.stages(x, &eta, &self.references));
         (eta, lambda)
     }
 }
@@ -1541,6 +1595,7 @@ pub(crate) mod tests {
             f_int_t_r: 1.0,
             q_d: 917069412.9838686,
             reducing: Reducing { t: 395.425, rho: 3330.0, p: 4.1e6 },
+            lennard_jones: LjSource::Chung(LennardJones { sigma: 0.5e-9, epsilon_over_k: 314.0 }),
         };
         models.push(ConductivityModel::Ecs(ecs));
         models.extend(HardcodedConductivity::ALL.iter().map(|&h| ConductivityModel::Hardcoded(h)));
@@ -1581,7 +1636,7 @@ pub(crate) mod tests {
             .map(|i| TransportRecord {
                 viscosity: Some(Viscosity {
                     source: source("Vogel-JPCRD-1998", (i % 2 == 0).then_some("10.1063/1.556037")),
-                    lennard_jones: (i % 3 != 0).then_some(lj),
+                    lennard_jones: if i % 3 == 0 { LjSource::Chung(lj) } else { LjSource::Model(lj) },
                     model: viscosities[i % viscosities.len()].clone(),
                 }),
                 conductivity: Some(Conductivity {
@@ -1655,9 +1710,9 @@ pub(crate) mod tests {
             crate::blob::assemble(&bodies)
         };
         // The section: viscosity's presence byte, the bibkey (u32 length, bytes), the DOI's presence byte, the DOI,
-        // the Lennard-Jones presence byte (absent in record 0), then the model's kind and ρ*_sr-CS's C and c_liq.
+        // the Lennard-Jones source (its kind byte, σ and ε/k), then the model's kind and ρ*_sr-CS's C and c_liq.
         let doi_flag = 1 + 4 + "Vogel-JPCRD-1998".len();
-        let kind = doi_flag + 1 + 4 + "10.1063/1.556037".len() + 1;
+        let kind = doi_flag + 1 + 4 + "10.1063/1.556037".len() + 1 + 2 * 8;
         let c_liq_count = kind + 1 + 8;
         assert_eq!(blob_with(&|_| {}), with_transport(short.clone()).encode());
         type Edit<'a> = &'a dyn Fn(&mut Vec<u8>);
@@ -1753,8 +1808,8 @@ pub(crate) mod tests {
         assert_eq!(err, Err(LoadError::Format("no rhosr-CS viscosity to edit".into())));
     }
 
-    /// A record compiled without the registry carries its transport models: a fluid with one evaluates it or says when
-    /// its evaluation lands, a fluid without one answers `NoModel`.
+    /// A record compiled without the registry carries its transport models: a fluid with one evaluates it, its
+    /// Lennard-Jones parameters its own or Chung's, and a fluid without one answers `NoModel`.
     #[test]
     fn a_compiled_record_carries_its_transport() {
         use crate::{Density, FlashOptions, Input, Phase, Temperature};
@@ -1764,19 +1819,17 @@ pub(crate) mod tests {
             let state = fluid.flash(input, &FlashOptions::new().with_phase(Phase::Gas)).unwrap();
             [Prop::Viscosity, Prop::Conductivity].map(|prop| fluid.prop(&state, prop))
         };
-        let lands = |what: &str| Err(Error::Load(LoadError::Format(what.into())));
-        let [viscosity, conductivity] = answers(every_form().swap_remove(1));
-        assert!(viscosity.as_ref().is_ok_and(|eta| eta.is_finite()), "{viscosity:?}");
-        assert!(conductivity.as_ref().is_ok_and(|lambda| lambda.is_finite()), "{conductivity:?}");
-        // The critical term reads the fluid's η: where η lands later, so does λ, enhanced at this state or not.
-        let missing_lj = lands("the Chung estimate of missing Lennard-Jones parameters lands at M8.9");
-        assert_eq!(answers(every_form().swap_remove(0)), [missing_lj.clone(), missing_lj]);
+        for record in [every_form().swap_remove(1), every_form().swap_remove(0)] {
+            let [viscosity, conductivity] = answers(record);
+            assert!(viscosity.as_ref().is_ok_and(|eta| eta.is_finite()), "{viscosity:?}");
+            assert!(conductivity.as_ref().is_ok_and(|lambda| lambda.is_finite()), "{conductivity:?}");
+        }
         let none = [Err(Error::NoModel { prop: Prop::Viscosity }), Err(Error::NoModel { prop: Prop::Conductivity })];
         assert_eq!(answers(TransportRecord::default()), none);
     }
 
     /// The terms no v8.0.0 data exercises, against their closed forms at a Toy state: the empirical initial-density term
-    /// (CycloHexane's only; its reducing constants are 1, and its hard-coded dilute term lands at M8.9), and the
+    /// (CycloHexane's only; its reducing constants are 1, beside its hard-coded dilute term), and the
     /// Batschinski-Hildebrand free-volume sum with τ in it (every v8.0.0 t₂ is 0).
     #[test]
     fn unexercised_viscosity_terms_match_their_closed_forms() {
@@ -1815,7 +1868,8 @@ pub(crate) mod tests {
             }),
             higher: ViscosityHigher::BatschinskiHildebrand(Box::new(bh)),
         };
-        let stages = viscosity::stages(&model, None, &x).unwrap();
+        let lj = LennardJones { sigma: 0.4363e-9, epsilon_over_k: 192.0 };
+        let stages = viscosity::stages(&model, lj, &x).unwrap();
         let (tau, delta) = (350.0 / t, rho / 4000.0);
         let empirical = 2e-7 * delta - 3e-6 * delta * delta * tau + 4e-5 * delta * tau * tau;
         let free_volume =
@@ -1848,10 +1902,8 @@ pub(crate) mod tests {
             residual: 2.0 * eta.residual,
             critical: 2.0 * eta.critical,
         };
-        let (once, twice) = (
-            conductivity.stages(&x, &Ok(eta), None, &[]).unwrap(),
-            conductivity.stages(&x, &Ok(doubled), None, &[]).unwrap(),
-        );
+        let (once, twice) =
+            (conductivity.stages(&x, &Ok(eta), &[]).unwrap(), conductivity.stages(&x, &Ok(doubled), &[]).unwrap());
         assert!(once.critical > 1e-3 * once.total(), "{once:?}");
         assert!((twice.critical / once.critical - 0.5).abs() < 1e-15, "{once:?} {twice:?}");
         // eta0_and_poly reads η₀ too: Nitrogen's dilute term moves with it, its residual term does not.

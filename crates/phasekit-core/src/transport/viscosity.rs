@@ -1,14 +1,15 @@
 //! Staged viscosity (PLAN.md M8.5; map 05 U1, U3, §3.1): each stage a pure function of its form's coefficients and of
 //! [`TransportInputs`], in CoolProp's operation order (`TransportRoutines.cpp:9-180, 358-401`), so the oracle agrees
-//! within `TransportDirect`. The hardcoded stages (map 05 U10) and the Chung estimate of missing Lennard-Jones
-//! parameters (map 05 R17) land at M8.9.
+//! within `TransportDirect`. The hardcoded stages are `hardcoded`'s (map 05 U10, M8.9); a block without Lennard-Jones
+//! parameters reads Chung's estimate, named in the record (`LjSource`, map 05 R17).
 
+use super::hardcoded;
 use super::{
-    BatschinskiHildebrand, FrictionSecond, FrictionTheory, Kappa, LennardJones, Series, StagedViscosity,
-    ViscosityDilute, ViscosityHigher, ViscosityInitial,
+    BatschinskiHildebrand, FrictionSecond, FrictionTheory, HardcodedDiluteViscosity, HardcodedHigherViscosity, Kappa,
+    LennardJones, Series, StagedViscosity, ViscosityDilute, ViscosityHigher, ViscosityInitial,
 };
 use crate::derivs::Order;
-use crate::error::{Error, LoadError};
+use crate::error::Error;
 use crate::helmholtz::HelmholtzModel;
 use crate::math;
 use crate::model::{CriticalPoint, ThermoModel};
@@ -88,7 +89,12 @@ impl<'a> TransportInputs<'a> {
         self.rho() * self.molar_mass
     }
 
-    fn dp_dt(&self) -> Result<f64, Error> {
+    /// κ_T, 1/Pa.
+    pub(super) fn isothermal_compressibility(&self) -> Result<f64, Error> {
+        self.state.isothermal_compressibility()
+    }
+
+    pub(super) fn dp_dt(&self) -> Result<f64, Error> {
         self.state.partial(Partial { of: DerivVar::P, wrt: DerivVar::T, at: DerivVar::Dmolar })
     }
 
@@ -142,15 +148,6 @@ impl ViscosityStages {
     }
 }
 
-/// The typed "not yet" error of a form a later step evaluates.
-pub(crate) fn lands(what: &str, step: &str) -> Error {
-    LoadError::Format(format!("{what} lands at {step}").into()).into()
-}
-
-pub(super) fn lennard_jones(lj: Option<LennardJones>) -> Result<LennardJones, Error> {
-    lj.ok_or_else(|| lands("the Chung estimate of missing Lennard-Jones parameters", "M8.9"))
-}
-
 /// Σ aᵢ xᵗⁱ in the series' order.
 pub(super) fn sum(terms: &Series, x: f64) -> f64 {
     terms.a.iter().zip(&terms.t).fold(0.0, |s, (a, t)| s + a * math::powf(x, *t))
@@ -159,7 +156,7 @@ pub(super) fn sum(terms: &Series, x: f64) -> f64 {
 /// The stages of `model` at `x`; `lj` are the viscosity block's Lennard-Jones parameters.
 pub(crate) fn stages(
     model: &StagedViscosity,
-    lj: Option<LennardJones>,
+    lj: LennardJones,
     x: &TransportInputs<'_>,
 ) -> Result<ViscosityStages, Error> {
     let dilute = dilute(&model.dilute, lj, x)?;
@@ -172,20 +169,23 @@ pub(crate) fn stages(
 }
 
 /// η₀, Pa s (`TransportRoutines.cpp:9-102`).
-fn dilute(form: &ViscosityDilute, lj: Option<LennardJones>, x: &TransportInputs<'_>) -> Result<f64, Error> {
+fn dilute(form: &ViscosityDilute, lj: LennardJones, x: &TransportInputs<'_>) -> Result<f64, Error> {
     let t = x.t();
     Ok(match form {
         ViscosityDilute::CollisionIntegral { terms, molar_mass, c } => {
-            let lj = lennard_jones(lj)?;
             let (t_star, sigma_nm, m) = (t / lj.epsilon_over_k, lj.sigma * 1e9, molar_mass * 1000.0);
             let s = math::exp(sum(terms, math::ln(t_star)));
             c * math::sqrt(m * t) / (sigma_nm * sigma_nm * s)
         }
-        ViscosityDilute::KineticTheory => kinetic_theory(lennard_jones(lj)?, x.molar_mass, t),
+        ViscosityDilute::KineticTheory => kinetic_theory(lj, x.molar_mass, t),
         ViscosityDilute::PowersOfT(terms) => sum(terms, t),
         ViscosityDilute::PowersOfTr { terms, t_r } => sum(terms, t / t_r),
         ViscosityDilute::CollisionIntegralPowersOfTstar { terms, t_r, c } => c * math::sqrt(t) / sum(terms, t / t_r),
-        ViscosityDilute::Hardcoded(h) => return Err(lands(&format!("the {} dilute viscosity term", h.name()), "M8.9")),
+        ViscosityDilute::Hardcoded(h) => match h {
+            HardcodedDiluteViscosity::Ethane => hardcoded::ethane_dilute(t),
+            HardcodedDiluteViscosity::Cyclohexane => hardcoded::cyclohexane_dilute(t),
+            HardcodedDiluteViscosity::CarbonDioxideLaeseckeJpcrd2017 => hardcoded::co2_dilute(t),
+        },
     })
 }
 
@@ -202,13 +202,12 @@ pub(super) fn kinetic_theory(lj: LennardJones, molar_mass: f64, t: f64) -> f64 {
 /// η₁, Pa s (`TransportRoutines.cpp:140-180`; the host's product, `HelmholtzEOSMixtureBackend.cpp:758-762`).
 fn initial_density(
     form: &ViscosityInitial,
-    lj: Option<LennardJones>,
+    lj: LennardJones,
     dilute: f64,
     x: &TransportInputs<'_>,
 ) -> Result<f64, Error> {
     Ok(match form {
         ViscosityInitial::RainwaterFriend(terms) => {
-            let lj = lennard_jones(lj)?;
             let b_star = sum(terms, x.t() / lj.epsilon_over_k);
             let b = AVOGADRO * math::powf(lj.sigma, 3.0) * b_star;
             dilute * b * x.rho()
@@ -226,7 +225,15 @@ fn higher(form: &ViscosityHigher, x: &TransportInputs<'_>) -> Result<f64, Error>
     match form {
         ViscosityHigher::BatschinskiHildebrand(bh) => Ok(batschinski_hildebrand(bh, x)),
         ViscosityHigher::FrictionTheory(f) => friction_theory(f, x),
-        ViscosityHigher::Hardcoded(h) => Err(lands(&format!("the {} higher-order viscosity term", h.name()), "M8.9")),
+        ViscosityHigher::Hardcoded(h) => Ok(match h {
+            HardcodedHigherViscosity::Hydrogen => hardcoded::hydrogen_higher(x),
+            HardcodedHigherViscosity::NHexane => hardcoded::hexane_higher(x),
+            HardcodedHigherViscosity::NHeptane => hardcoded::heptane_higher(x),
+            HardcodedHigherViscosity::Toluene => hardcoded::toluene_higher(x),
+            HardcodedHigherViscosity::Ethane => hardcoded::ethane_higher(x),
+            HardcodedHigherViscosity::Benzene => hardcoded::benzene_higher(x),
+            HardcodedHigherViscosity::CarbonDioxideLaeseckeJpcrd2017 => hardcoded::co2_higher(x),
+        }),
     }
 }
 

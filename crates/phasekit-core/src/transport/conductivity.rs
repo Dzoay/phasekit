@@ -3,12 +3,13 @@
 //! operation order (`TransportRoutines.cpp:677-777, 850-863`), so the oracle agrees within `TransportDirect`. The
 //! reducing state the forms read is the record's, snapshotted from the EOS at datagen (ROT-117), and so is what
 //! Methane's hard-coded model reads (Friend, Ely and Ingham 1989; `TransportRoutines.cpp:1063-1140`). The other
-//! hard-coded stages land at M8.9.
+//! hard-coded stages are `hardcoded`'s (M8.9).
 
-use super::viscosity::{TransportInputs, ViscosityStages, lands, sum};
+use super::hardcoded;
+use super::viscosity::{TransportInputs, ViscosityStages, sum};
 use super::{
     ConductivityCritical, ConductivityDilute, ConductivityResidual, FriendMethane, HardcodedCriticalConductivity,
-    OlchowySengers, Reducing, StagedConductivity,
+    HardcodedDiluteConductivity, OlchowySengers, Reducing, StagedConductivity,
 };
 use crate::error::Error;
 use crate::math;
@@ -51,9 +52,8 @@ pub(crate) fn stages(
     let critical = match &model.critical {
         ConductivityCritical::OlchowySengers(os) => olchowy_sengers(os, r, x, eta)?,
         ConductivityCritical::Hardcoded(HardcodedCriticalConductivity::Absent) => 0.0,
-        ConductivityCritical::Hardcoded(h) => {
-            return Err(lands(&format!("the {} critical conductivity term", h.name()), "M8.9"));
-        }
+        ConductivityCritical::Hardcoded(HardcodedCriticalConductivity::R123) => hardcoded::r123_critical(x, r),
+        ConductivityCritical::Hardcoded(HardcodedCriticalConductivity::Ammonia) => hardcoded::ammonia_critical(x),
     };
     Ok(ConductivityStages { dilute, residual, critical })
 }
@@ -83,8 +83,11 @@ fn dilute(
             let polynomial = a.iter().zip(terms.t.iter().skip(1));
             polynomial.fold(a0 * eta0, |s, (a, t)| s + a * math::powf(tau, *t))
         }
-        ConductivityDilute::Hardcoded(h) => {
-            return Err(lands(&format!("the {} dilute conductivity term", h.name()), "M8.9"));
+        ConductivityDilute::Hardcoded(HardcodedDiluteConductivity::CarbonDioxideHuberJpcrd2016) => {
+            hardcoded::co2_dilute_conductivity(x, r)
+        }
+        ConductivityDilute::Hardcoded(HardcodedDiluteConductivity::Ethane) => {
+            hardcoded::ethane_dilute_conductivity(x, r, viscosity(eta)?.dilute)
         }
     })
 }
