@@ -219,11 +219,21 @@ impl Registry {
         self.push_source(source, data_set, false)
     }
 
+    /// [`Registry::with_source`] (and the embedded registry, `embedded`) in its three phases: the source's keys
+    /// ([`Registry::source_keys`]), its slots ([`Registry::build_slots`]), then the new layer.
     fn push_source(&self, source: Box<dyn DataSource>, data_set: DataSet, embedded: bool) -> Result<Registry, Error> {
         let source: Arc<dyn DataSource> = Arc::from(source);
         let names = source.names();
+        let keys = self.source_keys(&names)?;
+        let slots = self.build_slots(&source, &names, &keys, data_set)?;
+        Ok(self.push(Layer::Data(Arc::new(DataLayer { keys: keys.into(), slots, embedded }))))
+    }
+
+    /// The keys of a new source's fluids, each fluid's `names` ASCII-lowercased with its index, sorted; a name twice in
+    /// the source, or one this registry already serves, is `DuplicateName`.
+    fn source_keys(&self, names: &[Vec<String>]) -> Result<Vec<(Box<str>, u32)>, Error> {
         let mut keys: Vec<(Box<str>, u32)> = Vec::new();
-        for (i, list) in (0u32..).zip(&names) {
+        for (i, list) in (0u32..).zip(names) {
             keys.extend(list.iter().map(|n| (n.to_ascii_lowercase().into_boxed_str(), i)));
         }
         keys.sort();
@@ -234,11 +244,22 @@ impl Registry {
         if let Some((taken, _)) = keys.iter().find(|(k, _)| self.canonical_name(k).is_some()) {
             return Err(LoadError::DuplicateName(taken.clone()).into());
         }
+        Ok(keys)
+    }
+
+    /// The slots of a new source's fluids (`names`, `keys`), built in dependency order: a slot exists only after the
+    /// slots it needs. No progress with slots left means a cycle, `ReferenceCycle` (a cycle would otherwise deadlock on
+    /// re-entrant `OnceLock` init).
+    fn build_slots(
+        &self,
+        source: &Arc<dyn DataSource>,
+        names: &[Vec<String>],
+        keys: &[(Box<str>, u32)],
+        data_set: DataSet,
+    ) -> Result<Box<[Arc<Slot>]>, Error> {
         let canonical: Vec<Box<str>> =
             names.iter().map(|l| l.first().map_or_else(Box::default, |n| n.as_str().into())).collect();
-        let refs: Vec<Vec<String>> = (0u32..).zip(&names).map(|(i, _)| source.references(FluidId(i))).collect();
-        // Build slots in dependency order: a slot exists only after the slots it needs. No progress with
-        // slots left means a cycle (a cycle would otherwise deadlock on re-entrant `OnceLock` init).
+        let refs: Vec<Vec<String>> = (0u32..).zip(names).map(|(i, _)| source.references(FluidId(i))).collect();
         let mut slots: Vec<Option<Arc<Slot>>> = vec![None; names.len()];
         let mut progress = true;
         while progress {
@@ -247,22 +268,11 @@ impl Registry {
                 if slots[i].is_some() {
                     continue;
                 }
-                let mut deps = Vec::new();
-                for r in &refs[i] {
-                    let local = keys.binary_search_by(|(k, _)| cmp_folded(k, r)).ok().map(|j| keys[j].1 as usize);
-                    let dep = match local {
-                        Some(j) => slots[j].clone().map(Dep::Slot),
-                        None => Some(self.dep(r).ok_or_else(|| LoadError::MissingReference {
-                            fluid: canonical[i].clone(),
-                            reference: r.as_str().into(),
-                        })?),
-                    };
-                    deps.extend(dep);
-                }
+                let deps = self.deps_of(&refs[i], keys, &slots, &canonical[i])?;
                 if deps.len() == refs[i].len() {
                     let (name, id) = (canonical[i].clone(), FluidId(i as u32));
                     let deps = deps.into_boxed_slice();
-                    let slot = Slot { cell: OnceLock::new(), name, id, source: Arc::clone(&source), data_set, deps };
+                    let slot = Slot { cell: OnceLock::new(), name, id, source: Arc::clone(source), data_set, deps };
                     slots[i] = Some(Arc::new(slot));
                     progress = true;
                 }
@@ -271,8 +281,32 @@ impl Registry {
         if let Some(stuck) = slots.iter().position(Option::is_none) {
             return Err(LoadError::ReferenceCycle(canonical[stuck].clone()).into());
         }
-        let slots: Box<[Arc<Slot>]> = slots.into_iter().flatten().collect();
-        Ok(self.push(Layer::Data(Arc::new(DataLayer { keys: keys.into(), slots, embedded }))))
+        Ok(slots.into_iter().flatten().collect())
+    }
+
+    /// The dependencies of a new source's `fluid` on its references `refs` that are ready: one of the source's own
+    /// fluids (found in `keys`) once its slot is in `slots`, else this registry's; a reference neither provides is
+    /// `MissingReference`.
+    fn deps_of(
+        &self,
+        refs: &[String],
+        keys: &[(Box<str>, u32)],
+        slots: &[Option<Arc<Slot>>],
+        fluid: &str,
+    ) -> Result<Vec<Dep>, Error> {
+        let mut deps = Vec::new();
+        for r in refs {
+            let local = keys.binary_search_by(|(k, _)| cmp_folded(k, r)).ok().map(|j| keys[j].1 as usize);
+            let dep = match local {
+                Some(j) => slots[j].clone().map(Dep::Slot),
+                None => Some(self.dep(r).ok_or_else(|| LoadError::MissingReference {
+                    fluid: fluid.into(),
+                    reference: r.as_str().into(),
+                })?),
+            };
+            deps.extend(dep);
+        }
+        Ok(deps)
     }
 
     /// A NEW registry that also serves `model` under its name and aliases. Third-party families reach

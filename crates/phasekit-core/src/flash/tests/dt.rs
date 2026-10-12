@@ -407,3 +407,18 @@ fn bands_decide_where_the_eos_has_no_dome() {
     assert!(r410a.flash(dt(100.0, 280.0), &imposed).is_err());
     assert_eq!(r410a.state(dt(100.0, 280.0)).map(|s| s.phase()), Ok(Phase::Gas));
 }
+
+/// The generic VLE runs only below the labelling critical temperature (PLAN.md M7.2): Water's at 0.9 Tc is a
+/// saturation, and at Tc, above it, or without a critical point the pair has none there (`Unsupported`), never a VLE
+/// started where it has no solution.
+#[cfg(feature = "fluids-all")]
+#[test]
+fn generic_vle_stops_at_the_critical_temperature() {
+    let water = record_of("Water").compile().unwrap();
+    let crit = Some((647.096, 22.064e6, 322.0 / 0.018_015_268));
+    assert!(generic_vle(&water, crit, 0.9 * 647.096, Pair::DT).is_ok());
+    for (crit, t) in [(crit, 647.096), (crit, 1.01 * 647.096), (None, 0.9 * 647.096)] {
+        let refused = generic_vle(&water, crit, t, Pair::DT);
+        assert!(matches!(refused, Err(Error::Unsupported { pair: Pair::DT })), "{t} K: {refused:?}");
+    }
+}

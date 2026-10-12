@@ -2,15 +2,24 @@
 
 use std::sync::Arc;
 
+use super::isotherm::tx_nodes;
+#[cfg(feature = "fluids-all")]
+use super::phase::generic_vle;
+use super::phase::{band, stable, strip_liquid};
+#[cfg(feature = "fluids-all")]
+use super::quality::QX_CELLS;
+use super::quality::{polish, qx_nodes};
+use super::search::nearest;
 use super::*;
 use crate::batch::{self, BatchRequest, Status};
 use crate::data::FluidRecord;
 use crate::fluid::Fluid;
 use crate::input::Input;
 use crate::model::Limits;
+use crate::num::math;
 #[cfg(feature = "fluids-all")]
 use crate::prop::{DerivVar, Partial};
-use crate::saturation::{SatSide, SaturationCurve};
+use crate::saturation::{SatAccuracy, SatSide, SaturationCurve};
 #[cfg(feature = "fluids-all")]
 use crate::test_support::product;
 use crate::units::{Basis, Density, Pressure, Temperature};

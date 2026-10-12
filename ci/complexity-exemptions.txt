@@ -2,19 +2,8 @@
 # complexity 15 (S3776) and control-flow nesting 3 (S134), each with its ceilings and the reason it stays there for
 # now, usually the step that brings it under the bars. One per line: `<file> <function> cog=<n> nest=<n> <reason>`.
 # An entry whose function is under the bars, over its ceilings or gone fails the gate: the list only shrinks.
-crates/phasekit-core/src/data.rs EosRecord::decode cog=16 nest=3 M7.9e: its sections, or an exemption with its reason
-crates/phasekit-core/src/density.rs bracketed cog=22 nest=3 M7.9e: its end checks pulled out, as roots::bracketed's
-crates/phasekit-core/src/flash.rs pt_branch cog=25 nest=3 M7.9e: the flash search scaffolds, each once
-crates/phasekit-core/src/flash.rs px cog=16 nest=1 M7.9e: the flash search scaffolds, each once
-crates/phasekit-core/src/flash.rs qx cog=37 nest=4 M7.9e: the flash search scaffolds, each once
-crates/phasekit-core/src/flash.rs region cog=21 nest=2 M7.9e: the flash search scaffolds, each once
-crates/phasekit-core/src/flash.rs root_in_t cog=37 nest=5 M7.9e: the flash search scaffolds, each once
-crates/phasekit-core/src/flash.rs sx cog=38 nest=3 M7.9e: the flash search scaffolds, each once
-crates/phasekit-core/src/registry.rs Registry::push_source cog=20 nest=4 M7.9e: its three phases
-crates/phasekit-core/src/roots.rs bracketed cog=30 nest=2 M7.9e: its end checks pulled out, as roots::bracketed's
 crates/phasekit-core/src/roots.rs toms748 cog=29 nest=3 stays: TOMS 748 as printed (Alefeld, Potra & Shi 1995, Algorithm 748), step for step
 crates/phasekit-core/src/roots/aps.rs problem cog=18 nest=2 stays: a data table, the 28 test problems as Algorithm 748's driver defines them
-crates/phasekit-core/src/saturation.rs SuperancillaryCurve::at_p cog=17 nest=2 M7.9e: its search for the bracketing cell pulled out
 crates/phasekit-verify/src/fixture.rs Fixture::parse cog=30 nest=2 M7.9f: the verify library, one helper per section
 crates/phasekit-verify/src/flash.rs FlashCheck::rows_where cog=26 nest=3 M7.9f: the verify library, one helper per section
 crates/phasekit-verify/src/majorant.rs Bound::mul cog=10 nest=4 M7.9f: the verify library, one helper per section

@@ -226,112 +226,87 @@ impl EosRecord {
 
     /// The inverse of [`EosRecord::encode`]: the EOS section of a blob. Every tag, count and exponent is checked;
     /// trailing or missing bytes are errors.
-    #[expect(clippy::too_many_lines, reason = "M7.9e: its sections, or an exemption with its reason (PLAN.md)")]
     pub fn decode(bytes: &[u8]) -> Result<EosRecord, LoadError> {
-        let bad = |m: String| LoadError::Format(format!("eos section: {m}").into());
         let mut values = bytes;
-        let f64s = |values: &mut &[u8], n: usize| -> Result<Vec<f64>, LoadError> {
-            let (head, rest) = values.split_at_checked(8 * n).ok_or_else(|| bad("truncated".into()))?;
-            *values = rest;
-            Ok(head.as_chunks::<8>().0.iter().map(|c| f64::from_le_bytes(*c)).collect())
-        };
-        let [r, rho_r, rho_max] = f64s(&mut values, 3)?[..] else { return Err(bad("truncated".into())) };
+        let [r, rho_r, rho_max] = eos_f64s(&mut values, 3)?[..] else { return Err(eos_error("truncated".into())) };
         let mut eos = EosRecord::new(r, f64::NAN, rho_r, rho_max);
-        let int = |x: f64, what: &str| -> Result<u8, LoadError> {
-            if x.fract() == 0.0 && (0.0..=MAX_POW as f64).contains(&x) {
-                Ok(x as u8)
-            } else {
-                Err(bad(format!("{what} = {x} is not an exponent")))
-            }
-        };
         let mut first = true;
         while let Some((&tag, rest)) = values.split_first() {
             values = rest;
-            let need = match tag {
-                0 | 11 => 1,
-                10 | 12 | 13 => 2,
-                16 => 3,
-                14 | 15 => 4,
-                1 | 2 => 5,
-                3 | 4 => 7,
-                5 | 6 => 8,
-                _ => return Err(bad(format!("unknown tag {tag}"))),
-            };
+            let need = arity(tag).ok_or_else(|| eos_error(format!("unknown tag {tag}")))?;
             if first != (tag == 0) {
-                return Err(bad("T_r must come first, once".into()));
+                return Err(eos_error("T_r must come first, once".into()));
             }
             first = false;
-            let v = f64s(&mut values, need)?;
-            match tag {
-                0 => eos.t_reducing = v[0],
-                1 => eos.power.push(PowerTerm::new(v[0], v[1], int(v[2], "d")?, int(v[3], "l")?, v[4])),
-                2 => eos.lemmon2005.push(Lemmon2005Term {
-                    n: v[0],
-                    t: v[1],
-                    d: int(v[2], "d")?,
-                    l: int(v[3], "l")?,
-                    m: v[4],
-                }),
-                3 => eos.double_exponential.push(DoubleExponentialTerm {
-                    n: v[0],
-                    t: v[1],
-                    d: int(v[2], "d")?,
-                    gd: v[3],
-                    ld: int(v[4], "ld")?,
-                    gt: v[5],
-                    lt: v[6],
-                }),
-                4 => eos.gaussian.push(GaussianTerm {
-                    n: v[0],
-                    t: v[1],
-                    d: int(v[2], "d")?,
-                    eta: v[3],
-                    epsilon: v[4],
-                    beta: v[5],
-                    gamma: v[6],
-                }),
-                5 => eos.gao_b.push(GaoBTerm {
-                    n: v[0],
-                    t: v[1],
-                    d: int(v[2], "d")?,
-                    eta: v[3],
-                    epsilon: v[4],
-                    beta: v[5],
-                    gamma: v[6],
-                    b: v[7],
-                }),
-                6 => eos.non_analytic.push(NonAnalyticTerm {
-                    n: v[0],
-                    a: v[1],
-                    b: v[2],
-                    beta: v[3],
-                    big_a: v[4],
-                    big_b: v[5],
-                    big_c: v[6],
-                    big_d: v[7],
-                }),
-                10 => eos.ideal.push(IdealTerm::Lead { a1: v[0], a2: v[1] }),
-                11 => eos.ideal.push(IdealTerm::LogTau { a: v[0] }),
-                12 => eos.ideal.push(IdealTerm::Power { n: v[0], t: v[1] }),
-                13 => eos.ideal.push(IdealTerm::PlanckEinstein { n: v[0], theta: v[1] }),
-                14 => eos.ideal.push(IdealTerm::PlanckEinsteinGeneralized { n: v[0], theta: v[1], c: v[2], d: v[3] }),
-                15 => eos.ideal.push(IdealTerm::Cp0Power { c: v[0], t: v[1], tc: v[2], t0: v[3] }),
-                _ => {
-                    let reference = match v[2] {
-                        0.0 => OffsetReference::Iir,
-                        1.0 => OffsetReference::Nbp,
-                        2.0 => OffsetReference::Other,
-                        3.0 => OffsetReference::Custom,
-                        x => return Err(bad(format!("unknown offset reference {x}"))),
-                    };
-                    eos.ideal.push(IdealTerm::Offset { a1: v[0], a2: v[1], reference });
-                }
-            }
+            let v = eos_f64s(&mut values, need)?;
+            eos.push_term(tag, &v)?;
         }
         if first {
-            return Err(bad("no T_r".into()));
+            return Err(eos_error("no T_r".into()));
         }
         Ok(eos)
+    }
+
+    /// The term of `tag` from its values `v` ([`arity`] of them, in [`EosRecord::encode_shape`]'s order), stored in its
+    /// list (tag 0: T_r); an exponent or offset reference that is not one is an error.
+    fn push_term(&mut self, tag: u8, v: &[f64]) -> Result<(), LoadError> {
+        match tag {
+            0 => self.t_reducing = v[0],
+            1 => self.power.push(PowerTerm::new(v[0], v[1], exponent(v[2], "d")?, exponent(v[3], "l")?, v[4])),
+            2 => self.lemmon2005.push(Lemmon2005Term {
+                n: v[0],
+                t: v[1],
+                d: exponent(v[2], "d")?,
+                l: exponent(v[3], "l")?,
+                m: v[4],
+            }),
+            3 => self.double_exponential.push(DoubleExponentialTerm {
+                n: v[0],
+                t: v[1],
+                d: exponent(v[2], "d")?,
+                gd: v[3],
+                ld: exponent(v[4], "ld")?,
+                gt: v[5],
+                lt: v[6],
+            }),
+            4 => self.gaussian.push(GaussianTerm {
+                n: v[0],
+                t: v[1],
+                d: exponent(v[2], "d")?,
+                eta: v[3],
+                epsilon: v[4],
+                beta: v[5],
+                gamma: v[6],
+            }),
+            5 => self.gao_b.push(GaoBTerm {
+                n: v[0],
+                t: v[1],
+                d: exponent(v[2], "d")?,
+                eta: v[3],
+                epsilon: v[4],
+                beta: v[5],
+                gamma: v[6],
+                b: v[7],
+            }),
+            6 => self.non_analytic.push(NonAnalyticTerm {
+                n: v[0],
+                a: v[1],
+                b: v[2],
+                beta: v[3],
+                big_a: v[4],
+                big_b: v[5],
+                big_c: v[6],
+                big_d: v[7],
+            }),
+            10 => self.ideal.push(IdealTerm::Lead { a1: v[0], a2: v[1] }),
+            11 => self.ideal.push(IdealTerm::LogTau { a: v[0] }),
+            12 => self.ideal.push(IdealTerm::Power { n: v[0], t: v[1] }),
+            13 => self.ideal.push(IdealTerm::PlanckEinstein { n: v[0], theta: v[1] }),
+            14 => self.ideal.push(IdealTerm::PlanckEinsteinGeneralized { n: v[0], theta: v[1], c: v[2], d: v[3] }),
+            15 => self.ideal.push(IdealTerm::Cp0Power { c: v[0], t: v[1], tc: v[2], t0: v[3] }),
+            _ => self.ideal.push(IdealTerm::Offset { a1: v[0], a2: v[1], reference: offset_reference(v[2])? }),
+        }
+        Ok(())
     }
 
     /// The α⁰ offset (a1, a2): the sum of the `Offset` terms, (0, 0) without one.
@@ -355,6 +330,52 @@ impl EosRecord {
         self.encode_shape(&mut bytes);
         ModelKey::from_content(&bytes)
     }
+}
+
+/// An error in a blob's EOS section ([`EosRecord::decode`]).
+fn eos_error(m: String) -> LoadError {
+    LoadError::Format(format!("eos section: {m}").into())
+}
+
+/// The next `n` little-endian f64 of an EOS section, `values` moved past them; too few bytes are an error.
+fn eos_f64s(values: &mut &[u8], n: usize) -> Result<Vec<f64>, LoadError> {
+    let (head, rest) = values.split_at_checked(8 * n).ok_or_else(|| eos_error("truncated".into()))?;
+    *values = rest;
+    Ok(head.as_chunks::<8>().0.iter().map(|c| f64::from_le_bytes(*c)).collect())
+}
+
+/// The number of values an EOS section's term of `tag` carries ([`EosRecord::encode_shape`]); `None` for an unknown tag.
+fn arity(tag: u8) -> Option<usize> {
+    Some(match tag {
+        0 | 11 => 1,
+        10 | 12 | 13 => 2,
+        16 => 3,
+        14 | 15 => 4,
+        1 | 2 => 5,
+        3 | 4 => 7,
+        5 | 6 => 8,
+        _ => return None,
+    })
+}
+
+/// An exponent of an EOS term, named `what`, from its stored value: an integer from 0 to `MAX_POW`, else an error.
+fn exponent(x: f64, what: &str) -> Result<u8, LoadError> {
+    if x.fract() == 0.0 && (0.0..=MAX_POW as f64).contains(&x) {
+        Ok(x as u8)
+    } else {
+        Err(eos_error(format!("{what} = {x} is not an exponent")))
+    }
+}
+
+/// An `Offset` term's reference from its stored tag ([`EosRecord::encode_shape`]); an unknown one is an error.
+fn offset_reference(tag: f64) -> Result<OffsetReference, LoadError> {
+    Ok(match tag {
+        0.0 => OffsetReference::Iir,
+        1.0 => OffsetReference::Nbp,
+        2.0 => OffsetReference::Other,
+        3.0 => OffsetReference::Custom,
+        x => return Err(eos_error(format!("unknown offset reference {x}"))),
+    })
 }
 
 /// A saturation ancillary of CoolProp's fluid files (map 03 §3.1; `Ancillaries.cpp:43-81`). With Θ = 1 − T/T_r it is
