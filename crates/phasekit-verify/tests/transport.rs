@@ -742,6 +742,41 @@ fn conductivity_paper_rows() {
     assert_eq!(rows.beyond(), registered, "rows beyond their printed digits, by entry");
 }
 
+/// PLAN.md M8.9 (map 05 U9, U10): every hard-coded form with arbiter rows among M8.3's is checked against them, each row
+/// within its printed digits or a register entry's bound (the two paper-row tests list those): the xylenes and
+/// cyclohexane, Shan's R23, Friend's ethane, Huber 2016's and Laesecke and Muzny's CO₂, Laesecke's R123 critical term,
+/// Xiang's methanol, Muzny's hydrogen and the higher-order terms of n-hexane, n-heptane, toluene and benzene, with
+/// cyclopentane's and isopentane's conductivity, whose critical term reads the Chung viscosity. Helium's rows do not
+/// arbitrate (ROT-124), Ammonia's conductivity rows are REFPROP's, and no ρ*_sr-CS fluid has rows.
+#[test]
+fn hardcoded_models_match_their_paper_tables() {
+    let (eta, lambda) = (paper_rows(Prop::Viscosity, ".eta.csv"), paper_rows(Prop::Conductivity, ".lambda.csv"));
+    assert!(eta.failures.is_empty() && lambda.failures.is_empty(), "{:#?} {:#?}", eta.failures, lambda.failures);
+    let count = |rows: &PaperRows, fluid: &str| rows.checked.get(fluid).copied().unwrap_or(0);
+    let models = [
+        ("m-Xylene", 11, 2),
+        ("o-Xylene", 11, 2),
+        ("p-Xylene", 9, 2),
+        ("CycloHexane", 9, 0),
+        ("R23", 3, 3),
+        ("Ethane", 3, 4),
+        ("CarbonDioxide", 9, 4),
+        ("R123", 4, 4),
+        ("Methanol", 4, 4),
+        ("Hydrogen", 0, 6),
+        ("n-Hexane", 6, 4),
+        ("n-Heptane", 6, 4),
+        ("Toluene", 6, 0),
+        ("Benzene", 6, 0),
+        ("Cyclopentane", 0, 2),
+        ("Isopentane", 0, 2),
+    ];
+    let counts: Vec<_> = models.iter().map(|(f, _, _)| (*f, count(&eta, f), count(&lambda, f))).collect();
+    assert_eq!(counts, models);
+    let none = ["Helium", "Ammonia", "R1234yf", "R1234ze(E)", "R124", "R152A", "R22", "R245fa", "R32"];
+    assert_eq!(none.map(|f| count(&lambda, f) + if f == "Ammonia" { 0 } else { count(&eta, f) }), [0; 9]);
+}
+
 /// What the arbiter rows of one property say (PLAN.md M8.5, M8.6).
 #[derive(Default)]
 struct PaperRows {
