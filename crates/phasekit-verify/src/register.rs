@@ -499,6 +499,68 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[8],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0023",
+        fluids: &["Air", "Argon", "Nitrogen", "Oxygen", "SulfurHexafluoride", "n-Nonane"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 10 §8.1, M8.6: conductivity check values off their printed digits, within CoolProp's 1e-4: \
+                   Lemmon & Jacobsen 2004's points near the critical point, Air -4.5e-6, Argon -6.8e-6, Nitrogen \
+                   -5.4e-6, Oxygen +1.2e-5, where lambda moves by 1e-5 to 2e-3 over half a printed unit of rho; \
+                   Assael et al. 2012's SF6 at 310 K (0.97 Tc) and 1200 kg/m3, -1.4e-5; Huber 2005's n-Nonane at \
+                   300 K and 5619.4 mol/m3, +5.0e-5, within lambda(rho +- half a printed unit) (2026-10-12); to \
+                   transcribe: the papers' own tables",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[
+            ("paper/Air/CoolProp-Tests.lambda.csv", Tolerance::Relative(5e-6)),
+            ("paper/Argon/CoolProp-Tests.lambda.csv", Tolerance::Relative(7e-6)),
+            ("paper/Nitrogen/CoolProp-Tests.lambda.csv", Tolerance::Relative(6e-6)),
+            ("paper/Oxygen/CoolProp-Tests.lambda.csv", Tolerance::Relative(2e-5)),
+            ("paper/SulfurHexafluoride/CoolProp-Tests.lambda.csv", Tolerance::Relative(2e-5)),
+            ("paper/n-Nonane/CoolProp-Tests.lambda.csv", Tolerance::Relative(6e-5)),
+        ],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0024",
+        fluids: &["Methane"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 05 R10, map 10 §8.1, M8.6: Friend, Ely & Ingham 1989 computed their check values with their own \
+                   equation of state; CoolProp's hard-coded model reads Setzmann & Wagner's ideal-gas cp and states: \
+                   400 K dilute -1.4e-4, the saturated liquid at 182 K +1.2e-3, 100 K and 28.8e3 mol/m3 (rho printed to \
+                   3 digits) -8.8e-3 (2026-10-12); to transcribe: the paper's table, with its equation of state",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[("paper/Methane/CoolProp-Tests.lambda.csv", Tolerance::Relative(9e-3))],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0025",
+        fluids: &["n-Pentane"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 05 R6, map 10 §8.1, M8.6: Vassiliou et al. 2015's check point at 460 K and 377.687 kg/m3, \
+                   71.300 mW/m/K, is +4.75e-2 off: the dilute (34.048) and residual (33.325) terms agree to their \
+                   digits, the critical term is 7.313 against 3.927 because CoolProp hands it n-Pentane's friction-theory \
+                   viscosity, 27.15 uPa s, where the correlation was fitted with an ECS one, 49.465 uPa s; with that, \
+                   4.014 (2026-10-12); to decide: the viscosity the term reads, and n-Pentane's viscosity itself \
+                   (Quinones-Cisneros & Deiters 2006)",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[("paper/n-Pentane/CoolProp-Tests.lambda.csv", Tolerance::Relative(5e-2))],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an

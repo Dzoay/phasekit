@@ -329,6 +329,35 @@ fn div_0021_to_0022(facts: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0021", "DIV-0022"]
 }
 
+/// DIV-0023 to DIV-0025: the oracle's λ at the conductivity check rows off their printed digits, as far off the printed
+/// values (CoolProp-Tests.cpp, in W/(m K)) as the entries cite; n-Pentane's η there, against the 49.465 µPa s its
+/// correlation was fitted with.
+fn div_0023_to_0025(facts: &Fixture<'_>) -> Vec<&'static str> {
+    let off = |name: &str, printed: f64| ok_fact(facts, name) / printed - 1.0;
+    let near_critical = [
+        ("div0023_lambda_air_t132.64", 75.6231e-3, "-4.5e-6"),
+        ("div0023_lambda_argon_t150.69", 856.793e-3, "-6.8e-6"),
+        ("div0023_lambda_nitrogen_t126.195", 675.800e-3, "-5.4e-6"),
+        ("div0023_lambda_oxygen_t154.6", 377.476e-3, "1.2e-5"),
+        ("div0023_lambda_sf6_t310", 48.705e-3, "-1.4e-5"),
+        ("div0023_lambda_nonane_t300", 0.13031, "5.0e-5"),
+    ];
+    for (name, printed, cited) in near_critical {
+        assert!(cites(off(name, printed), cited), "DIV-0023: {name} is {:e} off", off(name, printed));
+    }
+    let methane = [
+        ("div0024_lambda_methane_t400", 49.96e-3, "-1.4e-4"),
+        ("div0024_lambda_methane_t182_q0", 82.5e-3, "1.2e-3"),
+        ("div0024_lambda_methane_t100", 234e-3, "-8.8e-3"),
+    ];
+    for (name, printed, cited) in methane {
+        assert!(cites(off(name, printed), cited), "DIV-0024: {name} is {:e} off", off(name, printed));
+    }
+    assert!(cites(off("div0025_lambda_npentane_t460", 71.300e-3), "4.75e-2"), "DIV-0025: lambda");
+    assert!(cites(ok_fact(facts, "div0025_eta_npentane_t460") * 1e6, "27.15"), "DIV-0025: eta");
+    vec!["DIV-0023", "DIV-0024", "DIV-0025"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -336,10 +365,11 @@ fn register_cites_reproducible_oracle_facts() {
     let (path, text) = fixture!("coolprop-8.0.0/facts/register.csv");
     let facts = Fixture::parse(path, text).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!((facts.kind(), facts.provenance()), ("facts", Provenance::Oracle { version: "8.0.0" }));
-    let checked: Vec<&str> = [div_0001_to_0005, div_0006_to_0012, div_0013_to_0017, div_0018_to_0020, div_0021_to_0022]
-        .iter()
-        .flat_map(|group| group(&facts))
-        .collect();
+    let checked: Vec<&str> =
+        [div_0001_to_0005, div_0006_to_0012, div_0013_to_0017, div_0018_to_0020, div_0021_to_0022, div_0023_to_0025]
+            .iter()
+            .flat_map(|group| group(&facts))
+            .collect();
     let ids: Vec<&str> = DIVERGENCES.iter().map(|d| d.id).collect();
     assert_eq!(checked, ids, "every register entry has its facts checked");
     for row in facts.rows() {
