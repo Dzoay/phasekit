@@ -173,7 +173,7 @@ impl EosRecord {
         if !self.non_analytic.is_empty() {
             blocks.push(ResidualBlock::NonAnalytic(NonAnalyticBlock::new(&self.non_analytic)?));
         }
-        Ok(MultiParameterEos::new(self.gas_constant, self.t_reducing, self.rho_reducing, self.rho_max, blocks, ideal)?)
+        MultiParameterEos::new(self.gas_constant, self.t_reducing, self.rho_reducing, self.rho_max, blocks, ideal)
     }
 
     /// An EOS with its constants and no terms yet.
