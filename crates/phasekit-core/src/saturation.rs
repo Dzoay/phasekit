@@ -210,19 +210,11 @@ impl SaturationCurve for SuperancillaryCurve {
         }
         let (mut roots, mut found) = ([f64::NAN; 4], 0);
         for (a, b) in ends().zip(ends().skip(1)) {
-            let (pa, pb) = (self.raw(2, a), self.raw(2, b));
-            if !(pa.min(pb) <= raw && raw <= pa.max(pb)) {
-                continue;
-            }
-            let (lo, hi) = if b == t_max { self.inverse_bracket(raw, (a, b)) } else { (a, b) };
-            let root = toms748(|t| self.raw(2, t) - raw, lo, hi, Tol::Absolute(0.0), 100);
-            if root.stop != Stop::Converged {
-                return Err(Error::NoConvergence { strategy: Strategy::Superancillary, iterations: root.iterations });
-            }
+            let Some(t) = self.segment_root(raw, (a, b), t_max)? else { continue };
             // A p at an extremum is found at the end of both segments.
-            let seen = found > 0 && roots.get(found - 1) == Some(&root.x);
+            let seen = found > 0 && roots.get(found - 1) == Some(&t);
             if !seen && let Some(slot) = roots.get_mut(found) {
-                (*slot, found) = (root.x, found + 1);
+                (*slot, found) = (t, found + 1);
             }
         }
         match roots.get(..found) {
@@ -236,6 +228,23 @@ impl SaturationCurve for SuperancillaryCurve {
 }
 
 impl SuperancillaryCurve {
+    /// The T on the segment `(a, b)` of p(T) between its extrema where the unscaled pressure is `raw` ([`Self::at_p`]):
+    /// `None` where the segment's pressures do not reach `raw`; TOMS 748 on the forward p(T) over the segment or, on
+    /// the last (it ends at `t_max`), within the inverse's bracket ([`Self::inverse_bracket`]); a bracket that misses
+    /// its root is `NoConvergence`.
+    fn segment_root(&self, raw: f64, (a, b): (f64, f64), t_max: f64) -> Result<Option<f64>, Error> {
+        let (pa, pb) = (self.raw(2, a), self.raw(2, b));
+        if !(pa.min(pb) <= raw && raw <= pa.max(pb)) {
+            return Ok(None);
+        }
+        let (lo, hi) = if b == t_max { self.inverse_bracket(raw, (a, b)) } else { (a, b) };
+        let root = toms748(|t| self.raw(2, t) - raw, lo, hi, Tol::Absolute(0.0), 100);
+        if root.stop != Stop::Converged {
+            return Err(Error::NoConvergence { strategy: Strategy::Superancillary, iterations: root.iterations });
+        }
+        Ok(Some(root.x))
+    }
+
     /// The bracket of T at the unscaled pressure `raw` on the segment `(a, b)`: 1e-9 around the inverse's T where it
     /// has a piece at ln p, else the segment.
     fn inverse_bracket(&self, raw: f64, (a, b): (f64, f64)) -> (f64, f64) {

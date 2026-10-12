@@ -56,12 +56,11 @@ pub(crate) fn bracketed(
     (lo, hi): (f64, f64),
     seed: f64,
 ) -> Result<(f64, u16), Error> {
-    let failed = |iterations| Error::NoConvergence { strategy: Strategy::DensityNewton, iterations };
     let rt = eos.gas_constant() * t;
-    let (mut below, mut above) = (math::ln(lo), math::ln(hi));
+    let mut bracket = LnBracket { below: math::ln(lo), above: math::ln(hi), confirmed: [false; 2] };
     let start = math::ln(seed);
-    let mut u = if below <= start && start <= above { start } else { midpoint(below, above) };
-    let (mut previous, mut confirmed) = (f64::INFINITY, [false; 2]);
+    let mut u = if bracket.holds(start) { start } else { bracket.middle() };
+    let mut previous = f64::INFINITY;
     for iteration in 1..=MAX_BRACKETED {
         let rho = math::exp(u);
         let b = (eos.residual(t, rho, Order::Two) + Derivs::IDEAL_DELTA).bundle().ok_or(failed(iteration))?;
@@ -72,21 +71,13 @@ pub(crate) fn bracketed(
         if pressure == p {
             return Ok((rho, iteration));
         }
-        if pressure < p {
-            (below, confirmed[0]) = (u, true);
-        } else {
-            (above, confirmed[1]) = (u, true);
-        }
-        if above - below <= WIDTH_TOL {
-            return if confirmed == [true; 2] {
-                Ok((math::exp(midpoint(below, above)), iteration))
-            } else {
-                Err(failed(iteration))
-            };
+        bracket.take(u, pressure < p);
+        if let Some(closed) = bracket.closed(iteration) {
+            return closed;
         }
         let next = u + (p - pressure) / slope;
-        if !(slope > 0.0 && below <= next && next <= above) {
-            (u, previous) = (midpoint(below, above), f64::INFINITY);
+        if !(slope > 0.0 && bracket.holds(next)) {
+            (u, previous) = (bracket.middle(), f64::INFINITY);
             continue;
         }
         let step = (next - u).abs();
@@ -96,6 +87,48 @@ pub(crate) fn bracketed(
         (u, previous) = (next, step);
     }
     Err(failed(MAX_BRACKETED))
+}
+
+/// [`bracketed`]'s bracket in ln ρ, p(T, ρ) below p at `below` and above it at `above`, and whether an iterate has
+/// confirmed each end (`confirmed`: below, above).
+struct LnBracket {
+    below: f64,
+    above: f64,
+    confirmed: [bool; 2],
+}
+
+impl LnBracket {
+    /// Whether `u` lies in the closed bracket.
+    fn holds(&self, u: f64) -> bool {
+        self.below <= u && u <= self.above
+    }
+
+    /// The bracket's middle.
+    fn middle(&self) -> f64 {
+        midpoint(self.below, self.above)
+    }
+
+    /// The iterate `u`, its p below p (`lower`) or not, as the end on its side, confirmed.
+    fn take(&mut self, u: f64, lower: bool) {
+        if lower {
+            (self.below, self.confirmed[0]) = (u, true);
+        } else {
+            (self.above, self.confirmed[1]) = (u, true);
+        }
+    }
+
+    /// The solve's end once the bracket is within [`WIDTH_TOL`] in ln ρ at `iteration`: its middle's density if an
+    /// iterate has confirmed both ends, else `NoConvergence` (the root lies beyond the unconfirmed one).
+    fn closed(&self, iteration: u16) -> Option<Result<(f64, u16), Error>> {
+        (self.above - self.below <= WIDTH_TOL).then(|| {
+            if self.confirmed == [true; 2] { Ok((math::exp(self.middle()), iteration)) } else { Err(failed(iteration)) }
+        })
+    }
+}
+
+/// A density solve's `NoConvergence` after `iterations`.
+fn failed(iterations: u16) -> Error {
+    Error::NoConvergence { strategy: Strategy::DensityNewton, iterations }
 }
 
 /// The acceptance gate's "inputs reproduced" (D6) for a density solve: |p(T, ρ) − p| at most this much of the larger of
@@ -156,7 +189,6 @@ fn scaled_residual(pressure: f64, p: f64, rho: f64, rt: f64, a01: f64) -> f64 {
 
 /// Newton from `seed`, refused at the first unstable or non-finite iterate; with its iterations.
 fn newton(eos: &dyn HelmholtzModel, t: f64, p: f64, seed: f64) -> Result<(f64, u16), Error> {
-    let failed = |iterations| Error::NoConvergence { strategy: Strategy::DensityNewton, iterations };
     let rt = eos.gas_constant() * t;
     let (mut u, mut previous) = (math::ln(seed), f64::INFINITY);
     for iteration in 1..=MAX_ITER {

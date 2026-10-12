@@ -334,39 +334,19 @@ fn bracketed(
 ) -> Root {
     let (lo, hi) = if lo <= hi { (lo, hi) } else { (hi, lo) };
     let ((f_lo, _), (f_hi, _)) = (f(lo), f(hi));
-    for (x, fx) in [(lo, f_lo), (hi, f_hi)] {
-        if !fx.is_finite() {
-            return Root { x, f: fx, iterations: 0, stop: Stop::NotFinite };
-        }
-        if fx == 0.0 {
-            return Root { x, f: fx, iterations: 0, stop: Stop::Converged };
-        }
-    }
-    if f_lo.is_sign_negative() == f_hi.is_sign_negative() {
-        let (x, fx) = if f_lo.abs() <= f_hi.abs() { (lo, f_lo) } else { (hi, f_hi) };
-        return Root { x, f: fx, iterations: 0, stop: Stop::BracketLost };
+    if let Some(root) = at_ends((lo, f_lo), (hi, f_hi)) {
+        return root;
     }
     // The ends where f is negative and positive.
-    let (mut neg, mut pos) = if f_lo.is_sign_negative() { (lo, hi) } else { (hi, lo) };
+    let mut ends = if f_lo.is_sign_negative() { (lo, hi) } else { (hi, lo) };
     let mut x = interior(lo, hi, x0);
     let (mut fx, mut step) = f(x);
     for iteration in 1..=max_iter {
-        if !fx.is_finite() {
-            return Root { x, f: fx, iterations: iteration - 1, stop: Stop::NotFinite };
-        }
-        if fx == 0.0 {
-            return Root { x, f: fx, iterations: iteration - 1, stop: Stop::Converged };
-        }
-        if fx.is_sign_negative() {
-            neg = x;
-        } else {
-            pos = x;
+        if let Some(root) = settled(x, fx, iteration - 1) {
+            return root;
         }
         let previous = x;
-        let (low, high, next) = (neg.min(pos), neg.max(pos), x - step);
-        // A step anywhere in the closed bracket is taken (a converged step lands on the end just updated); one that
-        // leaves it, or is not finite, becomes a bisection (rtsafe).
-        x = if low <= next && next <= high { next } else { low + (high - low) / 2.0 };
+        x = next_iterate(&mut ends, x, fx, step);
         (fx, step) = f(x);
         if fx.is_finite() && fx.abs() <= ftol && tol.met(previous, x) {
             return Root { x, f: fx, iterations: iteration, stop: Stop::Converged };
@@ -374,6 +354,40 @@ fn bracketed(
     }
     let stop = if fx.is_finite() { Stop::MaxIterations } else { Stop::NotFinite };
     Root { x, f: fx, iterations: max_iter, stop }
+}
+
+/// The root at `x`, after `iterations`, where f is not finite there (`NotFinite`) or zero (`Converged`).
+fn settled(x: f64, fx: f64, iterations: u16) -> Option<Root> {
+    if !fx.is_finite() {
+        return Some(Root { x, f: fx, iterations, stop: Stop::NotFinite });
+    }
+    (fx == 0.0).then_some(Root { x, f: fx, iterations, stop: Stop::Converged })
+}
+
+/// [`bracketed`]'s answer from its ends' values alone: [`settled`] at `lo`, then at `hi`, else, without a sign change,
+/// the end nearer zero (`BracketLost`).
+fn at_ends((lo, f_lo): (f64, f64), (hi, f_hi): (f64, f64)) -> Option<Root> {
+    let lost = || {
+        let (x, fx) = if f_lo.abs() <= f_hi.abs() { (lo, f_lo) } else { (hi, f_hi) };
+        Root { x, f: fx, iterations: 0, stop: Stop::BracketLost }
+    };
+    settled(lo, f_lo, 0)
+        .or_else(|| settled(hi, f_hi, 0))
+        .or_else(|| (f_lo.is_sign_negative() == f_hi.is_sign_negative()).then(lost))
+}
+
+/// [`bracketed`]'s next iterate from `x`, f's value `fx` and the step there: the bracket's end on x's side of the root
+/// (`ends`: where f is negative, where it is positive) moved to x, then the step if it lands anywhere in the closed
+/// bracket (a converged step lands on the end just updated), else, one that leaves it or is not finite, a bisection
+/// (rtsafe).
+fn next_iterate((neg, pos): &mut (f64, f64), x: f64, fx: f64, step: f64) -> f64 {
+    if fx.is_sign_negative() {
+        *neg = x;
+    } else {
+        *pos = x;
+    }
+    let (low, high, next) = (neg.min(*pos), neg.max(*pos), x - step);
+    if low <= next && next <= high { next } else { low + (high - low) / 2.0 }
 }
 
 #[cfg(test)]
