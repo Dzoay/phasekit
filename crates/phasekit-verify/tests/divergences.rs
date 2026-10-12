@@ -405,8 +405,8 @@ fn row_viscosity(fluid: &str, table: &Fixture<'_>, row: usize, rho: f64) -> f64 
     fluid.prop(&state, Prop::Viscosity).unwrap()
 }
 
-/// The rows of a CoolProp test table whose η lies beyond half a unit of its printed digits, each within the bound DIV
-/// entry `id` registers for the table.
+/// The rows of a CoolProp test table whose η lies beyond half a unit of its printed digits; every row within the larger
+/// of that half unit and the bound DIV entry `id` registers for the table (as DIV-0005's Table 4).
 fn beyond_printed(id: &str, fluid: &str) -> Vec<usize> {
     let file = format!("paper/{fluid}/CoolProp-Tests.eta.csv");
     let (bound, text) = (registered_table_bound(id, &file), transport_text(&file));
@@ -415,9 +415,9 @@ fn beyond_printed(id: &str, fluid: &str) -> Vec<usize> {
         .filter(|&row| {
             let (eta, want) =
                 (row_viscosity(fluid, &table, row, table.value(row, "x").unwrap()), table.value(row, "value"));
-            let want = want.unwrap();
-            assert!((eta / want - 1.0).abs() <= bound, "{file} row {row}: {eta} against {want}");
-            (eta - want).abs() > half_unit(&table, row, "value")
+            let (want, half) = (want.unwrap(), half_unit(&table, row, "value"));
+            assert!((eta - want).abs() <= half.max(bound * want.abs()), "{file} row {row}: {eta} against {want}");
+            (eta - want).abs() > half
         })
         .collect();
     assert!(!beyond.is_empty(), "{file} needs its registered bound no more");
