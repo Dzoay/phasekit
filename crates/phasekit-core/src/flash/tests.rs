@@ -3,6 +3,8 @@
 use std::sync::Arc;
 
 use super::isotherm::tx_nodes;
+#[cfg(feature = "fluids-all")]
+use super::phase::generic_vle;
 use super::phase::{band, stable, strip_liquid};
 #[cfg(feature = "fluids-all")]
 use super::quality::QX_CELLS;
