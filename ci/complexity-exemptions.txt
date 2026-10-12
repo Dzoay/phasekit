@@ -8,8 +8,6 @@ crates/phasekit-core/src/flash.rs pt_branch cog=25 nest=3 M7.9e: the flash searc
 crates/phasekit-core/src/flash.rs px cog=16 nest=1 M7.9e: the flash search scaffolds, each once
 crates/phasekit-core/src/flash.rs qx cog=37 nest=4 M7.9e: the flash search scaffolds, each once
 crates/phasekit-core/src/flash.rs region cog=21 nest=2 M7.9e: the flash search scaffolds, each once
-crates/phasekit-core/src/flash.rs root_in_t cog=37 nest=5 M7.9e: the flash search scaffolds, each once
-crates/phasekit-core/src/flash.rs sx cog=38 nest=3 M7.9e: the flash search scaffolds, each once
 crates/phasekit-core/src/registry.rs Registry::push_source cog=20 nest=4 M7.9e: its three phases
 crates/phasekit-core/src/roots.rs bracketed cog=30 nest=2 M7.9e: its end checks pulled out, as roots::bracketed's
 crates/phasekit-core/src/roots.rs toms748 cog=29 nest=3 stays: TOMS 748 as printed (Alefeld, Potra & Shi 1995, Algorithm 748), step for step

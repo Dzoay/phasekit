@@ -14,7 +14,7 @@ use crate::model::ThermoModel;
 use crate::num::math;
 use crate::prop::Prop;
 use crate::relations;
-use crate::roots::{Tol, toms748};
+use crate::roots::{Root, Tol, toms748};
 use crate::saturation::{SatAccuracy, SatPair, SatSide, SaturationCurve};
 use crate::state::{Phase, SolvePath, State, Strategy};
 use crate::units::{Basis, Quality};
@@ -360,10 +360,9 @@ fn pt(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<State, E
         }
         Where::Both { gas, liquid } => {
             let (g, l) = (solve(&gas)?, solve(&liquid)?);
-            match opts.roots() {
-                RootPolicy::Nearest(x) if nearest(x, &[g.0, l.0]) == Some(l.0) => (liquid, l),
-                RootPolicy::Nearest(_) => (gas, g),
-                _ => return Err(Error::Ambiguous { roots: Roots::new(&[g.0, l.0]) }),
+            match choose(&[g.0, l.0], |rho| *rho, opts.roots())? {
+                Some(rho) if rho == l.0 => (liquid, l),
+                _ => (gas, g),
             }
         }
     };
@@ -696,107 +695,87 @@ fn sx(fluid: &PureFluid, s: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
     // p from ln p, never above pmax: exp(ln pmax) can round a few ulp over it (CO₂'s 800 MPa), which PS refuses.
     let p_of = |u: f64| math::exp(u).min(p_max);
     let raw = |u: f64| px(fluid, p_of(u), s, Caloric::S, &along).map(|state| (var.of(&state) - x, state.t()));
-    let residual = |u: f64| {
+    let mut residual = |u: f64| {
         let (at, t) = raw(u)?;
         Ok(if at.abs() <= ISENTROPE_NOISE * var.scale(r, t, x) { 0.0 } else { at })
     };
     // Down from pmax a decade at a time, over p where PS refuses, to the first p where x(p) is at or below x; the last
     // p above x before it closes the bracket unless PS refused between them. Otherwise bisection in ln p between the
-    // bracket's known end and the nearest refusal beside it finds its other end: the isentrope can leave the domain and
-    // come back (at the triple point's temperature water's s(p) turns at 38.6 MPa), or end in it (under the triple
-    // point's pressure), and a root at such an edge (a state at the triple point's temperature) is reached there, its
-    // residual within the noise.
-    let mut u = math::ln(p_max);
-    let (mut above, mut below, mut failed) = (None, None, None);
-    let (mut refused_over_below, mut refused_under_above) = (None, None);
-    for _ in 0..SX_DECADES {
-        match residual(u) {
-            Ok(at) if at > 0.0 => (above, refused_over_below, refused_under_above) = (Some((u, at)), None, None),
-            Ok(at) => {
-                below = Some((u, at));
-                break;
-            }
-            Err(e) => {
-                failed.get_or_insert(e);
-                refused_over_below = Some(u);
-                refused_under_above = refused_under_above.or(above.map(|_| u));
-            }
-        }
-        u -= core::f64::consts::LN_10;
-    }
+    // bracket's known end and the nearest refusal beside it finds its other end ([`isentrope_bracket`]).
+    let decades = core::iter::successors(Some(math::ln(p_max)), |u| Some(u - core::f64::consts::LN_10));
+    let descent = Descent::down(&mut residual, decades.take(usize::from(SX_DECADES)), |residual, u| residual(u), None);
     let invalid = || Error::InvalidInput { quantity: var.name(), value: x };
-    // Bisection between a known end and a refusal: the first p whose residual is on `side` (above x, or at or below
-    // it).
-    let bisect = |(mut held, mut at_held): (f64, f64), mut refused: f64, side: bool| {
-        for _ in 0..SX_STEPS {
-            if at_held == 0.0 {
-                break;
-            }
-            let next = 0.5 * (held + refused);
-            match residual(next) {
-                Ok(at) if if side { at > 0.0 } else { at <= 0.0 } => {
-                    return Ok(((held, at_held), (next, at)));
-                }
-                Ok(at) => (held, at_held) = (next, at),
-                Err(_) => refused = next,
-            }
-        }
-        if at_held == 0.0 { Ok(((held, at_held), (held, at_held))) } else { Err(()) }
-    };
-    let ((a, at_a), (b, at_b)) = match (above, below) {
-        (Some(above), Some(below)) if refused_over_below.is_none() => (below, above),
-        (_, Some(below)) if below.1 == 0.0 => (below, below),
-        (_, Some(below)) => match refused_over_below {
-            Some(refused) => bisect(below, refused, true).map_err(|()| failed.unwrap_or_else(invalid))?,
-            None => return Err(DomainError::AboveMaxPressure { p: p_max, p_max }.into()),
-        },
-        (Some(above), None) => match refused_under_above {
-            Some(refused) => {
-                bisect(above, refused, false).map(|(b, a)| (a, b)).map_err(|()| failed.unwrap_or_else(invalid))?
-            }
-            None => return Err(failed.unwrap_or_else(invalid)),
-        },
-        (None, None) => return Err(failed.unwrap_or_else(invalid)),
-    };
-    // TOMS 748 in the bracket. A refusal inside it (the isentrope dips out of the domain between its ends: Hydrogen's
-    // under its triple point's temperature near 20 K and 470 MPa) splits it: bisection from its upper end towards
-    // the refusal finds a p below x, or else from its lower end one above x, and TOMS 748 runs again on that part.
-    let (mut a, mut at_a, mut b, mut at_b) = (a, at_a, b, at_b);
-    let mut solved = None;
-    for _ in 0..SX_SPLITS {
-        let mut refused = None;
-        let ended = |u: f64| {
-            if u == a {
-                at_a
-            } else if u == b {
-                at_b
-            } else {
-                raw(u).map_or_else(
-                    |e| {
-                        refused.get_or_insert((u, e));
-                        f64::NAN
-                    },
-                    |(at, _)| at,
-                )
-            }
-        };
-        let root = toms748(ended, a, b, Tol::Absolute(T_TOL), T_ITER);
-        let Some((at, e)) = refused else {
-            solved = Some(root);
-            break;
-        };
-        ((a, at_a), (b, at_b)) = match bisect((b, at_b), at, false) {
-            Ok(((above, at_above), below)) => (below, (above, at_above)),
-            Err(()) => bisect((a, at_a), at, true).map_err(|()| e)?,
-        };
-    }
-    let Some(root) = solved else { return Err(Error::NoConvergence { strategy: Strategy::Isentrope, iterations: 0 }) };
-    let root = root.converged(Strategy::Isentrope)?;
+    let bracket = isentrope_bracket(&mut residual, descent, p_max, invalid)?;
+    let root = isentrope_root(|u| raw(u).map(|(at, _)| at), &mut residual, bracket)?.converged(Strategy::Isentrope)?;
     let state = px(fluid, p_of(root.x), s, Caloric::S, opts)?;
     if !reproduces_x(var, r, state.t(), x, var.of(&state)) {
         return Err(Error::NoConvergence { strategy: Strategy::Isentrope, iterations: root.iterations });
     }
     Ok(state.with_path(SolvePath { strategy: Strategy::Isentrope, iterations: root.iterations }))
+}
+
+/// HS's and SU's bracket in ln p, (at or below x, above x), from their descent down the isentrope ([`sx`]): the last p
+/// above x and the first at or below it, unless PS refused between them; else bisection between the bracket's known end
+/// and the nearest refusal beside it finds its other end ([`towards_refusal`]). The isentrope can leave the domain and
+/// come back (at the triple point's temperature water's s(p) turns at 38.6 MPa), or end in it (under the triple point's
+/// pressure), and a root at such an edge (a state at the triple point's temperature) is reached there, its residual
+/// within the noise. Without a bracket: `AboveMaxPressure` at pmax where x lies above x(pmax), else the descent's first
+/// failure, or `invalid`.
+fn isentrope_bracket(
+    residual: &mut impl FnMut(f64) -> Result<f64, Error>,
+    descent: Descent,
+    p_max: f64,
+    invalid: impl FnOnce() -> Error,
+) -> Result<(Point, Point), Error> {
+    let (above, below, refused) = (descent.above, descent.below, descent.refused);
+    let found = match (above, below) {
+        (Some(above), Some(below)) if refused.is_none() => Some((below, above)),
+        (_, Some(below)) if below.1 == 0.0 => Some((below, below)),
+        (_, Some(below)) => {
+            let Some((_, last)) = refused else { return Err(DomainError::AboveMaxPressure { p: p_max, p_max }.into()) };
+            towards_refusal(residual, below, last, positive)
+        }
+        (Some(above), None) => {
+            refused.and_then(|(first, _)| towards_refusal(residual, above, first, at_or_below)).map(|(b, a)| (a, b))
+        }
+        (None, None) => None,
+    };
+    found.ok_or_else(|| descent.failed_earlier.or(descent.failed).unwrap_or_else(invalid))
+}
+
+/// HS's and SU's bisection in ln p from a known end, `held`, towards a refusal: the held end and the first point on the
+/// far side (`far`), or a held end whose residual is 0 as both ends of its own bracket; `None` if neither.
+fn towards_refusal(
+    residual: &mut impl FnMut(f64) -> Result<f64, Error>,
+    held: Point,
+    refused: f64,
+    far: impl Fn(f64) -> bool,
+) -> Option<(Point, Point)> {
+    match bisect_to_refusal(&mut *residual, held, refused, far, SX_STEPS) {
+        (held, Some(found)) => Some((held, found)),
+        (held, None) => (held.1 == 0.0).then_some((held, held)),
+    }
+}
+
+/// TOMS 748 in ln p on HS's and SU's bracket (`a` at or below x, `b` above it) on the `raw` residual, its ends' values
+/// the noise-snapped `residual`'s. A refusal inside it (the isentrope dips out of the domain between its ends:
+/// Hydrogen's under its triple point's temperature near 20 K and 470 MPa) splits it: bisection from its upper end
+/// towards the refusal finds a p below x, or else from its lower end one above x, and TOMS 748 runs again on that part,
+/// at most [`SX_SPLITS`] times.
+fn isentrope_root(
+    mut raw: impl FnMut(f64) -> Result<f64, Error>,
+    residual: &mut impl FnMut(f64) -> Result<f64, Error>,
+    (mut a, mut b): (Point, Point),
+) -> Result<Root, Error> {
+    for _ in 0..SX_SPLITS {
+        let (root, refused) = toms748_kept(&mut raw, (a.0, Some(a.1)), (b.0, Some(b.1)), Tol::Absolute(T_TOL));
+        let Some((at, e)) = refused else { return Ok(root) };
+        (a, b) = match towards_refusal(residual, b, at, at_or_below) {
+            Some((above, below)) => (below, above),
+            None => towards_refusal(residual, a, at, positive).ok_or(e)?,
+        };
+    }
+    Err(Error::NoConvergence { strategy: Strategy::Isentrope, iterations: 0 })
 }
 
 /// The saturation at p that splits a P+X isobar, and the strategy its two-phase states take: an exact curve's
@@ -837,24 +816,21 @@ fn generic_sat_p(fluid: &PureFluid, p: f64, t_low: f64) -> Result<Option<(SatPai
     if p >= p_c || t_low >= t_c {
         return Ok(None);
     }
-    let mut failure = None;
-    let mut gap = |t: f64| {
+    let gap = |t: f64| {
         let pressure =
             if t >= t_c { Ok(p_c) } else { generic_vle(fluid, Some(crit), t, Pair::PQ).map(|sat| sat.bubble.p) };
-        pressure.map_or_else(
-            |e| {
-                failure.get_or_insert(e);
-                f64::NAN
-            },
-            |pressure| math::ln(pressure / p),
-        )
+        pressure.map(|pressure| math::ln(pressure / p))
     };
-    let at_low = gap(t_low);
-    let root = (at_low < 0.0).then(|| toms748(&mut gap, t_low, t_c, Tol::Relative(T_TOL), T_ITER));
-    if let Some(e) = failure {
+    // TOMS 748 evaluates T_low again: no end is given.
+    let at_low = gap(t_low)?;
+    let Some((root, failure)) =
+        (at_low < 0.0).then(|| toms748_kept(&gap, (t_low, None), (t_c, None), Tol::Relative(T_TOL)))
+    else {
+        return Ok(None);
+    };
+    if let Some((_, e)) = failure {
         return Err(e);
     }
-    let Some(root) = root else { return Ok(None) };
     let t = root.converged(Strategy::Vle)?.x;
     let seed = generic_vle(fluid, Some(crit), t, Pair::PQ)?;
     Ok(Some((crate::vle::at_p(fluid.eos(), p, (t, seed.bubble.rho, seed.dew.rho))?, Strategy::Vle)))
@@ -927,72 +903,191 @@ fn root_in_t(
     // between the two that bracket the root. A refusal right below a T above x is first approached by bisection: the
     // branch can end there with the root just above its end (an imposed gas, or a supercritical state on the gas's
     // branch, at 30 MPa has no state below Water's critical temperature).
-    let (mut t, mut above, mut below, mut failed) = (hi, None, None, None);
-    for _ in 0..T_ITER {
-        let at = match (t == hi, t == lo) {
-            (true, _) => ends.1.map_or_else(|| residual(t), Ok),
-            // At the domain's low end a residual within `tiny` is the root: a state there, reproduced.
-            (_, true) => ends.0.map_or_else(|| residual(t), Ok).map(|at| if at > tiny { at } else { at.min(0.0) }),
-            _ => residual(t),
-        };
-        match at {
-            Ok(at) if at > 0.0 => (above, failed) = (Some((t, at)), None),
-            Ok(at) => {
-                below = Some((t, at));
-                break;
-            }
-            Err(e) => {
-                if let Some((mut held, mut at_held)) = above {
-                    let mut refused = t;
-                    for _ in 0..T_HALVINGS {
-                        let next = 0.5 * (held + refused);
-                        match residual(next) {
-                            Ok(at) if at > 0.0 => (held, at_held) = (next, at),
-                            Ok(at) => {
-                                below = Some((next, at));
-                                break;
-                            }
-                            Err(_) => refused = next,
-                        }
-                    }
-                    above = Some((held, at_held));
-                    if below.is_some() {
-                        break;
-                    }
-                }
-                failed.get_or_insert(e);
-            }
-        }
-        if t == lo {
-            break;
-        }
-        t = (0.8 * t).max(lo);
-    }
+    let steps = core::iter::successors(Some(hi), |&t| (t != lo).then(|| (0.8 * t).max(lo)));
+    let at = |residual: &mut _, t| stepped(residual, t, (lo, hi), ends, tiny);
+    let descent = Descent::down(&mut residual, steps.take(usize::from(T_ITER)), at, Some(T_HALVINGS));
     let above_max = || DomainError::AboveMaxTemperature { t: hi, t_max: fluid.limits().t_max() }.into();
-    let Some((b, at_b)) = above else { return Err(failed.unwrap_or_else(above_max)) };
-    let Some((a, at_a)) = below else { return Err(failed.unwrap_or(colder.into())) };
-    if let Some(e) = failed {
+    let Some((b, at_b)) = descent.above else { return Err(descent.failed.unwrap_or_else(above_max)) };
+    let Some((a, at_a)) = descent.below else { return Err(descent.failed.unwrap_or(colder.into())) };
+    if let Some(e) = descent.failed {
         return Err(e);
     }
-    let mut failure = None;
-    let ended = |t: f64| {
-        if t == a {
-            at_a
-        } else if t == b {
-            at_b
-        } else {
-            residual(t).unwrap_or_else(|e| {
-                failure.get_or_insert(e);
-                f64::NAN
-            })
-        }
-    };
-    let root = toms748(ended, a, b, Tol::Relative(T_TOL), T_ITER);
-    if let Some(e) = failure {
+    let (root, failure) = toms748_kept(&mut residual, (a, Some(at_a)), (b, Some(at_b)), Tol::Relative(T_TOL));
+    if let Some((_, e)) = failure {
         return Err(e);
     }
     let root = root.converged(strategy)?;
     Ok((root.x, root.iterations))
+}
+
+/// x(T) − x at a step of [`root_in_t`]'s descent: the residual given at `hi` or `lo` (`ends`) or evaluated, and at
+/// `lo` one within `tiny` the root, a state there, reproduced.
+fn stepped(
+    residual: &mut impl FnMut(f64) -> Result<f64, Error>,
+    t: f64,
+    (lo, hi): (f64, f64),
+    (at_lo, at_hi): (Option<f64>, Option<f64>),
+    tiny: f64,
+) -> Result<f64, Error> {
+    if t == hi {
+        return at_hi.map_or_else(|| residual(t), Ok);
+    }
+    if t != lo {
+        return residual(t);
+    }
+    let at = at_lo.map_or_else(|| residual(t), Ok)?;
+    Ok(if at > tiny { at } else { at.min(0.0) })
+}
+
+/// A point of a search: its abscissa and its residual there.
+type Point = (f64, f64);
+
+/// Whether a residual lies above zero, on the far side of the root from a descent's end; NaN does not.
+fn positive(at: f64) -> bool {
+    at > 0.0
+}
+
+/// Whether a residual lies at or below zero; NaN does not (HS's and SU's bisections hold a NaN point).
+fn at_or_below(at: f64) -> bool {
+    at <= 0.0
+}
+
+/// TOMS 748 on [a, b] to `tol` in [`T_ITER`] iterations, for a residual that can fail. An end whose residual is given
+/// (the search that found the bracket evaluated it) is not evaluated again; every other point is. A failure reads as
+/// NaN, which stops TOMS 748 (`NotFinite`), and the first one is kept with its abscissa, returned beside the root.
+fn toms748_kept(
+    mut residual: impl FnMut(f64) -> Result<f64, Error>,
+    (a, at_a): (f64, Option<f64>),
+    (b, at_b): (f64, Option<f64>),
+    tol: Tol,
+) -> (Root, Option<(f64, Error)>) {
+    let mut failure = None;
+    let given = |x: f64| {
+        if x == a {
+            at_a
+        } else if x == b {
+            at_b
+        } else {
+            None
+        }
+    };
+    let evaluated = |x: f64| {
+        given(x).unwrap_or_else(|| {
+            residual(x).unwrap_or_else(|e| {
+                failure.get_or_insert((x, e));
+                f64::NAN
+            })
+        })
+    };
+    let root = toms748(evaluated, a, b, tol, T_ITER);
+    (root, failure)
+}
+
+/// Bisection from `held`, a point not on the far side of the root, towards `refused`, where the residual failed. A
+/// midpoint that fails becomes the refusal, one on the far side (`far`) ends the search, any other becomes `held`. At
+/// most `steps` midpoints, and none once `held`'s residual is exactly zero. Returns the held point and the far one.
+fn bisect_to_refusal(
+    mut residual: impl FnMut(f64) -> Result<f64, Error>,
+    (mut held, mut at_held): Point,
+    mut refused: f64,
+    far: impl Fn(f64) -> bool,
+    steps: u16,
+) -> (Point, Option<Point>) {
+    for _ in 0..steps {
+        if at_held == 0.0 {
+            break;
+        }
+        let next = 0.5 * (held + refused);
+        match residual(next) {
+            Ok(at) if far(at) => return ((held, at_held), Some((next, at))),
+            Ok(at) => (held, at_held) = (next, at),
+            Err(_) => refused = next,
+        }
+    }
+    ((held, at_held), None)
+}
+
+/// A descent along a path on which a residual rises: x(T) − x down an isobar or an isochore ([`root_in_t`]), or
+/// x(PS(p, s)) − x down an isentrope in ln p ([`sx`]). It stops at the bracket of the root: the last point above zero
+/// and the first at or below it.
+#[derive(Default)]
+struct Descent {
+    /// The last point above zero.
+    above: Option<Point>,
+    /// The first point at or below zero, where the descent stopped.
+    below: Option<Point>,
+    /// The first and the last refusal since the descent last stepped above zero (or since its start).
+    refused: Option<(f64, f64)>,
+    /// The first failure since then, unless a bisection towards it closed the bracket.
+    failed: Option<Error>,
+    /// The first failure before the descent last stepped above zero.
+    failed_earlier: Option<Error>,
+}
+
+impl Descent {
+    /// Steps down `points` to the first whose residual, `at(residual, x)`, is at or below zero. With `halvings`, a
+    /// refusal right after a point above zero is bisected towards at once (T's descent); without, it is only noted.
+    fn down<R: FnMut(f64) -> Result<f64, Error>>(
+        residual: &mut R,
+        points: impl IntoIterator<Item = f64>,
+        mut at: impl FnMut(&mut R, f64) -> Result<f64, Error>,
+        halvings: Option<u16>,
+    ) -> Descent {
+        let mut descent = Descent::default();
+        for x in points {
+            match at(residual, x) {
+                Ok(v) if positive(v) => descent.rise(x, v),
+                Ok(v) => descent.below = Some((x, v)),
+                Err(e) => descent.refuse(residual, x, e, halvings),
+            }
+            if descent.below.is_some() {
+                break;
+            }
+        }
+        descent
+    }
+
+    /// A step above zero at x: the bracket's top, the refusals and failure since the last one forgotten but the first.
+    fn rise(&mut self, x: f64, at: f64) {
+        self.failed_earlier = self.failed_earlier.take().or(self.failed.take());
+        (self.above, self.refused) = (Some((x, at)), None);
+    }
+
+    /// A refusal at x with error `e`: with `halvings`, bisected towards from the last point above zero, which may close
+    /// the bracket; else (or failing that) noted.
+    fn refuse<R: FnMut(f64) -> Result<f64, Error>>(
+        &mut self,
+        residual: &mut R,
+        x: f64,
+        e: Error,
+        halvings: Option<u16>,
+    ) {
+        if let (Some(halvings), Some(above)) = (halvings, self.above) {
+            let (held, below) = bisect_to_refusal(&mut *residual, above, x, |at| !positive(at), halvings);
+            (self.above, self.below) = (Some(held), below);
+            if below.is_some() {
+                return;
+            }
+        }
+        self.failed.get_or_insert(e);
+        self.refused = Some(self.refused.map_or((x, x), |(first, _)| (first, x)));
+    }
+}
+
+/// The root `policy` takes among `roots`, ascending by `key`, one rule for every pair: the only one; of several, under
+/// `Nearest(x)` the first whose key is [`nearest`]'s, else `Ambiguous` with every key. `None` without roots.
+fn choose<T: Copy>(roots: &[T], key: impl Fn(&T) -> f64, policy: RootPolicy) -> Result<Option<T>, Error> {
+    let keys: Vec<f64> = roots.iter().map(&key).collect();
+    let ambiguous = || Error::Ambiguous { roots: Roots::new(&keys) };
+    match (roots, policy) {
+        ([], _) => Ok(None),
+        ([one], _) => Ok(Some(*one)),
+        (several, RootPolicy::Nearest(x)) => {
+            let pick = nearest(x, &keys);
+            several.iter().find(|r| Some(key(r)) == pick).map(|r| Some(*r)).ok_or_else(ambiguous)
+        }
+        _ => Err(ambiguous()),
+    }
 }
 
 /// D+X: DH, DS and DU (PLAN.md M7.4; map 03 §3.1, §9 `flash::dx`). Along the isochore x(T) is DT's ([`isochore_x`]): a
@@ -1156,16 +1251,8 @@ fn tx(fluid: &PureFluid, t: f64, x: f64, var: Caloric, opts: &FlashOptions) -> R
             Err(e) => refused = refused.or(Some(e)),
         }
     }
-    let densities: Vec<f64> = states.iter().map(|s| s.rho(Basis::Molar)).collect();
-    let state = match (states.as_slice(), opts.roots()) {
-        ([], _) => return Err(refused.unwrap_or(Error::InvalidInput { quantity: var.name(), value: x })),
-        ([one], _) => *one,
-        (several, RootPolicy::Nearest(rho)) => {
-            let pick = nearest(rho, &densities);
-            let found = several.iter().find(|s| Some(s.rho(Basis::Molar)) == pick);
-            *found.ok_or(Error::Ambiguous { roots: Roots::new(&densities) })?
-        }
-        _ => return Err(Error::Ambiguous { roots: Roots::new(&densities) }),
+    let Some(state) = choose(&states, |s| s.rho(Basis::Molar), opts.roots())? else {
+        return Err(refused.unwrap_or(Error::InvalidInput { quantity: var.name(), value: x }));
     };
     if !reproduces_x(var, r, t, x, var.of(&state)) {
         return Err(Error::NoConvergence { strategy: Strategy::Isotherm, iterations: state.path().iterations });
@@ -1367,15 +1454,8 @@ fn qx(fluid: &PureFluid, q: f64, x: f64, var: QVar, pair: Pair, opts: &FlashOpti
         }
     }
     roots.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let temperatures: Vec<f64> = roots.iter().map(|r| r.0).collect();
-    let (t, iterations) = match (roots.as_slice(), opts.roots()) {
-        ([], _) => return Err(refused.unwrap_or(Error::InvalidInput { quantity: var_name(var), value: var.input(x) })),
-        ([one], _) => *one,
-        (_, RootPolicy::Nearest(target)) => {
-            let pick = nearest(target, &temperatures);
-            *roots.iter().find(|r| Some(r.0) == pick).ok_or(Error::Ambiguous { roots: Roots::new(&temperatures) })?
-        }
-        _ => return Err(Error::Ambiguous { roots: Roots::new(&temperatures) }),
+    let Some((t, iterations)) = choose(&roots, |r| r.0, opts.roots())? else {
+        return Err(refused.unwrap_or(Error::InvalidInput { quantity: var_name(var), value: var.input(x) }));
     };
     Ok(qt(fluid, q, t, opts)?.with_path(SolvePath { strategy: Strategy::Saturation, iterations }))
 }

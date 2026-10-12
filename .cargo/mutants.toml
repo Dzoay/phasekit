@@ -57,12 +57,14 @@ exclude_re = [
     "flash\\.rs:[0-9]+:[0-9]+: replace < with <= in turn_of",
     "flash\\.rs:[0-9]+:[0-9]+: replace \\|\\| with && in polish",
     "blob\\.rs:[0-9]+:[0-9]+: replace decode_caloric -> Result<Option<CaloricCurves>, LoadError> with Ok\\(None\\)",
-    # Equivalent mutants of HS and SU (PLAN.md M7.8). A residual exactly 0 (within the nested solve's noise) is the
-    # root whether a test reads it as above (`>= 0`) or at or below x: TOMS 748 returns a bracket's end whose residual
-    # is 0. And a bracket of two decades with a refusal between them, taken as if none were there, meets that refusal
-    # inside TOMS 748, which splits the bracket around it, as the guarded arm's bisection does.
-    "flash\\.rs:[0-9]+:[0-9]+: replace > with >= in sx",
-    "flash\\.rs:[0-9]+:[0-9]+: replace match guard refused_over_below.is_none\\(\\) with true in sx",
+    # Equivalent mutants of HS and SU (PLAN.md M7.8), whose descent and bisections read a residual as above zero by
+    # `positive`, as the search in T of P+X and D+X does (M7.9e; its reason below). A residual exactly 0 (within the
+    # nested solve's noise) is the root whether a test reads it as above (`>= 0`) or at or below x: TOMS 748 returns a
+    # bracket's end whose residual is 0. And a bracket of two decades with a refusal between them, taken as if none
+    # were there, meets that refusal inside TOMS 748, which splits the bracket around it, as the guarded arm's
+    # bisection does.
+    "flash\\.rs:[0-9]+:[0-9]+: replace > with >= in positive",
+    "flash\\.rs:[0-9]+:[0-9]+: replace match guard refused.is_none\\(\\) with true in isentrope_bracket",
     # Each gate's `run` gathers its input through `repo` and is exercised by G8, not by unit tests; the rules it
     # applies live in the module's pure functions, which are mutated.
     "replace run -> Verdict",
@@ -100,10 +102,11 @@ exclude_re = [
     # Equivalent in practice: the density Newton refuses a slope (∂p/∂ln ρ)_T ≤ 0; one exactly 0 from double arithmetic
     # at an iterate never occurs, so `>` and `>=` agree; slopes of either sign are tested.
     "density\\.rs:[0-9]+:[0-9]+: replace > with >= in newton",
-    # Equivalent in practice: the search in T of P+X and D+X compares x(T) − x with 0 at its bracket's ends and scan
-    # steps, so `<` and `<=`, `>` and `>=` differ only where x is met bit for bit at such a T, which no input reaches
-    # reliably; either side of each comparison is tested (PLAN.md M7.3, M7.4).
-    "flash\\.rs:[0-9]+:[0-9]+: replace (< with <=|<= with <|> with >=|>= with >) in root_in_t",
+    # Equivalent in practice: the search in T of P+X and D+X (`root_in_t`, each step's residual `stepped`, and the
+    # descent's `positive`) compares x(T) − x with 0 at its bracket's ends and scan steps, so `<` and `<=`, `>` and `>=`
+    # differ only where x is met bit for bit at such a T, which no input reaches reliably; either side of each
+    # comparison is tested (PLAN.md M7.3, M7.4).
+    "flash\\.rs:[0-9]+:[0-9]+: replace (< with <=|<= with <|> with >=|>= with >) in (root_in_t|stepped)",
     # Equivalent in practice: a pure fluid's phase rule labels by its EOS's own critical point (M6), so its VLE runs only
     # where the EOS has a dome, and no tested input makes it fail there; only a pseudo-pure fluid, labelled by its
     # published critical point above its EOS's, reaches a VLE that fails (Air from 131 K to 132.53 K at 13 119 mol/m³,
