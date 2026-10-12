@@ -1,0 +1,20 @@
+# fixture: paper/v1
+# source: iapws:R12-08/4
+# citation: report=IAPWS-R12-08 table=4 page=8 erratum-checked=2026-10-12 pdf_sha256=6e89cafb61618f38aeca88a5740181948db7300d2b4beafbb4228bb164657bef
+# kind: Rows
+# constants: mu2=1 (Eq. (10) without the critical enhancement)
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,rho,eta
+# units: K,kg/m3,uPa s
+# tol: in,in,paper
+298.15,998,889.735100
+298.15,1200,1437.649467
+373.15,1000,307.883622
+433.15,1,14.538324
+433.15,1000,217.685358
+873.15,1,32.619287
+873.15,100,35.802262
+873.15,600,77.430195
+1173.15,1,44.217245
+1173.15,100,47.640433
+1173.15,400,64.154608

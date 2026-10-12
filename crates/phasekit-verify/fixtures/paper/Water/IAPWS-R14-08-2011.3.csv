@@ -1,0 +1,14 @@
+# fixture: paper/v1
+# source: iapws:R14-08(2011)/3
+# citation: report=IAPWS-R14-08(2011) table=3 page=7 erratum-checked=2026-10-12 pdf_sha256=706b17a9c646979aa77c589db145a6a707e7b19527aefbdb70dc230898cfc839
+# kind: Rows
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,p,note
+# units: K,MPa,-
+# tol: in,paper,label
+260.0,138.268,ice Ih - liquid Eq. (1)
+254.0,268.685,ice III - liquid Eq. (2)
+265.0,479.640,ice V - liquid Eq. (3)
+320.0,1356.76,ice VI - liquid Eq. (4)
+550.0,6308.71,ice VII - liquid Eq. (5)
+230.0,8.94735e-6,ice Ih - gas Eq. (6)

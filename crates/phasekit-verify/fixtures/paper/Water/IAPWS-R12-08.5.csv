@@ -1,0 +1,14 @@
+# fixture: paper/v1
+# source: iapws:R12-08/5
+# citation: report=IAPWS-R12-08 table=5 page=9 erratum-checked=2026-10-12 pdf_sha256=6e89cafb61618f38aeca88a5740181948db7300d2b4beafbb4228bb164657bef
+# kind: Rows
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,rho,xi,mu2,eta
+# units: K,kg/m3,nm,-,uPa s
+# tol: in,in,paper,paper,paper
+647.35,122,0.309247,1.00000289,25.520677
+647.35,222,1.571405,1.00375120,31.337589
+647.35,272,5.266522,1.03416789,36.228143
+647.35,322,16.590209,1.09190440,42.961579
+647.35,372,5.603768,1.03665871,45.688204
+647.35,422,1.876244,1.00596332,49.436256
