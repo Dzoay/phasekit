@@ -6,12 +6,5 @@ crates/phasekit-core/src/roots.rs toms748 cog=29 nest=3 stays: TOMS 748 as print
 crates/phasekit-core/src/roots/aps.rs problem cog=18 nest=2 stays: a data table, the 28 test problems as Algorithm 748's driver defines them
 crates/phasekit-xtask/src/datagen/superanc.rs extrema cog=13 nest=4 M7.9f: xtask
 crates/phasekit-xtask/src/fluid.rs from_json cog=41 nest=3 M7.9f: one parser per section
-crates/phasekit-xtask/src/gates/assertions.rs check cog=26 nest=5 M7.9f: the gates' checks
-crates/phasekit-xtask/src/gates/assertions.rs code_only cog=34 nest=4 M7.9f: one helper per token kind
-crates/phasekit-xtask/src/gates/doc_excerpts.rs check cog=22 nest=4 M7.9f: the gates' checks
-crates/phasekit-xtask/src/gates/fixtures.rs check cog=21 nest=2 M7.9f: the gates' checks
-crates/phasekit-xtask/src/gates/ignores.rs check cog=15 nest=4 M7.9f: the gates' checks
-crates/phasekit-xtask/src/gates/ignores.rs valid cog=16 nest=2 M7.9f: the gates' checks
-crates/phasekit-xtask/src/gates/rot.rs check cog=18 nest=3 M7.9f: the gates' checks
 crates/phasekit-xtask/src/repo.rs Repo::criterion_results cog=13 nest=4 M7.9f: xtask
 crates/phasekit-xtask/src/repo.rs Repo::files cog=13 nest=4 M7.9f: xtask

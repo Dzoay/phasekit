@@ -30,19 +30,41 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
 /// Checks the manifest against the files under fixtures/ (path relative to it, text) and the crate's sources.
 fn check(manifest: &str, files: &[(String, String)], sources: &[(String, String)]) -> Verdict {
     let mut errors = Vec::new();
-    let mut listed: Vec<Vec<&str>> = Vec::new();
+    let listed = manifest_lines(manifest, &mut errors);
+    let fixtures: Vec<&(String, String)> =
+        files.iter().filter(|(path, _)| !NOT_FIXTURES.contains(&path.as_str())).collect();
+    if fixtures.is_empty() {
+        errors.push("no committed fixtures".to_string());
+    }
+    check_listed(&fixtures, &listed, &mut errors);
+    check_read(&fixtures, sources, &mut errors);
+    let total: usize = files.iter().map(|(_, text)| text.len()).sum();
+    if over_budget(total) {
+        errors
+            .push(format!("the committed fixtures take {total} bytes, over the 16 MiB budget (VERIFICATION.md §3.6)"));
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    let bytes: usize = fixtures.iter().map(|(_, text)| text.len()).sum();
+    Ok(format!("{} fixtures, {bytes} bytes, all read by tests", fixtures.len()))
+}
+
+/// The manifest's lines, each `<sha256> <bytes> <rows> <path>` split at its spaces; a malformed one is an error.
+fn manifest_lines<'m>(manifest: &'m str, errors: &mut Vec<String>) -> Vec<Vec<&'m str>> {
+    let mut listed = Vec::new();
     for line in manifest.lines().filter(|line| !line.is_empty() && !line.starts_with('#')) {
         match line.split(' ').collect::<Vec<_>>() {
             fields if fields.len() == 4 => listed.push(fields),
             _ => errors.push(format!("MANIFEST.sha256: `{line}` is not `<sha256> <bytes> <rows> <path>`")),
         }
     }
-    let fixtures: Vec<&(String, String)> =
-        files.iter().filter(|(path, _)| !NOT_FIXTURES.contains(&path.as_str())).collect();
-    if fixtures.is_empty() {
-        errors.push("no committed fixtures".to_string());
-    }
-    for (path, text) in &fixtures {
+    listed
+}
+
+/// Each fixture's line of the manifest, `listed`, and its sha256, bytes and rows there; then each line's fixture.
+fn check_listed(fixtures: &[&(String, String)], listed: &[Vec<&str>], errors: &mut Vec<String>) {
+    for (path, text) in fixtures {
         let Some(fields) = listed.iter().find(|fields| fields[3] == path) else {
             errors.push(format!("{path}: not in MANIFEST.sha256 (`cargo xtask oracle --write-manifest`)"));
             continue;
@@ -57,11 +79,16 @@ fn check(manifest: &str, files: &[(String, String)], sources: &[(String, String)
             ));
         }
     }
-    for fields in &listed {
+    for fields in listed {
         if !fixtures.iter().any(|(path, _)| path == fields[3]) {
             errors.push(format!("{}: in MANIFEST.sha256 but not committed", fields[3]));
         }
     }
+}
+
+/// Each `fixture!` path in the crate's `sources` is a fixture, and each fixture is read by a test besides the list in
+/// [`LISTING`].
+fn check_read(fixtures: &[&(String, String)], sources: &[(String, String)], errors: &mut Vec<String>) {
     let references: Vec<(&str, &str)> = sources
         .iter()
         .flat_map(|(file, text)| {
@@ -76,21 +103,11 @@ fn check(manifest: &str, files: &[(String, String)], sources: &[(String, String)
             errors.push(format!("{file}: fixture!(\"{path}\") does not exist"));
         }
     }
-    for (path, _) in &fixtures {
+    for (path, _) in fixtures {
         if !references.iter().any(|(file, p)| p == path && *file != LISTING) {
             errors.push(format!("{path}: no test reads it besides the list in {LISTING} (map 10 R15)"));
         }
     }
-    let total: usize = files.iter().map(|(_, text)| text.len()).sum();
-    if over_budget(total) {
-        errors
-            .push(format!("the committed fixtures take {total} bytes, over the 16 MiB budget (VERIFICATION.md §3.6)"));
-    }
-    if !errors.is_empty() {
-        return Err(errors);
-    }
-    let bytes: usize = fixtures.iter().map(|(_, text)| text.len()).sum();
-    Ok(format!("{} fixtures, {bytes} bytes, all read by tests", fixtures.len()))
 }
 
 /// Whether `total` committed bytes exceed the budget.

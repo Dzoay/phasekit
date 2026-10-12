@@ -31,28 +31,33 @@ fn check(register: &str, milestone: u8) -> Result<usize, Vec<String>> {
                 continue;
             }
         }
-        let (id, proof, status) = (cells[0], cells[5], cells[7]);
-        let first = match first_milestone(cells[6]) {
-            Ok(first) => first,
-            Err(e) => {
-                errors.push(format!("{id}: {e}"));
-                continue;
-            }
-        };
-        if let Some(m) = first.filter(|&m| m < milestone && status.starts_with("GAP")) {
-            errors.push(format!("{id}: still GAP, but M{m} has closed"));
-        }
-        for part in proof.split(';').filter(|part| has_word(part, "new")) {
-            if let Some(due) = due(part).or(first).filter(|&due| due < milestone) {
-                errors
-                    .push(format!("{id}: proof \"{}\" is still marked new, due at M{due} (PLAN.md §2.1)", part.trim()));
-            }
-        }
+        check_row(&cells, milestone, &mut errors);
     }
     if rows == 0 {
         errors.push(format!("{REGISTER}: no register rows"));
     }
     if errors.is_empty() { Ok(rows) } else { Err(errors) }
+}
+
+/// Checks one register row's eight `cells`: not GAP once its first milestone has closed, and no part of its Proof
+/// cell marked new once that part is due.
+fn check_row(cells: &[&str], milestone: u8, errors: &mut Vec<String>) {
+    let (id, proof, status) = (cells[0], cells[5], cells[7]);
+    let first = match first_milestone(cells[6]) {
+        Ok(first) => first,
+        Err(e) => {
+            errors.push(format!("{id}: {e}"));
+            return;
+        }
+    };
+    if let Some(m) = first.filter(|&m| m < milestone && status.starts_with("GAP")) {
+        errors.push(format!("{id}: still GAP, but M{m} has closed"));
+    }
+    for part in proof.split(';').filter(|part| has_word(part, "new")) {
+        if let Some(due) = due(part).or(first).filter(|&due| due < milestone) {
+            errors.push(format!("{id}: proof \"{}\" is still marked new, due at M{due} (PLAN.md §2.1)", part.trim()));
+        }
+    }
 }
 
 /// The row's first milestone (`M6, M7` → 6), or `None` for `post-0.1` and `n/a`, which never come due.
@@ -110,6 +115,7 @@ mod tests {
         assert!(check(&register("new proptest over `Input::new`", "M1", "Test-guarded"), 2).is_err());
         // GAP fails once its milestone closes; a row without a milestone number never comes due.
         assert!(check(&register("`a`", "M2", "GAP"), 3).is_err());
+        assert_eq!(check(&register("`a`", "M2", "GAP"), 2), Ok(1), "M2 is still open");
         assert_eq!(check(&register("new `a`", "post-0.1", "Deferred: M19"), 99), Ok(1));
         // Fail closed: a malformed row, an unreadable milestone or an empty register.
         assert!(check(&format!("{HEAD}| ROT-901 | too | few |\n"), 0).is_err());
