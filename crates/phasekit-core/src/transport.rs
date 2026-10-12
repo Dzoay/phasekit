@@ -1625,6 +1625,56 @@ pub(crate) mod tests {
         assert_eq!(answers(TransportRecord::default()), none);
     }
 
+    /// The terms no v8.0.0 data exercises, against their closed forms at a Toy state: the empirical initial-density term
+    /// (CycloHexane's only; its reducing constants are 1, and its hard-coded dilute term lands at M8.9), and the
+    /// Batschinski-Hildebrand free-volume sum with τ in it (every v8.0.0 t₂ is 0).
+    #[test]
+    fn unexercised_viscosity_terms_match_their_closed_forms() {
+        use crate::{Density, FlashOptions, Input, Phase, Temperature};
+        let fluid = Fluid::new(std::sync::Arc::new(FluidRecord::synthetic("Toy").unwrap().compile().unwrap()));
+        let (t, rho) = (300.0, 100.0);
+        let input = Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap());
+        let state = fluid.flash(input, &FlashOptions::new().with_phase(Phase::Gas)).unwrap();
+        let x = TransportInputs::new(&state, 0.1);
+        let one = |v: f64| -> Box<[f64]> { Box::new([v]) };
+        let bh = BatschinskiHildebrand {
+            t_r: 350.0,
+            rho_r: 4000.0,
+            a: one(1e-6),
+            t1: one(1.0),
+            d1: one(2.0),
+            gamma: one(0.0),
+            l: one(1.0),
+            f: one(2e-7),
+            t2: one(0.5),
+            d2: one(1.0),
+            g: one(3.0),
+            h: one(0.0),
+            p: one(1.0),
+            q: one(0.0),
+        };
+        let model = StagedViscosity {
+            dilute: ViscosityDilute::PowersOfT(Series::new(vec![1e-5], vec![0.0]).unwrap()),
+            initial: Some(ViscosityInitial::Empirical {
+                n: Box::new([2e-7, -3e-6, 4e-5]),
+                d: Box::new([1.0, 2.0, 1.0]),
+                t: Box::new([0.0, 1.0, 2.0]),
+                t_r: 350.0,
+                rho_r: 4000.0,
+            }),
+            higher: ViscosityHigher::BatschinskiHildebrand(Box::new(bh)),
+        };
+        let stages = viscosity::stages(&model, None, &x).unwrap();
+        let (tau, delta) = (350.0 / t, rho / 4000.0);
+        let empirical = 2e-7 * delta - 3e-6 * delta * delta * tau + 4e-5 * delta * tau * tau;
+        let free_volume =
+            1e-6 * delta * delta * tau + 2e-7 * delta * math::sqrt(tau) * (1.0 / (3.0 - delta) - 1.0 / 3.0);
+        let close = |got: f64, want: f64| (got / want - 1.0).abs() < 1e-14;
+        assert!(close(stages.initial_density, empirical), "{} against {empirical}", stages.initial_density);
+        assert!(close(stages.residual, free_volume), "{} against {free_volume}", stages.residual);
+        assert_eq!(stages.dilute, 1e-5);
+    }
+
     /// A record compiled without the registry carries its surface-tension fit, with transport models or without.
     #[test]
     fn a_compiled_record_carries_its_surface_tension() {
