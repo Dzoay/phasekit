@@ -575,6 +575,7 @@ mod tests {
         let paper = "# fixture: eos/v1\n# source: paper:lemmon2016/7\n# columns: p\n# tol: paper\n21.17909\n";
         assert!(parse(paper.to_string()).is_ok());
         assert!(parse(paper.replace("# tol: paper\n", "")).is_err());
+        assert!(parse(fixture_text().replace("# tol:", "# units: K,-,-\n# tol:")).is_ok(), "a unit per column");
         let broken = [
             fixture_text().replace("# config: {}\n", "# config: {}\n# config: {}\n"),
             fixture_text().replace("# env:", "# colour:"),
@@ -593,6 +594,8 @@ mod tests {
             fixture_text().replace("300.0,stable,ok\n", "300.0,stable,ok\r\n"),
             fixture_text().replace("300.0,stable,ok\n", "300.0,stable,ok\n\n"),
             fixture_text().replace("# columns:", "#columns:"),
+            fixture_text().replace("# columns: value,region,status", "# columns: value,,status"),
+            fixture_text().replace("# tol:", "# units: K,-\n# tol:"),
         ];
         for (i, text) in broken.into_iter().enumerate() {
             assert!(parse(text).is_err(), "case {i} was accepted");
