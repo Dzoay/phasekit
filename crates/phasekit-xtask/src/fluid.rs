@@ -183,19 +183,60 @@ fn patch_json(p: &Patch) -> Value {
     json!({"divergence": &*p.divergence, "edit": edit})
 }
 
-/// Reads the dump back.
-#[expect(clippy::too_many_lines, reason = "M7.9f: one parser per section")]
+/// Reads the dump back, one section at a time, each with its own parser.
 pub fn from_json(v: &Value) -> Result<FluidRecord, String> {
-    let f = |v: &Value, k: &str| v.get(k).and_then(Value::as_f64).ok_or(format!("{k}: not a number"));
-    let u = |v: &Value, k: &str| {
-        v.get(k).and_then(Value::as_u64).and_then(|x| u8::try_from(x).ok()).ok_or(format!("{k}: not a small integer"))
-    };
-    let s =
-        |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(str::to_string).ok_or(format!("{k}: not a string"));
-    let os = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
-    let list = |v: &Value, k: &str| v.get(k).and_then(Value::as_array).cloned().ok_or(format!("{k}: not a list"));
+    let eos = eos_from(v.get("eos").ok_or("no eos")?)?;
+    let source = source_from(v.get("source").ok_or("no source")?)?;
+    let limits = limits_from(v.get("limits").ok_or("no limits")?)?;
+    let mut r = FluidRecord::new(&text(v, "name")?, float(v, "molar_mass")?, source, eos, limits);
+    r.aliases = list(v, "aliases")?
+        .iter()
+        .map(|a| a.as_str().map(str::to_string).ok_or("alias: not a string"))
+        .collect::<Result<_, _>>()?;
+    (r.cas, r.refprop_name, r.inchi_key) = (opt_text(v, "cas"), opt_text(v, "refprop_name"), opt_text(v, "inchi_key"));
+    r.critical = section(v, "critical").map(critical_from).transpose()?;
+    r.superancillary_fit = section(v, "superancillary_fit").map(fit_from).transpose()?;
+    r.pseudo_pure = section(v, "pseudo_pure").map(pseudo_pure_from).transpose()?;
+    r.melting = list(v, "melting")?.iter().map(melting_from).collect::<Result<_, _>>()?;
+    r.superancillary = section(v, "superancillary").map(superancillary_from).transpose()?;
+    r.caloric = section(v, "caloric").map(caloric_from).transpose()?;
+    r.corrections = list(v, "corrections")?.iter().map(patch_from).collect::<Result<_, _>>()?;
+    Ok(r)
+}
 
-    let e = v.get("eos").ok_or("no eos")?;
+/// The number at `k` of `v`.
+fn float(v: &Value, k: &str) -> Result<f64, String> {
+    v.get(k).and_then(Value::as_f64).ok_or(format!("{k}: not a number"))
+}
+
+/// The integer at `k` of `v`, which fits a byte.
+fn small(v: &Value, k: &str) -> Result<u8, String> {
+    v.get(k).and_then(Value::as_u64).and_then(|x| u8::try_from(x).ok()).ok_or(format!("{k}: not a small integer"))
+}
+
+/// The string at `k` of `v`.
+fn text(v: &Value, k: &str) -> Result<String, String> {
+    v.get(k).and_then(Value::as_str).map(str::to_string).ok_or(format!("{k}: not a string"))
+}
+
+/// The string at `k` of `v`, if it has one.
+fn opt_text(v: &Value, k: &str) -> Option<String> {
+    v.get(k).and_then(Value::as_str).map(str::to_string)
+}
+
+/// The list at `k` of `v`.
+fn list(v: &Value, k: &str) -> Result<Vec<Value>, String> {
+    v.get(k).and_then(Value::as_array).cloned().ok_or(format!("{k}: not a list"))
+}
+
+/// The section at `k` of `v`, unless it is absent or null.
+fn section<'v>(v: &'v Value, k: &str) -> Option<&'v Value> {
+    v.get(k).filter(|x| !x.is_null())
+}
+
+/// The `eos` section: the reducing state and ρ_max, then each kind's terms.
+fn eos_from(e: &Value) -> Result<EosRecord, String> {
+    let (f, u) = (float, small);
     let mut eos = EosRecord::new(f(e, "gas_constant")?, f(e, "t_reducing")?, f(e, "rho_reducing")?, f(e, "rho_max")?);
     for p in list(e, "power")? {
         eos.power.push(PowerTerm::new(f(&p, "n")?, f(&p, "t")?, u(&p, "d")?, u(&p, "l")?, f(&p, "c")?));
@@ -230,178 +271,193 @@ pub fn from_json(v: &Value) -> Result<FluidRecord, String> {
         eos.non_analytic.push(NonAnalyticTerm { n, a, b, beta, big_a, big_b, big_c, big_d });
     }
     for t in list(e, "ideal")? {
-        eos.ideal.push(match s(&t, "kind")?.as_str() {
-            "Lead" => IdealTerm::Lead { a1: f(&t, "a1")?, a2: f(&t, "a2")? },
-            "LogTau" => IdealTerm::LogTau { a: f(&t, "a")? },
-            "Power" => IdealTerm::Power { n: f(&t, "n")?, t: f(&t, "t")? },
-            "PlanckEinstein" => IdealTerm::PlanckEinstein { n: f(&t, "n")?, theta: f(&t, "theta")? },
-            "PlanckEinsteinGeneralized" => IdealTerm::PlanckEinsteinGeneralized {
-                n: f(&t, "n")?,
-                theta: f(&t, "theta")?,
-                c: f(&t, "c")?,
-                d: f(&t, "d")?,
-            },
-            "Cp0Power" => IdealTerm::Cp0Power { c: f(&t, "c")?, t: f(&t, "t")?, tc: f(&t, "tc")?, t0: f(&t, "t0")? },
-            "Offset" => {
-                let reference = match s(&t, "reference")?.as_str() {
-                    "IIR" => OffsetReference::Iir,
-                    "NBP" => OffsetReference::Nbp,
-                    "OTH" => OffsetReference::Other,
-                    "CUSTOM" => OffsetReference::Custom,
-                    other => return Err(format!("unknown offset reference {other}")),
-                };
-                IdealTerm::Offset { a1: f(&t, "a1")?, a2: f(&t, "a2")?, reference }
-            }
-            other => return Err(format!("unknown ideal-gas kind {other}")),
-        });
+        eos.ideal.push(ideal_from(&t)?);
     }
+    Ok(eos)
+}
 
-    let src = v.get("source").ok_or("no source")?;
-    let terms = match s(src, "terms")?.as_str() {
+/// One ideal-gas term of the `eos` section, by its `kind`.
+fn ideal_from(t: &Value) -> Result<IdealTerm, String> {
+    let f = float;
+    Ok(match text(t, "kind")?.as_str() {
+        "Lead" => IdealTerm::Lead { a1: f(t, "a1")?, a2: f(t, "a2")? },
+        "LogTau" => IdealTerm::LogTau { a: f(t, "a")? },
+        "Power" => IdealTerm::Power { n: f(t, "n")?, t: f(t, "t")? },
+        "PlanckEinstein" => IdealTerm::PlanckEinstein { n: f(t, "n")?, theta: f(t, "theta")? },
+        "PlanckEinsteinGeneralized" => {
+            IdealTerm::PlanckEinsteinGeneralized { n: f(t, "n")?, theta: f(t, "theta")?, c: f(t, "c")?, d: f(t, "d")? }
+        }
+        "Cp0Power" => IdealTerm::Cp0Power { c: f(t, "c")?, t: f(t, "t")?, tc: f(t, "tc")?, t0: f(t, "t0")? },
+        "Offset" => {
+            let reference = match text(t, "reference")?.as_str() {
+                "IIR" => OffsetReference::Iir,
+                "NBP" => OffsetReference::Nbp,
+                "OTH" => OffsetReference::Other,
+                "CUSTOM" => OffsetReference::Custom,
+                other => return Err(format!("unknown offset reference {other}")),
+            };
+            IdealTerm::Offset { a1: f(t, "a1")?, a2: f(t, "a2")?, reference }
+        }
+        other => return Err(format!("unknown ideal-gas kind {other}")),
+    })
+}
+
+/// The `source` section: the data's terms, its bibkey and DOI, then its citations.
+fn source_from(src: &Value) -> Result<Source, String> {
+    let terms = match text(src, "terms")?.as_str() {
         "Published" => DataTerms::Published,
         "Unpublished" => DataTerms::Unpublished,
         "Restricted" => DataTerms::Restricted,
         other => return Err(format!("unknown data terms {other}")),
     };
-    let mut source = Source::new(&s(src, "bibkey")?, os(src, "doi").as_deref(), terms);
+    let mut source = Source::new(&text(src, "bibkey")?, opt_text(src, "doi").as_deref(), terms);
     for c in list(src, "citations")? {
-        let role = match s(&c, "role")?.as_str() {
+        let role = match text(&c, "role")?.as_str() {
             "Coefficients" => CitationRole::Coefficients,
             "IdealGas" => CitationRole::IdealGas,
             "Erratum" => CitationRole::Erratum,
             "Related" => CitationRole::Related,
             other => return Err(format!("unknown citation role {other}")),
         };
-        source.citations.push(Citation { key: s(&c, "key")?.into(), doi: os(&c, "doi").map(Into::into), role });
+        source.citations.push(Citation {
+            key: text(&c, "key")?.into(),
+            doi: opt_text(&c, "doi").map(Into::into),
+            role,
+        });
     }
-    let lim = v.get("limits").ok_or("no limits")?;
-    let limits = Limits::new(f(lim, "t_min")?, f(lim, "t_max")?, f(lim, "p_max")?).map_err(|e| e.to_string())?;
-    let limits = match lim.get("t_triple").and_then(Value::as_f64) {
+    Ok(source)
+}
+
+/// The `limits` section: the range in T, p_max and, where it has one, the triple point.
+fn limits_from(lim: &Value) -> Result<Limits, String> {
+    let limits =
+        Limits::new(float(lim, "t_min")?, float(lim, "t_max")?, float(lim, "p_max")?).map_err(|e| e.to_string())?;
+    Ok(match lim.get("t_triple").and_then(Value::as_f64) {
         Some(t) => limits.with_t_triple(t),
         None => limits,
+    })
+}
+
+/// The `critical` section.
+fn critical_from(c: &Value) -> Result<CriticalPoint, String> {
+    let origin = if text(c, "origin")? == "Model" { CriticalOrigin::Model } else { CriticalOrigin::Published };
+    Ok(CriticalPoint { t: float(c, "t")?, p: float(c, "p")?, rho: float(c, "rho")?, origin })
+}
+
+/// The `superancillary_fit` section: the stamp of the EOS the superancillary was fitted to.
+fn fit_from(fit: &Value) -> Result<SaStamp, String> {
+    let shape = u64::from_str_radix(&text(fit, "shape")?, 16).map_err(|e| format!("shape: {e}"))?;
+    let shape = phasekit_core::internal::model_key(shape);
+    Ok(SaStamp { shape, gas_constant: float(fit, "gas_constant")?, rho_reducing: float(fit, "rho_reducing")? })
+}
+
+/// The `pseudo_pure` section: its range in T, then its four ancillaries.
+fn pseudo_pure_from(pp: &Value) -> Result<PseudoPure, String> {
+    let one = |key: &str| ancillary_from(pp.get(key).ok_or(format!("pseudo_pure: no {key}"))?);
+    let range = pseudo_pure_floats(pp, "t_range")?;
+    let &[lo, hi] = range.as_slice() else { return Err("pseudo_pure: t_range needs two temperatures".into()) };
+    Ok(PseudoPure { p_l: one("p_l")?, p_v: one("p_v")?, rho_l: one("rho_l")?, rho_v: one("rho_v")?, t_range: (lo, hi) })
+}
+
+/// One ancillary of the `pseudo_pure` section.
+fn ancillary_from(a: &Value) -> Result<Ancillary, String> {
+    let flag = |key: &str| a.get(key).and_then(Value::as_bool).ok_or(format!("pseudo_pure: no {key}"));
+    Ok(Ancillary {
+        exponential: flag("exponential")?,
+        tau_r: flag("tau_r")?,
+        t_r: float(a, "t_r")?,
+        reducing: float(a, "reducing")?,
+        n: pseudo_pure_floats(a, "n")?,
+        t: pseudo_pure_floats(a, "t")?,
+        t_min: float(a, "t_min")?,
+        t_max: float(a, "t_max")?,
+    })
+}
+
+/// The numbers listed at `key` of a value in the `pseudo_pure` section.
+fn pseudo_pure_floats(x: &Value, key: &str) -> Result<Vec<f64>, String> {
+    let items = x.get(key).and_then(Value::as_array).ok_or(format!("pseudo_pure: no {key}"))?;
+    items.iter().map(|x| x.as_f64().ok_or_else(|| format!("pseudo_pure {key}: not a number"))).collect()
+}
+
+/// One segment of the `melting` section.
+fn melting_from(m: &Value) -> Result<MeltingSegment, String> {
+    let f = float;
+    Ok(MeltingSegment { t0: f(m, "t0")?, p0: f(m, "p0")?, t_min: f(m, "t_min")?, t_max: f(m, "t_max")? })
+}
+
+/// The `superancillary` section: the breaks, the three curves and their extrema, and the inverse T(ln p).
+fn superancillary_from(sa: &Value) -> Result<Superancillary, String> {
+    let floats = |x: &Value| -> Result<Vec<f64>, String> {
+        let items = x.as_array().ok_or("superancillary: not a list")?;
+        items.iter().map(|x| x.as_f64().ok_or_else(|| "superancillary: not a number".to_string())).collect()
     };
-    let mut r = FluidRecord::new(&s(v, "name")?, f(v, "molar_mass")?, source, eos, limits);
-    r.aliases = list(v, "aliases")?
-        .iter()
-        .map(|a| a.as_str().map(str::to_string).ok_or("alias: not a string"))
-        .collect::<Result<_, _>>()?;
-    (r.cas, r.refprop_name, r.inchi_key) = (os(v, "cas"), os(v, "refprop_name"), os(v, "inchi_key"));
-    if let Some(c) = v.get("critical").filter(|c| !c.is_null()) {
-        let origin = if s(c, "origin")? == "Model" { CriticalOrigin::Model } else { CriticalOrigin::Published };
-        r.critical = Some(CriticalPoint { t: f(c, "t")?, p: f(c, "p")?, rho: f(c, "rho")?, origin });
+    let pieces = |x: &Value| -> Result<Vec<[f64; 13]>, String> {
+        let items = x.as_array().ok_or("superancillary: not a list of pieces")?;
+        items
+            .iter()
+            .map(|p| floats(p)?.try_into().map_err(|_| "superancillary: a piece needs 13 coefficients".to_string()))
+            .collect()
+    };
+    let field = |x: &Value, key: &str| x.get(key).cloned().ok_or_else(|| format!("superancillary without {key}"));
+    let named = |x: &Value, key: &str| {
+        field(x, key)
+            .and_then(|v| ["rho_l", "rho_v", "p"].map(|k| field(&v, k)).into_iter().collect::<Result<Vec<_>, _>>())
+    };
+    let [l, v_, p] = <[Value; 3]>::try_from(named(sa, "curves")?).map_err(|_| "superancillary: three curves")?;
+    let [el, ev, ep] =
+        <[Value; 3]>::try_from(named(sa, "extrema")?).map_err(|_| "superancillary: three extrema lists")?;
+    Ok(Superancillary {
+        breaks: floats(&field(sa, "breaks")?)?,
+        curves: [pieces(&l)?, pieces(&v_)?, pieces(&p)?],
+        extrema: [floats(&el)?, floats(&ev)?, floats(&ep)?],
+        ln_p_breaks: floats(&field(sa, "ln_p_breaks")?)?,
+        t_of_ln_p: pieces(&field(sa, "t_of_ln_p")?)?,
+    })
+}
+
+/// The `caloric` section: the stamp of what the curves were fitted to, the breaks and the six curves.
+fn caloric_from(c: &Value) -> Result<CaloricCurves, String> {
+    let st = c.get("stamp").ok_or("caloric without a stamp")?;
+    let shape = u64::from_str_radix(&text(st, "shape")?, 16).map_err(|e| format!("caloric shape: {e}"))?;
+    let superancillary = SaStamp {
+        shape: phasekit_core::internal::model_key(shape),
+        gas_constant: float(st, "gas_constant")?,
+        rho_reducing: float(st, "rho_reducing")?,
+    };
+    let stamp = CaloricStamp { superancillary, a1: float(st, "a1")?, a2: float(st, "a2")? };
+    let floats = |x: &Value| x.as_f64().ok_or("caloric: not a number");
+    let breaks = list(c, "breaks")?.iter().map(floats).collect::<Result<Vec<_>, _>>()?;
+    let mut curves: [Vec<[f64; 13]>; 6] = Default::default();
+    let given = list(c, "curves")?;
+    if given.len() != 6 {
+        return Err(format!("caloric: {} curves, not 6", given.len()));
     }
-    if let Some(fit) = v.get("superancillary_fit").filter(|x| !x.is_null()) {
-        let shape = u64::from_str_radix(&s(fit, "shape")?, 16).map_err(|e| format!("shape: {e}"))?;
-        let shape = phasekit_core::internal::model_key(shape);
-        r.superancillary_fit =
-            Some(SaStamp { shape, gas_constant: f(fit, "gas_constant")?, rho_reducing: f(fit, "rho_reducing")? });
-    }
-    if let Some(pp) = v.get("pseudo_pure").filter(|x| !x.is_null()) {
-        let floats = |x: &Value, key: &str| -> Result<Vec<f64>, String> {
-            let items = x.get(key).and_then(Value::as_array).ok_or(format!("pseudo_pure: no {key}"))?;
-            items.iter().map(|x| x.as_f64().ok_or_else(|| format!("pseudo_pure {key}: not a number"))).collect()
-        };
-        let flag = |x: &Value, key: &str| x.get(key).and_then(Value::as_bool).ok_or(format!("pseudo_pure: no {key}"));
-        let one = |key: &str| -> Result<Ancillary, String> {
-            let a = pp.get(key).ok_or(format!("pseudo_pure: no {key}"))?;
-            Ok(Ancillary {
-                exponential: flag(a, "exponential")?,
-                tau_r: flag(a, "tau_r")?,
-                t_r: f(a, "t_r")?,
-                reducing: f(a, "reducing")?,
-                n: floats(a, "n")?,
-                t: floats(a, "t")?,
-                t_min: f(a, "t_min")?,
-                t_max: f(a, "t_max")?,
-            })
-        };
-        let range = floats(pp, "t_range")?;
-        let &[lo, hi] = range.as_slice() else { return Err("pseudo_pure: t_range needs two temperatures".into()) };
-        r.pseudo_pure = Some(PseudoPure {
-            p_l: one("p_l")?,
-            p_v: one("p_v")?,
-            rho_l: one("rho_l")?,
-            rho_v: one("rho_v")?,
-            t_range: (lo, hi),
-        });
-    }
-    for m in list(v, "melting")? {
-        r.melting.push(MeltingSegment {
-            t0: f(&m, "t0")?,
-            p0: f(&m, "p0")?,
-            t_min: f(&m, "t_min")?,
-            t_max: f(&m, "t_max")?,
-        });
-    }
-    if let Some(sa) = v.get("superancillary").filter(|x| !x.is_null()) {
-        let floats = |x: &Value| -> Result<Vec<f64>, String> {
-            let items = x.as_array().ok_or("superancillary: not a list")?;
-            items.iter().map(|x| x.as_f64().ok_or_else(|| "superancillary: not a number".to_string())).collect()
-        };
-        let pieces = |x: &Value| -> Result<Vec<[f64; 13]>, String> {
-            let items = x.as_array().ok_or("superancillary: not a list of pieces")?;
-            items
-                .iter()
-                .map(|p| floats(p)?.try_into().map_err(|_| "superancillary: a piece needs 13 coefficients".to_string()))
-                .collect()
-        };
-        let field = |x: &Value, key: &str| x.get(key).cloned().ok_or_else(|| format!("superancillary without {key}"));
-        let named = |x: &Value, key: &str| {
-            field(x, key)
-                .and_then(|v| ["rho_l", "rho_v", "p"].map(|k| field(&v, k)).into_iter().collect::<Result<Vec<_>, _>>())
-        };
-        let [l, v_, p] = <[Value; 3]>::try_from(named(sa, "curves")?).map_err(|_| "superancillary: three curves")?;
-        let [el, ev, ep] =
-            <[Value; 3]>::try_from(named(sa, "extrema")?).map_err(|_| "superancillary: three extrema lists")?;
-        r.superancillary = Some(Superancillary {
-            breaks: floats(&field(sa, "breaks")?)?,
-            curves: [pieces(&l)?, pieces(&v_)?, pieces(&p)?],
-            extrema: [floats(&el)?, floats(&ev)?, floats(&ep)?],
-            ln_p_breaks: floats(&field(sa, "ln_p_breaks")?)?,
-            t_of_ln_p: pieces(&field(sa, "t_of_ln_p")?)?,
-        });
-    }
-    if let Some(c) = v.get("caloric").filter(|x| !x.is_null()) {
-        let st = c.get("stamp").ok_or("caloric without a stamp")?;
-        let shape = u64::from_str_radix(&s(st, "shape")?, 16).map_err(|e| format!("caloric shape: {e}"))?;
-        let superancillary = SaStamp {
-            shape: phasekit_core::internal::model_key(shape),
-            gas_constant: f(st, "gas_constant")?,
-            rho_reducing: f(st, "rho_reducing")?,
-        };
-        let stamp = CaloricStamp { superancillary, a1: f(st, "a1")?, a2: f(st, "a2")? };
-        let floats = |x: &Value| x.as_f64().ok_or("caloric: not a number");
-        let breaks = list(c, "breaks")?.iter().map(floats).collect::<Result<Vec<_>, _>>()?;
-        let mut curves: [Vec<[f64; 13]>; 6] = Default::default();
-        let given = list(c, "curves")?;
-        if given.len() != 6 {
-            return Err(format!("caloric: {} curves, not 6", given.len()));
+    for (curve, pieces) in curves.iter_mut().zip(&given) {
+        for piece in pieces.as_array().ok_or("caloric: a curve is not a list")? {
+            let row = piece.as_array().ok_or("caloric: a piece is not a list")?;
+            let row: Vec<f64> = row.iter().map(floats).collect::<Result<_, _>>()?;
+            curve.push(row.try_into().map_err(|_| "caloric: a piece needs 13 coefficients")?);
         }
-        for (curve, pieces) in curves.iter_mut().zip(&given) {
-            for piece in pieces.as_array().ok_or("caloric: a curve is not a list")? {
-                let row = piece.as_array().ok_or("caloric: a piece is not a list")?;
-                let row: Vec<f64> = row.iter().map(floats).collect::<Result<_, _>>()?;
-                curve.push(row.try_into().map_err(|_| "caloric: a piece needs 13 coefficients")?);
-            }
-        }
-        r.caloric = Some(CaloricCurves { stamp, breaks, curves });
     }
-    for p in list(v, "corrections")? {
-        let edit = p.get("edit").ok_or("correction without an edit")?;
-        let edit = if let Some(x) = edit.get("gas_constant").and_then(Value::as_f64) {
-            Edit::GasConstant(x)
-        } else if let Some(x) = edit.get("rho_reducing").and_then(Value::as_f64) {
-            Edit::ReducingDensity(x)
-        } else if let Some(x) = edit.get("molar_mass").and_then(Value::as_f64) {
-            Edit::MolarMass(x)
-        } else if let Some(m) = edit.get("melting_p0") {
-            Edit::MeltingP0 { segment: u(m, "segment")?, p0: f(m, "p0")? }
-        } else {
-            return Err(format!("unknown edit {edit}"));
-        };
-        r.corrections.push(Patch { divergence: s(&p, "divergence")?.into(), edit });
-    }
-    Ok(r)
+    Ok(CaloricCurves { stamp, breaks, curves })
+}
+
+/// One correction of the `corrections` section: its divergence and its edit.
+fn patch_from(p: &Value) -> Result<Patch, String> {
+    let edit = p.get("edit").ok_or("correction without an edit")?;
+    let edit = if let Some(x) = edit.get("gas_constant").and_then(Value::as_f64) {
+        Edit::GasConstant(x)
+    } else if let Some(x) = edit.get("rho_reducing").and_then(Value::as_f64) {
+        Edit::ReducingDensity(x)
+    } else if let Some(x) = edit.get("molar_mass").and_then(Value::as_f64) {
+        Edit::MolarMass(x)
+    } else if let Some(m) = edit.get("melting_p0") {
+        Edit::MeltingP0 { segment: small(m, "segment")?, p0: float(m, "p0")? }
+    } else {
+        return Err(format!("unknown edit {edit}"));
+    };
+    Ok(Patch { divergence: text(p, "divergence")?.into(), edit })
 }
 
 /// The JSON text of a record: pretty, keys sorted (serde_json's map), floats in shortest round-trip form.
