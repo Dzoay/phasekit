@@ -1107,8 +1107,8 @@ mod tests {
         }
         type Edit = fn(&mut Vec<u8>);
         let cases: [(Edit, &str); 5] = [
-            (|b| b[8] = 3, "blob version 3; this build reads version 2"),
-            (|b| b[12] = 9, "blob lists 9 sections; version 2 has 10"),
+            (|b| b[8] = 4, "blob version 4; this build reads version 3"),
+            (|b| b[12] = 9, "blob lists 9 sections; version 3 has 10"),
             (|b| b[32] = 2, "section table: entry 2 at"),
             (|b| b[40] += 8, "where section 1 (metadata) belongs"),
             (|b| b.extend([0; 8]), "blob has 8 bytes after its last section"),

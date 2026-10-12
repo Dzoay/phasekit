@@ -31,8 +31,10 @@ use crate::transport::{Part, Put, SurfaceTension, Take, TransportRecord};
 /// The first eight bytes of every v1 blob.
 const MAGIC: &[u8; 8] = b"PKITBLOB";
 /// The blob format version this decoder reads and this encoder writes. Version 2 (M2.10) adds the role-tagged citations
-/// to the filled metadata section; packs keep their own version.
-pub(crate) const VERSION: u32 = 2;
+/// to the filled metadata section; version 3 (M8.6) adds a staged conductivity's reducing state and Methane's snapshot
+/// (critical point, saturated-vapour ancillary, reducing state) to the filled transport section. Packs keep their own
+/// version.
+pub(crate) const VERSION: u32 = 3;
 /// The pack format version.
 const PACK_VERSION: u32 = 1;
 const HEADER: usize = 32;
