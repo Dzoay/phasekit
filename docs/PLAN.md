@@ -1123,7 +1123,19 @@ bands (map 03 §8; map 10 §8.5 L4).
   `roots::bracketed`'s end checks and `EosRecord::decode`'s sections, or an exemption with its reason. Every residual is
   evaluated in the same order with the same operations. *Done when:* the robustness corpus, the capability matrix's
   truths and the 40 × 40 PT grid give states bit-identical to the parent commit's (the comparison recorded in the PR);
-  G1-G8 green; mutants clean on the diff; the step's exemptions gone.
+  G1-G8 green; mutants clean on the diff; the step's exemptions gone. Measured at M7.9e: the 11 exemptions gone, 17
+  left (M7.9f's 15, `toms748` and Algorithm 748's test problems) over 1 807 functions in 139 files: `sx` at cognitive
+  complexity 4 and nesting 1, `root_in_t` 5/1, `qx` 10/1, `pt_branch` 9/2, `region` 11/1, `px` 12/1,
+  `density::bracketed` 14/2, `roots::bracketed` 13/2, `SuperancillaryCurve::at_p` 10/2, `Registry::push_source` 0/0
+  (its slots' phase 10/3) and `EosRecord::decode` 5/2, its `too_many_lines` expectation gone; `tx` stays at 15/2, and
+  no new function is over 10/3. A scratch record of every flash's result in full (each f64's bits and the state's
+  `Debug`, or the error), not committed, is bit-identical to the parent commit's after each of the step's commits: the
+  robustness corpus (199 results with `Nearest`'s roots), every pair of each capability truth (2 605), the 40 × 40 PT
+  grid with each state's DT (44 798), and every pair of every fourth grid cell and of 16 × 3 QT states per core fluid,
+  some under each imposed phase (247 086: HS, SU, the searches in T and the Q-pairs, which PT alone never reaches). As
+  built: `flash.rs` keeps the options, the dispatch, DT and PT and what the pairs share; `flash/search.rs` holds the
+  scaffolds (`toms748_kept`, `Descent` with `bisect_to_refusal`, `choose`) and `root_in_t`, and `phase.rs`,
+  `isobar.rs`, `isentrope.rs`, `isochore.rs`, `isotherm.rs` and `quality.rs` the rest by path.
 - **M7.9f Verify library and xtask** (user decision CX3). *Failing test:* none. *Do:* verify's `Fixture::parse`,
   `FlashCheck::rows_where` and `SaturationCheck::rows`; xtask's `fluid.rs` `from_json` (218 lines, the workspace's
   longest function) as one parser per section, `gates/assertions.rs` `code_only` with one helper per token kind, and the
