@@ -244,6 +244,11 @@ impl PureFluid {
     pub(crate) fn transport(&self) -> Result<&TransportSet, Error> {
         LazyLock::force(&self.transport).as_ref().map_err(|e| Error::Load(e.clone()))
     }
+
+    /// What the transport forms read at `state`.
+    fn transport_inputs<'a>(&'a self, state: &'a State) -> crate::transport::TransportInputs<'a> {
+        crate::transport::TransportInputs::new(state, self.info.molar_mass(), &*self.eos)
+    }
 }
 
 impl ThermoModel for PureFluid {
@@ -268,10 +273,10 @@ impl ThermoModel for PureFluid {
         Some(&*self.eos)
     }
     fn viscosity(&self, state: &State) -> Result<f64, Error> {
-        self.transport()?.viscosity(&crate::transport::TransportInputs::new(state, self.info.molar_mass()))
+        self.transport()?.viscosity(&self.transport_inputs(state))
     }
-    fn conductivity(&self, _state: &State) -> Result<f64, Error> {
-        self.transport()?.conductivity()
+    fn conductivity(&self, state: &State) -> Result<f64, Error> {
+        self.transport()?.conductivity(&self.transport_inputs(state))
     }
     /// σ(T) over its fit's range, up to the model's own critical temperature ([`SurfaceTension`]'s rule).
     fn surface_tension(&self, t: f64) -> Result<f64, Error> {

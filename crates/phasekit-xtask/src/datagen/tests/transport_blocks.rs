@@ -16,7 +16,7 @@ fn block(file: &str) -> Value {
 fn mapped(file: &str, edit: impl FnOnce(&mut Value)) -> Result<TransportRecord, String> {
     let mut b = block(file);
     edit(&mut b);
-    transport::record(file, Some(&b))
+    transport::record(file, Some(&b), &from_fluid(file))
 }
 
 /// The value at the JSON pointer `at`.
@@ -167,7 +167,8 @@ fn every_transport_key_is_consumed_or_waived() {
     let mut q_d = 0;
     for source in sources() {
         let Some(base) = source.fluid.transport.clone() else { continue };
-        let record = transport::record(&source.file, Some(&base)).unwrap();
+        let from = transport::FromFluid::of(&source.fluid).unwrap();
+        let record = transport::record(&source.file, Some(&base), &from).unwrap();
         let mut paths = Vec::new();
         leaves(&base, String::new(), &mut paths);
         for path in paths {
@@ -177,7 +178,7 @@ fn every_transport_key_is_consumed_or_waived() {
             }
             let mut changed = base.clone();
             perturb(at(&mut changed, &path));
-            match transport::record(&source.file, Some(&changed)) {
+            match transport::record(&source.file, Some(&changed), &from) {
                 Ok(r) if r == record => unread.push(format!("{} {path}", source.file)),
                 Ok(_) => consumed += 1,
                 Err(_) => checked.push(path.rsplit('/').next().unwrap_or_default().to_string()),
@@ -227,7 +228,8 @@ fn transport_source_is_the_active_entry() {
     for source in listed {
         let block = source.fluid.transport.as_ref().unwrap();
         let entries = block["viscosity"].as_array().unwrap();
-        let viscosity = transport::record(&source.file, Some(block)).unwrap().viscosity.unwrap();
+        let from = transport::FromFluid::of(&source.fluid).unwrap();
+        let viscosity = transport::record(&source.file, Some(block), &from).unwrap().viscosity.unwrap();
         assert_eq!(&*viscosity.source.bibkey, entries[0]["BibTeX"].as_str().unwrap());
         assert!(matches!(viscosity.model, ViscosityModel::RhoSrCs(_)), "{}", source.file);
         let alternate = entries[1]["BibTeX"].as_str().unwrap();
@@ -236,7 +238,7 @@ fn transport_source_is_the_active_entry() {
     }
     // A single entry is the active one; the conductivity block has its own source.
     let nitrogen = block("Nitrogen.json");
-    let record = transport::record("Nitrogen.json", Some(&nitrogen)).unwrap();
+    let record = transport::record("Nitrogen.json", Some(&nitrogen), &from_fluid("Nitrogen.json")).unwrap();
     assert_eq!(&*record.viscosity.unwrap().source.bibkey, nitrogen["viscosity"]["BibTeX"].as_str().unwrap());
     assert_eq!(&*record.conductivity.unwrap().source.bibkey, nitrogen["conductivity"]["BibTeX"].as_str().unwrap());
     // Reversed, R22's list makes its ECS entry the active one, with its own source.
@@ -270,4 +272,36 @@ fn surface_tension_blocks_are_read_strictly() {
     assert_eq!(transport::surface_tension("x.json", None), Ok(None));
     let fits = sources().iter().filter(|s| s.fluid.ancillaries.get("surface_tension").is_some()).count();
     assert_eq!(fits, 108);
+}
+
+/// Map 05 R10, ROT-117: what a conductivity form reads of the rest of its file is snapshotted into the record: a staged
+/// model's EOS reducing state, and Methane's superancillary critical point (`Tcrittrue`, `rhocrittrue`) and `rhoV`
+/// ancillary. A Methane file without them is refused.
+#[test]
+fn conductivity_snapshots_come_from_the_fluid_file() {
+    let Some(ConductivityModel::Staged(staged)) =
+        mapped("Nitrogen.json", |_| {}).unwrap().conductivity.map(|c| c.model)
+    else {
+        panic!("Nitrogen's conductivity is staged")
+    };
+    let r = staged.reducing;
+    assert_eq!((r.t, r.rho, r.p), (126.192, 11183.901464580624, 3395800.0));
+    let (file, block) = ("Methane.json", block("Methane.json"));
+    let record = |from: &transport::FromFluid| transport::record(file, Some(&block), from);
+    let from = from_fluid(file);
+    let Some(ConductivityModel::Methane(m)) = record(&from).unwrap().conductivity.map(|c| c.model) else {
+        panic!("Methane's conductivity is Friend's")
+    };
+    assert_eq!((m.t_c, m.rho_c, m.reducing), (190.56400265128698, 10139.137654850272, from.reducing));
+    let a = &m.rho_v;
+    assert_eq!((a.t_r, a.reducing, a.n.len(), a.exponential, a.tau_r), (190.564, 10139.127999999999, 6, true, true));
+    let mut bare = from_fluid(file);
+    bare.superancillary_meta = None;
+    assert!(record(&bare).unwrap_err().ends_with("Methane's model reads the superancillary's critical point"));
+    let mut no_key = from_fluid(file);
+    no_key.superancillary_meta.as_mut().unwrap().as_object_mut().unwrap().remove("rhocrittrue / mol/m^3");
+    assert!(record(&no_key).unwrap_err().ends_with("no meta \"rhocrittrue / mol/m^3\""));
+    let mut no_ancillary = from_fluid(file);
+    no_ancillary.rho_v = None;
+    assert!(record(&no_ancillary).unwrap_err().ends_with("Methane's model reads ANCILLARIES.rhoV"));
 }

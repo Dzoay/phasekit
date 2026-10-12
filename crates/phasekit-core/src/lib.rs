@@ -92,19 +92,34 @@ pub mod internal {
     pub use crate::saturation::{chebyshev_derivative, clenshaw, piece};
     pub use crate::transport::{
         BatschinskiHildebrand, Chung, Conductivity, ConductivityCritical, ConductivityDilute, ConductivityModel,
-        ConductivityResidual, EcsConductivity, EcsViscosity, FrictionCubic, FrictionSecond, FrictionTheory,
-        HardcodedConductivity, HardcodedCriticalConductivity, HardcodedDiluteConductivity, HardcodedDiluteViscosity,
-        HardcodedHigherViscosity, HardcodedViscosity, Kappa, LennardJones, OlchowySengers, Part, Put, RhoSrCs, Series,
-        StagedConductivity, StagedViscosity, SurfaceTension, Take, TransportRecord, Viscosity, ViscosityDilute,
-        ViscosityHigher, ViscosityInitial, ViscosityModel, ViscosityStages,
+        ConductivityResidual, ConductivityStages, EcsConductivity, EcsViscosity, FrictionCubic, FrictionSecond,
+        FrictionTheory, FriendMethane, HardcodedConductivity, HardcodedCriticalConductivity,
+        HardcodedDiluteConductivity, HardcodedDiluteViscosity, HardcodedHigherViscosity, HardcodedViscosity, Kappa,
+        LennardJones, OlchowySengers, Part, Put, Reducing, RhoSrCs, Series, StagedConductivity, StagedViscosity,
+        SurfaceTension, Take, TransportRecord, Viscosity, ViscosityDilute, ViscosityHigher, ViscosityInitial,
+        ViscosityModel, ViscosityStages,
     };
 
     /// The stages of `record`'s staged viscosity at `state` (PLAN.md M8.5): crate-private seams, not API (ROT-115),
     /// for the stage-by-stage checks against CoolProp's `viscosity_contributions`. `state` must be the record's.
     pub fn viscosity_stages(record: &FluidRecord, state: &crate::State) -> Result<ViscosityStages, crate::Error> {
-        let viscosity = record.transport.as_ref().and_then(|t| t.viscosity.as_ref());
-        let viscosity = viscosity.ok_or(crate::Error::NoModel { prop: crate::Prop::Viscosity })?;
-        viscosity.stages(&crate::transport::TransportInputs::new(state, record.molar_mass))
+        transport_stages(record, state)?.0
+    }
+
+    /// The stages of `record`'s conductivity at `state`, staged or Methane's (PLAN.md M8.6), with the record's own
+    /// viscosity passed in: the seam of the checks against CoolProp's `conductivity_contributions`.
+    pub fn conductivity_stages(record: &FluidRecord, state: &crate::State) -> Result<ConductivityStages, crate::Error> {
+        transport_stages(record, state)?.1
+    }
+
+    /// Both seams' stages, from the record's EOS and transport models.
+    fn transport_stages(record: &FluidRecord, state: &crate::State) -> Result<crate::transport::Stages, crate::Error> {
+        let set = crate::transport::TransportSet {
+            record: record.transport.clone().unwrap_or_default(),
+            ..Default::default()
+        };
+        let eos = record.eos.compile()?;
+        Ok(set.evaluate(&crate::transport::TransportInputs::new(state, record.molar_mass, &eos)))
     }
 
     /// Saturation of a Helmholtz model at `t` by the pure-fluid VLE from seed densities `(ρ′, ρ″)` (PLAN.md M6.3).

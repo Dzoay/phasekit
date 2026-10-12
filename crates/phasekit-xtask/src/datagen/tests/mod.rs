@@ -23,6 +23,11 @@ fn text(file: &str) -> String {
     Repo::locate().read(&format!("{FLUIDS_DIR}/{file}")).unwrap()
 }
 
+/// What a pinned file's conductivity forms read of the rest of it (M8.6).
+fn from_fluid(file: &str) -> transport::FromFluid {
+    transport::FromFluid::of(&serde_json::from_str(&text(file)).unwrap()).unwrap()
+}
+
 /// An edit of a parsed fluid file.
 type Edit = fn(&mut serde_json::Value);
 

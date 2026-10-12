@@ -37,6 +37,9 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0020", div_0020),
     ("DIV-0021", div_0021),
     ("DIV-0022", div_0022),
+    ("DIV-0023", div_0023),
+    ("DIV-0024", div_0024),
+    ("DIV-0025", div_0025),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -394,30 +397,37 @@ fn transport_text(file: &str) -> &'static str {
     transport_rows::ROWS.iter().find(|((path, _), _)| *path == file).map(|((_, text), _)| *text).unwrap()
 }
 
-/// η of `fluid` at a CoolProp test row's T and density (`x_kind` `Dmolar` or `Dmass`), the density `rho`.
-fn row_viscosity(fluid: &str, table: &Fixture<'_>, row: usize, rho: f64) -> f64 {
+/// `prop` of `fluid` at a CoolProp test row's T and `x`, the row's density (`x_kind` `Dmolar`, `Dmass` or `D`) or
+/// quality (`Q`).
+fn row_value(fluid: &str, table: &Fixture<'_>, row: usize, x: f64, prop: Prop) -> f64 {
     let fluid = Registry::embedded().unwrap().get(fluid).unwrap();
-    let rho = match table.printed(row, "x_kind").unwrap() {
-        "Dmolar" => Density::molar(rho).unwrap(),
-        _ => Density::mass(rho).unwrap(),
+    let t = Temperature::new(table.value(row, "T").unwrap()).unwrap();
+    let input = match table.printed(row, "x_kind").unwrap() {
+        "Dmolar" => Input::dt(Density::molar(x).unwrap(), t),
+        "Q" => Input::qt(Quality::new(x).unwrap(), t),
+        _ => Input::dt(Density::mass(x).unwrap(), t),
     };
-    let state = fluid.state(Input::dt(rho, Temperature::new(table.value(row, "T").unwrap()).unwrap())).unwrap();
-    fluid.prop(&state, Prop::Viscosity).unwrap()
+    fluid.prop(&fluid.state(input).unwrap(), prop).unwrap()
 }
 
-/// The rows of a CoolProp test table whose η lies beyond half a unit of its printed digits; every row within the larger
-/// of that half unit and the bound DIV entry `id` registers for the table (as DIV-0005's Table 4).
-fn beyond_printed(id: &str, fluid: &str) -> Vec<usize> {
-    let file = format!("paper/{fluid}/CoolProp-Tests.eta.csv");
-    let (bound, text) = (registered_table_bound(id, &file), transport_text(&file));
-    let table = Fixture::parse(&file, text).unwrap();
+/// M8.3's CoolProp test table of `fluid` and `prop`, with its path.
+fn transport_table(fluid: &str, prop: Prop) -> (&'static str, Fixture<'static>) {
+    let file = format!("paper/{fluid}/CoolProp-Tests.{}.csv", if prop == Prop::Viscosity { "eta" } else { "lambda" });
+    let ((path, text), _) = transport_rows::ROWS.iter().find(|((path, _), _)| *path == file).unwrap();
+    (path, Fixture::parse(path, text).unwrap())
+}
+
+/// The rows of a CoolProp test table whose `prop` lies beyond half a unit of its printed digits; every row within the
+/// larger of that half unit and the bound DIV entry `id` registers for the table (as DIV-0005's Table 4).
+fn beyond_printed(id: &str, fluid: &str, prop: Prop) -> Vec<usize> {
+    let (file, table) = transport_table(fluid, prop);
+    let bound = registered_table_bound(id, file);
     let beyond: Vec<usize> = (0..table.rows().len())
         .filter(|&row| {
-            let (eta, want) =
-                (row_viscosity(fluid, &table, row, table.value(row, "x").unwrap()), table.value(row, "value"));
-            let (want, half) = (want.unwrap(), half_unit(&table, row, "value"));
-            assert!((eta - want).abs() <= half.max(bound * want.abs()), "{file} row {row}: {eta} against {want}");
-            (eta - want).abs() > half
+            let got = row_value(fluid, &table, row, table.value(row, "x").unwrap(), prop);
+            let (want, half) = (table.value(row, "value").unwrap(), half_unit(&table, row, "value"));
+            assert!((got - want).abs() <= half.max(bound * want.abs()), "{file} row {row}: {got} against {want}");
+            (got - want).abs() > half
         })
         .collect();
     assert!(!beyond.is_empty(), "{file} needs its registered bound no more");
@@ -439,11 +449,12 @@ fn div_0021() {
         let tr = t / 318.7232;
         let eq6 =
             1e-3 * d.iter().enumerate().fold(0.0, |s, (i, d)| s + d * phasekit_core::math::powf(tr, i as f64 / 4.0));
-        let eta = row_viscosity("SulfurHexafluoride", &table, row, table.value(row, "x").unwrap());
+        let x = table.value(row, "x").unwrap();
+        let eta = row_value("SulfurHexafluoride", &table, row, x, Prop::Viscosity);
         assert!((eta / eq6 - 1.0).abs() <= 1e-12, "{t} K: {eta} against Eq. (6) {eq6}");
     }
-    assert_eq!(beyond_printed("DIV-0021", "SulfurHexafluoride"), [0, 1, 2, 3, 4, 5]);
-    assert_eq!(beyond_printed("DIV-0021", "R125"), [0]);
+    assert_eq!(beyond_printed("DIV-0021", "SulfurHexafluoride", Prop::Viscosity), [0, 1, 2, 3, 4, 5]);
+    assert_eq!(beyond_printed("DIV-0021", "R125", Prop::Viscosity), [0]);
 }
 
 /// DIV-0022 (`Investigate`; map 10 §8.1): CoolProp's test rows print these densities to fewer digits than η needs.
@@ -455,13 +466,54 @@ fn div_0022() {
     for (fluid, rows) in [("Ammonia", &[1][..]), ("R123", &[0]), ("n-Octane", &[0]), ("n-Propane", &[0, 1, 2, 3])] {
         let file = format!("paper/{fluid}/CoolProp-Tests.eta.csv");
         let table = Fixture::parse(&file, transport_text(&file)).unwrap();
-        assert_eq!(beyond_printed("DIV-0022", fluid), rows, "{fluid}");
+        assert_eq!(beyond_printed("DIV-0022", fluid, Prop::Viscosity), rows, "{fluid}");
         for &row in rows {
             let (rho, half_rho) = (table.value(row, "x").unwrap(), half_unit(&table, row, "x"));
-            let (low, high) =
-                (row_viscosity(fluid, &table, row, rho - half_rho), row_viscosity(fluid, &table, row, rho + half_rho));
+            let (low, high) = (
+                row_value(fluid, &table, row, rho - half_rho, Prop::Viscosity),
+                row_value(fluid, &table, row, rho + half_rho, Prop::Viscosity),
+            );
             let (want, half) = (table.value(row, "value").unwrap(), half_unit(&table, row, "value"));
             assert!(low.min(high) - half <= want && want <= low.max(high) + half, "{file} row {row}: {low}..{high}");
         }
     }
+}
+
+/// DIV-0023 (`Investigate`; map 10 §8.1): six conductivity check rows off their printed digits, within CoolProp's 1e-4:
+/// Lemmon & Jacobsen 2004's points near the critical point (Air, Argon, Nitrogen, Oxygen), Assael et al. 2012's SF₆ at
+/// 0.97 T_c, and Huber 2005's n-Nonane at a density printed to five digits; each table within its registered bound.
+/// Resolution: transcribe the papers' own tables.
+fn div_0023() {
+    for (fluid, row) in
+        [("Air", 5), ("Argon", 5), ("Nitrogen", 5), ("Oxygen", 5), ("SulfurHexafluoride", 4), ("n-Nonane", 0)]
+    {
+        assert_eq!(beyond_printed("DIV-0023", fluid, Prop::Conductivity), [row], "{fluid}");
+    }
+}
+
+/// DIV-0024 (`Investigate`; map 05 R10, map 10 §8.1): Friend, Ely & Ingham 1989's methane check values, computed with
+/// their own equation of state, against CoolProp's hard-coded model on Setzmann & Wagner's: the dilute row at 400 K,
+/// the saturated liquid at 182 K and the liquid at 100 K are off their digits, the dilute row at 100 K is not.
+/// Resolution: transcribe the paper's table, with its equation of state.
+fn div_0024() {
+    assert_eq!(beyond_printed("DIV-0024", "Methane", Prop::Conductivity), [1, 2, 3]);
+}
+
+/// DIV-0025 (`Investigate`; map 05 R6, map 10 §8.1): at Vassiliou et al. 2015's check point (460 K, 377.687 kg/m³)
+/// n-Pentane's dilute and residual terms are the paper's to their digits (34.048 and 33.325 mW/(m K)), and the critical
+/// term, 7.313 against the printed 3.927, reads n-Pentane's friction-theory η where the correlation was fitted with an
+/// ECS one, 49.465 µPa s: the term scales as 1/η, and with that η it is 4.014. Resolution: the user decides which η the
+/// term reads; n-Pentane's own η waits for Quiñones-Cisneros & Deiters 2006.
+fn div_0025() {
+    assert_eq!(beyond_printed("DIV-0025", "n-Pentane", Prop::Conductivity), [1]);
+    let record = record("n-Pentane", DataSet::Corrected);
+    let fluid = Registry::embedded().unwrap().get("n-Pentane").unwrap();
+    let state = fluid.state(Input::dt(Density::mass(377.687).unwrap(), Temperature::new(460.0).unwrap())).unwrap();
+    let lambda = phasekit_core::internal::conductivity_stages(&record, &state).unwrap();
+    let eta = phasekit_core::internal::viscosity_stages(&record, &state).unwrap().total();
+    let mw = |w: f64| w * 1e3;
+    let printed = |got: f64, want: f64| (got - want).abs() <= 5e-4;
+    assert!(printed(mw(lambda.dilute), 34.048) && printed(mw(lambda.residual), 33.325), "{lambda:?}");
+    assert!(printed(mw(lambda.critical), 7.313) && printed(eta * 1e6, 27.152), "{lambda:?} {eta}");
+    assert!(printed(mw(lambda.critical) * eta / 49.465e-6, 4.014), "{}", mw(lambda.critical) * eta / 49.465e-6);
 }

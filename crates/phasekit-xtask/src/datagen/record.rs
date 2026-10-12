@@ -67,7 +67,9 @@ pub fn to_record(source: &super::Source) -> Result<FluidRecord, String> {
     fluid_record.environmental = info.environmental.as_ref().map(environmental).transpose().map_err(|e| at(&e))?;
     fluid_record.melting = melting(&fluid.ancillaries).map_err(|e| at(&format!("ANCILLARIES.melting_line: {e}")))?;
     fluid_record.pseudo_pure = pseudo_pure(fluid, eos).map_err(|e| at(&e))?;
-    fluid_record.transport = Some(super::transport::record(file, fluid.transport.as_ref()).map_err(|e| at(&e))?);
+    let from = super::transport::FromFluid::of(fluid).map_err(|e| at(&e))?;
+    let transport = super::transport::record(file, fluid.transport.as_ref(), &from).map_err(|e| at(&e))?;
+    fluid_record.transport = Some(transport);
     let fit = fluid.ancillaries.get("surface_tension");
     fluid_record.surface_tension = super::transport::surface_tension(file, fit).map_err(|e| at(&e))?;
     check_constants(&fluid_record).map_err(|e| at(&e))?;
@@ -354,7 +356,7 @@ fn pseudo_pure(fluid: &mirror::Fluid, eos: &mirror::Eos) -> Result<Option<Pseudo
 /// One saturation ancillary (`Ancillaries.cpp:43-81`): type `rhoLnoexp` is the non-exponential form, `pL`, `pV` and
 /// `rhoV` the exponential one (CoolProp takes any other name as exponential; this mapping refuses it), with its terms
 /// `n`, `t`, `T_r`, `reducing_value`, range `Tmin`-`Tmax` and `using_tau_r`.
-fn ancillary(value: &serde_json::Value) -> Result<Ancillary, String> {
+pub(super) fn ancillary(value: &serde_json::Value) -> Result<Ancillary, String> {
     let num = |key: &str| value.get(key).and_then(serde_json::Value::as_f64).ok_or(format!("no {key}"));
     let list = |key: &str| {
         let items = value.get(key).and_then(serde_json::Value::as_array).ok_or(format!("no {key}"))?;

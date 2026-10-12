@@ -10,12 +10,14 @@
 //! it has parallel lists (map 05 R11). [`Part`] describes each type once, field by field, for the blob codec and
 //! `cargo xtask fluid`'s dump alike.
 
+mod conductivity;
 mod viscosity;
 
+pub use conductivity::ConductivityStages;
 pub use viscosity::ViscosityStages;
 pub(crate) use viscosity::{TransportInputs, lands};
 
-use crate::data::{DataSet, Edit, Patch};
+use crate::data::{Ancillary, DataSet, Edit, Patch};
 use crate::error::{DomainError, Error, LoadError};
 use crate::fluid::Fluid;
 use crate::math;
@@ -126,8 +128,6 @@ hardcoded! {
         Water = "Water",
         /// IAPWS heavy water (2007 release).
         HeavyWater = "HeavyWater",
-        /// Friend, Ely and Ingham (1989).
-        Methane = "Methane",
         /// Shan, Penoncello and Jacobsen (2000).
         R23 = "R23",
         /// Hands and Arp (1981).
@@ -433,8 +433,10 @@ pub enum ConductivityModel {
     Staged(StagedConductivity),
     /// Extended corresponding states against a reference fluid (18 fluids; map 05 U8).
     Ecs(EcsConductivity),
-    /// A whole model hard-coded in CoolProp (5 fluids).
+    /// A whole model hard-coded in CoolProp (4 fluids).
     Hardcoded(HardcodedConductivity),
+    /// Methane's model, hard-coded in CoolProp, with what it reads of the rest of the fluid (map 05 R10).
+    Methane(FriendMethane),
 }
 
 /// The stages of a staged conductivity: λ = λ₀ + Δλ_r + Δλ_c (CoolProp needs all three).
@@ -446,6 +448,37 @@ pub struct StagedConductivity {
     pub residual: ConductivityResidual,
     /// The critical enhancement.
     pub critical: ConductivityCritical,
+    /// The EOS reducing state the forms read: the Olchowy-Sengers term's T_c, ρ_c and p_c, and the τ and δ of
+    /// `eta0_and_poly` and `polynomial_and_exponential` (Lemmon and Jacobsen 2004). The default EOS's
+    /// `STATES.reducing`, snapshotted at datagen (map 05 R10, ROT-117).
+    pub reducing: Reducing,
+}
+
+/// A reducing state.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Reducing {
+    /// T, K.
+    pub t: f64,
+    /// Molar density, mol/m³.
+    pub rho: f64,
+    /// Pressure, Pa.
+    pub p: f64,
+}
+
+/// Methane's conductivity: Friend, Ely and Ingham 1989 (dilute, residual and critical terms with the paper's own
+/// viscosity), hard-coded in CoolProp (`TransportRoutines.cpp:1063-1140`). What it reads of the rest of the fluid is
+/// snapshotted at datagen, so no configuration and no other saturation curve moves it (map 05 R10, ROT-117): CoolProp
+/// reads `T_critical()` and `rhomolar_critical()`, which its configuration sets, and a saturation ancillary.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FriendMethane {
+    /// The critical temperature CoolProp's default configuration reads (the superancillary's, `Tcrittrue`), K.
+    pub t_c: f64,
+    /// The critical density it reads (`rhocrittrue`), mol/m³.
+    pub rho_c: f64,
+    /// The saturated-vapour density ancillary (`ANCILLARIES.rhoV`), read below the critical point.
+    pub rho_v: Ancillary,
+    /// The EOS reducing state, whose τ and δ CoolProp's derivatives are taken in.
+    pub reducing: Reducing,
 }
 
 /// The dilute-gas conductivity terms.
@@ -990,7 +1023,7 @@ impl Part for Conductivity {
     }
 }
 
-const CONDUCTIVITY_KINDS: &[&str] = &["staged", "ECS", "hardcoded"];
+const CONDUCTIVITY_KINDS: &[&str] = &["staged", "ECS", "hardcoded", "Friend_methane"];
 
 impl Part for ConductivityModel {
     fn put(&self, p: &mut dyn Put) {
@@ -998,14 +1031,68 @@ impl Part for ConductivityModel {
             ConductivityModel::Staged(x) => variant(p, CONDUCTIVITY_KINDS, 0, x),
             ConductivityModel::Ecs(x) => variant(p, CONDUCTIVITY_KINDS, 1, x),
             ConductivityModel::Hardcoded(x) => variant(p, CONDUCTIVITY_KINDS, 2, x),
+            ConductivityModel::Methane(x) => variant(p, CONDUCTIVITY_KINDS, 3, x),
         }
     }
     fn take(t: &mut dyn Take) -> Result<Self, String> {
         Ok(match t.choice("kind", CONDUCTIVITY_KINDS)? {
             0 => ConductivityModel::Staged(StagedConductivity::take(t)?),
             1 => ConductivityModel::Ecs(EcsConductivity::take(t)?),
-            _ => ConductivityModel::Hardcoded(HardcodedConductivity::take(t)?),
+            2 => ConductivityModel::Hardcoded(HardcodedConductivity::take(t)?),
+            _ => ConductivityModel::Methane(FriendMethane::take(t)?),
         })
+    }
+}
+
+impl Part for Reducing {
+    fn put(&self, p: &mut dyn Put) {
+        p.num("T", self.t);
+        p.num("rhomolar", self.rho);
+        p.num("p", self.p);
+    }
+    fn take(t: &mut dyn Take) -> Result<Self, String> {
+        Ok(Reducing { t: t.num("T")?, rho: t.num("rhomolar")?, p: t.num("p")? })
+    }
+}
+
+impl Part for FriendMethane {
+    fn put(&self, p: &mut dyn Put) {
+        p.num("T_critical", self.t_c);
+        p.num("rhomolar_critical", self.rho_c);
+        part(p, "rhoV", &self.rho_v);
+        part(p, "reducing", &self.reducing);
+    }
+    fn take(t: &mut dyn Take) -> Result<Self, String> {
+        Ok(FriendMethane {
+            t_c: t.num("T_critical")?,
+            rho_c: t.num("rhomolar_critical")?,
+            rho_v: take_part(t, "rhoV")?,
+            reducing: take_part(t, "reducing")?,
+        })
+    }
+}
+
+impl Part for Ancillary {
+    fn put(&self, p: &mut dyn Put) {
+        p.small("exponential", u8::from(self.exponential));
+        p.small("using_tau_r", u8::from(self.tau_r));
+        p.num("T_r", self.t_r);
+        p.num("reducing_value", self.reducing);
+        put_lists(p, &[("n", &self.n), ("t", &self.t)]);
+        p.num("Tmin", self.t_min);
+        p.num("Tmax", self.t_max);
+    }
+    fn take(t: &mut dyn Take) -> Result<Self, String> {
+        let flag = |t: &mut dyn Take, name| match t.small(name)? {
+            0 => Ok(false),
+            1 => Ok(true),
+            x => Err(format!("{name}: {x} is not a flag")),
+        };
+        let (exponential, tau_r) = (flag(t, "exponential")?, flag(t, "using_tau_r")?);
+        let (t_r, reducing) = (t.num("T_r")?, t.num("reducing_value")?);
+        let [n, ts] = parallel(t, ["n", "t"])?;
+        let (t_min, t_max) = (t.num("Tmin")?, t.num("Tmax")?);
+        Ok(Ancillary { exponential, tau_r, t_r, reducing, n: n.into(), t: ts.into(), t_min, t_max })
     }
 }
 
@@ -1014,12 +1101,14 @@ impl Part for StagedConductivity {
         part(p, "dilute", &self.dilute);
         part(p, "residual", &self.residual);
         part(p, "critical", &self.critical);
+        part(p, "reducing", &self.reducing);
     }
     fn take(t: &mut dyn Take) -> Result<Self, String> {
         Ok(StagedConductivity {
             dilute: take_part(t, "dilute")?,
             residual: take_part(t, "residual")?,
             critical: take_part(t, "critical")?,
+            reducing: take_part(t, "reducing")?,
         })
     }
 }
@@ -1155,6 +1244,26 @@ impl Viscosity {
     }
 }
 
+impl Conductivity {
+    /// The stages at `x` of a staged model or Methane's; `eta` is the fluid's own viscosity there, read only by the
+    /// forms that need it (map 05 R6). Another form says the step that evaluates it.
+    pub(crate) fn stages(
+        &self,
+        x: &TransportInputs<'_>,
+        eta: &Result<ViscosityStages, Error>,
+    ) -> Result<ConductivityStages, Error> {
+        match &self.model {
+            ConductivityModel::Staged(staged) => conductivity::stages(staged, x, eta),
+            ConductivityModel::Methane(methane) => conductivity::friend_methane(methane, x),
+            ConductivityModel::Ecs(_) => Err(lands("evaluating an ECS conductivity", "M8.8")),
+            ConductivityModel::Hardcoded(HardcodedConductivity::Water | HardcodedConductivity::HeavyWater) => {
+                Err(lands("evaluating the IAPWS conductivity", "M8.7"))
+            }
+            ConductivityModel::Hardcoded(h) => Err(lands(&format!("evaluating the {} conductivity", h.name()), "M8.9")),
+        }
+    }
+}
+
 impl TransportRecord {
     /// Applies one edit of the corrections overlay (E15); an edit of another part of the record is not this one's.
     pub fn apply(&mut self, edit: Edit) -> Result<(), LoadError> {
@@ -1240,6 +1349,9 @@ impl Part for SurfaceTension {
     }
 }
 
+/// η's and λ's stages at one state, each or why there is none.
+pub(crate) type Stages = (Result<ViscosityStages, Error>, Result<ConductivityStages, Error>);
+
 /// The transport closure of one fluid, materialised on its first transport call: its decoded models, the corrections
 /// overlay applied, and strong handles to the reference fluids the registry resolved when it built the layer (E5), so
 /// they work even after the registry is gone (S-05).
@@ -1258,12 +1370,18 @@ impl TransportSet {
         viscosity.evaluate(x)
     }
 
-    /// λ, or `NoModel`.
-    pub(crate) fn conductivity(&self) -> Result<f64, Error> {
-        match self.record.conductivity {
-            None => Err(Error::NoModel { prop: Prop::Conductivity }),
-            Some(_) => Err(LoadError::Format("evaluating a conductivity model lands at M8.6".into()).into()),
-        }
+    /// λ at `x`, or `NoModel`.
+    pub(crate) fn conductivity(&self, x: &TransportInputs<'_>) -> Result<f64, Error> {
+        self.evaluate(x).1.map(|s| s.total())
+    }
+
+    /// η's and λ's stages at `x`, η evaluated once and passed to λ explicitly (map 05 R6, U6).
+    pub(crate) fn evaluate(&self, x: &TransportInputs<'_>) -> Stages {
+        let viscosity = self.record.viscosity.as_ref().ok_or(Error::NoModel { prop: Prop::Viscosity });
+        let eta = viscosity.and_then(|v| v.stages(x));
+        let conductivity = self.record.conductivity.as_ref().ok_or(Error::NoModel { prop: Prop::Conductivity });
+        let lambda = conductivity.and_then(|c| c.stages(x, &eta));
+        (eta, lambda)
     }
 }
 
@@ -1406,7 +1524,8 @@ pub(crate) mod tests {
         let mut models = Vec::new();
         for (i, critical) in criticals.into_iter().enumerate() {
             let (dilute, residual) = (dilutes[i % dilutes.len()].clone(), residuals[i % residuals.len()].clone());
-            models.push(ConductivityModel::Staged(StagedConductivity { dilute, residual, critical }));
+            let reducing = Reducing { t: 305.322, rho: 6870.0, p: 4.8722e6 };
+            models.push(ConductivityModel::Staged(StagedConductivity { dilute, residual, critical, reducing }));
         }
         let f_int = series(2);
         let ecs = EcsConductivity {
@@ -1419,7 +1538,31 @@ pub(crate) mod tests {
         };
         models.push(ConductivityModel::Ecs(ecs));
         models.extend(HardcodedConductivity::ALL.iter().map(|&h| ConductivityModel::Hardcoded(h)));
+        models.push(ConductivityModel::Methane(friend_methane()));
         models
+    }
+
+    /// Methane's form with its snapshots: v8.0.0's critical point (superancillaries on), `rhoV` and reducing state.
+    pub(crate) fn friend_methane() -> FriendMethane {
+        let rho_v = Ancillary {
+            exponential: true,
+            tau_r: true,
+            t_r: 190.564,
+            reducing: 10139.128,
+            n: vec![
+                -3.258091004501641,
+                24.278993697870174,
+                -25.256402428812585,
+                -0.17494067187770526,
+                0.3375209723239743,
+                -2.3099699792209805,
+            ],
+            t: vec![0.392, 0.606, 0.631, 1.024, 2.03, 4.077],
+            t_min: 90.6941,
+            t_max: 190.564,
+        };
+        let reducing = Reducing { t: 190.564, rho: 10139.128, p: 4.5992e6 };
+        FriendMethane { t_c: 190.56400265128698, rho_c: 10139.137654850272, rho_v, reducing }
     }
 
     /// Records covering every form, with and without Lennard-Jones parameters and DOIs, and a record with one model
@@ -1523,7 +1666,7 @@ pub(crate) mod tests {
                 "transport section: viscosity: model: c_liq lists 200 numbers past the section's end",
             ),
             (&|b| b.push(0), "transport section has bytes left over (1)"),
-            (&|b| _ = b.pop(), "transport section: conductivity: model: critical: transport section is truncated"),
+            (&|b| _ = b.pop(), "transport section: conductivity: model: reducing: transport section is truncated"),
         ];
         for (edit, want) in cases {
             assert_eq!(format_error(&blob_with(edit)), want);
@@ -1618,9 +1761,10 @@ pub(crate) mod tests {
         let lands = |what: &str| Err(Error::Load(LoadError::Format(what.into())));
         let [viscosity, conductivity] = answers(every_form().swap_remove(1));
         assert!(viscosity.as_ref().is_ok_and(|eta| eta.is_finite()), "{viscosity:?}");
-        assert_eq!(conductivity, lands("evaluating a conductivity model lands at M8.6"));
+        assert!(conductivity.as_ref().is_ok_and(|lambda| lambda.is_finite()), "{conductivity:?}");
+        // The critical term reads the fluid's η: where η lands later, so does λ, enhanced at this state or not.
         let missing_lj = lands("the Chung estimate of missing Lennard-Jones parameters lands at M8.9");
-        assert_eq!(answers(every_form().swap_remove(0))[0], missing_lj);
+        assert_eq!(answers(every_form().swap_remove(0)), [missing_lj.clone(), missing_lj]);
         let none = [Err(Error::NoModel { prop: Prop::Viscosity }), Err(Error::NoModel { prop: Prop::Conductivity })];
         assert_eq!(answers(TransportRecord::default()), none);
     }
@@ -1635,7 +1779,8 @@ pub(crate) mod tests {
         let (t, rho) = (300.0, 100.0);
         let input = Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap());
         let state = fluid.flash(input, &FlashOptions::new().with_phase(Phase::Gas)).unwrap();
-        let x = TransportInputs::new(&state, 0.1);
+        let eos = FluidRecord::synthetic("Toy").unwrap().eos.compile().unwrap();
+        let x = TransportInputs::new(&state, 0.1, &eos);
         let one = |v: f64| -> Box<[f64]> { Box::new([v]) };
         let bh = BatschinskiHildebrand {
             t_r: 350.0,
@@ -1673,6 +1818,72 @@ pub(crate) mod tests {
         assert!(close(stages.initial_density, empirical), "{} against {empirical}", stages.initial_density);
         assert!(close(stages.residual, free_volume), "{} against {free_volume}", stages.residual);
         assert_eq!(stages.dilute, 1e-5);
+    }
+
+    /// Map 05 R6: the Olchowy-Sengers term reads the η it is given, never a viscosity it finds: Nitrogen near its
+    /// critical point with η doubled has half the enhancement, and the other stages do not move.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn the_critical_term_reads_the_viscosity_it_is_given() {
+        use crate::{Density, Input, Temperature};
+        let registry = crate::Registry::embedded().unwrap();
+        let record = registry.record("Nitrogen").unwrap();
+        let fluid = registry.get("Nitrogen").unwrap();
+        let state =
+            fluid.state(Input::dt(Density::molar(11_000.0).unwrap(), Temperature::new(130.0).unwrap())).unwrap();
+        let eos = record.eos.compile().unwrap();
+        let x = TransportInputs::new(&state, record.molar_mass, &eos);
+        let transport = record.transport.unwrap();
+        let (viscosity, conductivity) = (transport.viscosity.unwrap(), transport.conductivity.unwrap());
+        let eta = viscosity.stages(&x).unwrap();
+        let doubled = ViscosityStages {
+            dilute: 2.0 * eta.dilute,
+            initial_density: 2.0 * eta.initial_density,
+            residual: 2.0 * eta.residual,
+        };
+        let (once, twice) =
+            (conductivity.stages(&x, &Ok(eta)).unwrap(), conductivity.stages(&x, &Ok(doubled)).unwrap());
+        assert!(once.critical > 1e-3 * once.total(), "{once:?}");
+        assert!((twice.critical / once.critical - 0.5).abs() < 1e-15, "{once:?} {twice:?}");
+        // eta0_and_poly reads η₀ too: Nitrogen's dilute term moves with it, its residual term does not.
+        assert!(twice.dilute != once.dilute && twice.residual == once.residual);
+    }
+
+    /// Rot: ROT-117 (map 05 R10). Methane's conductivity (Friend, Ely and Ingham 1989) reads a critical point and a
+    /// saturated-vapour density. CoolProp reads them through a configuration flag and an ancillary (1.06e-7 apart at
+    /// 185 K and 80 kg/m³ across the flag); here they are the record's, snapshotted at datagen, so the same fluid built
+    /// without its superancillary, whose critical point and saturation then come from its VLE, answers bit for bit the
+    /// same: in the vapour below T_c, where the ancillary is read, in the liquid and above T_c.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn methane_lambda_is_independent_of_the_saturation_source() {
+        use crate::{Density, FlashOptions, Input, Phase, Temperature};
+        let record = crate::Registry::embedded().unwrap().record("Methane").unwrap();
+        let model = record.transport.as_ref().and_then(|t| t.conductivity.as_ref()).map(|c| &c.model);
+        let Some(ConductivityModel::Methane(m)) = model else {
+            panic!("Methane's conductivity is Friend's: {model:?}")
+        };
+        assert_eq!((m.t_c, m.rho_c), (190.56400265128698, 10139.137654850272));
+        assert!(185.0 < m.t_c && 80.0 / record.molar_mass < m.rho_c, "185 K and 80 kg/m³ read the ancillary");
+        let mut bare = record.clone();
+        (bare.superancillary, bare.superancillary_fit) = (None, None);
+        let fluids = [record, bare].map(|r| Fluid::new(std::sync::Arc::new(r.compile().unwrap())));
+        let lambda = |fluid: &Fluid, t: f64, rho: f64, phase: Phase| {
+            let input = Input::dt(Density::mass(rho).unwrap(), Temperature::new(t).unwrap());
+            let state = fluid.flash(input, &FlashOptions::new().with_phase(phase)).unwrap();
+            fluid.prop(&state, Prop::Conductivity).unwrap()
+        };
+        let states = [
+            (185.0, 80.0, Phase::Gas),
+            (150.0, 10.0, Phase::Gas),
+            (120.0, 380.0, Phase::Liquid),
+            (300.0, 50.0, Phase::Supercritical),
+        ];
+        for (t, rho, phase) in states {
+            let [with, without] = [&fluids[0], &fluids[1]].map(|f| lambda(f, t, rho, phase));
+            assert_eq!(with.to_bits(), without.to_bits(), "{t} K, {rho} kg/m³");
+            assert!(with.is_finite() && with > 0.0, "{t} K, {rho} kg/m³: {with}");
+        }
     }
 
     /// A record compiled without the registry carries its surface-tension fit, with transport models or without.

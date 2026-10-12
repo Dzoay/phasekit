@@ -119,6 +119,20 @@ FACTS = {
         ("div0022_eta_r123_t265", "PropsSI", ("V", "T", 265, "Dmass", 1545.8, "R123")),
         ("div0022_eta_noctane_t300", "PropsSI", ("V", "T", 300, "Dmolar", 6177.2, "n-Octane")),
         ("div0022_eta_npropane_t150", "PropsSI", ("V", "T", 150, "Dmolar", 15140, "n-Propane")),
+        # CoolProp's lambda at the conductivity check rows off their printed digits (DIV-0023: near the critical point
+        # and a coarse density; DIV-0024: Friend's methane; DIV-0025: n-Pentane's critical term, with the viscosity
+        # it reads).
+        ("div0023_lambda_air_t132.64", "PropsSI", ("L", "T", 132.64, "Dmolar", 10400, "Air")),
+        ("div0023_lambda_argon_t150.69", "PropsSI", ("L", "T", 150.69, "Dmolar", 13400, "Argon")),
+        ("div0023_lambda_nitrogen_t126.195", "PropsSI", ("L", "T", 126.195, "Dmolar", 11180, "Nitrogen")),
+        ("div0023_lambda_oxygen_t154.6", "PropsSI", ("L", "T", 154.6, "Dmolar", 13600, "Oxygen")),
+        ("div0023_lambda_sf6_t310", "PropsSI", ("L", "T", 310, "Dmass", 1200, "SulfurHexafluoride")),
+        ("div0023_lambda_nonane_t300", "PropsSI", ("L", "T", 300, "Dmolar", 5619.4, "n-Nonane")),
+        ("div0024_lambda_methane_t400", "PropsSI", ("L", "T", 400, "Dmass", 1e-12, "Methane")),
+        ("div0024_lambda_methane_t182_q0", "PropsSI", ("L", "T", 182, "Q", 0, "Methane")),
+        ("div0024_lambda_methane_t100", "PropsSI", ("L", "T", 100, "Dmolar", 28800, "Methane")),
+        ("div0025_lambda_npentane_t460", "PropsSI", ("L", "T", 460, "Dmass", 377.687, "n-Pentane")),
+        ("div0025_eta_npentane_t460", "PropsSI", ("V", "T", 460, "Dmass", 377.687, "n-Pentane")),
     ],
 }
 
@@ -1099,17 +1113,58 @@ def transport_rows(job):
             phase = flash_phase(CP, state)
         except Exception:  # noqa: BLE001 - no state at this (T, p): no row
             continue
-        eta_status, eta = transport_values(state, "viscosity")
-        lambda_status, conductivity = transport_values(state, "conductivity")
-        floats += [t, rho, *eta, *conductivity]
-        cells = [cell(t), cell(rho), phase, eta_status, *map(cell, eta), lambda_status, *map(cell, conductivity), *models]
-        lines.append(",".join(cells) + "\n")
+        transport_line(state, t, rho, phase, models, floats, lines)
     return floats, lines
+
+
+def transport_line(state, t, rho, phase, models, floats, lines):
+    """One row's floats and line at a DT `state` (T, rho): totals, contributions, statuses and model kinds."""
+    eta_status, eta = transport_values(state, "viscosity")
+    lambda_status, conductivity = transport_values(state, "conductivity")
+    floats += [t, rho, *eta, *conductivity]
+    cells = [cell(t), cell(rho), phase, eta_status, *map(cell, eta), lambda_status, *map(cell, conductivity), *models]
+    lines.append(",".join(cells) + "\n")
+
+
+# Fixed DT states for the branches no random state reaches (`--set probes`, M8.6), (T, rho in mol/m3) per fluid.
+# Friend's methane conductivity reads the saturated vapour's density in the vapour below the critical point, and
+# picks its chi_T* by Eq. 26 (rho* = 1 - rho/10139 = 0), Eq. 23 (|rho*| < 0.03) or Eq. 19a within |T*| < 0.03 of
+# 190.55 K; a liquid and a supercritical state close the set. Every state is single phase.
+TRANSPORT_PROBES = {
+    "Methane": [
+        (120.0, 20.0), (150.0, 400.0), (170.0, 1500.0), (185.0, 4986.0),
+        (191.0, 10139.0), (193.0, 10139.0),
+        (191.0, 10000.0), (192.0, 10350.0), (195.0, 9900.0),
+        (191.0, 9000.0), (194.0, 11500.0),
+        (100.0, 28000.0), (300.0, 5000.0),
+    ],
+}
+
+
+def transport_probes(CP, lock, config, files):
+    """`transport/probes.csv`: the kind's columns at TRANSPORT_PROBES's states, each a fresh DT state."""
+    floats, lines, shas = [], [], []
+    for name, states in TRANSPORT_PROBES.items():
+        shas.append((name, assert_fluid(CP, files, name)))
+        block = json.loads(files[name].read_text(encoding="utf-8")).get("TRANSPORT") or {}
+        models = [transport_model(block.get("viscosity")), transport_model(block.get("conductivity"))]
+        for t, rho in states:
+            state = CP.AbstractState("HEOS", name)
+            state.update(CP.DmolarT_INPUTS, rho, t)
+            row = []
+            transport_line(state, t, rho, flash_phase(CP, state), models, floats, row)
+            lines += [f"{name},{line}" for line in row]
+    columns, tol, units = ["fluid", *TRANSPORT_COLUMNS], ["label", *TRANSPORT_TOL], ["-", *TRANSPORT_UNITS]
+    grid = "TRANSPORT_PROBES: fixed DT states for the branches no random state reaches"
+    text = header("transport", lock, config, shas, columns, tol, floats, units=units, grid=grid)
+    return {"transport/probes.csv": text + "".join(lines)}
 
 
 def transport(CP, lock, config, files, args):
     """The `transport` kind: transport/<Fluid>.csv for the core subset (200 states each), all/transport.csv (8 per
-    fluid) and the full set's files (5000)."""
+    fluid) and the full set's files (5000); with `--set probes`, transport/probes.csv."""
+    if args.set == "probes":
+        return transport_probes(CP, lock, config, files)
     rows = args.rows or TRANSPORT_ROWS[args.tier]
     names = tier_fluids(args, files)
     jobs, shas = [], {}

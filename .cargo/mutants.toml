@@ -121,4 +121,18 @@ exclude_re = [
     # Equivalent: a pseudo-pure PQ is refused only when the pressure ancillary has no root in its range, which it has at
     # its own value at Tmax, so p equal to that bound never reaches the comparison; above and below are tested.
     "saturation\\.rs:[0-9]+:[0-9]+: replace > with >= in <impl SaturationCurve for PseudoPureCurve>::at_p",
+    # Equivalent in practice (M8.6): the transport forms' branch comparisons are CoolProp's strict ones, and differ from
+    # `<=` or `>` only at equality, where both branches give the same λ to rounding or no state lands exactly: the
+    # Olchowy-Sengers cut-off (a numerator of exactly 10ε), and Friend's methane at T = T_c or ρ = ρ_c (the ancillary
+    # branch), |T*| = 0.03 and |ρ*| = 0.03 or 1e-16 (its χ equations). Each branch either side is reached by the
+    # oracle's probes (`transport/probes.csv`).
+    "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace < with <= in olchowy_sengers",
+    "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace < with <= in friend_methane",
+    "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace < with <= in friend_chi",
+    "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace >= with > in friend_chi",
+    # Equivalent (CI, M8.6): Friend's θ test (line 201) T* < −|ρ*|^(−1/β)/s holds at every state that reaches it, since |ρ*| < 0.03
+    # puts the bound above 3000, and so does the mutant's −|ρ*|^(−1/β)·s; and the Olchowy-Sengers cut-off at ε/10
+    # instead of 10ε changes only numerators below 2.2e-15, where the enhancement is about 1e-20 W/(m K).
+    "transport/conductivity\\.rs:201:36: replace / with \\* in friend_chi",
+    "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace \\* with /$",
 ]
