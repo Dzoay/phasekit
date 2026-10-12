@@ -17,9 +17,11 @@ profile = "mutants"
 # cargo-mutants times its baseline on the mutated packages only, yet tests every mutant against the whole workspace
 # (`test_workspace`), so the timeout it derives (a multiple of the baseline) is shorter than one full run: a mutant no
 # test catches ran out of time and counted as caught (measured 2026-10-07 on M5.4: a 12 s baseline, a 38 s timeout, a
-# 55 s workspace run). This floor covers a full run with room to spare: 57 s here, 610 s of test time over 4 vCPU on
-# CI, about 153 s. A mutant that really hangs (a loop that never ends) costs this much.
-minimum_test_timeout = 600
+# 55 s workspace run). This floor covers a full run with room to spare: on CI's runner the workspace suite took 43-76 s
+# in the test profile (4 runs, 2026-10-12; the mutants profile builds the other crates at opt-level 1, so it runs no
+# slower), and 300 s is about 4 times the slowest. A mutant that really hangs (a loop that never ends) costs this much;
+# it was 600 s until user decision CI4.
+minimum_test_timeout = 300
 
 exclude_globs = [
     # Process glue (runs cargo, git and rustc; reads and writes files): G8 itself exercises it, unit tests cannot.
