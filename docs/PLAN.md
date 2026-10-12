@@ -1219,7 +1219,8 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
   600 K.
 - **M8.5 Staged viscosity.** *Failing tests:* `viscosity_stages_match_contributions` (dilute, initial-density,
   residual vs `viscosity_contributions` for staged fluids), `viscosity_paper_rows` (the arbiter rows of M8.3),
-  friction-theory paper rows (Methane, n-Pentane, SF₆, H₂S). *Do:* add the `transport` kind; `transport` forms over
+  friction-theory paper rows (SF₆, H₂S; Methane's and n-Pentane's wait for Quiñones-Cisneros and Deiters 2006, user
+  decision FT1). *Do:* add the `transport` kind; `transport` forms over
   `TransportInputs` (map 05 U1, U3). *Done when:* green. Measured at M8.5: of the 34 fluids whose v8.0.0 viscosity is
   staged, 25 evaluate stage by stage within `TransportDirect` of CoolProp's contributions at every oracle state (the
   all-fluid tier and the core subset); the other 9 have a hardcoded stage (Benzene, CarbonDioxide, CycloHexane, Ethane,
@@ -1231,7 +1232,8 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
   half a printed unit). Nine rows lie outside the EOS's range, inside the correlation's (CO₂ at 100 and 10 000 K,
   Methanol at 630 K, the xylenes above p_max): they are flashed with `DomainPolicy::Extrapolate`, and their models,
   hardcoded or with a hardcoded stage, land at M8.9. Methane's and
-  n-Pentane's friction theory has no paper rows yet: Quiñones-Cisneros & Deiters 2006 is not open access.
+  n-Pentane's friction theory has no paper rows yet: Quiñones-Cisneros & Deiters 2006 is not open access, and M8.5
+  lands without them (user decision FT1).
 - **M8.6 Staged conductivity and Olchowy-Sengers.** *Failing tests:* `conductivity_stages_match`, the arbiter rows
   among the 141 active conductivity rows, `methane_lambda_is_independent_of_the_saturation_source`. *Do:* η passed
   explicitly to the critical term (map 05 R6), joint {η, λ} evaluation (map 05 U6). *Done when:* green.
@@ -1545,6 +1547,7 @@ from M9.6 `gates perf` enforces gungraun regressions on Linux CI and the referen
 | `libm` default threshold (12) | Set in M9.5: bit-identical hash on 4 targets **and** geometric-mean slowdown ≤ 5 % with no bench > 10 %. |
 | DIV-0005 accepted divergence; cubic-R entry (10) | DIV-0005 done (`KeepOracle`), proved at M5.7 (Table 3) and M6.10 (Table 4). The cubic-R entry is specified in section 4 and added in the first M11 step. |
 | ARCHITECTURE.md §14 | Done; its remaining "for PLAN.md" items are answered here (M9 threshold, M11 entry, humid air = M18). |
+| Methane's and n-Pentane's friction-theory paper rows (M8.5; user decision FT1) | Waiting for Quiñones-Cisneros and Deiters, J. Phys. Chem. B 110, 12820 (2006), paywalled. With a copy: transcribe its check values or coefficients, check CoolProp's two REFPROP-substituted n-Pentane coefficients, and add the rows to `viscosity_paper_rows`. |
 | Cv, Cp, w, τ and δ as derivative variables (ARCHITECTURE.md §3.7; user decision OD1) | Deferred from M7.10: no oracle (CoolProp's second derivatives refuse Cv, Cp and w), and τ and δ need the model trait to expose its reducing constants. To be planned as a step of its own before M10's compat grammar needs them. |
 
 **Settled in this plan without a new user decision** (ROT-REGISTER.md section 3 open details)
