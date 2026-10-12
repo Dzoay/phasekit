@@ -3,12 +3,23 @@
 //! test catches (missed) fails the gate, unless `.cargo/mutants.toml` excludes it with a reason. A mutant that makes
 //! the tests hang (timeout, typically a loop that no longer advances) did not pass them, so it counts as caught and
 //! is listed. With no Rust changes there is nothing to mutate. The full run is weekly and report-only (M0.6).
+//!
+//! It runs in two passes (user decision CI5). No crate depends on phasekit-xtask and no other crate's tests run it,
+//! so only its own tests can catch its mutants: they run those alone, not the whole workspace's, which made each one
+//! wait about 50 s for tests that could not fail. Every other mutant runs the whole workspace's tests.
 
 use super::{Verdict, no_args};
 use crate::repo::Repo;
 
 /// The branch every PR is squash-merged into.
 const BASE: &str = "origin/main";
+
+/// Each pass: its name, which mutants it tests and on whose tests, and the cargo-mutants arguments that select them.
+/// Together they cover every mutant once; each keeps `.cargo/mutants.toml`'s exclusions.
+const PASSES: [(&str, &str, &[&str]); 2] = [
+    ("workspace", "in the other crates, on the workspace's tests", &["--exclude", "crates/phasekit-xtask/**"]),
+    ("xtask", "in phasekit-xtask, on its own tests", &["--package", "phasekit-xtask", "--test-workspace", "false"]),
+];
 
 /// What cargo-mutants wrote: one mutant per line in each of `caught.txt`, `missed.txt` and `timeout.txt`.
 struct Outcomes<'a> {
@@ -28,19 +39,25 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
     if diff.trim().is_empty() {
         return Ok(format!("no Rust changes since {BASE}"));
     }
-    let run = repo.cargo_mutants(&diff).map_err(|e| vec![e])?;
-    let [caught, missed, timeout, unviable] = run.outcomes.each_ref().map(String::as_str);
-    let (caught, hung) = check(run.success, &Outcomes { caught, missed, timeout }).map_err(|errors| {
-        errors.into_iter().chain([format!("cargo mutants output: {}", run.output)]).collect::<Vec<_>>()
-    })?;
-    let mut summary = format!(
-        "{caught} mutants of the changes since {BASE} caught ({} by timeout), {} unviable",
-        hung.len(),
-        lines(unviable).count()
-    );
+    let mut summary = format!("mutants of the changes since {BASE}:");
+    let mut hung = Vec::new();
+    for (pass, mutants, args) in PASSES {
+        let run = repo.cargo_mutants(pass, &diff, args).map_err(|e| vec![e])?;
+        let [caught, missed, timeout, unviable] = run.outcomes.each_ref().map(String::as_str);
+        let (caught, timeouts) = check(run.success, &Outcomes { caught, missed, timeout }).map_err(|errors| {
+            errors.into_iter().chain([format!("cargo mutants output: {}", run.output)]).collect::<Vec<_>>()
+        })?;
+        summary.push_str(&format!(
+            " {mutants}, {caught} caught ({} by timeout), {} unviable;",
+            timeouts.len(),
+            lines(unviable).count()
+        ));
+        hung.extend(timeouts.into_iter().map(str::to_string));
+    }
+    summary.pop();
     for mutant in hung {
         summary.push_str("\n  timeout: ");
-        summary.push_str(mutant);
+        summary.push_str(&mutant);
     }
     Ok(summary)
 }

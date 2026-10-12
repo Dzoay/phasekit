@@ -68,22 +68,33 @@ jobs:
       - name: Fetch CoolProp (anonymous clone of the pinned commit)
         if: steps.coolprop.outputs.cache-hit != 'true'
         run: scripts/fetch-coolprop.sh
-      - name: cargo mutants --workspace, one shard (report only)
-        run: cargo mutants --workspace --shard "${{ matrix.shard }}/8" --output "$RUNNER_TEMP" || true
+      # Two passes, as `gates mutants` runs them (user decision CI5): phasekit-xtask's mutants on its own tests, every
+      # other mutant on the workspace's.
+      - name: cargo mutants, the other crates, one shard (report only)
+        run: cargo mutants --workspace --exclude 'crates/phasekit-xtask/**' --shard "${{ matrix.shard }}/8" --output "$RUNNER_TEMP/workspace" || true
+      - name: cargo mutants, phasekit-xtask, one shard (report only)
+        if: always()
+        run: cargo mutants --package phasekit-xtask --test-workspace false --shard "${{ matrix.shard }}/8" --output "$RUNNER_TEMP/xtask" || true
       - name: Surviving mutants (job summary)
         if: always()
         run: |
-          out="$RUNNER_TEMP/mutants.out"
           {
             echo "## Surviving mutants, shard ${{ matrix.shard }} of 8"
-            echo
-            if [ -s "$out/missed.txt" ]; then echo '```'; cat "$out/missed.txt"; echo '```'
-            elif [ -f "$out/outcomes.json" ]; then echo "None."
-            else echo "No report: the run did not finish."; fi
+            for pass in workspace xtask; do
+              out="$RUNNER_TEMP/$pass/mutants.out"
+              echo
+              echo "### $pass"
+              echo
+              if [ -s "$out/missed.txt" ]; then echo '```'; cat "$out/missed.txt"; echo '```'
+              elif [ -f "$out/outcomes.json" ]; then echo "None."
+              else echo "No report: the run did not finish, or the shard held none of these mutants."; fi
+            done
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: mutants.out-${{ matrix.shard }}
-          path: ${{ runner.temp }}/mutants.out
+          path: |
+            ${{ runner.temp }}/workspace/mutants.out
+            ${{ runner.temp }}/xtask/mutants.out
           if-no-files-found: warn

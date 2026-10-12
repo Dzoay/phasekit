@@ -260,11 +260,12 @@ impl Repo {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    /// Runs `cargo mutants --in-diff` on `diff` (configured by `.cargo/mutants.toml`), its progress on the terminal.
+    /// Runs `cargo mutants --in-diff` on `diff` (configured by `.cargo/mutants.toml`) with the pass's own `args`, its
+    /// progress on the terminal.
     /// Builds happen in cargo-mutants' own copy of the tree outside the repository, so an inherited
     /// `CARGO_TARGET_DIR` is dropped and `reference/` is named through `PHASEKIT_REFERENCE_DIR`. The output is removed after a successful run and kept after a failed one.
-    pub fn cargo_mutants(&self, diff: &str) -> Result<MutantsRun, String> {
-        let dir = std::env::temp_dir().join(format!("phasekit-mutants-{}", std::process::id()));
+    pub fn cargo_mutants(&self, pass: &str, diff: &str, args: &[&str]) -> Result<MutantsRun, String> {
+        let dir = std::env::temp_dir().join(format!("phasekit-mutants-{}-{pass}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
         let diff_file = dir.join("changes.diff");
@@ -274,6 +275,7 @@ impl Repo {
         let status = Command::new(env!("CARGO"))
             .args(["mutants", "--jobs", &jobs.to_string(), "--in-diff"])
             .arg(&diff_file)
+            .args(args)
             .arg("--output")
             .arg(&dir)
             .current_dir(&self.root)
