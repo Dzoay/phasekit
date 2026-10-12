@@ -1,9 +1,8 @@
 # phasekit implementation plan
 
-**Status:** the step-by-step TDD plan for implementing [ARCHITECTURE.md](ARCHITECTURE.md), written 2026-10-05 and
-revised the same day after two adversarial reviews ([history/05-plan-review-log.md](history/05-plan-review-log.md)). The
-contract is the user's requirements, verbatim in [BRIEF.md](BRIEF.md) §1. The user's answers in
-[DECISIONS.md](DECISIONS.md) (first pass 2026-10-05) override any older text. Written
+**Status:** living. The step-by-step TDD plan for implementing [ARCHITECTURE.md](ARCHITECTURE.md). The contract is
+the user's requirements, verbatim in [BRIEF.md](BRIEF.md) §1; [DECISIONS.md](DECISIONS.md) overrides any older text.
+Where the work is comes from git, never from this file ([AGENTS.md](../AGENTS.md)). Written
 alongside [VERIFICATION.md](VERIFICATION.md) (how truth is established) and [ROT-REGISTER.md](ROT-REGISTER.md)
 (CoolProp rot → mechanism → test).
 **Readers:** the user, and AI coding agents who execute one step at a time. Every step names its failing test, the
@@ -239,7 +238,7 @@ Every artefact has one path and one defining section. VERIFICATION.md uses the s
 | Data corrections | `data/corrections.csv` (DIV id, fluid, field, v8.0.0 value, corrected value, citation) | VERIFICATION.md §6.4 |
 | Generated data | `crates/phasekit-data/blobs/*.bin`, `crates/phasekit-data/src/generated.rs`, its `Cargo.toml` features | ARCHITECTURE.md §8; M2.4-M2.5 |
 | Executed-test minimums | `ci/test-counts.txt` (`<target> <package>::<binary> <min>`; `# lowered: <reason>` and `# pending M5.9: <test>` comments) | VERIFICATION.md §11.2 `counts` |
-| CI workflows | `.github/workflows/{ci,nightly,weekly}.yml`, toolchain action `.github/actions/rust`; `pr-title.yml` (exists since 2026-10-05, CONTRIBUTING.md) | VERIFICATION.md §11.3; M0.6 |
+| CI workflows | `.github/workflows/{ci,nightly,weekly}.yml`, toolchain action `.github/actions/rust`; `pr-title.yml` (CONTRIBUTING.md) | VERIFICATION.md §11.3; M0.6 |
 | C header (M10) | `crates/phasekit-capi/include/phasekit.h` (cbindgen CLI output, committed; R15) | M10.4 |
 
 Committed fixtures are read with `include_str!`, so the corpus runs on wasip2 without filesystem access. They stay
@@ -255,8 +254,8 @@ use the gitignored `target/`.
 |---|---|---|---|
 | G1 | `cargo fmt --all --check` | local; CI linux | M0.2 |
 | G2 | `cargo clippy --workspace --all-targets -- -D warnings` | local; CI linux | M0.2 |
-| G3 | `cargo nextest run --workspace --profile ci` and `cargo test --doc --workspace` (nextest runs every test in its own process, all binaries in one parallel pool, and runs no doctests; `.config/nextest.toml`) | local (every crate); CI linux (every crate), windows and aarch64 (`--exclude phasekit-xtask`) | M0.2; nextest since 2026-10-07 |
-| G4 | `cargo nextest run --workspace --exclude phasekit-xtask --target wasm32-wasip2 --profile ci` and `cargo test --doc` with the same arguments (runner `wasmtime`) | local; CI wasip2 | M0.5; nextest since 2026-10-07 |
+| G3 | `cargo nextest run --workspace --profile ci` and `cargo test --doc --workspace` (nextest runs every test in its own process, all binaries in one parallel pool, and runs no doctests; `.config/nextest.toml`) | local (every crate); CI linux (every crate), windows and aarch64 (`--exclude phasekit-xtask`) | M0.2 |
+| G4 | `cargo nextest run --workspace --exclude phasekit-xtask --target wasm32-wasip2 --profile ci` and `cargo test --doc` with the same arguments (runner `wasmtime`) | local; CI wasip2 | M0.5 |
 | G5 | `cargo check --workspace --target wasm32-unknown-unknown` | local; CI wasm-browser | M0.2 |
 | G6 | `cargo check --workspace --all-targets --target x86_64-pc-windows-msvc` | local (check only: no MSVC linker); CI windows runs G3 | M0.2 |
 | G7 | `cargo clippy -p phasekit-core --no-default-features --all-targets -- -D warnings` (+ `-p phasekit-compat` from M5.9) | local; CI linux | M0.2 |
@@ -292,19 +291,19 @@ lint` and `cargo shear` run locally and in CI.
 
 ## 3. Milestones to v0.1
 
-| M | Deliverable (D15, refined) | Steps | Key exit criterion |
-|---|---|---|---|
-| M0 | Toolchain, workspace seeded from the sketch, lints, xtask gates, test-quality gates, CI (user checkpoint), licences | 8 | G1-G8 green; 43 seed tests; zero third-party deps |
-| M1 | Verification kit, oracle generator and lock, register and arbiter machinery, paper corpus, proptest, C++ baseline (time, memory, threads), mp check points | 18 | Fixture round trip bit-exact; `from_printed("21.17909")` rejects the oracle; 14/14 register facts |
-| M2 | Datagen, blob v1, index, features, Parity/Corrected, hash gate, readable fluid dump, citations on real data, caloric-curve contract | 12 | 130 FNV stamps; 556 keys, 0 collisions; Parity vs Corrected = 3 patches |
-| M3 | Separable residual kinds on real data, `Jet4` with num-dual oracle | 8 | Jets = AD (class `Term`); oracle block isolation; α^r totals of 134 fluids |
-| M4 | NonAnalytic, all ideal kinds, all 136 compile | 7 | IAPWS-95 Table 6; Water/CO₂ critical `Undefined` |
-| M5 | Relations, SA evaluation, caloric curves, DT, gauge, partials, virials, batch, compat, seam gates | 12 | Lemmon 2016 Table 7; DIV-0001 proof; analytic virials; seams green |
-| M6 | fastchebpure fetch, roots, pure VLE, critical points, QT/PQ, Guess polish, pseudo-pure rules, saturation arbiters | 11 | 390 mp points; exact rescaling; R410A rows |
-| M7 | All 19 pairs, phase rule, second partials, fundamental derivative | 10 | 19 × 2 capability matrix; `Ambiguous` cases |
-| M8 | Transport decode and arbiters, σ, transport (staged, IAPWS, ECS), melting | 12 | Paper rows stage by stage; DIV-0002, -0004, -0009 |
-| M9 | rayon, `libm` decision, perf and memory gates enforced | 7 | 1/N threads bitwise; cross-target hash; libm rule applied |
-| M10 | Reference states, full compat, `pk_*`, Tier A shim, browser WASM → v0.1 | 9 | 85-output gate; C smoke; shim codes + errstring; both wasm builds |
+| M | Deliverable (D15, refined) | Key exit criterion |
+|---|---|---|
+| M0 | Toolchain, workspace seeded from the sketch, lints, xtask gates, test-quality gates, CI (user checkpoint), licences | G1-G8 green; 43 seed tests; zero third-party deps |
+| M1 | Verification kit, oracle generator and lock, register and arbiter machinery, paper corpus, proptest, C++ baseline (time, memory, threads), mp check points | Fixture round trip bit-exact; `from_printed("21.17909")` rejects the oracle; 14/14 register facts |
+| M2 | Datagen, blob v1, index, features, Parity/Corrected, hash gate, readable fluid dump, citations on real data, caloric-curve contract | 130 FNV stamps; 556 keys, 0 collisions; Parity vs Corrected = 3 patches |
+| M3 | Separable residual kinds on real data, `Jet4` with num-dual oracle | Jets = AD (class `Term`); oracle block isolation; α^r totals of 134 fluids |
+| M4 | NonAnalytic, all ideal kinds, all 136 compile | IAPWS-95 Table 6; Water/CO₂ critical `Undefined` |
+| M5 | Relations, SA evaluation, caloric curves, DT, gauge, partials, virials, batch, compat, seam gates | Lemmon 2016 Table 7; DIV-0001 proof; analytic virials; seams green |
+| M6 | fastchebpure fetch, roots, pure VLE, critical points, QT/PQ, Guess polish, pseudo-pure rules, saturation arbiters | 390 mp points; exact rescaling; R410A rows |
+| M7 | All 19 pairs, phase rule, second partials, fundamental derivative | 19 × 2 capability matrix; `Ambiguous` cases |
+| M8 | Transport decode and arbiters, σ, transport (staged, IAPWS, ECS), melting | Paper rows stage by stage; DIV-0002, -0004, -0009 |
+| M9 | rayon, `libm` decision, perf and memory gates enforced | 1/N threads bitwise; cross-target hash; libm rule applied |
+| M10 | Reference states, full compat, `pk_*`, Tier A shim, browser WASM → v0.1 | 85-output gate; C smoke; shim codes + errstring; both wasm builds |
 
 ### M0 Toolchain, workspace and CI
 

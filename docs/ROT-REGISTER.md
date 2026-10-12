@@ -1,6 +1,6 @@
 # phasekit rot register
 
-**Status:** written 2026-10-05 for the plan-doc stage and revised the same day after two reviews ([history/05-plan-review-log.md](history/05-plan-review-log.md)), against the final [ARCHITECTURE.md](ARCHITECTURE.md) and the user decisions in [DECISIONS.md](DECISIONS.md). ARCHITECTURE.md §13 is the summary; this is the full register. Companions: [PLAN.md](PLAN.md) (milestone steps) and [VERIFICATION.md](VERIFICATION.md) (tests, gates, divergence register).
+**Status:** living. Every CoolProp problem found, how phasekit designs it out ([ARCHITECTURE.md](ARCHITECTURE.md)), and the test that proves it; [DECISIONS.md](DECISIONS.md) overrides anything older. Companions: [PLAN.md](PLAN.md) (milestone steps) and [VERIFICATION.md](VERIFICATION.md) (tests, gates, divergence register).
 
 ## 1. How to use this register
 

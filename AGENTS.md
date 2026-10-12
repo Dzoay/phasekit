@@ -3,11 +3,9 @@
 phasekit is a from-scratch, idiomatic Rust successor to CoolProp (thermophysical properties of fluids, later
 materials). It is **not** a binding. Work proceeds test-first, one plan step per pull request.
 
-**Current state:** milestones M0-M6 are done (tags `m0` to `m6`; M6 closed by M6.11); M7 is next. The next step is the first one in
-[docs/PLAN.md](docs/PLAN.md) section 3 that has no commit on `main` (`git log --oneline --grep '^Plan-Step:'` lists the
-finished ones); `phasekit_verify::MILESTONE` is the first open milestone. `docs/history/sketch/` is the compiled type
-sketch (its own Cargo workspace) that seeded the workspace; it is never edited, and later steps copy from it only when
-they say so.
+**Where the work is:** read it from git, never from a doc. `git tag` lists the closed milestones (`m0` …);
+`phasekit_verify::MILESTONE` is the first open one; the next step is the first in [docs/PLAN.md](docs/PLAN.md) §3
+with no `Plan-Step:` commit on `main` (`git log --oneline --grep '^Plan-Step:'`).
 
 ## Sources of truth, in order
 

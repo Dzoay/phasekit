@@ -4,9 +4,8 @@ A modular, memory-safe Rust library for thermophysical properties, starting with
 and all states of matter. It is a from-scratch successor to [CoolProp](https://github.com/CoolProp/CoolProp), not a
 binding, verified against CoolProp 8.0.0 and the published literature.
 
-> **Status: milestone M0 (toolchain, workspace, gates and CI) is done; M1 (verification kit and oracle) is next.**
-> This repository holds the architecture, the step-by-step test-driven plan and the verification design. There is no
-> usable library yet; progress follows [docs/PLAN.md](docs/PLAN.md).
+> **Status: in development, not yet released.** The closed milestones are the repository's `m*` tags; the steps and
+> what v0.1 holds are in [docs/PLAN.md](docs/PLAN.md).
 
 ## Goals
 
@@ -46,8 +45,8 @@ follow afterwards ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)).
 
 ```text
 docs/        design, plan and evidence (above)
-scripts/     fetch-coolprop.sh, check-toolchain.sh; later the oracle generator and the C++ baseline harness
-crates/      the Cargo workspace: phasekit-core, -data, -verify, -xtask; -compat from M5.9; later -capi, -wasm, -py
+scripts/     fetch-coolprop.sh, check-toolchain.sh, the oracle generator (oracle/) and the C++ baseline (baseline/)
+crates/      the Cargo workspace: phasekit-core, -data, -compat, -verify, -xtask; later -capi, -wasm, -py
 reference/   gitignored: the pinned CoolProp checkout and local papers
 ```
 

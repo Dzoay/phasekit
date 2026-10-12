@@ -1,19 +1,11 @@
 # phasekit architecture
 
-**Status:** authoritative architecture for the TDD plan, revised 2026-10-05 after two adversarial critiques
-([02-critique-simplicity.md](history/02-critique-simplicity.md), [02-critique-evidence.md](history/02-critique-evidence.md));
-every issue's disposition is in [03-decision-log.md](history/03-decision-log.md). The user's answers to the open
-questions ([DECISIONS.md](DECISIONS.md), first pass 2026-10-05) are integrated; §14 lists them.
-Supersedes the four proposals.
+**Status:** living. The design: decisions D1-D17, the seams and their invariants, and why. What is built is the code
+in `crates/`; where this file and the code disagree on a signature, the code is right and this file is fixed.
+[DECISIONS.md](DECISIONS.md) overrides anything older here.
 **Name:** `phasekit` (D16, decided 2026-10-05): crates `phasekit-*`, Rust paths `phasekit_*`, C symbols `pk_*`.
-**How it was decided:** four architects wrote competing proposals
-([Lean](history/proposal-a-lean.md), [Extensible](history/proposal-b-extensible.md), [Kernel](history/proposal-c-kernel.md),
-[Verification-first](history/proposal-d-verification-first.md)). Three independent judges scored them
-([01-judgments.md](history/01-judgments.md); summary in [01-panel.md](history/01-panel.md)). Verification-first won
-(7.55 against Lean 7.45). This document is that design, with the judges' fatal flaws fixed, the grafts that pay for
-themselves applied, and the critics' fixes folded in. The compilable type sketch is [history/sketch](history/sketch):
-5 crates (the M0 set plus `phasekit-compat`), std only, zero third-party dependencies, 47 passing tests (the doctest
-executes). Every code excerpt below is copied from it with `///` doc comments trimmed.
+**How it was decided:** four competing proposals, three judges, two critiques and a decision log (critic issues
+S-## and E##), all frozen in [docs/history/](history/README.md) with the type sketch that seeded the workspace.
 **Companions:** [PLAN.md](PLAN.md) (milestones in detail), [VERIFICATION.md](VERIFICATION.md) (D13 in full),
 [ROT-REGISTER.md](ROT-REGISTER.md) (the rot register; the divergence register is specified in VERIFICATION.md §6).
 **Citations:** "map NN §X / R#" = `docs/coolprop-map/NN-*.md`; R#, K#, P#, T# and materials R#/S# = the recommendation
@@ -26,8 +18,8 @@ attaches. CoolProp 8.0.0 is a provisional oracle; printed check tables arbitrate
 typed, cited, proof-tested register entry. Two object-safe model traits make the library open: `HelmholtzModel` for
 equation-of-state families, and `ThermoModel` for anything that can be flashed, which is what the registry, the batch
 driver and every facade hold. Two plug-in traits (`SaturationCurve`, `DataSource`) and the sealed `Real` complete the
-extension surface: five traits in all. Models are immutable and shared through `Arc`; a `State` is a 208-byte `Copy`
-value. Concurrency then follows from the types, not from locks. Nothing ships in v0.1 without a caller.
+extension surface: five traits in all. Models are immutable and shared through `Arc`; a `State` is a small `Copy`
+value (≤ 256 B). Concurrency then follows from the types, not from locks. Nothing ships in v0.1 without a caller.
 
 ## 1. Goals and non-goals
 

@@ -1,12 +1,9 @@
 # phasekit verification
 
-**Status:** the full verification specification (D13) that
-[ARCHITECTURE.md §10](ARCHITECTURE.md#10-verification-architecture-summary) summarises; written 2026-10-05 alongside
-[PLAN.md](PLAN.md) and [ROT-REGISTER.md](ROT-REGISTER.md). It refines ARCHITECTURE.md and reverses none of its
-decisions; [DECISIONS.md](DECISIONS.md) overrides anything older. It specifies the
-`phasekit-verify` kit and corpus, `scripts/oracle/gen.py`, `cargo xtask {oracle,gates}`, CI and the benches;
-*(decision)* marks what it settles. Revised 2026-10-05 after two reviews
-([history/05-plan-review-log.md](history/05-plan-review-log.md)).
+**Status:** living. The verification specification (D13): the `phasekit-verify` kit and corpus,
+`scripts/oracle/gen.py`, `cargo xtask {oracle,gates}`, CI and the benches. It refines
+[ARCHITECTURE.md](ARCHITECTURE.md) and reverses none of its decisions; [DECISIONS.md](DECISIONS.md) overrides anything
+older; *(decision)* marks what it settles.
 **One home per artefact.** This document is normative for fixtures, fixture kinds, the committed fluid set, tolerance
 classes, the register schema, `cargo xtask gates` rules, the cross-target hash grid and the bench harness. PLAN.md is
 normative for steps, gates G1-G8 ([§2.4](PLAN.md#24-standard-gates)) and the `libm` threshold (M9.5); its §2.3 is the
