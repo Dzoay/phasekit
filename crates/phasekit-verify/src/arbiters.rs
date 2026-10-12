@@ -334,7 +334,7 @@ pub static ARBITERS: &[Arbiter] = &[
             Table { file: "paper/Water/IAPWS-R12-08.5.csv", kind: TableKind::Rows, rows: Some(6) },
         ],
         constants: None,
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "Water",
@@ -345,7 +345,7 @@ pub static ARBITERS: &[Arbiter] = &[
             Table { file: "paper/Water/IAPWS-R15-11.5.csv", kind: TableKind::Rows, rows: Some(8) },
         ],
         constants: None,
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "Water",
@@ -373,7 +373,7 @@ pub static ARBITERS: &[Arbiter] = &[
         },
         tables: &[Table { file: "paper/HeavyWater/IAPWS-R4-84-2007.A5.csv", kind: TableKind::Rows, rows: Some(27) }],
         constants: None,
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "HeavyWater",
@@ -385,7 +385,7 @@ pub static ARBITERS: &[Arbiter] = &[
         },
         tables: &[Table { file: "paper/HeavyWater/IAPWS-R4-84-2007.B4.csv", kind: TableKind::Rows, rows: Some(31) }],
         constants: None,
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "R227EA",

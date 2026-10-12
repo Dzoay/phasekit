@@ -3,6 +3,7 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
+use phasekit_core::internal::{FluidRecord, WaterConductivity, WaterViscosity};
 use phasekit_core::{Basis, Order, Phase, PureFluid, Registry, State, ThermoModel, math};
 use phasekit_verify::arbiters::{ArbiterPart, Role, k3_values, violations};
 use phasekit_verify::{
@@ -30,11 +31,15 @@ fn arbiter_statuses_are_asserted() {
         )
     };
     // The records evaluated so far, each by its own test in this file (PLAN.md M4.5 on; the paper constants of the
-    // other α^r records at M5.7; the saturation tables at M6.10).
+    // other α^r records at M5.7; the saturation tables at M6.10; the IAPWS transport releases at M8.7).
     let alpha_r =
         ["Water", "R227EA", "R365MFC", "R115", "R13I1", "R1234ze(E)", "Helium", "R1130(E)", "Tetrahydrofuran"];
     let saturation = [("Water", ArbiterPart::Saturation), ("Helium", ArbiterPart::Saturation)];
-    let evaluated: Vec<_> = alpha_r.map(|fluid| (fluid, ArbiterPart::AlphaR)).into_iter().chain(saturation).collect();
+    let transport = ["Water", "HeavyWater"]
+        .into_iter()
+        .flat_map(|fluid| [(fluid, ArbiterPart::Viscosity), (fluid, ArbiterPart::Conductivity)]);
+    let alpha_r = alpha_r.map(|fluid| (fluid, ArbiterPart::AlphaR));
+    let evaluated: Vec<_> = alpha_r.into_iter().chain(saturation).chain(transport).collect();
     for a in ARBITERS {
         let is_evaluated = evaluated.contains(&(a.fluid, a.part));
         assert_eq!(!allowed(&a.status), is_evaluated, "{} {:?}: {:?}", a.fluid, a.part, a.status);
@@ -81,10 +86,10 @@ fn coolprop_test_rows_cover_thirteen_fluids() {
     assert_eq!(records().flat_map(|a| a.tables).filter_map(|t| t.rows).sum::<u16>(), 18, "18 states");
 }
 
-/// Water under both constant sets of VERIFICATION.md §4.3: the paper's (IAPWS R6-95(2018): R = 0.46151805 kJ/(kg K),
-/// T_c = 647.096 K, ρ_c = 322 kg/m³; M is not printed, so the record's converts them) and the v8.0.0 ones, which
-/// step 1 finds equal to rounding.
-fn iapws95_models() -> [(&'static str, PureFluid, f64); 2] {
+/// Water's record under both constant sets of VERIFICATION.md §4.3: the paper's (IAPWS R6-95(2018): R = 0.46151805
+/// kJ/(kg K), T_c = 647.096 K, ρ_c = 322 kg/m³; M is not printed, so the record's converts them) and the v8.0.0 ones,
+/// which step 1 finds equal to rounding.
+fn iapws95_records() -> [(&'static str, FluidRecord); 2] {
     let record = phasekit_core::internal::record(Registry::embedded().unwrap(), "Water").unwrap();
     let m = record.molar_mass;
     let e = &record.eos;
@@ -93,7 +98,12 @@ fn iapws95_models() -> [(&'static str, PureFluid, f64); 2] {
     assert!((e.rho_reducing * m - 322.0).abs() <= 0.5 && e.t_reducing == 647.096);
     let mut paper = record.clone();
     (paper.eos.gas_constant, paper.eos.rho_reducing) = (461.51805 * m, 322.0 / m);
-    [("paper", paper.compile().unwrap(), m), ("v8.0.0", record.compile().unwrap(), m)]
+    [("paper", paper), ("v8.0.0", record)]
+}
+
+/// Water's model under both constant sets, with its molar mass.
+fn iapws95_models() -> [(&'static str, PureFluid, f64); 2] {
+    iapws95_records().map(|(label, record)| (label, record.clone().compile().unwrap(), record.molar_mass))
 }
 
 /// A printed value and the value under test agree within half a unit of the last printed digit (class `Paper`).
@@ -202,6 +212,127 @@ fn iapws95_saturation_table_within_printed_digits() {
         let (failures, _) = k3_check(&table, "Water", &model, m);
         assert!(failures.is_empty(), "{label}: {failures:#?}");
     }
+}
+
+/// `record`'s state at `t` and the mass density `rho`, from its order-2 bundle at (T, ρ): the release tables give
+/// (T, ρ), some beyond the EOS's range, so no flash. Labelled supercritical above the record's critical temperature,
+/// else liquid above its critical density, else gas.
+fn state_at(record: &FluidRecord, model: &PureFluid, t: f64, rho: f64) -> State {
+    let (eos, m) = (model.eos(), record.molar_mass);
+    let total = (eos.ideal(t, rho / m, Order::Two) + eos.residual(t, rho / m, Order::Two)).bundle().unwrap();
+    let critical = record.critical.unwrap();
+    let phase = if t > critical.t {
+        Phase::Supercritical
+    } else if rho / m > critical.rho {
+        Phase::Liquid
+    } else {
+        Phase::Gas
+    };
+    State::from_total(model.info().key(), t, rho / m, eos.gas_constant(), m, phase, &total).unwrap()
+}
+
+/// R12-08's and R15-11's factors at a release table's (T, ρ) in kg/m³, under one of Water's constant sets. A ρ = 0 row
+/// is evaluated at 1e-14 kg/m³, as `CoolProp-Tests.cpp:485` does: λ̄₁ rounds to 1 there and λ̄₂ is 0, so λ̄ = λ̄₀.
+fn water_factors(record: &FluidRecord, model: &PureFluid, t: f64, rho: f64) -> (WaterViscosity, WaterConductivity) {
+    let state = state_at(record, model, t, rho.max(1e-14));
+    phasekit_core::internal::water_transport(record, &state).unwrap()
+}
+
+/// Arbiter: IAPWS R12-08 Tables 4 and 5 (Huber et al. 2009; PLAN.md M8.7), stage by stage, every cell within half a
+/// unit of its last printed digit with both of Water's constant sets: Table 4's η is μ̄₀ μ̄₁ (the release computes it
+/// with μ̄₂ = 1), Table 5's ξ, μ̄₂ and η the whole product at 647.35 K, where ξ reads IAPWS-95's (∂ρ/∂p)_T. With
+/// these Water's viscosity arbiter is `SelfConsistent`.
+#[test]
+fn iapws_r12_08_table() {
+    let tables = [fixture!("paper/Water/IAPWS-R12-08.4.csv"), fixture!("paper/Water/IAPWS-R12-08.5.csv")];
+    let [four, five] = tables.map(|(path, text)| Fixture::parse(path, text).unwrap());
+    assert_eq!((four.rows().len(), five.rows().len()), (11, 6));
+    let mut failures = Failures::default();
+    for (label, record) in iapws95_records() {
+        let model = record.clone().compile().unwrap();
+        let at = |table: &Fixture<'_>, row| {
+            water_factors(&record, &model, table.value(row, "T").unwrap(), table.value(row, "rho").unwrap()).0
+        };
+        for row in 0..four.rows().len() {
+            let eta = at(&four, row);
+            failures.ok(within_printed(&four, row, "eta", eta.mu0 * eta.mu1), |e| format!("{label} Table 4: {e}"));
+        }
+        for row in 0..five.rows().len() {
+            let eta = at(&five, row);
+            for (column, got) in [("xi", eta.xi), ("mu2", eta.mu2), ("eta", eta.reduced())] {
+                failures.ok(within_printed(&five, row, column, got), |e| format!("{label} Table 5: {e}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Arbiter: IAPWS R15-11 Tables 4 and 5 (Huber et al. 2012; PLAN.md M8.7), stage by stage, every cell within half a
+/// unit of its last printed digit with both of Water's constant sets: Table 4's λ̄₀ λ̄₁ (λ̄₂ = 0 there; at the liquid
+/// points of 298.15 K because Δχ̄ < 0 is set to zero, which the factors show), Table 5's λ̄₁, λ̄₂ and λ at 647.35 K with
+/// R12-08's whole η in λ̄₂, and its caption's λ̄₀(647.35 K) = 51.5764797. With these Water's conductivity arbiter is
+/// `SelfConsistent`.
+#[test]
+fn iapws_r15_11_table() {
+    let tables = [fixture!("paper/Water/IAPWS-R15-11.4.csv"), fixture!("paper/Water/IAPWS-R15-11.5.csv")];
+    let [four, five] = tables.map(|(path, text)| Fixture::parse(path, text).unwrap());
+    assert_eq!((four.rows().len(), five.rows().len()), (4, 8));
+    // The caption's λ̄₀(647.35 K), within half a unit of its last printed digit.
+    let Some(Tolerance::Absolute(caption)) = from_printed("51.5764797") else { panic!("a printed number") };
+    let mut failures = Failures::default();
+    for (label, record) in iapws95_records() {
+        let model = record.clone().compile().unwrap();
+        let at = |table: &Fixture<'_>, row| {
+            water_factors(&record, &model, table.value(row, "T").unwrap(), table.value(row, "rho").unwrap()).1
+        };
+        for row in 0..four.rows().len() {
+            let lambda = at(&four, row);
+            assert_eq!(lambda.lambda2, 0.0, "{label} Table 4 row {row}");
+            let got = lambda.lambda0 * lambda.lambda1;
+            failures.ok(within_printed(&four, row, "lambda", got), |e| format!("{label} Table 4: {e}"));
+        }
+        for row in 0..five.rows().len() {
+            let lambda = at(&five, row);
+            let cells = [("lambda1", lambda.lambda1), ("lambda2", lambda.lambda2), ("lambda", lambda.reduced())];
+            for (column, got) in cells {
+                failures.ok(within_printed(&five, row, column, got), |e| format!("{label} Table 5: {e}"));
+            }
+            let lambda0 = (lambda.lambda0 - 51.5764797).abs() <= caption;
+            failures.ok(lambda0.then_some(()).ok_or(lambda.lambda0), |e| format!("{label} caption: λ̄₀ = {e}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Arbiter: IAPWS R4-84(2007) Tables A5 and B4 (heavy water's transport release; PLAN.md M8.7): μ̄ = η/μ* and
+/// λ̄ = λ/λ* at the tables' reduced states (T* = 643.847 K, ρ* = 358 kg/m³, μ* = 55.2651 µPa s, λ* = 0.742128
+/// mW/(m K)), each within half a unit of its last printed digit (ten decimals). The forms read only T and ρ, so the
+/// release's constants are the record's. With these heavy water's viscosity and conductivity arbiters are
+/// `SelfConsistent`.
+#[test]
+fn iapws_r4_84_2007_tables() {
+    let record = phasekit_core::internal::record(Registry::embedded().unwrap(), "HeavyWater").unwrap();
+    let model = record.clone().compile().unwrap();
+    let tables = [
+        (fixture!("paper/HeavyWater/IAPWS-R4-84-2007.A5.csv"), "mubar", 27),
+        (fixture!("paper/HeavyWater/IAPWS-R4-84-2007.B4.csv"), "lambdabar", 31),
+    ];
+    let mut failures = Failures::default();
+    for ((path, text), column, rows) in tables {
+        let table = Fixture::parse(path, text).unwrap();
+        assert_eq!(table.rows().len(), rows);
+        for row in 0..rows {
+            let (t, rho) = (table.value(row, "Tbar").unwrap() * 643.847, table.value(row, "rhobar").unwrap() * 358.0);
+            let state = state_at(&record, &model, t, rho);
+            let got = if column == "mubar" {
+                phasekit_core::internal::viscosity_stages(&record, &state).unwrap().total() / 55.2651e-6
+            } else {
+                phasekit_core::internal::conductivity_stages(&record, &state).unwrap().total() / 0.742128e-3
+            };
+            failures.ok(within_printed(&table, row, column, got), |e| format!("{path}: {e}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 /// VERIFICATION.md §4.3 step 2 for NIST IR 8474 Table 4 (PLAN.md M6.10, user decision H4): with its own Table 1

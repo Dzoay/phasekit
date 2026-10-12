@@ -366,7 +366,7 @@ fn lands_later<T>(result: &Result<T, Error>) -> bool {
 #[test]
 fn viscosity_stages_match_contributions() {
     let (mut checked, mut later, mut failures) = (BTreeSet::new(), BTreeSet::new(), Vec::new());
-    let columns = [("eta_dilute", 0), ("eta_initial_density", 1), ("eta_residual", 2)];
+    let columns = [("eta_dilute", 0), ("eta_initial_density", 1), ("eta_residual", 2), ("eta_critical", 3)];
     for_transport_rows("eta_model", "staged", |table, row, name, record, state| {
         if table.printed(row, "eta_status") != Some("ok") {
             failures.push(format!("{name} row {row}: the oracle has no viscosity"));
@@ -379,7 +379,7 @@ fn viscosity_stages_match_contributions() {
         }
         let stages = stages.unwrap();
         let scale = table.value(row, "eta").unwrap();
-        let got = [stages.dilute, stages.initial_density, stages.residual];
+        let got = [stages.dilute, stages.initial_density, stages.residual, stages.critical];
         for (column, i) in columns {
             let checked = table.check_scaled(row, column, got[i], scale);
             failures.extend(checked.err().map(|e| format!("{name} row {row} {column}: {e:?}")));
@@ -436,6 +436,31 @@ fn conductivity_stages_match_contributions() {
     assert_eq!((checked.len(), later.len(), methane), (20, 20, 21), "{checked:?} {later:?}");
 }
 
+/// PLAN.md M8.7 (map 05 U7): Water's and heavy water's IAPWS releases against CoolProp's totals at the oracle's
+/// states (the all-fluid tier, and Water's core subset), η and λ in class `TransportDirect`; λ reads the fluid's own η.
+/// CoolProp files a hard-coded model's whole η under `critical` and λ under `initial_density`, so only the totals
+/// compare: the releases' tables check the factors (`tests/arbiters.rs`).
+#[test]
+fn iapws_transport_matches_oracle() {
+    let (mut rows, mut failures) = (BTreeMap::new(), Vec::new());
+    for_transport_rows("eta_model", "hardcoded", |table, row, name, record, state| {
+        if name != "Water" && name != "HeavyWater" {
+            return;
+        }
+        let eta = phasekit_core::internal::viscosity_stages(record, state).map(|s| s.total());
+        let lambda = phasekit_core::internal::conductivity_stages(record, state).map(|s| s.total());
+        for (column, got) in [("eta", eta), ("lambda", lambda)] {
+            let checked = got.map_err(|e| e.to_string()).and_then(|got| {
+                table.check_scaled(row, column, got, table.value(row, column).unwrap()).map_err(|e| format!("{e:?}"))
+            });
+            failures.extend(checked.err().map(|e| format!("{name} row {row} {column}: {e}")));
+        }
+        *rows.entry(name.to_string()).or_insert(0) += 1;
+    });
+    assert!(failures.is_empty(), "{failures:#?}");
+    assert_eq!(rows, BTreeMap::from([("HeavyWater".to_string(), 8), ("Water".to_string(), 208)]));
+}
+
 /// PLAN.md M8.5: the arbiter rows of M8.3 (`CoolProp-Tests.cpp`'s paper and IAPWS viscosity rows, Helium's excepted)
 /// within their printed digits, for every fluid whose viscosity this step evaluates; the friction-theory fluids with
 /// paper rows (SF₆, H₂S) among them. The others say the step that evaluates them. A row beyond its printed digits passes
@@ -448,7 +473,8 @@ fn viscosity_paper_rows() {
     assert!(rows.failures.is_empty(), "{:#?}", rows.failures);
     let checked = &rows.checked;
     assert_eq!((checked.get("SulfurHexafluoride"), checked.get("HydrogenSulfide")), (Some(&6), Some(&4)));
-    assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (14, 53, 104), "{checked:?}");
+    assert_eq!((checked.get("Water"), checked.get("HeavyWater")), (Some(&17), Some(&3)));
+    assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (16, 73, 84), "{checked:?}");
     let outside = ["CarbonDioxide 133", "CarbonDioxide 135", "Methanol 218", "Methanol 219", "m-Xylene 252"];
     assert_eq!(
         rows.extrapolated,
@@ -461,6 +487,7 @@ fn viscosity_paper_rows() {
         (("DIV-0022", "R123"), 1),
         (("DIV-0022", "n-Octane"), 1),
         (("DIV-0022", "n-Propane"), 4),
+        (("IAPWS-R4-84(2007)", "HeavyWater"), 3),
     ];
     assert_eq!(rows.beyond(), registered, "rows beyond their printed digits, by entry");
 }
@@ -472,7 +499,8 @@ fn conductivity_paper_rows() {
     let rows = paper_rows(Prop::Conductivity, ".lambda.csv");
     assert!(rows.failures.is_empty(), "{:#?}", rows.failures);
     let checked = &rows.checked;
-    assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (11, 45, 60), "{checked:?}");
+    assert_eq!((checked.get("Water"), checked.get("HeavyWater")), (Some(&12), Some(&3)));
+    assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (13, 60, 45), "{checked:?}");
     assert_eq!(rows.extrapolated, Vec::<String>::new());
     let registered = [
         (("DIV-0023", "Air"), 1),
@@ -483,6 +511,7 @@ fn conductivity_paper_rows() {
         (("DIV-0023", "n-Nonane"), 1),
         (("DIV-0024", "Methane"), 3),
         (("DIV-0025", "n-Pentane"), 1),
+        (("IAPWS-R4-84(2007)", "HeavyWater"), 3),
     ];
     assert_eq!(rows.beyond(), registered, "rows beyond their printed digits, by entry");
 }
@@ -496,7 +525,7 @@ struct PaperRows {
     later: usize,
     /// Rows outside the EOS's range, "fluid line".
     extrapolated: Vec<String>,
-    /// Rows beyond their printed digits, within the bound of (register entry, fluid).
+    /// Rows beyond their printed digits, within the bound of (register entry or restated release, fluid).
     beyond: Vec<(&'static str, &'static str)>,
     /// What failed.
     failures: Vec<String>,
@@ -555,8 +584,8 @@ fn paper_row(
     (false, paper_row_check(path, table, row, value))
 }
 
-/// `value` against its row: `None` when its form lands later, else the register entry whose bound it needs beyond its
-/// printed digits.
+/// `value` against its row: `None` when its form lands later, else the register entry, or the release whose cell the
+/// row restates, whose bound it needs beyond its printed digits.
 fn paper_row_check(
     path: &str,
     table: &Fixture<'_>,
@@ -569,10 +598,38 @@ fn paper_row_check(
     let eta = eta.map_err(|e| e.to_string())?;
     let Err(error) = table.check(row, "value", eta) else { return Ok(Some(None)) };
     let want = table.value(row, "value").unwrap();
+    if let Some((release, bound)) = restated_cell(path, table, row)
+        && (eta - want).abs() <= bound
+    {
+        return Ok(Some(Some(release)));
+    }
     match registered_bound(path) {
         Some((id, bound)) if (eta / want - 1.0).abs() <= bound => Ok(Some(Some(id))),
         _ => Err(format!("{error:?}")),
     }
+}
+
+/// The release cell a CoolProp row restates, with half a unit of its last printed digit as a bound on the row: the
+/// heavy-water rows (`CoolProp-Tests.cpp:289-291, 570-572`) print IAPWS R4-84(2007)'s Table A5 μ̄ and Table B4 λ̄ times
+/// μ* = 55.2651 µPa s and λ* = 0.742128 mW/(m K) to 17 and 18 digits, which the release's ten decimals do not hold. The
+/// row must be that cell times its reference value, to rounding.
+fn restated_cell(path: &str, table: &Fixture<'_>, row: usize) -> Option<(&'static str, f64)> {
+    let (release, column, scale) = match path {
+        "paper/HeavyWater/CoolProp-Tests.eta.csv" => ("paper/HeavyWater/IAPWS-R4-84-2007.A5.csv", "mubar", 55.2651e-6),
+        "paper/HeavyWater/CoolProp-Tests.lambda.csv" => {
+            ("paper/HeavyWater/IAPWS-R4-84-2007.B4.csv", "lambdabar", 0.742128e-3)
+        }
+        _ => return None,
+    };
+    let text = phasekit_verify::arbiters::TABLES.iter().find(|(p, _)| *p == release)?.1;
+    let cells = Fixture::parse(release, text).unwrap();
+    let (t, rho) = (table.value(row, "T")? / 643.847, table.value(row, "x")? / 358.0);
+    let at = |r: usize, c: &str, x: f64| (cells.value(r, c).unwrap() - x).abs() < 1e-9;
+    let cell = (0..cells.rows().len()).find(|&r| at(r, "Tbar", t) && at(r, "rhobar", rho))?;
+    let (value, printed) = (cells.value(cell, column)?, cells.printed(cell, column)?);
+    assert!((table.value(row, "value")? / (value * scale) - 1.0).abs() < 1e-15, "{path} row {row}");
+    let Some(Tolerance::Absolute(half)) = phasekit_verify::from_printed(printed) else { return None };
+    Some(("IAPWS-R4-84(2007)", half * scale))
 }
 
 /// The `Measured` bound a register entry records for the table `path` (VERIFICATION.md §6.2), with the entry's id.

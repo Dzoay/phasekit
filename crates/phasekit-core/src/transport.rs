@@ -1,8 +1,8 @@
 //! L5 transport: CoolProp's correlation forms as closed sum types (map 05 U2), decoded from the blob's transport
 //! section on a fluid's first transport call, so thermo-only users never read it or load its ECS reference fluids
-//! (Lean fatal flaw; Kernel graft). Written only against the public `State` API (materials S5). Evaluating the forms
-//! lands at M8.5 (viscosity) and M8.6 (conductivity); until then a fluid with a model says so, and a fluid without
-//! one reports `NoModel`.
+//! (Lean fatal flaw; Kernel graft). Written only against the public `State` API (materials S5). The staged forms
+//! evaluate from M8.5 (viscosity) and M8.6 (conductivity), the IAPWS releases from M8.7; a form a later step evaluates
+//! says so, and a fluid without a model reports `NoModel`.
 //!
 //! The record is v8.0.0's data as datagen maps it (PLAN.md M8.1): each property's active entry only (a list's first,
 //! ROT-109), with its own source; every form CoolProp can reach and none it cannot (ROT-116: no CO₂ Vesovic or
@@ -11,9 +11,12 @@
 //! `cargo xtask fluid`'s dump alike.
 
 mod conductivity;
+mod iapws;
 mod viscosity;
 
 pub use conductivity::ConductivityStages;
+pub use iapws::{WaterConductivity, WaterViscosity};
+pub(crate) use iapws::{water_conductivity, water_viscosity};
 pub use viscosity::ViscosityStages;
 pub(crate) use viscosity::{TransportInputs, lands};
 
@@ -1223,7 +1226,7 @@ impl Part for EcsConductivity {
 }
 
 impl Viscosity {
-    /// The stages at `x` of a staged model; another form says the step that evaluates it.
+    /// The stages at `x` of a staged model or an IAPWS release; another form says the step that evaluates it.
     pub(crate) fn stages(&self, x: &TransportInputs<'_>) -> Result<ViscosityStages, Error> {
         match &self.model {
             ViscosityModel::Staged(staged) => viscosity::stages(staged, self.lennard_jones, x),
@@ -1231,9 +1234,8 @@ impl Viscosity {
             ViscosityModel::RhoSrCs(_) | ViscosityModel::Chung(_) => {
                 Err(lands("evaluating this viscosity model", "M8.9"))
             }
-            ViscosityModel::Hardcoded(HardcodedViscosity::Water | HardcodedViscosity::HeavyWater) => {
-                Err(lands("evaluating the IAPWS viscosity", "M8.7"))
-            }
+            ViscosityModel::Hardcoded(HardcodedViscosity::Water) => Ok(iapws::water_viscosity_stages(x)),
+            ViscosityModel::Hardcoded(HardcodedViscosity::HeavyWater) => Ok(iapws::heavy_water_viscosity(x)),
             ViscosityModel::Hardcoded(h) => Err(lands(&format!("evaluating the {} viscosity", h.name()), "M8.9")),
         }
     }
@@ -1245,8 +1247,8 @@ impl Viscosity {
 }
 
 impl Conductivity {
-    /// The stages at `x` of a staged model or Methane's; `eta` is the fluid's own viscosity there, read only by the
-    /// forms that need it (map 05 R6). Another form says the step that evaluates it.
+    /// The stages at `x` of a staged model, Methane's or an IAPWS release; `eta` is the fluid's own viscosity there,
+    /// read only by the forms that need it (map 05 R6). Another form says the step that evaluates it.
     pub(crate) fn stages(
         &self,
         x: &TransportInputs<'_>,
@@ -1256,9 +1258,8 @@ impl Conductivity {
             ConductivityModel::Staged(staged) => conductivity::stages(staged, x, eta),
             ConductivityModel::Methane(methane) => conductivity::friend_methane(methane, x),
             ConductivityModel::Ecs(_) => Err(lands("evaluating an ECS conductivity", "M8.8")),
-            ConductivityModel::Hardcoded(HardcodedConductivity::Water | HardcodedConductivity::HeavyWater) => {
-                Err(lands("evaluating the IAPWS conductivity", "M8.7"))
-            }
+            ConductivityModel::Hardcoded(HardcodedConductivity::Water) => iapws::water_conductivity_stages(x, eta),
+            ConductivityModel::Hardcoded(HardcodedConductivity::HeavyWater) => Ok(iapws::heavy_water_conductivity(x)),
             ConductivityModel::Hardcoded(h) => Err(lands(&format!("evaluating the {} conductivity", h.name()), "M8.9")),
         }
     }
@@ -1840,6 +1841,7 @@ pub(crate) mod tests {
             dilute: 2.0 * eta.dilute,
             initial_density: 2.0 * eta.initial_density,
             residual: 2.0 * eta.residual,
+            critical: 2.0 * eta.critical,
         };
         let (once, twice) =
             (conductivity.stages(&x, &Ok(eta)).unwrap(), conductivity.stages(&x, &Ok(doubled)).unwrap());

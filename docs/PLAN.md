@@ -1251,7 +1251,16 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
   correlation was fitted with).
 - **M8.7 IAPWS water and heavy water.** *Failing tests:* `iapws_r12_08_table`, `iapws_r15_11_table` and the D₂O
   release tables, class `Paper` (the oracle's measured agreement, 3.3e-8 and 2.7e-9 for water and ≤ 5.3e-11 for D₂O,
-  map 10 §8.1, is reported, not asserted). *Do:* one shared ξ/Y module (map 05 U7). *Done when:* green.
+  map 10 §8.1, is reported, not asserted). *Do:* one shared ξ/Y module (map 05 U7). *Done when:* green. Measured at
+  M8.7: the D₂O test is `iapws_r4_84_2007_tables`. Every cell of the six tables is within its printed digits, factor by
+  factor (R12-08's μ̄₀μ̄₁, ξ and μ̄₂; R15-11's λ̄₀λ̄₁, λ̄₁, λ̄₂ and its caption's λ̄₀), with IAPWS-95's constants and
+  v8.0.0's alike. The worst cells lie at 0.97 (R12-08 Table 4, Table A5) and 0.99 (R15-11 Table 4) of a half-unit, so
+  the oracle's 3.3e-8 and 2.7e-9 are the tables' own rounding. η and λ are within `TransportDirect` of the oracle at its
+  216 Water and heavy-water states (`iapws_transport_matches_oracle`), with CoolProp's π, 3.141592654, and R15-11's R
+  kept for that (map 05 R12). Water's three factors become additive stages, so `ViscosityStages` gains the critical
+  term CoolProp's `viscosity_contributions` reports. `CoolProp-Tests.cpp`'s rows for both fluids are now evaluated
+  (Water 17 η and 12 λ, heavy water 3 and 3); the heavy-water rows print the release's reduced values times μ* and λ*
+  to 17 and 18 digits, so each is checked within the digits of the release cell it restates.
 - **M8.8 ECS.** *Failing tests:* `ecs_matches_oracle_where_the_oracle_converges` (class `TransportEcs`; oracle
   failures, 7.3 % of 19 ECS fluids, stay `status=err` rows; map 10 §8.4), `q_d_is_read` (R13, R14, R142b, R218,
   RC318; map 05 R2) with its new `SkipOracle` entry (below),

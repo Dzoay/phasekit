@@ -24,8 +24,8 @@ wasm32-wasip2 phasekit-verify::fixtures 4
 wasm32-wasip2 phasekit-verify::manifest 2
 x86_64-unknown-linux-gnu phasekit-verify::divergences 2
 wasm32-wasip2 phasekit-verify::divergences 2
-x86_64-unknown-linux-gnu phasekit-verify::arbiters 11
-wasm32-wasip2 phasekit-verify::arbiters 11
+x86_64-unknown-linux-gnu phasekit-verify::arbiters 14
+wasm32-wasip2 phasekit-verify::arbiters 14
 x86_64-unknown-linux-gnu phasekit-verify::papers 4
 wasm32-wasip2 phasekit-verify::papers 4
 x86_64-unknown-linux-gnu phasekit-core::properties 2
@@ -64,5 +64,5 @@ x86_64-unknown-linux-gnu phasekit-verify::capability 1
 x86_64-unknown-linux-gnu phasekit-verify::robustness 1
 wasm32-wasip2 phasekit-verify::capability 1
 wasm32-wasip2 phasekit-verify::robustness 1
-x86_64-unknown-linux-gnu phasekit-verify::transport 8
-wasm32-wasip2 phasekit-verify::transport 8
+x86_64-unknown-linux-gnu phasekit-verify::transport 9
+wasm32-wasip2 phasekit-verify::transport 9
