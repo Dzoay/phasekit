@@ -530,6 +530,14 @@ fn outer() -> u8 {
     inner(1)
 }
 
+fn and3(a: bool, b: bool, c: bool) -> bool {
+    a && b && c
+}
+
+fn grouped(a: bool, b: bool, c: bool) -> bool {
+    a && (b && c)
+}
+
 mod m {
     struct S;
 
@@ -540,6 +548,24 @@ mod m {
 
         fn pt(&self) -> u8 {
             pt(1)
+        }
+
+        fn via_self(&self, n: u8) -> u8 {
+            Self::via_self(self, n)
+        }
+
+        fn via_method(&self, n: u8) -> u8 {
+            self.via_method(n)
+        }
+
+        fn not_self(&self, other: &S, n: u8) -> u8 {
+            Other::not_self(n) + Self::pt(self) + other.not_self(n) + self.via_method(n)
+        }
+    }
+
+    trait T {
+        fn default(&self, x: bool) -> u8 {
+            if x { 1 } else { 0 }
         }
     }
 }
@@ -575,8 +601,10 @@ mod m {
     /// Nesting (S134) and Rust's own structures: an else-if chain is as deep as its `if`; a `match` arm, a loop's body
     /// and a branch nest one deeper; a closure raises cognitive nesting (Appendix B2) but not control-flow depth, as
     /// does a nested `fn`, which counts in its outer function; `loop` is a `while (true)`; a let-else's `else` adds a
-    /// hybrid one; a labelled `break` adds one; a direct recursive call adds one, a method's through `self` or `Self`
-    /// (a method calling a free function of its own name does not recurse); `?` and a macro's tokens add nothing.
+    /// hybrid one; a labelled `break` adds one; a run of like operators is one sequence, through parentheses; a direct
+    /// recursive call adds one, a method's through `Self::` or `self.` (not another type's or value's function of its
+    /// name, nor a free function of its name); `?` and a macro's tokens add nothing. A
+    /// trait's default method is named by its trait.
     #[test]
     fn else_if_chains_and_closures_nest_as_specified() {
         let m = |cognitive, nesting| Measure { cognitive, nesting };
@@ -588,14 +616,21 @@ mod m {
             ("guarded", m(2, 1)),
             ("fact", m(3, 1)),
             ("outer", m(3, 1)),
+            ("and3", m(1, 0)),
+            ("grouped", m(1, 0)),
             ("m::S::walk", m(3, 1)),
             ("m::S::pt", m(0, 0)),
+            ("m::S::via_self", m(1, 0)),
+            ("m::S::via_method", m(1, 0)),
+            ("m::S::not_self", m(0, 0)),
+            ("m::T::default", m(2, 1)),
         ];
         assert_eq!(measures(RUST), want.map(|(name, measure)| (name.to_string(), measure)));
     }
 
-    /// The gate: a function over a bar fails unless exempted; an exemption needs its ceilings and a reason, holds only
-    /// while its function stays at or under its ceilings and over a bar, and names a function that exists.
+    /// The gate: a function over a bar fails unless exempted, one at a bar (cognitive 15, nesting 3) passes; an
+    /// exemption needs its ceilings and a reason, holds only while its function stays at or under both ceilings and
+    /// over a bar, and names a function that exists.
     #[test]
     fn exemptions_only_shrink() {
         let deep = "fn deep() { for _ in 0..1 { for _ in 0..1 { for _ in 0..1 { for _ in 0..1 {} } } } }\n";
@@ -605,6 +640,8 @@ mod m {
         assert!(exempt("crates/a/src/lib.rs deep cog=10 nest=4 M7.9d: flattened there").is_ok());
         let grew = exempt("crates/a/src/lib.rs deep cog=9 nest=4 M7.9d: flattened there");
         assert!(grew.is_err_and(|e| e.iter().any(|v| v.contains("over its exemption"))), "a ceiling is a ceiling");
+        let shallow = exempt("crates/a/src/lib.rs deep cog=10 nest=3 M7.9d: flattened there");
+        assert!(shallow.is_err_and(|e| e.iter().any(|v| v.contains("over its exemption"))), "so is a nesting ceiling");
         let stale = exempt("crates/a/src/lib.rs flat cog=0 nest=0 why");
         assert!(stale.is_err_and(|e| e.iter().any(|v| v.contains("flat") && v.contains("under the bars"))));
         let gone = exempt("crates/a/src/lib.rs gone cog=20 nest=5 why");
@@ -612,6 +649,10 @@ mod m {
         for bad in ["crates/a/src/lib.rs deep cog=10 nest=4", "crates/a/src/lib.rs deep nest=4 cog=10 why", "deep"] {
             assert!(exempt(bad).is_err(), "{bad}");
         }
+        let ifs = |n: usize| format!("fn ifs{n}(x: bool) {{ {} }}\n", "if x {} ".repeat(n));
+        let at_the_bars = format!("{}fn three(a: bool) {{ if a {{ if a {{ if a {{}} }} }} }}\n", ifs(15));
+        assert!(check(&[("crates/a/src/lib.rs".to_string(), at_the_bars)], "").is_ok(), "15 and 3 are at the bars");
+        assert!(check(&[("crates/a/src/lib.rs".to_string(), ifs(16))], "").is_err(), "16 is over");
         let unparsable = [("crates/a/src/lib.rs".to_string(), "fn (".to_string())];
         assert!(check(&unparsable, "").is_err());
     }
