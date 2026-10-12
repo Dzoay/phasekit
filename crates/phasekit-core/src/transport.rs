@@ -1599,6 +1599,21 @@ pub(crate) mod tests {
         assert_eq!(answers(TransportRecord::default()), none);
     }
 
+    /// A record compiled without the registry carries its surface-tension fit, with transport models or without.
+    #[test]
+    fn a_compiled_record_carries_its_surface_tension() {
+        let terms = Series::new(vec![0.05], vec![1.25]).unwrap();
+        let fit = SurfaceTension { source: source("Mulero-JPCRD-2012", None), t_c: 300.0, terms };
+        let sigma = |transport: Option<TransportRecord>| {
+            let mut record = FluidRecord::synthetic("Toy").unwrap();
+            (record.transport, record.surface_tension) = (transport, Some(fit.clone()));
+            Fluid::new(std::sync::Arc::new(record.compile().unwrap())).model().surface_tension(200.0)
+        };
+        let want = 0.05 * math::powf(1.0 - 200.0 / 300.0, 1.25);
+        assert_eq!(sigma(None), Ok(want));
+        assert_eq!(sigma(every_form().pop()), Ok(want));
+    }
+
     /// The ECS reference fluids a record names, viscosity's first; none for the other forms.
     #[test]
     fn references_are_the_ecs_models_reference_fluids() {

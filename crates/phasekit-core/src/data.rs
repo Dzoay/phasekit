@@ -864,9 +864,10 @@ impl FluidRecord {
         if let Some(calorics) = self.calorics() {
             builder = builder.calorics(calorics);
         }
-        // A whole record carries its transport models; the registry's eager parts leave them to its lazy closure.
-        if let Some(record) = self.transport {
-            let surface_tension = self.surface_tension;
+        // A whole record carries its transport models and its σ fit, either without the other; the registry's eager
+        // parts leave both to its lazy closure.
+        if self.transport.is_some() || self.surface_tension.is_some() {
+            let (record, surface_tension) = (self.transport.unwrap_or_default(), self.surface_tension);
             builder = builder.transport(TransportSet { record, surface_tension, ..TransportSet::default() });
         }
         Ok(match self.critical {
