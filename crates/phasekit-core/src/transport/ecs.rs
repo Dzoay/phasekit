@@ -52,14 +52,15 @@ struct Conformal {
     iterations: u16,
 }
 
-/// The reference's residuals r = (α^r₀ − α^r, Z₀ − Z) at (t, ρ) and their Jacobian in (T₀, ρ₀): ∂α^r/∂T = −τα^r_τ/T,
-/// ∂α^r/∂ρ = δα^r_δ/ρ, ∂Z/∂T = −τδα^r_δτ/T and ∂Z/∂ρ = (δ²α^r_δδ + δα^r_δ)/ρ, in the reference's own reducing state.
+/// The reference's residuals r = (α^r₀ − α^r, Z₀ − Z) at (t, ρ) and their Jacobian in (ln T₀, ln ρ₀): ∂α^r/∂ln T =
+/// −τα^r_τ, ∂α^r/∂ln ρ = δα^r_δ, ∂Z/∂ln T = −τδα^r_δτ and ∂Z/∂ln ρ = δ²α^r_δδ + δα^r_δ, in the reference's own reducing
+/// state.
 fn residuals(reference: &PureFluid, target: (f64, f64), t: f64, rho: f64) -> ([f64; 2], [[f64; 2]; 2]) {
     let a = reference.eos().residual(t, rho, Order::Two);
     let at = |i, j| a.get(i, j).unwrap_or(f64::NAN);
     let (a00, a10, a01, a02, a11) = (at(0, 0), at(1, 0), at(0, 1), at(0, 2), at(1, 1));
     let r = [a00 - target.0, 1.0 + a01 - target.1];
-    (r, [[-a10 / t, a01 / rho], [-a11 / t, (a02 + a01) / rho]])
+    (r, [[-a10, a01], [-a11, a02 + a01]])
 }
 
 fn norm(r: [f64; 2]) -> f64 {
@@ -67,10 +68,11 @@ fn norm(r: [f64; 2]) -> f64 {
 }
 
 /// The conformal state of `x` on `reference`'s EOS, from CoolProp's guess T₀ = T/f, ρ₀ = ρ h with f = T_c/T_c0 and
-/// h = ρ_c0/ρ_c, the models' own critical points (1 without them). Each Newton step is halved, down to 1/512, until the
-/// residual falls; the solve ends once it is within rounding (`ROUNDING`) or no step lowers it, and then succeeds only
-/// within CoolProp's tolerance, 1e-9: in a dilute gas α^r and Z − 1 are both nearly B ρ, so the Jacobian is nearly
-/// singular and the iterates wander at the residual's rounding floor without converging in T₀.
+/// h = ρ_c0/ρ_c, the models' own critical points (1 without them). Newton runs in ln T₀ and ln ρ₀, so every iterate is
+/// positive; each step is halved, down to 1/512, until the residual falls. The solve ends once the residual is within
+/// rounding (`ROUNDING`) or no step lowers it, and then succeeds only within CoolProp's tolerance, 1e-9: in a dilute gas
+/// α^r and Z − 1 are both nearly B ρ, so the Jacobian is nearly singular and the iterates wander at the residual's
+/// rounding floor without converging in T₀.
 fn conformal_state(x: &TransportInputs<'_>, reference: &PureFluid) -> Result<Conformal, Error> {
     let (t, rho) = (x.t(), x.rho());
     let a = x.eos().residual(t, rho, Order::One);
@@ -94,9 +96,8 @@ fn conformal_state(x: &TransportInputs<'_>, reference: &PureFluid) -> Result<Con
         let v = solve_small(jacobian, [-r[0], -r[1]]).map_err(|_| fail(iterations))?;
         let mut fractions = core::iter::successors(Some(1.0), |frac: &f64| Some(frac / 2.0)).take(10);
         let step = fractions.find_map(|frac| {
-            let (t_new, rho_new) = (t0 + frac * v[0], rho0 + frac * v[1]);
-            let valid = t_new > 0.0 && rho_new > 0.0 && t_new.is_finite() && rho_new.is_finite();
-            (valid && norm(residuals(reference, target, t_new, rho_new).0) < residual).then_some((t_new, rho_new))
+            let (t_new, rho_new) = (t0 * math::exp(frac * v[0]), rho0 * math::exp(frac * v[1]));
+            (norm(residuals(reference, target, t_new, rho_new).0) < residual).then_some((t_new, rho_new))
         });
         let Some(step) = step else { return done(t0, rho0, residual, iterations) };
         (t0, rho0) = step;
@@ -200,4 +201,21 @@ pub(crate) fn conductivity(
         residual: lambda_resid * f_lambda,
         critical: lambda_critical,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A reference is found among several by its canonical name or an alias (the ECS blocks name n-Propane `Propane`);
+    /// one not among them is a load error.
+    #[test]
+    fn a_reference_is_found_by_any_of_its_names() {
+        let registry = crate::Registry::embedded().unwrap();
+        let references = [registry.get("Nitrogen").unwrap().clone(), registry.get("n-Propane").unwrap().clone()];
+        assert_eq!(reference(&references, "Propane").unwrap().info().name(), "n-Propane");
+        assert_eq!(reference(&references, "Nitrogen").unwrap().info().name(), "Nitrogen");
+        let missing = reference(&references, "R134a").unwrap_err();
+        assert_eq!(missing.to_string(), "load error: bad data: the ECS reference fluid R134a is not loaded");
+    }
 }

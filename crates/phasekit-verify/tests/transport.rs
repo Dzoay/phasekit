@@ -471,9 +471,10 @@ fn iapws_transport_matches_oracle() {
 /// states where it converged, in class `TransportEcs`, through the registry under `Parity`, whose handles hold the
 /// reference fluids. CoolProp files an ECS model's whole η under `critical` and λ under `initial_density`, so only the
 /// totals compare. 172 cells agree. The oracle's failed cells stay `status=err` (14 η and 16 λ, in 16 of the all-fluid
-/// tier's 152 ECS states, all gas; map 10 §8.4): no conformal state matches there, and phasekit refuses the 28 it
-/// evaluates with `NoConvergence`. DIV-0026's 32 λ cells are exempt (its replacing check is `div_0026`), and the λ of the
-/// four fluids whose η is ρ*_sr-CS lands with it at M8.9.
+/// tier's 152 ECS states, all gas; map 10 §8.4). Of the 28 phasekit evaluates there, its Newton in ln T₀ and ln ρ₀ finds
+/// the conformal state at 7 states (R11's and R14's supercritical gas, three dilute gases) and refuses the other 14 cells
+/// with `NoConvergence`. DIV-0026's 32 λ cells are exempt (its replacing check is `div_0026`), and the λ of the four
+/// fluids whose η is ρ*_sr-CS lands with it at M8.9.
 #[test]
 fn ecs_matches_oracle_where_the_oracle_converges() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
@@ -518,7 +519,7 @@ fn ecs_matches_oracle_where_the_oracle_converges() {
     assert_eq!(fluids.len(), 19);
     assert_eq!(later, BTreeSet::from(["R124", "R22", "R245fa", "R32"]));
     assert_eq!((checked, exempt), (172, 32));
-    assert_eq!(oracle_failed, BTreeMap::from([(true, 28)]), "refused, where the oracle failed");
+    assert_eq!(oracle_failed, BTreeMap::from([(false, 14), (true, 14)]), "solved and refused, where the oracle failed");
 }
 
 /// PLAN.md M8.8 (map 05 R2, DIV-0026): an ECS conductivity's critical term reads its own q_D. Of the 18 ECS models five
