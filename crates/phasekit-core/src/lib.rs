@@ -95,8 +95,8 @@ pub mod internal {
         ConductivityResidual, EcsConductivity, EcsViscosity, FrictionCubic, FrictionSecond, FrictionTheory,
         HardcodedConductivity, HardcodedCriticalConductivity, HardcodedDiluteConductivity, HardcodedDiluteViscosity,
         HardcodedHigherViscosity, HardcodedViscosity, Kappa, LennardJones, OlchowySengers, Part, Put, RhoSrCs, Series,
-        StagedConductivity, StagedViscosity, Take, TransportRecord, Viscosity, ViscosityDilute, ViscosityHigher,
-        ViscosityInitial, ViscosityModel,
+        StagedConductivity, StagedViscosity, SurfaceTension, Take, TransportRecord, Viscosity, ViscosityDilute,
+        ViscosityHigher, ViscosityInitial, ViscosityModel,
     };
 
     /// Saturation of a Helmholtz model at `t` by the pure-fluid VLE from seed densities `(ρ′, ρ″)` (PLAN.md M6.3).

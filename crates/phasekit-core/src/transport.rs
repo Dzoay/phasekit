@@ -11,7 +11,7 @@
 //! `cargo xtask fluid`'s dump alike.
 
 use crate::data::{DataSet, Edit, Patch};
-use crate::error::{Error, LoadError};
+use crate::error::{DomainError, Error, LoadError};
 use crate::fluid::Fluid;
 use crate::math;
 use crate::model::{DataTerms, Source};
@@ -1169,23 +1169,47 @@ impl TransportRecord {
     }
 }
 
-/// Surface tension `σ(T) = Σ a_i (1 − T/Tc)^n_i` (108 fluids; map 05 U5).
+/// A surface-tension fit σ(T) = Σ aᵢ (1 − T/T_c)ⁿⁱ (108 fluids; map 05 U5), with the T_c it was fitted with (Mulero's
+/// own, not the EOS's; map 13 §3) and its own source (D14).
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SurfaceTension {
-    /// Critical temperature the correlation was fitted with, K.
-    t_c: f64,
-    /// `(a_i, n_i)` pairs.
-    terms: Box<[(f64, f64)]>,
+pub struct SurfaceTension {
+    /// The fit's `BibTeX` key, and its DOI when CoolProp's bibliography has one.
+    pub source: Source,
+    /// The critical temperature the fit was made with, K.
+    pub t_c: f64,
+    /// The coefficients aᵢ (`a`) and exponents nᵢ (`t`).
+    pub terms: Series,
 }
 
 impl SurfaceTension {
-    /// σ in N/m; refuses T ≥ Tc instead of returning 0 or NaN.
-    fn eval(&self, t: f64) -> Result<f64, Error> {
-        if !(t > 0.0 && t < self.t_c) {
-            return Err(Error::NoModel { prop: Prop::SurfaceTension });
+    /// σ in N/m at `t`, over the fit's range: from `t_min`, the fluid's, to the lower of the fit's own T_c and `t_c_eos`,
+    /// the model's critical temperature, above which there is no interface. A fit is never evaluated outside its range
+    /// (user decision 6; ROT-114): CoolProp throws for T_c,σ < T ≤ T_c,EOS (map 05 R13), and map 05 Q4's σ = 0 there is
+    /// not taken.
+    pub(crate) fn eval(&self, t: f64, t_min: f64, t_c_eos: f64) -> Result<f64, Error> {
+        if !t.is_finite() {
+            return Err(Error::InvalidInput { quantity: "T", value: t });
+        }
+        if t < t_min {
+            return Err(DomainError::BelowMinTemperature { t, t_min }.into());
+        }
+        let t_max = self.t_c.min(t_c_eos);
+        if t > t_max {
+            return Err(DomainError::AboveMaxTemperature { t, t_max }.into());
         }
         let x = 1.0 - t / self.t_c;
-        Ok(self.terms.iter().map(|&(a, n)| a * math::powf(x, n)).sum())
+        Ok(self.terms.a.iter().zip(&self.terms.t).map(|(a, n)| a * math::powf(x, *n)).sum())
+    }
+}
+
+impl Part for SurfaceTension {
+    fn put(&self, p: &mut dyn Put) {
+        part(p, "source", &self.source);
+        p.num("Tc", self.t_c);
+        part(p, "terms", &self.terms);
+    }
+    fn take(t: &mut dyn Take) -> Result<Self, String> {
+        Ok(SurfaceTension { source: take_part(t, "source")?, t_c: t.num("Tc")?, terms: take_part(t, "terms")? })
     }
 }
 
@@ -1215,11 +1239,6 @@ impl TransportSet {
             None => Err(Error::NoModel { prop: Prop::Conductivity }),
             Some(_) => Err(LoadError::Format("evaluating a conductivity model lands at M8.6".into()).into()),
         }
-    }
-
-    /// σ(T) or `NoModel`.
-    pub(crate) fn surface_tension(&self, t: f64) -> Result<f64, Error> {
-        self.surface_tension.as_ref().ok_or(Error::NoModel { prop: Prop::SurfaceTension })?.eval(t)
     }
 }
 
@@ -1580,6 +1599,21 @@ pub(crate) mod tests {
         assert_eq!(answers(TransportRecord::default()), none);
     }
 
+    /// A record compiled without the registry carries its surface-tension fit, with transport models or without.
+    #[test]
+    fn a_compiled_record_carries_its_surface_tension() {
+        let terms = Series::new(vec![0.05], vec![1.25]).unwrap();
+        let fit = SurfaceTension { source: source("Mulero-JPCRD-2012", None), t_c: 300.0, terms };
+        let sigma = |transport: Option<TransportRecord>| {
+            let mut record = FluidRecord::synthetic("Toy").unwrap();
+            (record.transport, record.surface_tension) = (transport, Some(fit.clone()));
+            Fluid::new(std::sync::Arc::new(record.compile().unwrap())).model().surface_tension(200.0)
+        };
+        let want = 0.05 * math::powf(1.0 - 200.0 / 300.0, 1.25);
+        assert_eq!(sigma(None), Ok(want));
+        assert_eq!(sigma(every_form().pop()), Ok(want));
+    }
+
     /// The ECS reference fluids a record names, viscosity's first; none for the other forms.
     #[test]
     fn references_are_the_ecs_models_reference_fluids() {
@@ -1601,5 +1635,70 @@ pub(crate) mod tests {
         assert_eq!(HardcodedDiluteConductivity::from_name("CO2"), None, "Vesovic's dead term");
         assert_eq!(HardcodedCriticalConductivity::from_name("CarbonDioxideScalabrinJPCRD2006"), None);
         assert_eq!(HardcodedConductivity::from_name("Methanol"), None, "Methanol's conductivity is staged");
+    }
+
+    /// The embedded fluids with a surface-tension fit: (name, fit, fluid).
+    #[cfg(feature = "fluids-all")]
+    fn fits() -> Vec<(&'static str, SurfaceTension, Fluid)> {
+        let registry = crate::Registry::embedded().unwrap();
+        let fits = phasekit_data::FLUIDS.iter().filter_map(|f| {
+            let fit = registry.record(f.name).unwrap().surface_tension?;
+            Some((f.name, fit, registry.get(f.name).unwrap().clone()))
+        });
+        fits.collect()
+    }
+
+    /// Rot: ROT-114 (map 05 R13). σ is a pure function of T over its fit's range, from the fluid's T_min to the lower of
+    /// the fit's own T_c and the model's critical temperature. Between the two, where CoolProp throws ("T > Tc"), it is a
+    /// `Domain` error, never 0 and never an extrapolation (user decision 6). One case per affected fluid: 62 of the 108
+    /// fits have T_c,σ below the model's T_c, map 05's nine (measured against the published critical point) among them,
+    /// and 20 by more than 1 mK.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn surface_tension_between_tc_sigma_and_tc_eos() {
+        let fits = fits();
+        assert_eq!(fits.len(), 108);
+        let mut affected = Vec::new();
+        for (name, fit, fluid) in &fits {
+            let t_c = fluid.model().critical_point().unwrap().t;
+            let model = fluid.model();
+            if fit.t_c < t_c {
+                let t = 0.5 * (fit.t_c + t_c);
+                let refused = DomainError::AboveMaxTemperature { t, t_max: fit.t_c };
+                assert_eq!(model.surface_tension(t), Err(refused.into()), "{name}");
+                assert_eq!(model.surface_tension(fit.t_c), Ok(0.0), "{name}: σ(T_c,σ) = 0");
+                affected.push((*name, t_c - fit.t_c > 1e-3));
+            } else {
+                let refused = DomainError::AboveMaxTemperature { t: fit.t_c, t_max: t_c };
+                assert!(fit.t_c == t_c || model.surface_tension(fit.t_c) == Err(refused.into()), "{name}");
+            }
+        }
+        let names: Vec<&str> = affected.iter().map(|(name, _)| *name).collect();
+        let map05 = ["Ammonia", "CarbonDioxide", "Ethanol", "IsoButane", "R1234ze(E)", "R404A", "R407C", "R507A"];
+        assert!(map05.iter().chain(["SulfurHexafluoride"].iter()).all(|f| names.contains(f)), "{names:?}");
+        assert_eq!((affected.len(), affected.iter().filter(|(_, wide)| *wide).count()), (62, 20));
+        let (name, _, fluid) = &fits[0];
+        let t_min = crate::Registry::embedded().unwrap().record(name).unwrap().limits.t_min();
+        let below = DomainError::BelowMinTemperature { t: t_min - 1.0, t_min };
+        assert_eq!(fluid.model().surface_tension(t_min - 1.0), Err(below.into()), "{name}");
+        let nan = fluid.model().surface_tension(f64::NAN);
+        assert!(matches!(nan, Err(Error::InvalidInput { quantity: "T", .. })), "{nan:?}");
+    }
+
+    /// Rot: ROT-123 (map 10 §8.4). Water's σ is CoolProp's model, Mulero 2012's two-term fit, and its source says so,
+    /// not IAPWS. Against IAPWS R1-76(2014)'s equation (page 3: σ = Bτ^µ(1 + bτ), τ = 1 − T/T_c, T_c = 647.096 K,
+    /// B = 235.8 mN/m, b = −0.625, µ = 1.256) it is 0.12 % high at 300 K and 0.90 % low at 600 K: IAPWS σ is a separate,
+    /// labelled comparison, not this model's arbiter.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn water_sigma_is_labelled_coolprop_model() {
+        let (_, fit, water) = fits().into_iter().find(|(name, ..)| *name == "Water").unwrap();
+        assert_eq!((&*fit.source.bibkey, fit.t_c, fit.terms.a.len()), ("Mulero-JPCRD-2012", 647.096, 2));
+        let iapws = |t: f64| {
+            let tau = 1.0 - t / 647.096;
+            235.8e-3 * math::powf(tau, 1.256) * (1.0 - 0.625 * tau)
+        };
+        let percent = |t: f64| format!("{:+.2}", 100.0 * (water.model().surface_tension(t).unwrap() / iapws(t) - 1.0));
+        assert_eq!((percent(300.0), percent(600.0)), ("+0.12".to_string(), "-0.90".to_string()));
     }
 }

@@ -14,7 +14,7 @@ use crate::helmholtz::{
     PowerTerm, ResidualBlock, TauExpBlock,
 };
 use crate::model::{CriticalOrigin, CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source};
-use crate::transport::{TransportRecord, TransportSet};
+use crate::transport::{SurfaceTension, TransportRecord, TransportSet};
 
 /// Position of a data-backed fluid in its source's index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -687,6 +687,9 @@ pub struct FluidRecord {
     /// The transport models (M8.1); `None` until decoded: the registry leaves them in the blob and decodes them on
     /// the first transport call.
     pub transport: Option<TransportRecord>,
+    /// The surface-tension fit (M8.4); `None` without one, and until decoded: the registry decodes it with the
+    /// transport models.
+    pub surface_tension: Option<SurfaceTension>,
 }
 
 impl FluidRecord {
@@ -712,6 +715,7 @@ impl FluidRecord {
             caloric: None,
             pseudo_pure: None,
             transport: Some(TransportRecord::default()),
+            surface_tension: None,
         }
     }
 
@@ -860,9 +864,11 @@ impl FluidRecord {
         if let Some(calorics) = self.calorics() {
             builder = builder.calorics(calorics);
         }
-        // A whole record carries its transport models; the registry's eager parts leave them to its lazy closure.
-        if let Some(record) = self.transport {
-            builder = builder.transport(TransportSet { record, ..TransportSet::default() });
+        // A whole record carries its transport models and its σ fit, either without the other; the registry's eager
+        // parts leave both to its lazy closure.
+        if self.transport.is_some() || self.surface_tension.is_some() {
+            let (record, surface_tension) = (self.transport.unwrap_or_default(), self.surface_tension);
+            builder = builder.transport(TransportSet { record, surface_tension, ..TransportSet::default() });
         }
         Ok(match self.critical {
             Some(c) => builder.critical(c),
@@ -991,6 +997,9 @@ mod tests {
             Patch { divergence: "DIV-0016".into(), edit: Edit::RhosrCritical(-54_095.5) },
         ];
         r.transport = crate::transport::tests::every_form().pop();
+        let terms = crate::transport::Series::new(vec![-0.1306, 0.2151], vec![2.471, 1.233]).unwrap();
+        let source = Source::new("Mulero-JPCRD-2012", Some("10.1063/1.4768782"), DataTerms::Published);
+        r.surface_tension = Some(SurfaceTension { source, t_c: 647.096, terms });
         r
     }
 
@@ -1109,8 +1118,8 @@ mod tests {
         assert_eq!(format_error(&[b'X'; 40]), "not a phasekit blob");
     }
 
-    /// v1 reserves every planned section; one the decoder cannot read yet must be empty, and a section's bytes are
-    /// read exactly.
+    /// v1 reserves every planned section; one the decoder cannot read yet must be empty (none since M8.4 filled the
+    /// last), and a section's bytes are read exactly.
     #[test]
     fn unfilled_sections_are_refused_until_their_step() {
         let record = every_field();
@@ -1119,8 +1128,11 @@ mod tests {
             edit(&mut bodies[i]);
             crate::blob::assemble(&bodies)
         };
+        // Filled at M8.4: a fit ends with its exponents.
         let err = format_error(&blob_with(7, |b| b.extend([0; 8])));
-        assert_eq!(err, "the surface tension section lands at M8.4");
+        assert_eq!(err, "surface tension section has bytes left over (8)");
+        let truncated = "surface tension section: terms: t lists 2 numbers past the section's end";
+        assert_eq!(format_error(&blob_with(7, |b| _ = b.pop())), truncated);
         // Filled at M8.1: an ECS conductivity ends with q_D.
         assert_eq!(format_error(&blob_with(6, |b| b.extend([0; 8]))), "transport section has bytes left over (8)");
         let truncated = "transport section: conductivity: model: transport section is truncated";

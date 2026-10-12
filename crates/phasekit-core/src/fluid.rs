@@ -273,8 +273,11 @@ impl ThermoModel for PureFluid {
     fn conductivity(&self, _state: &State) -> Result<f64, Error> {
         self.transport()?.conductivity()
     }
+    /// σ(T) over its fit's range, up to the model's own critical temperature ([`SurfaceTension`]'s rule).
     fn surface_tension(&self, t: f64) -> Result<f64, Error> {
-        self.transport()?.surface_tension(t)
+        let fit = self.transport()?.surface_tension.as_ref().ok_or(Error::NoModel { prop: Prop::SurfaceTension })?;
+        let t_c = self.critical_point().map_or(f64::INFINITY, |c| c.t);
+        fit.eval(t, self.limits.t_min(), t_c)
     }
 }
 

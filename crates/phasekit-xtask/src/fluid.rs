@@ -14,7 +14,7 @@ use std::process::ExitCode;
 use phasekit_core::internal::{
     Ancillary, CaloricCurves, CaloricStamp, DoubleExponentialTerm, Edit, EosRecord, FluidRecord, GaoBTerm,
     GaussianTerm, IdealTerm, Lemmon2005Term, MeltingSegment, NonAnalyticTerm, OffsetReference, Part, Patch, PowerTerm,
-    PseudoPure, Put, SaStamp, Superancillary, Take, TransportRecord,
+    PseudoPure, Put, SaStamp, Superancillary, SurfaceTension, Take, TransportRecord,
 };
 use phasekit_core::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataSet, DataTerms, Limits, Source};
 use serde_json::{Map, Value, json};
@@ -118,11 +118,8 @@ pub fn to_json(r: &FluidRecord) -> Value {
         }),
         "melting": r.melting.iter().map(|s| json!({"t0": num(s.t0), "p0": num(s.p0), "t_min": num(s.t_min), "t_max": num(s.t_max)})).collect::<Vec<_>>(),
         "corrections": r.corrections.iter().map(patch_json).collect::<Vec<_>>(),
-        "transport": r.transport.as_ref().map_or(Value::Null, |t| {
-            let mut out = JsonPut(vec![("transport", Map::new())]);
-            t.put(&mut out);
-            out.0.pop().map_or(Value::Null, |(_, map)| Value::Object(map))
-        }),
+        "transport": r.transport.as_ref().map_or(Value::Null, part_json),
+        "surface_tension": r.surface_tension.as_ref().map_or(Value::Null, part_json),
         "caloric": r.caloric.as_ref().map_or(Value::Null, |c| {
             let st = &c.stamp;
             let sa = &st.superancillary;
@@ -211,7 +208,16 @@ pub fn from_json(v: &Value) -> Result<FluidRecord, String> {
     if let Some(t) = section(v, "transport") {
         r.transport = Some(TransportRecord::take(&mut JsonTake(vec![t])).map_err(|e| format!("transport: {e}"))?);
     }
+    let fit = section(v, "surface_tension").map(|s| SurfaceTension::take(&mut JsonTake(vec![s])));
+    r.surface_tension = fit.transpose().map_err(|e| format!("surface_tension: {e}"))?;
     Ok(r)
+}
+
+/// A part of the record written through core's description of it ([`Part`]).
+fn part_json(part: &impl Part) -> Value {
+    let mut out = JsonPut(vec![("part", Map::new())]);
+    part.put(&mut out);
+    out.0.pop().map_or(Value::Null, |(_, map)| Value::Object(map))
 }
 
 /// The `transport` section as JSON (M8.1), written through core's one description of the record ([`Part`]): a part
@@ -715,7 +721,7 @@ mod tests {
     }
 
     /// The blob sections the dump covers, by their names in `BLOB_SECTIONS` (PLAN.md §2.5).
-    const DUMPED: [&str; 9] = [
+    const DUMPED: [&str; 10] = [
         "metadata",
         "eos",
         "superancillary fit",
@@ -723,6 +729,7 @@ mod tests {
         "caloric curves",
         "ancillaries",
         "transport",
+        "surface tension",
         "melting",
         "corrections",
     ];
@@ -740,8 +747,7 @@ mod tests {
             read, DUMPED,
             "a section the decoder reads is missing from the dump, or the dump lists one it does not"
         );
-        let reserved = phasekit_core::internal::BLOB_SECTIONS.len() - read.len();
-        assert_eq!(reserved, 1, "surface tension");
+        assert_eq!(read.len(), phasekit_core::internal::BLOB_SECTIONS.len(), "every section of v1 is filled");
     }
 
     /// The transport section writes an absent model, part or field as `null`, as the other sections do (M8.1).

@@ -1211,7 +1211,12 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
   +0.12 % at 300 K, −0.90 % at 600 K; map 10 §8.4), `surface_tension_between_tc_sigma_and_tc_eos` (σ for
   T_c,σ < T ≤ T_c,EOS is a `Domain` error, one case per affected fluid; map 05 R13: the oracle throws there; the same
   rule as "fits are never evaluated outside their range", user decision 6). *Do:* add the `sigma` kind; pure
-  `fn sigma(&self, T) -> Result`. *Done when:* green.
+  `fn sigma(&self, T) -> Result`. *Done when:* green. Measured at M8.4: blob section 8 holds each fit (108; Mulero
+  2012 75, Mulero 2014 27, Okada 4, IAPWS 1, Kondou 1); σ is defined from T_min to the lower of the fit's T_c and the
+  model's own critical temperature, where CoolProp has no two-phase state either. Against the model's critical point
+  (the superancillary's top) 62 fits have T_c,σ < T_c,EOS, 20 by more than 1 mK; map 05's nine (against the published
+  point) are among them. Water's Mulero fit is 0.12 % above IAPWS R1-76's equation at 300 K and 0.90 % below it at
+  600 K.
 - **M8.5 Staged viscosity.** *Failing tests:* `viscosity_stages_match_contributions` (dilute, initial-density,
   residual vs `viscosity_contributions` for staged fluids), `viscosity_paper_rows` (the arbiter rows of M8.3),
   friction-theory paper rows (Methane, n-Pentane, SF₆, H₂S). *Do:* add the `transport` kind; `transport` forms over
