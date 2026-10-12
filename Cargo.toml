@@ -42,6 +42,8 @@ panic = "deny"
 # phasekit-xtask, a command-line tool, allows both at its crate root.
 print_stdout = "deny"
 print_stderr = "deny"
+# User decision CX2 (PLAN.md M7.9c): a function over 100 lines of code (`clippy.toml`), Sonar's length bar.
+too_many_lines = "deny"
 
 # User decision BP1 (2026-10-07): whole-program optimisation for what this workspace builds itself (the benches, and
 # later the C library, the wheel and the wasm module). Crates that depend on phasekit build with their own profile.

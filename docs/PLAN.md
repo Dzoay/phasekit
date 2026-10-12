@@ -1083,17 +1083,23 @@ bands (map 03 §8; map 10 §8.5 L4).
   writes one term's paper formula per family (`check_terms`).
 - **M7.9c Complexity gate** (user decisions CX1, CX2, CX4). *Failing tests:*
   `cognitive_complexity_follows_the_white_paper` (the worked examples of G. Ann Campbell's *Cognitive Complexity*
-  specification, SonarSource, in Rust), `else_if_chains_and_closures_nest_as_specified`; then `cargo xtask gates
-  complexity` red on the workspace. *Do:* `gates complexity` in G8, on `syn` 3 (`full`, `visit`; already in Cargo.lock
-  through serde's derive; tier T4, added to dependencies §3.1): Sonar's cognitive complexity (S3776; over 15 fails) and
-  control-flow nesting (S134: `if`, `match`, `for`, `while`, `loop`, else-if chains flat; over 3 fails) of every
-  function under `crates/` but `generated.rs` and the ban probes; the exemptions in one checked file, each with its
-  reason (the step that fixes it, or why it stays: TOMS 748 as printed, a data table), an entry whose function is no
-  longer over the bar failing; length by clippy's `too_many_lines` at 100 code lines (`clippy.toml`,
-  `#[expect(clippy::too_many_lines, reason = "…")]` on the functions over it, a probe in `clippy_bans_fire`). *Done
-  when:* G1-G8 green; no behaviour change; the gate's numbers agree with the audit's (rust-code-analysis at `c094914`;
-  `04-user-decisions.md`, CX) or the PR explains each difference; a new function over the bar fails G8 or G2, and so
-  does an exemption no longer needed.
+  specification, SonarSource, in Rust), `else_if_chains_and_closures_nest_as_specified`; then
+  `cargo xtask gates complexity` red on the workspace. *Do:* `gates complexity` in G8, on `syn` 3 (`full`, `visit`;
+  already in Cargo.lock through serde's derive; tier T4, added to dependencies §3.1): Sonar's cognitive complexity
+  (S3776; over 15 fails) and control-flow nesting (S134: `if`, `match`, `for`, `while`, `loop`, else-if chains flat;
+  over 3 fails) of every function under `crates/` but `generated.rs` and the ban probes; the exemptions in one checked
+  file, each with its reason (the step that fixes it, or why it stays: TOMS 748 as printed, a data table), an entry
+  whose function is no longer over the bar failing; length by clippy's `too_many_lines` at 100 code lines
+  (`clippy.toml`, `#[expect(clippy::too_many_lines, reason = "…")]` on the functions over it, a probe in
+  `clippy_bans_fire`). *Done when:* G1-G8 green; no behaviour change; the gate's numbers agree with the audit's
+  (rust-code-analysis at `c094914`; `04-user-decisions.md`, CX) or the PR explains each difference; a new function over
+  the bar fails G8 or G2, and so does an exemption no longer needed. Measured at M7.9c: 1 707 functions in 124 files, 54
+  over a bar and exempted with their ceilings: 26 tests for M7.9d, 11 core functions for M7.9e, 15 for M7.9f, and two
+  that stay (`toms748` as printed; Algorithm 748's test problems, a data table). Nesting agrees with the audit's
+  tree-sitter measure on all 1 581 functions both name alike, cognitive complexity with rust-code-analysis on 1 550; the
+  31 others differ where that tool departs from the paper on Rust (the PR lists each): it counts no `loop`, no let
+  chain's `&&` and no recursion, does not nest a let-else's `else`, and counts a negated sequence `!(a && b && c)` more
+  than once. `too_many_lines` at 100 flags 4 functions, each with an `#[expect]` and its reason.
 - **M7.9d Test nesting** (user decision CX1). *Failing test:* none; a refactor. *Do:* the tests over the bar (25 at
   `c094914`, among them core's `raw_gate_refuses_every_invalid_value_without_panicking`, nesting 6, and
   `domain_errors_are_uniform_across_pairs`, and verify's `tests/sat.rs` `q_rows` and `tests/flash.rs` round trips): a
@@ -1105,12 +1111,13 @@ bands (map 03 §8; map 10 §8.5 L4).
   step's exemptions gone.
 - **M7.9e Flash search scaffolds** (user decision CX3). *Failing test:* none. *Do:* core `flash.rs`'s three hand-rolled
   scaffolds once each (TOMS 748 with the bracket's ends cached and the first failure kept; stepping down to a bracket
-  and bisecting towards a refusal; the choice among roots by `RootPolicy`), so that `sx`, `root_in_t`, `qx`, `tx`,
-  `pt_branch` and `region` meet the bar; flash.rs's production code in modules by path; `Registry::push_source` in its
-  three phases; `roots::bracketed`'s end checks and `EosRecord::decode`'s sections, or an exemption with its reason.
-  Every residual is evaluated in the same order with the same operations. *Done when:* the robustness corpus, the
-  capability matrix's truths and the 40 × 40 PT grid give states bit-identical to the parent commit's (the comparison
-  recorded in the PR); G1-G8 green; mutants clean on the diff; the step's exemptions gone.
+  and bisecting towards a refusal; the choice among roots by `RootPolicy`), so that `sx`, `root_in_t`, `qx`, `tx`, `px`,
+  `pt_branch` and `region` meet the bar, with `density::bracketed` and `SuperancillaryCurve::at_p` (M7.9c exempts them
+  for this step); flash.rs's production code in modules by path; `Registry::push_source` in its three phases;
+  `roots::bracketed`'s end checks and `EosRecord::decode`'s sections, or an exemption with its reason. Every residual is
+  evaluated in the same order with the same operations. *Done when:* the robustness corpus, the capability matrix's
+  truths and the 40 × 40 PT grid give states bit-identical to the parent commit's (the comparison recorded in the PR);
+  G1-G8 green; mutants clean on the diff; the step's exemptions gone.
 - **M7.9f Verify library and xtask** (user decision CX3). *Failing test:* none. *Do:* verify's `Fixture::parse`,
   `FlashCheck::rows_where` and `SaturationCheck::rows`; xtask's `fluid.rs` `from_json` (218 lines, the workspace's
   longest function) as one parser per section, `gates/assertions.rs` `code_only` with one helper per token kind, and the

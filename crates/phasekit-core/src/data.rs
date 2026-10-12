@@ -226,6 +226,7 @@ impl EosRecord {
 
     /// The inverse of [`EosRecord::encode`]: the EOS section of a blob. Every tag, count and exponent is checked;
     /// trailing or missing bytes are errors.
+    #[expect(clippy::too_many_lines, reason = "M7.9e: its sections, or an exemption with its reason (PLAN.md)")]
     pub fn decode(bytes: &[u8]) -> Result<EosRecord, LoadError> {
         let bad = |m: String| LoadError::Format(format!("eos section: {m}").into());
         let mut values = bytes;

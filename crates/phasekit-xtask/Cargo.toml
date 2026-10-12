@@ -14,6 +14,8 @@ phasekit-core.workspace = true
 phasekit-verify.workspace = true # `MILESTONE`, read by `gates rot`
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
+# `gates complexity` parses every function (M7.9c, user decision CX4); already in Cargo.lock through serde's derive.
+syn = { version = "3.0.6", default-features = false, features = ["full", "parsing", "visit"] }
 
 [lints]
 workspace = true

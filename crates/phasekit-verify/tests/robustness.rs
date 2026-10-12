@@ -57,6 +57,7 @@ impl Case {
 }
 
 /// The corpus. Cases that follow a recipe read the fluid's critical point or its curve's lowest point.
+#[expect(clippy::too_many_lines, reason = "stays: a data table, the corpus's 193 cases")]
 fn corpus(registry: &Registry) -> Vec<Case> {
     use Pair::{DP, DQ, DS, DT, HP, HQ, HS, PQ, PS, PT, PU, QS, QT, ST};
     use Phase::{Gas, Liquid, Supercritical, SupercriticalGas, SupercriticalLiquid, TwoPhase};
