@@ -1414,8 +1414,26 @@ fn qx(fluid: &PureFluid, q: f64, x: f64, var: QVar, pair: Pair, opts: &FlashOpti
     };
     // The grid in runs of nodes where the saturated state exists (a pseudo-pure fluid's definition fails within 1 mK of
     // its curve's top: R410A), and each turn between a run's nodes where golden-section search puts it.
-    let (mut runs, mut refused): (Vec<Vec<(f64, f64)>>, _) = (vec![Vec::new()], None);
-    for t in qx_nodes(lo, hi) {
+    let (runs, mut refused) = scan_runs(qx_nodes(lo, hi), &scan);
+    let (mut roots, polish_on) = (Vec::new(), calorics.is_some().then_some(&exact));
+    for grid in runs {
+        run_roots(&with_turns(&grid, &scan, &mut refused), &scan, polish_on, &mut roots)?;
+    }
+    roots.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let Some((t, iterations)) = choose(&roots, |r| r.0, opts.roots())? else {
+        return Err(refused.unwrap_or(Error::InvalidInput { quantity: var_name(var), value: var.input(x) }));
+    };
+    Ok(qt(fluid, q, t, opts)?.with_path(SolvePath { strategy: Strategy::Saturation, iterations }))
+}
+
+/// A Q-pair's grid `nodes` with x(T) − x there (`scan`), in runs between the nodes where it is refused, and the first
+/// refusal.
+fn scan_runs(
+    nodes: impl Iterator<Item = f64>,
+    scan: &impl Fn(f64) -> Result<f64, Error>,
+) -> (Vec<Vec<Point>>, Option<Error>) {
+    let (mut runs, mut refused): (Vec<Vec<Point>>, _) = (vec![Vec::new()], None);
+    for t in nodes {
         match scan(t) {
             Ok(g) => runs.last_mut().into_iter().for_each(|run| run.push((t, g))),
             Err(e) => {
@@ -1424,40 +1442,54 @@ fn qx(fluid: &PureFluid, q: f64, x: f64, var: QVar, pair: Pair, opts: &FlashOpti
             }
         }
     }
-    let mut roots: Vec<(f64, u16)> = Vec::new();
-    for grid in runs {
-        let mut nodes = grid.clone();
-        for triple in grid.windows(3) {
-            if let [(t0, g0), (_, g1), (t2, g2)] = triple
-                && (g1 > g0) != (g2 > g1)
-            {
-                // A turn the search cannot reach (x refused inside the cells) is left out, as a refused node.
-                match turn_of(&scan, *t0, *t2, g1 > g0) {
-                    Ok(node) => nodes.push(node),
-                    Err(e) => _ = refused.get_or_insert(e),
-                }
-            }
-        }
-        nodes.sort_by(|a, b| a.0.total_cmp(&b.0));
-        for pair in nodes.windows(2) {
-            let [(a, ga), (b, gb)] = pair else { continue };
-            if *ga != 0.0 && *gb != 0.0 && ga.is_sign_negative() == gb.is_sign_negative() {
-                continue;
-            }
-            let found = toms748(|t| scan(t).unwrap_or(f64::NAN), *a, *b, Tol::Relative(T_TOL), T_ITER);
-            let found = found.converged(Strategy::Saturation)?;
-            let t = if calorics.is_some() { polish(&exact, found.x)? } else { found.x };
-            // A root on a node (or a turn) closes the brackets either side of it; each returns that node exactly.
-            if !roots.iter().any(|(r, _)| r.to_bits() == t.to_bits()) {
-                roots.push((t, found.iterations));
+    (runs, refused)
+}
+
+/// A run of a Q-pair's grid with each turn of x(T) between its nodes ([`turn_of`]), ascending in T. A turn the search
+/// cannot reach (x refused inside the cells) is left out, as a refused node; its refusal is kept in `refused` if the
+/// first.
+fn with_turns(grid: &[Point], scan: &impl Fn(f64) -> Result<f64, Error>, refused: &mut Option<Error>) -> Vec<Point> {
+    let mut nodes = grid.to_vec();
+    for triple in grid.windows(3) {
+        if let [(t0, g0), (_, g1), (t2, g2)] = triple
+            && (g1 > g0) != (g2 > g1)
+        {
+            match turn_of(scan, *t0, *t2, g1 > g0) {
+                Ok(node) => nodes.push(node),
+                Err(e) => _ = refused.get_or_insert(e),
             }
         }
     }
-    roots.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let Some((t, iterations)) = choose(&roots, |r| r.0, opts.roots())? else {
-        return Err(refused.unwrap_or(Error::InvalidInput { quantity: var_name(var), value: var.input(x) }));
-    };
-    Ok(qt(fluid, q, t, opts)?.with_path(SolvePath { strategy: Strategy::Saturation, iterations }))
+    nodes.sort_by(|a, b| a.0.total_cmp(&b.0));
+    nodes
+}
+
+/// The roots of x(T) − x (`scan`) between a Q-pair's ascending `nodes`, added to `roots` with their iterations: TOMS
+/// 748 in each pair of adjacent nodes where x(T) − x is 0 or changes sign, polished on the EOS where the scan read the
+/// caloric curves (`polish_on`, [`polish`]).
+fn run_roots(
+    nodes: &[Point],
+    scan: &impl Fn(f64) -> Result<f64, Error>,
+    polish_on: Option<&impl Fn(f64) -> Result<f64, Error>>,
+    roots: &mut Vec<(f64, u16)>,
+) -> Result<(), Error> {
+    for pair in nodes.windows(2) {
+        let [(a, ga), (b, gb)] = pair else { continue };
+        if *ga != 0.0 && *gb != 0.0 && ga.is_sign_negative() == gb.is_sign_negative() {
+            continue;
+        }
+        let found = toms748(|t| scan(t).unwrap_or(f64::NAN), *a, *b, Tol::Relative(T_TOL), T_ITER);
+        let found = found.converged(Strategy::Saturation)?;
+        let t = match polish_on {
+            Some(exact) => polish(exact, found.x)?,
+            None => found.x,
+        };
+        // A root on a node (or a turn) closes the brackets either side of it; each returns that node exactly.
+        if !roots.iter().any(|(r, _)| r.to_bits() == t.to_bits()) {
+            roots.push((t, found.iterations));
+        }
+    }
+    Ok(())
 }
 
 /// The name a Q-pair's other input goes by.

@@ -53,7 +53,7 @@ exclude_re = [
     # first `||` a root exactly on the bracket's lower end still has ends of opposite sign unless x only touches it. And
     # without its caloric curves (`decode_caloric` giving none) a Q-pair scans QT's own state, as a pseudo-pure fluid's
     # does, and finds the same roots: the curves only make the scan cheaper (user decision CC2).
-    "flash\\.rs:[0-9]+:[0-9]+: replace > with >= in qx",
+    "flash\\.rs:[0-9]+:[0-9]+: replace > with >= in with_turns",
     "flash\\.rs:[0-9]+:[0-9]+: replace < with <= in turn_of",
     "flash\\.rs:[0-9]+:[0-9]+: replace \\|\\| with && in polish",
     "blob\\.rs:[0-9]+:[0-9]+: replace decode_caloric -> Result<Option<CaloricCurves>, LoadError> with Ok\\(None\\)",
