@@ -19,7 +19,6 @@ crates/phasekit-verify/src/fixture.rs Fixture::parse cog=30 nest=2 M7.9f: the ve
 crates/phasekit-verify/src/flash.rs FlashCheck::rows_where cog=26 nest=3 M7.9f: the verify library, one helper per section
 crates/phasekit-verify/src/majorant.rs Bound::mul cog=10 nest=4 M7.9f: the verify library, one helper per section
 crates/phasekit-verify/src/saturation.rs SaturationCheck::rows cog=20 nest=3 M7.9f: the verify library, one helper per section
-crates/phasekit-xtask/src/datagen/mod.rs tests::caloric_curves_match_the_eos_between_nodes cog=17 nest=5 M7.9d: moved to datagen/tests/ and flattened
 crates/phasekit-xtask/src/datagen/superanc.rs extrema cog=13 nest=4 M7.9f: xtask
 crates/phasekit-xtask/src/fluid.rs from_json cog=41 nest=3 M7.9f: one parser per section
 crates/phasekit-xtask/src/gates/assertions.rs check cog=26 nest=5 M7.9f: the gates' checks

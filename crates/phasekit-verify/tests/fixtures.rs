@@ -109,7 +109,7 @@ const CRIT_CORE: [(&str, &str); 14] = [
 /// §3.5). One row per fluid, 136 sorted by name; each core file's row is its all-tier row. CoolProp's `Ttriple` is its
 /// T_min (map 09 R8); the published and numerical critical points coincide for the 6 pseudo-pure fluids (no
 /// superancillary) and differ by at most 2.33 K elsewhere (R40: 416.3 vs 418.63 K; map 02 §3.6). The records' side
-/// is `phasekit_xtask::datagen::tests::published_constants_match_the_oracle_crit_rows`.
+/// is `phasekit_xtask::datagen::tests::mapping::published_constants_match_the_oracle_crit_rows`.
 #[test]
 fn crit_rows_cover_every_fluid_once() {
     let (path, text) = fixture!("coolprop-8.0.0/all/crit.csv");
