@@ -1140,7 +1140,23 @@ bands (map 03 §8; map 10 §8.5 L4).
   `FlashCheck::rows_where` and `SaturationCheck::rows`; xtask's `fluid.rs` `from_json` (218 lines, the workspace's
   longest function) as one parser per section, `gates/assertions.rs` `code_only` with one helper per token kind, and the
   gates' `check` functions still over the bar after M7.9a. *Done when:* as M7.9d, and datagen's generated files and
-  blobs bit-identical.
+  blobs bit-identical. Measured at M7.9f: the 15 exemptions gone, 2 left (`toms748` and Algorithm 748's test problems)
+  over 1 857 functions in 139 files, and `from_json`'s `too_many_lines` expectation with them (the robustness corpus's
+  data table keeps the last one): `Fixture::parse` at cognitive complexity 0 and nesting 0 (its sections `header_lines`
+  3/2, `required_keys` 6/1, `column_roles` 4/1, `row` 5/1, `checksum` 2/1), `FlashCheck::rows_where` 2/1 (`pair_row`
+  4/1, `outputs` 10/2), `SaturationCheck::rows` 9/2 (`sa_fit` 3/2, `seeded_vle` 3/1, which the mutants exclusion at
+  Θ = 1e-8 now names), `Bound::mul` 3/2 (`product` 3/2); `from_json` 0/0 over twelve section parsers, the largest
+  `eos_from` at 7/1; `extrema` 1/1 (`Scan::piece` 8/3); `gates assertions`' `check` 6/2 and `code_only` 5/2 (a helper
+  per token kind, at most 5/2); the `check` of `gates doc-excerpts` 9/3, `fixtures` 3/1, `ignores` 9/3 (`valid` 10/2)
+  and `rot` 8/2; `Repo::files` 10/3 and `Repo::criterion_results` 9/3; no function the step wrote or split is over 10/3.
+  The tests per binary are M7.9e's (`cargo nextest list` of verify and xtask identical, 306 with the ignored ones), and
+  datagen's 138 generated files are bit-identical. A scratch record, not committed, of every committed fixture's parse
+  (and of 14 broken variants of each), the core subset's flash checks (against the wrong fluid too, every failure path),
+  the saturation checks and 2 000 random `Bound` products is bit-identical to the parent commit's; scratch differentials
+  of each rewritten gate check, of `code_only` on every prefix and suffix of every source, of `from_json` on dumps
+  broken in every field and of the repository's walks agree with the old code. Four assertions pin what the gates did
+  but no test held: a GAP row while its milestone is open, an `allow` naming a lint that starts with `ignore`, a short
+  DIV id's message, and a second chunk's line.
 - **M7.10 Order-3 outputs.** *Failing tests:* `second_partials_match_oracle` (`second_partial_deriv`), Thorade &
   Saadat identities (class `Identity`), `fundamental_derivative_matches_oracle`, `kappa_and_beta_match_oracle`. *Do:*
   additive `Prop` variants via `ThermoModel::derivs` (ARCHITECTURE.md §3.7). Close M7: set `MILESTONE = 8`. *Done
