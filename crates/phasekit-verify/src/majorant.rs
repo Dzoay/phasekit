@@ -238,16 +238,23 @@ impl core::ops::Mul for Bound {
         let mut c = [0.0; 15];
         for n in 0..=4 {
             for i in 0..=n {
-                let j = n - i;
-                for a in 0..=i {
-                    for b in 0..=j {
-                        c[slot(i, j)] += self.c[slot(a, b)] * other.c[slot(i - a, j - b)];
-                    }
-                }
+                c[slot(i, n - i)] = product(&self.c, &other.c, i, n - i);
             }
         }
         Bound { value: self.value * other.value, c }
     }
+}
+
+/// Entry `(i, j)` of the product of two bounds' summands `x` and `y`: Σ x(a, b)·y(i − a, j − b) over a ≤ i and b ≤ j,
+/// summed from 0 in that order.
+fn product(x: &[f64; 15], y: &[f64; 15], i: usize, j: usize) -> f64 {
+    let mut sum = 0.0;
+    for a in 0..=i {
+        for b in 0..=j {
+            sum += x[slot(a, b)] * y[slot(i - a, j - b)];
+        }
+    }
+    sum
 }
 
 /// The `Term` scale of entry `(i, j)` of a non-analytic term `n Δ^b δ ψ` (Span & Wagner 1996, Wagner & Pruß 2002)

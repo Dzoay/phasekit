@@ -85,72 +85,86 @@ impl FlashCheck {
         (fluid, record): (&Fluid, &FluidRecord),
         keep: impl Fn(usize) -> bool,
     ) {
-        let path = name;
-        let Some(Setup { eos, ideal, r, molar_mass: m, .. }) = Setup::of(fluid, record) else {
-            self.failures.push(format!("{path}: not a Helmholtz fluid"));
+        let Some(setup) = Setup::of(fluid, record) else {
+            self.failures.push(format!("{name}: not a Helmholtz fluid"));
             return;
         };
-        let label = |row: usize, column: &str| fixture.printed(row, column).unwrap_or_default();
         for row in (0..fixture.rows().len()).filter(|&row| keep(row)) {
-            let number = |column: &str| fixture.value(row, column).unwrap_or(f64::NAN);
-            let (x1, t) = (number("x1"), number("x2"));
-            let input = match (label(row, "pair"), label(row, "status")) {
-                ("DT", "ok") => Density::molar(x1).and_then(|d| Ok(Input::dt(d, Temperature::new(t)?))),
-                ("PT", "ok") => Pressure::new(x1).and_then(|p| Ok(Input::pt(p, Temperature::new(t)?))),
-                _ => {
-                    self.failures.push(format!("{path} row {row}: not an ok DT or PT row"));
-                    continue;
-                }
+            self.pair_row((fixture, name, row), fluid, &setup);
+        }
+    }
+
+    /// Row `row` of `fixture`, one of `name`'s: its state from its pair, DT or PT with status `ok`, then the state's
+    /// phase, outputs and quality against the oracle's.
+    fn pair_row(&mut self, (fixture, name, row): (&Fixture<'_>, &str, usize), fluid: &Fluid, setup: &Setup<'_>) {
+        let label = |column: &str| fixture.printed(row, column).unwrap_or_default();
+        let number = |column: &str| fixture.value(row, column).unwrap_or(f64::NAN);
+        let (x1, t) = (number("x1"), number("x2"));
+        let input = match (label("pair"), label("status")) {
+            ("DT", "ok") => Density::molar(x1).and_then(|d| Ok(Input::dt(d, Temperature::new(t)?))),
+            ("PT", "ok") => Pressure::new(x1).and_then(|p| Ok(Input::pt(p, Temperature::new(t)?))),
+            _ => {
+                self.failures.push(format!("{name} row {row}: not an ok DT or PT row"));
+                return;
+            }
+        };
+        let state = match input.and_then(|input| fluid.state(input)) {
+            Ok(state) => state,
+            Err(e) => {
+                self.failures.push(format!("{name} row {row} ({} {x1}, {t} K): {e:?}", label("pair")));
+                return;
+            }
+        };
+        self.compared += 1;
+        if label("phase") != coolprop_name(state.phase()) {
+            self.failures.push(format!("{name} row {row}: {:?}, oracle {}", state.phase(), label("phase")));
+        }
+        self.outputs((fixture, name, row), setup, &state);
+        let q = number("Q");
+        match state.quality() {
+            Some(got) if (got - q).abs() <= ToleranceClass::FLASH_QUALITY => self.two_phase += 1,
+            None if q.is_nan() => {}
+            got => self.failures.push(format!("{name} row {row}: Q {got:?}, oracle {q}")),
+        }
+    }
+
+    /// The outputs of `state`, row `row`'s, at the row's T: a PT row's ρ, then p, h, s and u but the cells the register
+    /// exempts, each within class `Flash`, or a single-phase state's within the `Term` bound carried through its
+    /// relation where that is larger.
+    fn outputs(&mut self, (fixture, name, row): (&Fixture<'_>, &str, usize), setup: &Setup<'_>, state: &State) {
+        let label = |column: &str| fixture.printed(row, column).unwrap_or_default();
+        let number = |column: &str| fixture.value(row, column).unwrap_or(f64::NAN);
+        let (t, rho, r) = (number("x2"), state.rho(Basis::Molar), setup.r);
+        let single = state.quality().is_none();
+        let bundle = (setup.eos.ideal(t, rho, Order::Two) + setup.eos.residual(t, rho, Order::Two)).bundle();
+        let majorants = setup.majorants(t, rho);
+        let b = Basis::Molar;
+        let columns = [
+            ("p", state.p(), 0.0, "p"),
+            ("h", state.h(b), r * t, "hmolar"),
+            ("s", state.s(b), r, "smolar"),
+            ("u", state.u(b), r * t, "umolar"),
+        ];
+        if label("pair") == "PT" {
+            let bound = ToleranceClass::Flash.bound(number("rho").abs());
+            if let Err(e) = fixture.check_bound(row, "rho", rho, bound.unwrap_or(0.0)) {
+                self.failures.push(format!("{e:?}"));
+            }
+        }
+        for (column, got, floor, relation) in columns {
+            let key = RowKey { t, input: Some(label("pair")), two_phase: !single };
+            if exempt_row(DIVERGENCES, name, Kind::Flash, column, key).is_some() {
+                self.exempt += 1;
+                continue;
+            }
+            let want = number(column);
+            let spread = match (single, &bundle) {
+                (true, Some(bundle)) => carried(relation, bundle, &majorants, r, t, rho, setup.molar_mass),
+                _ => f64::NAN,
             };
-            let state = match input.and_then(|input| fluid.state(input)) {
-                Ok(state) => state,
-                Err(e) => {
-                    self.failures.push(format!("{path} row {row} ({} {x1}, {t} K): {e:?}", label(row, "pair")));
-                    continue;
-                }
-            };
-            let rho = state.rho(Basis::Molar);
-            self.compared += 1;
-            if label(row, "phase") != coolprop_name(state.phase()) {
-                self.failures.push(format!("{path} row {row}: {:?}, oracle {}", state.phase(), label(row, "phase")));
-            }
-            let single = state.quality().is_none();
-            let bundle = (eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two)).bundle();
-            let majorants = Majorants::at(record, &ideal, t, rho);
-            let b = Basis::Molar;
-            let columns = [
-                ("p", state.p(), 0.0, "p"),
-                ("h", state.h(b), r * t, "hmolar"),
-                ("s", state.s(b), r, "smolar"),
-                ("u", state.u(b), r * t, "umolar"),
-            ];
-            if label(row, "pair") == "PT" {
-                let bound = ToleranceClass::Flash.bound(number("rho").abs());
-                if let Err(e) = fixture.check_bound(row, "rho", rho, bound.unwrap_or(0.0)) {
-                    self.failures.push(format!("{e:?}"));
-                }
-            }
-            for (column, got, floor, relation) in columns {
-                let key = RowKey { t, input: Some(label(row, "pair")), two_phase: !single };
-                if exempt_row(DIVERGENCES, name, Kind::Flash, column, key).is_some() {
-                    self.exempt += 1;
-                    continue;
-                }
-                let want = number(column);
-                let spread = match (single, &bundle) {
-                    (true, Some(bundle)) => carried(relation, bundle, &majorants, r, t, rho, m),
-                    _ => f64::NAN,
-                };
-                let bound = ToleranceClass::Flash.bound_carried(want.abs().max(floor), Window::Regular, spread);
-                if let Err(e) = fixture.check_bound(row, column, got, bound.unwrap_or(0.0)) {
-                    self.failures.push(format!("{e:?}"));
-                }
-            }
-            let q = number("Q");
-            match state.quality() {
-                Some(got) if (got - q).abs() <= ToleranceClass::FLASH_QUALITY => self.two_phase += 1,
-                None if q.is_nan() => {}
-                got => self.failures.push(format!("{path} row {row}: Q {got:?}, oracle {q}")),
+            let bound = ToleranceClass::Flash.bound_carried(want.abs().max(floor), Window::Regular, spread);
+            if let Err(e) = fixture.check_bound(row, column, got, bound.unwrap_or(0.0)) {
+                self.failures.push(format!("{e:?}"));
             }
         }
     }

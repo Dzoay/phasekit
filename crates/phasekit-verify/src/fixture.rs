@@ -3,6 +3,8 @@
 //! the reader recomputes (the M1 "fixture round trip bit-exact" gate). A violation of any rule is an error, never a
 //! skipped row. Committed fixtures are read with `include_str!`, so `Fixture<'static>` borrows from the binary.
 
+use std::iter::Peekable;
+
 use crate::tolerance::{Provenance, ToleranceClass, Window};
 
 /// The header keys in the only order they may appear (VERIFICATION.md §3.3).
@@ -160,94 +162,32 @@ pub enum CheckError {
 impl<'a> Fixture<'a> {
     /// Parses `text`, read from `name`.
     pub fn parse(name: &'a str, text: &'a str) -> Result<Self, FixtureError> {
-        let error = |line: usize, message: String| FixtureError { fixture: name.to_string(), line, message };
+        let fixture = Self::parse_lines(name, text);
+        fixture.map_err(|(line, message)| FixtureError { fixture: name.to_string(), line, message })
+    }
+
+    /// [`Self::parse`], the first rule broken as its line and message: the header, its keys, the columns, the rows and
+    /// the checksum, in that order.
+    fn parse_lines(name: &'a str, text: &'a str) -> Result<Self, Broken> {
         if text.contains('\r') {
-            return Err(error(0, "lines end in LF only".to_string()));
+            return Err((0, "lines end in LF only".to_string()));
         }
         let paper = text.starts_with("# fixture: paper/v1\n");
         let keys: &[&str] = if paper { &PAPER_KEYS } else { &KEYS };
         let mut lines = text.lines().enumerate().map(|(i, line)| (i + 1, line)).peekable();
-        let mut header: Vec<(&'a str, &'a str)> = Vec::new();
-        while let Some((n, line)) = lines.next_if(|(_, line)| line.starts_with('#')) {
-            let (key, value) = line
-                .strip_prefix("# ")
-                .and_then(|rest| rest.split_once(": "))
-                .ok_or_else(|| error(n, format!("a header line is `# key: value`, got `{line}`")))?;
-            let position = keys
-                .iter()
-                .position(|known| *known == key)
-                .ok_or_else(|| error(n, format!("unknown header key `{key}`")))?;
-            if header.last().and_then(|(last, _)| keys.iter().position(|known| known == last)) >= Some(position) {
-                return Err(error(n, format!("`{key}` repeats or is out of order; the order is {}", keys.join(", "))));
-            }
-            header.push((key, value));
-        }
-        let get = |key: &str| header.iter().find(|(k, _)| *k == key).map(|(_, v)| *v);
-        let source = get("source").unwrap_or_default();
-        let oracle_keys: &[&str] = if source == "coolprop" { &REQUIRED_FROM_ORACLE } else { &[] };
-        let required: &[&str] = if paper { &PAPER_REQUIRED } else { &REQUIRED };
-        if let Some(key) = required.iter().chain(oracle_keys).find(|key| get(key).is_none()) {
-            return Err(error(0, format!("header key `{key}` is required")));
-        }
-        match parse_source(source) {
-            None => return Err(error(0, format!("unknown source `{source}`"))),
-            Some(Origin::Paper { .. } | Origin::Iapws { .. }) => {}
-            Some(_) if paper => {
-                return Err(error(0, format!("a printed table's source is paper: or iapws:, not `{source}`")));
-            }
-            Some(_) => {}
-        }
-        let kind = get("fixture")
+        let header = header_lines(&mut lines, keys)?;
+        required_keys(&header, paper)?;
+        let kind = lookup(&header, "fixture")
             .and_then(|f| f.strip_suffix("/v1"))
             .filter(|kind| !kind.is_empty() && !kind.contains('/'))
-            .ok_or_else(|| error(0, "the format is `fixture: <kind>/v1`".to_string()))?;
-        let columns: Vec<&'a str> = get("columns").unwrap_or_default().split(',').collect();
-        let roles = get("tol")
-            .unwrap_or_default()
-            .split(',')
-            .map(|tol| match tol {
-                "in" => Some(ColumnRole::Input),
-                "label" => Some(ColumnRole::Label),
-                class => ToleranceClass::from_name(class).map(ColumnRole::Output),
-            })
-            .collect::<Option<Vec<_>>>()
-            .ok_or_else(|| error(0, "a `tol` entry is `in`, `label` or a class of VERIFICATION.md §5".to_string()))?;
-        let units = get("units").map_or(columns.len(), |units| units.split(',').count());
-        if columns.iter().any(|c| c.is_empty()) || roles.len() != columns.len() || units != columns.len() {
-            return Err(error(0, "`columns`, `units` and `tol` name every column once".to_string()));
-        }
+            .ok_or_else(|| (0, "the format is `fixture: <kind>/v1`".to_string()))?;
+        let (columns, roles) = column_roles(&header)?;
         let status = columns.iter().position(|c| *c == "status");
-        let mut rows = Vec::new();
-        for (n, line) in lines {
-            let cells: Vec<&'a str> = line.split(',').collect();
-            if cells.len() != columns.len() {
-                return Err(error(n, format!("{} cells, but {} columns", cells.len(), columns.len())));
-            }
-            if let Some(status) = status.and_then(|i| cells.get(i)).filter(|s| !valid_status(s)) {
-                return Err(error(n, format!("status `{status}` is not `ok` or `err:<class>`")));
-            }
-            let cells = cells
-                .iter()
-                .zip(&roles)
-                .map(|(cell, role)| match role {
-                    ColumnRole::Label => Some(Cell::Text(cell)),
-                    ColumnRole::Output(_) if paper && cell.is_empty() => Some(Cell::Blank),
-                    _ => parse_float(cell).map(Cell::Num),
-                })
-                .collect::<Option<Vec<_>>>()
-                .ok_or_else(|| error(n, format!("a float cell is not a Python repr: `{line}`")))?;
-            rows.push(Row { line: n, cells, printed: line.split(',').collect() });
-        }
+        let rows = lines.map(|(n, line)| row((n, line), &roles, status, paper)).collect::<Result<Vec<_>, _>>()?;
         if rows.is_empty() {
-            return Err(error(0, "no data rows".to_string()));
+            return Err((0, "no data rows".to_string()));
         }
-        if let Some(bits) = get("bits") {
-            let want = bits.strip_prefix("fnv1a64=").and_then(|hex| u64::from_str_radix(hex, 16).ok());
-            let got = fnv1a64(&rows);
-            if want != Some(got) {
-                return Err(error(0, format!("bits: the file says `{bits}`, the cells give fnv1a64={got:016x}")));
-            }
-        }
+        checksum(lookup(&header, "bits"), &rows)?;
         Ok(Fixture { name, kind, header, columns, roles, rows })
     }
 
@@ -258,7 +198,7 @@ impl<'a> Fixture<'a> {
 
     /// A header value.
     pub fn header(&self, key: &str) -> Option<&'a str> {
-        self.header.iter().find(|(k, _)| *k == key).map(|(_, v)| *v)
+        lookup(&self.header, key)
     }
 
     /// The column names.
@@ -391,6 +331,111 @@ enum Origin<'a> {
     Paper { citation: &'a str, table: &'a str },
     Iapws { release: &'a str },
     MultiPrecision { source: &'a str },
+}
+
+/// A rule of the format that the text breaks: its 1-based line, 0 for the file as a whole, and what is wrong.
+type Broken = (usize, String);
+
+/// The value of `key` in `header`.
+fn lookup<'a>(header: &[(&'a str, &'a str)], key: &str) -> Option<&'a str> {
+    header.iter().find(|(k, _)| *k == key).map(|(_, v)| *v)
+}
+
+/// The leading `# key: value` lines of `lines`, each key one of `keys`, once and in their order.
+fn header_lines<'a>(
+    lines: &mut Peekable<impl Iterator<Item = (usize, &'a str)>>,
+    keys: &[&str],
+) -> Result<Vec<(&'a str, &'a str)>, Broken> {
+    let mut header: Vec<(&'a str, &'a str)> = Vec::new();
+    while let Some((n, line)) = lines.next_if(|(_, line)| line.starts_with('#')) {
+        let (key, value) = line
+            .strip_prefix("# ")
+            .and_then(|rest| rest.split_once(": "))
+            .ok_or_else(|| (n, format!("a header line is `# key: value`, got `{line}`")))?;
+        let position =
+            keys.iter().position(|known| *known == key).ok_or_else(|| (n, format!("unknown header key `{key}`")))?;
+        if header.last().and_then(|(last, _)| keys.iter().position(|known| known == last)) >= Some(position) {
+            return Err((n, format!("`{key}` repeats or is out of order; the order is {}", keys.join(", "))));
+        }
+        header.push((key, value));
+    }
+    Ok(header)
+}
+
+/// The keys `header` must have (a printed table's if `paper`; an oracle fixture's besides) and a known `source:`, a
+/// printed table's a paper or an IAPWS release.
+fn required_keys(header: &[(&str, &str)], paper: bool) -> Result<(), Broken> {
+    let source = lookup(header, "source").unwrap_or_default();
+    let oracle_keys: &[&str] = if source == "coolprop" { &REQUIRED_FROM_ORACLE } else { &[] };
+    let required: &[&str] = if paper { &PAPER_REQUIRED } else { &REQUIRED };
+    if let Some(key) = required.iter().chain(oracle_keys).find(|key| lookup(header, key).is_none()) {
+        return Err((0, format!("header key `{key}` is required")));
+    }
+    match parse_source(source) {
+        None => Err((0, format!("unknown source `{source}`"))),
+        Some(Origin::Paper { .. } | Origin::Iapws { .. }) => Ok(()),
+        Some(_) if paper => Err((0, format!("a printed table's source is paper: or iapws:, not `{source}`"))),
+        Some(_) => Ok(()),
+    }
+}
+
+/// The names of `columns:` and their roles from `tol:`, each with its entry in `units:`.
+fn column_roles<'a>(header: &[(&'a str, &'a str)]) -> Result<(Vec<&'a str>, Vec<ColumnRole>), Broken> {
+    let columns: Vec<&'a str> = lookup(header, "columns").unwrap_or_default().split(',').collect();
+    let roles = lookup(header, "tol")
+        .unwrap_or_default()
+        .split(',')
+        .map(|tol| match tol {
+            "in" => Some(ColumnRole::Input),
+            "label" => Some(ColumnRole::Label),
+            class => ToleranceClass::from_name(class).map(ColumnRole::Output),
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| (0, "a `tol` entry is `in`, `label` or a class of VERIFICATION.md §5".to_string()))?;
+    let units = lookup(header, "units").map_or(columns.len(), |units| units.split(',').count());
+    if columns.iter().any(|c| c.is_empty()) || roles.len() != columns.len() || units != columns.len() {
+        return Err((0, "`columns`, `units` and `tol` name every column once".to_string()));
+    }
+    Ok((columns, roles))
+}
+
+/// The data row on line `n`: a cell per column of `roles`, its `status` cell (if any) `ok` or `err:<class>`, and
+/// every cell but a label's a float or, in a printed table's output, blank.
+fn row<'a>(
+    (n, line): (usize, &'a str),
+    roles: &[ColumnRole],
+    status: Option<usize>,
+    paper: bool,
+) -> Result<Row<'a>, Broken> {
+    let cells: Vec<&'a str> = line.split(',').collect();
+    if cells.len() != roles.len() {
+        return Err((n, format!("{} cells, but {} columns", cells.len(), roles.len())));
+    }
+    if let Some(status) = status.and_then(|i| cells.get(i)).filter(|s| !valid_status(s)) {
+        return Err((n, format!("status `{status}` is not `ok` or `err:<class>`")));
+    }
+    let cells = cells
+        .iter()
+        .zip(roles)
+        .map(|(cell, role)| match role {
+            ColumnRole::Label => Some(Cell::Text(cell)),
+            ColumnRole::Output(_) if paper && cell.is_empty() => Some(Cell::Blank),
+            _ => parse_float(cell).map(Cell::Num),
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| (n, format!("a float cell is not a Python repr: `{line}`")))?;
+    Ok(Row { line: n, cells, printed: line.split(',').collect() })
+}
+
+/// The `bits:` checksum, where the header has one, against the FNV-1a of the float cells of `rows`.
+fn checksum(bits: Option<&str>, rows: &[Row<'_>]) -> Result<(), Broken> {
+    let Some(bits) = bits else { return Ok(()) };
+    let want = bits.strip_prefix("fnv1a64=").and_then(|hex| u64::from_str_radix(hex, 16).ok());
+    let got = fnv1a64(rows);
+    if want != Some(got) {
+        return Err((0, format!("bits: the file says `{bits}`, the cells give fnv1a64={got:016x}")));
+    }
+    Ok(())
 }
 
 fn parse_source(source: &str) -> Option<Origin<'_>> {

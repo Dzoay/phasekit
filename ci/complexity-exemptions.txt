@@ -4,10 +4,6 @@
 # An entry whose function is under the bars, over its ceilings or gone fails the gate: the list only shrinks.
 crates/phasekit-core/src/roots.rs toms748 cog=29 nest=3 stays: TOMS 748 as printed (Alefeld, Potra & Shi 1995, Algorithm 748), step for step
 crates/phasekit-core/src/roots/aps.rs problem cog=18 nest=2 stays: a data table, the 28 test problems as Algorithm 748's driver defines them
-crates/phasekit-verify/src/fixture.rs Fixture::parse cog=30 nest=2 M7.9f: the verify library, one helper per section
-crates/phasekit-verify/src/flash.rs FlashCheck::rows_where cog=26 nest=3 M7.9f: the verify library, one helper per section
-crates/phasekit-verify/src/majorant.rs Bound::mul cog=10 nest=4 M7.9f: the verify library, one helper per section
-crates/phasekit-verify/src/saturation.rs SaturationCheck::rows cog=20 nest=3 M7.9f: the verify library, one helper per section
 crates/phasekit-xtask/src/datagen/superanc.rs extrema cog=13 nest=4 M7.9f: xtask
 crates/phasekit-xtask/src/fluid.rs from_json cog=41 nest=3 M7.9f: one parser per section
 crates/phasekit-xtask/src/gates/assertions.rs check cog=26 nest=5 M7.9f: the gates' checks
