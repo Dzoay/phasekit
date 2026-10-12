@@ -5,8 +5,8 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::internal::FluidRecord;
-use phasekit_core::{Basis, DataSet, DerivVar, Partial, Registry, State};
-use phasekit_verify::eos::{self, EosCheck, IdentityCheck};
+use phasekit_core::{Basis, DataSet, DerivVar, Fluid, Partial, Prop, Registry, SecondPartial, State};
+use phasekit_verify::eos::{self, EosCheck, IdentityCheck, OrderThree};
 use phasekit_verify::{Cell, Fixture, ToleranceClass, Window, fixture};
 
 /// The decoded `Parity` record of `name`.
@@ -182,6 +182,104 @@ fn cp0_and_residual_parts_match_oracle() {
     let check = m5_5_columns(true);
     assert_eq!(check.checked, (14 * 500 + 136 * 8) * 4);
     assert_eq!(check.report(30), None);
+}
+
+fn order_three_columns(which: OrderThree) -> EosCheck {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut check = EosCheck::default();
+    for (path, text) in eos::CORE_FILES {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
+        let rows: Vec<usize> = (0..fixture.rows().len()).collect();
+        check.order_three_rows(which, &fixture, &rows, registry.get(name).unwrap(), &record(&registry, name));
+    }
+    let (path, text) = fixture!("coolprop-8.0.0/all/eos.csv");
+    let fixture = Fixture::parse(path, text).unwrap();
+    for (name, rows) in &by_fluid(&fixture) {
+        check.order_three_rows(which, &fixture, rows, registry.get(name).unwrap(), &record(&registry, name));
+    }
+    check
+}
+
+/// Oracle: CoolProp 8.0.0 `second_partial_deriv`, the `eos` fixtures' 10 second partials (PLAN.md M7.10;
+/// `eos::second_partials`) at 8,088 states, through `Fluid::prop`. Class `Prop`, floor |X|/(|Y|·|W|), with the
+/// order-3 bundle's `Term` scales carried through the twice-differentiated Jacobian ratio.
+#[test]
+fn second_partials_match_oracle() {
+    let check = order_three_columns(OrderThree::SecondPartials);
+    assert_eq!(check.checked, (14 * 500 + 136 * 8) * 10);
+    assert_eq!(check.report(30), None);
+}
+
+/// Oracle: CoolProp 8.0.0 `fundamental_derivative_of_gas_dynamics` at the `eos` fixtures' 8,088 states (PLAN.md M7.10):
+/// Γ = 1 + ρ(∂²p/∂ρ²)_s/(2(∂p/∂ρ)_s), refused where w² ≤ 0 as the oracle's is nan there. Class `Prop`, floor 1.
+#[test]
+fn fundamental_derivative_matches_oracle() {
+    let check = order_three_columns(OrderThree::Fundamental);
+    assert_eq!(check.checked, 14 * 500 + 136 * 8);
+    assert_eq!(check.report(30), None);
+}
+
+/// Oracle: CoolProp 8.0.0 `isothermal_compressibility` and `isobaric_expansion_coefficient` at the `eos` fixtures'
+/// 8,088 states (PLAN.md M7.10): κ_T = (1/ρ)(∂ρ/∂p)_T and β = −(1/ρ)(∂ρ/∂T)_p from the order-2 bundle. Class `Prop`,
+/// floors 1/|p| and 1/T.
+#[test]
+fn kappa_and_beta_match_oracle() {
+    let check = order_three_columns(OrderThree::KappaBeta);
+    assert_eq!(check.checked, (14 * 500 + 136 * 8) * 2);
+    assert_eq!(check.report(30), None);
+}
+
+fn order_three_identities(check: &mut IdentityCheck, at: &str, fluid: &Fluid, state: &State, window: Window) {
+    use DerivVar::{Dmolar, P, Smolar, T};
+    let molar = Basis::Molar;
+    let (t, rho) = (state.t(), state.rho(molar));
+    let d = |of, wrt, at| state.partial(Partial { of, wrt, at }).unwrap();
+    let d2 = |of, wrt, at, wrt2, at2| {
+        let p = SecondPartial { first: Partial { of, wrt, at }, wrt: wrt2, at: at2 };
+        fluid.prop(state, Prop::SecondPartial(p)).unwrap()
+    };
+    let mut id = |name: &str, sides: (f64, f64), terms: &[f64]| check.check(at, name, sides, terms, window);
+    let p_tt = d2(P, T, Dmolar, T, Dmolar);
+    id("∂²p/∂T∂ρ = ∂²p/∂ρ∂T", (d2(P, T, Dmolar, Dmolar, T), d2(P, Dmolar, T, T, Dmolar)), &[]);
+    id("∂²s/∂ρ∂T = −(∂²p/∂T²)_ρ/ρ²", (d2(Smolar, Dmolar, T, T, Dmolar), -p_tt / (rho * rho)), &[]);
+    id("(∂cv/∂ρ)_T = −T(∂²p/∂T²)_ρ/ρ²", (t * d2(Smolar, T, Dmolar, Dmolar, T), -t * p_tt / (rho * rho)), &[]);
+    let (rho_t, rho_tt) = (d(Dmolar, T, P), d2(Dmolar, T, P, T, P));
+    let v_tt = [-rho_tt / (rho * rho), 2.0 * rho_t * rho_t / (rho * rho * rho)];
+    id("(∂cp/∂p)_T = −T(∂²v/∂T²)_p", (t * d2(Smolar, T, P, P, T), -t * (v_tt[0] + v_tt[1])), &v_tt.map(|v| t * v));
+    let (kappa, beta) = (state.isothermal_compressibility().unwrap(), state.isobaric_expansion().unwrap());
+    id("β/κ_T = (∂p/∂T)_ρ", (beta / kappa, d(P, T, Dmolar)), &[]);
+    let (Ok(cv), Ok(cp)) = (state.cv(molar), state.cp(molar)) else { return };
+    id("cp − cv = Tβ²/(ρκ_T)", (cp - cv, t * beta * beta / (rho * kappa)), &[cp, cv]);
+    if let Ok(w) = state.speed_of_sound() {
+        id("κ_T·ρ·w² = cp/cv", (kappa * state.rho(Basis::Mass) * w * w, cp / cv), &[]);
+    }
+}
+
+/// Identity (VERIFICATION.md §8.1, PLAN.md M7.10, user decision on the order-3 identities): the second partials, κ_T
+/// and β against relations no oracle is needed for, at the 500 (T, ρ) of every core fluid's `eos` grid, the phase
+/// imposed: the mixed second partial of p, Maxwell's (∂s/∂ρ)_T differentiated in T, (∂cv/∂ρ)_T and (∂cp/∂p)_T from the
+/// second partials of s against those of p and v, and β/κ_T = (∂p/∂T)_ρ, cp − cv = Tβ²/(ρκ_T) and κ_T·ρ·w² = cp/cv
+/// where cp, cv and w are defined. Class `Identity`: 1e-12 of the largest term, 1e-8 in the near-critical window.
+#[test]
+fn order_three_identities_hold() {
+    let registry = Registry::embedded().unwrap();
+    let mut check = IdentityCheck::default();
+    for (path, text) in eos::CORE_FILES {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
+        let fluid = registry.get(name).unwrap();
+        let critical = fluid.model().critical_point().unwrap();
+        for row in 0..fixture.rows().len() {
+            let (t, rho) = (fixture.value(row, "T").unwrap(), fixture.value(row, "rhomolar").unwrap());
+            let state = eos::state(fluid, t, rho).unwrap();
+            let at = format!("{name} at {t} K, {rho} mol/m³");
+            order_three_identities(&mut check, &at, fluid, &state, Window::at(t, rho, critical.t, critical.rho));
+        }
+    }
+    // Five at each of the 7,000 states, cp − cv where cp and cv are defined, κ_T·ρ·w² where w is too.
+    assert_eq!(check.checked, 48_658);
+    assert_eq!(check.report(20), None);
 }
 
 /// VERIFICATION.md §8.3, class `Fd` (1e-7, relative step 1e-5): A10 and A01 of every core fluid's residual part against
