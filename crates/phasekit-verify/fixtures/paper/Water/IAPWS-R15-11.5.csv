@@ -1,0 +1,17 @@
+# fixture: paper/v1
+# source: iapws:R15-11/5
+# citation: report=IAPWS-R15-11 table=5 page=10 erratum-checked=2026-10-12 pdf_sha256=08e0e6114fa2a4d66dd642b3c127acea541c5b09d73abc4a8c5260c2bbeb2f78
+# kind: Rows
+# constants: lambda0(647.35 K)=51.5764797 (caption)
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,rho,lambda1,lambda2,lambda
+# units: K,kg/m3,-,-,mW/(m K)
+# tol: in,in,paper,paper,paper
+647.35,1,1.0068497,0.0001300,51.9298924
+647.35,122,2.1445173,20.3162320,130.922885
+647.35,222,3.4840736,188.091206,367.787459
+647.35,272,4.2233708,540.133176,757.959776
+647.35,322,4.9681953,1187.51354,1443.75556
+647.35,372,5.6961250,356.53333,650.319402
+647.35,422,6.3973429,118.931062,448.883487
+647.35,750,11.5870532,3.3419303,600.961346

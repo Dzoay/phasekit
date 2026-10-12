@@ -83,6 +83,18 @@ const PAPERS: &[(Text, Text)] = &[
         fixture!("paper/R1243zf/Akasaka-IJT-2025-R1243zf.6.csv"),
         fixture!("paper/R1243zf/Akasaka-IJT-2025-R1243zf.6.check.csv"),
     ),
+    (fixture!("paper/Water/IAPWS-R12-08.4.csv"), fixture!("paper/Water/IAPWS-R12-08.4.check.csv")),
+    (fixture!("paper/Water/IAPWS-R12-08.5.csv"), fixture!("paper/Water/IAPWS-R12-08.5.check.csv")),
+    (fixture!("paper/Water/IAPWS-R15-11.4.csv"), fixture!("paper/Water/IAPWS-R15-11.4.check.csv")),
+    (fixture!("paper/Water/IAPWS-R15-11.5.csv"), fixture!("paper/Water/IAPWS-R15-11.5.check.csv")),
+    (fixture!("paper/Water/IAPWS-R1-76-2014.1.csv"), fixture!("paper/Water/IAPWS-R1-76-2014.1.check.csv")),
+    (fixture!("paper/Water/IAPWS-R14-08-2011.3.csv"), fixture!("paper/Water/IAPWS-R14-08-2011.3.check.csv")),
+    (
+        fixture!("paper/HeavyWater/Herrig-JPCRD-2019.S3-4.csv"),
+        fixture!("paper/HeavyWater/Herrig-JPCRD-2019.S3-4.check.csv"),
+    ),
+    (fixture!("paper/HeavyWater/IAPWS-R4-84-2007.A5.csv"), fixture!("paper/HeavyWater/IAPWS-R4-84-2007.A5.check.csv")),
+    (fixture!("paper/HeavyWater/IAPWS-R4-84-2007.B4.csv"), fixture!("paper/HeavyWater/IAPWS-R4-84-2007.B4.check.csv")),
 ];
 
 const REUSE: &str = include_str!("../../../REUSE.toml");

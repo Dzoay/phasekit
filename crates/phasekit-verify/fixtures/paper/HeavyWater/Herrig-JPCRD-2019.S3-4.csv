@@ -1,0 +1,13 @@
+# fixture: paper/v1
+# source: paper:Herrig-JPCRD-2019/S3.4
+# citation: doi=10.1063/1.5053993 table=S3.4 page=7 erratum-checked=2026-10-12 pdf_sha256=c9926347315c2e0ed1f086c4ba1b318831638e7456f29af23dfe8729463f8bde
+# kind: Rows
+# constants: Tn,pn per ice: Ih 276.969 K 0.00066159 MPa; III 254.415 K 222.41 MPa; V 258.661 K 352.19 MPa; VI 275.748 K 634.53 MPa
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,p,note
+# units: K,MPa,-
+# tol: in,paper,label
+270,0.837888413e2,ice Ih Eq. (4)
+255,0.236470168e3,ice III Eq. (5)
+275,0.619526971e3,ice V Eq. (6)
+300,0.959203594e3,ice VI Eq. (7)

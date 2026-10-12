@@ -382,13 +382,13 @@ Procedure (`tests/arbiters.rs`, on the mutable `FluidRecord` seam, ARCHITECTURE.
 |---|---|---|---|---|
 | Water α | IAPWS R6-95(2018) α table, 500 K, 838.025 kg/m³ ("Table 6") | K1 | oracle ≤ 2.9e-9; `SelfConsistent` at M4.5 (Tables 6 and 7, both constant sets) | M4 |
 | Water properties | IAPWS-95 (T, ρ) table ("Table 7"), saturation table ("Table 8") | K2, K3 | ≤ 2.6e-9 (K2); Table 7 within its printed digits at M4.5 through `State::from_total`; Table 8 within its printed digits at M6.10 from the EOS's VLE, with both constant sets | M4.5 (Table 7), M6.10 (Table 8) |
-| Water η, λ, melting, σ | IAPWS R12-08, R15-11, R14-08, R1-76(2014) | rows | R14-08 decides DIV-0002; CoolProp's σ is Mulero 2012, so IAPWS σ is a separate labelled comparison (map 10 §8.4) | M8 |
+| Water η, λ, melting, σ | IAPWS R12-08 Tables 4, 5; R15-11 Tables 4, 5; R14-08(2011) Table 3; R1-76(2014) Table 1, column (4) | rows | `Transcribed` at M8.2 (11 + 6, 4 + 8, 6 and 75 rows); R14-08 decides DIV-0002; CoolProp's σ is Mulero 2012, so IAPWS σ is a separate labelled comparison (map 10 §8.4) | M8 |
 | R227EA, R365MFC, R115, R13I1 | Lemmon et al. 2016 Table 7 (OA), 12 states | K2 | oracle ≤ 4.3e-7, within 7 digits | M5 |
 | R1234ze(E) | Thol et al. 2016 Table 3 (OA) | K2 | DIV-0001 | M5 |
 | Helium | NIST IR 8474 Tables 3, 4 (OA) | K2, K3 | `Inconsistent`; DIV-0005 at 5e-7 | M5, M6 |
 | R1234yf | Lemmon & Akasaka 2022 Table 7 (6 states, in CoolProp's tests) | K2 | part of the 18 CoolProp test states, of whose 68 values 67 are within half a digit (map 10 §8.1) | M5 |
 | 12 one-row fluids (R1130(E) among them) | `CoolProp-Tests.cpp:4798-4815` rows (map 10 §8.1), re-checked against the papers where obtainable | K2 | R1224YDZ p fails (DIV-0014) | M5 |
-| HeavyWater | IAPWS R16-17; IAPWS D2O transport; Herrig 2018 melting | K1/K2, rows | expected | M5, M8 |
+| HeavyWater | IAPWS R16-17; IAPWS R4-84(2007) Tables A5, B4 (D2O transport); Herrig 2018 Sec. 3.4 melting | K1/K2, rows | α `Expected`; η, λ and melting `Transcribed` at M8.2 (27, 31 and 4 rows) | M5, M8 |
 | Ammonia, CO₂, R125, Air, Nitrogen, HFE143m | Gao 2023; Span & Wagner 1996; Lemmon & Jacobsen 2005; Lemmon 2000; Span 2000; Akasaka 2012 | K2 | `Expected`: paywalled, the user supplies them (map 13 §10 Q1; PLAN.md section 6) | when obtained |
 | n-Heptane, D6 α⁰ | Jaeschke & Schley 1995 closed-form c_p⁰ | equation | no table needed | M4 |
 | 130 SA fluids | P-mp check points (Θ = 0.5, 0.3, 0.1), fastchebpure dense files | K3 (mp) | SA vs mp: p median 4.8e-14, max 4.7e-9 (map 10 §8.1) | M5 SA, M6 VLE |

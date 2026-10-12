@@ -1193,7 +1193,11 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
   `printed_strings_parse` over the new files. *Do:* the M1.8 double-entry procedure for IAPWS R12-08 (water η),
   R15-11 (water λ), R1-76(2014) (water σ), R14-08 (melting), the IAPWS D₂O transport release and Herrig 2018 (D₂O
   melting) (map 05 §8, map 13 §4; IAPWS releases free at iapws.org, Herrig JPCRD 10.1063/1.5053993); ARBITERS records
-  `Transcribed`. *Done when:* green.
+  `Transcribed`. *Done when:* green. Measured at M8.2: the tables are R12-08 Tables 4 and 5, R15-11 Tables 4 and 5,
+  R14-08(2011) Table 3, R1-76(2014) Table 1 (the equation's column (4)), the D₂O release's Tables A5 and B4 (reduced
+  values) and Herrig's four Sec. 3.4 check values; NIST's free copy of Herrig 2018 is the published version. IAPWS no
+  longer hosts R4-84(2007), superseded by R17-20 and R18-21; the copy read is the Internet Archive's of 2020-02-15, and
+  its URL is in the citation. Both transcriptions agreed at the first pass.
 - **M8.3 CoolProp transport rows relabelled.** *Failing test:* `transport_rows_carry_their_provenance` (each of the
   318 active rows of `CoolProp-Tests.cpp:44-301, 347-581` has a provenance; R-other, R-self and unsourced rows are not
   arbiters; map 10 §8.1, R6). *Do:* transcribe the rows into `paper/` files with per-row provenance tags, keeping only

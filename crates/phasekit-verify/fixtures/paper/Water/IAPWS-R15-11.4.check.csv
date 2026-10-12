@@ -1,0 +1,13 @@
+# fixture: paper/v1
+# source: iapws:R15-11/4
+# citation: report=IAPWS-R15-11 table=4 page=10 erratum-checked=2026-10-12 pdf_sha256=08e0e6114fa2a4d66dd642b3c127acea541c5b09d73abc4a8c5260c2bbeb2f78
+# kind: Rows
+# constants: lambda2=0
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,rho,lambda
+# units: K,kg/m3,mW/(m K)
+# tol: in,in,paper
+298.15,0,18.4341883
+298.15,998,607.712868
+298.15,1200,799.038144
+873.15,0,79.1034659
