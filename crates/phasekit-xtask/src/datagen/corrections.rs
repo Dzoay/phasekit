@@ -2,7 +2,7 @@
 //! A row is accepted only when its v8.0.0 value equals the record's value from the JSON bit for bit, so a correction
 //! can never land on the wrong field, segment or fluid (and is dropped, not re-applied, if the data moves on).
 
-use phasekit_core::internal::{Edit, FluidRecord, Patch};
+use phasekit_core::internal::{ConductivityModel, Edit, FluidRecord, Patch, ViscosityModel};
 
 /// The file, relative to the repository root.
 pub const CORRECTIONS: &str = "data/corrections.csv";
@@ -39,6 +39,8 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
             None if field == "gas_constant" => Edit::GasConstant(value),
             None if field == "rhomolar_reducing" => Edit::ReducingDensity(value),
             None if field == "molar_mass" => Edit::MolarMass(value),
+            None if field == "q_D" => Edit::EcsQd(value),
+            None if field == "rhosr_critical" => Edit::RhosrCritical(value),
             Some(("melting_p0", k)) => {
                 let segment = k.trim_end_matches(']').parse().map_err(|_| at(format!("bad segment in {field}")))?;
                 Edit::MeltingP0 { segment, p0: value }
@@ -57,6 +59,14 @@ fn current(record: &FluidRecord, edit: &Edit) -> Option<f64> {
         Edit::ReducingDensity(_) => record.eos.rho_reducing,
         Edit::MolarMass(_) => record.molar_mass,
         Edit::MeltingP0 { segment, .. } => record.melting.get(usize::from(segment))?.p0,
+        Edit::EcsQd(_) => match &record.transport.as_ref()?.conductivity.as_ref()?.model {
+            ConductivityModel::Ecs(ecs) => ecs.q_d,
+            _ => return None,
+        },
+        Edit::RhosrCritical(_) => match &record.transport.as_ref()?.viscosity.as_ref()?.model {
+            ViscosityModel::RhoSrCs(rhosr) => rhosr.rhosr_critical,
+            _ => return None,
+        },
         _ => return None,
     })
 }
@@ -146,5 +156,21 @@ mod tests {
         let rows =
             parse(&format!("# c\n{HEADER}DIV-0002,Water,melting_p0[3],623400000.0,632400000.0,{cite}\n")).unwrap();
         assert_eq!(rows[0].patch.edit, Edit::MeltingP0 { segment: 3, p0: 632.4e6 });
+
+        // E15 (M8.1): an ECS conductivity's q_D and a rhosr-CS viscosity's rhosr_critical, checked the same way; a
+        // fluid without that model has no such field.
+        let transport = format!(
+            "{HEADER}DIV-0015,R218,q_D,917069412.9838686,2000000000.0,{cite}\n\
+             DIV-0016,R1234yf,rhosr_critical,-54468.47741433059,-54095.5,{cite}\n"
+        );
+        let rows = parse(&transport).unwrap();
+        assert_eq!((rows[0].patch.edit, rows[1].patch.edit), (Edit::EcsQd(2e9), Edit::RhosrCritical(-54_095.5)));
+        let mut all = base.clone();
+        attach(&rows, &mut all).unwrap();
+        let patched: Vec<&str> = all.iter().filter(|r| !r.corrections.is_empty()).map(|r| r.name.as_str()).collect();
+        assert_eq!(patched, ["R1234yf", "R218"]);
+        assert!(refused("DIV-0015,R218,q_D,2e9,1e9").contains("the v8.0.0 value is 917069412.9838686"));
+        assert!(refused("DIV-0015,Nitrogen,q_D,2e9,1e9").contains("Nitrogen has no field for"));
+        assert!(refused("DIV-0016,Water,rhosr_critical,1,2").contains("Water has no field for"));
     }
 }

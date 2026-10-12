@@ -1184,7 +1184,11 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
   `every_transport_key_is_consumed_or_waived` (map 05 R2: `q_D` is a consumed key), `an_empty_transport_list_is_a_load_error`
   and `transport_source_is_the_active_entry` (map 05 R5). *Do:* datagen fills the reserved transport section; closed
   enums `ViscosityModel`, `ConductivityModel` (map 05 U2); `Edit` gains transport-coefficient edits (E15). *Done
-  when:* green.
+  when:* green. Measured at M8.1: four blocks list one exponent more than they have coefficients (EthylBenzene's ECS
+  ψ; the dilute λ of R407C, R410A and R507A). CoolProp sums over the coefficients, so datagen reads the same terms
+  under logged waivers; whether EthylBenzene's source (Huber, NIST RP912) has a third ψ coefficient is for M8.8 (its
+  `CoolProp-Tests.cpp:546` row sits 4.6e-2 off at a 5e-2 bound, map 10 R5). The edits are `EcsQd` and
+  `RhosrCritical` (`data/corrections.csv` fields `q_D`, `rhosr_critical`).
 - **M8.2 Transport, σ and melting arbiters transcribed.** *Failing tests:* `paper_tables_double_entry_agree` and
   `printed_strings_parse` over the new files. *Do:* the M1.8 double-entry procedure for IAPWS R12-08 (water η),
   R15-11 (water λ), R1-76(2014) (water σ), R14-08 (melting), the IAPWS D₂O transport release and Herrig 2018 (D₂O

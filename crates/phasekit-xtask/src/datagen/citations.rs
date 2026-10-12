@@ -154,8 +154,22 @@ pub fn attach(
             }
             Err(e) => errors.push(format!("{}: {e}", source.file)),
         }
+        transport_dois(record, bib, reviewed);
     }
     if errors.is_empty() { Ok(()) } else { Err(errors) }
+}
+
+/// Each transport model's DOI (M8.1): the `.bib`'s, else the reviewed file's. A key in neither keeps none
+/// (EthylBenzene's viscosity cites `Huber-RP912`, a NIST report the `.bib` lacks).
+fn transport_dois(record: &mut FluidRecord, bib: &[(String, Option<String>)], reviewed: &[Reviewed]) {
+    let Some(transport) = record.transport.as_mut() else { return };
+    let viscosity = transport.viscosity.iter_mut().map(|v| &mut v.source);
+    for source in viscosity.chain(transport.conductivity.iter_mut().map(|c| &mut c.source)) {
+        let key = &*source.bibkey;
+        let doi = bib.iter().find(|(k, _)| k == key).and_then(|(_, doi)| doi.clone());
+        let doi = doi.or_else(|| reviewed.iter().find(|r| r.key == key).and_then(|r| r.doi.clone()));
+        source.doi = doi.map(Into::into);
+    }
 }
 
 #[cfg(test)]
@@ -173,6 +187,29 @@ mod tests {
     fn records() -> Vec<FluidRecord> {
         let (_, entries) = super::super::generate(&Repo::locate()).unwrap();
         entries.iter().map(|e| FluidRecord::decode(&e.blob).unwrap()).collect()
+    }
+
+    /// D14 (M8.1): each transport model's source carries its key's DOI from the `.bib` (or the reviewed file); a key in
+    /// neither has none.
+    #[test]
+    fn transport_sources_carry_their_dois() {
+        let (_, bib, _) = inputs();
+        let records = records();
+        let in_bib = |key: &str| bib.iter().find(|(k, _)| k == key).and_then(|(_, doi)| doi.clone());
+        let mut sources = Vec::new();
+        for r in &records {
+            let t = r.transport.as_ref().unwrap();
+            let viscosity = t.viscosity.iter().map(|v| (&r.name, &v.source));
+            sources.extend(viscosity.chain(t.conductivity.iter().map(|c| (&r.name, &c.source))));
+        }
+        let with: Vec<_> = sources.iter().filter(|(_, s)| s.doi.is_some()).collect();
+        assert!(with.iter().all(|(_, s)| in_bib(&s.bibkey).as_deref() == s.doi.as_deref()));
+        let without: Vec<(&str, &str)> =
+            sources.iter().filter(|(_, s)| s.doi.is_none()).map(|(n, s)| (n.as_str(), &*s.bibkey)).collect();
+        // 109 of the 129 carry one; the 20 others' keys have none in the `.bib` (Bell's and Geller's Purdue reports,
+        // the IAPWS D2O release, Shan's and Arp's reports, Vassiliou's pentanes and Huber's RP912).
+        assert_eq!((sources.len(), with.len()), (129, 109), "{without:?}");
+        assert!(without.contains(&("EthylBenzene", "Huber-RP912")), "{without:?}");
     }
 
     /// Rot: ROT-143 (map 13 R6). Every key of every default model's `BibTeX_EOS` and `BibTeX_CP0` resolves in CoolProp's

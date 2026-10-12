@@ -13,6 +13,7 @@ pub mod json;
 pub mod mirror;
 pub mod record;
 pub mod superanc;
+pub mod transport;
 
 use std::process::ExitCode;
 
@@ -196,7 +197,8 @@ pub fn main(args: &[String]) -> ExitCode {
     };
     for source in &sources {
         source.waivers.iter().for_each(|w| println!("datagen: waiver: {w}"));
-        record::skipped(source).iter().for_each(|line| println!("datagen: skipped: {line}"));
+        let skipped = record::skipped(source).into_iter().chain(transport::skipped(source));
+        skipped.for_each(|line| println!("datagen: skipped: {line}"));
         let name = &source.fluid.info.name;
         if source.file.trim_end_matches(".json") != name {
             println!("datagen: {} defines {name} (names come from INFO.NAME; map 09 §4.3)", source.file);

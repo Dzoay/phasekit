@@ -13,8 +13,8 @@ use std::process::ExitCode;
 
 use phasekit_core::internal::{
     Ancillary, CaloricCurves, CaloricStamp, DoubleExponentialTerm, Edit, EosRecord, FluidRecord, GaoBTerm,
-    GaussianTerm, IdealTerm, Lemmon2005Term, MeltingSegment, NonAnalyticTerm, OffsetReference, Patch, PowerTerm,
-    PseudoPure, SaStamp, Superancillary,
+    GaussianTerm, IdealTerm, Lemmon2005Term, MeltingSegment, NonAnalyticTerm, OffsetReference, Part, Patch, PowerTerm,
+    PseudoPure, Put, SaStamp, Superancillary, Take, TransportRecord,
 };
 use phasekit_core::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataSet, DataTerms, Limits, Source};
 use serde_json::{Map, Value, json};
@@ -118,6 +118,11 @@ pub fn to_json(r: &FluidRecord) -> Value {
         }),
         "melting": r.melting.iter().map(|s| json!({"t0": num(s.t0), "p0": num(s.p0), "t_min": num(s.t_min), "t_max": num(s.t_max)})).collect::<Vec<_>>(),
         "corrections": r.corrections.iter().map(patch_json).collect::<Vec<_>>(),
+        "transport": r.transport.as_ref().map_or(Value::Null, |t| {
+            let mut out = JsonPut(vec![("transport", Map::new())]);
+            t.put(&mut out);
+            out.0.pop().map_or(Value::Null, |(_, map)| Value::Object(map))
+        }),
         "caloric": r.caloric.as_ref().map_or(Value::Null, |c| {
             let st = &c.stamp;
             let sa = &st.superancillary;
@@ -178,6 +183,8 @@ fn patch_json(p: &Patch) -> Value {
         Edit::ReducingDensity(rho) => json!({"rho_reducing": num(rho)}),
         Edit::MolarMass(m) => json!({"molar_mass": num(m)}),
         Edit::MeltingP0 { segment, p0 } => json!({"melting_p0": {"segment": segment, "p0": num(p0)}}),
+        Edit::EcsQd(q_d) => json!({"q_D": num(q_d)}),
+        Edit::RhosrCritical(x) => json!({"rhosr_critical": num(x)}),
         _ => json!({"unknown": null}),
     };
     json!({"divergence": &*p.divergence, "edit": edit})
@@ -201,7 +208,94 @@ pub fn from_json(v: &Value) -> Result<FluidRecord, String> {
     r.superancillary = section(v, "superancillary").map(superancillary_from).transpose()?;
     r.caloric = section(v, "caloric").map(caloric_from).transpose()?;
     r.corrections = list(v, "corrections")?.iter().map(patch_from).collect::<Result<_, _>>()?;
+    if let Some(t) = section(v, "transport") {
+        r.transport = Some(TransportRecord::take(&mut JsonTake(vec![t])).map_err(|e| format!("transport: {e}"))?);
+    }
     Ok(r)
+}
+
+/// The `transport` section as JSON (M8.1), written through core's one description of the record ([`Part`]): a part
+/// is an object, a variant or hardcoded model its name, an absent optional field or part `null`.
+struct JsonPut(Vec<(&'static str, Map<String, Value>)>);
+
+impl JsonPut {
+    fn insert(&mut self, name: &str, value: Value) {
+        if let Some((_, map)) = self.0.last_mut() {
+            map.insert(name.into(), value);
+        }
+    }
+}
+
+impl Put for JsonPut {
+    fn num(&mut self, name: &'static str, x: f64) {
+        self.insert(name, num(x));
+    }
+    fn nums(&mut self, name: &'static str, xs: &[f64]) {
+        self.insert(name, xs.iter().map(|x| num(*x)).collect());
+    }
+    fn small(&mut self, name: &'static str, x: u8) {
+        self.insert(name, x.into());
+    }
+    fn text(&mut self, name: &'static str, x: &str) {
+        self.insert(name, x.into());
+    }
+    fn choice(&mut self, name: &'static str, names: &'static [&'static str], index: usize) {
+        self.insert(name, opt_str(names.get(index).copied()));
+    }
+    fn present(&mut self, name: &'static str, present: bool) {
+        if !present {
+            self.insert(name, Value::Null);
+        }
+    }
+    fn open(&mut self, name: &'static str) {
+        self.0.push((name, Map::new()));
+    }
+    fn close(&mut self) {
+        if let Some((name, map)) = self.0.pop() {
+            self.insert(name, Value::Object(map));
+        }
+    }
+}
+
+/// Reads what [`JsonPut`] wrote.
+struct JsonTake<'v>(Vec<&'v Value>);
+
+impl<'v> JsonTake<'v> {
+    fn field(&self, name: &str) -> Result<&'v Value, String> {
+        self.0.last().and_then(|v| v.get(name)).ok_or(format!("{name}: missing"))
+    }
+}
+
+impl Take for JsonTake<'_> {
+    fn num(&mut self, name: &'static str) -> Result<f64, String> {
+        self.field(name)?.as_f64().ok_or(format!("{name}: not a number"))
+    }
+    fn nums(&mut self, name: &'static str) -> Result<Vec<f64>, String> {
+        let list = self.field(name)?.as_array().ok_or(format!("{name}: not a list"))?;
+        list.iter().map(|x| x.as_f64().ok_or(format!("{name}: {x} is not a number"))).collect()
+    }
+    fn small(&mut self, name: &'static str) -> Result<u8, String> {
+        let x = self.field(name)?.as_u64().and_then(|x| u8::try_from(x).ok());
+        x.ok_or(format!("{name}: not a small integer"))
+    }
+    fn text(&mut self, name: &'static str) -> Result<String, String> {
+        self.field(name)?.as_str().map(str::to_string).ok_or(format!("{name}: not a string"))
+    }
+    fn choice(&mut self, name: &'static str, names: &'static [&'static str]) -> Result<usize, String> {
+        let chosen = self.field(name)?.as_str().ok_or(format!("{name}: not a string"))?;
+        names.iter().position(|n| *n == chosen).ok_or(format!("{name}: unknown {chosen:?}"))
+    }
+    fn present(&mut self, name: &'static str) -> Result<bool, String> {
+        Ok(self.0.last().and_then(|v| v.get(name)).is_some_and(|x| !x.is_null()))
+    }
+    fn open(&mut self, name: &'static str) -> Result<(), String> {
+        let part = self.field(name)?;
+        self.0.push(part);
+        Ok(())
+    }
+    fn close(&mut self) -> Result<(), String> {
+        self.0.pop().map(drop).ok_or("close without open".into())
+    }
 }
 
 /// The number at `k` of `v`.
@@ -454,6 +548,10 @@ fn patch_from(p: &Value) -> Result<Patch, String> {
         Edit::MolarMass(x)
     } else if let Some(m) = edit.get("melting_p0") {
         Edit::MeltingP0 { segment: small(m, "segment")?, p0: float(m, "p0")? }
+    } else if let Some(x) = edit.get("q_D").and_then(Value::as_f64) {
+        Edit::EcsQd(x)
+    } else if let Some(x) = edit.get("rhosr_critical").and_then(Value::as_f64) {
+        Edit::RhosrCritical(x)
     } else {
         return Err(format!("unknown edit {edit}"));
     };
@@ -617,13 +715,14 @@ mod tests {
     }
 
     /// The blob sections the dump covers, by their names in `BLOB_SECTIONS` (PLAN.md §2.5).
-    const DUMPED: [&str; 8] = [
+    const DUMPED: [&str; 9] = [
         "metadata",
         "eos",
         "superancillary fit",
         "superancillary",
         "caloric curves",
         "ancillaries",
+        "transport",
         "melting",
         "corrections",
     ];
@@ -642,7 +741,20 @@ mod tests {
             "a section the decoder reads is missing from the dump, or the dump lists one it does not"
         );
         let reserved = phasekit_core::internal::BLOB_SECTIONS.len() - read.len();
-        assert_eq!(reserved, 2, "transport, surface tension");
+        assert_eq!(reserved, 1, "surface tension");
+    }
+
+    /// The transport section writes an absent model, part or field as `null`, as the other sections do (M8.1).
+    #[test]
+    fn absent_transport_parts_dump_as_null() {
+        let records = records(&Repo::locate()).unwrap();
+        let transport = |name: &str| to_json(records.iter().find(|r| r.name == name).unwrap())["transport"].clone();
+        assert_eq!(transport("Acetone"), json!({"viscosity": null, "conductivity": null}));
+        let ethylbenzene = transport("EthylBenzene");
+        assert_eq!(ethylbenzene["viscosity"]["source"].get("doi"), Some(&Value::Null), "Huber-RP912 has no DOI");
+        let water = transport("Water");
+        assert_eq!(water["viscosity"].get("lennard_jones"), Some(&Value::Null));
+        assert!(water["viscosity"]["source"]["doi"].is_string());
     }
 
     /// Caloric curves survive the dump (no shipped blob has them before M5.2a).
@@ -702,6 +814,8 @@ mod tests {
                 Patch { divergence: "DIV-0003".into(), edit: Edit::ReducingDensity(17_000.0) },
                 Patch { divergence: "DIV-0006".into(), edit: Edit::MolarMass(0.018) },
                 Patch { divergence: "DIV-0002".into(), edit: Edit::MeltingP0 { segment: 3, p0: 632.4e6 } },
+                Patch { divergence: "DIV-0015".into(), edit: Edit::EcsQd(2e9) },
+                Patch { divergence: "DIV-0016".into(), edit: Edit::RhosrCritical(-54_095.5) },
             ];
             assert_eq!(from_json(&to_json(&r)).unwrap().encode(), r.encode(), "{terms:?}");
         }

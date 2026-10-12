@@ -1,6 +1,6 @@
 //! Datagen's tests, one module per stage: the pinned files read ([`files`]), each EOS mapped into core's record
-//! ([`mapping`]), the blobs ([`blobs`]), the ideal-gas kinds as converted ([`ideal`]) and the caloric curves
-//! ([`caloric_curves`]); the fixtures they share are here.
+//! ([`mapping`]), the blobs ([`blobs`]), the ideal-gas kinds as converted ([`ideal`]), the caloric curves
+//! ([`caloric_curves`]) and the transport blocks ([`transport_blocks`]); the fixtures they share are here.
 
 use super::*;
 use mirror::{IdealBlock, Num, ResidualBlock};
@@ -12,6 +12,7 @@ mod caloric_curves;
 mod files;
 mod ideal;
 mod mapping;
+mod transport_blocks;
 
 fn sources() -> Vec<Source> {
     load(&Repo::locate()).unwrap()

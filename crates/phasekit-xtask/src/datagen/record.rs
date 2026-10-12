@@ -67,6 +67,7 @@ pub fn to_record(source: &super::Source) -> Result<FluidRecord, String> {
     fluid_record.environmental = info.environmental.as_ref().map(environmental).transpose().map_err(|e| at(&e))?;
     fluid_record.melting = melting(&fluid.ancillaries).map_err(|e| at(&format!("ANCILLARIES.melting_line: {e}")))?;
     fluid_record.pseudo_pure = pseudo_pure(fluid, eos).map_err(|e| at(&e))?;
+    fluid_record.transport = Some(super::transport::record(file, fluid.transport.as_ref()).map_err(|e| at(&e))?);
     check_constants(&fluid_record).map_err(|e| at(&e))?;
     fluid_record.eos.rho_max = largest_density(&fluid_record).map_err(|e| at(&e))?;
     if let Some(sa) = fluid_record.superancillary.clone() {
@@ -107,7 +108,7 @@ fn exponents(xs: &[Num]) -> Result<Vec<u8>, String> {
 }
 
 /// Every list of a block has the length of its first.
-fn same_lengths(lists: &[(&str, usize)]) -> Result<usize, String> {
+pub(super) fn same_lengths(lists: &[(&str, usize)]) -> Result<usize, String> {
     let n = lists.first().map_or(0, |(_, n)| *n);
     match lists.iter().find(|(_, len)| *len != n) {
         Some((name, len)) => Err(format!("{name} has {len} entries, {} has {n}", lists[0].0)),

@@ -15,7 +15,7 @@ use crate::error::{Error, LoadError};
 use crate::fluid::{Fluid, ReferenceState};
 use crate::model::ThermoModel;
 use crate::saturation::{PseudoPureCurve, SaturationCurve, SuperancillaryCurve};
-use crate::transport::{TransportSet, ViscosityModel};
+use crate::transport::TransportSet;
 
 /// Case-insensitive (ASCII) comparison without allocating; keys are stored lower-case.
 fn cmp_folded(key: &str, query: &str) -> Ordering {
@@ -57,8 +57,8 @@ impl Slot {
         self.cell.get_or_init(|| self.load()).as_ref().map_err(Clone::clone)
     }
 
-    /// Cold path: decode, correct, compile. The transport closure captures the resolved reference handles
-    /// (and, in the real decoder, the blob), so it needs nothing from the registry later.
+    /// Cold path: decode, correct, compile. The transport closure captures the blob, the corrections and the resolved
+    /// reference handles, so it needs nothing from the registry later.
     fn load(&self) -> Result<Fluid, LoadError> {
         let blob = self.source.blob(self.id)?;
         let mut record = crate::blob::decode_eager_parts(blob.bytes())?;
@@ -69,6 +69,7 @@ impl Slot {
         let deps = self.deps.clone();
         let freshness = record.superancillary_freshness();
         let (calorics_of, calorics_blob) = (record.clone(), blob.clone());
+        let (transport_blob, patches, data_set) = (blob.clone(), record.corrections.clone(), self.data_set);
         let pseudo_pure = record.pseudo_pure.clone();
         let builder = record.builder().map_err(|e| match e {
             Error::Load(l) => l,
@@ -90,21 +91,13 @@ impl Slot {
             record.caloric = crate::blob::decode_caloric(calorics_blob.bytes(), record.superancillary_fit)?;
             Ok(record.calorics())
         });
-        let package = if deps.is_empty() {
-            builder.build()
-        } else {
-            // Sketch: the toy record's viscosity is ECS against its first declared reference (M8: the blob's
-            // transport section names the form and the reference).
-            let ecs = move || {
-                let reference = deps.first().map(Dep::fluid).transpose()?;
-                Ok(TransportSet {
-                    viscosity: reference.map(|reference| ViscosityModel::Ecs { reference }),
-                    ..Default::default()
-                })
-            };
-            builder.lazy_transport(ecs).build()
-        };
-        Ok(Fluid::new(Arc::new(package)))
+        // And the transport models until the first transport call, which also loads the reference fluids (E5).
+        let builder = builder.lazy_transport(move || {
+            let record = crate::blob::decode_transport(transport_blob.bytes())?.corrected(&patches, data_set)?;
+            let references = deps.iter().map(Dep::fluid).collect::<Result<_, _>>()?;
+            Ok(TransportSet { record, references, ..TransportSet::default() })
+        });
+        Ok(Fluid::new(Arc::new(builder.build())))
     }
 }
 

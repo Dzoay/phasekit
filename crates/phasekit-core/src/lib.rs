@@ -90,6 +90,14 @@ pub mod internal {
         OffsetReference, PowerTerm,
     };
     pub use crate::saturation::{chebyshev_derivative, clenshaw, piece};
+    pub use crate::transport::{
+        BatschinskiHildebrand, Chung, Conductivity, ConductivityCritical, ConductivityDilute, ConductivityModel,
+        ConductivityResidual, EcsConductivity, EcsViscosity, FrictionCubic, FrictionSecond, FrictionTheory,
+        HardcodedConductivity, HardcodedCriticalConductivity, HardcodedDiluteConductivity, HardcodedDiluteViscosity,
+        HardcodedHigherViscosity, HardcodedViscosity, Kappa, LennardJones, OlchowySengers, Part, Put, RhoSrCs, Series,
+        StagedConductivity, StagedViscosity, Take, TransportRecord, Viscosity, ViscosityDilute, ViscosityHigher,
+        ViscosityInitial, ViscosityModel,
+    };
 
     /// Saturation of a Helmholtz model at `t` by the pure-fluid VLE from seed densities `(ρ′, ρ″)` (PLAN.md M6.3).
     pub fn vle_at_t(eos: &dyn crate::HelmholtzModel, t: f64, seed: (f64, f64)) -> Result<crate::SatPair, crate::Error> {
