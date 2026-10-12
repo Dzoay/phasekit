@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::internal::{Edit, FluidRecord, IdealTerm, Patch, SaFreshness};
-use phasekit_core::{DataSet, Density, Input, Order, Registry, Temperature};
+use phasekit_core::{DataSet, Density, Input, Order, Prop, Registry, Temperature};
 use phasekit_verify::{
     Cell, DIVERGENCES, Fix, Fixture, Policy, Provenance, RegisterError, Tolerance, check_register, fixture,
     from_printed,
@@ -358,6 +358,48 @@ fn div_0023_to_0025(facts: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0023", "DIV-0024", "DIV-0025"]
 }
 
+/// DIV-0026: the oracle's λ at the all-fluid tier's states of the five fluids, where CoolProp keeps q_D = 2e9 1/m, as far
+/// from phasekit's, which reads each file's q_D, as the entry cites (the extreme relative difference per fluid).
+fn div_0026(_: &Fixture<'_>) -> Vec<&'static str> {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let (path, text) = fixture!("coolprop-8.0.0/all/transport.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let cited = [("R13", "1.9e-2"), ("R14", "1.8e-1"), ("R142b", "-2.0e-3"), ("R218", "-3.2e-3"), ("RC318", "1.1e-1")];
+    for (name, figure) in cited {
+        let fluid = registry.get(name).unwrap();
+        let rows = (0..table.rows().len()).filter(|&r| table.printed(r, "fluid") == Some(name));
+        let off = rows.filter(|&r| table.printed(r, "lambda_status") == Some("ok")).map(|r| {
+            let (t, rho) = (table.value(r, "T").unwrap(), table.value(r, "rho").unwrap());
+            let state = fluid.state(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap())).unwrap();
+            fluid.prop(&state, Prop::Conductivity).unwrap() / table.value(r, "lambda").unwrap() - 1.0
+        });
+        let extreme = off.fold(0.0_f64, |e, x| if x.abs() > e.abs() { x } else { e });
+        assert!(cites(extreme, figure), "DIV-0026: {name} is {extreme:e} off");
+    }
+    vec!["DIV-0026"]
+}
+
+/// DIV-0027: CoolProp's dilute λ of EthylBenzene is Mylona et al.'s Eq. (18) (its oracle column `lambda_dilute` at the
+/// all-fluid tier's eight states), which at 500 and 600 K is as far below their Table 21 as the entry cites.
+fn div_0027(_: &Fixture<'_>) -> Vec<&'static str> {
+    let (path, text) = fixture!("coolprop-8.0.0/all/transport.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let eq_18 = |t: f64| {
+        let tr = t / 617.12;
+        let a = [-1.10708, 10.8026, -28.9015, 41.9227, 20.9133, -4.01492];
+        a.iter().rev().fold(0.0, |s, a| s * tr + a) / (0.259475 - 0.343879 * tr + tr * tr) * 1e-3
+    };
+    let rows: Vec<usize> =
+        (0..table.rows().len()).filter(|&r| table.printed(r, "fluid") == Some("EthylBenzene")).collect();
+    for &r in &rows {
+        let (t, dilute) = (table.value(r, "T").unwrap(), table.value(r, "lambda_dilute").unwrap());
+        assert!((dilute / eq_18(t) - 1.0).abs() < 1e-12, "DIV-0027: {t} K, {dilute} against {}", eq_18(t));
+    }
+    assert_eq!(rows.len(), 8);
+    assert!(cites(eq_18(500.0) * 1e3 / 29.16 - 1.0, "-1.8e-4") && cites(eq_18(600.0) * 1e3 / 41.14 - 1.0, "-1.3e-4"));
+    vec!["DIV-0027"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -365,11 +407,19 @@ fn register_cites_reproducible_oracle_facts() {
     let (path, text) = fixture!("coolprop-8.0.0/facts/register.csv");
     let facts = Fixture::parse(path, text).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!((facts.kind(), facts.provenance()), ("facts", Provenance::Oracle { version: "8.0.0" }));
-    let checked: Vec<&str> =
-        [div_0001_to_0005, div_0006_to_0012, div_0013_to_0017, div_0018_to_0020, div_0021_to_0022, div_0023_to_0025]
-            .iter()
-            .flat_map(|group| group(&facts))
-            .collect();
+    let checked: Vec<&str> = [
+        div_0001_to_0005,
+        div_0006_to_0012,
+        div_0013_to_0017,
+        div_0018_to_0020,
+        div_0021_to_0022,
+        div_0023_to_0025,
+        div_0026,
+        div_0027,
+    ]
+    .iter()
+    .flat_map(|group| group(&facts))
+    .collect();
     let ids: Vec<&str> = DIVERGENCES.iter().map(|d| d.id).collect();
     assert_eq!(checked, ids, "every register entry has its facts checked");
     for row in facts.rows() {

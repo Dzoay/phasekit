@@ -431,7 +431,7 @@ fn conductivity(mut b: Block<'_>, from: &FromFluid) -> Result<Conductivity, Stri
     let source = source(&mut b)?;
     let model = if b.has("type") {
         match b.text("type")? {
-            "ECS" => ConductivityModel::Ecs(ecs_conductivity(&mut b)?),
+            "ECS" => ConductivityModel::Ecs(ecs_conductivity(&mut b, from)?),
             other => return unknown(&b, other),
         }
     } else if b.has("hardcoded") {
@@ -455,13 +455,15 @@ fn conductivity(mut b: Block<'_>, from: &FromFluid) -> Result<Conductivity, Stri
     Ok(Conductivity { source, model })
 }
 
-fn ecs_conductivity(b: &mut Block<'_>) -> Result<EcsConductivity, String> {
+/// An ECS conductivity, with the EOS reducing state its critical term reads (CoolProp's `get_reducing_state()`).
+fn ecs_conductivity(b: &mut Block<'_>, from: &FromFluid) -> Result<EcsConductivity, String> {
     let reference = b.text("reference_fluid")?.into();
     let (psi, psi_rho_r) = psi(b)?;
     let mut f_int = b.block("f_int")?;
     let (terms, f_int_t_r) = (f_int.series(["a", "t"])?, f_int.num("T_reducing")?);
     f_int.finish()?;
-    Ok(EcsConductivity { reference, psi, psi_rho_r, f_int: terms, f_int_t_r, q_d: b.num("q_D")? })
+    let q_d = b.num("q_D")?;
+    Ok(EcsConductivity { reference, psi, psi_rho_r, f_int: terms, f_int_t_r, q_d, reducing: from.reducing })
 }
 
 /// Methane's model with what it reads of the rest of the file (`TransportRoutines.cpp:1063-1140`): the critical point

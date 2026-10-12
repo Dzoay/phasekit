@@ -1,6 +1,7 @@
 //! L3 package contracts: model identity and metadata, and [`ThermoModel`], the currency of the registry, the
 //! batch driver and every facade.
 
+use core::any::Any;
 use core::fmt;
 
 use crate::derivs::{Order, PointDerivs};
@@ -238,8 +239,9 @@ impl Limits {
 /// Anything that turns an input into a [`State`]: what the registry stores, what the batch driver and every
 /// facade call (D3, D10). Helmholtz fluids implement it through [`crate::PureFluid`]; a Gibbs solid, IF97 or
 /// an INCOMP correlation implements it directly in its own crate. The model never sees a reference state or
-/// a mass basis: [`crate::Fluid`] hands it a [`NativeInput`] (map 15).
-pub trait ThermoModel: Send + Sync + fmt::Debug {
+/// a mass basis: [`crate::Fluid`] hands it a [`NativeInput`] (map 15). `Any` lets the ECS transport forms read their
+/// reference fluid's own forms when it is a [`crate::PureFluid`] (M8.8).
+pub trait ThermoModel: Any + Send + Sync + fmt::Debug {
     /// Identity, molar mass, provenance and content key.
     fn info(&self) -> &FluidInfo;
 

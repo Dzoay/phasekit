@@ -561,6 +561,45 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[8],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0026",
+        fluids: &["R13", "R14", "R142b", "R218", "RC318"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::transport::ecs"),
+        evidence: "map 05 R2, M8.8: CoolProp's parse_ECS_conductivity (FluidLibrary.h:668-680) never reads an ECS \
+                   conductivity's q_D, so its Olchowy-Sengers term keeps the default 2e9 1/m; v8.0.0's files give R13 \
+                   2.86e9, R14 4.41e9, R142b 1.62e9, R218 0.917e9 and RC318 2.81e9 (the other 13 ECS fluids 2e9); \
+                   phasekit reads them, which moves lambda at the oracle's states by up to +1.9e-2 (R13), +1.8e-1 \
+                   (R14), -2.0e-3 (R142b), -3.2e-3 (R218) and +1.1e-1 (RC318), and near Tc by -16 % to +24 % \
+                   (map 05 R2; 2026-10-12); to transcribe: Huber, Laesecke and Perkins, IECR 2003, the five blocks' \
+                   source",
+        exempt: Some(Exempt { kinds: &[Kind::Transport], columns: &["lambda"], rows: Rows::All }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0027",
+        fluids: &["EthylBenzene"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 10 §8.1, M8.8: Mylona et al. 2014 (JPCRD 43, 043104) Table 21's 0 MPa row misses the \
+                   paper's own dilute-gas fit, Eq. (18), which v8.0.0 transcribes exactly (Tc = 617.12 K): at 500 and \
+                   600 K Eq. (18) gives 29.1547 and 41.1347 mW/(m K) against the printed 29.16 and 41.14 (-1.8e-4, \
+                   -1.3e-4), the other four temperatures within their digits; CoolProp-Tests.cpp:555 takes the 600 K \
+                   value (2026-10-12); to decide: what Table 21 was computed with (the paper's Eqs. (3)-(5) and (17), \
+                   within 0.1 % of Eq. (18))",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[("paper/EthylBenzene/CoolProp-Tests.lambda.csv", Tolerance::Relative(2e-4))],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an

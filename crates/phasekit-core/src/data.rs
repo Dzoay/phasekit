@@ -1107,8 +1107,8 @@ mod tests {
         }
         type Edit = fn(&mut Vec<u8>);
         let cases: [(Edit, &str); 5] = [
-            (|b| b[8] = 4, "blob version 4; this build reads version 3"),
-            (|b| b[12] = 9, "blob lists 9 sections; version 3 has 10"),
+            (|b| b[8] = 5, "blob version 5; this build reads version 4"),
+            (|b| b[12] = 9, "blob lists 9 sections; version 4 has 10"),
             (|b| b[32] = 2, "section table: entry 2 at"),
             (|b| b[40] += 8, "where section 1 (metadata) belongs"),
             (|b| b.extend([0; 8]), "blob has 8 bytes after its last section"),
@@ -1137,9 +1137,9 @@ mod tests {
         assert_eq!(err, "surface tension section has bytes left over (8)");
         let truncated = "surface tension section: terms: t lists 2 numbers past the section's end";
         assert_eq!(format_error(&blob_with(7, |b| _ = b.pop())), truncated);
-        // Filled at M8.1: an ECS conductivity ends with q_D.
+        // Filled at M8.1: an ECS conductivity ends with its reducing state (M8.8).
         assert_eq!(format_error(&blob_with(6, |b| b.extend([0; 8]))), "transport section has bytes left over (8)");
-        let truncated = "transport section: conductivity: model: transport section is truncated";
+        let truncated = "transport section: conductivity: model: reducing: transport section is truncated";
         assert_eq!(format_error(&blob_with(6, |b| _ = b.pop())), truncated);
         // Filled at M5.2: a superancillary section is read, so stray bytes there are a format error, not a refusal.
         assert_eq!(format_error(&blob_with(3, |b| b.extend([0; 8]))), "superancillary section has bytes left over (8)");

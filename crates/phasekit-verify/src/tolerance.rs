@@ -155,6 +155,8 @@ impl ToleranceClass {
             ToleranceClass::SatMp => Some(1e-11 * scale),
             // Relative to the oracle's total, which every stage of a direct correlation is checked against (M8.5).
             ToleranceClass::TransportDirect => Some(1e-12 * scale),
+            // An ECS total, whose conformal solve the oracle stops at |r| ≤ 1e-9 (M8.8).
+            ToleranceClass::TransportEcs => Some(1e-8 * scale),
             _ => None,
         }
     }
@@ -325,6 +327,7 @@ mod tests {
         assert_eq!(ToleranceClass::Flash.bound_in(2.0, Window::NearCritical), Some(2e-9));
         assert_eq!(ToleranceClass::Fd.bound_in(3.0, Window::NearCritical), Some(3e-7));
         assert_eq!(ToleranceClass::TransportDirect.bound_in(3.0, Window::NearCritical), Some(3e-12));
+        assert_eq!(ToleranceClass::TransportEcs.bound_in(2.0, Window::Regular), Some(2e-8));
         // `SatMp`: 1e-11 far from Tc; nearer, the VLE's conditioning (VERIFICATION.md §5, NC1).
         assert_eq!(ToleranceClass::SatMp.bound(4.0), Some(4e-11));
         assert_eq!(ToleranceClass::SatMp.bound_in(4.0, Window::NearCritical), Some(4e-11));

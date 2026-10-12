@@ -100,6 +100,9 @@ pub mod internal {
         ViscosityModel, ViscosityStages, WaterConductivity, WaterViscosity,
     };
 
+    /// η's and λ's stages at one state, each or why there is none.
+    pub type TransportStages = (Result<ViscosityStages, crate::Error>, Result<ConductivityStages, crate::Error>);
+
     /// The stages of `record`'s staged viscosity at `state` (PLAN.md M8.5): crate-private seams, not API (ROT-115),
     /// for the stage-by-stage checks against CoolProp's `viscosity_contributions`. `state` must be the record's.
     pub fn viscosity_stages(record: &FluidRecord, state: &crate::State) -> Result<ViscosityStages, crate::Error> {
@@ -126,12 +129,25 @@ pub mod internal {
 
     /// Both seams' stages, from the record's EOS and transport models.
     fn transport_stages(record: &FluidRecord, state: &crate::State) -> Result<crate::transport::Stages, crate::Error> {
+        transport_stages_with(record, state, &[])
+    }
+
+    /// η's and λ's stages of `record` at `state` against the ECS reference fluids `references` (PLAN.md M8.8): the seam
+    /// of an edited ECS record's checks, its references the registry's. An ECS solve starts from the record's model's
+    /// critical point.
+    pub fn transport_stages_with(
+        record: &FluidRecord,
+        state: &crate::State,
+        references: &[crate::Fluid],
+    ) -> Result<TransportStages, crate::Error> {
         let set = crate::transport::TransportSet {
             record: record.transport.clone().unwrap_or_default(),
+            references: references.into(),
             ..Default::default()
         };
-        let eos = record.eos.compile()?;
-        Ok(set.evaluate(&crate::transport::TransportInputs::new(state, record.molar_mass, &eos)))
+        let model = record.clone().compile()?;
+        let x = crate::transport::TransportInputs::new(state, record.molar_mass, model.eos()).with_model(&model);
+        Ok(set.evaluate(&x))
     }
 
     /// Saturation of a Helmholtz model at `t` by the pure-fluid VLE from seed densities `(ρ′, ρ″)` (PLAN.md M6.3).

@@ -90,7 +90,7 @@ fn dilute(
 }
 
 /// Δλ_r, W/(m K) (`TransportRoutines.cpp:696-725`).
-fn residual(form: &ConductivityResidual, r: &Reducing, x: &TransportInputs<'_>) -> f64 {
+pub(super) fn residual(form: &ConductivityResidual, r: &Reducing, x: &TransportInputs<'_>) -> f64 {
     let pw = math::powf;
     match form {
         ConductivityResidual::Polynomial { b, t, d, t_r, rho_r } => {
@@ -109,7 +109,7 @@ fn residual(form: &ConductivityResidual, r: &Reducing, x: &TransportInputs<'_>) 
 }
 
 /// The simplified Olchowy-Sengers crossover term, W/(m K) (`TransportRoutines.cpp:727-777`), with the fluid's own η.
-fn olchowy_sengers(
+pub(super) fn olchowy_sengers(
     os: &OlchowySengers,
     r: &Reducing,
     x: &TransportInputs<'_>,

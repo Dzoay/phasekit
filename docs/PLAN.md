@@ -1271,7 +1271,25 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
   `lambda`, all rows of these fluids (honouring q_D moves λ by −16 % to +24 % near T_c, map 05 R2, and the critical
   term is non-zero everywhere); replacing check: the same record with `q_D` edited to CoolProp's default 2e9
   (`CoolPropFluid.h:188`) reproduces the oracle's λ at `TransportEcs` on every row, and at least one exempt cell
-  still differs; becomes `UsePaper` once Huber et al. IECR 2003 is transcribed. *Done when:* green.
+  still differs; becomes `UsePaper` once Huber et al. IECR 2003 is transcribed. *Done when:* green. Measured at M8.8:
+  the conformal solve is Newton in ln T₀ and ln ρ₀ with the exact Jacobian in the reference's reducing state, from
+  CoolProp's guess, each step halved until the residual falls; it ends at rounding (|r| ≤ 1e-13) or, where no step lowers the
+  residual, within CoolProp's 1e-9. In a dilute gas α^r and Z − 1 are both nearly Bρ: the iterates reach the
+  residual's floor (about 3e-20) and then wander in T₀, so a step test alone never ends them. Over the all-fluid tier's
+  152 ECS states (19 fluids) η and λ agree with the oracle within `TransportEcs` at all 172 cells where it converged
+  (the worst at 0.55 of the bound, R218's η). The oracle fails at 16 states, all gas (14 η and 16 λ cells); of the 28
+  phasekit evaluates there it solves 7 states' 14 (R11's and R14's supercritical gas, three dilute gases) and refuses 14
+  with `NoConvergence`; a linear (T₀, ρ₀) Newton had refused all 28. λ of R124, R22, R245fa and R32 lands at M8.9: its critical
+  term reads their ρ*_sr-CS η, and its dilute term needs Chung's Lennard-Jones estimate. The q_D entry is DIV-0026
+  (R14 +18 % at an oracle state). EthylBenzene, whose η is ECS: at Mylona et al. 2014's check point (617.0 K, 316.0
+  kg/m³) η is 33.217 µPa s, the paper's 33.22 to its digits, with the two ψ coefficients CoolProp sums over, so the
+  third exponent stays waived (M8.1); λ there is 141.06 mW/(m K) against the paper's 140.2 (+0.61 %, 0.12 K below T_c,
+  where the critical term is 61 % of λ), a check point not transcribed; its `CoolProp-Tests.cpp:555` row, from the
+  paper's Table 21, misses the paper's own Eq. (18), which v8.0.0 transcribes exactly (DIV-0027). The references are the
+  transport set's strong handles; `ThermoModel: Any` lets an ECS form read a reference `PureFluid`'s own forms. A
+  thermo-only workload of all 19 ECS fluids reads none of the three references' blobs, and their first transport calls
+  read each once. The ECS conductivity record gains its EOS reducing state (ROT-117's snapshot), so the blob format
+  moves to version 4.
 - **M8.9 rhosr-CS, Chung, other hard-coded models.** *Failing tests:* `hardcoded_models_match_their_paper_tables`
   then `hardcoded_models_match_oracle`, one case per model of map 05 U9 (rho*sr-CS; the Chung LJ estimate) and U10
   (xylenes and cyclohexane, Shan R23, Friend Ω22, Huber 2016 CO₂, the R123 critical term; Helium oracle-only, map 05
