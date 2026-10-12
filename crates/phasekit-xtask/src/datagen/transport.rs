@@ -330,15 +330,16 @@ fn kappa(b: &mut Block<'_>, a: &str, n: &str) -> Result<Kappa, String> {
 }
 
 /// Friction theory. CoolProp takes exactly one of `Arr` and `Adrdr`, reads `Aii` with `Nii`, and reads `Aaaa` and
-/// `Arrr` only together, silently dropping one alone (`FluidLibrary.h:640-668`); datagen refuses that.
+/// `Arrr` only together, silently dropping one alone (`FluidLibrary.h:640-668`). Datagen refuses that: `Aii` and
+/// `Arrr` decide, and a partner key without them is an unknown field.
 fn friction(b: &mut Block<'_>) -> Result<FrictionTheory, String> {
     let second = match (b.has("Arr"), b.has("Adrdr")) {
         (true, false) => FrictionSecond::Rr(kappa(b, "Arr", "Nrr")?),
         (false, true) => FrictionSecond::Drdr(kappa(b, "Adrdr", "Nrr")?),
         _ => return Err(b.err("friction theory takes exactly one of Arr and Adrdr")),
     };
-    let kii = if b.has("Aii") || b.has("Nii") { Some(kappa(b, "Aii", "Nii")?) } else { None };
-    let cubic = if ["Arrr", "Nrrr", "Aaaa", "Naaa"].iter().any(|k| b.has(k)) {
+    let kii = if b.has("Aii") { Some(kappa(b, "Aii", "Nii")?) } else { None };
+    let cubic = if b.has("Arrr") {
         Some(FrictionCubic { krrr: kappa(b, "Arrr", "Nrrr")?, kaaa: kappa(b, "Aaaa", "Naaa")? })
     } else {
         None

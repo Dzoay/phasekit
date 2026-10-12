@@ -97,6 +97,29 @@ fn transport_lengths_are_checked() {
     assert_eq!(extra, Err("TRANSPORT.viscosity.psi: t has 3 entries, a has 2".into()));
 }
 
+/// Friction theory's exponents are integers in `0..=MAX_POW`, and its optional coefficients come whole: `Aaaa`
+/// without `Arrr` (CoolProp drops it silently), or `Nii` without `Aii`, is refused.
+#[test]
+fn friction_exponents_and_partners_are_checked() {
+    let with =
+        |key: &str, value: Value| mapped("SulfurHexafluoride.json", |b| b["viscosity"]["higher_order"][key] = value);
+    assert!(with("Na", json!(16)).is_ok());
+    for bad in [json!(17), json!(1.5), json!(-1)] {
+        assert_eq!(with("Na", bad), Err("TRANSPORT.viscosity.higher_order: Na is not an integer in 0..=16".into()));
+    }
+    let without = |file: &str, key: &str| {
+        mapped(file, |b| _ = b["viscosity"]["higher_order"].as_object_mut().unwrap().remove(key))
+    };
+    let alone = "TRANSPORT.viscosity.higher_order: unknown field";
+    assert_eq!(without("SulfurHexafluoride.json", "Arrr"), Err(format!("{alone} \"Aaaa\"")));
+    assert_eq!(without("SulfurHexafluoride.json", "Aaaa"), Err("TRANSPORT.viscosity.higher_order: no Aaaa".into()));
+    assert_eq!(without("Methane.json", "Aii"), Err(format!("{alone} \"Nii\"")));
+    assert_eq!(
+        without("Methane.json", "Adrdr"),
+        Err("TRANSPORT.viscosity.higher_order: friction theory takes exactly one of Arr and Adrdr".into())
+    );
+}
+
 /// Every leaf of `v` as a JSON pointer: numbers, strings and lists of numbers; an object or a list of objects (the
 /// model list) is walked.
 fn leaves(v: &Value, path: String, out: &mut Vec<String>) {

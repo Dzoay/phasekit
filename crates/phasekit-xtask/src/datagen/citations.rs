@@ -189,6 +189,29 @@ mod tests {
         entries.iter().map(|e| FluidRecord::decode(&e.blob).unwrap()).collect()
     }
 
+    /// D14 (M8.1): each transport model's source carries its key's DOI from the `.bib` (or the reviewed file); a key in
+    /// neither has none.
+    #[test]
+    fn transport_sources_carry_their_dois() {
+        let (_, bib, _) = inputs();
+        let records = records();
+        let in_bib = |key: &str| bib.iter().find(|(k, _)| k == key).and_then(|(_, doi)| doi.clone());
+        let mut sources = Vec::new();
+        for r in &records {
+            let t = r.transport.as_ref().unwrap();
+            let viscosity = t.viscosity.iter().map(|v| (&r.name, &v.source));
+            sources.extend(viscosity.chain(t.conductivity.iter().map(|c| (&r.name, &c.source))));
+        }
+        let with: Vec<_> = sources.iter().filter(|(_, s)| s.doi.is_some()).collect();
+        assert!(with.iter().all(|(_, s)| in_bib(&s.bibkey).as_deref() == s.doi.as_deref()));
+        let without: Vec<(&str, &str)> =
+            sources.iter().filter(|(_, s)| s.doi.is_none()).map(|(n, s)| (n.as_str(), &*s.bibkey)).collect();
+        // 109 of the 129 carry one; the 20 others' keys have none in the `.bib` (Bell's and Geller's Purdue reports,
+        // the IAPWS D2O release, Shan's and Arp's reports, Vassiliou's pentanes and Huber's RP912).
+        assert_eq!((sources.len(), with.len()), (129, 109), "{without:?}");
+        assert!(without.contains(&("EthylBenzene", "Huber-RP912")), "{without:?}");
+    }
+
     /// Rot: ROT-143 (map 13 R6). Every key of every default model's `BibTeX_EOS` and `BibTeX_CP0` resolves in CoolProp's
     /// bibliography (298 entries); a key that does not is an error, and so is a reviewed row for an unknown key or one
     /// that adds a DOI the `.bib` already has.

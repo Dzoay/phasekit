@@ -10,7 +10,7 @@
 //! it has parallel lists (map 05 R11). [`Part`] describes each type once, field by field, for the blob codec and
 //! `cargo xtask fluid`'s dump alike.
 
-use crate::data::Edit;
+use crate::data::{DataSet, Edit, Patch};
 use crate::error::{Error, LoadError};
 use crate::fluid::Fluid;
 use crate::math;
@@ -1146,6 +1146,15 @@ impl TransportRecord {
         Ok(())
     }
 
+    /// The record under `set`: `Corrected` applies the transport edits among `patches` (E15), `Parity` none. The
+    /// registry's transport closure calls this on the decoded section.
+    pub(crate) fn corrected(mut self, patches: &[Patch], set: DataSet) -> Result<Self, LoadError> {
+        if set == DataSet::Corrected {
+            patches.iter().try_for_each(|p| self.apply(p.edit))?;
+        }
+        Ok(self)
+    }
+
     /// The canonical names of the ECS reference fluids the models name, viscosity's first.
     pub fn references(&self) -> Vec<&str> {
         let viscosity = self.viscosity.as_ref().and_then(|v| match &v.model {
@@ -1459,10 +1468,11 @@ pub(crate) mod tests {
         let c_liq_count = kind + 1 + 8;
         assert_eq!(blob_with(&|_| {}), with_transport(short.clone()).encode());
         type Edit<'a> = &'a dyn Fn(&mut Vec<u8>);
-        let cases: [(Edit<'_>, &str); 7] = [
+        let cases: [(Edit<'_>, &str); 8] = [
             (&|b| b[doi_flag] = 2, "transport section: viscosity: source: doi: presence byte 2"),
             (&|b| b[0] = 7, "transport section: viscosity: presence byte 7"),
             (&|b| b[kind] = 9, "transport section: viscosity: model: kind: unknown tag 9"),
+            (&|b| b[kind] = 5, "transport section: viscosity: model: kind: unknown tag 5"),
             (&|b| b[c_liq_count] = 3, "transport section: viscosity: model: c_liq has 3 entries, not 4"),
             (
                 &|b| b[c_liq_count] = 200,
@@ -1528,6 +1538,46 @@ pub(crate) mod tests {
         let mut eager = crate::blob::decode_eager_parts(&record.encode()).unwrap();
         eager.apply(crate::DataSet::Corrected).unwrap();
         assert_eq!(eager.transport, None);
+    }
+
+    /// The registry's transport closure applies the transport edits under `Corrected` and none under `Parity`.
+    #[test]
+    fn the_registry_applies_transport_edits_under_corrected_only() {
+        let ecs = every_form().pop().unwrap();
+        let patches = [
+            Patch { divergence: "DIV-0003".into(), edit: Edit::ReducingDensity(1.0) },
+            Patch { divergence: "DIV-0099".into(), edit: Edit::EcsQd(2e9) },
+        ];
+        let q_d = |r: &TransportRecord| match r.conductivity.as_ref().map(|c| &c.model) {
+            Some(ConductivityModel::Ecs(e)) => e.q_d,
+            _ => f64::NAN,
+        };
+        let parity = ecs.clone().corrected(&patches, DataSet::Parity).unwrap();
+        assert_eq!(parity, ecs);
+        assert_eq!(q_d(&ecs.clone().corrected(&patches, DataSet::Corrected).unwrap()), 2e9);
+        let rhosr = [Patch { divergence: "DIV-0099".into(), edit: Edit::RhosrCritical(1.0) }];
+        let err = ecs.corrected(&rhosr, DataSet::Corrected);
+        assert_eq!(err, Err(LoadError::Format("no rhosr-CS viscosity to edit".into())));
+    }
+
+    /// A record compiled without the registry carries its transport models: a fluid with one says when its evaluation
+    /// lands, a fluid without one answers `NoModel`.
+    #[test]
+    fn a_compiled_record_carries_its_transport() {
+        use crate::{Density, FlashOptions, Input, Phase, Temperature};
+        let answers = |transport: TransportRecord| {
+            let fluid = Fluid::new(std::sync::Arc::new(with_transport(transport).compile().unwrap()));
+            let input = Input::dt(Density::molar(100.0).unwrap(), Temperature::new(300.0).unwrap());
+            let state = fluid.flash(input, &FlashOptions::new().with_phase(Phase::Gas)).unwrap();
+            [Prop::Viscosity, Prop::Conductivity].map(|prop| fluid.prop(&state, prop))
+        };
+        let lands = |step: &str| Err(Error::Load(LoadError::Format(format!("evaluating a {step}").into())));
+        assert_eq!(
+            answers(every_form().swap_remove(0)),
+            [lands("viscosity model lands at M8.5"), lands("conductivity model lands at M8.6")]
+        );
+        let none = [Err(Error::NoModel { prop: Prop::Viscosity }), Err(Error::NoModel { prop: Prop::Conductivity })];
+        assert_eq!(answers(TransportRecord::default()), none);
     }
 
     /// The ECS reference fluids a record names, viscosity's first; none for the other forms.

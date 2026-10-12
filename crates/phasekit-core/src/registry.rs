@@ -93,10 +93,7 @@ impl Slot {
         });
         // And the transport models until the first transport call, which also loads the reference fluids (E5).
         let builder = builder.lazy_transport(move || {
-            let mut record = crate::blob::decode_transport(transport_blob.bytes())?;
-            if data_set == DataSet::Corrected {
-                patches.iter().try_for_each(|p| record.apply(p.edit))?;
-            }
+            let record = crate::blob::decode_transport(transport_blob.bytes())?.corrected(&patches, data_set)?;
             let references = deps.iter().map(Dep::fluid).collect::<Result<_, _>>()?;
             Ok(TransportSet { record, references, ..TransportSet::default() })
         });
