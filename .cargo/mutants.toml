@@ -5,7 +5,8 @@
 # Never copy gitignored files (reference/, the CoolProp checkout) into cargo-mutants' scratch tree; `gates mutants`
 # names the checkout's own reference/ in PHASEKIT_REFERENCE_DIR, so tests that read the pinned data still run (M2.1).
 gitignore = true
-# A mutant in phasekit-core must be caught by any workspace test, phasekit-verify's corpus included.
+# A mutant in phasekit-core must be caught by any workspace test, phasekit-verify's corpus included. `gates mutants` and
+# the weekly run test phasekit-xtask's mutants on its own tests alone (`--test-workspace false`, user decision CI5).
 test_workspace = true
 # Every workspace test in one parallel pool, each in its own process, stopping at the first failure
 # (`.config/nextest.toml`, profile `default`): a caught mutant ends with its first failing test instead of waiting for
