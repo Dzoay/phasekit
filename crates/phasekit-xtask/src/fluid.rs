@@ -744,6 +744,19 @@ mod tests {
         assert_eq!(reserved, 1, "surface tension");
     }
 
+    /// The transport section writes an absent model, part or field as `null`, as the other sections do (M8.1).
+    #[test]
+    fn absent_transport_parts_dump_as_null() {
+        let records = records(&Repo::locate()).unwrap();
+        let transport = |name: &str| to_json(records.iter().find(|r| r.name == name).unwrap())["transport"].clone();
+        assert_eq!(transport("Acetone"), json!({"viscosity": null, "conductivity": null}));
+        let ethylbenzene = transport("EthylBenzene");
+        assert_eq!(ethylbenzene["viscosity"]["source"].get("doi"), Some(&Value::Null), "Huber-RP912 has no DOI");
+        let water = transport("Water");
+        assert_eq!(water["viscosity"].get("lennard_jones"), Some(&Value::Null));
+        assert!(water["viscosity"]["source"]["doi"].is_string());
+    }
+
     /// Caloric curves survive the dump (no shipped blob has them before M5.2a).
     #[test]
     fn caloric_curves_round_trip() {

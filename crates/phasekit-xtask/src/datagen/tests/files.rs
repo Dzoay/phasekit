@@ -102,6 +102,10 @@ fn unknown_block_type_is_an_error() {
             "TRANSPORT.viscosity: unknown field \"sigma_etta\"",
         ),
         ("R11.json", "/conductivity/psi/b", json!([1.0]), "TRANSPORT.conductivity.psi: unknown field \"b\""),
+        // Documentation is a note's string, or the unit of a key read, which must be the expected one.
+        ("Ammonia.json", "/viscosity/_note", json!(1), "TRANSPORT.viscosity: unknown field \"_note\""),
+        ("Nitrogen.json", "/viscosity/sigma_eta_units", json!("nm"), "sigma_eta_units is \"nm\", not \"m\""),
+        ("Nitrogen.json", "/viscosity/T_critical_units", json!("K"), "unknown field \"T_critical_units\""),
     ];
     for (file, key, value, why) in transport_cases {
         let mut block = serde_json::from_str::<serde_json::Value>(&text(file)).unwrap()["TRANSPORT"].take();
