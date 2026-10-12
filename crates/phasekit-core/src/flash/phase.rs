@@ -153,7 +153,7 @@ pub(super) fn labelling_critical(
 }
 
 /// CoolProp's density bands for a pseudo-pure fluid's DT below its critical temperature, before its VLE (D4, user
-/// decision PS3; `HelmholtzEOSMixtureBackend.cpp:2340-2380`), at (T, ρ) of `fluid` with the EOS's p: see [`band`],
+/// decision PP3; `HelmholtzEOSMixtureBackend.cpp:2340-2380`), at (T, ρ) of `fluid` with the EOS's p: see [`band`],
 /// stability being (∂p/∂ρ)_T > 0 and (∂²p/∂ρ²)_T > 0 (`crate::crit::conditions`).
 fn pseudo_pure_bands(fluid: &PureFluid, t: f64, rho: f64, p: f64, sat: &SatPair) -> Option<Phase> {
     band(rho, p, sat, || stable(crate::crit::conditions(fluid.eos(), t, rho)))

@@ -487,7 +487,7 @@ fn pq_row(row: &QRow<'_, '_>, t_qt: Option<f64>, out: &mut QRows) {
 }
 
 /// A pseudo-pure fluid's QT or PQ row (path `ancillary`; PLAN.md M6.9, D4) against phasekit's flash (user decisions
-/// PS1, PS2), each cell within `Prop` (1e-12 of max(|v|, floor), floors R·T and R; its near-critical bound where that
+/// PP1, PP2), each cell within `Prop` (1e-12 of max(|v|, floor), floors R·T and R; its near-critical bound where that
 /// applies). QT: p is the side's pressure ancillary's, and the density, h and s those of the side Q names, the EOS's at
 /// that (T, p). PQ: T, linear in Q between the sides' temperatures; at Q = 0 and Q = 1 the side's density, h and s are
 /// phasekit's EOS at the oracle's T (CoolProp's inversion stops at 1e-10 K) and the given p. A row the oracle could not

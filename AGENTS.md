@@ -5,14 +5,14 @@ materials). It is **not** a binding. Work proceeds test-first, one plan step per
 
 **Current state:** milestones M0-M6 are done (tags `m0` to `m6`; M6 closed by M6.11); M7 is next. The next step is the first one in
 [docs/PLAN.md](docs/PLAN.md) section 3 that has no commit on `main` (`git log --oneline --grep '^Plan-Step:'` lists the
-finished ones); `phasekit_verify::MILESTONE` is the first open milestone. `docs/design/sketch/` is the compiled type
+finished ones); `phasekit_verify::MILESTONE` is the first open milestone. `docs/history/sketch/` is the compiled type
 sketch (its own Cargo workspace) that seeded the workspace; it is never edited, and later steps copy from it only when
 they say so.
 
 ## Sources of truth, in order
 
 1. [docs/BRIEF.md](docs/BRIEF.md) §1: the user's requirements, verbatim. They are the contract.
-2. [docs/design/04-user-decisions.md](docs/design/04-user-decisions.md): the user's decisions. They override anything
+2. [docs/DECISIONS.md](docs/DECISIONS.md): the user's decisions. They override anything
    older.
 3. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): crates, types, decisions D1-D17, milestones.
 4. [docs/PLAN.md](docs/PLAN.md): the steps (M0.1 …), gates, conventions. [docs/VERIFICATION.md](docs/VERIFICATION.md):
@@ -67,18 +67,18 @@ The rules are defined in [CONTRIBUTING.md](CONTRIBUTING.md). The ones agents get
 - **Papers and data:** PDFs of papers live in `reference/papers/` (gitignored) and are never committed. Only
   transcribed check values with citations are committed, as the plan describes. Restricted data (map 09 §9) never
   enters default features.
-- **Do not edit historical records** in `docs/design/` (`proposal-*`, `01-*`, `02-*`, `03-*`, `05-review-*`). They use
-  the old placeholder names `cprs-*`/`cp_*` on purpose. `04-user-decisions.md` changes only when the user decides
-  something, with the date.
+- **Do not edit `docs/history/`.** It is the frozen record of how the design was chosen, the type sketch included
+  ([its README](docs/history/README.md)); it uses the old placeholder names `cprs-*`/`cp_*` on purpose.
+  `docs/DECISIONS.md` changes only when the user decides something, with the date.
 - **Decisions that belong to the user** stop the step: naming, licensing, publishing, accounts, scope changes, and
   anything [PLAN.md §6](docs/PLAN.md#6-resolved-follow-ups-and-remaining-user-decisions) lists as open. Ask, then
-  record the answer in `docs/design/04-user-decisions.md`.
+  record the answer in `docs/DECISIONS.md`.
 
 ## Repository map
 
 | Path | What |
 |---|---|
-| `docs/` | Brief, architecture, plan, verification, rot register; `coolprop-map/` and `research/` evidence; `design/` history and the type sketch |
+| `docs/` | Brief, architecture, plan, verification, rot register; `DECISIONS.md`; `coolprop-map/` and `research/` evidence; `history/`, frozen, with the type sketch |
 | `scripts/` | `fetch-coolprop.sh`, `check-toolchain.sh`, `oracle/gen.py` (the fixture generator), `baseline/` (the C++ CoolProp baseline) |
 | `crates/phasekit-*` | the workspace: core, data, verify, xtask, compat; capi, wasm and py later |
 | `reference/` | gitignored: the CoolProp checkout and local papers |

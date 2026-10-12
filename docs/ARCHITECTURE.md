@@ -1,17 +1,17 @@
 # phasekit architecture
 
 **Status:** authoritative architecture for the TDD plan, revised 2026-10-05 after two adversarial critiques
-([02-critique-simplicity.md](design/02-critique-simplicity.md), [02-critique-evidence.md](design/02-critique-evidence.md));
-every issue's disposition is in [03-decision-log.md](design/03-decision-log.md). The user's answers to the open
-questions ([04-user-decisions.md](design/04-user-decisions.md), first pass 2026-10-05) are integrated; §14 lists them.
+([02-critique-simplicity.md](history/02-critique-simplicity.md), [02-critique-evidence.md](history/02-critique-evidence.md));
+every issue's disposition is in [03-decision-log.md](history/03-decision-log.md). The user's answers to the open
+questions ([DECISIONS.md](DECISIONS.md), first pass 2026-10-05) are integrated; §14 lists them.
 Supersedes the four proposals.
 **Name:** `phasekit` (D16, decided 2026-10-05): crates `phasekit-*`, Rust paths `phasekit_*`, C symbols `pk_*`.
 **How it was decided:** four architects wrote competing proposals
-([Lean](design/proposal-a-lean.md), [Extensible](design/proposal-b-extensible.md), [Kernel](design/proposal-c-kernel.md),
-[Verification-first](design/proposal-d-verification-first.md)). Three independent judges scored them
-([01-judgments.md](design/01-judgments.md); summary in [01-panel.md](design/01-panel.md)). Verification-first won
+([Lean](history/proposal-a-lean.md), [Extensible](history/proposal-b-extensible.md), [Kernel](history/proposal-c-kernel.md),
+[Verification-first](history/proposal-d-verification-first.md)). Three independent judges scored them
+([01-judgments.md](history/01-judgments.md); summary in [01-panel.md](history/01-panel.md)). Verification-first won
 (7.55 against Lean 7.45). This document is that design, with the judges' fatal flaws fixed, the grafts that pay for
-themselves applied, and the critics' fixes folded in. The compilable type sketch is [design/sketch](design/sketch):
+themselves applied, and the critics' fixes folded in. The compilable type sketch is [history/sketch](history/sketch):
 5 crates (the M0 set plus `phasekit-compat`), std only, zero third-party dependencies, 47 passing tests (the doctest
 executes). Every code excerpt below is copied from it with `///` doc comments trimmed.
 **Companions:** [PLAN.md](PLAN.md) (milestones in detail), [VERIFICATION.md](VERIFICATION.md) (D13 in full),
@@ -19,7 +19,7 @@ executes). Every code excerpt below is copied from it with `///` doc comments tr
 **Citations:** "map NN §X / R#" = `docs/coolprop-map/NN-*.md`; R#, K#, P#, T# and materials R#/S# = the recommendation
 tables of `docs/research/{dependencies,kernel-performance,prior-art,materials-extensibility}.md`. Critic issue ids
 (S-01…S-13, E1…E19) point to the decision log. "User decision N" is row N of
-[04-user-decisions.md](design/04-user-decisions.md). Anything else is marked *(inference)*.
+[DECISIONS.md](DECISIONS.md). Anything else is marked *(inference)*.
 
 **Thesis.** The scalar `f64` path is the specification. Every layer exposes a typed seam where an independent check
 attaches. CoolProp 8.0.0 is a provisional oracle; printed check tables arbitrate; every deliberate difference is a
@@ -821,7 +821,7 @@ kit every family inherits; capability-gated milestones; fail-closed gates. §10 
   fitted by fastchebpure and the basis of default `Exact` saturation, ship under CoolProp's MIT notice. NOTICE credits
   NIST / fastchebpure and cites the superancillary paper; the NIST disclaimer is kept if SA evaluation code is ported.
   Map 09 §9 had listed the fastchebpure outputs as provenance to clear; `usnistgov/fastchebpure` has no licence file
-  or statement (found 2026-10-05, recorded in 04-user-decisions.md). If the decision is ever revisited, datagen refits
+  or statement (found 2026-10-05, recorded in DECISIONS.md). If the decision is ever revisited, datagen refits
   the curves from the EOS (also how stale curves get fixed).
 - Fixtures (user decision 3b). All three kinds may be committed, each with provenance and a citation (REUSE
   annotations): CoolProp-derived outputs, printed check-value tables, and fastchebpure's dense outputcheck files
@@ -1341,7 +1341,7 @@ no model cache: the registry is the cache, bounded by the named fluids and relea
 | Fixture volume (~3.5 GB full set) | Committed core subset + manifest; nightly regeneration |
 | The shim's unprefixed CoolProp exports clash with a real CoolProp in one process | The shim is a separate build; the default `pk_*` library exports no CoolProp names (D11) *(inference)* |
 
-**Decisions taken** (see [docs/design/04-user-decisions.md](design/04-user-decisions.md); first pass 2026-10-05, a
+**Decisions taken** (see [DECISIONS.md](DECISIONS.md); first pass 2026-10-05, a
 later change is recorded there with its date). Numbers are the question numbers used there.
 1. **Name:** `phasekit`; crates `phasekit-*`, Rust paths `phasekit_*`, C prefix `pk_` (D16).
 2. **Default dataset:** `DataSet::Corrected`; `Parity` stays for oracle comparison (D7, §8).
@@ -1364,7 +1364,7 @@ later change is recorded there with its date). Numbers are the question numbers 
 13. **Plotting:** deferred until after the mixtures milestone (§1).
 14. **Code licence:** MIT OR Apache-2.0, confirmed (D14).
 
-**Decided 2026-10-05** (PLAN.md §6, P1-P7; [04-user-decisions.md](design/04-user-decisions.md)):
+**Decided 2026-10-05** (PLAN.md §6, P1-P7; [DECISIONS.md](DECISIONS.md)):
 - **Shim library file name:** phasekit name only (`phasekit_coolproplib.dll`, `libphasekit_coolproplib.so`); nothing
   is distributed under CoolProp's file names (D16).
 - **Shim `set_config_*`:** the shim keeps its own process-wide settings and translates keys that have a phasekit

@@ -1,6 +1,6 @@
 //! `gates doc-excerpts`: Rust code in the design documents is real code (ROT-139; map 01 R19). Every fenced `rust`
 //! block in `docs/*.md` is split at blank lines into chunks, and each chunk must appear in one source file under
-//! `crates/` or `docs/design/sketch/` with its lines in order, compared modulo indentation and `///`/`//!` lines;
+//! `crates/` or `docs/history/sketch/` with its lines in order, compared modulo indentation and `///`/`//!` lines;
 //! an excerpt may leave lines out. A block preceded by `<!-- excerpt: illustrative -->` is not checked.
 
 use super::{Verdict, no_args};
@@ -12,7 +12,7 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
     no_args(args)?;
     let docs = repo.files("docs", ".md", false).map_err(|e| vec![e])?;
     let mut sources = repo.files("crates", ".rs", true).map_err(|e| vec![e])?;
-    sources.extend(repo.files("docs/design/sketch", ".rs", true).map_err(|e| vec![e])?);
+    sources.extend(repo.files("docs/history/sketch", ".rs", true).map_err(|e| vec![e])?);
     if docs.is_empty() || sources.is_empty() {
         return Err(vec!["no documents or no sources to compare".to_string()]);
     }
@@ -56,7 +56,7 @@ fn check_block(path: &str, (body, first): (&[&str], usize), sources: &[Vec<&str>
         let chunk = normalized(body[chunk_start..i].iter().copied());
         if !chunk.is_empty() && !sources.iter().any(|source| in_order(source, &chunk)) {
             errors.push(format!(
-                "{path}:{}: the excerpt starting `{}` is not in any source under crates/ or docs/design/sketch/ \
+                "{path}:{}: the excerpt starting `{}` is not in any source under crates/ or docs/history/sketch/ \
                  (lines in order, modulo indentation and doc comments); fix it or mark it {ILLUSTRATIVE}",
                 first + chunk_start + 1,
                 chunk[0]

@@ -1,21 +1,21 @@
 # phasekit implementation plan
 
 **Status:** the step-by-step TDD plan for implementing [ARCHITECTURE.md](ARCHITECTURE.md), written 2026-10-05 and
-revised the same day after two adversarial reviews ([design/05-plan-review-log.md](design/05-plan-review-log.md)). The
+revised the same day after two adversarial reviews ([history/05-plan-review-log.md](history/05-plan-review-log.md)). The
 contract is the user's requirements, verbatim in [BRIEF.md](BRIEF.md) §1. The user's answers in
-[design/04-user-decisions.md](design/04-user-decisions.md) (first pass 2026-10-05) override any older text. Written
+[DECISIONS.md](DECISIONS.md) (first pass 2026-10-05) override any older text. Written
 alongside [VERIFICATION.md](VERIFICATION.md) (how truth is established) and [ROT-REGISTER.md](ROT-REGISTER.md)
 (CoolProp rot → mechanism → test).
 **Readers:** the user, and AI coding agents who execute one step at a time. Every step names its failing test, the
 truth it uses, the code it touches and the check that ends it.
 **Citations:** "map NN §X", "map NN R#" (or another item id such as F#, U#, X#, C#) = `docs/coolprop-map/NN-*.md`. K#,
 R#, P#, T# = recommendation tables of `docs/research/{kernel-performance,dependencies,prior-art}.md`. D1-D17 =
-ARCHITECTURE.md §4. "User decision N" = row N of 04-user-decisions.md (the licence row is "D14"). ROT-NNN = rows of
-ROT-REGISTER.md. S-##/E## = critic issues in [design/03-decision-log.md](design/03-decision-log.md). Anything else is
+ARCHITECTURE.md §4. "User decision N" = row N of DECISIONS.md (the licence row is "D14"). ROT-NNN = rows of
+ROT-REGISTER.md. S-##/E## = critic issues in [history/03-decision-log.md](history/03-decision-log.md). Anything else is
 marked *(inference)*.
 **Names:** project `phasekit`; crates `phasekit-core`, `phasekit-data`, `phasekit-compat`, `phasekit-verify`,
 `phasekit-xtask`, later `phasekit-capi`, `phasekit-wasm`, `phasekit-py`; Rust paths `phasekit_core` etc.; C prefix
-`pk_`. The historical design records in `docs/design` use the old placeholders `cprs-*`/`cp_*` and are never edited.
+`pk_`. The historical design records in `docs/history` use the old placeholders `cprs-*`/`cp_*` and are never edited.
 **One home per artefact.** Every path, file name and gate is listed once in §2.3 and §2.4 with the section that
 defines it. This plan is normative for steps, gates G1-G8 and the `libm` threshold; VERIFICATION.md is normative for
 fixtures, kinds, tolerance classes, the register schema, xtask gate rules, the cross-target hash and the bench
@@ -48,7 +48,7 @@ Every step in section 3 is one focused change, roughly one PR. Execute it like t
 Scaffolding steps with no runtime behaviour (toolchain, CI, licence files) use a failing *command* in place of a
 failing test; the step names that command.
 
-Code from the type sketch (`docs/design/sketch`, compiled and tested) may be copied when a step says so, but its tests
+Code from the type sketch (`docs/history/sketch`, compiled and tested) may be copied when a step says so, but its tests
 are copied **first** and seen red against a stub (or, for the one-off seed import at M0.2, seen green as the
 baseline). The sketch is never edited.
 
@@ -323,7 +323,7 @@ wasm32-wasip2, x86_64-pc-windows-msvc, clippy and rustfmt (installed); `uv`; `re
   tool is installed but not found. Never install into the repo. *Done when:* the script exits 0; versions noted in the
   PR.
 - **M0.2 Workspace seeded from the sketch.** *Failing command:* `cargo test --workspace` at the repo root (no
-  manifest). *Do:* copy from `docs/design/sketch` the root `Cargo.toml` (`resolver = "3"`, edition 2024,
+  manifest). *Do:* copy from `docs/history/sketch` the root `Cargo.toml` (`resolver = "3"`, edition 2024,
   `rust-version = "1.85"`, `license = "MIT OR Apache-2.0"`, `publish = false`, workspace lints, internal deps with
   `default-features = false`), `clippy.toml`, `rustfmt.toml`, and the crates `phasekit-core`, `phasekit-data`,
   `phasekit-verify`, `phasekit-xtask` with their tests. **Not** `phasekit-compat` (S-11: it joins at M5.9). Four seed
@@ -925,12 +925,12 @@ and numerical critical points; CoolProp's pseudo-pure rules; the saturation arbi
   ancillaries section); each side's density is the EOS's at its (T, p), restarted from the branch's far end where the
   density ancillary's seed is unstable, as CoolProp's. Inside the dome CoolProp does not use the ancillaries for p or Q:
   past its density bands it solves the pure-fluid VLE of the blend's EOS from them (`HelmholtzEOSMixtureBackend.cpp:
-  2340-2507`), and so does the phase rule here, bands included (user decision PS3: each blend's EOS critical point lies
+  2340-2507`), and so does the phase rule here, bands included (user decision PP3: each blend's EOS critical point lies
   below its published one, Air's by 0.67 K, R407C's by 2.7 K, where no VLE splits); all 96 `dome` rows agree, 4 of them
   gas, and the nightly grid's 11 961 states of the six, but for 40 p cells of SES36 at its lowest temperatures, where
   CoolProp's in-dome p changes with Q (DIV-0019). CoolProp's ancillary inversions stop at 1e-10 K, so its
-  PQ sides are checked at its own T (user decision PS1); within Θ ≈ 1e-3 of the top Air's and R407C's bubble pressure
-  ancillaries turn over and SES36's own QT fails, where phasekit refuses (D6) and the rows are counted (PS2). A
+  PQ sides are checked at its own T (user decision PP1); within Θ ≈ 1e-3 of the top Air's and R407C's bubble pressure
+  ancillaries turn over and SES36's own QT fails, where phasekit refuses (D6) and the rows are counted (PP2). A
   pseudo-pure fluid's model critical point stays the published one, as CoolProp's.
 - **M6.10 Saturation arbiters.** *Failing tests:* `iapws95_saturation_table_within_printed_digits` (Table 8, class
   `Paper`) and the `div_0005` Table 4 part (NIST IR 8474 Table 4 at `Paper`, or at `Measured` if the ARBITERS
@@ -1048,7 +1048,7 @@ bands (map 03 §8; map 10 §8.5 L4).
   critical point, which labels states here too). The corpus holds 193 states from 31 issues and test files, each as it
   names; the melting-line refusals (#2639, #1936) wait for M8's melting lines.
 - **M7.9a Duplication refactor** (user decision DR1). *Failing test:* none; a refactor changes no behaviour. *Do:* the
-  duplication audit's areas 1-3, 5 and 6 (`04-user-decisions.md`, DR1): a shared helper module for phasekit-verify's
+  duplication audit's areas 1-3, 5 and 6 (`DECISIONS.md`, DR1): a shared helper module for phasekit-verify's
   integration tests (`tests/common/mod.rs`: `label()`, the pinned-generator-environment test, the table and grid
   checks); one setup and one bound-check tail for the check routines of verify's `eos.rs` and `term.rs`; one header
   writer and validator for the blob and the pack in core's `blob.rs` (no format version change); one table for
@@ -1092,7 +1092,7 @@ bands (map 03 §8; map 10 §8.5 L4).
   whose function is no longer over the bar failing; length by clippy's `too_many_lines` at 100 code lines
   (`clippy.toml`, `#[expect(clippy::too_many_lines, reason = "…")]` on the functions over it, a probe in
   `clippy_bans_fire`). *Done when:* G1-G8 green; no behaviour change; the gate's numbers agree with the audit's
-  (rust-code-analysis at `c094914`; `04-user-decisions.md`, CX) or the PR explains each difference; a new function over
+  (rust-code-analysis at `c094914`; `DECISIONS.md`, CX) or the PR explains each difference; a new function over
   the bar fails G8 or G2, and so does an exemption no longer needed. Measured at M7.9c: 1 707 functions in 124 files, 54
   over a bar and exempted with their ceilings: 26 tests for M7.9d, 11 core functions for M7.9e, 15 for M7.9f, and two
   that stay (`toms748` as printed; Algorithm 748's test problems, a data table). Nesting agrees with the audit's
@@ -1577,7 +1577,7 @@ from M9.6 `gates perf` enforces gungraun regressions on Linux CI and the referen
 
 ## 6. Resolved follow-ups and remaining user decisions
 
-**Follow-ups from 04-user-decisions.md**
+**Follow-ups from DECISIONS.md**
 
 | Follow-up | Resolution |
 |---|---|
@@ -1619,7 +1619,7 @@ from M9.6 `gates perf` enforces gungraun regressions on Linux CI and the referen
 | 13 plotting after mixtures | M19 |
 | D14 MIT OR Apache-2.0 | M0.7 |
 
-**Decisions taken on 2026-10-05** (docs/design/04-user-decisions.md, rows P1-P7)
+**Decisions taken on 2026-10-05** (DECISIONS.md, rows P1-P7)
 
 | # | Question | Decision | Where |
 |---|---|---|---|

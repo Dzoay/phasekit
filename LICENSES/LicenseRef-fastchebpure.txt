@@ -12,7 +12,7 @@ phasekit changed their layout only: the values are the release's, and p_sa_mp
 is p(SA)/p(mp) computed from two of them.
 
 The fastchebpure repository has no licence file (user decision 3a, recorded in
-docs/design/04-user-decisions.md, 2026-10-05). As a work of NIST employees it
+docs/DECISIONS.md, 2026-10-05). As a work of NIST employees it
 is generally not subject to copyright protection in the United States
 (17 U.S.C. 105); this reading is an inference, not legal advice. phasekit
 redistributes the data with credit to NIST and fastchebpure and with the NIST

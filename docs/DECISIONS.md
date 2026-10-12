@@ -1,6 +1,9 @@
-# User decisions on the architecture's open questions
+# User decisions
 
-First pass, 2026-10-05, answering [ARCHITECTURE.md §14](../ARCHITECTURE.md#14-risks-and-open-questions-for-the-user).
+The user's decisions, dated, second only to [BRIEF.md](BRIEF.md) §1 ([AGENTS.md](../AGENTS.md)); a later decision
+overrides older text anywhere. Each has a unique id: other docs cite the id and do not restate the decision.
+
+First pass, 2026-10-05, answering [ARCHITECTURE.md §14](ARCHITECTURE.md#14-risks-and-open-questions-for-the-user).
 "First pass" means the user may revisit an answer after reading the reference material; a later change is recorded
 here with its date.
 
@@ -251,8 +254,8 @@ secant beyond it), and SES36's own QT fails there.
 
 | # | Question | Decision | Notes |
 |---|---|---|---|
-| PS1 | How the pseudo-pure PQ sides are checked | **At the oracle's side temperature: PQ's T within `Prop`; at Q = 0 and Q = 1 the side's density, h and s within `Prop` from phasekit's EOS at the oracle's T and the given p; at Q = 0.5 T alone** | Like with like, no tolerance widened and no register entry. Rejected: a divergence entry exempting the side cells. |
-| PS2 | The rows near the top where the definition breaks down | **Refuse and count: phasekit refuses (D6, a fit is never evaluated outside its range) with a `DomainError`, the test counts those rows, and the rows where the oracle itself errs are counted, not compared** | As M6.8 counts the rows outside the model's limits. Rejected: a divergence entry; a grid that stops at Θ = 1e-2. |
+| PP1 | How the pseudo-pure PQ sides are checked | **At the oracle's side temperature: PQ's T within `Prop`; at Q = 0 and Q = 1 the side's density, h and s within `Prop` from phasekit's EOS at the oracle's T and the given p; at Q = 0.5 T alone** | Like with like, no tolerance widened and no register entry. Rejected: a divergence entry exempting the side cells. |
+| PP2 | The rows near the top where the definition breaks down | **Refuse and count: phasekit refuses (D6, a fit is never evaluated outside its range) with a `DomainError`, the test counts those rows, and the rows where the oracle itself errs are counted, not compared** | As M6.8 counts the rows outside the model's limits. Rejected: a divergence entry; a grid that stops at Θ = 1e-2. |
 
 ## The pseudo-pure dome against the nightly grid (2026-10-09)
 
@@ -264,7 +267,7 @@ T, 1e-8 from phasekit's converged VLE.
 
 | # | Question | Decision | Notes |
 |---|---|---|---|
-| PS3 | Which rule a pseudo-pure fluid's DT follows below its published Tc | **CoolProp's: gas below 0.95 of the dew density ancillary, liquid above 1.05 of the bubble one, liquid in the 0.9975 strip where the ancillary quality is below 0.01, p is above 1.05 of the bubble pressure ancillary and the state is stable; otherwise the EOS's VLE from the ancillary densities** | For the six pseudo-pure fluids only: their saturation is CoolProp's construct, and decision 4 asks for its rules from oracle fixtures; pure fluids keep the band-free rule (ROT-088). Rejected: the EOS's VLE then the ancillary densities as boundaries; the EOS alone with a divergence entry. |
+| PP3 | Which rule a pseudo-pure fluid's DT follows below its published Tc | **CoolProp's: gas below 0.95 of the dew density ancillary, liquid above 1.05 of the bubble one, liquid in the 0.9975 strip where the ancillary quality is below 0.01, p is above 1.05 of the bubble pressure ancillary and the state is stable; otherwise the EOS's VLE from the ancillary densities** | For the six pseudo-pure fluids only: their saturation is CoolProp's construct, and decision 4 asks for its rules from oracle fixtures; pure fluids keep the band-free rule (ROT-088). Rejected: the EOS's VLE then the ancillary densities as boundaries; the EOS alone with a divergence entry. |
 | — | SES36's in-dome p at its lowest temperatures | **A divergence entry: DIV-0019 (`SkipOracle`) on those p cells** | Its proof pins CoolProp's variation with Q and phasekit's single VLE p. Rejected: an `Investigate` entry with the measured residual as the tolerance. |
 
 ## NIST IR 8474 Table 4 (2026-10-09)
@@ -391,3 +394,16 @@ rows for them.
 | # | Question | Decision | Notes |
 |---|---|---|---|
 | FT1 | Hold M8.5 for that paper, or land it without Methane's and n-Pentane's paper rows? | **Land M8.5; the two fluids' rows wait for the paper** | Both fluids still match the oracle stage by stage. The paper is also the arbiter of n-Pentane's viscosity itself: CoolProp replaced two of its coefficients (`Aa[1]`, `Ai[0]`) with REFPROP 9.1's, and at Vassiliou et al. 2015's check point its η is 27.15 µPa s where that correlation used 49.465 (M8.6, DIV-0025). A copy that reaches `reference/papers/` adds the rows. |
+
+## The docs' layout and upkeep (2026-10-12)
+
+Asked after a review of the docs (five reviewers, 2026-10-12): about 130 findings, nearly all one fact kept by hand in
+several places (the current milestone, the divergence entries, gates, rules, measurements), with the copies drifted
+apart; and frozen records beside living ones with nothing to tell them apart. Two decisions shared the id PS1.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| DL1 | Where do the frozen design records go? | **`docs/history/`, the type sketch included** | Never edited; [history/README.md](history/README.md) says so and maps the old paths. |
+| DL2 | Where do the user's decisions live? | **`docs/DECISIONS.md`** (was `docs/design/04-user-decisions.md`) | Rank 2 of AGENTS.md's sources of truth, unchanged. |
+| DL3 | The two decisions named PS1 | **The pseudo-pure series becomes PP1-PP3**; PS1 stays the paper-sources decision | Every citation renamed with it. |
+| DL4 | How a step's PR keeps the docs | **Each fact has one home; a finished step's PLAN.md text becomes one ledger row; its measurements go to the PR body (the squash commit's body) and to the test that pins them** | The homes: PLAN.md §2.1. One PR for the whole clean-up, a commit per stage, at the user's request. |

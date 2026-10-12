@@ -1,4 +1,4 @@
-# The phasekit workspace (docs/ARCHITECTURE.md §2), seeded from docs/design/sketch at M0.2. Crates use the
+# The phasekit workspace (docs/ARCHITECTURE.md §2), seeded from docs/history/sketch at M0.2. Crates use the
 # `phasekit-` prefix and C symbols `pk_` (D16, decided 2026-10-05). Members are the M0 crates (core, data,
 # verify, xtask); phasekit-compat joins at M5.9, phasekit-capi and phasekit-wasm at M10 and phasekit-py after
 # 0.1 (S-11).

@@ -1,6 +1,6 @@
 # phasekit rot register
 
-**Status:** written 2026-10-05 for the plan-doc stage and revised the same day after two reviews ([design/05-plan-review-log.md](design/05-plan-review-log.md)), against the final [ARCHITECTURE.md](ARCHITECTURE.md) and the user decisions in [04-user-decisions.md](design/04-user-decisions.md). ARCHITECTURE.md §13 is the summary; this is the full register. Companions: [PLAN.md](PLAN.md) (milestone steps) and [VERIFICATION.md](VERIFICATION.md) (tests, gates, divergence register).
+**Status:** written 2026-10-05 for the plan-doc stage and revised the same day after two reviews ([history/05-plan-review-log.md](history/05-plan-review-log.md)), against the final [ARCHITECTURE.md](ARCHITECTURE.md) and the user decisions in [DECISIONS.md](DECISIONS.md). ARCHITECTURE.md §13 is the summary; this is the full register. Companions: [PLAN.md](PLAN.md) (milestone steps) and [VERIFICATION.md](VERIFICATION.md) (tests, gates, divergence register).
 
 ## 1. How to use this register
 
@@ -32,8 +32,8 @@
 | GAP | Nothing in the architecture addresses it yet. Section 3 proposes a minimal mechanism and a milestone. |
 
 **Notation.**
-- "§N" and "DN" without a file name are ARCHITECTURE.md sections and decisions; "user decision N" is row N of 04-user-decisions.md; "map NN §X" is a map section; DIV-nnnn are divergence-register entries (ARCHITECTURE.md §10, VERIFICATION.md section 6).
-- "sketch `name`" is a test that exists and passes in [docs/design/sketch](design/sketch). `lazy_load.rs`, `new_family.rs`, `gibbs_seam.rs` and `register.rs` are integration tests in `phasekit-verify/tests/`; other names are module paths. `phasekit_verify::conformance::{fd_first_order, gauge_invariance, policy_equivalence}` exist in the sketch kit.
+- "§N" and "DN" without a file name are ARCHITECTURE.md sections and decisions; "user decision N" is row N of DECISIONS.md; "map NN §X" is a map section; DIV-nnnn are divergence-register entries (ARCHITECTURE.md §10, VERIFICATION.md section 6).
+- "sketch `name`" is a test that exists and passes in [docs/history/sketch](history/sketch). `lazy_load.rs`, `new_family.rs`, `gibbs_seam.rs` and `register.rs` are integration tests in `phasekit-verify/tests/`; other names are module paths. `phasekit_verify::conformance::{fd_first_order, gauge_invariance, policy_equivalence}` exist in the sketch kit.
 - "new `name`" is a proposed test. The name is a suggestion; the milestone is binding.
 - "open detail N" is item N of the list at the end of section 3: the rot is handled, but a detail is unspecified.
 - Text in [square brackets] is a proposal that is not yet in ARCHITECTURE.md. *(inference)* marks a claim that is not in the maps or research docs, as in ARCHITECTURE.md.

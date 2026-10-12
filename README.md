@@ -38,9 +38,9 @@ follow afterwards ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)).
 | [docs/PLAN.md](docs/PLAN.md) | The test-first implementation plan, step by step (M0-M10 to v0.1, then the roadmap) |
 | [docs/VERIFICATION.md](docs/VERIFICATION.md) | Oracle fixtures, literature arbiters, tolerances, the divergence register, CI gates |
 | [docs/ROT-REGISTER.md](docs/ROT-REGISTER.md) | Every CoolProp problem found, how phasekit avoids it, and the test that proves it |
-| [docs/design/04-user-decisions.md](docs/design/04-user-decisions.md) | The maintainer's decisions on the open questions |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | The maintainer's decisions, dated; they override older text |
 | `docs/coolprop-map/`, `docs/research/` | The evidence: a 15-part map of CoolProp 8.0.0 and fact-checked research |
-| `docs/design/` | How the architecture was chosen (four proposals, judges, critiques) and the compiled type sketch |
+| `docs/history/` | Frozen: how the architecture was chosen (four proposals, judges, critiques) and the type sketch |
 
 ## Repository layout
 
