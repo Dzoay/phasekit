@@ -121,8 +121,14 @@ fn squash(text: &str) -> String {
 fn code_only(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = bytes.to_vec();
-    let mut i = 0;
-    while i < bytes.len() {
+    // Where the scan goes on: the end of the last token. Each loop of this tokenizer steps through a range or an
+    // iterator, so it ends whatever a token returns (`while` loops that kept their own counters stalled under mutants
+    // that held a counter in place, each running to cargo-mutants' timeout).
+    let mut resume = 0;
+    for i in 0..bytes.len() {
+        if i < resume {
+            continue;
+        }
         let next = bytes.get(i + 1).copied();
         let token = match bytes[i] {
             b'/' if next == Some(b'/') => Some(line_comment(text, i)),
@@ -132,12 +138,9 @@ fn code_only(text: &str) -> String {
             b'\'' => char_literal(text, i),
             _ => None,
         };
-        match token {
-            Some((from, to, end)) => {
-                blank(&mut out, from, to);
-                i = end;
-            }
-            None => i += 1,
+        if let Some((from, to, end)) = token {
+            blank(&mut out, from, to);
+            resume = end;
         }
     }
     String::from_utf8(out).unwrap_or_default()
@@ -164,25 +167,31 @@ fn line_comment(text: &str, i: usize) -> Token {
 
 /// The `/*` comment at `i`, nested ones within it, to its `*/` or the end of the file.
 fn block_comment(bytes: &[u8], i: usize) -> Token {
-    let (mut depth, mut j) = (0, i);
-    while j < bytes.len() {
-        match (bytes[j], bytes.get(j + 1)) {
-            (b'/', Some(b'*')) => (depth, j) = (depth + 1, j + 2),
-            (b'*', Some(b'/')) if depth == 1 => break,
-            (b'*', Some(b'/')) => (depth, j) = (depth - 1, j + 2),
-            _ => j += 1,
+    let (mut depth, mut pairs) = (0, bytes[i..].windows(2).enumerate());
+    while let Some((k, pair)) = pairs.next() {
+        match pair {
+            [b'/', b'*'] => depth += 1,
+            [b'*', b'/'] if depth == 1 => return (i, i + k + 2, i + k + 2),
+            [b'*', b'/'] => depth -= 1,
+            _ => continue,
         }
+        // A delimiter is two bytes: the `*` of `/*/` opens a comment and does not also close it.
+        pairs.next();
     }
-    (i, j + 2, j + 2)
+    (i, bytes.len(), bytes.len())
 }
 
 /// The string literal opening at `i`, its contents to the closing quote, escapes skipped.
 fn string(bytes: &[u8], i: usize) -> Token {
-    let mut j = i + 1;
-    while j < bytes.len() && bytes[j] != b'"' {
-        j += if bytes[j] == b'\\' { 2 } else { 1 };
+    let mut rest = bytes.iter().enumerate().skip(i + 1);
+    while let Some((j, byte)) = rest.next() {
+        match byte {
+            b'\\' => _ = rest.next(),
+            b'"' => return (i + 1, j, j + 1),
+            _ => {}
+        }
     }
-    (i + 1, j, j + 1)
+    (i + 1, bytes.len(), bytes.len())
 }
 
 /// The raw string at the `r` at `i` (r"...", r#"..."#, br"...", cr"..."), its contents to its closing quote and
@@ -262,6 +271,8 @@ let t = (' ',' '); let q = ' '; let k = cr" ";
         // Unterminated at the end of the file: blanked to the end, never a panic.
         assert_eq!(code_only("x /* y"), "x     ");
         assert_eq!(code_only("x \"ab"), "x \"  ");
+        // A token at the very start, and one where the last one ends.
+        assert_eq!(code_only("\"a\"'b'/*c*/"), "\" \"' '     ");
     }
 
     /// Rot: ROT-294. Map 07 I11: expected and actual computed by the same call.
