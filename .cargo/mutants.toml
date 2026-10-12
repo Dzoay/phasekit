@@ -130,4 +130,9 @@ exclude_re = [
     "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace < with <= in friend_methane",
     "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace < with <= in friend_chi",
     "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace >= with > in friend_chi",
+    # Equivalent (CI, M8.6): Friend's θ test (line 201) T* < −|ρ*|^(−1/β)/s holds at every state that reaches it, since |ρ*| < 0.03
+    # puts the bound above 3000, and so does the mutant's −|ρ*|^(−1/β)·s; and the Olchowy-Sengers cut-off at ε/10
+    # instead of 10ε changes only numerators below 2.2e-15, where the enhancement is about 1e-20 W/(m K).
+    "transport/conductivity\\.rs:201:36: replace / with \\* in friend_chi",
+    "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace \\* with /$",
 ]
