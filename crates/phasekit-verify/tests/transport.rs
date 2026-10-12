@@ -685,7 +685,7 @@ fn viscosity_paper_rows() {
     let checked = &rows.checked;
     assert_eq!((checked.get("SulfurHexafluoride"), checked.get("HydrogenSulfide")), (Some(&6), Some(&4)));
     assert_eq!((checked.get("Water"), checked.get("HeavyWater")), (Some(&17), Some(&3)));
-    assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (17, 74, 83), "{checked:?}");
+    assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (29, 157, 0), "{checked:?}");
     let outside = ["CarbonDioxide 133", "CarbonDioxide 135", "Methanol 218", "Methanol 219", "m-Xylene 252"];
     assert_eq!(
         rows.extrapolated,
@@ -698,6 +698,12 @@ fn viscosity_paper_rows() {
         (("DIV-0022", "R123"), 1),
         (("DIV-0022", "n-Octane"), 1),
         (("DIV-0022", "n-Propane"), 4),
+        (("DIV-0031", "Benzene"), 1),
+        (("DIV-0031", "Methanol"), 2),
+        (("DIV-0031", "n-Heptane"), 2),
+        (("DIV-0033", "Ethane"), 2),
+        (("DIV-0034", "CarbonDioxide"), 1),
+        (("DIV-0034", "R23"), 2),
         (("IAPWS-R4-84(2007)", "HeavyWater"), 3),
     ];
     assert_eq!(rows.beyond(), registered, "rows beyond their printed digits, by entry");
@@ -711,7 +717,7 @@ fn conductivity_paper_rows() {
     assert!(rows.failures.is_empty(), "{:#?}", rows.failures);
     let checked = &rows.checked;
     assert_eq!((checked.get("Water"), checked.get("HeavyWater")), (Some(&12), Some(&3)));
-    assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (14, 62, 43), "{checked:?}");
+    assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (27, 105, 0), "{checked:?}");
     assert_eq!(rows.extrapolated, Vec::<String>::new());
     let registered = [
         (("DIV-0023", "Air"), 1),
@@ -723,6 +729,14 @@ fn conductivity_paper_rows() {
         (("DIV-0024", "Methane"), 3),
         (("DIV-0025", "n-Pentane"), 1),
         (("DIV-0027", "EthylBenzene"), 1),
+        (("DIV-0027", "o-Xylene"), 1),
+        (("DIV-0032", "Cyclopentane"), 1),
+        (("DIV-0032", "Isopentane"), 1),
+        (("DIV-0032", "n-Heptane"), 3),
+        (("DIV-0032", "n-Hexane"), 1),
+        (("DIV-0033", "Ethane"), 2),
+        (("DIV-0034", "R123"), 1),
+        (("DIV-0034", "R23"), 2),
         (("IAPWS-R4-84(2007)", "HeavyWater"), 3),
     ];
     assert_eq!(rows.beyond(), registered, "rows beyond their printed digits, by entry");

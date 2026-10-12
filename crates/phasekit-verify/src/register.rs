@@ -583,7 +583,7 @@ pub static DIVERGENCES: &[Divergence] = &[
     },
     Divergence {
         id: "DIV-0027",
-        fluids: &["EthylBenzene"],
+        fluids: &["EthylBenzene", "o-Xylene"],
         part: Part::Transport,
         arbiter: None,
         policy: Policy::Investigate,
@@ -592,11 +592,16 @@ pub static DIVERGENCES: &[Divergence] = &[
                    paper's own dilute-gas fit, Eq. (18), which v8.0.0 transcribes exactly (Tc = 617.12 K): at 500 and \
                    600 K Eq. (18) gives 29.1547 and 41.1347 mW/(m K) against the printed 29.16 and 41.14 (-1.8e-4, \
                    -1.3e-4), the other four temperatures within their digits; CoolProp-Tests.cpp:555 takes the 600 K \
-                   value (2026-10-12); to decide: what Table 21 was computed with (the paper's Eqs. (3)-(5) and (17), \
-                   within 0.1 % of Eq. (18))",
+                   value; its Table 6 likewise prints o-xylene's 0 MPa, 300 K value as 13.68 where its Eq. (12), \
+                   transcribed exactly, gives 13.6747 (-3.9e-4) and its Eqs. (3)-(5) and (11) 13.684 \
+                   (CoolProp-Tests.cpp:548) (2026-10-12); to decide: what the tables were computed with (the paper's \
+                   dilute-gas scheme, within 0.1 % of its fits)",
         exempt: None,
         tolerance: None,
-        table_tolerances: &[("paper/EthylBenzene/CoolProp-Tests.lambda.csv", Tolerance::Relative(2e-4))],
+        table_tolerances: &[
+            ("paper/EthylBenzene/CoolProp-Tests.lambda.csv", Tolerance::Relative(2e-4)),
+            ("paper/o-Xylene/CoolProp-Tests.lambda.csv", Tolerance::Relative(4e-4)),
+        ],
         proof: &[8],
         status: DivStatus::Open,
     },
@@ -636,6 +641,130 @@ pub static DIVERGENCES: &[Divergence] = &[
         exempt: None,
         tolerance: None,
         table_tolerances: &[],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0030",
+        fluids: &["Ammonia"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::transport::hardcoded"),
+        evidence: "map 05 R3, M8.9: Tufeu et al. 1984's critical conductivity term, as CoolProp codes it, diverges at \
+                   its own Tc, 405.4 K, at every density: the oracle gives 6.26 W/m/K at 405.3999 K and 50 kg/m3, \
+                   about 100 times the conductivity there, and NaN at 405.4 K; phasekit floors the term's reduced \
+                   temperature at the gap to the EOS's Tc, 405.56 K, so it is CoolProp's outside 405.24-405.56 K and \
+                   finite and continuous inside (2026-10-12); the Corrected model (Monogenidou et al. 2018, or a bound \
+                   from Tufeu's paper) waits for the paper check (map 05 Q3)",
+        exempt: Some(Exempt {
+            kinds: &[Kind::Transport],
+            columns: &["lambda"],
+            rows: Rows::TBand { lo: 405.24, hi: 405.56 },
+        }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0031",
+        fluids: &["Benzene", "n-Heptane", "Methanol"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 10 §8.1, M8.9: viscosity check values off their papers' own correlations, which v8.0.0 \
+                   transcribes exactly, at the tables' own temperatures and densities: Avgeri et al. 2014 Table 8 at \
+                   300 K and 875 kg/m3, 608.52 against 608.5308 uPa s (+1.8e-5); Michailidou et al. 2014 Table 7 at \
+                   250 K and 720 kg/m3 and at 550 K and 500 kg/m3, 725.69 and 95.105 against 725.614 and 95.1024 \
+                   (-1.0e-4, -2.7e-5); Xiang et al. 2006 Table 6 at 300 K and 788.41 kg/m3 (-1.3e-4) and at 630 K and \
+                   888.50 kg/m3 (-1.46e-2), whose 630 K column at 500-800 MPa implies densities about 5 kg/m3 above the \
+                   printed ones while its 620 K column agrees to 1e-4 (2026-10-12); to decide: with the papers' authors",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[
+            ("paper/Benzene/CoolProp-Tests.eta.csv", Tolerance::Relative(2e-5)),
+            ("paper/n-Heptane/CoolProp-Tests.eta.csv", Tolerance::Relative(2e-4)),
+            ("paper/Methanol/CoolProp-Tests.eta.csv", Tolerance::Relative(2e-2)),
+        ],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0032",
+        fluids: &["Cyclopentane", "Isopentane", "n-Heptane", "n-Hexane"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 05 R6, map 10 §8.1, M8.9: conductivity check values whose critical terms the papers evaluated with \
+                   another viscosity and equation of state than v8.0.0 hands them (DIV-0025's cause): Vassiliou et al. \
+                   2015 at 512 K and 400 kg/m3 for cyclopentane, 69.698 mW/m/K with an ECS viscosity of 40.842 uPa s \
+                   where CoolProp's Chung model reads 47.82 (-1.81e-2), and at 460 K and 329.914 kg/m3 for isopentane, \
+                   59.649 with REFPROP 9.1's 36.170 uPa s where CoolProp reads 37.20 (-4.4e-3); Assael et al. 2013 at 535 K and 100 \
+                   kg/m3 for n-heptane, 51.655 with 15.253 uPa s where CoolProp reads Michailidou 2014's 15.726 \
+                   (-2.9e-3), and its other n-heptane and n-hexane points (-5.8e-5, -4.7e-5, -2.3e-4), where CoolProp's \
+                   critical term is small or zero and the papers' used Span-Wagner's EOS; n-hexane's q_D is 1.35e9 1/m in \
+                   v8.0.0 against the paper's 1/(7.37e-10 m), which does not move its point (2026-10-12); to decide: \
+                   which viscosity the critical term reads (map 05 R6's declared viscosity)",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[
+            ("paper/Cyclopentane/CoolProp-Tests.lambda.csv", Tolerance::Relative(2e-2)),
+            ("paper/Isopentane/CoolProp-Tests.lambda.csv", Tolerance::Relative(5e-3)),
+            ("paper/n-Heptane/CoolProp-Tests.lambda.csv", Tolerance::Relative(3e-3)),
+            ("paper/n-Hexane/CoolProp-Tests.lambda.csv", Tolerance::Relative(3e-4)),
+        ],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0033",
+        fluids: &["Ethane"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 10 §8.1, M8.9: Friend, Ingham and Ely 1991's Table A3, from which CoolProp-Tests.cpp:211-212 and \
+                   455-456 come, is indexed by T and p, its densities from the paper's own equation of state printed to \
+                   0.01 mol/dm3: CoolProp's rows take those rounded densities (and 878.68 uPa s as 878.6), off by \
+                   +1.7e-3 and +3.8e-4 in viscosity; its conductivity points, -4.3e-3 and +3.3e-3, have a critical \
+                   term with the paper's own equation of state and constants (A = 1.01 against CoolProp's R0 = 1.03, \
+                   a reference temperature of 2 Tc against 1.5 Tc); and the paper's Table 9 prints the higher-order \
+                   viscosity coefficient g9 as -0.030425255 where CoolProp hard-codes -0.030435255 \
+                   (TransportRoutines.cpp:617) (2026-10-12); to decide: the paper's g9 under Corrected, and Friend's \
+                   critical-term constants",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[
+            ("paper/Ethane/CoolProp-Tests.eta.csv", Tolerance::Relative(2e-3)),
+            ("paper/Ethane/CoolProp-Tests.lambda.csv", Tolerance::Relative(5e-3)),
+        ],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0034",
+        fluids: &["R23", "CarbonDioxide", "R123"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 10 §8.1, M8.9: check values off their printed digits whose papers are not open access: Shan, \
+                   Penoncello and Jacobsen 2000's R23 points (eta -8.9e-5, +6.4e-5; lambda -7.7e-5, +1.08e-4), each \
+                   within its value at the row's density plus or minus half a printed unit (CoolProp gives mol/m3 to \
+                   five digits); Laesecke and Muzny 2017's CO2 point at 300 K and 1400 kg/m3 (+1.05e-5); Laesecke et \
+                   al. 1995's R123 point at 180 K and 0.002873 kg/m3 (-9.6e-4) (2026-10-12); to transcribe: the papers' \
+                   own tables",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[
+            ("paper/R23/CoolProp-Tests.eta.csv", Tolerance::Relative(9e-5)),
+            ("paper/R23/CoolProp-Tests.lambda.csv", Tolerance::Relative(2e-4)),
+            ("paper/CarbonDioxide/CoolProp-Tests.eta.csv", Tolerance::Relative(2e-5)),
+            ("paper/R123/CoolProp-Tests.lambda.csv", Tolerance::Relative(1e-3)),
+        ],
         proof: &[8],
         status: DivStatus::Open,
     },

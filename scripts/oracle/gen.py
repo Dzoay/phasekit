@@ -133,6 +133,27 @@ FACTS = {
         ("div0024_lambda_methane_t100", "PropsSI", ("L", "T", 100, "Dmolar", 28800, "Methane")),
         ("div0025_lambda_npentane_t460", "PropsSI", ("L", "T", 460, "Dmass", 377.687, "n-Pentane")),
         ("div0025_eta_npentane_t460", "PropsSI", ("V", "T", 460, "Dmass", 377.687, "n-Pentane")),
+        # CoolProp at M8.9's check rows (DIV-0027: o-xylene's Table 6 against its Eq. (12); DIV-0030: Ammonia's Tufeu
+        # term at its own Tc; DIV-0031: the papers' own correlations; DIV-0032: the viscosity the critical term reads;
+        # DIV-0033: Friend's ethane; DIV-0034: the papers not obtained).
+        ("div0027_lambda_oxylene_t300", "PropsSI", ("L", "T", 300, "Dmass", 1e-12, "o-Xylene")),
+        ("div0030_lambda_ammonia_t405.3999_rho50", "PropsSI", ("L", "T", 405.3999, "Dmass", 50, "Ammonia")),
+        ("div0030_lambda_ammonia_t405.4_rho50", "PropsSI", ("L", "T", 405.4, "Dmass", 50, "Ammonia")),
+        ("div0031_eta_benzene_t300", "PropsSI", ("V", "T", 300, "Dmass", 875, "Benzene")),
+        ("div0031_eta_heptane_t250", "PropsSI", ("V", "T", 250, "Dmass", 720, "n-Heptane")),
+        ("div0031_eta_methanol_t300", "PropsSI", ("V", "T", 300, "Dmass", 788.41, "Methanol")),
+        ("div0032_lambda_cyclopentane_t512", "PropsSI", ("L", "T", 512, "Dmass", 400, "Cyclopentane")),
+        ("div0032_eta_cyclopentane_t512", "PropsSI", ("V", "T", 512, "Dmass", 400, "Cyclopentane")),
+        ("div0032_lambda_isopentane_t460", "PropsSI", ("L", "T", 460, "Dmass", 329.914, "Isopentane")),
+        ("div0032_eta_isopentane_t460", "PropsSI", ("V", "T", 460, "Dmass", 329.914, "Isopentane")),
+        ("div0032_lambda_heptane_t535", "PropsSI", ("L", "T", 535, "Dmass", 100, "n-Heptane")),
+        ("div0032_eta_heptane_t535", "PropsSI", ("V", "T", 535, "Dmass", 100, "n-Heptane")),
+        ("div0032_lambda_hexane_t400", "PropsSI", ("L", "T", 400, "Dmass", 650, "n-Hexane")),
+        ("div0033_eta_ethane_t100", "PropsSI", ("V", "T", 100, "Dmolar", 21330, "Ethane")),
+        ("div0033_lambda_ethane_t440", "PropsSI", ("L", "T", 440, "Dmolar", 1520, "Ethane")),
+        ("div0034_eta_r23_t180", "PropsSI", ("V", "T", 180, "Dmolar", 21097, "R23")),
+        ("div0034_eta_co2_t300", "PropsSI", ("V", "T", 300, "Dmass", 1400, "CarbonDioxide")),
+        ("div0034_lambda_r123_t180", "PropsSI", ("L", "T", 180, "Dmass", 0.002873, "R123")),
     ],
 }
 

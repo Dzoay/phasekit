@@ -416,13 +416,20 @@ pub(crate) fn r123_critical(x: &TransportInputs<'_>, r: &Reducing) -> f64 {
     0.486742e-2 * math::exp(-100.0 * pow_n(tau - 1.0, 4) + -7.08535 * pow_n(delta - 1.0, 2))
 }
 
+/// The least reduced temperature |T − T_c|/T_c Tufeu's ammonia term is evaluated at: the gap between its T_c, 405.4 K,
+/// and the EOS's, 405.56 K, inside which the term's divergence has no meaning (DIV-0030).
+pub(crate) const AMMONIA_T_FLOOR: f64 = (405.56 - 405.4) / 405.4;
+
 /// Ammonia's critical conductivity, Tufeu et al. 1984 as CoolProp codes it (`TransportRoutines.cpp:972-1003`), W/(m K),
-/// with CoolProp's k_B and π: it diverges at its own T_c, 405.4 K, at every density (map 05 R3).
+/// with CoolProp's k_B and π. It diverges at its own T_c, 405.4 K, at every density (map 05 R3: CoolProp gives 6.26
+/// W/(m K) at 405.3999 K and 50 kg/m³, NaN at 405.4 K), so its reduced temperature is floored at `AMMONIA_T_FLOOR`:
+/// CoolProp's value outside 405.24-405.56 K, finite and continuous inside (DIV-0030, ROT-111).
 pub(crate) fn ammonia_critical(x: &TransportInputs<'_>) -> f64 {
     let (t, tc, rhoc, rho) = (x.t(), 405.4, 235.0, x.rho_mass());
     let (lambda, nu, gamma, delta_exp, zeta_0, a_zeta, gamma_0) = (1.2, 0.63, 1.24, 0.50, 1.34e-10, 1.0, 0.423e-8);
     let (pi, k_b) = (3.141592654, 1.3806504e-23);
     let tt = ((t - tc) / tc).abs();
+    let tt = if tt < AMMONIA_T_FLOOR { AMMONIA_T_FLOOR } else { tt };
     let a_chi = a_zeta / 0.7;
     let eta_b = (2.60 + 1.6 * tt) * 1e-5;
     let dpdt = (2.18 - 0.12 / math::exp(17.8 * tt)) * 1e5;
@@ -446,6 +453,29 @@ pub(crate) fn ammonia_critical(x: &TransportInputs<'_>) -> f64 {
 #[cfg(all(test, feature = "fluids-all"))]
 mod tests {
     use super::*;
+
+    /// ROT-111, map 05 R3: Ammonia's λ is finite at Tufeu's T_c, 405.4 K, where CoolProp's is NaN, and at 405.3999 K and
+    /// 50 kg/m³, where CoolProp's is 6.26 W/(m K); it is continuous across the floored band, 405.24-405.56 K, and equal
+    /// to the unfloored term outside it.
+    #[test]
+    fn ammonia_lambda_is_finite_near_405_4_k() {
+        use crate::{Density, Input, Prop, Temperature};
+        let fluid = crate::Registry::embedded().unwrap().get("Ammonia").unwrap();
+        let lambda = |t: f64, rho: f64| {
+            let state = fluid.state(Input::dt(Density::mass(rho).unwrap(), Temperature::new(t).unwrap())).unwrap();
+            fluid.prop(&state, Prop::Conductivity).unwrap()
+        };
+        for rho in [50.0, 100.0, 235.0] {
+            let inside = [405.3999, 405.4, 405.4001].map(|t| lambda(t, rho));
+            assert!(inside.iter().all(|l| l.is_finite() && *l < 1.0), "{rho}: {inside:?}");
+            // Continuous at the band's edges: no jump, a microkelvin either side moves λ by about 1e-6.
+            for edge in [405.4 - 405.4 * AMMONIA_T_FLOOR, 405.4 + 405.4 * AMMONIA_T_FLOOR] {
+                let (a, b) = (lambda(edge - 1e-6, rho), lambda(edge + 1e-6, rho));
+                assert!((a / b - 1.0).abs() < 1e-5, "{rho} at {edge}: {a} {b}");
+            }
+        }
+        assert!(lambda(405.3999, 50.0) < 6.26 / 10.0, "about 100x below CoolProp's 6.26 W/(m K)");
+    }
 
     /// The higher-order CO₂ term's triple point is the EOS's (`HEOS.Ttriple()` in CoolProp).
     #[test]

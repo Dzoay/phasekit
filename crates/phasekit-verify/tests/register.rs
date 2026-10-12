@@ -381,7 +381,7 @@ fn div_0026(_: &Fixture<'_>) -> Vec<&'static str> {
 
 /// DIV-0027: CoolProp's dilute λ of EthylBenzene is Mylona et al.'s Eq. (18) (its oracle column `lambda_dilute` at the
 /// all-fluid tier's eight states), which at 500 and 600 K is as far below their Table 21 as the entry cites.
-fn div_0027(_: &Fixture<'_>) -> Vec<&'static str> {
+fn div_0027(facts: &Fixture<'_>) -> Vec<&'static str> {
     let (path, text) = fixture!("coolprop-8.0.0/all/transport.csv");
     let table = Fixture::parse(path, text).unwrap();
     let eq_18 = |t: f64| {
@@ -397,6 +397,8 @@ fn div_0027(_: &Fixture<'_>) -> Vec<&'static str> {
     }
     assert_eq!(rows.len(), 8);
     assert!(cites(eq_18(500.0) * 1e3 / 29.16 - 1.0, "-1.8e-4") && cites(eq_18(600.0) * 1e3 / 41.14 - 1.0, "-1.3e-4"));
+    // o-xylene's Table 6 at 0 MPa and 300 K, 13.68 mW/(m K), against the oracle's Eq. (12).
+    assert!(cites(ok_fact(facts, "div0027_lambda_oxylene_t300") / 13.68e-3 - 1.0, "-3.9e-4"), "DIV-0027: o-xylene");
     vec!["DIV-0027"]
 }
 
@@ -425,6 +427,39 @@ fn div_0028_to_0029(_: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0028", "DIV-0029"]
 }
 
+/// DIV-0030 to DIV-0034: the oracle at M8.9's check rows. Ammonia's λ at 405.3999 K and 50 kg/m³ is the 6.26 W/(m K)
+/// the entry cites and at 405.4 K the oracle has none; the others are as far off the printed values (CoolProp-Tests.cpp)
+/// as the entries cite, and the viscosities DIV-0032's critical terms read are the cited ones.
+fn div_0030_to_0034(facts: &Fixture<'_>) -> Vec<&'static str> {
+    assert!(cites(ok_fact(facts, "div0030_lambda_ammonia_t405.3999_rho50"), "6.26"), "DIV-0030");
+    assert!(
+        matches!(fact(facts, "div0030_lambda_ammonia_t405.4_rho50"), Some((status, v)) if status.starts_with("err") && v.is_nan())
+    );
+    let off = |name: &str, printed: f64| ok_fact(facts, name) / printed - 1.0;
+    let cited = [
+        ("div0031_eta_benzene_t300", 608.52e-6, "1.8e-5"),
+        ("div0031_eta_heptane_t250", 725.69e-6, "-1.0e-4"),
+        ("div0031_eta_methanol_t300", 0.5422e-3, "-1.3e-4"),
+        ("div0032_lambda_cyclopentane_t512", 69.698e-3, "-1.81e-2"),
+        ("div0032_lambda_isopentane_t460", 59.649e-3, "-4.4e-3"),
+        ("div0032_lambda_heptane_t535", 51.655e-3, "-2.9e-3"),
+        ("div0032_lambda_hexane_t400", 129.28e-3, "-2.3e-4"),
+        ("div0033_eta_ethane_t100", 878.6e-6, "1.7e-3"),
+        ("div0033_lambda_ethane_t440", 45.9e-3, "-4.3e-3"),
+        ("div0034_eta_r23_t180", 353.88e-6, "-8.9e-5"),
+        ("div0034_eta_co2_t300", 0.50594e-3, "1.05e-5"),
+        ("div0034_lambda_r123_t180", 2.473e-3, "-9.6e-4"),
+    ];
+    for (name, printed, figure) in cited {
+        assert!(cites(off(name, printed), figure), "{name} is {:e} off", off(name, printed));
+    }
+    let eta = [("div0032_eta_cyclopentane_t512", "47.82"), ("div0032_eta_isopentane_t460", "37.20")];
+    for (name, figure) in eta.into_iter().chain([("div0032_eta_heptane_t535", "15.726")]) {
+        assert!(cites(ok_fact(facts, name) * 1e6, figure), "{name}");
+    }
+    vec!["DIV-0030", "DIV-0031", "DIV-0032", "DIV-0033", "DIV-0034"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -442,6 +477,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0026,
         div_0027,
         div_0028_to_0029,
+        div_0030_to_0034,
     ]
     .iter()
     .flat_map(|group| group(&facts))
