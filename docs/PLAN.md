@@ -160,8 +160,8 @@ that changes a fact changes its home.
   or a proof still marked "new" that is due by then (a "new" proof followed by "(Mk)" is due at Mk, otherwise at the
   row's first milestone).
 - **Map items** appear as evidence ("map 03 §6", "map 11 F5"); the rot they describe is cited by its ROT id.
-- **Divergences** are `DIV-0001`... (ARCHITECTURE.md §10; 14 seeded). New ones take the next free number when they are
-  added to `register.rs` (section 0.3); the PR adds the same row to VERIFICATION.md §6.6.
+- **Divergences** are `DIV-0001`...; `register.rs` is the one list (VERIFICATION.md §6.6). A new one takes the next
+  free number (section 0.3).
 - **Tests** cite their truth in a doc comment: `/// Arbiter: IAPWS R6-95(2018) Table 6`, `/// Oracle: CoolProp
   8.0.0, fixtures/coolprop-8.0.0/eos/Water.csv` or `/// Rot: ROT-069`.
 - **Ignores** follow VERIFICATION.md §11.2 `ignores`: the reason starts with `DIV-NNNN: `, `issue #N: ` or `nightly: `
@@ -662,8 +662,8 @@ workloads, bench fluids, the harness and the result files are VERIFICATION.md §
 - Rustdoc on every public item (`missing_docs`, enforced by G2); a `cargo doc --no-deps` check that denies broken intra-doc
   links is planned, but no workflow runs it yet; the crate-level doctest of `phasekit-core` executes (the seed's does).
 - `docs/`: each fact stays in its one home (section 2.1); a step that changes one edits that home in the same PR (M9.5,
-  for example, records the `libm` outcome in D12), and collapses its own step text (section 0.1 item 7). Rust code blocks in `docs/*.md` are either verbatim excerpts of the workspace or the sketch, or
-  marked `<!-- excerpt: illustrative -->` (`gates doc-excerpts`, ROT-139).
+  for example, records the `libm` outcome in D12), and collapses its own step text (section 0.1 item 7). Rust code blocks in `docs/*.md` are either verbatim excerpts of the workspace or marked
+  `<!-- excerpt: illustrative -->` (`gates doc-excerpts`, ROT-139); prefer a link to the file.
 - M10 adds `docs/MIGRATION.md`: the CoolProp → phasekit table of ARCHITECTURE.md §12 with runnable examples, the
   shim's documented differences (`HAPropsSI` stub, `set_config_*` behaviour, FP flags) and the divergence list.
 - `CHANGELOG.md` from M0, generated at each release from the Conventional Commit subjects since the last tag
@@ -685,8 +685,7 @@ workloads, bench fluids, the harness and the result files are VERIFICATION.md §
 ### 5.4 v0.1 release checklist (M10.9)
 
 1. All M0-M10 exit gates green on `main`; the nightly sweep green for the last 3 nights.
-2. Register: every entry has its proof test; no `Investigate` entry hides a failing assertion; VERIFICATION.md §6.6
-   and `register.rs` agree.
+2. Register: every entry has its proof test; no `Investigate` entry hides a failing assertion.
 3. ROT-REGISTER.md: `gates rot` passes with `MILESTONE = 11`; section 3 lists no GAP.
 4. `cargo semver-checks` baseline recorded (first release: establishes it).
 5. `reuse lint`, `cargo deny check`, `cargo about generate` for the C library and wasm package; licences in each
@@ -726,3 +725,5 @@ arrives its fluid stays oracle-only, labelled provisional; nothing waits on it.
 - The conformance kit's `identities` and `part_additivity` (VERIFICATION.md §10): `tests/eos.rs` checks the identities
   per fluid, but an out-of-tree family has neither.
 - A `cargo doc --no-deps` check that denies broken intra-doc links (section 5.2): no workflow runs it.
+- The nightly report VERIFICATION.md once specified (per fluid and kind: cells asserted, cells exempt per DIV id, `nan`
+  cells, oracle-gap rows, headroom, each fluid's arbiter status): the job summary lists rows and failed calls only.

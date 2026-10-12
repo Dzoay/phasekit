@@ -1,7 +1,7 @@
 //! `gates doc-excerpts`: Rust code in the design documents is real code (ROT-139; map 01 R19). Every fenced `rust`
 //! block in `docs/*.md` is split at blank lines into chunks, and each chunk must appear in one source file under
-//! `crates/` or `docs/history/sketch/` with its lines in order, compared modulo indentation and `///`/`//!` lines;
-//! an excerpt may leave lines out. A block preceded by `<!-- excerpt: illustrative -->` is not checked.
+//! `crates/` with its lines in order, compared modulo indentation and `///`/`//!` lines; an excerpt may leave lines
+//! out. A block preceded by `<!-- excerpt: illustrative -->` is not checked.
 
 use super::{Verdict, no_args};
 use crate::repo::Repo;
@@ -11,13 +11,17 @@ const ILLUSTRATIVE: &str = "<!-- excerpt: illustrative -->";
 pub fn run(repo: &Repo, args: &[String]) -> Verdict {
     no_args(args)?;
     let docs = repo.files("docs", ".md", false).map_err(|e| vec![e])?;
-    let mut sources = repo.files("crates", ".rs", true).map_err(|e| vec![e])?;
-    sources.extend(repo.files("docs/history/sketch", ".rs", true).map_err(|e| vec![e])?);
+    let sources = sources(repo).map_err(|e| vec![e])?;
     if docs.is_empty() || sources.is_empty() {
         return Err(vec!["no documents or no sources to compare".to_string()]);
     }
     let checked = check(&docs, &sources)?;
     Ok(format!("{checked} rust blocks in {} documents match {} sources", docs.len(), sources.len()))
+}
+
+/// The (path, text) sources an excerpt may come from.
+fn sources(repo: &Repo) -> Result<Vec<(String, String)>, String> {
+    repo.files("crates", ".rs", true)
 }
 
 /// Checks the (path, text) documents against the (path, text) sources; returns how many blocks were checked.
@@ -56,7 +60,7 @@ fn check_block(path: &str, (body, first): (&[&str], usize), sources: &[Vec<&str>
         let chunk = normalized(body[chunk_start..i].iter().copied());
         if !chunk.is_empty() && !sources.iter().any(|source| in_order(source, &chunk)) {
             errors.push(format!(
-                "{path}:{}: the excerpt starting `{}` is not in any source under crates/ or docs/history/sketch/ \
+                "{path}:{}: the excerpt starting `{}` is not in any source under crates/ \
                  (lines in order, modulo indentation and doc comments); fix it or mark it {ILLUSTRATIVE}",
                 first + chunk_start + 1,
                 chunk[0]
@@ -121,5 +125,16 @@ mod tests {
         // An unterminated block is an error; a block marked illustrative is not checked.
         assert!(check(&[("docs/A.md".to_string(), "```rust\nfn f() {}\n".to_string())], &sources).is_err());
         assert_eq!(check(&doc(ILLUSTRATIVE, swapped), &sources), Ok(0));
+    }
+
+    /// The code is the truth (user decision DL4): an excerpt is checked against the workspace's crates, never the
+    /// frozen type sketch, which still holds the pre-M1 signatures.
+    #[test]
+    fn excerpts_come_from_the_workspace_crates_only() {
+        let sources = sources(&Repo::locate()).unwrap();
+        assert!(sources.iter().any(|(path, _)| path == "crates/phasekit-core/src/lib.rs"), "the crates are read");
+        let outside: Vec<&str> =
+            sources.iter().map(|(path, _)| path.as_str()).filter(|path| !path.starts_with("crates/")).collect();
+        assert!(outside.is_empty(), "sources outside crates/: {} files, e.g. {:?}", outside.len(), outside.first());
     }
 }

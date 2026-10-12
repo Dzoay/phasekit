@@ -112,47 +112,29 @@ is canonicalised and written `nan`; ±∞ as `inf`, `-inf`.
 
 ### 3.2 `oracle.lock`
 
-Line-oriented `key value` text *(decision)*, so gen.py, xtask and the kit (via `include_str!`, to check fixture
-headers) read it without a parser dependency:
+`crates/phasekit-verify/fixtures/oracle.lock` pins the oracle's environment: line-oriented `key value` text
+*(decision)*, so gen.py, xtask and the kit (via `include_str!`, to check fixture headers) read it without a parser
+dependency. It records the CoolProp version and git commit, the wheel tag and the `.so`'s name, size and sha256, the
+Python minor version and platform, the nightly `runner_image` by digest, the `uv` command, `fluids_sha256` (the hash
+of `data/fluids.lock`'s lines), the sampler, the scrubbed environment, the locale and all 38 config keys. Editing any
+line is an oracle-pin move (6.5).
 
-```text
-# oracle.lock v1. Editing any line is an oracle-pin move (section 6.5).
-package          CoolProp
-version          8.0.0
-git              ae81610e7d23efc57f9d051c8e70a4d66e87537f
-wheel_tag        cp312-abi3-manylinux_2_17_x86_64
-so_name          CoolProp.abi3.so
-so_size          9050856
-so_sha256        05d85591871524e83bb23170e22ee149e1167fb3ef5deaf81b9d248283089be5
-python           3.12
-platform         x86_64-linux-gnu
-runner_image     <OCI digest of the pinned nightly runner image>
-uv_command       uv run --no-project --python 3.12 --with CoolProp==8.0.0
-fluids_sha256    <sha256 of the sorted "<file name> <sha256>\n" lines of reference/CoolProp/dev/fluids/*.json>
-sampler          splitmix64-v1
-env_scrubbed     COOLPROP_* PXFLASH_*
-locale           LC_ALL=C
-config_json      {"ENABLE_SUPERANCILLARIES":true,"NORMALIZE_GAS_CONSTANTS":true, ... all 38 keys ...}
-```
-
-`git`, the `so_*` values, 38 keys and 136 fluids were re-measured 2026-10-05 (uv chose Python 3.12.14); the committed lock (M1.3) records them. Since M1.16 `runner_image` is astral's uv 0.12.23 image with Python 3.12 on Debian 13, pinned by digest; `nightly.yml` reads it from the lock and runs the generator in it, and a run dispatched with `regenerate` writes the committed fixtures there and uploads them for commit (K18: fixtures come from this image only; a local `cargo xtask oracle` run is for development and differs in its `# generator:` line). gen.py checks `fluids_sha256` against the fluid directory as part of assertion 4. The lock pins
-the oracle's environment only *(decision)*: gen.py's sha256 goes into each fixture header (`# generator:`), so adding
-or changing a kind regenerates the affected fixtures but never edits the lock, and the fastchebpure pin (the release
-`2026.06.02-v2` that CoolProp's v8.0.0 docs pin, map 10 §8.1) lives with its per-file sha256 lines in
-`mp/fastchebpure.lock` (PLAN.md M6.1). Python's patch version and the host libc go into each fixture header, not the
-lock: the `.so` calls the host libm, so another glibc may move last bits
-*(inference)*, which is why nightly regeneration runs in the pinned `runner_image`.
+The lock pins the environment only *(decision)*: gen.py's sha256 goes into each fixture header (`# generator:`), so
+adding or changing a kind regenerates the affected fixtures but never edits the lock; the fastchebpure pin lives with
+its per-file sha256 lines in `mp/fastchebpure.lock`. Python's patch version and the host libc go into each fixture
+header, not the lock: the `.so` calls the host libm, so another glibc may move last bits *(inference)*, which is why
+nightly regeneration runs in the pinned `runner_image`.
 
 ### 3.3 Fixture file format (`<kind>/v1`)
 
 ```text
 # fixture: eos/v1
 # oracle: CoolProp 8.0.0 git=ae81610e7d23efc57f9d051c8e70a4d66e87537f so_sha256=05d85591...
-# generator: gen.py sha256=... python=3.12.14 libc=glibc-2.xx
+# generator: gen.py sha256=... python=3.12.<patch> libc=glibc-<version>
 # config: {... the 38 keys as set ...}
 # env: scrubbed COOLPROP_* PXFLASH_*; LC_ALL=C
-# fluid: Water json_sha256=... source_eos_hash=... R=8.314371357587 refstate=DEF
-# grid: T~U[Tlow,Tmax] rho~logU[1e-6*rhoL(Tlow),rhoL(Tlow)] n=500 seed=1 phase=imposed:gas
+# fluid: Water json_sha256=...
+# grid: T~U[Tlow,Tmax] rho~logU[1e-06*rhoL(Tlow),rhoL(Tlow)] Tlow=max(Tmin,Ttriple) n=500 seed=1 phase=imposed:gas
 # source: coolprop
 # columns: T,rhomolar,region,status,p,hmolar,smolar,umolar,cvmolar,cpmolar,speed_sound,Z,...
 # units: K,mol/m3,-,-,Pa,J/mol,J/mol/K,J/mol,J/mol/K,J/mol/K,m/s,-,...
@@ -395,8 +377,7 @@ Procedure (`tests/arbiters.rs`, on the mutable `FluidRecord` seam, ARCHITECTURE.
 at M1 until their tables are transcribed; the 12 one-row fluids join at M1.12, the n-Heptane and D6 c_p⁰ equation checks
 with M4, the transport rows and releases with M8.2, the mp check points with M1.17. No milestone gate depends on a
 paywalled paper: every D15 gate names an open arbiter (IAPWS, Lemmon 2016, Thol 2016,
-NIST IR 8474, mp points). Fluids without a usable arbiter stay oracle-verified (provisional) and the nightly report
-lists them.
+NIST IR 8474, mp points). Fluids without a usable arbiter stay oracle-verified (provisional); `ARBITERS` records each fluid's status.
 
 ## 5. Tolerance classes
 
@@ -457,76 +438,9 @@ its headroom (max error / bound), because map 10 R5 found 7 of 318 transport row
 
 ### 6.1 Schema
 
-```rust
-/// One register entry (VERIFICATION.md §6.1).
-pub struct Divergence {
-    /// "DIV-0001"; never reused or renumbered.
-    pub id: &'static str,
-    /// Canonical names, "A&B" for a mixture, `["*"]` for every fluid.
-    pub fluids: &'static [&'static str],
-    /// GasConstant | Reducing | Melting | Transport | Algorithm.
-    pub part: Part,
-    /// "<bibkey> <table>"; required for UsePaper.
-    pub arbiter: Option<&'static str>,
-    /// UsePaper | SkipOracle | KeepOracle | Investigate.
-    pub policy: Policy,
-    /// Data (a corrections.csv patch) | Code(module) | None.
-    pub fix: Fix,
-    /// Map section, measurement (value, date), upstream commit.
-    pub evidence: &'static str,
-    /// SkipOracle only: oracle cells not asserted on Parity.
-    pub exempt: Option<Exempt>,
-    /// The Measured bound: literature rows (KeepOracle, Investigate) or oracle columns that stay asserted beside an
-    /// exemption.
-    pub tolerance: Option<Tolerance>,
-    /// Milestones whose PRs add the proof's parts, e.g. `&[5, 6]`.
-    pub proof: &'static [u8],
-    /// Open | ResolvedUpstream { commit }.
-    pub status: DivStatus,
-}
-
-/// The oracle cells a `SkipOracle` entry does not assert on Parity; the tests count them.
-pub struct Exempt {
-    /// Fixture kinds.
-    pub kinds: &'static [Kind],
-    /// Columns (`props` outputs for the long format); `"*"` for every column.
-    pub columns: &'static [&'static str],
-    /// Rows.
-    pub rows: Rows,
-}
-
-/// Which rows of an exempt kind are not asserted against the oracle.
-#[non_exhaustive]
-pub enum Rows {
-    /// Every row.
-    All,
-    /// Two-phase rows (0 < Q < 1).
-    TwoPhase,
-    /// Rows outside the model's domain (the `.edge` files).
-    BelowDomain,
-    /// Rows with lo ≤ T ≤ hi.
-    TBand {
-        /// Lower temperature (K).
-        lo: f64,
-        /// Upper temperature (K).
-        hi: f64,
-    },
-}
-
-/// How the divergence is implemented.
-#[non_exhaustive]
-pub enum Fix {
-    /// A `data/corrections.csv` patch on the Corrected dataset; every patch cites its entry.
-    Data,
-    /// A code path, named by its module (`phasekit_core::state`), that must exist once the proof is due.
-    Code(&'static str),
-    /// Nothing changes: `KeepOracle` and `Investigate`.
-    None,
-}
-```
-
-The sketch (`register.rs`) had a single `fluid` and none of `fix`, `exempt`, `tolerance` and `proof`; PLAN.md M1.6
-added them *(decision)*, and `gates doc-excerpts` checks this block against `register.rs`. `fluids` is a list so that one entry covers one defect in several fluids (the q_D and ECS-LJ
+An entry is a `Divergence` in `crates/phasekit-verify/src/register.rs`, each field documented there: the id, the
+fluids, the part, the policy and fix, the status, the arbiter, the evidence, the exempt rows or cells, the tolerances
+(per table where one entry covers several, user decision H4) and the milestones of its proof's parts. `fluids` is a list so that one entry covers one defect in several fluids (the q_D and ECS-LJ
 entries, 6.6); `proof` is a list because several entries are proved in parts at different milestones. The register is
 a compiled `static DIVERGENCES`, not TOML (no parser dependency; proposal D rejected TOML overrides).
 
@@ -591,52 +505,11 @@ re-runs datagen on the new JSON (dropping corrections whose v8.0.0 value no long
 proof part 2 now fails `ResolvedUpstream { commit }` (map 10 §8.5 rule 4). A second oracle built from upstream master
 (map 10 Q2) is not part of this plan.
 
-### 6.6 Seed entries (DIV-0001..0014), added entries and planned entries
+### 6.6 The entries
 
-All seeds are status `Open` (ARCHITECTURE.md §10; sketch `register.rs`). "Proof" lists the milestones of the proof's
-parts (the `proof` field).
-
-| ID | Fluids | Part | Policy, fix | Arbiter or replacing check | Evidence | Proof | Patch or exemption |
-|---|---|---|---|---|---|---|---|
-| DIV-0001 | R1234ze(E) | GasConstant | `UsePaper`, `Data` | Thol et al. IJT 2016 Table 3 (OA; 6 rows, one at ρ = 0) | map 13 §3 item 3, R1: JSON R 8.314472, paper 8.3144621; oracle p +1.0e-6..+1.4e-6, ≤ 1.9e-7 with the paper's R | M5 (three parts); M6 (rescaling) | `Edit::GasConstant(8.3144621)`; SA `Rescaled { p: 8.3144621/8.314472, rho: 1 }` |
-| DIV-0002 | Water | Melting | `UsePaper`, `Data` | IAPWS R14-08: ice VI p* 632.4 MPa; T(1356.76 MPa) = 320 K | map 10 R10: JSON p0 623.4 MPa; oracle T 320.965 K, p(320 K) 1337.45 MPa | M8 | `Edit::MeltingP0 { segment: <ice VI>, p0: 632.4e6 }`; SA unaffected |
-| DIV-0003 | Nitrogen | Reducing | `UsePaper`, `Data` | Span et al. JPCRD 2000: ρ_c 11183.9 mol/m³ | map 12 §6.3: oracle ρ_r 11183.901464580624; upstream 2acbbc82; saturated ρ shift 1.3e-7 (map 10 §8.4) | M2 (constant); M6 (rescaled SA) | `Edit::ReducingDensity(11183.9)`; SA `Rescaled` |
-| DIV-0004 | * | Transport | `SkipOracle`, `Code` | `Undefined { prop, TwoPhase }` | map 10 R18, map 12 §6.3 (Water 500 K, Q 0.5: η 1.6048e-5); upstream da48a3ee throws. Measured 2026-10-05, Water QT(0.5, 400 K): η 1.2979e-5, λ 0.02849, c_p 4056.47, c_v 2913.73 J/kg/K, w refused. ARCHITECTURE.md §13 ties two-phase c_p, c_v here | M5 (c_p, c_v: DT states in the dome); M8 (η, λ) | exempt: `props` rows with 0 < Q < 1, c_p, c_v, η, λ (both bases) |
-| DIV-0005 | Helium | GasConstant | `KeepOracle`, `None` | NIST IR 8474 Table 3 (6 states: p, c_v, w) at `Measured` 5e-7; Table 4 (K3; p_σ, ρ′, ρ″, h′, h″) at `Measured` 2e-6, each cell within its printed digits or within 2e-6 of it, as the 4.3 procedure finds it inconsistent too (M6.10, user decision H4: 12 cells off with its own constants, 3.5e-6; the shipped model within 1.05e-6) | map 13 §3 item 4, R3: Table 3 fails with its Table 1 R (8.314472); oracle (R 8.3144598) within 4.8e-7; user decision 5 | M5 (Table 3); M6 (Table 4) | no patch may cite it; Corrected = Parity |
-| DIV-0006 | Ethylene | Reducing (+M) | `Investigate`, `None` | to transcribe: Smukala et al. JPCRD 2000 (paywalled, map 13 §4) | map 12 §6.3, map 10 §8.4: ρ_r and M corrected upstream 2acbbc82; saturated ρ shift 2.1e-5 | M2 (pins v8.0.0 ρ_r, M) | → `UsePaper` with `ReducingDensity` + `MolarMass` edits |
-| DIV-0007 | OrthoHydrogen | Reducing (+M) | `Investigate`, `None` | to transcribe (map 13 §4) | as DIV-0006; shift 3.0e-5 | M2 | as DIV-0006 |
-| DIV-0008 | n-Undecane | Reducing | `Investigate`, `None` | to transcribe (map 13 `?` class) | as DIV-0006; shift 1.1e-5 | M2 | → `ReducingDensity` edit |
-| DIV-0009 | R1233zd(E) | Transport | `Investigate`, `None` | none yet; restored and refit upstream 14da1f0d (v7.2.0 had rhosr-CS) | map 12 §6.3: v8.0.0 raises "Viscosity model is not available" | M8: `NoModel { Viscosity }`, as the oracle | add the correlation with its paper's check values |
-| DIV-0010 | * (cubic PR, SRK) | Algorithm | `SkipOracle`, `Code` | identity T(∂s/∂T)_p = c_p | map 12 §6.3, map 10 §8.4: PR propane 400 K, 1 bar: 91.35 vs c_p 93.89 J/mol/K; upstream 9b96b64b | M11 | no cubic s or s-input flash fixtures from 8.0.0 |
-| DIV-0011 | * | Algorithm | `SkipOracle`, `Code` | exact Taylor coefficients (`zero_density`), hand derivations | map 12 §6.3, R8: C off −6.7e-5 / −7.1e-5 / +1.9e-5 (Propane 300 K, N2 300 K, Water 600 K); the oracle takes B from α^r's δ-derivative at δ = 1e-12, divided by δ: B off up to 1.5e-8 and dB/dT up to 8.6e-8 (Methanol, measured at M5.6; the series evaluated straight from its JSON is phasekit's to the last digit) | M5: the oracle's C still differs beyond `Prop`; B and dB/dT asserted at `Measured` 9e-8 (the entry's `tolerance`, measured; the 1e-10 first estimated was an *inference* from Propane, N₂ and Water) | exempt: `eos` `Cvirial`, `dCvirial_dT`, all rows |
-| DIV-0012 | Water | Algorithm | `SkipOracle`, `Code` | `DomainError` under `Enforce`; flagged state under `Extrapolate` (user decision 6) | map 12 §6.3 (#3394): oracle accepts DT(55018.5 mol/m³, 250 K), Tmin 273.16 K; re-measured 2026-10-05 p = −5.9277123935677105 Pa | M5 | exempt: `.edge` rows of `eos`, `flash` with T < 273.16 K |
-| DIV-0013 | R1234yf&R1234ze(E) | Reducing | `Investigate`, `None` | Bell JPCRD 2022 Table XI | map 10 §8.4: α^r −0.464679 vs −0.460595 (+0.89 %); τ 0.80266 vs ~0.80; sibling R1234yf&R134a matches to 6e-9 | M13 | — |
-| DIV-0014 | R1224YDZ | Algorithm | `Investigate`, `None` | Akasaka & Lemmon IJT 2023 Table 7, to re-check | map 10 §8.4: p(400 K, 8000 mol/m³) 21.1790735 MPa vs printed "21.17909" (7.8e-7, 3.3× half a digit); c_v, c_p, w match | M5: p asserted at `Measured` 8e-7, oracle value pinned | decide: CoolProp test transcription vs EOS difference |
-| DIV-0015 | R123 | Algorithm (α⁰ block `Tc`) | `Investigate`, `None` | the EOS paper's c_p⁰ (Younglove & McLinden JPCRD 1994, paywalled: PLAN.md §6 P4) | map 02 §6, map 13 A4: the c_p⁰ blocks use Tc 456.82 K against T_r 456.831 K; c_p⁰ −1.33e-5 at 300 K (−1.46e-5 at 200 K, −1.06e-5 at 500 K; M4.3) | M4: Parity matches the oracle's α⁰ rows; the shift reproduces; Corrected = Parity | — |
-| DIV-0016 | PropyleneGlycol | Algorithm (the multiprecision files) | `SkipOracle`, `None` | — (CoolProp 8.0.0's own VLE replaces the arbiter) | M6.4: fastchebpure 2026.06.02-v2's rows below 227.6028 K, its first interval, are not the v8.0.0 EOS's saturation: ρ″ 0.7 % below it at 213 K, decaying to 1.1e-11 at 225.46 K (an unconverged multiprecision solve in that interval, *inference*); phasekit's VLE and CoolProp 8.0.0's (superancillaries off) agree to 6e-15 | M6: phasekit's VLE equals CoolProp's at 213 K; the exempt cell (p, ρ″ of `checkpoints` rows, 213-227.6028 K) still differs | p, rhoV; 213-227.6028 K |
-| DIV-0017 | Chlorine, DimethylCarbonate | Algorithm (the computed critical point) | `SkipOracle`, `None` | — (the criticality conditions K1 = K2 = 0 replace the oracle's columns; user decision CR1) | M6.7: on flat critical isotherms the oracle's computed point (fastchebpure's) is less converged than the EOS's own: DimethylCarbonate's ρc 2.0e-6 off, where phasekit's EOS gives K2 = 7.5e-11 (∂K2/∂ln ρ 3.7e-5); Chlorine's critical region is degenerate (K1, K2 within 1e-12 of 0 from 7950 to 8153 mol/m³ within 5e-5 K), the two points 2.6 % apart in ρ | M6: both model critical points satisfy the conditions within `Flash`; DimethylCarbonate's ρc still differs | Tc_num, pc_num, rhoc_num of both |
-| DIV-0018 | * (the 130 with a superancillary) | Algorithm (the PQ flash) | `SkipOracle`, `None` | — (the oracle's QT row at the temperature that gave the PQ row its p; user decision PQ1) | M6.8: CoolProp's PQ takes T from its T(ln p) inverse with no polish on the forward p(T) (FlashRoutines.cpp:1169; map 03 §3.3), so its PQ states sit off its own superancillary: up to 2.0e-11 in T, 1.1e-6 in ρ and 1.3e-7 in h at Θ ~ 1e-7 (R245fa), 4.5e-14 in T at Θ ~ 0.1; phasekit's PQ solves the curve's p(T) = p to rounding | M6: phasekit's PQ T is the generating QT row's within `SaCoeff`; the oracle's PQ T still misses it by more | T, rhoL, rhoV, hL, hV, sL, sV of the `sat` rows given p |
-| DIV-0019 | SES36 | Algorithm (the in-dome DT pressure) | `SkipOracle`, `None` | — (phasekit's pure VLE of the blend's EOS, CoolProp's in-dome rule; user decisions PP3, DIV-0019) | M6.9: at SES36's lowest temperatures (114 Pa at 206.27 K) CoolProp's in-dome DT p changes with Q at fixed T, weighting its VLE sides' pressures (1.3e-9 apart), 1e-8 from phasekit's VLE, whose g′ = g″ to 1e-15; 40 cells of the nightly grid | M6: phasekit's p is the same at every density of the dome; the oracle's still differs | p of SES36's two-phase `flash` rows, 200-220 K |
-| DIV-0020 | * | Algorithm (the PT flash's reported outputs) | `SkipOracle`, `Code` | — (a PT flash's p is its input, and its h, s, u are the EOS's at the density it returns: phasekit's state is built there; the DT row of the same truth checks them against the oracle's DT) | map 03 §6 row 8 (ROT-074), M7.1: CoolProp's PT reports p, h, s and u at its solver's last iterate, not at the density it returns: Nitrogen at 107.45 MPa and 1192.98 K, p 7.9e-9 off its input and off its own DT at the same (T, ρ), which reproduces the input to 2.2e-16; Air at 685.58 MPa and 1514.94 K, h 6.1e-10 off; on the nightly's 40 × 40 grids h, s and u up to 4.0e-9, 1.0e-9 and 6.3e-9 off (Argon, Air; 2026-10-10); its ρ is the converged root, within `Flash` | M7: phasekit's PT p is the input to rounding and its h the oracle's DT h; the oracle's PT p still differs | p, h, s and u of every `flash` PT row |
-| DIV-0021 | SulfurHexafluoride, R125 | Transport (printed check values) | `Investigate`, `None` | Quiñones-Cisneros et al. JPCRD 2012 Table 8; Huber & Laesecke IECR 2006's test points (the papers' own equations disagree with them) | map 10 §8.1, M8.5: v8.0.0 transcribes both correlations exactly (SF₆'s Eq. (6) with Table 2 reproduced to 1e-12), yet Table 8's ρ = 0 rows are −3.9e-5 (300 K) and −3.1e-5 (400 K) off it, and R125's 300 K point (ρ printed to nine digits) +9.3e-5; R125's 400 K point within its digits | M8: the tables at `Measured` 4e-5 (SF₆) and 1e-4 (R125), the rows beyond their digits pinned, the oracle's η in the facts | decide: accept the correlations as printed (`KeepOracle`) or find the authors' unprinted digits |
-| DIV-0022 | Ammonia, R123, n-Octane, n-Propane | Transport (printed inputs) | `Investigate`, `None` | the papers' own tables (Fenghour 1995, Tanaka 1996, Huber 2004, Vogel 1998), to transcribe | map 10 §8.1, M8.5: CoolProp-Tests prints these rows' densities to fewer digits than η needs (n-Propane's to four); each printed η lies within η(ρ ± half a printed unit of ρ) ± half its own; residuals −1.1e-5, +1.15e-4, −4.9e-5, up to −3.3e-3 | M8: the cause asserted row by row; the tables at `Measured` 2e-5, 2e-4, 5e-5 and 4e-3, the rows beyond their digits pinned, the oracle's η in the facts | decide, with the papers' tables: whether a printed row's inputs carry their half unit into `Paper` |
-| DIV-0023 | Air, Argon, Nitrogen, Oxygen, SulfurHexafluoride, n-Nonane | Transport (printed λ check values) | `Investigate`, `None` | the papers' own tables (Lemmon & Jacobsen 2004, Assael et al. 2012, Huber 2005), to transcribe | map 10 §8.1, M8.6: within CoolProp's 1e-4, off their printed digits: Lemmon & Jacobsen's points near the critical point, Air −4.5e-6, Argon −6.8e-6, Nitrogen −5.4e-6, Oxygen +1.2e-5, where λ moves by 1e-5 to 2e-3 over half a printed unit of ρ; SF₆ at 0.97 T_c −1.4e-5; n-Nonane at a five-digit density +5.0e-5, within λ(ρ ± half a printed unit) | M8: each table at `Measured` (5e-6, 7e-6, 6e-6, 2e-5, 2e-5, 6e-5), the rows beyond their digits pinned, the oracle's λ in the facts | decide, with the papers' tables |
-| DIV-0024 | Methane | Transport (Friend 1989's check values) | `Investigate`, `None` | Friend, Ely & Ingham JPCRD 1989's table, with its equation of state, to transcribe | map 05 R10, map 10 §8.1, M8.6: the check values come from the paper's own equation of state, CoolProp's hard-coded model reads Setzmann & Wagner's: 400 K dilute −1.4e-4 (the ideal-gas c_p), the saturated liquid at 182 K +1.2e-3, 100 K and 28.8e3 mol/m³ (ρ to three digits) −8.8e-3 | M8: the table at `Measured` 9e-3, the three rows pinned, the oracle's λ in the facts | decide, with the paper |
-| DIV-0025 | n-Pentane | Transport (the viscosity λ's critical term reads) | `Investigate`, `None` | Vassiliou et al. JPCRD 2015, its check point (stage values printed) | map 05 R6, map 10 §8.1, M8.6: at 460 K and 377.687 kg/m³ λ is +4.75e-2 off 71.300 mW/(m K); the dilute and residual terms are the paper's to their digits, the critical term is 7.313 against 3.927 because it reads n-Pentane's friction-theory η, 27.15 µPa s, where the correlation was fitted with an ECS one, 49.465 µPa s (with that η: 4.014) | M8: the table at `Measured` 5e-2, the row pinned, the cause asserted stage by stage, the oracle's λ and η in the facts | decide: which η the term reads (map 05 R6's declared viscosity); n-Pentane's η itself waits for Quiñones-Cisneros & Deiters 2006 |
-| DIV-0026 | R13, R14, R142b, R218, RC318 | Transport (the ECS conductivity's q_D) | `SkipOracle`, `Code` | the same record with q_D edited to CoolProp's default, 2e9 1/m, reproduces the oracle's λ in `TransportEcs` at every all-fluid-tier state where it converged (`div_0026`); becomes `UsePaper` once Huber, Laesecke & Perkins IECR 2003 is transcribed | map 05 R2, M8.8: CoolProp's `parse_ECS_conductivity` (`FluidLibrary.h:668-680`) never reads q_D and keeps 2e9; the five files give 2.86e9, 4.41e9, 1.62e9, 0.917e9 and 2.81e9 (the other 13 ECS fluids 2e9), and phasekit reads them: λ moves at the oracle's states by up to +1.9e-2 (R13), +1.8e-1 (R14), −2.0e-3 (R142b), −3.2e-3 (R218) and +1.1e-1 (RC318), near T_c by −16 % to +24 % (map 05 R2) | M8: the replacing check; at least one exempt cell still differs; the cited shifts reproduce from the oracle's λ | λ of every `transport` row of the five fluids |
-| DIV-0027 | EthylBenzene | Transport (a printed λ check value) | `Investigate`, `None` | Mylona et al. JPCRD 2014 Eq. (18) and Table 21 (its 0 MPa row disagrees with its own Eq. (18)) | map 10 §8.1, M8.8: v8.0.0 transcribes Eq. (18), the dilute-gas fit, exactly (T_c = 617.12 K; the oracle's dilute λ is it to 1e-12 at its eight states), yet Table 21's 0 MPa values at 500 and 600 K are −1.8e-4 and −1.3e-4 off it (29.1547 and 41.1347 against 29.16 and 41.14 mW/(m K)); `CoolProp-Tests.cpp:555` takes the 600 K value | M8: the table at `Measured` 2e-4, the row pinned, Eq. (18) reproduced from the paper's coefficients | decide: what Table 21 was computed with (Eqs. (3)-(5) and (17), within 0.1 % of Eq. (18)) |
-
-**Planned entries.** Ids are allocated in the PLAN.md step that adds each one (the next free number then); the PR
-adds the row above with its id.
-
-| PLAN.md step | Fluids | Part | Policy, fix | Arbiter or replacing check | Evidence | Exemption or tolerance |
-|---|---|---|---|---|---|---|
-| M8.8 | R13, R14, R142b, R218, RC318 | Transport (`q_D`) | `SkipOracle`, `Code` (q_D is read) | the record with `q_D` edited to CoolProp's default 2e9 reproduces the oracle's λ at `TransportEcs` on every row; at least one exempt cell still differs | map 05 R2: `FluidLibrary.h:668-680` never reads q_D; honouring it moves λ by −16 % to +24 % near T_c | exempt: `transport` `lambda`, all rows of these fluids; → `UsePaper` once Huber et al. IECR 2003 is transcribed |
-| M8.9 | Ammonia | Transport (Tufeu 1984 critical term) | `SkipOracle`, `Code` | λ finite and continuous across 405.4 K | map 05 R3: oracle λ(405.3999 K, 50 kg/m³) = 6.26 W/m/K (~100× too high), NaN at 405.4 K | exempt: `transport` `lambda`, `Rows::TBand` around 405.4 K (width from the measured divergence *(inference)*); Corrected model (Monogenidou 2018 or a bounded term) after the paper check (map 05 Q3) |
-| M8.9 | R1234yf | Transport (`rhosr_critical`) | `Investigate`, `None` | `rhosr_critical` derived from the current EOS: −54095.50 vs stored −54468.48 | map 05 R4, U9 (+0.8-1.6 % liquid η if derived) | oracle cells asserted; Parity = Corrected = stored value |
-| M8.9 | R124, R22, R245fa, R32 | Transport (ECS λ LJ parameters) | `Investigate`, `None` | Huber 2003, McLinden 2000 | map 05 R17: Chung LJ used instead of the ECS model's own (e.g. R245fa σ 0.5529 vs 0.5151 nm) | oracle cells asserted; the record names `LjSource::Chung` |
-| M8.11 | Hydrogen, OrthoHydrogen | Melting | `Investigate`, `None` | Datchi et al. PRB 2000 | map 02 §6: p_melt(13.957 K) = 23.6 MPa vs p_triple 7.36 kPa | oracle cells asserted; `melting_meets_the_triple_pressure` waiver cites the entry |
-| M11 | every cubic fluid borrowing a HEOS ideal gas | GasConstant | `UsePaper` (user decision 10), `Code` (`phasekit-cubic` selects R by `DataSet` when it builds the model; no `corrections.csv` row) | the borrowed model's ideal-gas source (its EOS paper's c_p⁰; IAPWS-95 for Water) | map 06 C6, map 15 §3.1, X11 | proof (1) Corrected cubic α⁰ `Exact` to the borrowed model's at the same (T, ρ), c_p⁰ within `Term` of it; (2) the oracle's cubic c_p⁰ differs by the R ratio: 1.128e-6 (8.314472/8.31446262 − 1) for 54 of 97 fluids (map 06 C6), 1.10e-5 for Water (map 15 §3.1); (3) Parity cubic matches the oracle except the DIV-0010 columns. PLAN.md §4 has the full row |
+`DIVERGENCES` in `crates/phasekit-verify/src/register.rs` is the one list: DIV-0001..0014 seeded at M1.6, each later
+entry added by the step that found it, with its proof in `tests/divergences.rs`. A planned entry is specified in the
+PLAN.md step that adds it, which takes the next free id.
 
 ## 7. Datasets: Parity and Corrected
 
@@ -713,8 +586,7 @@ Acceptance (ARCHITECTURE.md D6): inputs reproduced, inside the domain, dp/dρ > 
 `Ambiguous { roots }`, each root a valid state. The robustness corpus (about 100 issue-linked states, map 10 §8.1,
 map 12 §8) lives in `tests/robustness.rs` as literals with their issue numbers, class `Smoke`. Grids: committed 6×6
 (log p, T) + 4×4 (T, Q) per core fluid per pair; nightly 40×40 + 20×20 for all fluids (map 10 §2.3). CoolProp's
-devdocs consistency report (12,355 failures over 82 fluids at 7.2.1dev, map 12 §6.2) is the baseline to beat; the
-nightly report prints phasekit's count.
+devdocs consistency report (12,355 failures over 82 fluids at 7.2.1dev, map 12 §6.2) is the baseline to beat.
 
 ### 8.3 Finite differences (class `Fd`)
 
@@ -861,7 +733,7 @@ definition of the subcommands; PLAN.md steps add them in the order of the last c
 | `lints` | the workspace sets `unsafe_code = "forbid"` and every workspace member has `[lints] workspace = true`, except `phasekit-capi`, which may instead declare `unsafe_code = "deny"` in its own `[lints.rust]` (per-item `allow` with a SAFETY comment; BRIEF "memory safe"; D17) | M0.4 |
 | `counts` | executed-test count: the passed tests per test binary per target (the host's G3 run and, from M0.5, the wasm32-wasip2 G4 run), from nextest's JUnit report (profile `counts`, the store moved to the cargo target directory with `--tool-config-file`) and, for doctests, `cargo test --doc`'s `test result: ok. N passed` lines against `ci/test-counts.txt` (`<target> <package>::<binary> <min>`; `<binary>` is `lib`, `main`, `doc` or the integration-test name); fails if nothing ran, a listed binary is missing, runs 0 tests or runs fewer than its minimum, or a binary that runs tests is not listed (map 10 R1). The PR adding tests raises minimums with `gates counts --update`, which never lowers one; lowering one by hand needs a `# lowered: <reason>` comment | M0.4 |
 | `ignores` | every `#[ignore = "..."]` reason starts with `DIV-NNNN: `, `issue #N: ` or `nightly: `; DIV ids exist and are not `ResolvedUpstream` (checked against the register from M1.6); `nightly:` only in `tests/sweeps.rs`; a bare `#[ignore]` fails. Each run publishes the ignored list (map 10 R14) | M0.4 |
-| `doc-excerpts` | every fenced `rust` block in `docs/*.md` is split at blank lines, and each chunk appears verbatim in one source file under `crates/` or `docs/history/sketch/`, its lines in order (modulo indentation and `///`/`//!` lines; an excerpt may leave lines out), unless the block is preceded by `<!-- excerpt: illustrative -->` (ROT-139; map 01 R19) | M0.4 |
+| `doc-excerpts` | every fenced `rust` block in `docs/*.md` is split at blank lines, and each chunk appears verbatim in one source file under `crates/`, its lines in order (modulo indentation and `///`/`//!` lines; an excerpt may leave lines out), unless the block is preceded by `<!-- excerpt: illustrative -->` (ROT-139; map 01 R19) | M0.4 |
 | `rot` | every ROT-REGISTER.md row whose milestone is below `phasekit_verify::MILESTONE` has no GAP status and no Proof still marked "new" that is due (PLAN.md §2.1 defines ticking) | M0.4 |
 | `assertions` | every `#[test]` in `crates/` (lint probes aside) contains `assert!`, `assert_eq!` or `assert_ne!`, or is `#[should_panic]`; no `assert_eq!`/`assert_ne!` has identical sides; comments and string literals are not code (ROT-294; map 10 R3, map 07 I11) | M0.4a |
 | `complexity` | every function under `crates/` (`generated.rs` and the ban probes aside), parsed with `syn`: cognitive complexity as G. Ann Campbell's *Cognitive Complexity* (SonarSource, version 1.7, 2023) specifies it, Appendix B in Rust (S3776; over 15 fails), and control-flow nesting of `if`, `match`, `for`, `while` and `loop`, else-if chains flat and closures transparent (S134; over 3 fails); or exempted in `ci/complexity-exemptions.txt` with ceilings and a reason, an exemption under the bars, over its ceilings or naming no function failing. Length is G2's: clippy's `too_many_lines` at 100 lines of code | M7.9c |
@@ -880,23 +752,25 @@ dependencies; licence allow-list; dependencies §3.4), `reuse lint`, `cargo shea
 
 ### 11.3 CI matrix
 
-| Job | Runner | Runs | Notes |
-|---|---|---|---|
-| fmt, clippy, linux, mutants, msrv | x86_64 Linux | `fmt`: G1. `clippy`: G2, G7. `linux`: G3, G8 (`gates all --except mutants`), and from M0.7 deny, reuse, shear. `mutants`: G8's `gates mutants`, its own job beside `linux` (user decision CI2). `msrv`: G3 and the doctests on 1.89.0, the workspace `rust-version` (user decision MS1, 2026-10-10; `cargo +1.85.0 check --lib -p phasekit-core -p phasekit-data -p phasekit-compat` until then) | `linux` fetches the wasip2 target and wasmtime for `gates counts`, `mutants` fetches `origin/main` and cargo-mutants for `gates mutants`; both cache `reference/CoolProp` keyed by its pinned commit and run `scripts/fetch-coolprop.sh` on a miss (anonymous clone); gungraun from M9 |
-| windows | Windows MSVC | G3 with `--exclude phasekit-xtask` (so G6 is a real build) | MSVC CRT transcendentals differ in ulps; the classes absorb it |
-| wasip2 | x86_64 Linux + wasmtime | G4: `cargo nextest run --workspace --exclude phasekit-xtask --target wasm32-wasip2 --profile ci` and `cargo test --doc` likewise, under the `wasmtime` runner set in `.cargo/config.toml` (M0.5) | fixtures via `include_str!`, no filesystem; thread tests compiled out |
-| wasm-browser | x86_64 Linux | G5; `cargo build -p phasekit-core --no-default-features --features fluids-core --target wasm32-unknown-unknown`, baseline and `RUSTFLAGS="-C target-feature=+simd128"`; from M10 also `phasekit-wasm` and the JS smoke test (section 13) | K15 |
-| aarch64 | aarch64 Linux | G3 with `--exclude phasekit-xtask` | D17 |
-| hash-compare | the four targets above | from M9.4: `tests/cross_target.rs` with std and with `--features libm`; collects and compares the hashes (9.4) | |
-| weekly | Linux | `cargo update` then G3; a full `cargo mutants` run in 8 shards, each a job in the gate's two passes, published as a report (surviving mutants of code no PR has touched since) | dependencies §3.4 item 4; user decisions TQ2, CI1, CI5 |
-| nightly | pinned `runner_image` | until M1.16 only the L5 step, as `-- --include-ignored`; then `cargo xtask oracle --check` twice over the committed files (drift, determinism; 3.6), then `--tier full` into `fixtures-full/`, from M6 `cargo xtask fetch-fastchebpure --all crates/phasekit-verify/fixtures-full`, then `cargo nextest run -p phasekit-verify --cargo-profile release --run-ignored only --profile ci` (L5), then the report | fail closed |
+The workflows in `.github/workflows/` are the truth; this table says what each job is for. Every `ci` job is a
+required check on `main`. They pin GitHub's own actions by commit, install the toolchain through `.github/actions/rust`
+(which names the one stable version) and build pinned tools from crates.io into a cache.
 
-The workflows live in `.github/workflows/{ci,weekly,nightly}.yml` (M0.6); every `ci.yml` job is a required check on
-`main`. They pin GitHub's own actions by commit, install the toolchain through `.github/actions/rust` (which holds the
-one stable version) and build pinned tools from crates.io into a cache.
-
-Nightly report, per fluid × kind: rows, cells asserted, cells exempt per DIV id, `nan` cells, oracle-gap rows (11.4),
-headroom; plus the ignored tests and each fluid's arbiter status (oracle-only fluids stay visible).
+| Workflow: job | Runner | Runs |
+|---|---|---|
+| `ci`: `fmt`, `clippy` | Linux | G1; G2 and G7 |
+| `ci`: `linux` | Linux | G3 and the doctests; G8 as `gates all --except mutants`; `cargo deny check`, `cargo shear`, `reuse lint`; on a PR that changes data, `cargo xtask fluid diff --base origin/main` in the job summary |
+| `ci`: `mutants` | Linux | G8's `gates mutants`, beside `linux` (user decision CI2) |
+| `ci`: `msrv` | Linux | G3 and the doctests on the workspace `rust-version` (user decision MS1) |
+| `ci`: `windows`, `aarch64` | Windows MSVC; aarch64 Linux | G3 and the doctests without `phasekit-xtask`, so G6 is a real build; MSVC's transcendentals differ in ulps, which the classes absorb |
+| `ci`: `wasip2` | Linux + wasmtime | G4: fixtures through `include_str!`, no filesystem, thread tests compiled out |
+| `ci`: `wasm-browser` | Linux | G5; `phasekit-core` with `fluids-core` for `wasm32-unknown-unknown`, baseline and `+simd128` (K15); from M10 also `phasekit-wasm` and the JS smoke test (section 13) |
+| `pr-title` | Linux | the PR title is a Conventional Commit (CONTRIBUTING.md) |
+| `nightly`: `oracle` | the pinned `runner_image` | regenerates the committed fixtures and checks them byte for byte (drift, determinism; 3.6); generates the full tier into `fixtures-full/` and fetches every fastchebpure file; runs the L5 sweep (`--run-ignored only`); its job summary lists rows and failed oracle calls per committed fixture and the sweep's result |
+| `nightly`: `advisories` | Linux | `cargo deny check advisories` |
+| `weekly`: `latest-deps` | Linux | `cargo update`, then the workspace tests |
+| `weekly`: `mutants` | Linux, 8 shards | a full `cargo mutants` run in the gate's two passes, a report (user decisions TQ2, CI1, CI5) |
+| `hash-compare` (from M9.4) | the four test targets | `tests/cross_target.rs` with std and with `--features libm`, the hashes collected and compared (9.4) |
 
 ### 11.4 Outcomes of an oracle comparison
 

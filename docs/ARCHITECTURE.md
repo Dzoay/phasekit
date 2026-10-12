@@ -48,28 +48,9 @@ What v0.1 leaves out, and why: [PLAN.md §1](PLAN.md#1-scope-v01-and-beyond). Wh
 
 ## 2. Layers and crates
 
-```text
- facades (thin)   phasekit-capi (pk_* + shim, M10)  phasekit-wasm (browser, M10)  phasekit-py (after 0.1)
-                            \                             |                            /
- migration                   +-------------- phasekit-compat --------------------------+  PropsSI strings, ANY Registry
-                                                          |
- kernel  phasekit-core (std only, forbid(unsafe); private modules, dependencies point down, lib.rs re-exports the API)
-   L6 exec       batch                 ExecPolicy {Reference, Parallel}, Status   <- every policy == Reference, bitwise
-   L5 transport  transport             closed CoolProp forms, lazy, ECS           <- paper rows stage by stage
-   L4 solve      flash saturation state  pure flash, SolvePath, SatPair           <- round trips, capability matrix
-   L3 package    model fluid data registry  ThermoModel, PureFluid, Fluid, layers <- Parity vs Corrected, lazy counts
-   L2 model      helmholtz             HelmholtzModel, SoA term blocks, jets      <- jets vs AD, FD, paper alpha tables
-   L1 relations  relations derivs      Bundle, Jacobian partials, Gibbs transform <- identities on synthetic bundles
-   L0 numerics   num units input prop error  sealed Real, math, newtypes, pairs   <- unit tests
-                                                          |  optional `embedded`
- data    phasekit-data    generated blobs + name/alias/CAS index + declared references; one feature per fluid
- dev     phasekit-verify  kit (provenance, tolerances, register, conformance) + corpus tests/ + fixtures/ + benches/
-         phasekit-xtask   datagen (the one serde mirror), oracle driver, CI gates (never shipped)
- later   phasekit-mix, -cubic, -pcsaft, -iapws (IF97 + ice), -incomp, -humidair
-```
-
-The same structure as a diagram (each kernel layer depends only on the layers below it; dotted lines are optional or
-build-time links):
+The kernel is one crate of private layered modules whose dependencies point down; its layers L0-L6, their modules and
+the test seam at each are the table at the top of `crates/phasekit-core/src/lib.rs`. The crates, and what each may
+depend on (dotted: optional or build-time):
 
 ```mermaid
 flowchart TB
@@ -78,18 +59,8 @@ flowchart TB
     wasm["phasekit-wasm<br/>browser package (M10)"]
     py["phasekit-py<br/>Python wheels (after 0.1)"]
   end
-  compat["phasekit-compat<br/>PropsSI strings, CoolProp names (M5.9)"]
-  subgraph core["phasekit-core: the kernel (std only, no unsafe)"]
-    direction TB
-    L6["L6 exec: batch, ExecPolicy"]
-    L5["L5 transport"]
-    L4["L4 solve: flash, saturation, State"]
-    L3["L3 package: ThermoModel, PureFluid, Fluid, Registry"]
-    L2["L2 model: Helmholtz families, term blocks, jets"]
-    L1["L1 relations: derivative bundles, partials"]
-    L0["L0 numerics: Real, math, units, Input, Error"]
-    L6 ~~~ L5 ~~~ L4 ~~~ L3 ~~~ L2 ~~~ L1 ~~~ L0
-  end
+  compat["phasekit-compat<br/>PropsSI strings, CoolProp names"]
+  core["phasekit-core<br/>the kernel, L0-L6 (std only, no unsafe)"]
   pkdata["phasekit-data<br/>generated blobs + name index, no logic"]
   subgraph dev["Development only, never shipped"]
     verify["phasekit-verify<br/>kit, fixtures, corpus tests, benches"]
@@ -101,41 +72,54 @@ flowchart TB
   compat --> core
   core -. "feature 'embedded'" .-> pkdata
   verify --> core
+  verify -. "dev: compat, data" .-> compat
   xtask --> core
+  xtask --> verify
   xtask -. "datagen writes" .-> pkdata
 ```
 
-| Crate | Responsibility | Depends on | Features | no_std? |
-|---|---|---|---|---|
-| `phasekit-core` | The kernel, L0-L6: numerics, Helmholtz families, relations, packages, registry, flash, saturation, transport, batch | `phasekit-data` (optional) | `fluids-all` (default), `fluids-core`, `embedded`; `rayon`, `libm` (M9); triggered only: `simd`, `json` | No: needs `std::sync` (`OnceLock`, `LazyLock`, `Arc`) |
-| `phasekit-data` | Generated per-fluid LE blobs, index with declared references, `DATASET` id, CoolProp MIT notice. No logic | none | `all` (default), `core`, `fluid-<name>` (generated; each enables its ECS reference fluids) | Yes (`#![no_std]`) |
-| `phasekit-compat` | `props_si_in(&Registry, ..)`, CoolProp names and keys, `FillPolicy`, legacy policies | core | `fluids-all` (default), `fluids-core`, `embedded` (forwarded) | No |
-| `phasekit-capi` (M10) | `extern "C"` facade: `pk_*` symbols, registry handles, string keys, status codes, thread-local error; the Tier A CoolPropLib.h shim (v8.0.0 codes, process-wide errstring; D11) | compat | forwards `fluids-*`; `coolproplib-shim` | No |
-| `phasekit-wasm` (M10) | wasm-bindgen browser package, baseline and `+simd128` builds | compat (`default-features = false`, `fluids-core`) | none | No |
-| `phasekit-py` (after 0.1) | pyo3 abi3 wheels: import name `phasekit`, plus `phasekit.compat` for migration (D11) | compat | forwards `fluids-*`; `numpy` | No |
-| `phasekit-verify` | Verification kit + conformance corpus + fixtures + benches; reusable by any family crate | core[`fluids-all`] (dev: compat) | none | No |
-| `phasekit-xtask` | `datagen`, `oracle`, `gates` | core, serde + serde_json (tools tier T4) | none | No |
+Each crate's dependencies are its `Cargo.toml`; their tiers, [DEPENDENCIES.md](DEPENDENCIES.md).
+
+| Crate | Responsibility | Features | no_std? |
+|---|---|---|---|
+| `phasekit-core` | The kernel, L0-L6: numerics, Helmholtz families, relations, packages, registry, flash, saturation, transport, batch | `fluids-all` (default), `fluids-core`, `embedded`; `rayon`, `libm` (M9); triggered only: `simd`, `json` | No: needs `std::sync` (`OnceLock`, `LazyLock`, `Arc`) |
+| `phasekit-data` | Generated per-fluid LE blobs, index with declared references, `DATASET` id, CoolProp MIT notice. No logic | `all` (default), `core`, `fluid-<name>` (generated; each enables its ECS reference fluids) | Yes (`#![no_std]`) |
+| `phasekit-compat` | `props_si_in(&Registry, ..)`, CoolProp names and keys, `FillPolicy`, legacy policies | `fluids-all` (default), `fluids-core`, `embedded` (forwarded) | No |
+| `phasekit-capi` (M10) | `extern "C"` facade: `pk_*` symbols, registry handles, string keys, status codes, thread-local error; the Tier A CoolPropLib.h shim (v8.0.0 codes, process-wide errstring; D11) | forwards `fluids-*`; `coolproplib-shim` | No |
+| `phasekit-wasm` (M10) | wasm-bindgen browser package, baseline and `+simd128` builds | none | No |
+| `phasekit-py` (after 0.1) | pyo3 abi3 wheels: import name `phasekit`, plus `phasekit.compat` for migration (D11) | forwards `fluids-*`; `numpy` | No |
+| `phasekit-verify` | Verification kit + conformance corpus + fixtures + benches; reusable by any family crate | none | No |
+| `phasekit-xtask` | `datagen`, `oracle`, `gates` | none | No |
 
 Kernel modules are not crates: no second consumer exists, and splitting one call chain costs semver and compile time
 for nothing (kernel-performance §3.1, P11). A future crate appears only when its trigger fires (§11). Two facades
 (`phasekit-capi`, `phasekit-wasm`) and Python depend on `phasekit-compat`, so one string grammar serves all three (DRY).
 - **Feature unification (E7).** Every internal workspace dependency has `default-features = false`; each consumer
-  names its fluid set. Observed in the sketch: `cargo tree -p phasekit-compat --no-default-features --features
-  fluids-core` enables `phasekit-data` `core` only (no `fluid-r143a`). CI gates `cargo tree -e features -p
-  phasekit-wasm --target wasm32-unknown-unknown` and a `.wasm` size budget.
-- **Crates arrive with their milestone (S-11).** M0 builds core, data, verify and xtask; compat joins for the M5 seam
-  gates (the sketch already has it because its tests use it); capi and wasm at M10; py after 0.1.
+  names its fluid set, and `gates features` checks the trees.
+- **Crates arrive with their milestone (S-11):** no crate exists before the step that first needs it.
 
 ## 3. Core abstractions
 
-Excerpts are from the sketch with `///` doc comments trimmed. Every module is private; `lib.rs` re-exports the public
-names plus the `batch` and `math` modules; verify and xtask reach the growing records
-through one `#[doc(hidden)] pub mod internal`, semver-exempt by convention *(inference)* (S-03).
+Every module is private; `lib.rs` re-exports the public API (rustdoc is the list), and verify and xtask reach the
+decoded records through one `#[doc(hidden)] pub mod internal`, semver-exempt by convention *(inference)* (S-03). The
+signatures are the code's; this section keeps what the code cannot say: why each seam exists and what must stay true.
 
-| Who | Concepts (re-exported names) |
-|---|---|
-| User | `Registry`; `Fluid` (+ `Gauge`, `ReferenceState`); `Input` (+ `Pair`, `Var`, `Basis`, 7 quantity newtypes); `FlashOptions` (+ `RootPolicy`, `DomainPolicy`); `State` (+ `Phase`, `SolvePath`, `Strategy`); `Prop` (+ `Partial`, `DerivVar`); `batch`; `Error` (+ `DomainError`, `LoadError`, `Roots`); loading (`DataSource`, `Pack`, `Blob`, `FluidId`, `DataSet`) |
-| Family author | `ThermoModel` (+ `NativeInput`, `Capabilities`, `FluidInfo`, `Limits`, `CriticalPoint`, `CriticalOrigin`, `ModelKey`, `Source`, `DataTerms`); `HelmholtzModel` (+ `Derivs`, `Order`, `Virials`); `PureFluid` (+ `PureFluidBuilder`); `SaturationCurve` (+ `SatAccuracy`, `SatPair`, `SatSide`); `State::from_total` / `from_split` (+ `Bundle`, `GibbsDerivs`, `bundle_from_gibbs`); `PointDerivs`; `Real` + `math` |
+| Seam | Where (`crates/phasekit-core/src/`) | Invariant |
+|---|---|---|
+| `Real` | `num.rs` | sealed; `f64` and `Jet4` only, so methods can be added without a break (S-02, E16) |
+| `Derivs<R>`, `Bundle`, `PointDerivs` | `derivs.rs` | reducing-invariant A_ij to order 4; `Bundle` is the order-2 slice a `State` stores |
+| `HelmholtzModel` | `helmholtz/mod.rs` | object-safe, `Send + Sync`, in (T, ρ); `zero_density` exact or `None` |
+| `ThermoModel` | `model.rs` | object-safe, `Any + Send + Sync`; its flash sees a validated molar `NativeInput`, never a gauge |
+| `PureFluid`, `Fluid` | `fluid.rs` | immutable once built, lazy parts behind `LazyLock`; `Fluid` converts each `Input` exactly once |
+| `Input`, `Pair` (`pairs!`) | `input.rs` | one 19-line table; `Input::new` is the one raw gate |
+| `State`, `from_total`, `from_split` | `state.rs` | `Copy`, at most 256 B; validated on construction |
+| `bundle_from_gibbs` | `relations.rs` | a Gibbs model's bundle; refuses a mechanically unstable state |
+| `SaturationCurve`, `SatPair` | `saturation.rs` | never evaluated outside its fitted `t_range` |
+| `Registry`, `DataSource`, `Pack` | `registry.rs`, `data.rs` | registries are values: each `with_*` returns a new one; `get` allocates nothing |
+| the flash | `flash.rs` | a pure function of fluid, input and options, for all 19 pairs |
+| `batch::evaluate`, `ExecPolicy` | `batch.rs` | the scalar code path per point; point-major buffers; every policy bitwise `Reference` |
+| `Error` | `error.rs` | `#[non_exhaustive]`, `Clone`, at most 48 B |
+| `Send + Sync` and the size bounds | `lib.rs` | compile-time asserts over every shared type |
 
 Public generic types: only `Derivs<R = f64>`, over the sealed `Real`. A few arguments take `impl Trait` (the EOS and a
 saturation curve in the builder; initialiser and `Derivs::from_fn` closures) and `loaded`/`aliases` return
@@ -143,74 +127,18 @@ saturation curve in the builder; initialiser and `Derivs::from_fn` closures) and
 
 ### 3.1 Numbers and the derivative currency (D2)
 
-```rust
-pub trait Real:
-    sealed::Sealed
-    + Copy
-    + Debug
-    + Send
-    + Sync
-    + 'static
-    + Add<Output = Self>
-    + Sub<Output = Self>
-    + Mul<Output = Self>
-    + Div<Output = Self>
-    + Neg<Output = Self>
-    + Add<f64, Output = Self>
-    + Mul<f64, Output = Self>
-{
-    fn from_f64(x: f64) -> Self;
-    fn exp(self) -> Self;
-    fn expm1(self) -> Self;
-    fn ln(self) -> Self;
-    fn ln_1p(self) -> Self;
-    fn powi(self, n: i32) -> Self;
-    fn powf(self, y: f64) -> Self;
-    fn sqrt(self) -> Self;
-    fn sinh(self) -> Self;
-    fn cosh(self) -> Self;
-    fn atan(self) -> Self;
-    fn abs(self) -> Self;
-}
-```
-
-Sealed, so methods (a lane `Mask`/`select`, if SIMD ever lands) can be added without a break (S-02, E16). Implemented
-by `f64` now and the in-house bivariate `Jet4` at M3.
-
-```rust
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Derivs<R = f64> {
-    a: [R; SLOTS],
-    order: Order,
-}
-
-    pub const IDEAL_DELTA: Derivs = {
-        let mut a = [0.0; SLOTS];
-        a[idx(0, 1)] = 1.0;
-        a[idx(0, 2)] = -1.0;
-        a[idx(0, 3)] = 2.0;
-        a[idx(0, 4)] = -6.0;
-        Derivs { a, order: Order::Four }
-    };
-```
+`Real` is sealed, so methods (a lane `Mask`/`select`, if SIMD ever lands) can be added without a break (S-02, E16).
+It is implemented by `f64` and the in-house bivariate `Jet4`.
 
 `Derivs` holds `A_ij = τ^i δ^j ∂^(i+j)α/∂τ^i∂δ^j`, reducing-invariant, to order 4. `Bundle` is its order-2 slice
 (`a00, a10, a01, a20, a11, a02`): what a `State` stores per phase point and what `relations` turns into p, h, s, u, cv,
-cp, w and every first partial derivative. It is the family-neutral currency for states of matter. Beyond it:
-
-```rust
-pub struct PointDerivs {
-    total: Derivs,
-    parts: Option<(Derivs, Derivs)>,
-}
-```
-
+cp, w and every first partial derivative. It is the family-neutral currency for states of matter. Beyond it,
 `PointDerivs::split(ideal, residual)` (Helmholtz families) or `from_total(total)` (a Gibbs solid's own order-3
 transform): order 3-4 and the ideal/residual split for Cp0, residual h/s/g, CoolProp's α-term outputs, second partial
 derivatives and the fundamental derivative (E1). `Virials { b, c, db_dt, dc_dt }` are exact zero-density
 coefficients (E4).
 
-### 3.2 How derivatives are obtained: the power term, fully implemented
+### 3.2 How derivatives are obtained: the power term
 
 A separable term `n τ^t δ^d e^(−cδ^l)` has scaled derivatives `α · B^τ_i · B^δ_j`:
 - `B^τ_i` are the falling factorials of `t`, precomputed at decode (`bt`).
@@ -225,124 +153,24 @@ code runs on `f64` and `Jet4` (and on lanes, if the gate fires). Lemmon2005 and 
 `n τ^t e^(−aτ^m) δ^d e^(−cδ^l)`, get the same polynomials on their τ-side too, built from real `(t, m)` by the same
 `exp_poly` and evaluated in `y = aτ^m` (`TauExpBlock`, M3.3): one more `exp` per term where a ≠ 0.
 
-```rust
-pub(super) fn horner<R: Real, const ORD: usize>(polys: &[Poly; 5], x: R) -> [R; 5] {
-    let mut b = [R::from_f64(1.0); 5];
-    for (j, (b, poly)) in b.iter_mut().zip(polys).enumerate().take(ORD + 1).skip(1) {
-        *b = poly[..j].iter().rev().fold(R::from_f64(poly[j]), |acc, &ck| acc * x + ck);
-    }
-    b
-}
-
-    fn term<R: Real, const ORD: usize>(&self, k: usize, v: &Vars<R>) -> (R, [R; 5]) {
-        let x = v.delta_pow[usize::from(self.l[k])] * self.c[k]; // c δ^l (0 for polynomial terms)
-        let phi = (v.ln_tau * self.t[k] - x).exp() * v.delta_pow[usize::from(self.d[k])] * self.n[k];
-        (phi, horner::<R, ORD>(&self.bd[k], x))
-    }
-    pub(crate) fn accumulate<R: Real, const ORD: usize>(&self, v: &Vars<R>, acc: &mut Derivs<R>) {
-        for k in 0..self.n.len() {
-            let (phi, bd) = self.term::<R, ORD>(k, v);
-            acc.add_outer::<ORD>(phi, &self.bt[k], &bd);
-        }
-    }
-```
-
-Sketch tests:
-- `power_term_matches_hand_derivation`: n = 0.5, t = 1.5, d = 2, l = 1 at τ = 2, δ = 0.5. α = 0.21444097124017672,
-  B^τ = [1, 1.5, 0.75, −0.375, 0.5625] and B^δ = [1, 1.5, 0.25, −1.625, 2.0625]; all 15 A_ij agree to 1e-15.
-- `delta_factors_are_cancellation_free_near_zero_density`: B^δ_2 for d = 1, l ∈ {1, 2} at δ = 1e-4, 1e-8, 1e-12
-  within 1e-15 relative of the hand formula.
-- `zero_density_series_is_exact` and `virials_are_exact_taylor_coefficients`: B, C, dB/dT, dC/dT against hand
-  derivations, including an MBWR d = 0 pair.
-- `delta_exp_delta_closed_form`, `jets_match_num_dual_ad`, `generic_fast_path_is_bitwise_scalar`,
-  `finite_at_zero_density`, `ideal_delta_gives_mechanical_derivatives`, `planck_einstein_matches_ad` (all four
-  τ-orders of `n ln(1 − e^(−θτ))`, written with `expm1`). The AD oracle in the sketch is a test-only hyper-dual; the
-  real crate uses `num-dual` as a dev-dependency (S-07).
+The code is `helmholtz/power.rs`; its hand derivations are its unit tests, and `tests/terms.rs` checks every term
+kind against num-dual AD of the paper formula (S-07).
 
 ### 3.3 The family seam: `HelmholtzModel` (D3)
 
-```rust
-pub trait HelmholtzModel: Send + Sync + fmt::Debug {
-    fn gas_constant(&self) -> f64;
-
-    fn residual(&self, t: f64, rho: f64, order: Order) -> Derivs;
-
-    fn ideal(&self, t: f64, rho: f64, order: Order) -> Derivs;
-
-    fn rho_max(&self, t: f64) -> f64;
-
-    fn zero_density(&self, _t: f64) -> Option<Virials> {
-        None
-    }
-}
-```
-
+A Helmholtz family supplies its gas constant, the residual and ideal parts in (T, ρ) to the requested `Order`, its
+density bound `rho_max(T)`, and optionally `zero_density`.
 `zero_density` returns exact virials from the δ → 0 Taylor coefficients of α^r; `None` means virial outputs are
 refused, never approximated at a small δ (map 12 R8). The out-of-tree van der Waals test family implements it
 (B = b − a/RT, C = b²) and checks it against a low-density state.
 
 ### 3.4 The package seam: `ThermoModel`, `PureFluid`, `Fluid` (D3, D10)
 
-```rust
-pub trait ThermoModel: Any + Send + Sync + fmt::Debug {
-    fn info(&self) -> &FluidInfo;
-
-    fn capabilities(&self) -> Capabilities;
-
-    fn flash(&self, input: NativeInput, opts: &FlashOptions) -> Result<State, Error>;
-
-    fn critical_point(&self) -> Option<CriticalPoint> {
-        None
-    }
-
-    fn helmholtz(&self) -> Option<&dyn HelmholtzModel> {
-        None
-    }
-
-    fn derivs(&self, state: &State, order: Order) -> Option<PointDerivs> {
-        let (t, rho) = state.single_t_rho()?;
-        let h = self.helmholtz()?;
-        Some(PointDerivs::split(h.ideal(t, rho, order), h.residual(t, rho, order)))
-    }
-
-    fn viscosity(&self, _state: &State) -> Result<f64, Error> {
-        Err(Error::NoModel { prop: Prop::Viscosity })
-    }
-
-    fn conductivity(&self, _state: &State) -> Result<f64, Error> {
-        Err(Error::NoModel { prop: Prop::Conductivity })
-    }
-
-    fn surface_tension(&self, _t: f64) -> Result<f64, Error> {
-        Err(Error::NoModel { prop: Prop::SurfaceTension })
-    }
-}
-```
-
-```rust
-pub struct PureFluid {
-    info: FluidInfo,
-    eos: Box<dyn HelmholtzModel>,
-    limits: Limits,
-    critical: Option<CriticalPoint>,
-    saturation: Lazy<Option<Box<dyn SaturationCurve>>>,
-    transport: Lazy<TransportSet>,
-}
-pub struct Fluid {
-    model: Arc<dyn ThermoModel>,
-    gauge: Gauge,
-}
-    fn native(&self, input: Input) -> Result<NativeInput, Error> {
-        let pair = input.pair();
-        if !self.model.capabilities().contains(pair) {
-            return Err(Error::Unsupported { pair });
-        }
-        Ok(input.to_native(self.info().molar_mass(), self.gauge))
-    }
-    pub fn flash(&self, input: Input, opts: &FlashOptions) -> Result<State, Error> {
-        Ok(self.model.flash(self.native(input)?, opts)?.with_gauge(self.gauge))
-    }
-```
+`ThermoModel` has three required methods (`info`, `capabilities`, `flash`) and defaulted ones that refuse with a
+typed error (`critical_point`, `helmholtz`, `derivs` through `helmholtz`, the transport and σ outputs), so a family
+implements only what it has. `Fluid` is `Arc<dyn ThermoModel>` plus a `Gauge`: it checks the pair against the
+model's `Capabilities`, converts the `Input` to a molar `NativeInput` in the native gauge, and applies the gauge to
+the `State` the model returns.
 
 `Lazy<T>` is std's `LazyLock<Result<T, LoadError>, Box<dyn FnOnce() -> Result<T, LoadError> + Send>>`, which drops its
 initialiser (and the blob and reference handles it captured) after the first call (S-08).
@@ -353,23 +181,6 @@ strings, batch, C and WASM.
 
 ### 3.5 Inputs: one table, one gate (D5)
 
-```rust
-pub struct Input {
-    pair: Pair,
-    x: (f64, Basis),
-    y: (f64, Basis),
-}
-pub struct NativeInput {
-    pair: Pair,
-    x: f64,
-    y: f64,
-}
-pairs! {
-    QT qt(q: Quality, t: Temperature);
-    PQ pq(p: Pressure, q: Quality);
-    QS qs(q: Quality, s: Entropy);
-```
-
 One 19-line `pairs!` table generates the `#[non_exhaustive] Pair` enum, `Pair::ALL: &'static [Pair]`, `Pair::vars`
 (from each quantity type's `VAR`) and the typed constructors (`Input::dt(Density, Temperature)`). `Input::new(pair, x,
 y, basis)` is the one raw gate for batch, string, C and JS callers. `Fluid` turns an `Input` into a `NativeInput`
@@ -378,53 +189,6 @@ y, basis)` is the one raw gate for batch, string, C and JS callers. `Fluid` turn
 `Capabilities` is a private 64-wide bitset (E11).
 
 ### 3.6 State and the states-of-matter seam (D5, D10)
-
-```rust
-pub struct State {
-    t: f64,
-    p: f64,
-    phase: Phase,
-    body: Body,
-    r: f64,
-    molar_mass: f64,
-    gauge: Gauge,
-    path: SolvePath,
-    key: ModelKey,
-    extrapolated: bool,
-}
-    pub fn from_total(
-        key: ModelKey,
-        t: f64,
-        rho: f64,
-        r: f64,
-        molar_mass: f64,
-        phase: Phase,
-        total: &Bundle,
-    ) -> Result<State, Error> {
-        Self::single(key, t, rho, r, molar_mass, phase, total, EXTERNAL)
-    }
-    pub fn from_split(liquid: State, vapour: State, q: Quality, t: f64, p: f64) -> Result<State, Error> {
-        Self::split(liquid, vapour, q, t, p, EXTERNAL)
-    }
-
-pub fn bundle_from_gibbs(r: f64, t: f64, p: f64, g: &GibbsDerivs) -> Result<(f64, Bundle), Error> {
-    if !(g.g_p > 0.0 && g.g_pp < 0.0) {
-        return Err(DomainError::MechanicallyUnstable.into());
-    }
-    let v = g.g_p;
-    let rt = r * t;
-    let pv = p * v / rt;
-    let b = Bundle {
-        a00: (g.g - p * v) / rt,
-        a10: (g.g - p * v - t * g.g_t) / rt,
-        a01: pv,
-        a20: t * (g.g_tt * g.g_pp - g.g_tp * g.g_tp) / (r * g.g_pp),
-        a11: pv + v * g.g_tp / (r * g.g_pp),
-        a02: -v * v / (g.g_pp * rt) - 2.0 * pv,
-    };
-    Ok((1.0 / v, b))
-}
-```
 
 - `Body` is one phase point or two (`q`, liquid, vapour); every point carries its own T, ρ and bundle, because a
   pseudo-pure fluid's bubble and dew points differ (E3).
@@ -438,30 +202,8 @@ pub fn bundle_from_gibbs(r: f64, t: f64, p: f64, g: &GibbsDerivs) -> Result<(f64
   `DomainPolicy::Extrapolate`. `mark_extrapolated()` lets a family's own flash set it; a split inherits it from either
   phase; batch reports it per cell as `Status::Extrapolated`, which is not a failure.
 
-A Gibbs-explicit model outside the core (`phasekit-verify/tests/gibbs_seam.rs`; PT gives the solid, QT ice + vapour):
-
-```rust
-impl ThermoModel for ToyIce {
-    fn info(&self) -> &FluidInfo {
-        &self.info
-    }
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::none().with(Pair::PT).with(Pair::QT)
-    }
-    fn flash(&self, input: NativeInput, _opts: &FlashOptions) -> Result<State, Error> {
-        match (input.pair(), input.values()) {
-            (Pair::PT, (p, t)) => self.state(t, p, Phase::Solid, Self::solid(t, p)),
-            (Pair::QT, (q, t)) => {
-                let p = Self::sublimation_pressure(t);
-                let ice = self.state(t, p, Phase::Solid, Self::solid(t, p))?;
-                let vapour = self.state(t, p, Phase::Gas, Self::vapour(t, p))?;
-                State::from_split(ice, vapour, Quality::new(q)?, t, p)
-            }
-            (pair, _) => Err(Error::Unsupported { pair }),
-        }
-    }
-}
-```
+A Gibbs-explicit model outside the core, `ToyIce` in `phasekit-verify/tests/gibbs_seam.rs`, flashes PT to the solid
+and QT to ice + vapour through `bundle_from_gibbs` and `from_split`, and reaches the registry, batch and compat.
 
 ### 3.7 Outputs and derivatives (D5, E1)
 
@@ -473,47 +215,25 @@ with no model call; tests check `(∂h/∂T)_p = cp`, `(∂s/∂T)_p = cp/T` and
 Gibbs solid. Order ≥ 3 and the ideal/residual parts come from `ThermoModel::derivs`; Cp0 uses it today and reports
 `NoModel` for a family without an ideal part.
 
-| Milestone | Outputs added (additive `Prop` variants) | Gate |
-|---|---|---|
-| M5 | first partials, Z, Cp0, residual h/s/g, Bvirial/Cvirial and their T-derivatives | identities; analytic virials; oracle |
-| M7 | second partials (order 3), fundamental derivative, κ, β; Cv/Cp/w/τ/δ as derivative variables deferred (user decision OD1) | second-partial identities (VERIFICATION.md §8.1); oracle |
-| M10 | strict `d(X)/d(Y)\|Z` and `d(d(X)/d(Y)\|Z)/d(W)\|V` grammar in compat; the 8 α-term outputs | 85-output oracle gate (map 01 §4a) |
+The second partials, the fundamental derivative, κ_T and β come from order 3 (M7.10); Cv, Cp, w, τ and δ as derivative
+variables are deferred (user decision OD1). The strict `d(X)/d(Y)|Z` grammar and the 8 α-term outputs arrive in
+compat at M10.
 
 ### 3.8 Registry, data sources, flash, batch, saturation
 
-| Item (exact signatures from the sketch) | Role |
+| `Registry` method | Role |
 |---|---|
-| `pub fn embedded() -> Result<&'static Registry, Error>` | Process-wide registry; builds the static index on first call, decodes nothing; fails only on an inconsistent generated index |
-| `pub fn from_embedded(data_set: DataSet) -> Result<Registry, Error>` | Private registry, e.g. `DataSet::Parity` for fixtures |
-| `pub fn with_source(&self, source: Box<dyn DataSource>, data_set: DataSet) -> Result<Registry, Error>` | NEW registry with one more data layer (a `Pack`, files, a test double); refuses collisions, missing references and cycles |
-| `pub fn with_model(&self, model: Arc<dyn ThermoModel>) -> Result<Registry, Error>` | NEW registry with one more provided model |
-| `pub fn with_reference(&self, name: &str, reference: ReferenceState) -> Result<Registry, Error>` | NEW registry in which that fluid (all its aliases) reports in a reference state (E10) |
-| `pub fn get(&self, name: &str) -> Result<&Fluid, Error>` | Name, alias or CAS, ASCII case-insensitive; returns a reference |
-| `pub fn canonical_name(&self, name: &str) -> Option<&str>` / `preload` / `loaded` / `empty` | Resolution without loading; warm-up; memory introspection |
-
-```rust
-pub trait DataSource: Send + Sync + fmt::Debug {
-    fn names(&self) -> Vec<Vec<String>>;
-    fn blob(&self, id: FluidId) -> Result<Blob, LoadError>;
-    fn references(&self, _id: FluidId) -> Vec<String> {
-        Vec::new()
-    }
-}
-```
+| `embedded()` | Process-wide registry; builds the static index on first call, decodes nothing; fails only on an inconsistent generated index |
+| `from_embedded(data_set)` | Private registry, e.g. `DataSet::Parity` for fixtures |
+| `with_source(source, data_set)` | NEW registry with one more data layer (a `Pack`, files, a test double); refuses collisions, missing references and cycles |
+| `with_model(model)` | NEW registry with one more provided model |
+| `with_reference(name, reference)` | NEW registry in which that fluid (all its aliases) reports in a reference state (E10) |
+| `get(name)` | Name, alias or CAS, ASCII case-insensitive; returns a reference |
+| `canonical_name` / `preload` / `loaded` / `empty` | Resolution without loading; warm-up; memory introspection |
 
 `Pack::new(Arc<[u8]>) -> Result<Pack, LoadError>` implements `DataSource` (M2 format); JS calls it as
 `registry.withPack(bytes)`. The decoded record (`FluidRecord`, `EosRecord`, `Patch`, `Edit`) is the arbitration seam,
 reached through `phasekit_core::internal`.
-
-```rust
-pub(crate) fn flash(fluid: &PureFluid, input: NativeInput, opts: &FlashOptions) -> Result<State, Error> {
-    let (x, y) = input.values();
-    match input.pair() {
-        Pair::DT => dt(fluid, y, x, opts),
-        pair => Err(Error::Unsupported { pair }),
-    }
-}
-```
 
 `FlashOptions` (by value, private fields, `const` builders): `with_phase(Phase)` (per call, never sticky; a
 single-phase label skips the phase rule, `TwoPhase` requires the dome), `with_roots(RootPolicy::{Strict, Nearest(x),
@@ -521,63 +241,15 @@ Stable})`, `with_domain(DomainPolicy::{Enforce, Extrapolate})`, `with_guess(t, r
 the default, refuses states below the triple point; `Extrapolate` evaluates metastable single-phase states and flags
 them (D6).
 
-```rust
-pub struct SatPair {
-    pub bubble: SatSide,
-    pub dew: SatSide,
-}
-pub trait SaturationCurve: Send + Sync + fmt::Debug {
-    fn accuracy(&self) -> SatAccuracy;
-    fn t_range(&self) -> (f64, f64);
-    fn at_t(&self, t: f64) -> Result<SatPair, Error>;
-    fn at_p(&self, p: f64) -> Result<SatPair, Error>;
-}
-```
-
 `SatSide { t, p, rho }`. A pure fluid's sides share T and p (`SatPair::is_pure`). A fresh or exactly rescaled
 superancillary is `Exact`; ancillaries and a stale superancillary are `Guess` and get a VLE polish (M6); pseudo-pure
 bubble/dew curves are `Definition` (E3). `t_range` is the fitted range: the flash never evaluates a curve outside it,
 under any `DomainPolicy` (D6).
 
-```rust
-pub enum ExecPolicy {
-    #[default]
-    Reference,
-    Parallel {
-        chunk: NonZeroUsize,
-    },
-}
-pub fn evaluate(
-    fluid: &Fluid,
-    req: &BatchRequest<'_>,
-    out: &mut [f64],
-    status: &mut [Status],
-) -> Result<BatchSummary, Error> {
-```
-
 `BatchRequest::new(pair, basis, x, y, outputs)` with `with_flash` and `with_exec` (private fields). Every point goes
 through `Input::new` and `Fluid::flash`, so batch and scalar are one code path; `Status` is one byte per cell
 (`Extrapolated` marks a value computed outside the domain). Buffers are point-major everywhere: `out[i*M + k]` in Rust,
 C and NumPy `(N, M)`; a future SIMD path transposes chunks internally (user decision 11).
-
-```rust
-const _: () = {
-    const fn shared<T: ?Sized + Send + Sync + 'static>() {}
-    shared::<Registry>();
-    shared::<Fluid>();
-    shared::<PureFluid>();
-    shared::<helmholtz::MultiParameterEos>();
-    shared::<dyn ThermoModel>();
-    shared::<dyn HelmholtzModel>();
-    shared::<dyn SaturationCurve>();
-    shared::<dyn DataSource>();
-    shared::<State>();
-    shared::<FlashOptions>();
-    shared::<Error>();
-    assert!(core::mem::size_of::<State>() <= 256);
-    assert!(core::mem::size_of::<Error>() <= 48);
-};
-```
 
 ## 4. Decisions D1-D17
 
@@ -612,8 +284,7 @@ family (Extensible's order-2 fatal flaw avoided). Virials come from `HelmholtzMo
   l ≤ 6. A_ij stay finite at δ = 0 (kernel-performance §4).
 - CoolProp's virials evaluate at δ = 1e-12 and its C virial is off by up to 7.1e-5 (map 12 §6.3).
 *Rejected:* AD on the hot path (cost, kernel-performance §2.4); `num-dual` in core (orphan rule against lanes, churn;
-R5, prior-art §2.2; it is the dev-dependency AD oracle); a second production AD type (`HyperDual`, S-07; the sketch
-keeps a test-only stand-in because it has no dev-dependencies); the paper formula `value::<R>` as production code
+R5, prior-art §2.2; it is the dev-dependency AD oracle); a second production AD type (`HyperDual`, S-07); the paper formula `value::<R>` as production code
 (test oracle only); an unsealed `Real` or lane `Mask`/`select` before lanes exist (S-02); `std::autodiff` (nightly,
 R4); porting CoolProp's `all()` (rot R5 itself).
 
@@ -847,19 +518,10 @@ checked further). Constraints it meets *(inference)*:
 
 ## 5. Request lifecycle
 
-**(a) One PT → h call for Water** (v0.1 path; in the sketch, DT is the implemented pair).
-1. `Registry::embedded()?`: a `LazyLock` builds the case-folded index of the embedded layer; nothing is decoded.
-2. `get("Water")`: allocation-free binary search; first use runs `Blob::Static` → `decode` → `apply(Corrected)`
-   (DIV-0002) → `builder` → `Arc` inside the slot's `OnceLock`. Later calls are one atomic load returning `&Fluid`.
-3. `Fluid::flash`: capability check, basis to molar and gauge to native, once (`NativeInput`).
-4. `PureFluid` flash: domain check, then the phase rule. The saturation `LazyLock` decodes the superancillary section
-   on first use; psat(300 K) < p, so liquid. Then density Newton bracketed by ρ′(T) and `rho_max(T)` on `residual +
-   IDEAL_DELTA`. `Root{stop: Converged}` passes the acceptance gate.
-5. `State` construction: one ideal + one residual evaluation fills the `Bundle`; `path() = DensityNewton`; gauge
-   stamped.
-6. `state.h(Basis::Mass)` = `(relations::enthalpy + gauge.dh) / M`. No lock, global or allocation after first use.
-
-The same call as a sequence:
+**(a) One PT → h call for Water.** A fluid's first use decodes its blob, applies the Corrected patches (DIV-0002 for
+Water) and compiles it into its slot's `OnceLock`; later lookups are one atomic load. The phase rule compares p with
+psat(T) (liquid at 300 K), and the density Newton, bracketed by ρ′(T) and `rho_max(T)` on `residual + IDEAL_DELTA`,
+must pass the acceptance gate (`path() = DensityNewton`).
 
 ```mermaid
 sequenceDiagram
@@ -1040,8 +702,7 @@ flowchart LR
 **Runtime.** `DataSource::blob` returns `Blob::Static(&'static [u8])` (zero-copy) or `Blob::Shared(Arc<[u8]>)`. The
 blob is validated whole once, its record name must match the index, and only the EOS is materialised. Saturation and
 transport stay as lazy closures over the blob; the transport closure also holds its reference slots. `DataSet::Parity`
-skips the corrections section; `Corrected` (the default, user decision 2) applies it and records `applied` ids. (The
-sketch decodes a `PKIT\0toy:<name>` stand-in so the registry tests run end to end; the v1 format lands at M2.)
+skips the corrections section; `Corrected` (the default, user decision 2) applies it and records `applied` ids.
 
 **Hash gate (E14).** `FluidRecord::superancillary_freshness()` compares the corrected EOS with the stamp the
 superancillary was fitted to. The hash covers the canonical bytes of the whole EOS section, α⁰ included; a test flips
@@ -1176,18 +837,6 @@ VTPR/UNIFAC, mixture transport (map 05 U14), an expression DSL (map 05 U11).
 | Emscripten JS build | `phasekit-wasm` (wasm-bindgen, baseline + `simd128`; `fluids-core` + `withPack`) | First browser build of any CoolProp port (P12) |
 | Python `CoolProp` | `phasekit-py` after 0.1 (pyo3 0.29 abi3, R16) | Import name `phasekit`; `phasekit.compat.PropsSI(...)` for migration; never the `CoolProp` name, so both install side by side (D11) |
 | CoolPropPlot | deferred until after M13 (mixtures) | §1; a separate crate over saturation, `flash` and batch |
-
-```rust
-pub fn props_si_in(
-    registry: &Registry,
-    output: &str,
-    name1: &str,
-    value1: f64,
-    name2: &str,
-    value2: f64,
-    fluid: &str,
-) -> Result<f64, CompatError> {
-```
 
 Legacy policies stay in compat (map 14): PropsSI fills +inf, HAPropsSI raises on the first bad point, and
 PropsSImulti returns `[]`. `FillPolicy::{Error, Inf, Nan}` selects one; the kernel never has a legacy mode. Compat has

@@ -5,8 +5,8 @@
 //! |---|---|---|
 //! | L6 exec | `batch` | every `ExecPolicy` equals `Reference` |
 //! | L5 transport | `transport` | stage-by-stage paper rows |
-//! | L4 solve | `flash`, `saturation`, `state` | round trips, capability matrix, `SolvePath` |
-//! | L3 package | `model`, `fluid`, `data`, `registry` | Parity vs Corrected, lazy-load counts |
+//! | L4 solve | `flash`, `density`, `roots`, `vle`, `crit`, `saturation`, `state` | round trips, capability matrix |
+//! | L3 package | `model`, `fluid`, `data`, `blob`, `registry` | Parity vs Corrected, lazy-load counts |
 //! | L2 model | `helmholtz` | jets vs AD, FD, paper α tables |
 //! | L1 relations | `relations`, `derivs` | identities on synthetic bundles |
 //! | L0 numerics | `num` (`math`), `units`, `input`, `prop`, `error` | unit tests |

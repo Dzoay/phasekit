@@ -141,8 +141,8 @@ pub struct Divergence {
     pub status: DivStatus,
 }
 
-/// The register, seeded from map 12 §6.3 and the map 10 §8.5 seed list (E15) with VERIFICATION.md §6.6's values; it
-/// grows by PR with a proof per entry. `Investigate` stubs become `UsePaper` once their arbiter row is transcribed
+/// The register (VERIFICATION.md §6), seeded from map 12 §6.3 and the map 10 §8.5 seed list (E15); it grows by PR
+/// with a proof per entry. `Investigate` stubs become `UsePaper` once their arbiter row is transcribed
 /// (M1-M8), or `KeepOracle` when the user accepts the oracle value (DIV-0005, docs/DECISIONS.md).
 pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
