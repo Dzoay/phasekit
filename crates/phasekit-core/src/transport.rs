@@ -1623,6 +1623,7 @@ pub(crate) mod tests {
     }
 
     /// The embedded fluids with a surface-tension fit: (name, fit, fluid).
+    #[cfg(feature = "fluids-all")]
     fn fits() -> Vec<(&'static str, SurfaceTension, Fluid)> {
         let registry = crate::Registry::embedded().unwrap();
         let fits = phasekit_data::FLUIDS.iter().filter_map(|f| {
@@ -1637,6 +1638,7 @@ pub(crate) mod tests {
     /// `Domain` error, never 0 and never an extrapolation (user decision 6). One case per affected fluid: 62 of the 108
     /// fits have T_c,σ below the model's T_c, map 05's nine (measured against the published critical point) among them,
     /// and 20 by more than 1 mK.
+    #[cfg(feature = "fluids-all")]
     #[test]
     fn surface_tension_between_tc_sigma_and_tc_eos() {
         let fits = fits();
@@ -1672,6 +1674,7 @@ pub(crate) mod tests {
     /// not IAPWS. Against IAPWS R1-76(2014)'s equation (page 3: σ = Bτ^µ(1 + bτ), τ = 1 − T/T_c, T_c = 647.096 K,
     /// B = 235.8 mN/m, b = −0.625, µ = 1.256) it is 0.12 % high at 300 K and 0.90 % low at 600 K: IAPWS σ is a separate,
     /// labelled comparison, not this model's arbiter.
+    #[cfg(feature = "fluids-all")]
     #[test]
     fn water_sigma_is_labelled_coolprop_model() {
         let (_, fit, water) = fits().into_iter().find(|(name, ..)| *name == "Water").unwrap();
