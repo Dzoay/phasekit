@@ -203,7 +203,7 @@ pub(crate) fn conductivity(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "fluids-all"))]
 mod tests {
     use super::*;
 
