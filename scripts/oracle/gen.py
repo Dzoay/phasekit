@@ -1113,17 +1113,58 @@ def transport_rows(job):
             phase = flash_phase(CP, state)
         except Exception:  # noqa: BLE001 - no state at this (T, p): no row
             continue
-        eta_status, eta = transport_values(state, "viscosity")
-        lambda_status, conductivity = transport_values(state, "conductivity")
-        floats += [t, rho, *eta, *conductivity]
-        cells = [cell(t), cell(rho), phase, eta_status, *map(cell, eta), lambda_status, *map(cell, conductivity), *models]
-        lines.append(",".join(cells) + "\n")
+        transport_line(state, t, rho, phase, models, floats, lines)
     return floats, lines
+
+
+def transport_line(state, t, rho, phase, models, floats, lines):
+    """One row's floats and line at a DT `state` (T, rho): totals, contributions, statuses and model kinds."""
+    eta_status, eta = transport_values(state, "viscosity")
+    lambda_status, conductivity = transport_values(state, "conductivity")
+    floats += [t, rho, *eta, *conductivity]
+    cells = [cell(t), cell(rho), phase, eta_status, *map(cell, eta), lambda_status, *map(cell, conductivity), *models]
+    lines.append(",".join(cells) + "\n")
+
+
+# Fixed DT states for the branches no random state reaches (`--set probes`, M8.6), (T, rho in mol/m3) per fluid.
+# Friend's methane conductivity reads the saturated vapour's density in the vapour below the critical point, and
+# picks its chi_T* by Eq. 26 (rho* = 1 - rho/10139 = 0), Eq. 23 (|rho*| < 0.03) or Eq. 19a within |T*| < 0.03 of
+# 190.55 K; a liquid and a supercritical state close the set. Every state is single phase.
+TRANSPORT_PROBES = {
+    "Methane": [
+        (120.0, 20.0), (150.0, 400.0), (170.0, 1500.0), (185.0, 4986.0),
+        (191.0, 10139.0), (193.0, 10139.0),
+        (191.0, 10000.0), (192.0, 10350.0), (195.0, 9900.0),
+        (191.0, 9000.0), (194.0, 11500.0),
+        (100.0, 28000.0), (300.0, 5000.0),
+    ],
+}
+
+
+def transport_probes(CP, lock, config, files):
+    """`transport/probes.csv`: the kind's columns at TRANSPORT_PROBES's states, each a fresh DT state."""
+    floats, lines, shas = [], [], []
+    for name, states in TRANSPORT_PROBES.items():
+        shas.append((name, assert_fluid(CP, files, name)))
+        block = json.loads(files[name].read_text(encoding="utf-8")).get("TRANSPORT") or {}
+        models = [transport_model(block.get("viscosity")), transport_model(block.get("conductivity"))]
+        for t, rho in states:
+            state = CP.AbstractState("HEOS", name)
+            state.update(CP.DmolarT_INPUTS, rho, t)
+            row = []
+            transport_line(state, t, rho, flash_phase(CP, state), models, floats, row)
+            lines += [f"{name},{line}" for line in row]
+    columns, tol, units = ["fluid", *TRANSPORT_COLUMNS], ["label", *TRANSPORT_TOL], ["-", *TRANSPORT_UNITS]
+    grid = "TRANSPORT_PROBES: fixed DT states for the branches no random state reaches"
+    text = header("transport", lock, config, shas, columns, tol, floats, units=units, grid=grid)
+    return {"transport/probes.csv": text + "".join(lines)}
 
 
 def transport(CP, lock, config, files, args):
     """The `transport` kind: transport/<Fluid>.csv for the core subset (200 states each), all/transport.csv (8 per
-    fluid) and the full set's files (5000)."""
+    fluid) and the full set's files (5000); with `--set probes`, transport/probes.csv."""
+    if args.set == "probes":
+        return transport_probes(CP, lock, config, files)
     rows = args.rows or TRANSPORT_ROWS[args.tier]
     names = tier_fluids(args, files)
     jobs, shas = [], {}

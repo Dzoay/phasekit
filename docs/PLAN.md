@@ -1241,13 +1241,14 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
   CoolProp's contributions at every oracle state (under `Parity`: DIV-0003's ρ_r moves Nitrogen's critical term by
   1e-8); the other 20 have a hard-coded stage or an η a later step evaluates, and the Olchowy-Sengers term reads η
   wherever it is, so they have no λ yet at any state. Methane's model (Friend, Ely and Ingham 1989, hard-coded) matches
-  the oracle's total at its 8 states. What the forms read of the rest of the fluid is snapshotted at datagen
+  the oracle's total at its 8 random states and at 13 fixed probes (the transport kind's `--set probes`): the vapour
+  below T_c, where it reads the ancillary, and each of Friend's near-critical χ equations (26, 23, 19a). What the forms read of the rest of the fluid is snapshotted at datagen
   (ROT-117): each staged model's EOS reducing state, and Methane's superancillary critical point and `rhoV` ancillary.
   Of the arbiter rows, 45 conductivity rows over 11 fluids are evaluated; 35 agree within their printed digits, and
   the other 10 within three `Investigate` entries' bounds: DIV-0023 (Lemmon and Jacobsen 2004 near the critical point,
   SF₆ at 0.97 T_c, n-Nonane's five-digit density), DIV-0024 (Friend's check values come from his own equation of
   state) and DIV-0025 (n-Pentane, +4.75 %: its critical term reads the friction-theory η, 45 % below the ECS η its
-  correlation was fitted with). No oracle row reaches Methane's ancillary branch (T < T_c, ρ < ρ_c).
+  correlation was fitted with).
 - **M8.7 IAPWS water and heavy water.** *Failing tests:* `iapws_r12_08_table`, `iapws_r15_11_table` and the D₂O
   release tables, class `Paper` (the oracle's measured agreement, 3.3e-8 and 2.7e-9 for water and ≤ 5.3e-11 for D₂O,
   map 10 §8.1, is reported, not asserted). *Do:* one shared ξ/Y module (map 05 U7). *Done when:* green.

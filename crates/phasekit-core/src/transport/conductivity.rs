@@ -16,6 +16,10 @@ use crate::math;
 /// Boltzmann's constant as CoolProp's Olchowy-Sengers term has it (CODATA 2010; `CoolPropFluid.h:181`), J/K.
 const BOLTZMANN: f64 = 1.3806488e-23;
 
+/// The Olchowy-Sengers numerator below which there is no enhancement: zero, negative or rounding above zero (Lemmon and
+/// Jacobsen 2004, p. 27; `TransportRoutines.cpp:760`).
+const NO_ENHANCEMENT: f64 = f64::EPSILON * 10.0;
+
 /// The stages of a conductivity, W/(m K): CoolProp's `conductivity_contributions`, whose `initial_density` is 0 for
 /// every staged fluid (`HelmholtzEOSMixtureBackend.cpp:922-1031`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -121,8 +125,7 @@ fn olchowy_sengers(
     let chi = x_of(x.dp_drho_at(t));
     let chi_ref = x_of(x.dp_drho_at(t_ref)) * t_ref / t;
     let num = chi - chi_ref;
-    // No enhancement where the numerator is negative, zero or rounding above it (Lemmon and Jacobsen 2004, p. 27).
-    if num < f64::EPSILON * 10.0 {
+    if num < NO_ENHANCEMENT {
         return Ok(0.0);
     }
     let zeta = os.zeta0 * math::powf(num / os.big_gamma, os.nu / os.gamma);

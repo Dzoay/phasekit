@@ -308,9 +308,11 @@ fn sigma_matches_oracle() {
     assert_eq!((rows, fluids.len()), (432 + 11 * 50, 108));
 }
 
-/// The oracle's transport files: the all-fluid tier (8 states per fluid) and the core subset's (200 each).
-const TRANSPORT_FIXTURES: [(&str, &str); 15] = [
+/// The oracle's transport files: the all-fluid tier (8 states per fluid), the core subset's (200 each), and the probes
+/// of the branches no random state reaches (M8.6: Methane's ancillary and near-critical χ).
+const TRANSPORT_FIXTURES: [(&str, &str); 16] = [
     fixture!("coolprop-8.0.0/all/transport.csv"),
+    fixture!("coolprop-8.0.0/transport/probes.csv"),
     fixture!("coolprop-8.0.0/transport/Air.csv"),
     fixture!("coolprop-8.0.0/transport/Ammonia.csv"),
     fixture!("coolprop-8.0.0/transport/CarbonDioxide.csv"),
@@ -431,7 +433,7 @@ fn conductivity_stages_match_contributions() {
         }
     });
     assert!(failures.is_empty(), "{failures:#?}");
-    assert_eq!((checked.len(), later.len(), methane), (20, 20, 8), "{checked:?} {later:?}");
+    assert_eq!((checked.len(), later.len(), methane), (20, 20, 21), "{checked:?} {later:?}");
 }
 
 /// PLAN.md M8.5: the arbiter rows of M8.3 (`CoolProp-Tests.cpp`'s paper and IAPWS viscosity rows, Helium's excepted)
