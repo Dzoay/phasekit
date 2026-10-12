@@ -1,4 +1,4 @@
-//! `cargo xtask bench --record [--step M<n>.<k>]` (VERIFICATION.md §12; PLAN.md §5.1): runs the criterion benches of
+//! `cargo xtask bench --record [--step M<n>.<k>]` (VERIFICATION.md §12): runs the criterion benches of
 //! `phasekit-verify` and records each benchmark's median in `crates/phasekit-verify/benches/results/M<n>-<machine>.csv`,
 //! one row per (bench, fluid), replacing that pair's earlier row. Ids are `<group>/<fluid>/<case>`; the step defaults
 //! to the branch name's `m<n>.<k>` prefix.

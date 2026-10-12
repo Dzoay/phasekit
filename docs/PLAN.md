@@ -2,23 +2,12 @@
 
 **Status:** living. The step-by-step TDD plan for implementing [ARCHITECTURE.md](ARCHITECTURE.md). The contract is
 the user's requirements, verbatim in [BRIEF.md](BRIEF.md) §1; [DECISIONS.md](DECISIONS.md) overrides any older text.
-Where the work is comes from git, never from this file ([AGENTS.md](../AGENTS.md)). Written
-alongside [VERIFICATION.md](VERIFICATION.md) (how truth is established) and [ROT-REGISTER.md](ROT-REGISTER.md)
-(CoolProp rot → mechanism → test).
+Where the work is comes from git, never from this file ([AGENTS.md](../AGENTS.md)).
 **Readers:** the user, and AI coding agents who execute one step at a time. Every step names its failing test, the
 truth it uses, the code it touches and the check that ends it.
-**Citations:** "map NN §X", "map NN R#" (or another item id such as F#, U#, X#, C#) = `docs/coolprop-map/NN-*.md`. K#,
-R#, P#, T# = recommendation tables of `docs/research/{kernel-performance,dependencies,prior-art}.md`. D1-D17 =
-ARCHITECTURE.md §4. "User decision N" = row N of DECISIONS.md (the licence row is "D14"). ROT-NNN = rows of
-ROT-REGISTER.md. S-##/E## = critic issues in [history/03-decision-log.md](history/03-decision-log.md). Anything else is
-marked *(inference)*.
 **Names:** project `phasekit`; crates `phasekit-core`, `phasekit-data`, `phasekit-compat`, `phasekit-verify`,
 `phasekit-xtask`, later `phasekit-capi`, `phasekit-wasm`, `phasekit-py`; Rust paths `phasekit_core` etc.; C prefix
-`pk_`. The historical design records in `docs/history` use the old placeholders `cprs-*`/`cp_*` and are never edited.
-**One home per artefact.** Every path, file name and gate is listed once in §2.3 and §2.4 with the section that
-defines it. This plan is normative for steps, gates G1-G8 and the `libm` threshold; VERIFICATION.md is normative for
-fixtures, kinds, tolerance classes, the register schema, xtask gate rules, the cross-target hash and the bench
-harness; ROT-REGISTER.md is normative for rot rows and their proof-test names.
+`pk_`. Where each fact lives, and how documents cite each other: section 2.1.
 
 ## 0. How to use this plan
 
@@ -59,32 +48,17 @@ baseline). The sketch is never edited.
 
 | Level | Done means |
 |---|---|
-| Step | The named failing tests existed and were red first (evidence in the PR). They are now green. G1-G8 (section 2.4) pass locally, and in CI once M0.6 exists. No new `#[ignore]` outside the grammar of section 2.1. `missing_docs` is clean. The step's ROT rows are ticked. The commit carries the step ID in its `Plan-Step:` footer. |
-| Milestone | Every step is done. Every exit-gate item passes with the stated numbers: items marked *(nightly)* on the first green nightly run that includes them (Linux x86-64 only); all other items per PR on Linux x86-64, Windows MSVC and wasm32-wasip2 (D15), except items checked by `phasekit-xtask` (datagen, `gates`), which is a Linux tool (section 2.5). The closing step sets `phasekit_verify::MILESTONE` to n + 1, which arms two fail-closed checks: every divergence proof due by Mn exists (`tests/divergences.rs`, VERIFICATION.md §6.3) and every ROT row of Mn is ticked (`cargo xtask gates rot`). Benches for paths that landed are recorded (section 5.1). CI is green on `main` (a milestone cannot close while CI is owed). The VERIFICATION.md §14 row is satisfied. A tag `m<n>` is set on the merge commit. |
+| Step | The named failing tests existed and were red first (evidence in the PR). They are now green. G1-G8 (section 2.4) pass locally and in CI. No new `#[ignore]` outside the grammar of section 2.1. `missing_docs` is clean. The step's ROT rows are ticked. The commit carries the step ID in its `Plan-Step:` footer. |
+| Milestone | Every step is done. Every exit-gate item passes with the stated numbers: items marked *(nightly)* on the first green nightly run that includes them (Linux x86-64 only); all other items per PR on Linux x86-64, Windows MSVC and wasm32-wasip2 (D15), except items checked by `phasekit-xtask` (datagen, `gates`), which is a Linux tool (section 2.5). The closing step sets `phasekit_verify::MILESTONE` to n + 1, which arms two fail-closed checks: every divergence proof due by Mn exists (`tests/divergences.rs`, VERIFICATION.md §6.3) and every ROT row of Mn is ticked (`cargo xtask gates rot`). Benches for paths that landed are recorded (section 5.1). CI is green on `main` (a milestone cannot close while CI is owed). A tag `m<n>` is set on the merge commit. |
 | v0.1 | M10 is done and the release checklist (section 5.4) is complete. |
 
 ### 0.3 When CoolProp and the literature disagree
 
-CoolProp 8.0.0 is a provisional oracle; printed check tables arbitrate (ARCHITECTURE.md thesis, D13). When a Rust
-value and the oracle differ beyond the tolerance class (VERIFICATION.md §5), follow VERIFICATION.md §6.4:
-
-1. **Suspect your own code first.** Re-run the L1 and L4 checks (AD vs fast path, identities, FD). Most disagreements
-   are ours.
-2. **Check the stored constants** (R, M, T_r, ρ_r, the per-block `Tc`) against the paper before blaming the evaluator
-   (map 13 §3 "Lesson"; R1234ze(E), Helium and R123 were constant problems).
-3. **Find an arbiter** (paper, IAPWS, multiprecision point; map 13 §8). A table is an arbiter only if it reproduces
-   with its own constants (map 13 R3; `ARBITERS` status `SelfConsistent`, VERIFICATION.md §4.3).
-4. **If Rust matches the arbiter and the oracle does not:** allocate the next DIV id, add the entry to
-   `crates/phasekit-verify/src/register.rs` with its policy (`UsePaper`, `SkipOracle`, `KeepOracle`, `Investigate`),
-   its `fix` (`Data` with a row in `data/corrections.csv`, or `Code`) and its `proof` milestones, and write the proof
-   (three parts for `UsePaper`: Corrected matches the arbiter, the oracle still differs, Parity matches the oracle).
-   That is its own commit inside the step.
-5. **No arbiter:** break the tie with an independent evaluation (AD of the paper formula, or an mpmath evaluation of
-   the JSON coefficients; map 10 §8.5). If it is still open, the entry is `Investigate`: the oracle cells on Parity
-   stay asserted, literature rows are asserted at `Measured` (the residual recorded in the entry), and the proof pins
-   the measured disagreement and names the action that resolves it (VERIFICATION.md §6.2-§6.3).
-6. **Never** widen a tolerance to make CoolProp pass (map 10 R4/R5), never "fix" a printed value without a published
-   erratum (map 10 §8.5 rule 3), never skip a failing oracle row without a register entry.
+CoolProp 8.0.0 is a provisional oracle; printed check tables arbitrate (D13). When a value and the oracle differ
+beyond the tolerance class, triage it as [VERIFICATION.md §2](VERIFICATION.md#2-layers-of-truth-l0-l6) draws and follow
+[§6.4](VERIFICATION.md#64-when-a-new-coolprop-bug-is-found-the-tdd-path); the register entry and its proof are their
+own commit inside the step. Never widen a tolerance to make CoolProp pass, never "fix" a printed value without a
+published erratum, never skip a failing oracle row without a register entry.
 
 ### 0.4 When a step fails its gate: stop and re-plan
 
@@ -92,7 +66,7 @@ Stop when any of these is true, rather than pushing on:
 - the step has grown past about twice its planned size, or needs work that belongs to a later step;
 - the fix would change a public type or trait in ARCHITECTURE.md §3, a decision D1-D17, or a user decision;
 - a gate could pass only by weakening it (a tolerance, a skipped test, a lint `allow`);
-- a new third-party dependency outside the tiers of dependencies §3.1 seems needed;
+- a new third-party dependency outside the tiers of [DEPENDENCIES.md](DEPENDENCIES.md) seems needed;
 - a performance target is missed by more than 2×, or a seam gate (zero-line core diff, `new_family.rs`) breaks.
 
 Then: keep the branch, open an issue titled `Re-plan M<n>.<k>: <reason>` with the evidence (failing output,
@@ -131,38 +105,50 @@ reorder or split steps need a reviewer's. Once a step has been merged, its ID ne
 | TTSE/BICUBIC, REFPROP backend | Not ported: crashes and garbage reproduced on the oracle (map 08 R1-R9); proprietary and process-global (map 07) | ROT-REGISTER.md section 5 |
 | Runtime CoolProp JSON (`json` feature) | No consumer yet (S-12) | When a consumer is scheduled |
 | Materials abstractions (`Substance`, min-Gibbs selection) | "One implementation is a guess" (materials R1); seams exist now (D10) | On first coexistence need |
+| GPU, WASM threads, a `no_std` kernel, non-SI units in the core, CoolProp defects reproduced for parity | Non-goals (K15, K16; kernel-performance §5 Q6; map 01 Q3) | Never |
 
 ### 1.1 Requirements traced to steps
 
-One row per phrase of BRIEF §1 (mechanisms: ARCHITECTURE.md §1); each row names the steps that build it and the gate
-that keeps it.
-
-| BRIEF §1 phrase | Built by | Kept by |
-|---|---|---|
-| "a plan to migrate coolprop to rust" | this plan, M0-M10 | §0.2 definition of done |
-| "modular extensible" ... "modularity is again KEY" | M0.2 crates; M5.10 out-of-tree family and Gibbs solid; M11, M14 families | `new_family.rs`, `gibbs_seam.rs` (G3, G4); `gates core-frozen` (M11, M14) |
-| "memory safe" | M0.2 `unsafe_code = "forbid"` in the workspace lints; M10.4 capi `deny` with per-item `allow` | `gates lints` (every member inherits the workspace lints; only capi relaxes `unsafe_code`), M0.4 |
-| "cross platform" ... "windows, linux, and wasm" | M0.5 wasip2 runner; M0.6 CI matrix; M10.8 browser package | G4, G5, G6; CI windows, aarch64, wasm-browser jobs |
-| "connected" (embeddable in services, simulators, browsers) | M2.6 registries as values with layers; M9.1 shared registry under threads; M10.4 C ABI; M10.8 browser package with `withPack`; Rust on wasip2 (M0.5) | `policy_equivalence` (M9); C smoke (M10.4); JS smoke (M10.8). A network server is an on-demand facade (section 4) |
-| "rot in there we can eliminate" | each milestone's **ROT rows** | `gates rot` (M0.4) |
-| "DRY, SOLID code in idiomatic modern rust" | M0.2 lints; one pair table, one input gate, one `Prop` table (seed); one EOS encoder (M2.4) | G2, G7 |
-| "minimal dependencies" | M0.4 zero-dependency guard; M0.7 `deny.toml` | `gates deps`; `cargo deny check`; `cargo shear` |
-| "heavy OSS clear type constraints" | M0.7 licences, REUSE; newtypes and typed errors (seed, M1.14 proptest) | `reuse lint`, `cargo deny check`; proptest |
-| "a kernal we can optimize for speed and scalability" | benches from M1.15 (baseline) and M2.9 on; M9.1 rayon | `gates perf` (M9.6) |
-| "parallel requests on the same and different fluids" | seed `Send + Sync` asserts; M9.1-M9.2 | `one_to_n_threads_bitwise`, thread-scaling record (M9.2) |
-| "Rusts immutability should help us here" | seed: immutable `Arc` models, `Copy` `State`; M0.3 bans on locks, cells, atomics, `thread_local!` | M0.3 `clippy_bans_fire` |
-| "coolprop as varification but with source material when we find bugs" | M1 kit, oracle and paper corpus; M2.7 Parity/Corrected; divergence register | `tests/divergences.rs`; `gates register` |
-| "We will TDD this step by step" | §0.1 step loop; M0.4a test-quality gates (user decisions TQ1, TQ2) | red evidence in every PR; `gates counts`; `gates assertions`; `gates mutants` |
-| "extend it to be a *material* properties library" / "all states of matter" | M5.10 Gibbs seam; M14 ice and IF97 | `gibbs_seam.rs`; `gates core-frozen` (M14) |
-| "coolprop fluids are first" | M2-M8 for all 136 fluids | exit gates M3-M8 |
-| "only loading what is needed" | M2.6 lazy slots; M8.8 ECS references on first need | `lazy_load.rs`; `thermo_only_workloads_never_load_references` |
-| "highfrequency and batch requests" | M2.9 lookup; M5.8 batch; M9.1 parallel batch | `batch_point_allocates_nothing`; perf targets (M9.6) |
-| "Layers will be important but we must not over engineer this" | one kernel crate with module layers; crates only with their milestone (S-11) | §0.4 stop rules |
-| Follow-up: "parallel computation ... side by side implementations ... SIMD to investigate" | M9.1 `ExecPolicy::Parallel`; M12 spike | `policy_equivalence`; M12 gate (≥ 2.5× or stop) |
+Each phrase of BRIEF §1, the mechanism that satisfies it and the gate that keeps it: [ARCHITECTURE.md
+§1](ARCHITECTURE.md#1-goals-and-non-goals). The steps that built each are in section 3's ledger.
 
 ## 2. Conventions
 
 ### 2.1 IDs and references
+
+**Where each fact lives** (user decision DL4). Every other document links to the home and never restates it; a PR
+that changes a fact changes its home.
+
+| Fact | Its one home |
+|---|---|
+| The user's requirements | BRIEF.md §1 |
+| The user's decisions | [DECISIONS.md](DECISIONS.md), each by its id |
+| The design: decisions D1-D17, seams, invariants, performance targets | ARCHITECTURE.md (§4, §2-§3, §7) |
+| Types, signatures, what is built | the code in `crates/` (rustdoc) |
+| Steps, exit gates, G1-G8, what is still open | this plan (§3, §2.4, §6) |
+| What a finished step did and measured | its PR description (the squash commit's body) and the test that pins it |
+| Where the work is | git: `git tag`, the `Plan-Step:` trailers, `phasekit_verify::MILESTONE` |
+| Fixtures, kinds, tolerance classes, xtask gate rules, benches | VERIFICATION.md (its §5 classes locked to `phasekit_verify::tolerance` by a test) |
+| Divergence entries | `crates/phasekit-verify/src/register.rs`; their policies and workflow, VERIFICATION.md §6 |
+| CoolProp problems designed out, and their proofs | ROT-REGISTER.md |
+| Branches, commits, PRs, identity, signing, SemVer, toolchain | [CONTRIBUTING.md](../CONTRIBUTING.md) |
+| Rules for coding agents | [AGENTS.md](../AGENTS.md) |
+| Lints and bans | `[workspace.lints]` in the root `Cargo.toml`; `clippy.toml` |
+| Dependency tiers | [DEPENDENCIES.md](DEPENDENCIES.md); licences and bans in `deny.toml` |
+| MSRV; the stable toolchain CI uses | `rust-version` in the root `Cargo.toml`; `.github/actions/rust/action.yml` |
+| CI jobs | `.github/workflows/` (VERIFICATION.md §11.3 says what each is for) |
+| Evidence | `docs/coolprop-map/`, `docs/research/` (frozen: cited, not followed) |
+| How the design was chosen | `docs/history/` (frozen) |
+
+**Citations.**
+- "map NN §X", "map NN R#" (or another item id: F#, U#, X#, C#, Q#) = `docs/coolprop-map/NN-*.md`.
+- K# = `docs/research/kernel-performance.md`; R# and T# = `dependencies.md`; P# = `prior-art.md`; "materials R#/S#" =
+  `materials-extensibility.md`; "dependencies §N" and the like name the research file.
+- D1-D17 = ARCHITECTURE.md §4. "User decision X" = the row with id X in DECISIONS.md (the first pass numbered its rows
+  1-13 and D14; later ids carry a prefix: TQ1, MS1, DL4). ROT-NNN = ROT-REGISTER.md rows. DIV-NNNN = `register.rs`
+  entries. S-## and E## = critic issues in [history/03-decision-log.md](history/03-decision-log.md).
+- A bare "§N" or "section N" is the citing document's own, except in ROT-REGISTER.md, where it is ARCHITECTURE.md's.
+- *(inference)* marks a claim grounded in none of these; *(decision)* a choice the citing document settles.
 
 - **Steps** are `M<n>.<k>` (M3.2). A step inserted after a neighbour has been merged gets a letter (`M3.2a`); merged
   IDs never change.
@@ -183,36 +169,13 @@ that keeps it.
 
 ### 2.2 Branches, commits, PRs, versions, toolchain
 
-CONTRIBUTING.md is the one definition of these rules; this is the summary agents need per step.
-
-- One step per branch and PR: branch `m3.2-power-oracle`.
-- **Conventional Commits 1.0.** The PR title is the squash-commit subject: `<type>(<scope>): <imperative summary>`,
-  types `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`, `ci`, `chore`; scope = the crate without its
-  prefix (`core`, `data`, `compat`, `verify`, `xtask`, `capi`, `wasm`, `py`) or `plan`, `deps`, `repo`. A breaking
-  change adds `!` and a `BREAKING CHANGE:` footer. Footers: `Plan-Step: M3.2` (required on plan steps), optional
-  `Rot: ROT-074`, `Div: DIV-0012`. Example: `feat(core): power-term jets match the oracle` + `Plan-Step: M3.2`.
-- **Squash merge is the only merge method** (user decision P7), so `main` is linear, has one commit per PR and stays
-  green; the PR body keeps the red evidence. The `main` ruleset requires a PR, linear history and (from M0.6) green
-  CI, and forbids force-push and deletion.
-- **Commit identity:** GitHub identity only. The maintainer commits as `Dzoay <3277116+Dzoay@users.noreply.github.com>`
-  (repo-local `git config`); contributors use their own GitHub no-reply address. Never a personal email (user rule).
-- **SemVer 2.0.** All published crates share `[workspace.package] version`. Before 1.0, a breaking change bumps the
-  minor version (0.1 → 0.2) and everything else bumps the patch; after 1.0, standard SemVer. `cargo semver-checks`
-  gates every release (section 5.4). Releases are tags `vX.Y.Z` on `main`; `CHANGELOG.md` is generated from the
-  Conventional Commit subjects since the last tag. The pinned v8.0.0 shim codes and the `phasekit-data` `DATASET` id
-  are versioned on their own, not by the crate version.
-- Generated files (`phasekit-data` blobs and index, fixtures and their manifest lines, cbindgen header) are committed in
-  the step that changes their generator; CI regenerates and diffs them.
-- No `rust-toolchain.toml` (D17). Develop on the latest stable (1.99.0 today); the workspace MSRV is 1.89 (user
-  decision MS1; 1.85 until 2026-10-10). CI installs
-  the stable version named once, as the default of `.github/actions/rust/action.yml`. A new stable that turns any gate
-  red (for example a new clippy lint under `-D warnings`) is handled in a dedicated `chore: rust 1.NN` PR that fixes the
-  code and bumps that version; a blanket `allow` is never the fix (section 0.4). Agents use the version CI names.
-- `Cargo.lock` is committed (dependencies §3.4 item 8).
+[CONTRIBUTING.md](../CONTRIBUTING.md) is the one definition: one step per branch and PR (`m3.2-power-oracle`), a
+Conventional Commit title with the `Plan-Step: M3.2` footer, squash merge only, the GitHub identity and signed
+commits, SemVer, the toolchain, and generated files committed in the step that changes their generator.
 
 ### 2.3 Names and paths (shared table)
 
-Every artefact has one path and one defining section. VERIFICATION.md uses the same names.
+Where things live, and the section that defines each. VERIFICATION.md uses the same names.
 
 | What | Path | Defined in |
 |---|---|---|
@@ -221,14 +184,7 @@ Every artefact has one path and one defining section. VERIFICATION.md uses the s
 | Crates | `crates/phasekit-*` (`members = ["crates/*"]`) | ARCHITECTURE.md §2 |
 | Unit tests | `#[cfg(test)] mod tests` in the module they test | — |
 | Corpus (integration) tests | `crates/phasekit-verify/tests/<area>.rs` (`divergences.rs`, `arbiters.rs`, `eos.rs`, `sat.rs`, `flash.rs`, `transport.rs`, `new_family.rs`, `gibbs_seam.rs`, `lazy_load.rs`, `sweeps.rs`, ...) | VERIFICATION.md §2 |
-| Oracle lock | `crates/phasekit-verify/fixtures/oracle.lock` | VERIFICATION.md §3.2 |
-| Fixture manifest (committed fixtures only) | `crates/phasekit-verify/fixtures/MANIFEST.sha256` | VERIFICATION.md §3.4 |
-| Oracle fixtures, core subset (14 fluids) | `crates/phasekit-verify/fixtures/coolprop-8.0.0/<kind>/<Fluid>.csv` (+ `<Fluid>.edge.csv`) | VERIFICATION.md §3.4-§3.6 |
-| Oracle fixtures, all-fluid tier | `crates/phasekit-verify/fixtures/coolprop-8.0.0/all/<kind>.csv` | VERIFICATION.md §3.6 |
-| Oracle facts | `crates/phasekit-verify/fixtures/coolprop-8.0.0/facts/<set>.csv` (`smoke`, `register`) | VERIFICATION.md §3.5 |
-| Printed check tables (double entry) | `crates/phasekit-verify/fixtures/paper/<Fluid>/<bibkey>.<table>.csv` and `<bibkey>.<table>.check.csv` | VERIFICATION.md §4.2 |
-| Multiprecision points | `crates/phasekit-verify/fixtures/mp/check-points.csv`; `crates/phasekit-verify/fixtures/mp/fastchebpure-2026.06.02-v2/<Fluid>.csv` with `fixtures/mp/fastchebpure.lock` | VERIFICATION.md §3.4 |
-| Cross-target hashes | `crates/phasekit-verify/fixtures/hash/` | VERIFICATION.md §9.4 |
+| Fixtures: the oracle lock, the manifest, oracle kinds, papers, multiprecision points, hashes | `crates/phasekit-verify/fixtures/` | VERIFICATION.md §3.4 |
 | Nightly full set | `crates/phasekit-verify/fixtures-full/` (gitignored) | VERIFICATION.md §3.6 |
 | Divergence register and proofs | `crates/phasekit-verify/src/register.rs` (`DIVERGENCES`, `check_register`); `tests/divergences.rs`; `phasekit_verify::MILESTONE` | VERIFICATION.md §6 |
 | Arbiter records | `phasekit_verify::arbiters::ARBITERS`; `tests/arbiters.rs` | VERIFICATION.md §4.3 |
@@ -241,18 +197,13 @@ Every artefact has one path and one defining section. VERIFICATION.md uses the s
 | CoolProp checkout | `reference/CoolProp` (gitignored, read-only, pinned ae81610e; `scripts/fetch-coolprop.sh`, anonymous clone); per-file sha256 of `dev/fluids/*.json` in `data/fluids.lock` | M0 prerequisites, M2.1 |
 | Data corrections | `data/corrections.csv` (DIV id, fluid, field, v8.0.0 value, corrected value, citation) | VERIFICATION.md §6.4 |
 | Generated data | `crates/phasekit-data/blobs/*.bin`, `crates/phasekit-data/src/generated.rs`, its `Cargo.toml` features | ARCHITECTURE.md §8; M2.4-M2.5 |
-| Executed-test minimums | `ci/test-counts.txt` (`<target> <package>::<binary> <min>`; `# lowered: <reason>` and `# pending M5.9: <test>` comments) | VERIFICATION.md §11.2 `counts` |
+| Executed-test minimums | `ci/test-counts.txt` (`<target> <package>::<binary> <min>`; `# lowered: <reason>` comments) | VERIFICATION.md §11.2 `counts` |
 | CI workflows | `.github/workflows/{ci,nightly,weekly}.yml`, toolchain action `.github/actions/rust`; `pr-title.yml` (CONTRIBUTING.md) | VERIFICATION.md §11.3; M0.6 |
 | C header (M10) | `crates/phasekit-capi/include/phasekit.h` (cbindgen CLI output, committed; R15) | M10.4 |
 
-Committed fixtures are read with `include_str!`, so the corpus runs on wasip2 without filesystem access. They stay
-within the 16 MiB budget that `gates fixtures` enforces (VERIFICATION.md §3.6). The full set (~3.5 GB) is regenerated nightly, never committed (user
-decision 3b).
-
 ### 2.4 Standard gates
 
-This table is the one definition of G1-G8. Agents set `CARGO_TARGET_DIR` to their own scratch directory; humans may
-use the gitignored `target/`.
+This table is the one definition of G1-G8.
 
 | Gate | Command | Where it runs | From |
 |---|---|---|---|
@@ -263,12 +214,11 @@ use the gitignored `target/`.
 | G5 | `cargo check --workspace --target wasm32-unknown-unknown` | local; CI wasm-browser | M0.2 |
 | G6 | `cargo check --workspace --all-targets --target x86_64-pc-windows-msvc` | local (check only: no MSVC linker); CI windows runs G3 | M0.2 |
 | G7 | `cargo clippy -p phasekit-core --no-default-features --all-targets -- -D warnings` (+ `-p phasekit-compat` from M5.9) | local; CI linux | M0.2 |
-| G8 | `cargo xtask gates all`: `deps`, `lints`, `counts`, `ignores`, `doc-excerpts`, `rot` (M0.4); `assertions`, `mutants` (M0.4a); `complexity` (M7.9c); `fixtures`, `register` (M1); `datagen` (M2); `features` (M5); `perf` (M9); `abi` (M10); `core-frozen` (M11, M14). Rules: VERIFICATION.md §11.2 | local; CI linux (needs `reference/CoolProp`, fetched and cached by the job) | M0.4 |
+| G8 | `cargo xtask gates all`; each subcommand, its rule and the milestone it starts at: VERIFICATION.md §11.2 | local; CI linux (needs `reference/CoolProp`, fetched and cached by the job) | M0.4 |
 
-CI-only work (M0.6): Windows MSVC and aarch64 test runs, MSRV (G3 on 1.89 since user decision MS1; `cargo +1.85 check
---lib` for core, data and compat before),
-the nightly oracle sweep, the weekly latest-dependency test, gungraun benches (from M9). `cargo deny check`, `reuse
-lint` and `cargo shear` run locally and in CI.
+CI also runs what no local gate does (VERIFICATION.md §11.3): the aarch64 tests, G3 on the MSRV, the nightly oracle
+sweep, the weekly latest-dependency and full mutants runs, and from M9 the gungraun benches. `cargo deny check`,
+`reuse lint` and `cargo shear` run locally and in CI.
 
 ### 2.5 Naming and code rules
 
@@ -286,12 +236,10 @@ lint` and `cargo shear` run locally and in CI.
 - Thread-spawning tests are `#[cfg(not(target_family = "wasm"))]` (the seed already gates its three). No test touches
   the network. Tests that spawn processes or read `reference/` live in `phasekit-xtask`, which is a Linux and dev-box
   tool: G3 runs them on Linux, G4 and the windows and aarch64 jobs exclude the crate.
-- Every new dependency is named in its step, respects the tiers of dependencies §3.1 (core: std only until M9), and
-  passes `cargo deny check`. Dev-dependencies that do not build for wasm (criterion, gungraun) go under
+- Every new dependency is named in its step, fits the tiers of [DEPENDENCIES.md](DEPENDENCIES.md) (core: std only
+  until M9), and passes `cargo deny check`. Dev-dependencies that do not build for wasm (criterion, gungraun) go under
   `[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]`; gungraun under `cfg(target_os = "linux")`, its bench
   file compiling to an empty `main` elsewhere so G6 `--all-targets` still checks *(inference)*.
-- **Personal data:** no request to any external service (oracle download, paper or fastchebpure download, registry,
-  CI) ever carries the user's email address or another personal identifier (user rule; AGENTS.md).
 
 ## 3. Milestones to v0.1
 
@@ -663,6 +611,13 @@ M16 and M17 depend on nothing but v0.1 and may be reordered by demand. Every fam
 conformance kit (VERIFICATION.md §10) and, where marked, a **zero-line core diff**: `cargo xtask gates core-frozen`
 (`git diff <start-tag>..HEAD -- crates/phasekit-core` is empty; D3).
 
+```text
+v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
+      ├─ M13 mixtures ────── M19 plotting
+      ├─ M14 IAPWS, ice ──── M18 humid air
+      └─ M12 SIMD spike, M16 Python, M17 INCOMP; on demand: Tier B shim, WIT, network service, materials
+```
+
 | M | Crate | Entry trigger | Scope | Exit gate |
 |---|---|---|---|---|
 | M11 | `phasekit-cubic` | v0.1 released | vdW/SRK/PR via Δ1/Δ2, Soave/MC/Twu alpha, parameters from the canonical fluid records, borrowed HEOS ideal gas, cubic superancillary (map 06 U1-U5) | Zero-line core diff; `new_family` conformance; cubic-R register entry (below); DIV-0010 proof by the entropy identity (oracle PR propane 400 K, 1 bar: T(∂s/∂T)_p = 91.35 vs cp = 93.89 J/mol/K; map 12 §6.3); Z_c = 1/3 (SRK), 0.30740 (PR) (map 06 §8) |
@@ -681,7 +636,7 @@ conformance kit (VERIFICATION.md §10) and, where marked, a **zero-line core dif
 | — | Near-critical VLE in extended precision | A use needs the VLE itself at multiprecision accuracy near Tc (idea recorded at the user's request, 2026-10-09) | Near Tc the double-precision VLE carries its rounding amplified as Θ^−1.5 (user decision NC1, measured at M6.4). Double-double (or similar) arithmetic in the near-critical solve, as fastchebpure computes its multiprecision values. A scope change: the core is std-only until M9 and has performance targets | The dense fastchebpure rows within `SatMp`'s far-field 1e-11 closer to Tc than today; no cost to the double-precision path (the M9 benches) |
 
 **M11 cubic-R register entry** (user decision 10; ARCHITECTURE.md §10, §11). Added in the first M11 step, before any
-cubic code; VERIFICATION.md §6.6 carries the same row.
+cubic code.
 
 | Field | Value |
 |---|---|
@@ -698,28 +653,16 @@ cubic code; VERIFICATION.md §6.6 carries the same row.
 
 ### 5.1 Performance recording
 
-| From | Bench (criterion; gungraun from M9.6) | Target (ARCHITECTURE.md §7) |
-|---|---|---|
-| M1.15 | C++ CoolProp baseline, 7 workloads × 5 fluids | reference only |
-| M1.15a | C++ CoolProp memory (first use, per state, all fluids) and thread scaling (1-12 threads) | reference only |
-| M2.9 | hot lookup by name | ≤ 50 ns *(inference)* |
-| M3.8 | α^r bundle order 2; EOS bytes; dispatch share | ≤ 0.3 µs; ≤ 25 KiB; ≤ 2 % |
-| M5.8, M5.11 | properties at (T, ρ); allocations per flash and batch point | ≤ 0.5 µs; 0 |
-| M6.11 | QT, PQ via superancillary; SA bytes | ≤ 0.1 µs; ≤ 25 KiB |
-| M7.2, M7.3 | PT, PH single phase | ≤ 3 µs, ≤ 15 µs |
-| M8.12 | PT + η + λ | recorded |
-| M9 | thread scaling; RSS for 136 fluids | 0.9·N recorded; ≤ 8 MiB |
-
-Workloads, bench fluids, harness and result files: VERIFICATION.md §12 (the one definition). Non-blocking until M9;
-from M9.6 `gates perf` enforces gungraun regressions on Linux CI and the reference machine holds the absolute targets.
+Each path is benched as it lands (criterion; gungraun from M9.6) against the targets of ARCHITECTURE.md §7;
+workloads, bench fluids, the harness and the result files are VERIFICATION.md §12. Non-blocking until M9; from M9.6
+`gates perf` enforces gungraun regressions on Linux CI and the reference machine holds the absolute targets.
 
 ### 5.2 Documentation
 
 - Rustdoc on every public item (`missing_docs`, enforced by G2); a `cargo doc --no-deps` check that denies broken intra-doc
   links is planned, but no workflow runs it yet; the crate-level doctest of `phasekit-core` executes (the seed's does).
-- `docs/`: this plan, ARCHITECTURE.md, VERIFICATION.md and ROT-REGISTER.md stay current. A step that changes a
-  decision's evidence edits the document in the same PR (for example M6.5 removing an *(inference)* tag, M9.5 recording
-  the `libm` outcome). Rust code blocks in `docs/*.md` are either verbatim excerpts of the workspace or the sketch, or
+- `docs/`: each fact stays in its one home (section 2.1); a step that changes one edits that home in the same PR (M9.5,
+  for example, records the `libm` outcome in D12), and collapses its own step text (section 0.1 item 7). Rust code blocks in `docs/*.md` are either verbatim excerpts of the workspace or the sketch, or
   marked `<!-- excerpt: illustrative -->` (`gates doc-excerpts`, ROT-139).
 - M10 adds `docs/MIGRATION.md`: the CoolProp → phasekit table of ARCHITECTURE.md §12 with runnable examples, the
   shim's documented differences (`HAPropsSI` stub, `set_config_*` behaviour, FP flags) and the divergence list.
@@ -737,7 +680,7 @@ from M9.6 `gates perf` enforces gungraun regressions on Linux CI and the referen
   features. No GPL/LGPL/MPL code is copied (D14).
 - `cargo deny check` on every PR and daily for advisories (`bincode`, `serde_cbor` banned; `once_cell`, `lazy_static`
   banned as direct dependencies); `cargo shear` on every PR; `Cargo.lock` committed. Each new dependency names its
-  tier (dependencies §3.1) in its step. `cargo about generate` for the capi and wasm bundles from M10.
+  tier (DEPENDENCIES.md) in its step. `cargo about generate` for the capi and wasm bundles from M10.
 
 ### 5.4 v0.1 release checklist (M10.9)
 

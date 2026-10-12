@@ -39,7 +39,7 @@
 - Text in [square brackets] is a proposal that is not yet in ARCHITECTURE.md. *(inference)* marks a claim that is not in the maps or research docs, as in ARCHITECTURE.md.
 
 **Workflow.**
-- PLAN.md section 3 ends each milestone with a **ROT rows** line that assigns every row of that milestone to the step that writes its proof. The test names in this register's Proof column are normative: where a PLAN.md step names a test for the same check, the two names are the same. VERIFICATION.md section 14 lists the proofs per milestone.
+- PLAN.md section 3 ends each milestone with a **ROT rows** line that assigns every row of that milestone to the step that writes its proof. The test names in this register's Proof column are normative: where a PLAN.md step names a test for the same check, the two names are the same.
 - **Ticking** (PLAN.md §2.1): the step's PR drops the word "new" before each proof it delivers and appends the step id in brackets (`[M6.2]`). `cargo xtask gates rot` (VERIFICATION.md §11.2) fails once a milestone closes if any proof due by it is still marked "new" or any of its rows is still GAP. A milestone is done only when every row with that milestone has its proof running.
 - TDD: write the Proof column's test first (red), then the mechanism. For a Designed-out row, a compile-time assertion or a test that drives the API is enough.
 - If a proof cannot be written as described, the row becomes GAP and is added to section 3; never delete it.

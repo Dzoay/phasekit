@@ -8,10 +8,7 @@ in `crates/`; where this file and the code disagree on a signature, the code is 
 S-## and E##), all frozen in [docs/history/](history/README.md) with the type sketch that seeded the workspace.
 **Companions:** [PLAN.md](PLAN.md) (milestones in detail), [VERIFICATION.md](VERIFICATION.md) (D13 in full),
 [ROT-REGISTER.md](ROT-REGISTER.md) (the rot register; the divergence register is specified in VERIFICATION.md §6).
-**Citations:** "map NN §X / R#" = `docs/coolprop-map/NN-*.md`; R#, K#, P#, T# and materials R#/S# = the recommendation
-tables of `docs/research/{dependencies,kernel-performance,prior-art,materials-extensibility}.md`. Critic issue ids
-(S-01…S-13, E1…E19) point to the decision log. "User decision N" is row N of
-[DECISIONS.md](DECISIONS.md). Anything else is marked *(inference)*.
+**Citations:** the forms, and where each fact lives: [PLAN.md §2.1](PLAN.md#21-ids-and-references).
 
 **Thesis.** The scalar `f64` path is the specification. Every layer exposes a typed seam where an independent check
 attaches. CoolProp 8.0.0 is a provisional oracle; printed check tables arbitrate; every deliberate difference is a
@@ -23,38 +20,31 @@ value (≤ 256 B). Concurrency then follows from the types, not from locks. Noth
 
 ## 1. Goals and non-goals
 
-| User requirement (BRIEF §1, verbatim fragments) | Where the design satisfies it |
-|---|---|
-| "a plan to migrate coolprop to rust" | D15 milestones (§4); [PLAN.md](PLAN.md) |
-| "modular extensible" ... "modularity is again KEY" | §2 crates, §3 two model traits, §11 seams; out-of-tree family, Gibbs-solid and two-phase tests |
-| "memory safe" | `unsafe_code = "forbid"` everywhere except `phasekit-capi` (D17) |
-| "cross platform" ... "windows, linux, and wasm" | 4 targets checked by the sketch; CI matrix D17; WASM loading §8; Rust on wasip2 supported, a WIT component on demand (D11) |
-| "connected fluid properties library" (interpreted: embeddable in services, simulators, browsers) | Registries are values; Rust, C, WASM and Python facades (§12); a network server is an outer facade, never core |
-| "rot in there we can eliminate" | §13, [ROT-REGISTER.md](ROT-REGISTER.md) |
-| "DRY, SOLID code in idiomatic modern Rust" | One pair table, one input gate, one `Prop` table, one relations layer, one EOS encoder; small traits (ISP); families open/closed (OCP); edition 2024, newtypes, `Result` |
-| "minimal dependencies so other projects can use this" | Core has zero third-party dependencies until M9 (optional `rayon`, `libm`). Later, only behind triggers: `fearless_simd` (`simd` feature, if the SIMD gate fires) and `serde_json` (`json` feature, when a runtime-JSON user exists) (D1, R1, R2) |
-| "heavy OSS clear type constraints" | MIT OR Apache-2.0, cargo-deny, REUSE (D14); validating newtypes, typed errors, `#[non_exhaustive]`, sealed `Real` |
-| "a kernal we can optimize for speed and scalability" | One kernel crate; scalar reference + side-by-side executors (§7); benches from M2, perf gates from M9 (§7) |
-| "parallel requests on the same and different fluids ... at the same time" | Lock-free registry, `&Fluid` lookups, `Copy` `State` (§5, §6) |
-| "Rusts immutability should help us here" | Models never mutate after construction; std's one-shot `OnceLock`/`LazyLock` are the only interior mutability (clippy bans `Mutex`, `RwLock`, `Cell`, `RefCell`, `OnceCell`); Send + Sync asserted at compile time |
-| "using coolprop as varification but with source material when we find bugs" | Parity/Corrected datasets (Corrected by default), a divergence register, three-part proofs (§10) |
-| "We will TDD this step by step" | Capability set grows per milestone, so every milestone is green; no reachable panic (`todo`, `unimplemented`, `panic` denied) (D6, D12, D15) |
-| "extend it to be a *material* properties library" / "all states of matter" | `ThermoModel`, `State::from_total` and `from_split`, Gibbs transform, `ThermoModel::derivs`, `Phase::Solid`, gauge on every handle (§11) |
-| "coolprop fluids are first" | v0.1 = 136 pure and pseudo-pure HEOS fluids (bubble/dew typed), all 19 input pairs, transport (D15) |
-| "only loading what is needed for the requests coming in" | Four lazy levels: index → EOS → saturation → transport and ECS references; browser packs added as registry layers (§6, §8) |
-| "highfrequency and batch requests" | Zero-refcount lookups; allocation-free batch driver with per-cell status (§5) |
-| "Layers will be important but we must not over engineer this" | 7 crates at v0.1, one kernel crate with module layers; SIMD, mixtures and materials are seams, not code; no hook without a caller (§2, §7, §11) |
-| Follow-up: "parallel computation ... side by side implementations for different architectures ... SIMD" | "What" (model math over the sealed `Real`) vs "how" (`ExecPolicy`, `policy_equivalence`); SIMD lanes as a `simd` feature of core after a measured gate (§7) |
+| BRIEF §1 (verbatim fragments) | Where the design satisfies it | Kept by |
+|---|---|---|
+| "a plan to migrate coolprop to rust" | D15 milestones (§4); [PLAN.md](PLAN.md) | PLAN.md §0.2 definition of done |
+| "modular extensible" ... "modularity is again KEY" | §2 crates, §3 two model traits, §11 seams; out-of-tree family, Gibbs-solid and two-phase tests | `new_family.rs`, `gibbs_seam.rs` (G3, G4); `gates core-frozen` (M11, M14) |
+| "memory safe" | `unsafe_code = "forbid"` everywhere except `phasekit-capi` (D17) | `gates lints` (every member inherits the workspace lints; only capi relaxes `unsafe_code`), M0.4 |
+| "cross platform" ... "windows, linux, and wasm" | Linux, Windows and both wasm targets in CI (D17); WASM loading §8; Rust on wasip2 supported, a WIT component on demand (D11) | G4, G5, G6; CI windows, aarch64, wasm-browser jobs |
+| "connected fluid properties library" (interpreted: embeddable in services, simulators, browsers) | Registries are values; Rust, C, WASM and Python facades (§12); a network server is an outer facade, never core | `policy_equivalence` (M9); C smoke (M10.4); JS smoke (M10.8). A network server is an on-demand facade (section 4) |
+| "rot in there we can eliminate" | §13, [ROT-REGISTER.md](ROT-REGISTER.md) | `gates rot` (M0.4) |
+| "DRY, SOLID code in idiomatic modern Rust" | One pair table, one input gate, one `Prop` table, one relations layer, one EOS encoder; small traits (ISP); families open/closed (OCP); edition 2024, newtypes, `Result` | G2, G7 |
+| "minimal dependencies so other projects can use this" | Core has zero third-party dependencies until M9 (optional `rayon`, `libm`). Later, only behind triggers: `fearless_simd` (`simd` feature, if the SIMD gate fires) and `serde_json` (`json` feature, when a runtime-JSON user exists) (D1, R1, R2) | `gates deps`; `cargo deny check`; `cargo shear` |
+| "heavy OSS clear type constraints" | MIT OR Apache-2.0, cargo-deny, REUSE (D14); validating newtypes, typed errors, `#[non_exhaustive]`, sealed `Real` | `reuse lint`, `cargo deny check`; proptest |
+| "a kernal we can optimize for speed and scalability" | One kernel crate; scalar reference + side-by-side executors (§7); benches from M2, perf gates from M9 (§7) | `gates perf` (M9.6) |
+| "parallel requests on the same and different fluids ... at the same time" | Lock-free registry, `&Fluid` lookups, `Copy` `State` (§5, §6) | `one_to_n_threads_bitwise`, thread-scaling record (M9.2) |
+| "Rusts immutability should help us here" | Models never mutate after construction; std's one-shot `OnceLock`/`LazyLock` are the only interior mutability (clippy bans `Mutex`, `RwLock`, `Cell`, `RefCell`, `OnceCell`); Send + Sync asserted at compile time | M0.3 `clippy_bans_fire` |
+| "using coolprop as varification but with source material when we find bugs" | Parity/Corrected datasets (Corrected by default), a divergence register, three-part proofs (§10) | `tests/divergences.rs`; `gates register` |
+| "We will TDD this step by step" | Capability set grows per milestone, so every milestone is green; no reachable panic (`todo`, `unimplemented`, `panic` denied) (D6, D12, D15) | red evidence in every PR; `gates counts`; `gates assertions`; `gates mutants` |
+| "extend it to be a *material* properties library" / "all states of matter" | `ThermoModel`, `State::from_total` and `from_split`, Gibbs transform, `ThermoModel::derivs`, `Phase::Solid`, gauge on every handle (§11) | `gibbs_seam.rs`; `gates core-frozen` (M14) |
+| "coolprop fluids are first" | v0.1 = 136 pure and pseudo-pure HEOS fluids (bubble/dew typed), all 19 input pairs, transport (D15) | exit gates M3-M8 |
+| "only loading what is needed for the requests coming in" | Four lazy levels: index → EOS → saturation → transport and ECS references; browser packs added as registry layers (§6, §8) | `lazy_load.rs`; `thermo_only_workloads_never_load_references` |
+| "highfrequency and batch requests" | Zero-refcount lookups; allocation-free batch driver with per-cell status (§5) | `batch_point_allocates_nothing`; perf targets (M9.6) |
+| "Layers will be important but we must not over engineer this" | 7 crates at v0.1, one kernel crate with module layers; SIMD, mixtures and materials are seams, not code; no hook without a caller (§2, §7, §11) | PLAN.md §0.4 stop rules |
+| Follow-up: "parallel computation ... side by side implementations for different architectures ... SIMD" | "What" (model math over the sealed `Real`) vs "how" (`ExecPolicy`, `policy_equivalence`); SIMD lanes as a `simd` feature of core after a measured gate (§7) | `policy_equivalence`; M12 gate (≥ 2.5× or stop) |
 
-**Deferred, and why**
-- Plotting, isolines and cycle helpers (CoolPropPlot): deferred until after the mixtures milestone (M13; user decision
-  13). A presentation layer over saturation, `flash` and batch, never mapped (digest coverage note); a separate crate.
-- TTSE/BICUBIC tables are not ported: crashes and silent garbage reproduced on the oracle (map 08 R1-R9). A future
-  surrogate is a `ThermoModel` keyed by `ModelKey` and gated against the exact model (map 08).
-- REFPROP backend: proprietary and process-global; it may serve only as an out-of-process second oracle (map 07).
-- GPU (K16), WASM threads (K15), a `no_std` kernel (kernel-performance §5 Q6), non-SI units in the core, CoolProp
-  defects reproduced for parity (map 01 Q3). Post-0.1 behind existing seams: SIMD, mixtures, cubic, PC-SAFT, IF97, ice,
-  INCOMP, humid air, Python (own namespace plus a `compat` submodule; D11).
+What v0.1 leaves out, and why: [PLAN.md §1](PLAN.md#1-scope-v01-and-beyond). What is never ported:
+[ROT-REGISTER.md §5](ROT-REGISTER.md#5-not-ported).
 
 ## 2. Layers and crates
 
@@ -824,33 +814,9 @@ kit every family inherits; capability-gated milestones; fail-closed gates. §10 
 
 *Why:* R19, R20, P13, materials licensing.
 
-**D15 Milestones and first release.** Each milestone ends green on Linux, Windows MSVC and wasip2. `docs/PLAN.md` has
-the steps. Benches are recorded against the §7 table as each path lands, from M2 (non-blocking until M9; E9).
-
-| # | Deliverable | Gate (oracle / arbiter) |
-|---|---|---|
-| M0 | Workspace with core, data, verify, xtask; CI matrix; lints; gates. Toolchain step: 1.99 and the 4 targets are installed; add wasmtime | 7 cargo gates; zero-dependency guard |
-| M1 | `phasekit-verify` kit; oracle generator + `oracle.lock`; register seeded (14 entries); proptest over `Input::new` and batch shapes; C++ CoolProp baseline built in scratch | Fixture round trip bit-exact; `from_printed("21.17909")` (map 10 §8.4) |
-| M2 | datagen (serde mirror in xtask), blob/pack format, `DataSource` + `Pack`, registry layers with reference checks, Parity/Corrected, hash gate | 130 FNV hashes; 556 keys, 0 collisions; Parity diff = patches; counting-source tests |
-| M3 | Separable residual kinds with polynomial δ-factors, `Jet4` (num-dual oracle) | Jets vs AD at ~300 points per block incl. δ → 0; oracle block isolation (class `term`); α^r bench |
-| M4 | NonAnalytic + 10 ideal kinds; full α | IAPWS-95 Table 6 (≤ 2.9e-9 vs oracle, map 13); critical-point Undefined fixtures (Water, CO₂) |
-| M5 | Relations, DT, superancillary evaluation, gauge, `from_total`/`from_split`, first partials, Z, Cp0, residual parts, exact virials; compat; new-family (incl. a subcritical point) and Gibbs gates | Lemmon 2016 Table 7; DIV-0001 proof; analytic virials; `new_family.rs`, `gibbs_seam.rs`; DT-properties bench |
-| M6 | Pure VLE, critical points, QT, PQ, `SatAccuracy::Guess` polish, pseudo-pure rules (CoolProp's, D4) | 390 multiprecision points; SA vs VLE; stale-SA polish; exact rescaling vs VLE; R410A oracle rows |
-| M7 | PT/DT phase rule, P+X, D+X, T+X, HS, Q-pairs; second partials, fundamental derivative | 19 × 2 capability matrix; round trips; `Ambiguous` cases; PT/PH bench |
-| M8 | σ, staged/IAPWS/ECS transport (references via slot handles), melting, transport edits | Stage-by-stage paper rows; DIV-0002, DIV-0004, DIV-0009 |
-| M9 | `rayon`, `libm` (default decided on evidence, D12), perf gates enforced | Batch == scalar; 1/N threads bitwise; perf table; cross-target hash; `libm` cost vs the PLAN.md threshold |
-| M10 | Reference states, full compat tables + derivative grammar, C ABI (`pk_*` + Tier A shim with the `HAPropsSI` stub), WASM (`withPack`) → **v0.1** | IIR/ASHRAE/NBP at 1e-8 (map 01 §8); 85-output oracle gate; C smoke; shim: v8.0.0 codes and the cross-thread `errstring` handoff (#3211, map 11 §8); both wasm builds |
-
-**v0.1:** all 136 v8.0.0 pure and pseudo-pure fluids and all 19 pairs, `DataSet::Corrected` by default; transport and
-σ where models exist; melting lines; reference states; derivative outputs; batch with rayon; compat; the C ABI (`pk_*`
-plus the Tier A CoolPropLib.h shim); browser WASM; Rust on wasip2.
-**After v0.1:**
-- M11 cubic (`phasekit-cubic`, zero-line core diff gate; R split by dataset with its register entry, §11).
-- M12 SIMD lanes (`simd` feature, only if the gate fires).
-- M13 mixtures + GERG (`phasekit-mix`); true-mixture variants of the pseudo-pure blends registered alongside (D4).
-- M14 IAPWS-06 ice Ih + IF97 (`phasekit-iapws`, zero-line core diff gate).
-- Then PC-SAFT, Python (`phasekit-py`, D11), INCOMP and humid air (the real `HAPropsSI` replaces the shim stub).
-  Plotting comes after M13 (user decision 13).
+**D15 Milestones and first release.** Each milestone ends green on Linux, Windows MSVC and wasip2, and every path is
+benched as it lands, against the §7 table (non-blocking until M9; E9). v0.1 is M0-M10; its scope, what it leaves out
+and the steps and gates of each milestone are [PLAN.md](PLAN.md) §1, §3 and §4.
 
 *Rejected:* SIMD before transport (Kernel); mixtures in v0.1; first measuring performance at M9 (E9).
 
@@ -865,29 +831,17 @@ checked further). Constraints it meets *(inference)*:
 - Not fluid-only, because materials are coming.
 
 **D17 Edition, MSRV, tooling, CI, lints, unsafe.**
-- Edition 2024, resolver 3. One workspace `rust-version = "1.89"` (user decision MS1, 2026-10-10: let-chains,
-  `f64::next_up`, and every test, num-dual's included, builds and runs on it; it was 1.85, the edition-2024 floor),
-  raised workspace-wide only for a concrete feature (dependencies R3, Q1). Developed on 1.99.0; no nightly (R3, R4).
-- Lints: `unsafe_code = "forbid"`, `missing_docs`, clippy `all`, with `unwrap_used`, `expect_used`, `dbg_macro`,
-  `todo`, `unimplemented`, `panic`, `print_stdout` and `print_stderr` denied (tests may unwrap and panic;
-  `phasekit-xtask` may print); `indexing_slicing` denied in `batch` and `flash`.
-- `clippy.toml` bans `Mutex`, `RwLock`, `Cell`, `RefCell`, `OnceCell`, the `std::sync::atomic` types, `thread_local!`,
-  `std::env::{var, var_os, vars, vars_os, home_dir}`, the filesystem (`std::fs` functions and the `Path` methods that
-  query it) and 27 `f64` methods (every transcendental, `powi`, `mul_add`). `phasekit_xtask::tests::clippy_bans_fire`
-  checks that every entry and every denied lint fires on a probe crate (PLAN.md M0.3).
-- Unsafe: `phasekit-capi` uses `deny` with per-item `allow` and a SAFETY comment. Its FFI-state modules carry
-  `#[allow(clippy::disallowed_types, reason = ..)]`: the thread-local last error, the generational handle table and,
-  behind `coolproplib-shim`, the process-wide `errstring` slot (D11). A probe showed `RefCell`/`Mutex` there fail
-  clippy without it and pass with it (E13). A future `simd` feature starts under `forbid`
-  on fearless_simd's safe loads and stores, with one `allow` module only if raw `std::arch` proves necessary (T1b).
-- CI runs:
-  - Tests on Linux x86_64 and Windows MSVC.
-  - The corpus on `wasm32-wasip2` under wasmtime; thread tests are `cfg`-gated off `target_family = "wasm"`.
-  - `wasm32-unknown-unknown` baseline and `+simd128` builds; aarch64 tests.
-  - MSRV `check --lib`, clippy `-D warnings`, rustfmt, cargo-deny, a `--no-default-features` build of core and compat.
-  - The zero-dependency and executed-test-count guards; the facade feature-tree check and `.wasm` size budget; the
-    `libm` cross-target hash; a nightly oracle sweep; bench recording from M2.
-  - cargo-semver-checks before releases.
+- Edition 2024, resolver 3, one workspace `rust-version` (root `Cargo.toml`), raised workspace-wide only for a
+  concrete feature (user decision MS1; dependencies R3, Q1). Development and CI use the latest stable, named once in
+  `.github/actions/rust/action.yml`; no nightly (R3, R4).
+- Lints are policy enforced by tools, not review: `[workspace.lints]` in the root `Cargo.toml` (`unsafe_code =
+  "forbid"`, `missing_docs`, the panic and print lints, the length bar) and `clippy.toml`'s bans (locks, cells,
+  atomics, `thread_local!`, environment and filesystem access, every transcendental `f64` method). The probe crate
+  test `clippy_bans_fire` proves each entry fires.
+- Unsafe: only `phasekit-capi`, under `deny` with per-item `allow` and a SAFETY comment; its FFI-state modules (the
+  thread-local last error, the handle table, the shim's `errstring`) allow the banned types (D11, E13). A future
+  `simd` feature starts under `forbid` on fearless_simd's safe loads and stores (T1b).
+- CI: the jobs are `.github/workflows/`; what each runs is VERIFICATION.md §11.3.
 
 *Rejected:* a pinned `rust-toolchain.toml`; two MSRVs (S-02).
 
@@ -1128,7 +1082,7 @@ sha, all 38 config keys and the scrubbed environment (map 10 §8.3, map 01 §8).
 - **Panics.** None reachable from library code: `todo`, `unimplemented`, `panic`, `unwrap_used` and `expect_used` are
   denied; `indexing_slicing` is denied in `batch` and `flash`; unfinished work returns `Unsupported`, `NoModel` or
   `LoadError::Format`. Internal invariants use `debug_assert!`. Property tests cover `Input::new` and batch shapes
-  (the sketch has exhaustive stand-ins; proptest at M1). FFI exports `catch_unwind`. On wasm a panic would abort the
+  (proptest). FFI exports `catch_unwind`. On wasm a panic would abort the
   instance, so this is a correctness requirement there (E12).
 - **NaN.** Construction rejects NaN, infinities, T/p/ρ ≤ 0 and Q ∉ [0, 1]; CoolProp accepts Q = 5 and segfaults on
   NaN Q (map 12 R9). A single-phase quality is `Undefined`, not −1. Batch cells hold NaN only beside a non-`Ok`
@@ -1143,24 +1097,13 @@ sha, all 38 config keys and the scrubbed environment (map 10 §8.3, map 01 §8).
     becomes the default only if that hash proves bit-identity and its measured speed cost is under the threshold
     PLAN.md sets.
   - Fixtures are generated on x86-64 Linux only (K18).
-- **Tolerances** (classes of map 10 §8.3, values in `docs/VERIFICATION.md`):
-  - `Exact` for executors and threads; `Term` ~1e-13·Σ|terms|; `Prop` 1e-12 (looser near critical, and `Term` carried through a relation that cancels); `SaCoeff` 1e-14;
-    `SatMp`; `Flash` 1e-9; `TransportDirect` / `TransportEcs`.
-  - `Paper` = `from_printed`: half a unit in the last printed digit.
-  - Never widened to make CoolProp pass (map 10 R4/R5). Bitwise asserts only within one code path (map 10 R16).
+- **Tolerances.** The classes and their bounds are [VERIFICATION.md §5](VERIFICATION.md#5-tolerance-classes) (map 10
+  §8.3), locked to `phasekit_verify::tolerance` by a test. They are never widened to make CoolProp pass (map 10
+  R4/R5), and bitwise asserts hold only within one code path (map 10 R16).
 
 ## 10. Verification architecture (summary)
 
-| Layer of truth | Seam | Arbiter / oracle |
-|---|---|---|
-| L0 unit values | newtypes, `math`, `Jet4`, δ-factor polynomials | hand derivations |
-| L1 two derivative mechanisms | `accumulate` (precomputed factors) vs `Jet4`/num-dual AD of the paper formula | AD |
-| L2 printed tables | `FluidRecord` → `compile` → paper rows, self-checked first | papers / IAPWS (map 13) |
-| L3 oracle fixtures | `DataSet::Parity` vs CoolProp 8.0.0 (`term`, `prop`, `flash`, ...) | provisional oracle |
-| L4 identities and round trips | relations, Jacobian identities, gauge invariance, FD, analytic virials, 19 × 2 capability matrix | identities |
-| L5 nightly sweeps | all pairs × fluids, fail-closed | — |
-| L6 execution | every `ExecPolicy`, 1..N threads, batch vs scalar | bitwise `Reference` |
-
+The layers of truth L0-L6, their seams and arbiters: [VERIFICATION.md §2](VERIFICATION.md#2-layers-of-truth-l0-l6).
 
 How the evidence flows into the tests:
 
@@ -1190,37 +1133,9 @@ flowchart LR
   nightly -.-> tests
 ```
 
-- **Oracle.** `scripts/oracle/gen.py` under `uv run --no-project --python 3.12 --with CoolProp==8.0.0`: a fresh state
-  per case, `COOLPROP_*`/`PXFLASH_*` scrubbed, `LC_ALL=C`, all 38 config keys recorded, and the wheel's `.so` sha256 in
-  `oracle.lock`. Fixtures are CSV with a `#` header, Python-repr floats (bit-exact) and a status column. A core subset
-  of 14 fluids plus a compact all-fluid tier (a few rows per fluid; [VERIFICATION.md §3.6](VERIFICATION.md#36-committed-core-subset-all-fluid-tier-and-nightly-full-set))
-  is committed and read with `include_str!`, so the corpus runs on wasip2; the full set is
-  regenerated nightly behind a manifest gate. CoolProp-derived outputs, printed check tables and fastchebpure
-  outputcheck files may all be committed, each with provenance and a citation (D14).
-- **Literature arbitration.** The register (`phasekit-verify`) has 14 entries under four policies:
-  - `UsePaper`: DIV-0001 R1234ze(E) R, DIV-0002 ice VI p0, DIV-0003 N₂ ρ_r.
-  - `SkipOracle`: DIV-0004 two-phase transport, DIV-0010 PR/SRK entropy, DIV-0011 C virial, DIV-0012 Water below
-    Tmin (refused by default, D6).
-  - `KeepOracle`, an accepted and documented divergence: DIV-0005 Helium (user decision 5). CoolProp's R = 8.3144598
-    is kept, so Corrected = Parity for helium, and `check_register` refuses any patch that cites the entry. NIST IR
-    8474 Table 3 does not reproduce with its own Table 1 R (8.314472); the oracle is within 4.8e-7 of Table 3, so
-    the Table 3 fixture tolerance is 5e-7 (map 13 §3 item 4, R3).
-  - `Investigate`: DIV-0006..0008 Ethylene/OrthoHydrogen/n-Undecane ρ_r (and M), DIV-0009 R1233zd(E) viscosity,
-    DIV-0013 R1234yf/R1234ze(E) mixture α^r, DIV-0014 R1224YDZ p.
-  - At M11 the cubic family adds an entry for its gas-constant split (user decision 10, §11); PLAN.md specifies it.
-- **Proofs.** A `KeepOracle` entry is proved by the absence of a patch and by its literature rows at the recorded
-  tolerance. Each `UsePaper` entry gets a three-part proof:
-  1. Corrected matches the arbiter within its printed digits.
-  2. The oracle still differs from it. Otherwise the entry is stale; when the oracle pin moves it must be marked
-     `ResolvedUpstream{commit}`.
-  3. Parity matches the oracle.
-- **Register checks.** `check_register` refuses patches citing unknown or non-`UsePaper` ids. A table becomes an arbiter
-  only after it reproduces with its own constants (NIST IR 8474 fails that, map 13 §3).
-- **Conformance kit** (any family, as a dev-dependency): `fd_first_order` in dimensional variables, `gauge_invariance`
-  and `policy_equivalence` now; part additivity, thread invariance and `capability_matrix` at M5-M9.
-- **Gates.** Zero tests run is a failure (executed count ≥ manifest, map 10 R1). Every `#[ignore]` carries a DIV or
-  issue id and is reported (map 10 R14). Nightly `--ignored` sweeps; benches recorded from M2, gungraun regressions
-  enforced from M9 (D15, E9).
+Where each part is specified: the oracle and its fixtures, VERIFICATION.md §3; printed tables and arbiters, §4; the
+divergence register (its policies, statuses and three-part proofs), §6, with the entries themselves in
+`crates/phasekit-verify/src/register.rs`; the conformance kit any family runs, §10; the gates, §11.
 
 ## 11. Extensibility: new model families, mixtures, materials, states of matter
 
@@ -1283,41 +1198,8 @@ no model cache: the registry is the cache, bounded by the named fluids and relea
 
 ## 13. CoolProp rot designed out
 
-| Rot (evidence) | Mechanism here |
-|---|---|
-| Fused mutable AbstractState; friend classes write about 170 fields (map 12 R1) | Immutable `Arc` models, `Copy` `State`, pure `flash` |
-| Sticky phase; a failed update leaves stale state (map 01 R12/R13, map 03 §6) | `FlashOptions` per call; a new value or an `Err` |
-| 38 global config keys, 141 reads, env-var numerics (map 12 R4, map 01 R15/R16) | Options by value; clippy bans env reads and locks |
-| 237 `catch(...)`, `_HUGE` sentinels, errstring outbox (map 12 R3, map 01 R22) | One typed `Error`; `Option`; `SolvePath`; per-cell `Status`; no NaN bundles or silent fallbacks; `_HUGE` and the process-wide errstring survive only inside the Tier A shim (D11) |
-| 181 virtuals, 136 NotImplementedError; capability found by exception (map 12 R2, map 01 R21) | 2 model traits; declared `Capabilities`; `Unsupported`; no reachable `todo!` |
-| Hand-coded derivatives ×20 per term, test-only copy, wrong orders (map 12 R5) | Generic fast path + AD oracle, cross-checked; one Jacobian engine for partials |
-| Approximate virials from δ = 1e-12 (map 12 R8, §6.3) | Exact Taylor coefficients (`zero_density`); cancellation-free δ-factors |
-| Solver returns x(n+1) with the state at x(n); unchecked `max_iter`; absolute tol (map 03 §6) | `Root{x, f(x), iterations, stop}`; typed `Tol`; acceptance gate |
-| T+X silently two-phase; 2-3 roots (map 03 §6) | `Ambiguous{roots}` + `RootPolicy` |
-| Mixed reducing states: PR/SRK entropy wrong (map 06 C1); fabricated brackets (C10) | (T, ρ) contract, reducing-invariant `Derivs`; `rho_max` from the model |
-| 8 gas-constant values; stored R ≠ paper R (map 12 R7, map 13 R1) | R is per-model data; R audit at datagen; DIV-0001 |
-| Critical point switched by a global flag (map 03 §6, map 10 R12) | `CriticalPoint{origin}`; published metadata separate |
-| Pseudo-pure "not EOS-consistent" semantics hidden (map 04 U4) | `SatPair` bubble/dew typed; `Definition` accuracy; rules from oracle fixtures |
-| Reference state as global mutation; six gauge mechanisms (map 15 X1-X12) | `Gauge` on the handle, applied at the boundary for every family; registry-level `with_reference` for strings and C |
-| Eager whole-library load, ~1.9 s, +67 MiB (map 14, map 12) | 4 lazy levels; per-fluid features; packs as layers |
-| Per-state deep copies 100-300 KiB; mutable term caches (map 11 F11) | ≤ 256 B `Copy` `State`; one shared model |
-| Hot-path superancillary mutex; melting cache mutex (map 11 F7/F8) | Datagen precomputes; `OnceLock`/`LazyLock` only |
-| Hidden ECS coupling built by name at first use (map 12 R12, map 05 R7) | References declared in data, resolved and cycle-checked when a registry layer is built, held strongly, decoded on first need |
-| Unknown JSON kinds skipped; asserts compiled out (map 10 R8, map 09 R7) | Closed enums; real `LoadError`s |
-| Stale derived h/s in data (map 12 R10); superancillary freshness | Never stored; hash gate over the whole canonical EOS section |
-| Unvalidated inputs: NaN Q, Q = 5, below Tmin (map 12 R9) | Validating newtypes and one raw gate; `DomainError` |
-| Superancillary extrapolated below the triple point; such DT states labelled two-phase (map 03 §6) | Fits never evaluated outside their range; `Enforce` by default; `Extrapolate` per call, flagged in the `State` (D6) |
-| Two-phase cp/cv/transport returned silently (map 02 §6, map 10 R18) | `Undefined{prop, phase}`; DIV-0004 |
-| Enum integers as ABI, renumbered (map 01 R1) | String keys in `pk_*`; v8.0.0 integer codes pinned only in the Tier A shim |
-| C ABI: handle escape, `long`, no lengths, throw across `extern "C"` (map 11 F1-F4, F16) | capi rules (§12) |
-| Batch swallows per-point errors (map 11 F15, map 14) | Per-cell `Status`; NaN only with a non-`Ok` status |
-| Fail-open CI, hidden sweeps, tolerances tuned to CoolProp (map 10 R1-R5, map 12 R17) | Executed-count gate; provenance tolerances; never widen |
-| Self-referential reference values (map 10 R6) | `Provenance::is_arbiter()` excludes them |
-| TTSE/BICUBIC crashes and garbage (map 08) | Not ported |
-| Open/closed violations, 4 edits per transport form (map 12 R13) | Families via traits; zero-diff gates |
-| Lax, locale-dependent strings (map 01 R17/R18, map 12 R18) | One strict, locale-free compat grammar |
-
-[ROT-REGISTER.md](ROT-REGISTER.md) tracks each row to a test.
+Each CoolProp problem found, the mechanism here that designs it out and the test that proves it:
+[ROT-REGISTER.md](ROT-REGISTER.md), grouped by theme in its §4.
 
 ## 14. Risks and open questions for the user
 
@@ -1326,48 +1208,11 @@ no model cache: the registry is the cache, bounded by the named fluids and relea
 | Verification overhead slows delivery | Kit built once at M1; table-driven corpus; capability-gated milestones |
 | `dyn` dispatch and jets slower than CoolProp's hand-tuned `all()` | Benches from M2/M3 against a C++ baseline built at M1; `Order` masks; generic `PureFluid` is a local escape hatch *(inference)* |
 | 101 paywalled EOS papers; 74 fluids have only expected tables (map 13 Q1) | Oracle fixtures stay provisional; user to supply core-set papers |
-| Corrected EOS constants invalidate shipped superancillaries | R/ρ_r corrections rescale exactly; other changes → `Guess` + VLE polish; refit in datagen later |
-| Superancillary provenance (89.8 % of the data; fastchebpure has no licence file) | Shipped under CoolProp's MIT notice with NIST / fastchebpure credit (D14); a datagen refit if the decision is revisited |
 | Std libm differs across targets | `libm` feature + M9 cross-target hash; default only on evidence (D12); tolerance classes otherwise |
 | Literature itself wrong (Helium IR 8474; 4 post-v8 transport papers, map 12 R11) | Self-consistency first; `Investigate`, or `KeepOracle` once the user accepts the oracle value (DIV-0005) |
 | One large kernel crate compiles slowly | Modules depend downwards; splitting is mechanical when a second consumer appears |
-| A runtime pack declares cyclic or missing references | Refused when its registry layer is built (`ReferenceCycle`, `MissingReference`) |
-| Fixture volume (~3.5 GB full set) | Committed core subset + manifest; nightly regeneration |
+| Fixture volume (~3.5 GB full set) | Committed core subset and all-fluid tier within the 16 MiB budget (`gates fixtures`); the full set regenerated nightly |
 | The shim's unprefixed CoolProp exports clash with a real CoolProp in one process | The shim is a separate build; the default `pk_*` library exports no CoolProp names (D11) *(inference)* |
 
-**Decisions taken** (see [DECISIONS.md](DECISIONS.md); first pass 2026-10-05, a
-later change is recorded there with its date). Numbers are the question numbers used there.
-1. **Name:** `phasekit`; crates `phasekit-*`, Rust paths `phasekit_*`, C prefix `pk_` (D16).
-2. **Default dataset:** `DataSet::Corrected`; `Parity` stays for oracle comparison (D7, §8).
-3. **Licences:** (a) superancillaries ship under CoolProp's MIT notice with NIST / fastchebpure credit; (b) all three
-   fixture kinds may be committed, with provenance and citation (D14).
-4. **Pseudo-pure blends:** CoolProp's ancillary-defined rules now (`SatAccuracy::Definition`, M6); a true-mixture
-   variant registered alongside at M13, default unchanged (D4).
-5. **Helium R:** CoolProp's 8.3144598 kept; DIV-0005 is `KeepOracle`, Table 3 tolerance 5e-7 (§10).
-6. **Below the triple point:** refused by default; `DomainPolicy::Extrapolate` per call for metastable single-phase
-   states, flagged in the `State`; fits never evaluated outside their range under any policy (D6).
-7. **Python (after v0.1):** own namespace `phasekit` plus `phasekit.compat`; never the `CoolProp` name (D11).
-8. **WASI:** Rust on `wasm32-wasip2` at v0.1; a WIT component later, on demand (D11).
-9. **C ABI:** (a) `pk_*` plus the Tier A CoolPropLib.h shim at v0.1, with `HAPropsSI` a documented stub until humid
-   air; Tier B deferred. (b) The shim matches v8.0.0: integer codes and the process-wide `errstring` (D11).
-10. **Cubic borrowing a HEOS ideal gas:** R split by dataset (`Parity` the cubic's R, `Corrected` the source model's
-    R); register entry at M11 (§11).
-11. **Batch layout:** point-major everywhere, Rust, C and NumPy `(N, M)` (§3.8).
-12. **`libm`:** opt-in until M9; the default only if the cross-target hash proves bit-identity and the cost is under
-    the PLAN.md threshold (D12).
-13. **Plotting:** deferred until after the mixtures milestone (§1).
-14. **Code licence:** MIT OR Apache-2.0, confirmed (D14).
-
-**Decided 2026-10-05** (PLAN.md §6, P1-P7; [DECISIONS.md](DECISIONS.md)):
-- **Shim library file name:** phasekit name only (`phasekit_coolproplib.dll`, `libphasekit_coolproplib.so`); nothing
-  is distributed under CoolProp's file names (D16).
-- **Shim `set_config_*`:** the shim keeps its own process-wide settings and translates keys that have a phasekit
-  equivalent into per-call options on each shim call; other keys are accepted, ignored and listed in MIGRATION.md. The
-  kernel stays free of global state (D11).
-- **Repository and workflow:** public GitHub repo `Dzoay/phasekit`, GitHub Actions, squash-merge only, Conventional
-  Commits, SemVer (PLAN.md §2.2; CONTRIBUTING.md). Publishing v0.1 to crates.io and npm by trusted publishing.
-- **Answered in PLAN.md:** the M9 `libm` speed threshold (M9.5); the M11 cubic-R register entry (§4); the humid-air
-  milestone (M18); the performance reference machine (the dev box).
-
-**Still open:** whether the six paywalled core-set EOS papers will be obtained (PLAN.md §6, P4). Nothing waits on it;
-those fluids stay oracle-verified and provisional until their papers arrive.
+The user's answers to these questions, and every later decision: [DECISIONS.md](DECISIONS.md). What is still open:
+[PLAN.md §6](PLAN.md#6-resolved-follow-ups-and-remaining-user-decisions).

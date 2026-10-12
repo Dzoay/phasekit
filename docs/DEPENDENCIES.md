@@ -1,0 +1,18 @@
+# phasekit dependency policy
+
+**Status:** living and normative. A new dependency is named in its plan step, fits a tier below and passes
+`cargo deny check`; [deny.toml](../deny.toml) holds the licence allow-list and the bans. The evidence and rationale
+are [research/dependencies.md](research/dependencies.md) (frozen, 2026-10-04), whose §3.1 this replaces: where they
+differ, this file and [ARCHITECTURE.md](ARCHITECTURE.md) D1 win.
+
+| Tier | Covers | Allowed third-party crates | Rule |
+|---|---|---|---|
+| T0 core | `phasekit-core` and `phasekit-data`, default build | none: std only until M9 | No proc macros, `build.rs` or `-sys` crates; `gates deps` enforces it |
+| T1 opt-in features of core | additive, off by default, never changing numerics (K13) | `rayon` (M9.1), `libm` (M9.3); later only behind their triggers: `fearless_simd` for a `simd` feature (if the post-0.1 SIMD gate fires, D9), `serde_json` for a `json` feature (once a runtime-JSON consumer is scheduled; until then the serde mirror lives in xtask, S-12) | Permissively licensed and wasm-clean |
+| T2 facades | `phasekit-capi`, `-wasm`, `-py` | pyo3 (numpy optional), wasm-bindgen (js-sys only if needed), wit-bindgen, uom | Nothing leaks into core; each facade states its own MSRV |
+| T3 dev-only | tests, fixtures, benches | num-dual (no default features), proptest (std only), criterion, gungraun (Linux), allocation-counter (user decision AC1), insta or expect-test | Never in a public API; benches live in the unpublished `phasekit-verify` |
+| T4 tools | the unpublished xtask and CI binaries | serde, serde_json, syn (`gates complexity`, user decision CX4), thiserror or anyhow, nalgebra or faer (offline); cargo-deny, cargo-semver-checks, cargo-shear, cargo-mutants, cargo-nextest, cbindgen CLI, wasm-bindgen-cli, reuse, cargo-about, wasmtime | Pinned by `Cargo.lock`, checked by cargo-deny, never shipped |
+| Banned | — | `bincode`, `serde_cbor`; `once_cell` and `lazy_static` as direct dependencies; C-linking or `-sys` crates in T0-T1; nightly-only crates or features in published crates; GPL, LGPL and AGPL anywhere; MPL-2.0 in T0-T1 | `deny.toml` |
+
+A dependency that needs a newer Rust than the workspace's `rust-version` (root `Cargo.toml`) waits, or the MSRV is
+raised by a user decision (MS1).
