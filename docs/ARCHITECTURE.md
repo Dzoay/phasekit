@@ -494,7 +494,7 @@ Gibbs solid. Order ≥ 3 and the ideal/residual parts come from `ThermoModel::de
 | Milestone | Outputs added (additive `Prop` variants) | Gate |
 |---|---|---|
 | M5 | first partials, Z, Cp0, residual h/s/g, Bvirial/Cvirial and their T-derivatives | identities; analytic virials; oracle |
-| M7 | Cv/Cp/w/τ/δ as derivative variables, second partials (order 3), fundamental derivative, κ, β | Thorade & Saadat identities; oracle |
+| M7 | second partials (order 3), fundamental derivative, κ, β; Cv/Cp/w/τ/δ as derivative variables deferred (user decision OD1) | second-partial identities (VERIFICATION.md §8.1); oracle |
 | M10 | strict `d(X)/d(Y)\|Z` and `d(d(X)/d(Y)\|Z)/d(W)\|V` grammar in compat; the 8 α-term outputs | 85-output oracle gate (map 01 §4a) |
 
 ### 3.8 Registry, data sources, flash, batch, saturation

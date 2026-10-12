@@ -217,7 +217,7 @@ never skips them.
 | `facts` | `name, call, status, value`: one named oracle fact per row, `call` written as `PropsSI(H;T;300;Q;1;R134a)` because cells hold no commas; a call is `PropsSI`, `Props1SI` or `AbstractState(backend;fluids;[pair;v1;v2;]method;args…)`, one method on a state (`melting_line`, `d2alphar_dDelta2`) (`set` = `smoke`: the R134a QT enthalpy, Water `Tcrit` and `T_reducing`; `set` = `register`: every value a register entry cites) | one file per set | M1.3, M1.13 | `Exact` (bit-exact parse of what the oracle printed) |
 | `checkpoints` | `fluid, Tc, T, p, rhoL, rhoV, p_sa_mp, rhoL_sa_mp, rhoV_sa_mp` from `EOS[0].SUPERANCILLARY` (`check_points`, and `meta` `Tcrittrue / K`, the T_c of Θ = (T_c − T)/T_c), source `mp:coolprop-json` (written to `mp/check-points.csv`); the SA/mp ratios set each point's `SaFit` bound. Points sit near Θ = 0.5, 0.3, 0.1 (fastchebpure's grid); one below the triple point moves up to it. T, ρ′ and ρ″ are multiprecision, p is not: it carries a double-precision liquid side's rounding (up to 3.7e-9 at Θ = 0.5), so the VLE is compared with the vapour side's p at the point's (T, ρ″) (user decision DP1, measured at M6.3) | 390 rows (all SA fluids) | M1.17 | `SaFit` (SA), `SatMp` (VLE) |
 | `term` | `block_idx` (a block index in `EOS[0].alphar`, `all` for the α^r total, `ideal` for the α⁰ total), `block_type` (the JSON type without `ResidualHelmholtz`), `terms` (the block's term count: datagen merges Power and Exponential blocks into one power list in file order, so a test finds a block's terms by it), the inputs `T, rhomolar` and the `tau, delta` CoolProp then holds, `status`, `alphar` + 14 α^r derivatives to order 4, unscaled, in `AbstractState`'s method order (α⁰ to order 3: the oracle exposes no 4th, map 10 §8.2) | δ ~ logU[1e-8, ρ_max/ρ_r] (ρ_max: saturated liquid at the minimum temperature, the record's density bound), τ ~ U[T_r/Tmax, T_r/Tmin], one set of points per fluid shared by all its blocks, each row evaluated at T = T_r/τ, ρ = δρ_r with the phase imposed; NonAnalytic blocks add 20 points with \|τ − 1\|, \|δ − 1\| ~ logU[1e-6, 1e-2] (map 10 §8.5); total rows (`block_idx = block_type = all`, `terms` the fluid's residual term count) evaluate the fluid itself at the first points of the same grid, each with an α⁰ row at the same point (`block_idx = block_type = ideal`, `terms` its α⁰ block count, the order-4 columns `nan`; M4.3): 100 per block / 4 total rows per fluid (`all/term.csv`, a leading `fluid` column) / 300 per block + 64 total rows per fluid (`term/<Fluid>.csv` of the full set, read by `tests/sweeps.rs`) | M3.1 (blocks), M3.6 (totals), M4.3 (α⁰) | `Term` (section 5) on A_ij = τ^i δ^j ∂^(i+j)α, never on the unscaled derivative relative to itself: CoolProp divides by δ^j, so at δ = 1.8e-8 its ∂⁴α^r/∂δ⁴ for Air's Power block is 7.8e6 where the exact value is 5.18, a difference of 1e-15 of that entry's `Term` scale (measured at M3.1) |
-| `eos` | `region, status, p, h, s, u, cv, cp, w, Z, dpdrho_T, dpdT_rho, Bvirial, Cvirial, dBvirial_dT, dCvirial_dT` and the partial, `cp0molar` and residual columns (molar SI) | T ~ U[T_low, Tmax], ρ ~ logU[1e-6·ρL(T_low), ρL(T_low)], phase imposed (gas), T_low = max(Tmin, Ttriple) (map 09 R8); `region` from the oracle's QT densities at T, or its saturated-density ancillary where QT finds no root (pseudo-pure fluids within about 2 K of Tc): 500 / 8 / 10,000 | M5.1, M5.5 | `Prop` (with `Term` carried through the relation, §5) |
+| `eos` | `region, status, p, h, s, u, cv, cp, w, Z, dpdrho_T, dpdT_rho, Bvirial, Cvirial, dBvirial_dT, dCvirial_dT` and the partial, `cp0molar` and residual columns (molar SI); since M7.10 ten second partials (`second_partial_deriv` over the ten variables it differentiates twice), `fundamental_derivative`, `isothermal_compressibility` and `isobaric_expansion` | T ~ U[T_low, Tmax], ρ ~ logU[1e-6·ρL(T_low), ρL(T_low)], phase imposed (gas), T_low = max(Tmin, Ttriple) (map 09 R8); `region` from the oracle's QT densities at T, or its saturated-density ancillary where QT finds no root (pseudo-pure fluids within about 2 K of Tc): 500 / 8 / 10,000 | M5.1, M5.5, M7.10 | `Prop` (with `Term` carried through the relation, §5) |
 | `crit` | `Tc_pub, pc_pub, rhoc_pub` (SA off), `Tc_num, pc_num, rhoc_num` (SA on), `Ttriple, ptriple, Tmin, Tmax, pmax, M, R`; `Ttriple` and `ptriple` are CoolProp's, i.e. the saturation minimum (map 09 R8), not the record's triple point; the all-fluid tier adds a leading `fluid` column | 1 / 1 / 1 | M2.3 published, M6.7 numerical | `Exact` (data constants); `Flash` (numerical point) |
 | `sat` | `input, Q, T, p, rhoL, rhoV, hL, hV, sL, sV, path`; `input` ∈ {T, p, `sa`}: `sa` rows come straight from `CP.SuperAncillary(json).eval_sat` (p, ρ′, ρ″; map 03 §8) | Θ = 1 − T/Tc log-spaced 1e-7 … 1 − Tt/Tc (Tt, Tc the superancillary's range), Q ∈ {0, 1}, T and p inputs, a PQ row's p the QT row's at its temperature: 100 (25 T, QT and PQ at both Q) / 8 `sa` + 8 QT (Q = 0) + 8 PQ (Q = 1) / 600 (200 T, as the all-fluid tier); M5.2 writes `sa` rows to `all/sat.csv` and the full set, M5.2a a QT row at Q = 0 at each `sa` temperature, M6.8 the PQ rows and the core files. A PQ row's T, ρ and h, s cells are DIV-0018's: they are checked against the QT row that gave the row its p (user decision PQ1). Pseudo-pure (M6.9; path `ancillary`): Θ = 1 − T/T_max log-spaced 1e-3 … 1 − T_min/T_max over QT's range, QT at Q ∈ {0, 1} (only the side Q names: CoolProp computes no other), PQ at Q ∈ {0, 0.5, 1} at the QT bubble pressure (none where the oracle's QT failed), checked as user decisions PS1, PS2 decide; the in-dome DT rows are the `flash` kind's `dome` truths | M5.2 (`sa`), M6.8, M6.9 | `SaCoeff` (`sa` and `superanc` rows), `Prop` (`ancillary` rows) |
 | `flash` | `pair, x1, x2, truth, status, T, rho, p, h, s, u, Q, phase` (truth PT, QT or `dome`; x1, x2 the pair's inputs: DT ρ, T; PT p, T) | truth states on (log p, T) and (T, Q) grids, all pairs read off each, never density bands (map 12 §6.4): 6×6 + 4×4 / the six pseudo-pure fluids' 4×4 `dome` truths (`all/flash.csv`) / 40×40 + 20×20 (map 10 §2.3); CoolProp has no QT at 0 < Q < 1 for a pseudo-pure fluid, so its (T, Q) cells are `dome` truths, (ρ, T) with ρ between its QT densities at Q = 0 and 1 (M6.9). A PT truth's PT row (M7.1) is the truth itself, CoolProp's PT flash of its own inputs, ρ an output too; its p, h, s and u are DIV-0020's | M5.3 (DT), M6.9 (`dome`), M7.1 (PT) on | `Flash` |
@@ -404,7 +404,8 @@ lists them.
 ## 5. Tolerance classes
 
 Relative unless marked abs: |a − b| ≤ x · scale, scale = max(|b|, floor). Floors *(decision)*: molar energies (h, u, g,
-a) R·T; entropies and heat capacities R; first partials ∂X/∂Y |X|/|Y| at the state; α values Σ_k |φ_k|. For a scaled
+a) R·T; entropies and heat capacities R; first partials ∂X/∂Y |X|/|Y| at the state; second partials (∂/∂W (∂X/∂Y)_Z)_V
+|X|/(|Y|·|W|), the fundamental derivative 1, κ_T 1/|p|, β 1/T (user decision OD2); α values Σ_k |φ_k|. For a scaled
 derivative A_ij the φ_k are the summands of its expansion by the product and chain rules, every falling factorial
 written out, so Σ_k |φ_k| bounds the rounding of any evaluation order and is Σ_k |φ_k| of the terms for A_00
 (`phasekit_verify::majorant`; PLAN.md M3.1). The plain Σ_k |φ_k| of the terms cannot bound a derivative: the
@@ -418,14 +419,15 @@ from the formula evaluated in majorant arithmetic (`majorant::Bound`: every sum 
 every composed function's derivatives at the true value). "nc" is the near-critical window |T/Tc − 1| < 1e-3 and |ρ/ρc −
 1| < 0.1, published Tc, ρc (map 10 §8.3).
 
-A `Prop` output X that a relation computes from the order-2 bundle (p, h, s, u, c_v, c_p, w, Z, the first partials)
-also passes within `Term`'s bound on its *carried* scale Σ_ij |∂X/∂A_ij|·M_ij, where M_ij is the `Term` scale of entry
-A_ij (Σ_k |φ_k| of the residual terms plus the ideal part's; `phasekit_verify::eos::carried`), whichever bound is
-larger *(decision, M5.1, user-approved)*. It is the difference that two evaluations which each meet `Term` can show in
-X, to first order. Like `Identity`'s largest term it measures conditioning (principle 4); it holds for any code, the
-literature arbiters' included; it cannot hide a wrong term, which `Term` itself catches block by block; and where a
-relation is well conditioned the strict bound is the larger one (89 % of the M5.1 nightly entries, and 99 % lie within
-15× of it).
+A `Prop` output X that a relation computes from the order-2 bundle (p, h, s, u, c_v, c_p, w, Z, the first partials, κ_T,
+β), or from the order-3 one (the second partials, the fundamental derivative; user decision OD2, M7.10, over the ten
+entries to order 3), also passes within `Term`'s bound on its *carried* scale Σ_ij |∂X/∂A_ij|·M_ij, where M_ij is the
+`Term` scale of entry A_ij (Σ_k |φ_k| of the residual terms plus the ideal part's; `phasekit_verify::eos::carried`),
+whichever bound is larger *(decision, M5.1, user-approved)*. It is the difference that two evaluations which each meet
+`Term` can show in X, to first order. Like `Identity`'s largest term it measures conditioning (principle 4); it holds
+for any code, the literature arbiters' included; it cannot hide a wrong term, which `Term` itself catches block by
+block; and where a relation is well conditioned the strict bound is the larger one (89 % of the M5.1 nightly entries,
+and 99 % lie within 15× of it).
 
 | Class | Bound | Applies to | Derivation |
 |---|---|---|---|
@@ -679,8 +681,11 @@ On every core fluid at eos-grid states (stable and imposed phase), on the out-of
   fugacity lands (map 02 §8).
 - Virials: `zero_density` B, C, dB/dT, dC/dT against hand derivations (sketch tests) and B = lim (Z − 1)/ρ at low
   density (map 02 §8); never against the oracle's C (DIV-0011).
-- M7: second partials and the fundamental derivative by the Thorade & Saadat identities (ARCHITECTURE.md §3.7) and
-  closed form vs the generic Jacobian path.
+- M7 (user decisions OD1, OD5; the Thorade & Saadat paper is not openly available): the mixed second partial of p;
+  Maxwell's (∂s/∂ρ)_T = −(∂p/∂T)_ρ/ρ² differentiated in T; (∂c_v/∂ρ)_T = −T(∂²p/∂T²)_ρ/ρ² and (∂c_p/∂p)_T =
+  −T(∂²v/∂T²)_p from the second partials of s against those of p and ρ; β/κ_T = (∂p/∂T)_ρ, c_p − c_v = Tβ²/(ρκ_T) and
+  κ_T·ρ·w² = c_p/c_v (`order_three_identities_hold`); and in core the second partials against central differences of
+  the first (`second_partials_are_the_first_partials_differentiated`).
 - Saturation equilibrium at every SA or VLE point: p(T, ρ′) = p(T, ρ″), g′ = g″ from the EOS (the oracle shows Δg/RT
   1e-15 to 1e-13, map 03 §8).
 - Critical point (E17): at (Tc, ρc) of Water and CO₂, evaluated at the point itself with no nudge (ROT-065): α^r's
