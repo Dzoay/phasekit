@@ -43,8 +43,8 @@ value (≤ 256 B). Concurrency then follows from the types, not from locks. Noth
 | "Layers will be important but we must not over engineer this" | 7 crates at v0.1, one kernel crate with module layers; SIMD, mixtures and materials are seams, not code; no hook without a caller (§2, §7, §11) | PLAN.md §0.4 stop rules |
 | Follow-up: "parallel computation ... side by side implementations for different architectures ... SIMD" | "What" (model math over the sealed `Real`) vs "how" (`ExecPolicy`, `policy_equivalence`); SIMD lanes as a `simd` feature of core after a measured gate (§7) | `policy_equivalence`; M12 gate (≥ 2.5× or stop) |
 
-What v0.1 leaves out, and why: [PLAN.md §1](PLAN.md#1-scope-v01-and-beyond). What is never ported:
-[ROT-REGISTER.md §5](ROT-REGISTER.md#5-not-ported).
+What v0.1 leaves out, and why: [PLAN.md §1](PLAN.md#1-scope-v01-and-beyond). What is never ported: the
+`Not-ported` rows of [ROT-REGISTER.md](ROT-REGISTER.md).
 
 ## 2. Layers and crates
 
@@ -848,7 +848,7 @@ no model cache: the registry is the cache, bounded by the named fluids and relea
 ## 13. CoolProp rot designed out
 
 Each CoolProp problem found, the mechanism here that designs it out and the test that proves it:
-[ROT-REGISTER.md](ROT-REGISTER.md), grouped by theme in its §4.
+[ROT-REGISTER.md](ROT-REGISTER.md), grouped by theme in its §2.
 
 ## 14. Risks and open questions for the user
 

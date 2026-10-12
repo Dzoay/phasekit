@@ -1,6 +1,9 @@
 //! `gates rot`: the rot register is ticked as milestones close (PLAN.md §2.1). A row whose milestone has closed (is
 //! below `phasekit_verify::MILESTONE`) may not be GAP, and no part of a Proof cell may still say "new" once it is due:
-//! at its "(Mk)" if it has one, otherwise at the row's first milestone.
+//! at its "(Mk)" if it has one, otherwise at the row's first milestone. Every test a Proof cell names is a function
+//! under `crates/` unless it is marked new, and one marked new is not yet one (the step that writes it ticks it).
+
+use std::collections::BTreeSet;
 
 use super::{Verdict, no_args};
 use crate::repo::Repo;
@@ -10,28 +13,29 @@ const REGISTER: &str = "docs/ROT-REGISTER.md";
 pub fn run(repo: &Repo, args: &[String]) -> Verdict {
     no_args(args)?;
     let register = repo.read(REGISTER).map_err(|e| vec![e])?;
+    let sources = repo.files("crates", ".rs", true).map_err(|e| vec![e])?;
+    let fns = function_names(sources.iter().map(|(_, text)| text.as_str()));
     let milestone = phasekit_verify::MILESTONE;
-    let rows = check(&register, milestone)?;
-    Ok(format!("{rows} rows; nothing due before M{milestone} is open"))
+    let rows = check(&register, milestone, &fns)?;
+    Ok(format!("{rows} rows; nothing due before M{milestone} is open; every named proof exists"))
 }
 
-/// Checks the register text against the first open milestone; returns how many register rows it read.
-fn check(register: &str, milestone: u8) -> Result<usize, Vec<String>> {
+/// Checks the register text against the first open milestone and the workspace's function names; returns how many
+/// register rows it read.
+fn check(register: &str, milestone: u8, fns: &BTreeSet<&str>) -> Result<usize, Vec<String>> {
     let (mut rows, mut errors) = (0, Vec::new());
     for (i, line) in register.lines().enumerate().filter(|(_, line)| line.starts_with("| ROT-")) {
         let cells: Vec<&str> = match line.trim_end().strip_prefix("| ").and_then(|l| l.strip_suffix(" |")) {
             Some(inner) => inner.split(" | ").map(str::trim).collect(),
             None => Vec::new(),
         };
-        match cells.len() {
-            8 => rows += 1,
-            6 => continue, // section 3 keeps a record of the former gaps; section 4 is the register
-            n => {
-                errors.push(format!("{REGISTER}:{}: a ROT row with {n} cells, expected 8", i + 1));
-                continue;
-            }
+        if cells.len() != 7 {
+            errors.push(format!("{REGISTER}:{}: a ROT row with {} cells, expected 7", i + 1, cells.len()));
+            continue;
         }
+        rows += 1;
         check_row(&cells, milestone, &mut errors);
+        check_names(cells[0], cells[4], fns, &mut errors);
     }
     if rows == 0 {
         errors.push(format!("{REGISTER}: no register rows"));
@@ -39,11 +43,11 @@ fn check(register: &str, milestone: u8) -> Result<usize, Vec<String>> {
     if errors.is_empty() { Ok(rows) } else { Err(errors) }
 }
 
-/// Checks one register row's eight `cells`: not GAP once its first milestone has closed, and no part of its Proof
+/// Checks one register row's seven `cells`: not GAP once its first milestone has closed, and no part of its Proof
 /// cell marked new once that part is due.
 fn check_row(cells: &[&str], milestone: u8, errors: &mut Vec<String>) {
-    let (id, proof, status) = (cells[0], cells[5], cells[7]);
-    let first = match first_milestone(cells[6]) {
+    let (id, proof, status) = (cells[0], cells[4], cells[6]);
+    let first = match first_milestone(cells[5]) {
         Ok(first) => first,
         Err(e) => {
             errors.push(format!("{id}: {e}"));
@@ -58,6 +62,62 @@ fn check_row(cells: &[&str], milestone: u8, errors: &mut Vec<String>) {
             errors.push(format!("{id}: proof \"{}\" is still marked new, due at M{due} (PLAN.md §2.1)", part.trim()));
         }
     }
+}
+
+/// Checks that each test the `proof` cell of row `id` names is in `fns` exactly when it is not marked new.
+fn check_names(id: &str, proof: &str, fns: &BTreeSet<&str>, errors: &mut Vec<String>) {
+    for (name, new) in named_tests(proof) {
+        match (new, fns.contains(name)) {
+            (false, false) => errors.push(format!("{id}: proof `{name}` names no function under crates/")),
+            (true, true) => errors.push(format!("{id}: proof `{name}` exists, so tick it (PLAN.md §2.1)")),
+            _ => {}
+        }
+    }
+}
+
+/// The tests a Proof cell names, each with whether it is marked new: the code spans that name a workspace item
+/// (`phasekit_…::name` or `<file>.rs::name`, `{a, b}` groups included) whose last segment is a snake_case name with an
+/// underscore, as test names are. "new" marks every span after it in its `;`-separated part, as for the due check.
+fn named_tests(proof: &str) -> Vec<(&str, bool)> {
+    let mut named = Vec::new();
+    for (span, new) in proof.split(';').flat_map(spans) {
+        let last = span.rsplit_once("::").map_or(span, |(_, last)| last);
+        let names = last.trim_start_matches('{').trim_end_matches('}').split(',').map(str::trim);
+        named.extend(names.filter(|name| is_test_name(name)).map(|name| (name, new)));
+    }
+    named
+}
+
+/// The code spans of one Proof part that name a workspace item by path, each with whether "new" precedes it.
+fn spans(part: &str) -> Vec<(&str, bool)> {
+    let pieces: Vec<&str> = part.split('`').collect();
+    let mut new = false;
+    let mut spans = Vec::new();
+    for pair in pieces.chunks(2) {
+        new |= has_word(pair[0], "new");
+        spans.extend(pair.get(1).copied().filter(|span| names_workspace_item(span)).map(|span| (span, new)));
+    }
+    spans
+}
+
+/// Whether a code span is a path into the workspace: `phasekit_…::…` or `<file>.rs::…`.
+fn names_workspace_item(span: &str) -> bool {
+    span.starts_with("phasekit_") && span.contains("::") || span.contains(".rs::")
+}
+
+/// Whether `name` looks like a test function's name: lowercase snake_case with at least one underscore.
+fn is_test_name(name: &str) -> bool {
+    name.contains('_') && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// Every name that follows `fn ` in `sources`.
+fn function_names<'a>(sources: impl Iterator<Item = &'a str>) -> BTreeSet<&'a str> {
+    let after_fn = |text: &'a str| text.split("fn ").skip(1).collect::<Vec<_>>();
+    sources
+        .flat_map(after_fn)
+        .filter_map(|rest| rest.split(|c: char| !(c.is_alphanumeric() || c == '_')).next())
+        .filter(|name| !name.is_empty())
+        .collect()
 }
 
 /// The row's first milestone (`M6, M7` → 6), or `None` for `post-0.1` and `n/a`, which never come due.
@@ -89,17 +149,18 @@ fn has_word(text: &str, word: &str) -> bool {
 mod tests {
     use super::*;
 
-    const HEAD: &str = "| ID | Source | Code | Problem | Mechanism | Proof | Milestone | Status |\n|---|---|---|---|---|---|---|---|\n";
+    const HEAD: &str =
+        "| ID | Source | Problem | Mechanism | Proof | Milestone | Status |\n|---|---|---|---|---|---|---|\n";
 
     fn register(proof: &str, milestone: &str, status: &str) -> String {
-        format!(
-            "{HEAD}| ROT-900 | map 01 R1 | a.cpp:1 | a problem | a mechanism | {proof} | {milestone} | {status} |\n"
-        )
+        format!("{HEAD}| ROT-900 | map 01 R1 | a problem | a mechanism | {proof} | {milestone} | {status} |\n")
     }
 
     /// PLAN.md §2.1 "Ticking"; the fail-closed half of the milestone definition of done (§0.2).
     #[test]
     fn an_unticked_due_rot_row_is_rejected() {
+        let none = BTreeSet::new();
+        let check = |register: &str, milestone| check(register, milestone, &none);
         let unticked = register("new `phasekit_xtask::tests::t`", "M0", "Lint-guarded");
         assert_eq!(check(&unticked, 0), Ok(1), "not due while M0 is open");
         let errors = check(&unticked, 1).unwrap_err();
@@ -121,5 +182,33 @@ mod tests {
         assert!(check(&format!("{HEAD}| ROT-901 | too | few |\n"), 0).is_err());
         assert!(check(&register("`a`", "soon", "Test-guarded"), 0).is_err());
         assert!(check(HEAD, 0).is_err());
+    }
+
+    /// The code is the truth (user decision DL4): a Proof cell may not name a test that does not exist, and a test it
+    /// still marks new may not exist yet. ROT-002 named a test renamed at M6, ROT-010 and ROT-020 unwritten ones.
+    #[test]
+    fn a_proof_naming_a_missing_test_is_rejected() {
+        let fns = function_names(["#[test]\nfn rows_round_trip() {}\npub(crate) fn fd_first_order() {}\n"].into_iter());
+        let check = |proof: &str| check(&register(proof, "M5", "Test-guarded"), 5, &fns);
+        assert_eq!(check("`phasekit_verify::tests::rows_round_trip` [M5.1]"), Ok(1));
+        assert_eq!(check("`phasekit_verify::conformance::{fd_first_order, rows_round_trip}`"), Ok(1));
+        assert_eq!(check("`new_family.rs::rows_round_trip`; new `phasekit_core::tests::not_written_yet` (M8)"), Ok(1));
+        let errors = check("`a`; `phasekit_core::tests::renamed_long_ago` [M5.3]").unwrap_err();
+        assert!(errors.len() == 1 && errors[0].contains("renamed_long_ago"), "{errors:?}");
+        assert!(check("`flash.rs::renamed_long_ago`").is_err(), "a file-qualified name too");
+        let errors = check("new `phasekit_verify::tests::rows_round_trip` (M8)").unwrap_err();
+        assert!(errors.len() == 1 && errors[0].contains("tick it"), "{errors:?}");
+        // "new" covers the rest of its part, a list included, and no earlier name in it.
+        assert_eq!(check("new `phasekit_capi::tests::one_test`, `phasekit_capi::tests::another_test`; `a`"), Ok(1));
+        assert_eq!(
+            check("`phasekit_verify::tests::rows_round_trip` [M5.1], new `phasekit_capi::tests::one_test`"),
+            Ok(1)
+        );
+        // Spans that name no workspace test are not checked: std paths, types, modules, crates, lints.
+        assert_eq!(
+            check("`std::env::var_os`, `phasekit_core::Error`, `phasekit_core::state`, clippy `unwrap_used`"),
+            Ok(1)
+        );
+        assert_eq!(check("`phasekit_core` and `phasekit_py` builds"), Ok(1));
     }
 }

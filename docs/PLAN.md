@@ -102,7 +102,7 @@ reorder or split steps need a reviewer's. Once a step has been merged, its ID ne
 | Python | After v0.1, own namespace + `compat` (user decision 7) | M16 |
 | Plotting | After the mixtures milestone (user decision 13) | M19 |
 | Tier B shim (`AbstractState_*`), WIT component, network service facade | Deferred until a consumer asks (user decisions 9a, 8; BRIEF "connected": a server is an outer facade, never core) | On demand |
-| TTSE/BICUBIC, REFPROP backend | Not ported: crashes and garbage reproduced on the oracle (map 08 R1-R9); proprietary and process-global (map 07) | ROT-REGISTER.md section 5 |
+| TTSE/BICUBIC, REFPROP backend | Not ported: crashes and garbage reproduced on the oracle (map 08 R1-R9); proprietary and process-global (map 07) | Never: ROT-REGISTER.md's `Not-ported` rows |
 | Runtime CoolProp JSON (`json` feature) | No consumer yet (S-12) | When a consumer is scheduled |
 | Materials abstractions (`Substance`, min-Gibbs selection) | "One implementation is a guess" (materials R1); seams exist now (D10) | On first coexistence need |
 | GPU, WASM threads, a `no_std` kernel, non-SI units in the core, CoolProp defects reproduced for parity | Non-goals (K15, K16; kernel-performance §5 Q6; map 01 Q3) | Never |
@@ -540,7 +540,7 @@ version, Node.js LTS (wasm-bindgen-test), cargo-about, cargo-semver-checks.
   (`x(P)/y(T)|Dmolar` rejected; map 01 R20), `parsing_is_locale_free` (map 01 R17/R18),
   `all_19_pairs_by_name_in_both_bases` (map 01 R2/R3), `pair_names_round_trip_in_both_bases`,
   `fluid_string_grammar_is_strict`, `ampersand_output_is_an_unknown_output` (map 14 R9),
-  `backend_options_suffix_is_refused` (map 01 R18), `no_metadata_sentinels` (absent ODP, GWP100, ASHRAE 34 give
+  `backend_options_suffix_is_refused` (map 01 R18), `compat_metadata_has_no_sentinels` (absent ODP, GWP100, ASHRAE 34 give
   `NoModel`; map 09 R17), `fill_policies_match_the_python_contract` (map 14 U1). *Do:* add the `props` kind; compat key
   tables, `HEOS::` prefix, Props1SI constants, PhaseSI strings, `FillPolicy`. *Done when:* 85/85.
 - **M10.3 Derivative grammar and α-term outputs.** *Failing tests:* `first_and_second_derivative_strings_match_oracle`
@@ -686,7 +686,7 @@ workloads, bench fluids, the harness and the result files are VERIFICATION.md §
 
 1. All M0-M10 exit gates green on `main`; the nightly sweep green for the last 3 nights.
 2. Register: every entry has its proof test; no `Investigate` entry hides a failing assertion.
-3. ROT-REGISTER.md: `gates rot` passes with `MILESTONE = 11`; section 3 lists no GAP.
+3. ROT-REGISTER.md: `gates rot` passes with `MILESTONE = 11`; no row is GAP.
 4. `cargo semver-checks` baseline recorded (first release: establishes it).
 5. `reuse lint`, `cargo deny check`, `cargo about generate` for the C library and wasm package; licences in each
    artefact; `cargo package --list -p phasekit-data` shows only blobs, the index and the notice (ROT-155).
