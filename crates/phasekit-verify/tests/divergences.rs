@@ -46,6 +46,11 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0027", div_0027),
     ("DIV-0028", div_0028),
     ("DIV-0029", div_0029),
+    ("DIV-0030", div_0030),
+    ("DIV-0031", div_0031),
+    ("DIV-0032", div_0032),
+    ("DIV-0033", div_0033),
+    ("DIV-0034", div_0034),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -642,4 +647,123 @@ fn div_0029() {
         });
         assert!((worst - cited).abs() < 5e-4, "{name}: {worst}");
     }
+}
+
+/// `prop` of `fluid` at `t` and the mass density `rho` (`Extrapolate`: a table row may lie beyond the EOS's range).
+fn at_mass(fluid: &str, t: f64, rho: f64, prop: Prop) -> f64 {
+    let fluid = Registry::embedded().unwrap().get(fluid).unwrap();
+    let input = Input::dt(Density::mass(rho).unwrap(), Temperature::new(t).unwrap());
+    let options = FlashOptions::new().with_domain(phasekit_core::DomainPolicy::Extrapolate);
+    fluid.prop(&fluid.flash(input, &options).unwrap(), prop).unwrap()
+}
+
+/// DIV-0030 (`SkipOracle`; map 05 R3, M8.9), the replacing check: Ammonia's λ is finite and continuous across Tufeu's
+/// T_c, 405.4 K, at a gas, a near-critical and a liquid density, and equals CoolProp's term outside the floored band;
+/// the exempt cell still differs: the oracle's 6.26 W/(m K) at 405.3999 K and 50 kg/m³.
+fn div_0030() {
+    for rho in [50.0, 235.0, 600.0] {
+        let lambda = |t: f64| at_mass("Ammonia", t, rho, Prop::Conductivity);
+        let band = [405.2401, 405.3, 405.3999, 405.4, 405.4001, 405.5, 405.5599].map(lambda);
+        assert!(band.iter().all(|l| l.is_finite() && *l > 0.0), "{rho}: {band:?}");
+        // No step: points 0.1 K apart or closer differ by under 1e-3, where CoolProp's term diverges.
+        let jumps = band.windows(2).map(|w| (w[1] / w[0] - 1.0).abs()).fold(0.0, f64::max);
+        assert!(jumps < 1e-3, "{rho}: {band:?}");
+    }
+    let lambda = at_mass("Ammonia", 405.3999, 50.0, Prop::Conductivity);
+    assert!(fact("div0030_lambda_ammonia_t405.3999_rho50") / lambda > 10.0, "the exempt cell still differs: {lambda}");
+}
+
+/// DIV-0031 (`Investigate`; map 10 §8.1, M8.9): at the papers' own temperatures and densities, the correlations as
+/// transcribed miss their tables by the cited amounts, the 630 K methanol row by far the most, where the table's own
+/// densities are inconsistent. Resolution: with the papers' authors.
+fn div_0031() {
+    let rows = [
+        ("Benzene", 300.0, 875.0, 608.52e-6, 1.77e-5),
+        ("n-Heptane", 250.0, 720.0, 725.69e-6, -1.04e-4),
+        ("n-Heptane", 550.0, 500.0, 95.105e-6, -2.71e-5),
+        ("Methanol", 300.0, 788.41, 0.5422e-3, -1.30e-4),
+        ("Methanol", 630.0, 888.50, 0.2405e-3, -1.46e-2),
+    ];
+    for (fluid, t, rho, printed, cited) in rows {
+        let off = at_mass(fluid, t, rho, Prop::Viscosity) / printed - 1.0;
+        assert!((off - cited).abs() < 0.01 * cited.abs(), "{fluid} at {t} K: {off:e}");
+    }
+}
+
+/// DIV-0032 (`Investigate`; map 05 R6, M8.9): the critical term scales as 1/η, and with the viscosity each paper
+/// printed, 40.842, 36.170 and 15.253 µPa s, the conductivity is the paper's to its digits; the dilute and residual
+/// terms are Vassiliou et al. 2015's printed 37.042 and 24.018, 35.883 and 14.321 mW/(m K), within a unit of their last
+/// digit (cyclopentane's Δλ is 24.0175). Resolution: the
+/// viscosity the term reads (map 05 R6's declared viscosity).
+fn div_0032() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let rows = [
+        ("Cyclopentane", 512.0, 400.0, 40.842e-6, 69.698e-3, Some((37.042e-3, 24.018e-3))),
+        ("Isopentane", 460.0, 329.914, 36.170e-6, 59.649e-3, Some((35.883e-3, 14.321e-3))),
+        ("n-Heptane", 535.0, 100.0, 15.253e-6, 51.655e-3, None),
+    ];
+    for (name, t, rho, eta_paper, printed, stages) in rows {
+        let record = record(name, DataSet::Parity);
+        let state =
+            registry.get(name).unwrap().state(Input::dt(Density::mass(rho).unwrap(), Temperature::new(t).unwrap()));
+        let (eta, lambda) = phasekit_core::internal::transport_stages_with(&record, &state.unwrap(), &[]).unwrap();
+        let (eta, lambda) = (eta.unwrap().total(), lambda.unwrap());
+        let with_paper_eta = lambda.dilute + lambda.residual + lambda.critical * eta / eta_paper;
+        assert!((with_paper_eta - printed).abs() <= 0.5e-6, "{name}: {with_paper_eta}");
+        assert!((lambda.total() - printed).abs() > 0.5e-6, "{name}: the row itself differs");
+        if let Some((dilute, residual)) = stages {
+            // Within a unit of the last printed digit: cyclopentane's Δλ is 24.0175 against 24.018.
+            assert!(
+                (lambda.dilute - dilute).abs() <= 1e-6 && (lambda.residual - residual).abs() <= 1e-6,
+                "{name}: {lambda:?}"
+            );
+        }
+    }
+}
+
+/// DIV-0033 (`Investigate`; map 10 §8.1, M8.9): Friend et al.'s 100 K and 430 K viscosity rows, at the table's rounded
+/// densities, are as far off as cited, and within their printed values at a density inside half a printed unit of
+/// 0.01 mol/dm³; the 440 K and 310 K conductivity points are off by the cited amounts. Resolution: the paper's g9 under
+/// Corrected, and Friend's critical-term constants.
+fn div_0033() {
+    let molar = |t: f64, rho: f64, prop: Prop| {
+        let fluid = Registry::embedded().unwrap().get("Ethane").unwrap();
+        let state = fluid.state(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap())).unwrap();
+        fluid.prop(&state, prop).unwrap()
+    };
+    let eta = [(100.0, 21330.0, 878.68e-6, 1.6e-3), (430.0, 12780.0, 58.70e-6, 3.8e-4)];
+    for (t, rho, printed, cited) in eta {
+        let off = molar(t, rho, Prop::Viscosity) / printed - 1.0;
+        assert!((off - cited).abs() < 0.1 * cited, "{t} K: {off:e}");
+        let (lo, hi) = (molar(t, rho - 5.0, Prop::Viscosity), molar(t, rho + 5.0, Prop::Viscosity));
+        assert!(lo.min(hi) <= printed && printed <= lo.max(hi), "{t} K: {printed} outside [{lo}, {hi}]");
+    }
+    let lambda = [(440.0, 1520.0, 45.9e-3, -4.35e-3), (310.0, 4130.0, 45.4e-3, 3.30e-3)];
+    for (t, rho, printed, cited) in lambda {
+        let off = molar(t, rho, Prop::Conductivity) / printed - 1.0;
+        assert!((off - cited).abs() < 0.05 * cited.abs(), "{t} K: {off:e}");
+    }
+}
+
+/// DIV-0034 (`Investigate`; map 10 §8.1, M8.9): R23's rows lie within their values at the density plus or minus half a
+/// printed unit; CO₂'s and R123's are off by the cited amounts. Resolution: the papers' own tables.
+fn div_0034() {
+    let molar = |fluid: &str, t: f64, rho: f64, prop: Prop| {
+        let fluid = Registry::embedded().unwrap().get(fluid).unwrap();
+        let state = fluid.state(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap())).unwrap();
+        fluid.prop(&state, prop).unwrap()
+    };
+    let r23 = [
+        (180.0, 21097.0, Prop::Viscosity, 353.88e-6, 0.005e-6),
+        (420.0, 7564.0, Prop::Viscosity, 39.459e-6, 0.0005e-6),
+        (180.0, 21097.0, Prop::Conductivity, 143.19e-3, 0.005e-3),
+        (420.0, 7564.0, Prop::Conductivity, 50.19e-3, 0.005e-3),
+    ];
+    for (t, rho, prop, printed, half) in r23 {
+        let (lo, hi) = (molar("R23", t, rho - 0.5, prop), molar("R23", t, rho + 0.5, prop));
+        assert!(lo.min(hi) - half <= printed && printed <= lo.max(hi) + half, "R23 {prop:?} at {t} K");
+    }
+    let co2 = at_mass("CarbonDioxide", 300.0, 1400.0, Prop::Viscosity) / 0.50594e-3 - 1.0;
+    let r123 = at_mass("R123", 180.0, 0.002873, Prop::Conductivity) / 2.473e-3 - 1.0;
+    assert!((co2 - 1.05e-5).abs() < 5e-7 && (r123 + 9.56e-4).abs() < 5e-6, "{co2:e} {r123:e}");
 }

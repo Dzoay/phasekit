@@ -705,7 +705,8 @@ pub static DIVERGENCES: &[Divergence] = &[
                    59.649 with REFPROP 9.1's 36.170 uPa s where CoolProp reads 37.20 (-4.4e-3); Assael et al. 2013 at 535 K and 100 \
                    kg/m3 for n-heptane, 51.655 with 15.253 uPa s where CoolProp reads Michailidou 2014's 15.726 \
                    (-2.9e-3), and its other n-heptane and n-hexane points (-5.8e-5, -4.7e-5, -2.3e-4), where CoolProp's \
-                   critical term is small or zero and the papers' used Span-Wagner's EOS; n-hexane's q_D is 1.35e9 1/m in \
+                   critical term is small or zero and the papers' used Span-Wagner's EOS; with the papers' viscosities the \
+                   term gives their conductivities to their digits (69.6979, 59.6490, 51.6554); n-hexane's q_D is 1.35e9 1/m in \
                    v8.0.0 against the paper's 1/(7.37e-10 m), which does not move its point (2026-10-12); to decide: \
                    which viscosity the critical term reads (map 05 R6's declared viscosity)",
         exempt: None,
