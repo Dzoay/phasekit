@@ -157,8 +157,9 @@ const INPUTS: [(&str, Var, Option<Basis>); 16] = [
     ("U", Var::U, Some(Basis::Mass)),
 ];
 
-/// Whether `key` is `name` or its all-uppercase form (CoolProp registers both; `DataStructures.cpp:157-160`).
-fn matches(key: &str, name: &str) -> bool {
+/// Whether `key` spells the table key `name`: `name` itself or its all-uppercase form, which CoolProp registers too
+/// (`DataStructures.cpp:157-160`).
+pub fn spells(key: &str, name: &str) -> bool {
     key == name || (key.eq_ignore_ascii_case(name) && !key.bytes().any(|b| b.is_ascii_lowercase()))
 }
 
@@ -170,7 +171,7 @@ pub fn parse_output(key: &str) -> Option<Output> {
 
 /// One of the table's outputs.
 fn table(key: &str) -> Option<Output> {
-    OUTPUTS.iter().find(|(name, _)| matches(key, name)).map(|(_, output)| *output)
+    OUTPUTS.iter().find(|(name, _)| spells(key, name)).map(|(_, output)| *output)
 }
 
 /// The first-order variable a table key names (`DerivVar`: T, P, ρ, h, s, u, g in both bases; map 01 §4a).
@@ -223,7 +224,7 @@ pub fn output_names() -> impl Iterator<Item = &'static str> {
 
 /// The variable and basis of a CoolProp input key (`None`: basis-free, T, P and Q).
 pub fn parse_input(key: &str) -> Option<(Var, Option<Basis>)> {
-    INPUTS.iter().find(|(name, ..)| matches(key, name)).map(|(_, var, basis)| (*var, *basis))
+    INPUTS.iter().find(|(name, ..)| spells(key, name)).map(|(_, var, basis)| (*var, *basis))
 }
 
 /// A variable's input key in `basis` ([`INPUTS`]' first spelling): `T`, `P`, `Q`, or `Dmolar`, `Hmass` and the like,

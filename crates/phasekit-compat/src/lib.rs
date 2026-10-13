@@ -17,7 +17,7 @@ mod keys;
 
 pub use keys::{
     OUTPUT_COUNT, Output, output_names, pair_name, parse_derivative, parse_input, parse_output, parse_pair_name,
-    parse_reference_state, phase_index, phase_name,
+    parse_reference_state, phase_index, phase_name, spells,
 };
 
 /// How a vector call reports a failed point (map 14: PropsSI fills +inf, HAPropsSI raises on the first).
@@ -107,14 +107,14 @@ impl<'r> Plan<'r> {
     }
 
     /// The state at the two input values, in the order of the call's keys.
-    fn state(&self, value1: f64, value2: f64) -> Result<State, Error> {
+    fn state(&self, value1: f64, value2: f64, flash: &FlashOptions) -> Result<State, Error> {
         let (x, y) = if self.swapped { (value2, value1) } else { (value1, value2) };
-        self.fluid.flash(Input::new(self.pair, x, y, self.basis)?, &FlashOptions::default())
+        self.fluid.flash(Input::new(self.pair, x, y, self.basis)?, flash)
     }
 
     /// The output at the two input values.
-    fn eval(&self, value1: f64, value2: f64) -> Result<f64, Error> {
-        let state = self.state(value1, value2)?;
+    fn eval(&self, value1: f64, value2: f64, flash: &FlashOptions) -> Result<f64, Error> {
+        let state = self.state(value1, value2, flash)?;
         match self.output {
             Output::Prop(prop) => self.fluid.prop(&state, prop),
             Output::Phase => Ok(f64::from(phase_index(state.phase()))),
@@ -146,7 +146,23 @@ pub fn props_si_in(
     value2: f64,
     fluid: &str,
 ) -> Result<f64, CompatError> {
-    Ok(Plan::new(registry, output, name1, name2, fluid)?.eval(value1, value2)?)
+    props_si_with(registry, &FlashOptions::new(), output, name1, value1, name2, value2, fluid)
+}
+
+/// [`props_si_in`] under the flash options `flash` (the Tier A shim's `set_config_*` keys that have an equivalent, user
+/// decision P6).
+#[allow(clippy::too_many_arguments, reason = "PropsSI's six arguments and the options")]
+pub fn props_si_with(
+    registry: &Registry,
+    flash: &FlashOptions,
+    output: &str,
+    name1: &str,
+    value1: f64,
+    name2: &str,
+    value2: f64,
+    fluid: &str,
+) -> Result<f64, CompatError> {
+    Ok(Plan::new(registry, output, name1, name2, fluid)?.eval(value1, value2, flash)?)
 }
 
 /// `PropsSI` over vectors (map 14 §3.1-§3.2, the Python contract): the keys and the fluid are checked first, for the
@@ -173,7 +189,7 @@ pub fn props_si_vec_in(
     let (mut out, mut first) = (Vec::with_capacity(n), None);
     for i in 0..n {
         let (Some(x), Some(y)) = (broadcast(values1, i), broadcast(values2, i)) else { break };
-        match (plan.eval(x, y), fill) {
+        match (plan.eval(x, y, &FlashOptions::new()), fill) {
             (Ok(value), _) => out.push(value),
             (Err(e), FillPolicy::Error) => return Err(e.into()),
             (Err(e), FillPolicy::Inf | FillPolicy::Nan) => {
@@ -236,7 +252,20 @@ pub fn phase_si_in(
     value2: f64,
     fluid: &str,
 ) -> Result<&'static str, CompatError> {
-    Ok(phase_name(Plan::new(registry, "Phase", name1, name2, fluid)?.state(value1, value2)?.phase()))
+    phase_si_with(registry, &FlashOptions::new(), name1, value1, name2, value2, fluid)
+}
+
+/// [`phase_si_in`] under the flash options `flash`, as [`props_si_with`].
+pub fn phase_si_with(
+    registry: &Registry,
+    flash: &FlashOptions,
+    name1: &str,
+    value1: f64,
+    name2: &str,
+    value2: f64,
+    fluid: &str,
+) -> Result<&'static str, CompatError> {
+    Ok(phase_name(Plan::new(registry, "Phase", name1, name2, fluid)?.state(value1, value2, flash)?.phase()))
 }
 
 /// `PropsSI` over the embedded registry.

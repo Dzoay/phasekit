@@ -2,6 +2,7 @@
 //! library cargo built beside this test, with the platform's C compiler (`cc` finds GCC, Clang or MSVC), as strict C
 //! (GCC and Clang: C99 with `-pedantic-errors -Wall -Werror`; MSVC: C11 with `/W4 /WX`), then run.
 
+#![cfg(not(feature = "coolproplib-shim"))] // the shim's build exports no pk_* function
 #![allow(clippy::unwrap_used, reason = "test-crate helpers")]
 #![cfg(not(target_family = "wasm"))]
 

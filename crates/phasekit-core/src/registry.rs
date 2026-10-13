@@ -355,6 +355,25 @@ impl Registry {
         names.iter().try_for_each(|n| self.get(n).map(|_| ()))
     }
 
+    /// The canonical name of every fluid it serves, decoded or not, each once, the latest layer's first: what a fluids
+    /// list shows (the Tier A shim's `FluidsList`; ROT-019). Nothing is decoded.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        let mut seen = Vec::new();
+        let names = self.layers.iter().rev().flat_map(|layer| -> Box<dyn Iterator<Item = &str> + '_> {
+            match layer {
+                Layer::Data(d) => Box::new(d.slots.iter().map(|s| &*s.name)),
+                Layer::Model(m) => Box::new(core::iter::once(m.fluid.info().name())),
+            }
+        });
+        names.filter(move |name| {
+            let new = !seen.contains(name);
+            if new {
+                seen.push(*name);
+            }
+            new
+        })
+    }
+
     /// Canonical names of fluids that are materialised (for memory introspection and lazy-load tests).
     pub fn loaded(&self) -> impl Iterator<Item = &str> {
         self.layers.iter().flat_map(|layer| -> Box<dyn Iterator<Item = &str> + '_> {
@@ -613,6 +632,19 @@ mod tests {
             assert_eq!(refused, Err(Error::Load(LoadError::UnknownName(name.into()))), "{name}");
         }
         assert_eq!(reg.loaded().count(), 0);
+    }
+
+    /// `names` lists every embedded fluid once, decoding none, and a re-gauged fluid's layer adds no second name.
+    #[test]
+    fn names_list_each_fluid_once_without_decoding() {
+        let reg = Registry::from_embedded(DataSet::Corrected).unwrap();
+        let names: Vec<&str> = reg.names().collect();
+        assert_eq!(names.len(), phasekit_data::FLUIDS.len());
+        assert!(names.contains(&"Water") && names.contains(&"R134a"));
+        assert_eq!(reg.loaded().count(), 0, "listing decodes nothing");
+        let gauged = reg.with_reference("R134a", crate::ReferenceState::Ashrae).unwrap();
+        let listed: Vec<&str> = gauged.names().collect();
+        assert_eq!((listed.len(), listed.first()), (names.len(), Some(&"R134a")));
     }
 
     /// CoolProp lists "water" and "WATER" (and "H2O" and "h2o") as separate aliases; the index holds each key once,
