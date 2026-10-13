@@ -206,16 +206,18 @@ fn non_analytic_order_two_equals_jet4() {
         points.push((eos.t_reducing, eos.rho_reducing));
         for (t, rho) in points {
             let (two, four) = (package.eos().residual(t, rho, Order::Two), package.eos().residual(t, rho, Order::Four));
-            for n in 0..=2 {
-                for i in 0..=n {
-                    let bits = |d: &phasekit_core::Derivs| d.get(i, n - i).map(f64::to_bits);
-                    assert_eq!(bits(&two), bits(&four), "{name} A{i}{} at T = {t}, rho = {rho}", n - i);
-                }
-            }
+            assert_order_two_bits(&two, &four, &format!("{name} at T = {t}, rho = {rho}"));
             checked += 1;
         }
     }
     assert_eq!(checked, 2 * 121);
+}
+
+/// Every entry of order ≤ 2 of `two` has the bits of `four`'s.
+fn assert_order_two_bits(two: &phasekit_core::Derivs, four: &phasekit_core::Derivs, at: &str) {
+    for (i, j) in [(0, 0), (1, 0), (0, 1), (2, 0), (1, 1), (0, 2)] {
+        assert_eq!(two.get(i, j).map(f64::to_bits), four.get(i, j).map(f64::to_bits), "A{i}{j}, {at}");
+    }
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/all/term.csv, the all-fluid tier (VERIFICATION.md §3.6): α^r and
