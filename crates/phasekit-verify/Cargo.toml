@@ -54,5 +54,9 @@ harness = false
 name = "ph"
 harness = false
 
+[[bench]]
+name = "transport"
+harness = false
+
 [lints]
 workspace = true

@@ -395,9 +395,6 @@ step keeps its full text.
 
 ### M8 Transport, surface tension, melting
 
-**Goal.** σ, viscosity and conductivity where v8.0.0 has models, verified stage by stage against papers; melting lines
-with per-segment domains; two-phase transport refused (D7 transport section, map 05 §9). **Prerequisites.** M7.
-
 | Step | Landed |
 |---|---|
 | M8.1 | Transport decode and closed enums |
@@ -411,17 +408,7 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
 | M8.9 | rhosr-CS, Chung, other hard-coded models |
 | M8.10 | Two-phase and missing models |
 | M8.11 | Melting lines |
-
-- **M8.12 Transport bench.** *Failing test:* none (measurement step). *Do:* criterion `pt_viscosity_conductivity`
-  recorded (no §7 target; CoolProp 34 µs for Water, map 10 §8.2). Close M8: set `MILESTONE = 9`. *Done when:* row
-  recorded.
-
-**Exit gate.** G1-G8; every transport arbiter row within printed digits or within a registered entry's measured
-bound (DIV-0021, DIV-0022), stage by stage where staged, but for the rows that wait for a paper (user decision FT1); oracle classes
-`TransportDirect` and `TransportEcs` where it converges, outside registered exemptions; DIV-0002 three-part proof;
-DIV-0004 (η, λ) refusal; DIV-0009 recorded; the new q_D, Ammonia, R1234yf, ECS-LJ and Hydrogen entries proved;
-thermo-only workloads read 0 transport sections.
-**User decisions implemented.** 2 (DIV-0002 applied by default), 6 (σ and melting fits not extrapolated).
+| M8.12 | Transport bench |
 
 ### M9 Parallel batches, `libm` and performance gates
 
