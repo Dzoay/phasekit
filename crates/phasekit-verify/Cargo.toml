@@ -62,5 +62,9 @@ harness = false
 name = "transport"
 harness = false
 
+[[bench]]
+name = "scaling"
+harness = false
+
 [lints]
 workspace = true

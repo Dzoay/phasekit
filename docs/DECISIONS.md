@@ -450,3 +450,12 @@ He⁴ data) and Hanley, McCarty and Haynes 1974 (eqs. 21-23), and the code diffe
 | # | Question | Decision | Notes |
 |---|---|---|---|
 | HE1 | Keep refusing helium's λ in the lobes, or fix the term from the printed sources? | **Fix it from the printed sources** | The NBS equation as printed: inner exponent 2β (the code has 2/β), x = ΔT*/\|Δρ*\|^{1/β} (the code (ΔT*/Δρ*)^{1/β}), ρ_c 69.58 kg/m³ (the code 69.158, which also sets the damping and the blend's bounds). REFPROP's blend, its bounds, the damping and its two factors stay, as no printed source gives Hands and Arp's. A code fix in the core cannot select by `DataSet` (VERIFICATION.md §6.4), so both data sets carry it and DIV-0035 stays `SkipOracle`: its oracle λ cells of 3.5-12 K are exempt, replaced by NIST TN 1334's 54 rows (within 1.07 %; CoolProp's code 8.1 % off at one, NaN at another). |
+
+## M9's measurements without the reference machine (2026-10-13)
+
+Asked at the start of M9: M9.2 (thread scaling), M9.5 (the `libm` cost rule) and M9.6 (the §7 targets) measure on the
+reference machine, the i7-8700K (P3, RM1), which cannot be reached from the laptop (i7-1165G7) where M9 is worked.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| RM2 | Where are M9's measurements taken? | **Ratios on the laptop, the §7 targets on the i7-8700K** | M9.2's scaling and M9.5's libm/std ratios are relative measurements within one build on one machine, so the laptop records them (N = its 4 physical cores). M9.6's absolute check against ARCHITECTURE.md §7 waits for one command the user runs on the i7-8700K. RM1 otherwise stands. |
