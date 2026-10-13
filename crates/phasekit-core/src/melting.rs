@@ -111,13 +111,10 @@ impl MeltingCurve {
             return Ok(Located::On(piece));
         }
         let (lo, hi) = self.p_bounds();
-        if p < lo {
-            return Err(DomainError::BelowMinPressure { p, p_min: lo });
-        }
         if p > hi {
             return Err(DomainError::AboveMaxPressure { p, p_max: hi });
         }
-        // Between two segments: at the bound they share (datagen checks every neighbour has one).
+        // Between two segments: at the bound they share (datagen checks every neighbour has one); else below the curve.
         let gap = self.pieces.windows(2).find(|w| w[0].p_range().1 < p && p < w[1].p_range().0);
         match gap.map(|w| (w[0].segment.shared_bound(&w[1].segment), w[1].p_range().0)) {
             Some((Some(t), _)) => Ok(Located::Join(t)),
@@ -143,8 +140,11 @@ impl MeltingCurve {
         for (i, piece) in self.pieces.iter().enumerate() {
             let s = &piece.segment;
             let joined = i > 0 && self.pieces[i - 1].segment.shared_bound(s) == Some(t);
-            if s.holds(t) && !joined && n < found.len() {
-                found[n] = s.p(t);
+            if s.holds(t)
+                && !joined
+                && let Some(slot) = found.get_mut(n)
+            {
+                *slot = s.p(t);
                 n += 1;
             }
         }
@@ -236,6 +236,11 @@ mod tests {
             assert!((at_p_min / t_min - 1.0).abs() < 1e-12 && at_p_min >= t_min, "{name}: {at_p_min} at {t_min}");
             let below_t = DomainError::BelowMinTemperature { t: 0.99 * t_min, t_min };
             assert_eq!(curve.pressure(0.99 * t_min), Err(below_t.into()), "{name}");
+            // Simon's closed form, CoolProp's to the bit (`Ancillaries.cpp:199`), not a solve.
+            let MeltingForm::Simon { a, c } = segments[0].form else { unreachable!() };
+            let p = 1.5 * p_min;
+            let closed = segments[0].t0 * math::powf((p - segments[0].p0) / a + 1.0, 1.0 / c);
+            assert_eq!(curve.temperature(p).unwrap().to_bits(), closed.to_bits(), "{name}");
         }
     }
 
@@ -300,5 +305,37 @@ mod tests {
         assert_eq!(water.below(273.32, 632.3995e6), None);
         assert_eq!(water.below(200.0, 300.0), None, "below 611.657 Pa there is no melting line");
         assert_eq!(water.below(200.0, 3e9), None, "nor above its highest pressure");
+        // On the line is not below it: at a join, at a segment's start, on a rising and on a falling segment.
+        assert_eq!(water.below(273.31, 632.3995e6), None);
+        assert_eq!(water.below(273.31, 632.4e6), None, "ice VI's start");
+        assert_eq!(water.below(300.0, water.pressure(300.0).unwrap()), None);
+        let Err(Error::Ambiguous { roots }) = water.pressure(260.0) else { panic!() };
+        assert_eq!(water.below(260.0, roots.as_slice()[0]), None, "on ice Ih, which falls with T");
+    }
+
+    /// Below a segment's range a state is in the solid without evaluating the segment there: Methanol's θ-form
+    /// (exponents 1, 1.5 and 4) has no value below its T₀, 175.61 K.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn below_a_segment_is_solid_without_evaluating_it() {
+        let segments = crate::Registry::embedded().unwrap().record("Methanol").unwrap().melting;
+        let curve = MeltingCurve::new(&segments).unwrap();
+        assert!(curve.below(170.0, 1e8).is_some_and(|t| t > 175.61));
+        let t0 = segments[0].t0;
+        assert!(segments[0].p(170.0).is_nan() && t0 == 175.61, "θ < 0 has no 1.5th power");
+    }
+
+    /// Two segments joined where neither starts: a curve whose second part runs down to 50 K from the 100 K it shares
+    /// with the first, so at 50 K the second alone holds T.
+    #[test]
+    fn a_join_is_the_shared_bound_only() {
+        let curve = MeltingCurve::new(&[
+            in_tr(100.0, 1e5, &[(10.0, 2.0)], (100.0, 200.0)),
+            in_tr(100.0, 1e5, &[(-10.0, 2.0)], (50.0, 100.0)),
+        ])
+        .unwrap();
+        let p = curve.pressure(50.0).unwrap();
+        assert!((p / (1e5 * (1.0 - 10.0 * (0.25 - 1.0))) - 1.0).abs() < 1e-15, "{p}");
+        assert!(curve.pressure(100.0).is_ok_and(|p| p == 1e5), "the join counts once");
     }
 }
