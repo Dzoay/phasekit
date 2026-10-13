@@ -92,9 +92,14 @@ impl Fail {
     }
 }
 
-/// A kernel error's code: the batch `Status` table's (one exhaustive `match` in core, ROT-023).
+/// A kernel error's code: its batch `Status`'s (one exhaustive `match` in core, ROT-023).
 fn kernel_status(e: &Error) -> i32 {
-    match Status::from(e) {
+    status_code(Status::from(e))
+}
+
+/// A batch `Status`'s code.
+fn status_code(status: Status) -> i32 {
+    match status {
         Status::Ok => PK_OK,
         Status::Extrapolated => PK_EXTRAPOLATED,
         Status::InvalidInput => PK_INVALID_INPUT,

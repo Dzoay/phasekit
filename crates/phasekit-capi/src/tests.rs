@@ -206,3 +206,65 @@ fn default_library_exports_only_pk_symbols() {
     let others: Vec<&&str> = exported.iter().filter(|name| !name.starts_with("pk_")).collect();
     assert_eq!(others, Vec::<&&str>::new(), "{}", library.display());
 }
+
+/// ROT-023: every batch `Status` and every kernel error has its own code, and a string-level failure is
+/// `PK_UNKNOWN_KEY`; through the ABI, an invalid temperature is `PK_INVALID_INPUT`, an unknown fluid `PK_LOAD`, a
+/// state outside the domain `PK_DOMAIN` and a phase's undefined property `PK_UNDEFINED`.
+#[test]
+fn every_status_has_its_code() {
+    let codes = [
+        (Status::Ok, PK_OK),
+        (Status::Extrapolated, PK_EXTRAPOLATED),
+        (Status::InvalidInput, PK_INVALID_INPUT),
+        (Status::Unsupported, PK_UNSUPPORTED),
+        (Status::Domain, PK_DOMAIN),
+        (Status::NoConvergence, PK_NO_CONVERGENCE),
+        (Status::Ambiguous, PK_AMBIGUOUS),
+        (Status::Undefined, PK_UNDEFINED),
+        (Status::NoModel, PK_NO_MODEL),
+        (Status::Load, PK_LOAD),
+        (Status::Other, PK_OTHER),
+    ];
+    for (status, code) in codes {
+        assert_eq!(status_code(status), code, "{status:?}");
+    }
+    let unknown = Fail::from(CompatError::InvalidFluid("A&B".into()));
+    assert_eq!((unknown.status, unknown.message.as_str()), (PK_UNKNOWN_KEY, "`A&B` is not a fluid name"));
+    let registry = new_registry_handle();
+    let cases = [
+        (("T", -5.0), ("P", 1e5), "Water", PK_INVALID_INPUT),
+        (("T", 300.0), ("P", 1e5), "Unobtainium", PK_LOAD),
+        (("T", 200.0), ("P", 1e5), "Water", PK_DOMAIN),
+        (("Q", 0.5), ("T", 300.0), "Water", PK_UNDEFINED),
+    ];
+    for (a, b, fluid, code) in cases {
+        let output = if code == PK_UNDEFINED { "C" } else { "D" };
+        assert_eq!(props(registry, output, a, b, fluid).0, code, "{a:?} {b:?} {fluid}");
+    }
+    assert_eq!(pk_registry_free(registry), PK_OK);
+}
+
+/// E10: `pk_registry_with_reference` makes a new registry in which the named fluid, under any of its names, reports in
+/// the reference state; the registry it came from is unchanged, and `DEF` restores the model's own.
+#[test]
+fn registry_with_reference_reaches_the_strings() {
+    let registry = new_registry_handle();
+    let with = |base: pk_registry, reference: &str| {
+        let ((f, fl), (r, rl), mut out) = (s("r134a"), s(reference), 0);
+        // SAFETY: both strings are their lengths' bytes; `out` is writable.
+        let status = unsafe { pk_registry_with_reference(base, f, fl, r, rl, &mut out) };
+        assert_eq!(status, PK_OK, "{reference}: {}", last());
+        out
+    };
+    // R134a's own data are in IIR already; ASHRAE puts h = 0 on the saturated liquid at −40 °C.
+    let h = |r| props(r, "H", ("T", 233.15), ("Q", 0.0), "R134a");
+    let ashrae = with(registry, "ASHRAE");
+    assert!(h(ashrae).0 == PK_OK && h(ashrae).1.abs() < 1e-8, "{:?}", h(ashrae));
+    let native = h(registry);
+    assert!(native.0 == PK_OK && native.1 > 1e5, "{native:?}");
+    let back = with(ashrae, "DEF");
+    assert_eq!(h(back).1.to_bits(), native.1.to_bits());
+    for handle in [back, ashrae, registry] {
+        assert_eq!(pk_registry_free(handle), PK_OK);
+    }
+}
