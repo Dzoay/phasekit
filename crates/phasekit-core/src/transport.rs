@@ -2062,6 +2062,38 @@ pub(crate) mod tests {
         assert_eq!((percent(300.0), percent(600.0)), ("+0.12".to_string(), "-0.90".to_string()));
     }
 
+    /// The models `name` has, [η, λ], each refused at `wet`, a state strictly inside the dome: `Undefined`, or
+    /// `NoModel` without one.
+    #[cfg(feature = "fluids-all")]
+    fn refused_in_the_dome(name: &str, fluid: &Fluid, wet: &crate::State) -> [bool; 2] {
+        let transport = crate::Registry::embedded().unwrap().record(name).unwrap().transport.unwrap_or_default();
+        let has = [transport.viscosity.is_some(), transport.conductivity.is_some()];
+        for (prop, model) in [Prop::Viscosity, Prop::Conductivity].into_iter().zip(has) {
+            let want =
+                if model { Error::Undefined { prop, phase: crate::Phase::TwoPhase } } else { Error::NoModel { prop } };
+            assert_eq!(fluid.prop(wet, prop), Err(want), "{name}");
+        }
+        has
+    }
+
+    /// η and λ at `saturated`, a Q = 0 or 1 state, against `phase`'s own state at its T and ρ: within 1e-12, or the same
+    /// error.
+    #[cfg(feature = "fluids-all")]
+    fn saturated_side_is_its_phase(name: &str, fluid: &Fluid, saturated: &crate::State, phase: crate::Phase) {
+        use crate::{Basis, Density, FlashOptions, Input, Temperature};
+        let input =
+            Input::dt(Density::molar(saturated.rho(Basis::Molar)).unwrap(), Temperature::new(saturated.t()).unwrap());
+        let side = fluid.flash(input, &FlashOptions::new().with_phase(phase)).unwrap();
+        for prop in [Prop::Viscosity, Prop::Conductivity] {
+            let (got, want) = (fluid.prop(saturated, prop), fluid.prop(&side, prop));
+            let same = match (&got, &want) {
+                (Ok(a), Ok(b)) => (a / b - 1.0).abs() < 1e-12,
+                _ => got == want,
+            };
+            assert!(same, "{name} {phase:?}, {prop:?}: {got:?}, {want:?}");
+        }
+    }
+
     /// Rot: ROT-010 (map 05 §6, map 10 R18; DIV-0004, its η and λ part). Strictly inside the dome η and λ are
     /// `Undefined { prop, TwoPhase }` for every fluid with a model, where CoolProp evaluates its correlations at the
     /// mixture's density (Water QT(0.5, 500 K): η 1.6048e-5 Pa s, below the saturated vapour's 1.6594e-5). A saturated
@@ -2070,37 +2102,22 @@ pub(crate) mod tests {
     #[cfg(feature = "fluids-all")]
     #[test]
     fn two_phase_transport_is_undefined() {
-        use crate::{Basis, Density, FlashOptions, Input, Phase, Quality, Temperature};
+        use crate::{Density, Input, Phase, Quality, Temperature};
         let registry = crate::Registry::embedded().unwrap();
-        let same = |a: &Result<f64, Error>, b: &Result<f64, Error>| match (a, b) {
-            (Ok(a), Ok(b)) => (a / b - 1.0).abs() < 1e-12,
-            _ => a == b,
-        };
         let (mut saturated_sides, mut wet, mut models) = (0, 0, [0, 0]);
         for f in phasekit_data::FLUIDS {
             let fluid = registry.get(f.name).unwrap();
             let t = Temperature::new(0.8 * fluid.model().critical_point().unwrap().t).unwrap();
             let at = |q: f64| fluid.state(Input::qt(Quality::new(q).unwrap(), t));
-            let transport = registry.record(f.name).unwrap().transport.unwrap_or_default();
-            let has = [transport.viscosity.is_some(), transport.conductivity.is_some()];
             // A pseudo-pure fluid's QT has only Q = 0 and 1.
             if let Ok(state) = at(0.5) {
-                for (prop, model) in [Prop::Viscosity, Prop::Conductivity].into_iter().zip(has) {
-                    let want =
-                        if model { Error::Undefined { prop, phase: Phase::TwoPhase } } else { Error::NoModel { prop } };
-                    assert_eq!(fluid.prop(&state, prop), Err(want), "{}", f.name);
-                }
+                let has = refused_in_the_dome(f.name, fluid, &state);
                 wet += 1;
                 models = [models[0] + usize::from(has[0]), models[1] + usize::from(has[1])];
             }
             for (q, phase) in [(0.0, Phase::Liquid), (1.0, Phase::Gas)] {
                 let Ok(saturated) = at(q) else { continue };
-                let rho = Density::molar(saturated.rho(Basis::Molar)).unwrap();
-                let side = fluid.flash(Input::dt(rho, t), &FlashOptions::new().with_phase(phase)).unwrap();
-                for prop in [Prop::Viscosity, Prop::Conductivity] {
-                    let (got, want) = (fluid.prop(&saturated, prop), fluid.prop(&side, prop));
-                    assert!(same(&got, &want), "{} Q = {q}, {prop:?}: {got:?}, {want:?}", f.name);
-                }
+                saturated_side_is_its_phase(f.name, fluid, &saturated, phase);
                 saturated_sides += 1;
             }
         }
