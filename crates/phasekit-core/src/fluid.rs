@@ -468,7 +468,6 @@ impl Fluid {
             }
             Prop::Prandtl => state.cp(mass)? * self.model.viscosity(state)? / self.model.conductivity(state)?,
             Prop::Pip => self.pip(state)?,
-            // The τ- and δ-scaled α terms land at M10.3.
             Prop::Alphar
             | Prop::DalpharDtau
             | Prop::DalpharDdelta
@@ -476,7 +475,7 @@ impl Fluid {
             | Prop::Dalpha0Dtau
             | Prop::Dalpha0Ddelta
             | Prop::D2alpha0Ddelta2
-            | Prop::D3alpha0Ddelta3 => return Err(Error::NoModel { prop }),
+            | Prop::D3alpha0Ddelta3 => self.alpha_term(state, prop)?,
             Prop::Constant(c) => self.constant(c)?,
         })
     }
@@ -536,6 +535,37 @@ impl Fluid {
             Prop::HmolarIdealGas => r * t * (1.0 + entry(1, 0)?) + gauge.dh(),
             Prop::SmolarIdealGas => r * (entry(1, 0)? - entry(0, 0)?) + gauge.ds(),
             _ => r * t * entry(1, 0)? + gauge.dh(),
+        })
+    }
+
+    /// CoolProp's α outputs (map 01 §4a): ∂^(i+j)α/∂τ^i∂δ^j = A_ij/(τ^i δ^j) of the residual or the ideal part, at one
+    /// phase (a state inside the dome has no α of its own; CoolProp evaluates it at the mixture's mean density), with τ
+    /// and δ at the published reducing state. α⁰ carries the state's gauge as the offset a1 + a2·τ that would give it:
+    /// a1 = −Δs/R, a2 = Δh/(R·T_r), as CoolProp's reference states edit α⁰.
+    fn alpha_term(&self, state: &State, prop: Prop) -> Result<f64, Error> {
+        let one = one_phase(state, prop)?;
+        let reducing = self.info().constants().reducing.ok_or(Error::NoModel { prop })?;
+        let (tau, delta) = (reducing.t / one.t(), one.rho(Basis::Molar) / reducing.rho);
+        let (residual, i, j) = match prop {
+            Prop::Alphar => (true, 0, 0),
+            Prop::DalpharDtau => (true, 1, 0),
+            Prop::DalpharDdelta => (true, 0, 1),
+            Prop::Alpha0 => (false, 0, 0),
+            Prop::Dalpha0Dtau => (false, 1, 0),
+            Prop::Dalpha0Ddelta => (false, 0, 1),
+            Prop::D2alpha0Ddelta2 => (false, 0, 2),
+            _ => (false, 0, 3),
+        };
+        let order = if j == 3 { Order::Three } else { Order::Two };
+        let derivs = self.model.derivs(&one, order).ok_or(Error::NoModel { prop })?;
+        let part = if residual { derivs.residual() } else { derivs.ideal() };
+        let a = part.and_then(|d| d.get(i, j)).ok_or(Error::NoModel { prop })?;
+        let scaled = a / (crate::math::powi(tau, i as i32) * crate::math::powi(delta, j as i32));
+        let (gauge, r) = (state.gauge(), state.gas_constant());
+        Ok(match prop {
+            Prop::Alpha0 => scaled - gauge.ds() / r + gauge.dh() / (r * reducing.t) * tau,
+            Prop::Dalpha0Dtau => scaled + gauge.dh() / (r * reducing.t),
+            _ => scaled,
         })
     }
 
@@ -858,6 +888,39 @@ mod tests {
         assert_eq!(fluid.prop(&state, Prop::Constant(C::TReducing)), Ok(382.513));
         assert_eq!(fluid.prop(&state, Prop::Tau), Ok(382.513 / 300.0));
         assert_eq!(fluid.prop(&state, Prop::Delta), Ok(5_000.0 / 4290.0));
+    }
+
+    /// M10.3 (map 01 §4a): the α outputs are A_ij/(τ^i δ^j) at the published reducing state, and α⁰ carries the gauge:
+    /// in any gauge, h/RT = 1 + τ(α⁰_τ + α^r_τ) + δα^r_δ and s/R = τ(α⁰_τ + α^r_τ) − α⁰ − α^r rebuild the state's h and s
+    /// from them, ∂α⁰/∂δ is 1/δ, and inside the dome every α output is undefined.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn alpha_terms_scale_and_carry_the_gauge() {
+        let registry = crate::Registry::from_embedded(crate::DataSet::Parity).unwrap();
+        let native = registry.get("Water").unwrap();
+        for gauge in [Gauge::NATIVE, Gauge::new(1_234.5, -6.7).unwrap()] {
+            let fluid = native.with_gauge(gauge);
+            let state =
+                fluid.state(Input::dt(Density::molar(10.0).unwrap(), Temperature::new(500.0).unwrap())).unwrap();
+            let a = |p: Prop| fluid.prop(&state, p).unwrap();
+            let reducing = fluid.info().constants().reducing.unwrap();
+            let (tau, delta) = (reducing.t / 500.0, 10.0 / reducing.rho);
+            let (r, close) = (state.gas_constant(), |x: f64, y: f64| (x - y).abs() <= 1e-12 * x.abs().max(y.abs()));
+            let h = r
+                * 500.0
+                * (1.0 + tau * (a(Prop::Dalpha0Dtau) + a(Prop::DalpharDtau)) + delta * a(Prop::DalpharDdelta));
+            let s = r * (tau * (a(Prop::Dalpha0Dtau) + a(Prop::DalpharDtau)) - a(Prop::Alpha0) - a(Prop::Alphar));
+            assert!(close(h, state.h(Basis::Molar)) && close(s, state.s(Basis::Molar)), "{gauge:?}: {h} {s}");
+            assert!(
+                close(a(Prop::Dalpha0Ddelta), 1.0 / delta) && close(a(Prop::D2alpha0Ddelta2), -1.0 / (delta * delta))
+            );
+            assert!(close(a(Prop::D3alpha0Ddelta3), 2.0 / (delta * delta * delta)));
+        }
+        let wet = native.state(Input::qt(Quality::new(0.5).unwrap(), Temperature::new(500.0).unwrap())).unwrap();
+        assert_eq!(
+            native.prop(&wet, Prop::Alphar),
+            Err(Error::Undefined { prop: Prop::Alphar, phase: Phase::TwoPhase })
+        );
     }
 
     /// Rot: ROT-036 (map 02 §5 row 7, map 11 F8). CoolProp keys its melting data by fluid name in one process-global

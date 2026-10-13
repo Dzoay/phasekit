@@ -18,7 +18,7 @@ mod props_rows;
 #[path = "common/sweep.rs"]
 mod sweep;
 
-use props_rows::{PENDING, PropsCheck};
+use props_rows::PropsCheck;
 use sweep::Failures;
 
 /// The full set's root, fixed at compile time (clippy bans run-time environment reads, D17).
@@ -210,7 +210,8 @@ fn capability_matrix_19x2_all_fluids() {
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures-full/coolprop-8.0.0/props/<Fluid>.csv (PLAN.md M10.2, the M10 exit gate's nightly
-/// part): every fluid's 85 outputs at 200 states (100 DT, 100 QT) and its 28 trivial outputs through `Props1SI`, by name,
+/// part): every fluid's 85 outputs and 22 derivative strings at 200 states (100 DT, 100 QT) and its 28 trivial outputs
+/// through `Props1SI`, by name,
 /// under the rules of the core subset's `all_85_outputs_match_oracle_or_a_typed_error` (`common/props_rows.rs`).
 #[test]
 #[ignore = "nightly: reads the full props set (cargo xtask oracle --kind props --tier full)"]
@@ -225,5 +226,5 @@ fn props_match_oracle_on_the_nightly_grid() {
     let shown = check.failures.iter().take(20).collect::<Vec<_>>();
     let (total, headroom) = (check.failures.len(), check.headroom);
     assert_eq!(shown, Vec::<&String>::new(), "{total} failures; the rest within {headroom:.3} of their bounds");
-    assert_eq!(check.pending, 136 * 200 * PENDING.len());
+    assert!(check.compared.values().sum::<usize>() > 136 * 200 * 60, "{:?}", check.compared.len());
 }

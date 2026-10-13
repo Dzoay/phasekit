@@ -219,7 +219,8 @@ Gibbs solid. Order ≥ 3 and the ideal/residual parts come from `ThermoModel::de
 The second partials, the fundamental derivative, κ_T and β come from order 3 (M7.10); Cv, Cp, w, τ and δ as derivative
 variables are deferred (user decision OD1). CoolProp's state-independent outputs are `Prop::Constant(Constant)`, from
 the model's limits and critical point and its data's published constants (`FluidInfo::constants`). The strict
-`d(X)/d(Y)|Z` grammar and the 8 α-term outputs arrive in compat at M10.3.
+`d(X)/d(Y)|Z` and `d(d(X)/d(Y)|Z)/d(W)|V` grammar is compat's (`parse_derivative`), over the 12 variables; the 8 α-term
+outputs divide A_ij by τ^i δ^j at the published reducing state, at one phase.
 
 ### 3.8 Registry, data sources, flash, batch, saturation
 
@@ -840,7 +841,7 @@ VTPR/UNIFAC, mixture transport (map 05 U14), an expression DSL (map 05 U11).
 | `set_reference_state` (global) | `Fluid::with_reference` → new handle; `Registry::with_reference(name, ..)` → new registry | Value, not mutation (map 15); reaches strings, `pk_registry_with_reference` and JS `withReference` |
 | `first_partial_deriv`, `d(X)/d(Y)\|Z` strings | `Prop::Partial(Partial { of, wrt, at })`, `State::partial` | Second partials M7; string grammar M10 (§3.7) |
 | `PropsSImulti`, `fast_evaluate` | `batch::evaluate` | Per-cell status; point-major buffers in Rust, C and NumPy `(N, M)` |
-| low-level `alphar`, `dalphar_dtau`; `Bvirial` | `fluid.model().helmholtz()?.residual(t, rho, order)`; `zero_density(t)` | Reducing-invariant A_ij; CoolProp's τ/δ-scaled forms divide by τ^i δ^j at M10 *(inference: needs the published reducing constants as metadata)* |
+| low-level `alphar`, `dalphar_dtau`; `Bvirial` | `fluid.model().helmholtz()?.residual(t, rho, order)`; `zero_density(t)` | Reducing-invariant A_ij; CoolProp's τ/δ-scaled forms are `Prop::Alphar` and the like, A_ij/(τ^i δ^j) at the published reducing state (`FluidInfo::constants`) |
 | CoolPropLib.h | `phasekit-capi`: `pk_*`, plus the Tier A shim (`coolproplib-shim`) at v0.1 | `pk_*`: pinned string keys, generational `u64` handles, lengths on every buffer, `catch_unwind`, thread-local error, FP guard (map 11 F1-F5, F16). Shim: CoolProp's names and signatures, v8.0.0 integer codes, process-wide `errstring` (D11) |
 | `HAPropsSI` | Tier A shim stub until the humid-air milestone | Returns `_HUGE` and sets a documented "not available" `errstring`; the symbol exists so hosts that bind every symbol at load time still load (D11) |
 | Emscripten JS build | `phasekit-wasm` (wasm-bindgen, baseline + `simd128`; `fluids-core` + `withPack`) | First browser build of any CoolProp port (P12) |

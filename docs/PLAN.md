@@ -434,13 +434,8 @@ version, Node.js LTS (wasm-bindgen-test), cargo-about, cargo-semver-checks.
 |---|---|
 | M10.1 | IIR, ASHRAE, NBP and `Native` reference states, the `refstate` kind |
 | M10.2 | CoolProp's 85 outputs by name (the 8 α terms `NoModel` until M10.3), Props1SI, PhaseSI, fill policies, blob v7's published constants, the `props` kind |
+| M10.3 | The strict `d(X)/d(Y)\|Z` and `d(d(X)/d(Y)\|Z)/d(W)\|V` grammar, the 8 τ- and δ-scaled α outputs, the `props` kind's 22 derivative strings |
 
-- **M10.3 Derivative grammar and α-term outputs.** *Failing tests:* `first_and_second_derivative_strings_match_oracle`
-  (`d(X)/d(Y)|Z`, `d(d(X)/d(Y)|Z)/d(W)|V`; `CoolProp-Tests.cpp:1744, 1829`), `alpha_term_outputs_match_oracle` (the 8
-  α-term outputs, τ/δ-scaled using the published reducing constants as metadata; ARCHITECTURE.md §12). *Do:* the
-  `props` kind's 8 α-term outputs, `NoModel` since M10.2 (`tests/common/props_rows.rs` `PENDING`), are compared there and
-  in the nightly sweep; inside the dome the oracle evaluates them at the mixture's mean density (as its Z, DIV-0044).
-  *Done when:* green, and the 85-output gate compares all 85.
 - **M10.4 `pk_*` C ABI.** *Failing tests:* `c_smoke` (compiles `crates/phasekit-capi/tests/c/smoke.c` against the
   cdylib and the committed header with the platform C compiler that the `cc` crate finds (a dev-dependency of
   `phasekit-capi`, tier T3 *(inference: `cc` is not in the dependencies research; `std::process::Command` with an
