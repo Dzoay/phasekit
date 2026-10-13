@@ -22,6 +22,7 @@ mod transport_rows;
 /// Every proof function, by register id.
 const PROOFS: &[(&str, fn())] = &[
     ("DIV-0001", div_0001),
+    ("DIV-0002", div_0002),
     ("DIV-0003", div_0003),
     ("DIV-0004", div_0004),
     ("DIV-0005", div_0005),
@@ -53,6 +54,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0033", div_0033),
     ("DIV-0034", div_0034),
     ("DIV-0035", div_0035),
+    ("DIV-0036", div_0036),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -68,6 +70,42 @@ fn record(fluid: &str, set: DataSet) -> FluidRecord {
     let mut record = phasekit_core::internal::record(Registry::embedded().unwrap(), fluid).unwrap();
     record.apply(set).unwrap();
     record
+}
+
+/// Whether `model`'s p_melt at row `row` of a printed melting table holds its p, MPa, to its printed digits: one of the
+/// curve's pressures where two branches hold the row's T.
+fn melting_row_holds(table: &Fixture<'_>, row: usize, model: &dyn ThermoModel) -> bool {
+    let t = table.value(row, "T").unwrap();
+    let mpa = match model.melting_pressure(t) {
+        Ok(p) => vec![p / 1e6],
+        Err(Error::Ambiguous { roots }) => roots.as_slice().iter().map(|p| p / 1e6).collect(),
+        Err(_) => Vec::new(),
+    };
+    mpa.into_iter().any(|p| table.check(row, "p", p).is_ok())
+}
+
+/// DIV-0002 (`UsePaper`; map 10 R10, ROT-051): v8.0.0 gives Water's ice VI melting p₀ as 623.4 MPa, IAPWS R14-08 as
+/// 632.4 MPa. (1) Under `Corrected` R14-08's Table 3 rows on ice Ih, III, V and VI are the curve's to their printed
+/// digits (one of its two pressures where two branches hold T); its ice VII row at 550 K lies beyond the curve's 355 K
+/// and is refused, and its last row is the sublimation line. (2) The oracle misses the ice VI row: p_melt(320 K) =
+/// 1337.45 MPa against 1356.76, T_melt(1356.76 MPa) = 320.965 K. (3) `Parity` is the oracle's there within `Prop`, as on
+/// every `melt` row (`tests/melting.rs::melting_matches_oracle`).
+fn div_0002() {
+    let path = "paper/Water/IAPWS-R14-08-2011.3.csv";
+    let table = Fixture::parse(path, table_text(path).unwrap()).unwrap();
+    let (corrected, parity) = (Registry::embedded().unwrap(), Registry::from_embedded(DataSet::Parity).unwrap());
+    let (corrected, parity) = (corrected.get("Water").unwrap().model(), parity.get("Water").unwrap().model());
+    for row in 0..4 {
+        assert!(melting_row_holds(&table, row, corrected), "row {row}");
+    }
+    let beyond = DomainError::AboveMaxTemperature { t: 550.0, t_max: 355.0 };
+    assert_eq!(corrected.melting_pressure(550.0), Err(beyond.into()));
+    assert!(!melting_row_holds(&table, 3, parity), "the oracle's data misses ice VI");
+    let (p_320, t_1356) = (fact("div0002_melting_p_320k"), fact("div0002_melting_t_1356.76mpa"));
+    assert!((p_320 / 1e6 - 1356.76).abs() > 10.0 && (t_1356 - 320.0).abs() > 0.9, "{p_320} {t_1356}");
+    let same = |a: f64, b: f64| (a / b - 1.0).abs() < 1e-12;
+    assert!(same(parity.melting_pressure(320.0).unwrap(), p_320));
+    assert!(same(parity.melting_temperature(1356.76e6).unwrap(), t_1356));
 }
 
 /// DIV-0004 (`SkipOracle`; map 10 R18). Part M5: c_p and c_v inside the dome are `Undefined { prop, TwoPhase }`, a
@@ -823,4 +861,22 @@ fn div_0035() {
         let lambda = fluid.prop(&at(t, rho), Prop::Conductivity);
         assert!(lambda.as_ref().is_ok_and(|l| l.is_finite() && *l > 0.0), "{t} K, {rho} mol/m³: {lambda:?}");
     }
+}
+
+/// DIV-0036 (`Investigate`; map 02 §6 row 5): Hydrogen's and OrthoHydrogen's melting line, one Simon fit cited to
+/// Datchi et al. 2000 and applied from 13.957 K, is the oracle's to `Prop`: 23.6 MPa at Hydrogen's triple point, over
+/// 3000 times its triple pressure, and 44.9 MPa at 20 K, twice ParaHydrogen's 22.7 MPa; OrthoHydrogen's copy starts
+/// below its own triple point. Resolution: Datchi 2000's validity range, and a curve for the low temperatures.
+fn div_0036() {
+    let registry = &Registry::from_embedded(DataSet::Parity).unwrap();
+    let p = |name: &str, t: f64| registry.get(name).unwrap().model().melting_pressure(t).unwrap();
+    let same = |a: f64, b: f64| (a / b - 1.0).abs() < 1e-12;
+    assert!(same(p("Hydrogen", 13.957), fact("div0036_melting_p_hydrogen_t13.957")));
+    assert!(same(p("Hydrogen", 20.0), fact("div0036_melting_p_hydrogen_t20")));
+    assert!(same(p("ParaHydrogen", 20.0), fact("div0036_melting_p_parahydrogen_t20")));
+    assert!(same(p("OrthoHydrogen", 14.008), fact("div0036_melting_p_orthohydrogen_t14.008")));
+    assert!(p("Hydrogen", 13.957) > 3000.0 * fact("div0036_ptriple_hydrogen"));
+    assert!(p("Hydrogen", 20.0) > 1.9 * p("ParaHydrogen", 20.0));
+    let ortho = phasekit_core::internal::record(registry, "OrthoHydrogen").unwrap();
+    assert!(ortho.melting[0].t_min < ortho.limits.t_triple().unwrap(), "{:?}", ortho.limits);
 }

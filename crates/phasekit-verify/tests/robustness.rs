@@ -3,15 +3,17 @@
 //! their issue numbers; a few follow the test's recipe from the fluid's critical or triple point. Each flash returns a
 //! state that reproduces its inputs, or a typed error, and never panics. Each case also names which of those it gives,
 //! so a regression either way fails. The issues' melting-line refusals (#2639: Water 5 K below its melting line up to
-//! pmax; #1936: CO₂ below its melting line at the triple point's temperature) need melting lines, which arrive at M8;
-//! #1098's state lies below Water's triple point and is refused today. The D+X and HS cases of
+//! pmax; #1936: CO₂ below its melting line at the triple point's temperature) are `BelowMeltingLine` since M8.11 where
+//! they lie above the triple point's temperature; #1098's state lies below Water's triple point and is refused. The D+X and HS cases of
 //! `CoolProp-Tests-HSU_D.cpp` and the P+X cases of `-PXFlash.cpp` and `-PXcdj.cpp` are in `tests/flash.rs`.
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use phasekit_core::{Basis, DataSet, Error, FlashOptions, Fluid, Input, Pair, Phase, Registry, RootPolicy, State, Var};
+use phasekit_core::{
+    Basis, DataSet, DomainError, Error, FlashOptions, Fluid, Input, Pair, Phase, Registry, RootPolicy, State, Var,
+};
 
 /// What a corpus state gives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,6 +26,8 @@ enum Want {
     Ambiguous,
     /// A typed refusal.
     Refused,
+    /// `BelowMeltingLine`: a solid (M8.11).
+    Solid,
 }
 
 /// One corpus state: its issue (or test file), fluid, pair, values in the pair's name order and their basis, an
@@ -57,11 +61,11 @@ impl Case {
 }
 
 /// The corpus. Cases that follow a recipe read the fluid's critical point or its curve's lowest point.
-#[expect(clippy::too_many_lines, reason = "stays: a data table, the corpus's 193 cases")]
+#[expect(clippy::too_many_lines, reason = "stays: a data table, the corpus's 206 cases")]
 fn corpus(registry: &Registry) -> Vec<Case> {
     use Pair::{DP, DQ, DS, DT, HP, HQ, HS, PQ, PS, PT, PU, QS, QT, ST};
     use Phase::{Gas, Liquid, Supercritical, SupercriticalGas, SupercriticalLiquid, TwoPhase};
-    use Want::{Ambiguous, In, Refused, State};
+    use Want::{Ambiguous, In, Refused, Solid, State};
     // CoolProp's critical point with its superancillaries on (the default): the curve's top, which labels states here
     // too; the published one where a fluid has no curve.
     let critical = |name: &str| match phasekit_core::internal::record(registry, name).unwrap().superancillary_curve() {
@@ -225,6 +229,22 @@ fn corpus(registry: &Registry) -> Vec<Case> {
         let p = registry.get("R32").unwrap().state(Input::new(QT, 1.0, t, Basis::Molar).unwrap());
         corpus.push(case("#2247", "R32", PT, p.map_or(f64::NAN, |s| s.p()), t + 1.0, In(Gas)));
     }
+    // #2639 (:4074): Water 5 K below its melting line from just above its triple point's pressure to pmax: below
+    // 273.16 K, under the triple point's temperature; on the ice VI branch, from 777 MPa, below its melting line.
+    let water = registry.get("Water").unwrap();
+    let (p_triple, p_max) =
+        (611.655 * 1.0001, phasekit_core::internal::record(registry, "Water").unwrap().limits.p_max());
+    for i in 0..10 {
+        let p = p_triple + (p_max - p_triple) * f64::from(i) / 9.0;
+        let t = water.model().melting_temperature(p).unwrap() - 5.0;
+        corpus.push(case("#2639", "Water", PT, p, t, if t < 273.16 { Refused } else { Solid }));
+    }
+    // #1936 (:4089): CO₂ below its melting line at its triple point's temperature, between its triple and critical
+    // pressures and at 5 pc, and at 100 MPa and 230 K.
+    let (t_triple, p_triple, p_c) = (216.592, 517_950.0, 7_377_300.0);
+    for (p, t) in [(0.5 * (p_triple + p_c), t_triple), (5.0 * p_c, t_triple), (1e8, 230.0)] {
+        corpus.push(case("#1936", "CarbonDioxide", PT, p, t, Solid));
+    }
     corpus
 }
 
@@ -300,6 +320,7 @@ fn check(fluid: &Fluid, case: &Case) -> Option<String> {
         }),
         (Err(Error::Ambiguous { .. }), _) => false,
         (Err(_), Want::Refused) => true,
+        (Err(Error::Domain(DomainError::BelowMeltingLine { t, t_melt })), Want::Solid) => t < t_melt,
         _ => false,
     };
     if holds { None } else { Some(format!("{result:?}")) }
