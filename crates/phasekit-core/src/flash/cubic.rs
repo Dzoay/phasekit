@@ -38,30 +38,31 @@ impl Cubic {
     }
 
     /// The density at (T, p) of the cubic's largest root in Z, mol/m³: the gas's below its critical temperature, its
-    /// only one above. Newton from the roots' Cauchy bound, which lies above the cubic's inflection, falls monotonically
-    /// onto the largest root.
+    /// only one above. Above that root the cubic rises and is convex (its local minimum and its inflection lie below
+    /// it), so Newton from the roots' Cauchy bound falls monotonically onto it; it stops where rounding no longer lets
+    /// it fall. The root lies above B, where the cubic is −2B².
     pub(super) fn density(&self, t: f64, p: f64) -> Option<f64> {
-        let ([c2, c1, c0], big_b) = self.cubic(t, p);
+        let [c2, c1, c0] = self.cubic(t, p);
         let mut z = 1.0 + c2.abs().max(c1.abs()).max(c0.abs());
         for _ in 0..MAX_ITER {
-            let step = (((z + c2) * z + c1) * z + c0) / ((3.0 * z + 2.0 * c2) * z + c1);
-            z -= step;
-            if !z.is_finite() {
+            let next = z - (((z + c2) * z + c1) * z + c0) / ((3.0 * z + 2.0 * c2) * z + c1);
+            if !next.is_finite() {
                 return None;
             }
-            if step.abs() <= 1e-10 * z {
-                return (z > big_b).then(|| p / (z * self.r * t));
+            if next >= z {
+                return Some(p / (z * self.r * t));
             }
+            z = next;
         }
         None
     }
 
-    /// The coefficients of Z³ + c2·Z² + c1·Z + c0 = 0 at (T, p), and B = bp/(RT).
-    fn cubic(&self, t: f64, p: f64) -> ([f64; 3], f64) {
+    /// The coefficients [c2, c1, c0] of Z³ + c2·Z² + c1·Z + c0 = 0 at (T, p), with A = ap/(RT)² and B = bp/(RT).
+    fn cubic(&self, t: f64, p: f64) -> [f64; 3] {
         let rt = self.r * t;
         let (big_a, big_b) = (self.a(t).0 * p / (rt * rt), self.b * p / rt);
         let c1 = big_a - 3.0 * big_b * big_b - 2.0 * big_b;
-        ([big_b - 1.0, c1, big_b * big_b * big_b + big_b * big_b - big_a * big_b], big_b)
+        [big_b - 1.0, c1, big_b * big_b * big_b + big_b * big_b - big_a * big_b]
     }
 
     /// x − x_ig(T, p) at (T, p) and the cubic's density `rho` there: h's and u's in J/mol, s's in J/(mol K).
@@ -83,25 +84,67 @@ impl Cubic {
 mod tests {
     use super::*;
 
-    /// CO₂'s cubic: at a supercritical (T, p) and at a gas's below T_c its Z is a root of the cubic, the largest (the
-    /// cubic is positive above it), and above B; at a dilute gas's (T, p) it is the ideal gas, whose departures vanish.
+    const R: f64 = 8.314_462_618;
+
+    /// CO₂'s cubic (critical point and acentric factor from its EOS's metadata).
+    fn co2() -> Cubic {
+        Cubic::new(304.128_2, 7.377_3e6, 0.223_94, R)
+    }
+
+    /// CO₂'s cubic: at supercritical states, a gas's below T_c, a dense hot gas's (whose root lies above every
+    /// coefficient's size) and the critical point, its Z is a root of the cubic, the largest (the cubic is positive above
+    /// it), and above B; at a dilute gas's (T, p) it is the ideal gas, whose departures vanish.
     #[test]
     fn the_density_is_the_largest_root_and_dilute_is_ideal() {
-        let (r, t_c, p_c) = (8.314_462_618, 304.128_2, 7.377_3e6);
-        let cubic = Cubic::new(t_c, p_c, 0.223_94, r);
-        for (t, p) in [(320.0, 12e6), (350.0, 30e6), (280.0, 2e6), (t_c, p_c)] {
-            let ([c2, c1, c0], big_b) = cubic.cubic(t, p);
+        let cubic = co2();
+        for (t, p) in [(320.0, 12e6), (350.0, 30e6), (280.0, 2e6), (900.0, 30e6), (cubic.t_c, 7.377_3e6)] {
+            let [c2, c1, c0] = cubic.cubic(t, p);
             let f = |z: f64| ((z + c2) * z + c1) * z + c0;
-            let z = p / (cubic.density(t, p).unwrap_or(f64::NAN) * r * t);
-            assert!(f(z).abs() < 1e-9 && z > big_b, "{t} {p}: Z {z}, f {}", f(z));
+            let z = p / (cubic.density(t, p).unwrap_or(f64::NAN) * R * t);
+            assert!(f(z).abs() < 1e-12 && z > cubic.b * p / (R * t), "{t} {p}: Z {z}, f {}", f(z));
             assert!((1..=100).all(|k| f(z * (1.0 + 0.01 * f64::from(k))) > 0.0), "{t} {p}: a root above Z {z}");
         }
         let (t, p) = (900.0, 1.0);
         let rho = cubic.density(t, p).unwrap_or(f64::NAN);
-        assert!((rho * r * t / p - 1.0).abs() < 1e-6, "{rho}");
-        for (var, scale) in [(Caloric::H, r * t), (Caloric::U, r * t), (Caloric::S, r)] {
+        assert!((rho * R * t / p - 1.0).abs() < 1e-6, "{rho}");
+        for (var, scale) in [(Caloric::H, R * t), (Caloric::U, R * t), (Caloric::S, R)] {
             let departure = cubic.departure(var, t, p, rho).unwrap_or(f64::NAN);
             assert!(departure.abs() < 1e-6 * scale, "{var:?}: {departure}");
+        }
+    }
+
+    /// The departures are the cubic's own: u − u_ig = ∫₀^ρ (p − T·∂p/∂T)/ρ′² dρ′ and s − s_ig = R ln Z −
+    /// ∫₀^ρ (∂p/∂T − ρ′R)/ρ′² dρ′ along the isotherm of p = ρRT/(1 − bρ) − aρ²/(1 + 2bρ − b²ρ²), h − h_ig = u − u_ig +
+    /// RT(Z − 1), by Simpson's rule on 2000 intervals, with da/dT by central differences of a(T): within 1e-7 of RT (R
+    /// for s) at CO₂'s gas, supercritical and dense states.
+    #[test]
+    fn departures_integrate_the_cubics_own_pressure() {
+        let cubic = co2();
+        for (t, p) in [(280.0, 2e6), (320.0, 12e6), (350.0, 30e6), (900.0, 30e6)] {
+            let rho = cubic.density(t, p).unwrap_or(f64::NAN);
+            let (a, h) = (cubic.a(t).0, 1e-4 * t);
+            let da_dt = (cubic.a(t + h).0 - cubic.a(t - h).0) / (2.0 * h);
+            let d = |r: f64| 1.0 + 2.0 * cubic.b * r - cubic.b * cubic.b * r * r;
+            let simpson = |g: &dyn Fn(f64) -> f64| {
+                let n = 2000;
+                let w = rho / f64::from(n);
+                let sum: f64 = (0..=n)
+                    .map(|k| f64::from(if k == 0 || k == n { 1 } else { 2 + 2 * (k % 2) }) * g(w * f64::from(k)))
+                    .sum();
+                sum * w / 3.0
+            };
+            let u = simpson(&|r| -(a - t * da_dt) / d(r));
+            let s_res = -simpson(&|r| R * cubic.b / (1.0 - cubic.b * r) - da_dt / d(r));
+            let z = p / (rho * R * t);
+            let want = [
+                (Caloric::U, u, R * t),
+                (Caloric::H, u + R * t * (z - 1.0), R * t),
+                (Caloric::S, s_res + R * math::ln(z), R),
+            ];
+            for (var, value, scale) in want {
+                let got = cubic.departure(var, t, p, rho).unwrap_or(f64::NAN);
+                assert!((got - value).abs() < 1e-7 * scale, "{t} {p} {var:?}: {got} against {value}");
+            }
         }
     }
 }

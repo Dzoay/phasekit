@@ -144,12 +144,12 @@ fn generic_sat_p(fluid: &PureFluid, p: f64, t_low: f64) -> Result<Option<(SatPai
 /// (`ends`), the side of the dome it lies on (`liquid`: the root PT takes at exactly psat), and that saturated end's
 /// (T, ρ) (`edge`). A span never reaches into a pseudo-pure dome: its saturated end is the bubble or dew temperature,
 /// whose x it is given.
-struct Span {
-    lo: f64,
-    hi: f64,
-    ends: (Option<f64>, Option<f64>),
-    liquid: bool,
-    edge: Option<(f64, f64)>,
+pub(super) struct Span {
+    pub(super) lo: f64,
+    pub(super) hi: f64,
+    pub(super) ends: (Option<f64>, Option<f64>),
+    pub(super) liquid: bool,
+    pub(super) edge: Option<(f64, f64)>,
 }
 
 /// The single-phase state of x on `span` of the isobar at p ([`Strategy::Isobar`]): Newton in (T, ln ρ)
@@ -236,7 +236,10 @@ fn newton_t_rho(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOpt
         let (p_t, p_u) = (rho * r * (b.a01 - b.a11), rho * r * t * (2.0 * b.a01 + b.a02));
         let (x_t, x_u) = var.jacobian(r, t, &b);
         let det = p_t * x_u - p_u * x_t;
-        if !(p_u > 0.0 && det.is_finite() && det != 0.0) {
+        // An iterate where the model is mechanically unstable ends it: Peng and Robinson's seed can lie inside the
+        // model's spinodal near its critical point (R32 at 5.95 MPa and 351 K). A singular or non-finite step leaves T
+        // non-finite, which the span refuses below.
+        if p_u <= 0.0 {
             return None;
         }
         let (step_t, step_u) = ((dx * p_u - dp * x_u) / det, (dp * x_t - dx * p_t) / det);
@@ -263,7 +266,7 @@ const NEWTON_TOL: f64 = 1e-13;
 
 /// The branch of PT at (p, T) on the span's side, if the state (T, ρ) with total bundle `b` is that branch's and passes
 /// [`isobar`]'s acceptance gate: ρ within the branch's densities, p and x reproduced, the state stable.
-fn pt_state(
+pub(super) fn pt_state(
     fluid: &PureFluid,
     (p, x, var): (f64, f64, Caloric),
     opts: &FlashOptions,
@@ -288,9 +291,9 @@ fn pt_state(
 
 /// Peng and Robinson's (T, ρ) at (p, x) on `span` ([`Cubic`]): the T where the model's own ideal-gas x at (T, p) plus
 /// the cubic's departure is x, by Newton on a numerical slope kept within the span, from the critical temperature (the
-/// span's nearer end outside it). `None` without a critical point or an acentric factor, or where the cubic has no
-/// root.
-fn cubic_seed(fluid: &PureFluid, p: f64, x: f64, var: Caloric, span: &Span) -> Option<(f64, f64)> {
+/// span's nearer end outside it). `None` without a critical point or an acentric factor, where the cubic has no root,
+/// where x falls as T rises, or where it does not converge.
+pub(super) fn cubic_seed(fluid: &PureFluid, p: f64, x: f64, var: Caloric, span: &Span) -> Option<(f64, f64)> {
     let eos = fluid.eos();
     let (r, crit) = (eos.gas_constant(), fluid.critical_point()?);
     let cubic = Cubic::new(crit.t, crit.p, fluid.info().constants().acentric?, r);
@@ -302,10 +305,10 @@ fn cubic_seed(fluid: &PureFluid, p: f64, x: f64, var: Caloric, span: &Span) -> O
     for _ in 0..SEED_ITER {
         let (at, beside) = (residual(t)?, residual(t * (1.0 + SEED_STEP))?);
         let slope = (beside - at) / (t * SEED_STEP);
-        if slope.is_nan() || slope <= 0.0 {
+        if slope <= 0.0 {
             return None;
         }
-        let next = (t - at / slope).clamp(span.lo.max(0.5 * t), span.hi.min(2.0 * t));
+        let next = (t - at / slope).clamp(span.lo, span.hi);
         if (next - t).abs() <= SEED_TOL * t {
             return Some((next, cubic.density(next, p)?));
         }

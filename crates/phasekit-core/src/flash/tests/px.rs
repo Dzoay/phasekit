@@ -1,6 +1,10 @@
 //! P+X along the isobar (PLAN.md M7.3).
 
 use super::*;
+#[cfg(feature = "fluids-all")]
+use crate::flash::cubic::Cubic;
+#[cfg(feature = "fluids-all")]
+use crate::flash::isobar::{Span, cubic_seed, pt_state};
 
 /// The P+X inputs of `state`, molar: (p, h), (p, s) and (p, u).
 #[cfg(feature = "fluids-all")]
@@ -74,6 +78,62 @@ fn pxcdj_named_regressions() {
     ];
     let checked: usize = cases.iter().map(|&(name, t, p)| round_trips(&embedded(name), p, t)).sum();
     assert_eq!(checked, 3 * cases.len());
+}
+
+/// Issue #143: where Peng and Robinson's seed lies inside the model's spinodal, Newton in (T, ln ρ) stops at its first
+/// iterate and the search in T answers: R32's supercritical liquid at 5.95 MPa and 351.0 K, just above its critical
+/// point (5.782 MPa, 351.255 K), where the cubic's density is the model's unstable one.
+#[cfg(feature = "fluids-all")]
+#[test]
+fn p_x_searches_in_t_where_the_cubic_seeds_an_unstable_state() {
+    let r32 = embedded("R32");
+    let truth = r32.state(pt(5_954_428.977_780_855, 351.001_875)).unwrap();
+    for input in p_x(&truth) {
+        let back = r32.state(input).unwrap();
+        assert!((back.t() / truth.t() - 1.0).abs() < 1e-9 && back.path().strategy == Strategy::Isobar, "{back:?}");
+    }
+}
+
+/// Issue #143: Newton in (T, ln ρ) keeps a state only if it is PT's at its (p, T) and reproduces p and x: Water's
+/// compressed liquid at 5 MPa and 320 K is PT's liquid for its own h, and refused for an h 1 J/mol away.
+#[cfg(feature = "fluids-all")]
+#[test]
+fn p_x_newton_keeps_only_a_state_that_reproduces_x() {
+    let water = record_of("Water").compile().unwrap();
+    let (p, t) = (5e6, 320.0);
+    let rho = embedded("Water").state(pt(p, t)).unwrap().rho(Basis::Molar);
+    let b = total(&water, t, rho).unwrap();
+    let h = Caloric::H.at(water.eos().gas_constant(), t, &b);
+    let span = Span { lo: 273.16, hi: 537.0, ends: (None, None), liquid: true, edge: None };
+    let opts = FlashOptions::new();
+    let branch = pt_state(&water, (p, h, Caloric::H), &opts, &span, (t, rho, &b)).map(|branch| branch.phase);
+    assert_eq!(branch, Some(Phase::Liquid));
+    assert!(pt_state(&water, (p, h + 1.0, Caloric::H), &opts, &span, (t, rho, &b)).is_none());
+}
+
+/// Issue #143: the seed on a span without a saturated end is Peng and Robinson's T at (p, x), where the model's ideal
+/// gas plus the cubic's departure is x (to 1e-9 of RT), and its density there: Methane at 10 MPa, above its critical
+/// pressure, for the h, s and u of its state at 250 K, which the seed's T lies within 3 % of.
+#[cfg(feature = "fluids-all")]
+#[test]
+fn the_cubic_seed_solves_the_cubics_x() {
+    let methane = record_of("Methane").compile().unwrap();
+    let (p, t) = (10e6, 250.0);
+    let truth = embedded("Methane").state(pt(p, t)).unwrap();
+    let (t_low, t_high) = t_search(&methane);
+    let span = Span { lo: t_low, hi: t_high, ends: (None, None), liquid: false, edge: None };
+    let (eos, crit) = (methane.eos(), methane.critical_point().unwrap());
+    let r = eos.gas_constant();
+    let cubic = Cubic::new(crit.t, crit.p, methane.info().constants().acentric.unwrap(), r);
+    let m = Basis::Molar;
+    for (var, x) in [(Caloric::H, truth.h(m)), (Caloric::S, truth.s(m)), (Caloric::U, truth.u(m))] {
+        let (t_seed, rho) = cubic_seed(&methane, p, x, var, &span).unwrap();
+        let ideal = eos.ideal(t_seed, p / (r * t_seed), crate::derivs::Order::Two).bundle().unwrap();
+        let cubic_x = var.at(r, t_seed, &ideal) + cubic.departure(var, t_seed, p, rho).unwrap();
+        let scale = if var == Caloric::S { r } else { r * t_seed };
+        assert!((cubic_x - x).abs() < 1e-9 * scale && rho == cubic.density(t_seed, p).unwrap(), "{var:?}: {t_seed}");
+        assert!((t_seed / t - 1.0).abs() < 0.03, "{var:?}: {t_seed} K");
+    }
 }
 
 /// Issue #143: under an imposed phase P+X's Newton in (T, ln ρ) does not run (its branch check is PT's unimposed
