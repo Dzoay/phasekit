@@ -430,11 +430,10 @@ release v0.1 (D11, ARCHITECTURE.md §12). **Prerequisites.** M9; the shim librar
 `set_config_*` behaviour (user decisions P1 and P6); tools: cbindgen CLI, `wasm-bindgen-cli` matching the crate
 version, Node.js LTS (wasm-bindgen-test), cargo-about, cargo-semver-checks.
 
-- **M10.1 IIR, ASHRAE, NBP.** *Failing tests:* `reference_states_hit_their_check_values` (n-Propane, R134a, R124;
-  class `RefAnchor`, 1e-8 absolute; map 01 §8, `CoolProp-Tests.cpp:2263-2436`), `iir_requires_tc_above_273_15_k`
-  (typed precondition, not a QT failure; map 15 X10), `registry_with_reference_reaches_strings`,
-  `with_reference_refuses_unknown_names` (map 15 X13). *Do:* add the `refstate` kind; `ReferenceState::{Iir, Ashrae,
-  Nbp, Native, Custom}` resolved by flashing anchors; `Registry::with_reference` (E10). *Done when:* green.
+| Step | Landed |
+|---|---|
+| M10.1 | IIR, ASHRAE, NBP and `Native` reference states, the `refstate` kind |
+
 - **M10.2 Full PropsSI tables.** *Failing tests:* `all_85_outputs_match_oracle_or_a_typed_error` (map 01 §4a: each
   output equals the oracle within class, or both error, or a DIV entry applies), `strict_grammar_rejects_lax_keys`
   (`x(P)/y(T)|Dmolar` rejected; map 01 R20), `parsing_is_locale_free` (map 01 R17/R18),
