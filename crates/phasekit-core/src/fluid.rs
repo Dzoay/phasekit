@@ -594,8 +594,8 @@ mod tests {
     /// Rot: ROT-036 (map 02 §5 row 7, map 11 F8). CoolProp keys its melting data by fluid name in one process-global
     /// cache, built under a mutex with the first caller's EOS. Here the melting curve is part of the model: in one
     /// process the `Parity` and `Corrected` registries' Water, the same name, each answer their own ice VI T_melt at
-    /// 1356.76 MPa (320.965 and 320.000 K, DIV-0002), in either order and from many threads, and a record edited after
-    /// both carries its own curve.
+    /// 1356.76 MPa (320.965 and 320.000 K, DIV-0002), in either order and (off wasm) from four threads at once, and a
+    /// record edited after both carries its own curve.
     #[cfg(feature = "fluids-all")]
     #[test]
     fn melting_caloric_data_lives_in_the_model() {
@@ -604,14 +604,17 @@ mod tests {
             |set| Registry::from_embedded(set).unwrap().get("Water").unwrap().model().melting_temperature(1356.76e6);
         let (corrected, parity) = (t_melt(DataSet::Corrected).unwrap(), t_melt(DataSet::Parity).unwrap());
         assert!((corrected - 320.0).abs() < 1e-3 && (parity - 320.965).abs() < 1e-3, "{corrected} {parity}");
-        let both = std::thread::scope(|scope| {
-            let threads: Vec<_> = [DataSet::Parity, DataSet::Corrected, DataSet::Parity, DataSet::Corrected]
-                .map(|set| scope.spawn(move || t_melt(set)))
-                .into_iter()
-                .collect();
-            threads.into_iter().map(|t| t.join().unwrap().unwrap()).collect::<Vec<_>>()
-        });
-        assert_eq!(both, [parity, corrected, parity, corrected]);
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let both = std::thread::scope(|scope| {
+                let threads: Vec<_> = [DataSet::Parity, DataSet::Corrected, DataSet::Parity, DataSet::Corrected]
+                    .map(|set| scope.spawn(move || t_melt(set)))
+                    .into_iter()
+                    .collect();
+                threads.into_iter().map(|t| t.join().unwrap().unwrap()).collect::<Vec<_>>()
+            });
+            assert_eq!(both, [parity, corrected, parity, corrected]);
+        }
         let mut record = Registry::embedded().unwrap().record("Water").unwrap();
         record.melting[3].p0 = 640e6;
         let edited = Fluid::new(Arc::new(record.compile().unwrap()));

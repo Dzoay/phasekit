@@ -205,7 +205,7 @@ mod tests {
 
     /// v8.0.0's Water curve (`Water.json` ANCILLARIES.melting_line, IAPWS R14-08's Eqs. (1)-(4)), ice VI's p₀ as given.
     fn water(p0_vi: f64) -> MeltingCurve {
-        let ih = [(-1_195_393.37, 3.0), (-80_818.3159, 25.75), (-3_338.2686, 103.75)];
+        let ih = [(-1_195_393.37, 3.0), (-80_818.315_9, 25.75), (-3_338.268_6, 103.75)];
         MeltingCurve::new(&[
             in_tr(273.16, 611.657, &ih, (251.165, 273.16)),
             in_tr(251.165, 208.566e6, &[(0.299_948, 60.0)], (251.165, 256.164)),

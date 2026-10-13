@@ -392,7 +392,7 @@ fn melting_parts_are_mapped_and_checked() {
     let water = record_of("Water.json", &text("Water.json")).unwrap();
     let ih = &water.melting[0];
     assert_eq!((ih.t_min, ih.t_max, ih.t0, ih.p0), (251.165, 273.16, 273.16, 611.657));
-    let terms = [(-1_195_393.37, 3.0), (-80_818.3159, 25.75), (-3_338.2686, 103.75)];
+    let terms = [(-1_195_393.37, 3.0), (-80_818.315_9, 25.75), (-3_338.268_6, 103.75)];
     assert_eq!(ih.form, MeltingForm::PolynomialInTr(terms.into()));
     let methanol = record_of("Methanol.json", &text("Methanol.json")).unwrap();
     assert!(matches!(methanol.melting[0].form, MeltingForm::PolynomialInTheta(_)));
