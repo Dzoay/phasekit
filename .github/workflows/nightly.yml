@@ -99,6 +99,8 @@ jobs:
           cargo xtask oracle --kind flash --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind sigma --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind sigma --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
+          cargo xtask oracle --kind melt --out "$FIXTURES/coolprop-8.0.0" --write-manifest
+          cargo xtask oracle --kind melt --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind transport --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind transport --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind transport --set probes --out "$FIXTURES/coolprop-8.0.0" --write-manifest
@@ -136,6 +138,9 @@ jobs:
             cargo xtask oracle --kind sigma --out "$FIXTURES/coolprop-8.0.0" --check
             cargo xtask oracle --kind sigma --tier all --out "$FIXTURES/coolprop-8.0.0" --check
             echo "pass $pass: sigma/*.csv and all/sigma.csv identical"
+            cargo xtask oracle --kind melt --out "$FIXTURES/coolprop-8.0.0" --check
+            cargo xtask oracle --kind melt --tier all --out "$FIXTURES/coolprop-8.0.0" --check
+            echo "pass $pass: melt/*.csv and all/melt.csv identical"
             cargo xtask oracle --kind transport --out "$FIXTURES/coolprop-8.0.0" --check
             cargo xtask oracle --kind transport --tier all --out "$FIXTURES/coolprop-8.0.0" --check
             cargo xtask oracle --kind transport --set probes --out "$FIXTURES/coolprop-8.0.0" --check
@@ -153,6 +158,7 @@ jobs:
           cargo xtask oracle --kind sat --tier full --out crates/phasekit-verify/fixtures-full/coolprop-8.0.0
           cargo xtask oracle --kind flash --tier full --out crates/phasekit-verify/fixtures-full/coolprop-8.0.0
           cargo xtask oracle --kind sigma --tier full --out crates/phasekit-verify/fixtures-full/coolprop-8.0.0
+          cargo xtask oracle --kind melt --tier full --out crates/phasekit-verify/fixtures-full/coolprop-8.0.0
           cargo xtask oracle --kind transport --tier full --out crates/phasekit-verify/fixtures-full/coolprop-8.0.0
           cargo xtask fetch-fastchebpure --all crates/phasekit-verify/fixtures-full
       - name: cargo nextest run -p phasekit-verify --cargo-profile release --run-ignored only (L5)

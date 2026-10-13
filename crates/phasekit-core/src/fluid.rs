@@ -9,6 +9,7 @@ use crate::error::{Error, LoadError};
 use crate::flash::{self, FlashOptions};
 use crate::helmholtz::HelmholtzModel;
 use crate::input::{Capabilities, Input, NativeInput, Pair, Var};
+use crate::melting::MeltingCurve;
 use crate::model::{CriticalOrigin, CriticalPoint, FluidInfo, Limits, ThermoModel};
 use crate::prop::Prop;
 use crate::saturation::SatAccuracy;
@@ -120,6 +121,9 @@ pub struct PureFluid {
     /// The saturated caloric curves the Q-pairs find their roots on (M7.7), decoded on first use.
     calorics: Lazy<Option<Calorics>>,
     transport: Lazy<TransportSet>,
+    /// The melting curve (M8.11), its segments' pressure ranges computed once; part of the model, so a correction or a
+    /// second registry never meets another model's curve (ROT-036).
+    melting: Option<MeltingCurve>,
 }
 
 /// Assembles a [`PureFluid`] around any [`HelmholtzModel`]: the decoder uses it, and so does a third-party
@@ -165,6 +169,12 @@ impl PureFluidBuilder {
         self
     }
 
+    /// The melting curve, from the record's segments.
+    pub(crate) fn melting(mut self, curve: MeltingCurve) -> Self {
+        self.fluid.melting = Some(curve);
+        self
+    }
+
     /// Transport, eagerly available (a whole record's).
     pub(crate) fn transport(mut self, set: TransportSet) -> Self {
         self.fluid.transport = ready(set);
@@ -198,6 +208,7 @@ impl PureFluid {
             saturation: ready(None),
             calorics: ready(None),
             transport: ready(TransportSet::default()), // no models: properties report `NoModel`
+            melting: None,
         };
         PureFluidBuilder { fluid }
     }
@@ -240,6 +251,10 @@ impl PureFluid {
     pub fn saturation(&self) -> Result<Option<&dyn SaturationCurve>, Error> {
         Ok(LazyLock::force(&self.saturation).as_ref().map_err(|e| Error::Load(e.clone()))?.as_deref())
     }
+    /// The melting curve, if the model has one.
+    pub(crate) fn melting_curve(&self) -> Option<&MeltingCurve> {
+        self.melting.as_ref()
+    }
     /// The transport set, materialising it (and its ECS reference fluids) on first use.
     pub(crate) fn transport(&self) -> Result<&TransportSet, Error> {
         LazyLock::force(&self.transport).as_ref().map_err(|e| Error::Load(e.clone()))
@@ -277,6 +292,14 @@ impl ThermoModel for PureFluid {
     }
     fn conductivity(&self, state: &State) -> Result<f64, Error> {
         self.transport()?.conductivity(&self.transport_inputs(state))
+    }
+    fn melting_pressure(&self, t: f64) -> Result<f64, Error> {
+        let curve = self.melting.as_ref().ok_or(Error::NoModel { prop: Prop::MeltingPressure })?;
+        curve.pressure(Temperature::new(t)?.get())
+    }
+    fn melting_temperature(&self, p: f64) -> Result<f64, Error> {
+        let curve = self.melting.as_ref().ok_or(Error::NoModel { prop: Prop::MeltingTemperature })?;
+        curve.temperature(Pressure::new(p)?.get())
     }
     /// σ(T) over its fit's range, up to the model's own critical temperature ([`SurfaceTension`]'s rule).
     fn surface_tension(&self, t: f64) -> Result<f64, Error> {
@@ -415,6 +438,8 @@ impl Fluid {
             Prop::Viscosity => self.model.viscosity(state)?,
             Prop::Conductivity => self.model.conductivity(state)?,
             Prop::SurfaceTension => self.model.surface_tension(state.t())?,
+            Prop::MeltingPressure => self.model.melting_pressure(state.t())?,
+            Prop::MeltingTemperature => self.model.melting_temperature(state.p())?,
             Prop::Partial(p) => state.partial(p)?,
             Prop::SecondPartial(p) => state.second_partial(p, &self.order_three(state, prop)?)?,
             Prop::FundamentalDerivative => state.fundamental_derivative(&self.order_three(state, prop)?)?,
@@ -564,5 +589,35 @@ mod tests {
         };
         let (tr, rt) = (mixed(T, Dmolar), mixed(Dmolar, T));
         assert!((tr - rt).abs() <= 1e-12 * tr.abs(), "{tr} vs {rt}");
+    }
+
+    /// Rot: ROT-036 (map 02 §5 row 7, map 11 F8). CoolProp keys its melting data by fluid name in one process-global
+    /// cache, built under a mutex with the first caller's EOS. Here the melting curve is part of the model: in one
+    /// process the `Parity` and `Corrected` registries' Water, the same name, each answer their own ice VI T_melt at
+    /// 1356.76 MPa (320.965 and 320.000 K, DIV-0002), in either order and (off wasm) from four threads at once, and a
+    /// record edited after both carries its own curve.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn melting_caloric_data_lives_in_the_model() {
+        use crate::{DataSet, Registry};
+        let t_melt =
+            |set| Registry::from_embedded(set).unwrap().get("Water").unwrap().model().melting_temperature(1356.76e6);
+        let (corrected, parity) = (t_melt(DataSet::Corrected).unwrap(), t_melt(DataSet::Parity).unwrap());
+        assert!((corrected - 320.0).abs() < 1e-3 && (parity - 320.965).abs() < 1e-3, "{corrected} {parity}");
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let both = std::thread::scope(|scope| {
+                let threads: Vec<_> = [DataSet::Parity, DataSet::Corrected, DataSet::Parity, DataSet::Corrected]
+                    .map(|set| scope.spawn(move || t_melt(set)))
+                    .into_iter()
+                    .collect();
+                threads.into_iter().map(|t| t.join().unwrap().unwrap()).collect::<Vec<_>>()
+            });
+            assert_eq!(both, [parity, corrected, parity, corrected]);
+        }
+        let mut record = Registry::embedded().unwrap().record("Water").unwrap();
+        record.melting[3].p0 = 640e6;
+        let edited = Fluid::new(Arc::new(record.compile().unwrap()));
+        assert!(edited.model().melting_temperature(1356.76e6).is_ok_and(|t| t < corrected - 0.5));
     }
 }

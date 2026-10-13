@@ -18,7 +18,8 @@
 
 use phasekit_core::internal::{
     Ancillary, DoubleExponentialTerm, Environmental, EosRecord, FluidRecord, GaoBTerm, GaussianTerm, IdealTerm,
-    Lemmon2005Term, MAX_POW, MeltingSegment, NonAnalyticTerm, OffsetReference, PowerTerm, PseudoPure, SaStamp,
+    Lemmon2005Term, MAX_POW, MeltingForm, MeltingSegment, NonAnalyticTerm, OffsetReference, PowerTerm, PseudoPure,
+    SaStamp,
 };
 use phasekit_core::{CriticalOrigin, CriticalPoint, DataTerms, Limits, Source};
 
@@ -322,18 +323,51 @@ fn environmental(env: &mirror::Environmental) -> Result<Environmental, String> {
     Ok(out)
 }
 
-/// The melting curve's segments as stored (30 fluids; map 02 §3.7): each part's reference point and range, in file
-/// order. Only these four values are mapped until M8.11 adds the curve forms; a correction of a segment's `p_0`
-/// (DIV-0002) needs them now. The ice Ih part of Water keeps CoolProp's T_min > T_max.
+/// The melting curve's segments (30 fluids; map 02 §3.7; PLAN.md M8.11), in file order, which is increasing pressure:
+/// each part's form (Simon, polynomial in T_r or in θ) with its coefficients, reference point and range, the range as
+/// T_min ≤ T_max (Water's and HeavyWater's ice Ih parts give T_min > T_max: CoolProp names the ends by pressure).
+/// Refused: an unknown type, a polynomial without terms or with unequal `a` and `t`, and two adjacent parts that share
+/// no temperature bound, where a pressure between their ranges would have no melting temperature.
 fn melting(ancillaries: &serde_json::Value) -> Result<Vec<MeltingSegment>, String> {
     let Some(line) = ancillaries.get("melting_line") else { return Ok(Vec::new()) };
+    let kind = line.get("type").and_then(serde_json::Value::as_str).ok_or("no type")?;
     let parts = line.get("parts").and_then(|p| p.as_array()).ok_or("no parts")?;
-    let mut segments = Vec::with_capacity(parts.len());
+    let mut segments: Vec<MeltingSegment> = Vec::with_capacity(parts.len());
     for (i, part) in parts.iter().enumerate() {
         let get = |key: &str| part.get(key).and_then(serde_json::Value::as_f64).ok_or(format!("part {i}: no {key}"));
-        segments.push(MeltingSegment { t0: get("T_0")?, p0: get("p_0")?, t_min: get("T_min")?, t_max: get("T_max")? });
+        let form = melting_form(kind, part, i)?;
+        let (t_min, t_max) = (get("T_min")?, get("T_max")?);
+        let segment =
+            MeltingSegment { form, t0: get("T_0")?, p0: get("p_0")?, t_min: t_min.min(t_max), t_max: t_min.max(t_max) };
+        if let Some(previous) = segments.last()
+            && ![previous.t_min, previous.t_max].iter().any(|t| *t == segment.t_min || *t == segment.t_max)
+        {
+            return Err(format!("parts {} and {i} share no temperature bound", i - 1));
+        }
+        segments.push(segment);
     }
     Ok(segments)
+}
+
+/// Part `i`'s form, of the curve's `kind`: Simon's a and c, or a polynomial's (aᵢ, tᵢ), at least one and as many t as a.
+fn melting_form(kind: &str, part: &serde_json::Value, i: usize) -> Result<MeltingForm, String> {
+    let get = |key: &str| part.get(key).and_then(serde_json::Value::as_f64).ok_or(format!("part {i}: no {key}"));
+    let list = |key: &str| -> Result<Vec<f64>, String> {
+        let items = part.get(key).and_then(serde_json::Value::as_array).ok_or(format!("part {i}: no {key}"))?;
+        items.iter().map(|x| x.as_f64().ok_or(format!("part {i}: {key} not a number"))).collect()
+    };
+    let polynomial = |a: Vec<f64>, t: Vec<f64>| -> Result<Box<[(f64, f64)]>, String> {
+        if a.is_empty() || a.len() != t.len() {
+            return Err(format!("part {i}: {} a and {} t", a.len(), t.len()));
+        }
+        Ok(a.into_iter().zip(t).collect())
+    };
+    match kind {
+        "Simon" => Ok(MeltingForm::Simon { a: get("a")?, c: get("c")? }),
+        "polynomial_in_Tr" => Ok(MeltingForm::PolynomialInTr(polynomial(list("a")?, list("t")?)?)),
+        "polynomial_in_Theta" => Ok(MeltingForm::PolynomialInTheta(polynomial(list("a")?, list("t")?)?)),
+        other => Err(format!("type {other}")),
+    }
 }
 
 /// A pseudo-pure fluid's saturation definition (D4; map 04 U4; PLAN.md M6.9): its `pL`, `pV`, `rhoL` and `rhoV`

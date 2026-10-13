@@ -366,3 +366,63 @@ fn same_in_mass_units(name: &str, fluid: &Fluid, truth: &State, pair: Pair) -> u
     assert!(same, "{name} {pair:?}: {a:?} against {b:?}");
     1
 }
+
+/// PLAN.md M8.11 (D6, user decision 6): one melting-line check applies to every pair, after it solves. Water's ice VI at
+/// 1 GPa and 290 K, CO₂'s solid at 100 MPa and 230 K (#1936) and Nitrogen's at 500 MPa and 70 K: each pair without a
+/// quality refuses them under `Enforce` with `BelowMeltingLine` at the state's T and T_melt(p), or returns another root
+/// above the line, and under `Extrapolate` returns the state, flagged (or roots that include it). CO₂ 1 mK above its
+/// line at 7.38 MPa is in the domain (#2608: CoolProp allows 1 mK below it).
+#[cfg(feature = "fluids-all")]
+#[test]
+fn enforce_refuses_below_the_melting_line() {
+    let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
+    let mut checked = 0;
+    for (name, p, t) in [("Water", 1e9, 290.0), ("CarbonDioxide", 100e6, 230.0), ("Nitrogen", 500e6, 70.0)] {
+        let fluid = embedded(name);
+        let truth = fluid.flash(pt(p, t), &extrapolate).unwrap();
+        assert!(truth.is_extrapolated(), "{name}");
+        let t_melt = fluid.model().melting_temperature(p).unwrap();
+        for pair in Pair::ALL {
+            let Some(input) = input_of(*pair, &truth) else { continue };
+            let at = format!("{name} {pair:?} of {truth:?}");
+            let flagged = fluid.flash(input, &extrapolate);
+            let states = states_of(&fluid, input, extrapolate, &flagged);
+            assert!(states.iter().any(|s| is_truth(s, &truth) && s.is_extrapolated()), "{at}: {flagged:?}");
+            assert!(below_the_line_refused(&fluid, input, (&truth, t_melt)), "{at}");
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 3 * 14);
+    let co2 = embedded("CarbonDioxide");
+    let t_melt = co2.model().melting_temperature(7.38e6).unwrap();
+    assert!((t_melt - 218.049).abs() < 1e-3, "{t_melt}");
+    assert!(co2.state(pt(7.38e6, t_melt + 1e-3)).is_ok());
+    // At the state's own p, its EOS's at (T, ρ), 1e-13 K from T_melt(7.38 MPa).
+    let below = co2.state(pt(7.38e6, t_melt - 1e-3));
+    let refused = |t: f64, at: f64| t == t_melt - 1e-3 && (at - t_melt).abs() < 1e-9;
+    assert!(matches!(below, Err(Error::Domain(DomainError::BelowMeltingLine { t, t_melt: at })) if refused(t, at)));
+}
+
+/// Whether `Enforce` refuses `input`, read off `truth` below the melting line where T_melt is `t_melt`: each of its
+/// results (every root of an `Ambiguous`, each taken by `Nearest`) is a `BelowMeltingLine` (Nitrogen's TU at 70 K has
+/// two solid roots) or a state above the line that reproduces the input, and one is the truth's refusal, at its T and
+/// T_melt.
+#[cfg(feature = "fluids-all")]
+fn below_the_line_refused(fluid: &Fluid, input: Input, (truth, t_melt): (&State, f64)) -> bool {
+    let near = |a: f64, b: f64| (a / b - 1.0).abs() <= 1e-9;
+    let results = match fluid.state(input) {
+        Err(Error::Ambiguous { roots }) => roots
+            .as_slice()
+            .iter()
+            .map(|&root| fluid.flash(input, &FlashOptions::new().with_roots(RootPolicy::Nearest(root))))
+            .collect(),
+        result => vec![result],
+    };
+    let refusal = |r: &Result<State, Error>| match *r {
+        Err(Error::Domain(DomainError::BelowMeltingLine { t, t_melt: at })) => Some((t, at)).filter(|(t, at)| t < at),
+        _ => None,
+    };
+    let above = |r: &Result<State, Error>| r.as_ref().is_ok_and(|s| reproduces(s, input) && !s.is_extrapolated());
+    let truths = |r: &Result<State, Error>| refusal(r).is_some_and(|(t, at)| near(t, truth.t()) && near(at, t_melt));
+    results.iter().all(|r| refusal(r).is_some() || above(r)) && results.iter().any(truths)
+}

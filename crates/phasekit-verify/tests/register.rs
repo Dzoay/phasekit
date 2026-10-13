@@ -472,6 +472,18 @@ fn div_0035(facts: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0035"]
 }
 
+/// DIV-0036: Hydrogen's melting line at its triple point, three orders of magnitude above its triple pressure, and at
+/// 20 K twice ParaHydrogen's; OrthoHydrogen's at its own triple point.
+fn div_0036(facts: &Fixture<'_>) -> Vec<&'static str> {
+    let ok = |name: &str| ok_fact(facts, name);
+    assert!(cites(ok("div0036_melting_p_hydrogen_t13.957") / 1e6, "23.6"));
+    assert!(cites(ok("div0036_ptriple_hydrogen") / 1e3, "7.36"));
+    assert!(cites(ok("div0036_melting_p_hydrogen_t20") / 1e6, "44.9"));
+    assert!(cites(ok("div0036_melting_p_parahydrogen_t20") / 1e6, "22.7"));
+    assert!(ok("div0036_melting_p_orthohydrogen_t14.008") > 1e3 * ok("div0036_ptriple_orthohydrogen"));
+    vec!["DIV-0036"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -491,6 +503,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0028_to_0029,
         div_0030_to_0034,
         div_0035,
+        div_0036,
     ]
     .iter()
     .flat_map(|group| group(&facts))

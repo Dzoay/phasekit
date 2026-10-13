@@ -2,6 +2,7 @@
 //! alternates and the unported kinds skipped explicitly, and the published constants the oracle's.
 
 use super::*;
+use phasekit_core::internal::MeltingForm;
 
 /// PLAN.md M2.3: all 136 default EOS map into core records without error, the names kept.
 #[test]
@@ -381,4 +382,38 @@ fn published_constants_match_the_oracle_crit_rows() {
             assert_eq!(file.printed(0, column), all.printed(row, column), "{name} {column}");
         }
     }
+}
+
+/// PLAN.md M8.11: each melting part's form is mapped with its coefficients and its range as T_min ≤ T_max (Water's ice
+/// Ih part gives them the other way round); a polynomial without terms or with unequal `a` and `t`, an unknown type and
+/// two adjacent parts that share no temperature bound are refused.
+#[test]
+fn melting_parts_are_mapped_and_checked() {
+    let water = record_of("Water.json", &text("Water.json")).unwrap();
+    let ih = &water.melting[0];
+    assert_eq!((ih.t_min, ih.t_max, ih.t0, ih.p0), (251.165, 273.16, 273.16, 611.657));
+    let terms = [(-1_195_393.37, 3.0), (-80_818.315_9, 25.75), (-3_338.268_6, 103.75)];
+    assert_eq!(ih.form, MeltingForm::PolynomialInTr(terms.into()));
+    let methanol = record_of("Methanol.json", &text("Methanol.json")).unwrap();
+    assert!(matches!(methanol.melting[0].form, MeltingForm::PolynomialInTheta(_)));
+    let hydrogen = record_of("Hydrogen.json", &text("Hydrogen.json")).unwrap();
+    assert_eq!(hydrogen.melting[0].form, MeltingForm::Simon { a: 231_000.0, c: 1.7627 });
+    let refused = |file: &str, edit: Edit| record_of(file, &edited(file, edit)).unwrap_err();
+    fn part(v: &mut serde_json::Value, i: usize) -> &mut serde_json::Value {
+        &mut v["ANCILLARIES"]["melting_line"]["parts"][i]
+    }
+    let none = refused("Water.json", |v| {
+        part(v, 1)["a"] = serde_json::json!([]);
+        part(v, 1)["t"] = serde_json::json!([]);
+    });
+    assert!(none.contains("part 1: 0 a and 0 t"), "{none}");
+    let unequal = refused("Water.json", |v| part(v, 1)["t"] = serde_json::json!([60, 2]));
+    assert!(unequal.contains("part 1: 1 a and 2 t"), "{unequal}");
+    let kind = refused("Water.json", |v| v["ANCILLARIES"]["melting_line"]["type"] = "Simon2".into());
+    assert!(kind.contains("type Simon2"), "{kind}");
+    let apart = refused("Water.json", |v| {
+        part(v, 1)["T_min"] = 240.0.into();
+        part(v, 1)["T_max"] = 245.0.into();
+    });
+    assert!(apart.contains("parts 0 and 1 share no temperature bound"), "{apart}");
 }

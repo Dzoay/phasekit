@@ -131,7 +131,7 @@ pub(crate) fn flash(fluid: &PureFluid, input: NativeInput, opts: &FlashOptions) 
     {
         return Err(Error::Undefined { prop: Prop::Q, phase });
     }
-    match input.pair() {
+    let state = match input.pair() {
         Pair::DT => dt(fluid, y, x, opts),
         Pair::PT => pt(fluid, x, y, opts),
         Pair::QT => qt(fluid, x, y, opts),
@@ -151,6 +151,26 @@ pub(crate) fn flash(fluid: &PureFluid, input: NativeInput, opts: &FlashOptions) 
         Pair::QS => qx(fluid, x, y, QVar::S, Pair::QS, opts),
         Pair::HQ => qx(fluid, y, x, QVar::H, Pair::HQ, opts),
         Pair::DQ => qx(fluid, y, 1.0 / x, QVar::V, Pair::DQ, opts),
+    }?;
+    above_melting_line(fluid, state, opts)
+}
+
+/// D6 (user decision 6): whatever pair found it, a single-phase state below the model's melting line, T < T_melt(p), is
+/// refused under `Enforce` and returned with the flag under `Extrapolate`; a T within [`AT_BOUND`] of T_melt is on the
+/// line, as at every bound, and where the curve says nothing (outside its pressures) nothing is checked. A two-phase
+/// state is not checked: vapour and liquid at p_sat(T) meet the melting line only at the triple point, which a curve
+/// whose p₀ lies below the EOS's triple pressure would refuse (CO₂'s by 14 Pa, 3 µK).
+fn above_melting_line(fluid: &PureFluid, state: State, opts: &FlashOptions) -> Result<State, Error> {
+    if state.quality().is_some() {
+        return Ok(state);
+    }
+    let curve = fluid.melting_curve();
+    match curve.and_then(|c| c.below(state.t(), state.p())).filter(|t_melt| state.t() < t_melt * (1.0 - AT_BOUND)) {
+        None => Ok(state),
+        Some(t_melt) if opts.domain() == DomainPolicy::Enforce => {
+            Err(DomainError::BelowMeltingLine { t: state.t(), t_melt }.into())
+        }
+        Some(_) => Ok(state.mark_extrapolated()),
     }
 }
 

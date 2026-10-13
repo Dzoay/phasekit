@@ -353,7 +353,7 @@ pub static ARBITERS: &[Arbiter] = &[
         citation: Citation { key: "IAPWS-R14-08", doi_or_report: Some("IAPWS R14-08(2011)"), role: Role::Release },
         tables: &[Table { file: "paper/Water/IAPWS-R14-08-2011.3.csv", kind: TableKind::Rows, rows: Some(6) }],
         constants: None,
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "Water",
@@ -653,7 +653,7 @@ pub static ARBITERS: &[Arbiter] = &[
         },
         tables: &[Table { file: "paper/HeavyWater/Herrig-JPCRD-2019.S3-4.csv", kind: TableKind::Rows, rows: Some(4) }],
         constants: None,
-        status: ArbiterStatus::Transcribed,
+        status: ArbiterStatus::SelfConsistent,
     },
     Arbiter {
         fluid: "Ammonia",

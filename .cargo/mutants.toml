@@ -160,4 +160,13 @@ exclude_re = [
     "transport/hardcoded\\.rs:[0-9]+:[0-9]+: replace < with <= in ammonia_critical",
     "transport/hardcoded\\.rs:363:36: replace < with <= in helium_conductivity",
     "transport/hardcoded\\.rs:[0-9]+:[0-9]+: replace > with >= in helium_critical",
+    # Equivalent (M8.11): a melting curve's searches past its segments differ from their `>=` and `<=` only at a bound,
+    # and a pressure or temperature on a segment's bound is held by that segment first: the curve's highest p, a gap's
+    # ends, the curve's lowest T (pinned to their lines and columns).
+    "melting\\.rs:114:14: replace > with >= in MeltingCurve::locate",
+    "melting\\.rs:118:(68|77): replace < with <= in MeltingCurve::locate",
+    "melting\\.rs:158:26: replace < with <= in MeltingCurve::pressure",
+    # Equivalent (M8.11): the flash refuses T < T_melt·(1 − AT_BOUND); `<=` differs only at that product exactly, which
+    # no solved state reaches (T_melt is read at the state's own p).
+    "flash\\.rs:168:87: replace < with <= in above_melting_line",
 ]

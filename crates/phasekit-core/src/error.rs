@@ -32,7 +32,8 @@ pub enum Error {
         /// Iterations spent.
         iterations: u16,
     },
-    /// The input pair has several physical solutions; they are returned as data (map 03 §6).
+    /// The input pair has several physical solutions, or a curve several values (two melting pressures at one T on
+    /// Water's curve); they are returned as data (map 03 §6).
     Ambiguous {
         /// The candidate roots (temperatures or densities, depending on the pair).
         roots: Roots,
@@ -102,8 +103,13 @@ pub enum DomainError {
         /// Limit, Pa.
         p_max: f64,
     },
-    /// The state lies in the solid region of a fluid model.
-    BelowMeltingLine,
+    /// The state lies in the solid region of a fluid model: T below the melting temperature at its pressure.
+    BelowMeltingLine {
+        /// The state's temperature, K.
+        t: f64,
+        /// The melting curve's temperature at the state's pressure, K.
+        t_melt: f64,
+    },
     /// dp/dρ ≤ 0 or cv ≤ 0 where a stable state was required.
     MechanicallyUnstable,
 }

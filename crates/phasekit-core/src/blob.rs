@@ -21,8 +21,8 @@
 use std::sync::Arc;
 
 use crate::data::{
-    Ancillary, CaloricCurves, CaloricStamp, Edit, EosRecord, FluidRecord, MeltingSegment, Patch, PseudoPure, SaStamp,
-    Superancillary,
+    Ancillary, CaloricCurves, CaloricStamp, Edit, EosRecord, FluidRecord, MeltingForm, MeltingSegment, Patch,
+    PseudoPure, SaStamp, Superancillary,
 };
 use crate::error::LoadError;
 use crate::model::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataTerms, Limits, ModelKey, Source};
@@ -33,9 +33,9 @@ const MAGIC: &[u8; 8] = b"PKITBLOB";
 /// The blob format version this decoder reads and this encoder writes. Version 2 (M2.10) adds the role-tagged citations
 /// to the filled metadata section; version 3 (M8.6) adds a staged conductivity's reducing state and Methane's snapshot
 /// (critical point, saturated-vapour ancillary, reducing state) to the filled transport section; version 4 (M8.8) an ECS
-/// conductivity's reducing state; version 5 (M8.9) a viscosity's and an ECS conductivity's named Lennard-Jones source.
-/// Packs keep their own version.
-pub(crate) const VERSION: u32 = 5;
+/// conductivity's reducing state; version 5 (M8.9) a viscosity's and an ECS conductivity's named Lennard-Jones source;
+/// version 6 (M8.11) each melting segment's form and coefficients. Packs keep their own version.
+pub(crate) const VERSION: u32 = 6;
 /// The pack format version.
 const PACK_VERSION: u32 = 1;
 const HEADER: usize = 32;
@@ -497,10 +497,26 @@ impl Take for Reader<'_> {
     }
 }
 
-fn melting(segments: &[MeltingSegment]) -> Vec<u8> {
+/// The melting section (version 6): per segment its form's tag (0 Simon, 1 polynomial in T_r, 2 polynomial in θ),
+/// T₀, p₀, T_min, T_max, then Simon's a and c, or a polynomial's term count and its (aᵢ, tᵢ). The model key reads it
+/// too.
+pub(crate) fn melting(segments: &[MeltingSegment]) -> Vec<u8> {
     let mut out = Vec::new();
     for s in segments {
+        let (tag, terms) = match &s.form {
+            MeltingForm::Simon { .. } => (0, &[][..]),
+            MeltingForm::PolynomialInTr(terms) => (1, &terms[..]),
+            MeltingForm::PolynomialInTheta(terms) => (2, &terms[..]),
+        };
+        out.push(tag);
         [s.t0, s.p0, s.t_min, s.t_max].into_iter().for_each(|x| put_f64(&mut out, x));
+        if let MeltingForm::Simon { a, c } = s.form {
+            put_f64(&mut out, a);
+            put_f64(&mut out, c);
+        } else {
+            put_u32(&mut out, terms.len() as u32);
+            terms.iter().for_each(|&(a, t)| [a, t].into_iter().for_each(|x| put_f64(&mut out, x)));
+        }
     }
     out
 }
@@ -509,9 +525,28 @@ fn read_melting(bytes: &[u8]) -> Result<Vec<MeltingSegment>, LoadError> {
     let mut r = Reader::new(bytes, "melting");
     let mut segments = Vec::new();
     while r.at < bytes.len() {
-        segments.push(MeltingSegment { t0: r.f64()?, p0: r.f64()?, t_min: r.f64()?, t_max: r.f64()? });
+        let tag = r.u8()?;
+        if tag > 2 {
+            return Err(LoadError::Format(format!("melting form tag {tag}").into()));
+        }
+        let (t0, p0, t_min, t_max) = (r.f64()?, r.f64()?, r.f64()?, r.f64()?);
+        let form = match tag {
+            0 => MeltingForm::Simon { a: r.f64()?, c: r.f64()? },
+            1 => MeltingForm::PolynomialInTr(read_terms(&mut r)?),
+            _ => MeltingForm::PolynomialInTheta(read_terms(&mut r)?),
+        };
+        segments.push(MeltingSegment { form, t0, p0, t_min, t_max });
     }
     Ok(segments)
+}
+
+/// A polynomial segment's (aᵢ, tᵢ), read one at a time: a corrupt count meets the section's end, not an allocation.
+fn read_terms(r: &mut Reader<'_>) -> Result<Box<[(f64, f64)]>, LoadError> {
+    let mut terms = Vec::new();
+    for _ in 0..r.u32()? {
+        terms.push((r.f64()?, r.f64()?));
+    }
+    Ok(terms.into())
 }
 
 fn corrections(patches: &[Patch]) -> Vec<u8> {

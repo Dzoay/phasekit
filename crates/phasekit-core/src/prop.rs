@@ -52,6 +52,10 @@ pub enum Prop {
     Viscosity,
     Conductivity,
     SurfaceTension,
+    /// The melting curve's pressure at the state's T, Pa (`ThermoModel::melting_pressure`).
+    MeltingPressure,
+    /// The melting curve's temperature at the state's p, K (`ThermoModel::melting_temperature`).
+    MeltingTemperature,
     /// A first partial derivative `(∂of/∂wrt)_at` (CoolProp `d(X)/d(Y)|Z`), from the stored order-2 bundle,
     /// so it works for every family, Gibbs solids included (E1).
     Partial(Partial),

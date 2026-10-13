@@ -13,8 +13,8 @@ use std::process::ExitCode;
 
 use phasekit_core::internal::{
     Ancillary, CaloricCurves, CaloricStamp, DoubleExponentialTerm, Edit, EosRecord, FluidRecord, GaoBTerm,
-    GaussianTerm, IdealTerm, Lemmon2005Term, MeltingSegment, NonAnalyticTerm, OffsetReference, Part, Patch, PowerTerm,
-    PseudoPure, Put, SaStamp, Superancillary, SurfaceTension, Take, TransportRecord,
+    GaussianTerm, IdealTerm, Lemmon2005Term, MeltingForm, MeltingSegment, NonAnalyticTerm, OffsetReference, Part,
+    Patch, PowerTerm, PseudoPure, Put, SaStamp, Superancillary, SurfaceTension, Take, TransportRecord,
 };
 use phasekit_core::{Citation, CitationRole, CriticalOrigin, CriticalPoint, DataSet, DataTerms, Limits, Source};
 use serde_json::{Map, Value, json};
@@ -116,7 +116,7 @@ pub fn to_json(r: &FluidRecord) -> Value {
             });
             json!({"p_l": one(&pp.p_l), "p_v": one(&pp.p_v), "rho_l": one(&pp.rho_l), "rho_v": one(&pp.rho_v), "t_range": [num(pp.t_range.0), num(pp.t_range.1)]})
         }),
-        "melting": r.melting.iter().map(|s| json!({"t0": num(s.t0), "p0": num(s.p0), "t_min": num(s.t_min), "t_max": num(s.t_max)})).collect::<Vec<_>>(),
+        "melting": r.melting.iter().map(melting_json).collect::<Vec<_>>(),
         "corrections": r.corrections.iter().map(patch_json).collect::<Vec<_>>(),
         "transport": r.transport.as_ref().map_or(Value::Null, part_json),
         "surface_tension": r.surface_tension.as_ref().map_or(Value::Null, part_json),
@@ -480,10 +480,42 @@ fn pseudo_pure_floats(x: &Value, key: &str) -> Result<Vec<f64>, String> {
     items.iter().map(|x| x.as_f64().ok_or_else(|| format!("pseudo_pure {key}: not a number"))).collect()
 }
 
-/// One segment of the `melting` section.
+/// One segment of the `melting` section: its form ("simon" with a and c, or "in_tr" or "in_theta" with its [aᵢ, tᵢ]
+/// terms), reference point and range.
+fn melting_json(s: &MeltingSegment) -> Value {
+    let terms = |terms: &[(f64, f64)]| terms.iter().map(|&(a, t)| json!([num(a), num(t)])).collect::<Vec<_>>();
+    let mut out = match &s.form {
+        MeltingForm::Simon { a, c } => json!({"form": "simon", "a": num(*a), "c": num(*c)}),
+        MeltingForm::PolynomialInTr(t) => json!({"form": "in_tr", "terms": terms(t)}),
+        MeltingForm::PolynomialInTheta(t) => json!({"form": "in_theta", "terms": terms(t)}),
+    };
+    for (key, x) in [("t0", s.t0), ("p0", s.p0), ("t_min", s.t_min), ("t_max", s.t_max)] {
+        out[key] = num(x);
+    }
+    out
+}
+
+/// One segment of the `melting` section, as [`melting_json`] writes it.
 fn melting_from(m: &Value) -> Result<MeltingSegment, String> {
     let f = float;
-    Ok(MeltingSegment { t0: f(m, "t0")?, p0: f(m, "p0")?, t_min: f(m, "t_min")?, t_max: f(m, "t_max")? })
+    let terms = || -> Result<Box<[(f64, f64)]>, String> {
+        let items = m.get("terms").and_then(Value::as_array).ok_or("melting: no terms")?;
+        let pair = |x: &Value| match x
+            .as_array()
+            .map(|p| (p.first().and_then(Value::as_f64), p.get(1).and_then(Value::as_f64)))
+        {
+            Some((Some(a), Some(t))) => Ok((a, t)),
+            _ => Err("melting: a term is not [a, t]".to_string()),
+        };
+        items.iter().map(pair).collect()
+    };
+    let form = match m.get("form").and_then(Value::as_str) {
+        Some("simon") => MeltingForm::Simon { a: f(m, "a")?, c: f(m, "c")? },
+        Some("in_tr") => MeltingForm::PolynomialInTr(terms()?),
+        Some("in_theta") => MeltingForm::PolynomialInTheta(terms()?),
+        other => return Err(format!("melting: form {other:?}")),
+    };
+    Ok(MeltingSegment { form, t0: f(m, "t0")?, p0: f(m, "p0")?, t_min: f(m, "t_min")?, t_max: f(m, "t_max")? })
 }
 
 /// The `superancillary` section: the breaks, the three curves and their extrema, and the inverse T(ln p).

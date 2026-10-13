@@ -166,7 +166,8 @@ pub static DIVERGENCES: &[Divergence] = &[
         arbiter: Some("IAPWS R14-08"),
         policy: Policy::UsePaper,
         fix: Fix::Data,
-        evidence: "map 10 R10: ice VI p0 623.4 MPa vs 632.4 MPa",
+        evidence: "map 10 R10: ice VI p0 623.4 MPa vs 632.4 MPa; M8.11: T_melt(1356.76 MPa), IAPWS R14-08's 320 K row, \
+                   is 320.965 K under Parity and 320.000 K Corrected (2026-10-13)",
         exempt: None,
         tolerance: None,
         table_tolerances: &[],
@@ -786,6 +787,24 @@ pub static DIVERGENCES: &[Divergence] = &[
                    5.5 K, 64.6-68.5 and 69.9-73.8 kg/m3), where the oracle's lambda is NaN (5.5 K at 17000 and 18000 \
                    mol/m3, 5.9 K at 15000); phasekit refuses lambda there as `Undefined` (D12: NaN is never a typed \
                    result) (2026-10-13)",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0036",
+        fluids: &["Hydrogen", "OrthoHydrogen"],
+        part: Part::Melting,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 02 §6 row 5, M8.11: both fluids' melting line is one Simon fit cited to Datchi et al. 2000 (T0 1 K, \
+                   p0 -236200 Pa, a 231000 Pa, c 1.7627) applied from 13.957 K: the oracle gives 23.6 MPa at \
+                   Hydrogen's triple point against its triple pressure of 7.36 kPa, 7.8 K off it in temperature, and \
+                   44.9 MPa at 20 K against ParaHydrogen's 22.7 MPa; OrthoHydrogen's copy starts below its own 14.008 K \
+                   triple point; to check against Datchi 2000's validity range (2026-10-13)",
         exempt: None,
         tolerance: None,
         table_tolerances: &[],

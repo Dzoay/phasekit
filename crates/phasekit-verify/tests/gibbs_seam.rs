@@ -119,6 +119,10 @@ fn solid_properties_come_from_the_shared_relations() {
     assert!(close(ice.prop(&s, dvdp).unwrap(), -g.g_pp / (g.g_p * g.g_p)));
     // Cp0 needs an ideal-gas part this family does not have (no `derivs` override): typed refusal.
     assert_eq!(ice.prop(&s, Prop::Cp0molar), Err(Error::NoModel { prop: Prop::Cp0molar }));
+    // Nor a melting curve (M8.11): the trait's defaults say so.
+    for prop in [Prop::MeltingPressure, Prop::MeltingTemperature] {
+        assert_eq!(ice.prop(&s, prop), Err(Error::NoModel { prop }));
+    }
 }
 
 #[test]
