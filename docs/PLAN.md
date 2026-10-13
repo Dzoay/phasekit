@@ -433,19 +433,14 @@ version, Node.js LTS (wasm-bindgen-test), cargo-about, cargo-semver-checks.
 | Step | Landed |
 |---|---|
 | M10.1 | IIR, ASHRAE, NBP and `Native` reference states, the `refstate` kind |
+| M10.2 | CoolProp's 85 outputs by name (the 8 α terms `NoModel` until M10.3), Props1SI, PhaseSI, fill policies, blob v7's published constants, the `props` kind |
 
-- **M10.2 Full PropsSI tables.** *Failing tests:* `all_85_outputs_match_oracle_or_a_typed_error` (map 01 §4a: each
-  output equals the oracle within class, or both error, or a DIV entry applies), `strict_grammar_rejects_lax_keys`
-  (`x(P)/y(T)|Dmolar` rejected; map 01 R20), `parsing_is_locale_free` (map 01 R17/R18),
-  `all_19_pairs_by_name_in_both_bases` (map 01 R2/R3), `pair_names_round_trip_in_both_bases`,
-  `fluid_string_grammar_is_strict`, `ampersand_output_is_an_unknown_output` (map 14 R9),
-  `backend_options_suffix_is_refused` (map 01 R18), `compat_metadata_has_no_sentinels` (absent ODP, GWP100, ASHRAE 34 give
-  `NoModel`; map 09 R17), `fill_policies_match_the_python_contract` (map 14 U1). *Do:* add the `props` kind; compat key
-  tables, `HEOS::` prefix, Props1SI constants, PhaseSI strings, `FillPolicy`. *Done when:* 85/85.
 - **M10.3 Derivative grammar and α-term outputs.** *Failing tests:* `first_and_second_derivative_strings_match_oracle`
   (`d(X)/d(Y)|Z`, `d(d(X)/d(Y)|Z)/d(W)|V`; `CoolProp-Tests.cpp:1744, 1829`), `alpha_term_outputs_match_oracle` (the 8
-  α-term outputs, τ/δ-scaled using the published reducing constants as metadata; ARCHITECTURE.md §12). *Done when:*
-  green.
+  α-term outputs, τ/δ-scaled using the published reducing constants as metadata; ARCHITECTURE.md §12). *Do:* the
+  `props` kind's 8 α-term outputs, `NoModel` since M10.2 (`tests/common/props_rows.rs` `PENDING`), are compared there and
+  in the nightly sweep; inside the dome the oracle evaluates them at the mixture's mean density (as its Z, DIV-0044).
+  *Done when:* green, and the 85-output gate compares all 85.
 - **M10.4 `pk_*` C ABI.** *Failing tests:* `c_smoke` (compiles `crates/phasekit-capi/tests/c/smoke.c` against the
   cdylib and the committed header with the platform C compiler that the `cc` crate finds (a dev-dependency of
   `phasekit-capi`, tier T3 *(inference: `cc` is not in the dependencies research; `std::process::Command` with an
@@ -468,7 +463,9 @@ version, Node.js LTS (wasm-bindgen-test), cargo-about, cargo-semver-checks.
   wins; #3211, map 11 §8), `hapropssi_is_a_documented_stub` (returns `_HUGE` (+inf) and sets "HAPropsSI is not
   available in this version of phasekit"), `propssi_fills_inf_on_error`, `shim_exports_exactly_tier_a` (`PropsSI`,
   `Props1SI`, `PhaseSI`, `HAPropsSI`, `get_global_param_string`, `get_fluid_param_string`, `get_param_index`,
-  `get_input_pair_index`, `set_config_*`), `fluids_list_ignores_unrelated_config`, `set_config_follows_decision_6`.
+  `get_input_pair_index`, `set_config_*`), `fluids_list_ignores_unrelated_config`, `set_config_follows_decision_6`, and
+  `get_fluid_param_string`'s ASHRAE 34 class absent for every fluid, never "UNKNOWN" or "?" (map 09 R17, ROT-057; the
+  numeric metadata are M10.2's `compat_metadata_has_no_sentinels`).
   *Do:* add the `codes` kind; feature `coolproplib-shim`, a separate build with CoolProp's names and signatures (D11);
   the process-wide `errstring` slot; `set_config_*` per user decision P6: a shim-side settings store (process-wide, shim only) whose keys with a phasekit equivalent become per-call options (`FlashOptions`, `DomainPolicy`, `FillPolicy`) on every shim call, display keys such as `LIST_STRING_DELIMITER` read by shim functions, every other v8.0.0 key accepted, ignored and listed in MIGRATION.md; the key-by-key mapping table is written in this step; no global state reaches the kernel. *Done when:* green on Linux and
   Windows.
@@ -625,8 +622,8 @@ The memory budgets re-planned at M9.7 (issue #146): the superancillary's stored 
 **Not yet planned.**
 
 - Cv, Cp, w, τ and δ as derivative variables (user decision OD1): no oracle (CoolProp's second derivatives refuse Cv,
-  Cp and w), and τ and δ need the model trait to expose its reducing constants. A step of its own, before M10.2 and
-  M10.3 need them.
+  Cp and w); τ and δ can read the published reducing state (`FluidInfo::constants`, M10.2). M10.3's strings
+  differentiate over the 12 first-order variables, so nothing waits on it.
 - The conformance kit's `identities` and `part_additivity` (VERIFICATION.md §10): `tests/eos.rs` checks the identities
   per fluid, but an out-of-tree family has neither.
 - A `cargo doc --no-deps` check that denies broken intra-doc links (section 5.2): no workflow runs it.
