@@ -771,6 +771,7 @@ required check on `main`. They pin GitHub's own actions by commit, install the t
 | `pr-title` | Linux | the PR title is a Conventional Commit (CONTRIBUTING.md) |
 | `nightly`: `oracle` | the pinned `runner_image` | regenerates the committed fixtures and checks them byte for byte (drift, determinism; 3.6); generates the full tier into `fixtures-full/` and fetches every fastchebpure file; runs the L5 sweep (`--run-ignored only`); its job summary lists rows and failed oracle calls per committed fixture and the sweep's result |
 | `nightly`: `advisories` | Linux | `cargo deny check advisories` |
+| `nightly`: `thread scaling` | Linux x86-64; aarch64 Linux | `cargo xtask bench --record scaling` at the latest `Plan-Step:` (12): the results file in the run summary and the `scaling-<runner>` artifact; informational (PLAN.md M9.2) |
 | `weekly`: `latest-deps` | Linux | `cargo update`, then the workspace tests |
 | `weekly`: `mutants` | Linux, 8 shards | a full `cargo mutants` run in the gate's two passes, a report (user decisions TQ2, CI1, CI5) |
 | `hash-compare` (from M9.4) | the four test targets | `tests/cross_target.rs` with std and with `--features libm`, the hashes collected and compared (9.4) |
@@ -825,6 +826,15 @@ This section is the one definition of the bench harness, the C++ baseline and th
   thread, one state per thread and fluid built before the clock, threads unpinned, at 1, 2, 4, 6 (the physical cores)
   and 12 threads, for each bench fluid alone and `mixed` (every thread takes the five fluids in turn); speedup = N × the
   one-thread time over the N-thread time.
+- **Thread scaling (M9.2):** `benches/scaling.rs` (`scaling_same_and_different_fluids`) runs the C++ scaling rows'
+  workload, DT + h + c_p on the (T, ρ) grid with 2000 states per thread, at 1, 2, 4, the physical cores and the
+  hardware threads, for each bench fluid shared by every thread and `mixed`, plus a `control` row of exp and ln on each
+  thread's own value that shares and reads nothing, whose speedup is the machine's ceiling (turbo and power limits).
+  Each thread runs through its states 10 times in each of 7 timed passes after a warm-up; a pass is timed from the
+  first worker's start to the last worker's end, on the workers' own clocks. `cargo xtask bench --record scaling`
+  writes `benches/results/<milestone>-<machine>.scaling.csv` (header: machine, CPU, OS, rustc, governor, date, commit,
+  step, cores; rows as the C++ file's), a whole run per file; a plain `cargo bench` skips it. The nightly
+  `thread scaling` job records the CI runners (11.3).
 - **Recording:** `cargo xtask bench --record` writes `crates/phasekit-verify/benches/results/<milestone>-<machine>.csv`
   (date, commit, step, bench, fluid, median, unit, CPU, OS, rustc, governor). At each milestone close the results are
   compared with the ARCHITECTURE.md §7 table. Another machine than the reference machine (user decisions P3 and

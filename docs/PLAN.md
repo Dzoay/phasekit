@@ -420,12 +420,8 @@ the reference machine (user decisions P3, RM1).
 | Step | Landed |
 |---|---|
 | M9.1 | `ExecPolicy::Parallel` on rayon |
+| M9.2 | Thread scaling recorded |
 
-- **M9.2 Thread scaling.** *Failing command:* `cargo xtask bench --record scaling` (no harness). *Do:* the
-  `scaling_same_and_different_fluids` bench at 1, 2, 4 and N threads, N = the reference machine's physical cores (the
-  dev box's i7-8700K: 6 cores, 12 hardware threads); it records throughput relative to one thread, it asserts nothing
-  (K19 targets are estimates). *Done when:* recorded on the reference machine and CI runners; a result below 0.9·N at N
-  threads opens a re-plan issue with the measurement.
 - **M9.2a Non-analytic terms at the requested order** (user decision NA1). *Failing test:*
   `non_analytic_order_two_equals_jet4` (the block's order-2 bundle against the order ≤ 2 entries of today's `Jet4`
   evaluation at the `term` fixtures' (τ, δ) for Water and CarbonDioxide, the critical point's limits included: bitwise
@@ -664,7 +660,8 @@ Every decision, and the steps it applies to, is in [DECISIONS.md](DECISIONS.md).
 still open; an item leaves it when a step or a decision takes it.
 
 **Open user decisions.** P4: the paywalled EOS papers (Ammonia, CO₂, R125, Air, Nitrogen, HFE143m). Until a paper
-arrives its fluid stays oracle-only, labelled provisional; nothing waits on it.
+arrives its fluid stays oracle-only, labelled provisional; nothing waits on it. The thread-scaling target's wording
+(issue #135): ARCHITECTURE.md §7's ≥ 0.9·N is above the laptop's own ceiling, and met on the aarch64 runner.
 
 **Waiting for a paper.** Each item moves when a copy reaches `reference/papers/`.
 
