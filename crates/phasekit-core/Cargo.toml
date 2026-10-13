@@ -9,8 +9,8 @@ publish.workspace = true
 
 # D1: features only ADD capability; none but `libm` changes numerics (K13). Core's only third-party dependencies are
 # optional (tier T1, docs/DEPENDENCIES.md): `rayon` (M9.1) and `libm` (M9.3). Later, only behind measured or scheduled
-# triggers: `simd` (fearless_simd, if the post-0.1 SIMD gate fires) and `json` (serde_json, when a
-# runtime-JSON consumer is scheduled; until then the serde mirror lives in phasekit-xtask, S-12).
+# triggers: `simd` (fearless_simd, if the post-0.1 SIMD gate fires; it enables `libm`, user decision SL1) and `json`
+# (serde_json, when a runtime-JSON consumer is scheduled; until then the serde mirror lives in phasekit-xtask, S-12).
 [features]
 default = ["fluids-all"]
 embedded = ["dep:phasekit-data"]

@@ -409,7 +409,8 @@ decode (systems fatal flaw on Lean); late resolution by name through a `Weak` re
 bitwise equal. No batch hook ships without a caller (S-01): `residual_batch`, `flash_many`, the per-kind batch loops and
 `ExecPolicy::Auto` are deleted, to return with the SIMD milestone. A new `#[non_exhaustive]` variant is a minor semver
 change (materials-extensibility intro, citing the Cargo SemVer guide), and so is a defaulted trait method *(inference)*.
-SIMD comes after 0.1, behind a measured gate, as a `simd` feature of `phasekit-core` (§7).
+SIMD comes after 0.1, behind a measured gate, as a `simd` feature of `phasekit-core` that enables `libm` (§7, user
+decision SL1).
 *Why:* K8-K17, R12, R13, T1b, the user's follow-up. *Rejected:* SIMD in v0.1 (Kernel fatal flaw); a `phasekit-simd`
 crate (S-02); unreachable v0.1 hooks (S-01); `std::simd` (nightly); per-ISA physics; features that change numerics.
 
@@ -636,9 +637,12 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      newtype in core avoids that *(inference)*, and the generic kernels run unchanged. A
      crate-private `exec` module separates `LaneKernel` ("what") from `run_scalar`/`run_lanes<W>`/`run_parallel`
      ("how"); the batch hooks and an `ExecPolicy` variant return with it. WASM `simd128` is a second build (K11, K15).
-  3. In-house vector `exp`/`ln` (fearless_simd has none; dependencies §4).
+  3. `simd` enables `libm` (user decision SL1), so its lanes are bitwise equal to the `libm` scalar path. The vector
+     `exp`/`ln` are ports of the locked `libm` crate's, operation for operation (fearless_simd has none; dependencies
+     §4); any other transcendental a laned kernel needs is ported the same way or called per lane through `math`.
   - The gate is ≥ 2.5× α^r batch throughput on AVX2 over the M9 baseline, or stop and re-plan.
-- **Dispatch.** `ExecPolicy` is a run-time value. Cargo features add executors but never change numerics (K13).
+- **Dispatch.** `ExecPolicy` is a run-time value. Cargo features add executors but never change numerics (K13);
+  `simd` changes them only by enabling `libm` (D12, user decision SL1).
   Summation-order-changing variants (across-terms SIMD, FMA) exist only as a separate future `Fast` policy with its own
   tolerance class (K9, K12).
 - **Differential testing.** `phasekit_verify::policy_equivalence(fluid, req, candidate)` asserts every cell and status
