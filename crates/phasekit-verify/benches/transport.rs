@@ -39,7 +39,7 @@ mod bench {
             let Some(states) = single(fluid, &record) else { return };
             // The transport set materialises on the first call, outside the clock (ARCHITECTURE.md §8).
             let first = fluid.state(states[0]).map(|s| fluid.prop(&s, Prop::Viscosity));
-            assert!(first.is_ok_and(|eta| eta.is_ok()), "{name}: {first:?}");
+            assert!(first.as_ref().is_ok_and(|eta| eta.is_ok()), "{name}: {first:?}");
             let mut g = c.benchmark_group("pt_viscosity_conductivity");
             g.bench_function(BenchmarkId::new(name, "pt_eta_lambda"), |b| {
                 let mut k = 0;
