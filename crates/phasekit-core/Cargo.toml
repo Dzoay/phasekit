@@ -19,7 +19,7 @@ fluids-core = ["embedded", "phasekit-data/core"]
 # `ExecPolicy::Parallel` runs its fixed chunks on rayon's pool, with the bits of the calling thread's run (K6).
 rayon = ["dep:rayon"]
 # `math` on the `libm` crate instead of the platform's maths library (M9.3): the one feature that changes numerics,
-# for bit-identical results across targets; its default is decided on evidence at M9.5 (user decision 12).
+# for bit-identical results across targets. Opt-in: M9.5 measured it 1.44x std's time (ARCHITECTURE.md D12).
 libm = ["dep:libm"]
 
 [dependencies]

@@ -101,8 +101,8 @@ impl Real for f64 {
 
 /// The only place the library calls a transcendental function (D12, dependencies R14). Default: `std`, the
 /// platform's maths library; the opt-in `libm` feature (M9.3) swaps in the `libm` crate, the one feature that changes
-/// numerics (docs/DEPENDENCIES.md T1). Whether that makes results bit-identical on Linux, Windows and WASM is a
-/// property the M9.4 cross-target hash proves, not an assumption (dependencies §4). clippy's `disallowed-methods`
+/// numerics (docs/DEPENDENCIES.md T1). With it, results are bit-identical on Linux, Windows, aarch64 and WASM, as the
+/// M9.4 cross-target hash proves; it stays opt-in for its cost (ARCHITECTURE.md D12). clippy's `disallowed-methods`
 /// rejects every `f64` transcendental elsewhere (E16).
 pub mod math {
     /// The backend this build's transcendentals run on: `"libm"` with the `libm` feature, else `"std"`.

@@ -675,7 +675,7 @@ value part (`generic_fast_path_is_bitwise_scalar`, sketch).
 
 ### 9.4 Cross-target determinism hash
 
-This is the one definition of the hash grid; PLAN.md M9.4 runs it and M9.5 applies the decision rule.
+This is the one definition of the hash grid; M9.4 runs it, and M9.5 applied the decision rule (ARCHITECTURE.md D12).
 - **Grid and hash:** all 136 embedded fluids (the hash needs no fixtures, so it is not limited to the core subset);
   per fluid 64 (T, ρ) points on the `eos` grid of 3.5, 16 QT and 16 PQ points on the `sat` grid, and 16 PT and 16 PH
   points read off (p, T) truth states, all drawn with SplitMix64 seed 1; outputs p, h, s, c_v, c_p, w, the order-2 α^r
@@ -688,7 +688,7 @@ This is the one definition of the hash grid; PLAN.md M9.4 runs it and M9.5 appli
   `fixtures/hash/libm.txt` and every target must reproduce it from then on. `libm` changes bits relative to std
   (dependencies §4), the one exception to "features never change numerics" (K13), so oracle comparisons stay
   class-based under either math.
-- **Decision rule:** PLAN.md M9.5 (user decision 12); this hash is its bit-identity half.
+- **Decision:** ARCHITECTURE.md D12 (user decision 12, applied at M9.5): this hash is the rule's bit-identity half, which holds; the cost half does not, so `libm` stays opt-in and std's cross-target differences stay class-based (5).
 
 ## 10. Conformance kit for model families
 
@@ -848,7 +848,7 @@ each bench recorded is in `benches/results/`, and CoolProp's numbers are in `ben
 more than 5 % against the baseline committed at M9 *(decision)*; (2) allocation counts stay 0 (a test, from M5); (3) the
 §7 targets are checked on the reference machine at each milestone close; a miss fails the milestone and is resolved by
 optimisation or a recorded re-plan with measurements, never by quietly editing the target. Wall-clock numbers from
-shared CI runners are informational (noise) *(inference)*. The `libm` cost rule (PLAN.md M9.5) and the SIMD gate
+shared CI runners are informational (noise) *(inference)*. The `libm` cost rule (ARCHITECTURE.md D12) and the SIMD gate
 (≥ 2.5× α^r batch throughput on AVX2 over the M9 baseline, or stop and re-plan; ARCHITECTURE.md §7) use the same
 harness.
 
