@@ -129,6 +129,7 @@ Each release's Conventional Commit subjects since the one before, by type (`carg
 - one home per fact, finished steps as a ledger (#125)
 - plan: ledger rows without their PR and commit (#126)
 - libm stays opt-in, 1.44x std's time; bit-identity holds (#141)
+- plan: M12's simd feature requires libm (user decision SL1) (#157)
 
 ### Tests
 
