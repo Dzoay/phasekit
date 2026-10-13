@@ -448,6 +448,12 @@ mod tests {
         assert_eq!(call("P", "T", "T"), Err(CompatError::InvalidPair("T".into(), "T".into())));
         assert_eq!(format!("{}", CompatError::UnknownOutput("X".into())), "unknown output key `X`");
         assert_eq!(props_si("P", "T", 700.0, "Dmolar", 10.0, "Water"), call("P", "T", "Dmolar"));
+        // The embedded registry's Props1SI and PhaseSI are the registry forms' over it.
+        let embedded = Registry::embedded().unwrap();
+        assert_eq!(props1_si("Tcrit", "Water"), props1_si_in(embedded, "Tcrit", "Water"));
+        assert!(props1_si("Tcrit", "Water").is_ok_and(|t| (t - 647.096).abs() < 1e-3));
+        assert_eq!(phase_si("T", 700.0, "Dmolar", 10.0, "Water"), Ok("supercritical_gas"));
+        assert_eq!(phase_si("T", 300.0, "P", 101_325.0, "Water"), Ok("liquid"));
     }
 
     /// Every key of the grammar reaches its kernel name, CoolProp's spellings and one-letter aliases (map 01 §4a): an
