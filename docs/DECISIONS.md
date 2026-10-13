@@ -428,3 +428,14 @@ continuous there; the step chose how.
 | # | Question | Decision | Notes |
 |---|---|---|---|
 | AM1 | How is Ammonia's λ kept finite at 405.4 K? | **Keep the step's floor: the term's reduced temperature is floored at the gap to the EOS's T_c, (405.56 − 405.4)/405.4** | CoolProp's value outside 405.24-405.56 K, finite and continuous inside (DIV-0030, ROT-111). The Corrected model (Monogenidou et al. 2018) remains the alternative after the paper check (map 05 Q3). |
+
+## c_p, c_v and w of a saturated phase (2026-10-13)
+
+Asked after M8.10, which reads η and λ at Q = 0 and 1 from the saturated phase, while c_p, c_v and w stayed refused for
+every two-phase state (M5.3). CoolProp gives the saturated phase's: its w reads that phase at Q = 0 and 1, and its c_p
+and c_v evaluate the EOS at the mean density, which there is that phase's (Water, CO₂ and Nitrogen identical to the
+single phase at the saturated density).
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| SQ1 | Do c_p, c_v and w at Q = 0 and 1 come from the saturated phase? | **Yes, to match CoolProp** | The liquid's at Q = 0, the vapour's at Q = 1, at its own T (E3). Strictly inside the dome they stay `Undefined`, where CoolProp's c_p and c_v are the EOS at the mean density (Water at QT(0.5, 500 K): 35 464 J/(kg K)) (ROT-010, DIV-0004). Asked for these three only: the partial derivatives and the order-3 outputs stay refused at Q = 0 and 1. |

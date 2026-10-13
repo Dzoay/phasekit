@@ -300,24 +300,35 @@ impl State {
         }
     }
 
+    /// The point c_p, c_v and w read (SQ1, as CoolProp): a single phase's own, a split's saturated liquid at Q = 0 and its
+    /// vapour at Q = 1 (as `one_phase`), and `Undefined` strictly inside the dome.
+    fn saturated_point(&self, prop: Prop) -> Result<&Point, Error> {
+        match &self.body {
+            Body::Single(pt)
+            | Body::TwoPhase { q: 0.0, liquid: pt, .. }
+            | Body::TwoPhase { q: 1.0, vapour: pt, .. } => Ok(pt),
+            Body::TwoPhase { .. } => Err(Error::Undefined { prop, phase: self.phase }),
+        }
+    }
+
     /// `v` if finite, else `Undefined` (cv at a non-analytic critical point, cp where (∂p/∂ρ)_T = 0; E17).
     fn defined(&self, prop: Prop, v: f64) -> Result<f64, Error> {
         if v.is_finite() { Ok(v) } else { Err(Error::Undefined { prop, phase: self.phase }) }
     }
 
-    /// Isochoric heat capacity; undefined in the dome and where it diverges.
+    /// Isochoric heat capacity; a saturated phase's at Q = 0 and 1, undefined strictly inside the dome and where it diverges.
     pub fn cv(&self, basis: Basis) -> Result<f64, Error> {
-        let pt = self.single_point(Prop::Cvmolar)?;
+        let pt = self.saturated_point(Prop::Cvmolar)?;
         self.defined(Prop::Cvmolar, relations::cv(self.r, &pt.b) * self.per(basis))
     }
-    /// Isobaric heat capacity; undefined in the dome and where it diverges.
+    /// Isobaric heat capacity; a saturated phase's at Q = 0 and 1, undefined strictly inside the dome and where it diverges.
     pub fn cp(&self, basis: Basis) -> Result<f64, Error> {
-        let pt = self.single_point(Prop::Cpmolar)?;
+        let pt = self.saturated_point(Prop::Cpmolar)?;
         self.defined(Prop::Cpmolar, relations::cp(self.r, &pt.b) * self.per(basis))
     }
-    /// Speed of sound, m/s; undefined in the dome and where it diverges.
+    /// Speed of sound, m/s; a saturated phase's at Q = 0 and 1, undefined strictly inside the dome and where it diverges.
     pub fn speed_of_sound(&self) -> Result<f64, Error> {
-        let pt = self.single_point(Prop::SpeedOfSound)?;
+        let pt = self.saturated_point(Prop::SpeedOfSound)?;
         let w2 =
             self.defined(Prop::SpeedOfSound, relations::speed_of_sound_squared(self.r, pt.t, self.molar_mass, &pt.b))?;
         if w2 > 0.0 { Ok(math::sqrt(w2)) } else { Err(DomainError::MechanicallyUnstable.into()) }
@@ -474,7 +485,7 @@ mod tests {
         );
     }
 
-    /// ROT-010, DIV-0004 (c_p, c_v part; map 10 R18): inside the dome cv, cp, w and every partial are
+    /// ROT-010, DIV-0004 (c_p, c_v part; map 10 R18): strictly inside the dome cv, cp, w and every partial are
     /// `Undefined { prop, TwoPhase }`, where CoolProp returns numbers (Water QT(0.5, 400 K): c_p 4056.47 J/kg/K); h, s,
     /// u and ρ are the quality-weighted mixture.
     #[test]
@@ -492,6 +503,28 @@ mod tests {
         assert_eq!(s.partial(partial), undefined(Prop::Partial(partial)));
         assert_eq!(s.h(Basis::Molar), (liquid.h(Basis::Molar) + gas.h(Basis::Molar)) / 2.0);
         assert_eq!(s.rho(Basis::Molar), 1.0 / ((1.0 / 4_000.0 + 1.0 / 40.0) / 2.0));
+    }
+
+    /// SQ1 (ROT-010, DIV-0004): c_p, c_v and w read a saturated phase as a single one, as CoolProp does and as transport
+    /// does (M8.10): at Q = 0 a split's are its liquid's, at Q = 1 its vapour's, w at the vapour's own T (E3). Strictly
+    /// inside the dome they stay `Undefined`, and every partial does at Q = 0 and 1 too.
+    #[test]
+    fn saturated_cp_cv_w_are_the_saturated_phase_s() {
+        let b = Bundle { a00: 0.0, a10: 1.5, a01: 1.0, a20: -1.5, a11: 0.0, a02: -1.0 };
+        let gas = State::from_total(KEY, 301.0, 40.0, R, 0.04, Phase::Gas, &b).unwrap();
+        let liquid =
+            State::from_total(KEY, 300.0, 4_000.0, R, 0.04, Phase::Liquid, &Bundle { a20: -2.5, ..b }).unwrap();
+        let split = |q| State::from_split(liquid, gas, Quality::new(q).unwrap(), 300.0, 1.5 * gas.p()).unwrap();
+        let caloric = |s: &State| (s.cp(Basis::Mass), s.cv(Basis::Molar), s.speed_of_sound());
+        assert_ne!(caloric(&liquid), caloric(&gas));
+        assert_eq!(caloric(&split(0.0)), caloric(&liquid));
+        assert_eq!(caloric(&split(1.0)), caloric(&gas));
+        let undefined = |prop| Err(Error::Undefined { prop, phase: Phase::TwoPhase });
+        let refused = (undefined(Prop::Cpmolar), undefined(Prop::Cvmolar), undefined(Prop::SpeedOfSound));
+        assert_eq!((caloric(&split(1e-300)), caloric(&split(0.5))), (refused.clone(), refused));
+        let partial =
+            Partial { of: crate::prop::DerivVar::Hmolar, wrt: crate::prop::DerivVar::T, at: crate::prop::DerivVar::P };
+        assert_eq!(split(0.0).partial(partial), undefined(Prop::Partial(partial)));
     }
 
     /// ROT-010 (M8.10): a saturated phase is a single phase. At Q = 0 a split's one phase is its liquid, at Q = 1 its
