@@ -525,7 +525,7 @@ move `MILESTONE`: M11 stays the first open milestone.
   on the `eos` grid, the δ → 0 and τ = δ = 1 neighbourhoods and NaN inputs included.
 - **M12.3 The executors and the `ExecPolicy` variant.** M12.1's L0 `exec` gains the crate-private `LaneKernel`
   ("what") and `run_scalar`, `run_lanes::<W>` (chunks of W points, a remainder padded by duplicating a valid lane, K17)
-  and `run_parallel` ("how"). `ExecPolicy` gains a lanes variant (proposed name `Simd`); `residual_batch` runs it. The
+  and `run_parallel` ("how"). `ExecPolicy` gains `Simd` (user decision SL5); `residual_batch` runs it. The
   portable `Lanes<2>` at the build's baseline (SSE2, NEON, simd128) is ARCHITECTURE.md §7's step 1: measured against
   the scalar path, it stays the executor without the `simd` feature only on a measured win; otherwise the variant runs
   the scalar path there, with the same bits. *Red:* `policy_equivalence` over `residual_batch` with the new variant,
