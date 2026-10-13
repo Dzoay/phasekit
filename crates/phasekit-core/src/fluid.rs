@@ -65,6 +65,8 @@ pub enum ReferenceState {
     Ashrae,
     /// h = s = 0 for saturated liquid at 1 atm.
     Nbp,
+    /// The model's own zero, as its EOS states it (CoolProp's `DEF`): undoes any other reference state.
+    Native,
     /// The given h and s at the state the anchor input defines.
     Custom {
         /// State at which the values hold (in the handle's current gauge).
@@ -340,7 +342,8 @@ impl Fluid {
         Fluid { model: Arc::clone(&self.model), gauge }
     }
     /// The same model in a named reference state. It flashes the anchor state, so it works for any family
-    /// that declares the anchor's pair (IIR and ASHRAE need QT, NBP needs PQ; `Unsupported` otherwise).
+    /// that declares the anchor's pair (IIR and ASHRAE need QT, NBP needs PQ; `Unsupported` otherwise); an anchor off
+    /// the model's saturation curve is the flash's typed domain error (ROT-100). `Native` flashes nothing.
     pub fn with_reference(&self, reference: ReferenceState) -> Result<Fluid, Error> {
         let m = self.info().molar_mass();
         let liquid = Quality::new(0.0)?;
@@ -349,6 +352,7 @@ impl Fluid {
             ReferenceState::Ashrae => (Input::qt(liquid, Temperature::new(233.15)?), 0.0, 0.0),
             ReferenceState::Nbp => (Input::pq(Pressure::new(101_325.0)?, liquid), 0.0, 0.0),
             ReferenceState::Custom { at, h, s } => (at, h.to_molar(m), s.to_molar(m)),
+            ReferenceState::Native => return Ok(self.with_gauge(Gauge::NATIVE)),
         };
         let native = self.model.flash(self.native(at)?, &FlashOptions::default())?;
         Ok(self.with_gauge(Gauge::new(h - native.h(Basis::Molar), s - native.s(Basis::Molar))?))
@@ -644,6 +648,39 @@ mod tests {
         };
         let (tr, rt) = (mixed(T, Dmolar), mixed(Dmolar, T));
         assert!((tr - rt).abs() <= 1e-12 * tr.abs(), "{tr} vs {rt}");
+    }
+
+    /// Rot: ROT-100 (map 15 X10). CoolProp's IIR checks only the triple point, so Methane's fails inside its QT flash
+    /// ("may not be above the numerical critical point"). Here an anchor off the saturation curve is a typed domain
+    /// error naming the anchor and the curve's end, from the curve's range check before any solve, and no gauge is
+    /// made: IIR's 273.15 K above Methane's critical temperature (the superancillary's top, its numerical Tc), ASHRAE's
+    /// 233.15 K below Water's triple point, NBP's 1 atm below CarbonDioxide's triple-point pressure. An anchor on the
+    /// curve resolves.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn iir_requires_tc_above_273_15_k() {
+        use crate::error::DomainError;
+        use crate::{DataSet, Registry};
+        let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+        let ends = |name| {
+            let curve = registry.record(name).unwrap().superancillary_curve().unwrap();
+            let (t_min, t_max) = curve.t_range();
+            (t_min, t_max, curve.at_t(t_min).unwrap().bubble.p)
+        };
+        let methane = registry.get("Methane").unwrap();
+        let (_, t_max, _) = ends("Methane");
+        assert!((t_max - methane.model().critical_point().unwrap().t).abs() < 1e-9, "{t_max}");
+        let above = DomainError::AboveMaxTemperature { t: 273.15, t_max };
+        assert_eq!(methane.with_reference(ReferenceState::Iir).unwrap_err(), Error::Domain(above));
+        let (t_min, ..) = ends("Water");
+        let below = DomainError::BelowMinTemperature { t: 233.15, t_min };
+        let water = registry.get("Water").unwrap();
+        assert_eq!(water.with_reference(ReferenceState::Ashrae).unwrap_err(), Error::Domain(below));
+        let (.., p_min) = ends("CarbonDioxide");
+        let below = DomainError::BelowMinPressure { p: 101_325.0, p_min };
+        let co2 = registry.get("CarbonDioxide").unwrap();
+        assert_eq!(co2.with_reference(ReferenceState::Nbp).unwrap_err(), Error::Domain(below));
+        assert!(methane.with_reference(ReferenceState::Nbp).is_ok());
     }
 
     /// Rot: ROT-036 (map 02 §5 row 7, map 11 F8). CoolProp keys its melting data by fluid name in one process-global

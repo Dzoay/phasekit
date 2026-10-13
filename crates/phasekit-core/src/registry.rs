@@ -601,6 +601,20 @@ mod tests {
         assert!(Registry::embedded().is_ok());
     }
 
+    /// Rot: ROT-101 (map 15 X13). CoolProp accepts `set_reference_state("Water-SRK", "NBP")` and changes nothing: the
+    /// offset writer looks the cubic pseudo-name up in another map and has no `else`. Here `with_reference` resolves its
+    /// name as `get` does, so an unknown name, a pseudo-name included, is `LoadError::UnknownName` and no registry is
+    /// made.
+    #[test]
+    fn with_reference_refuses_unknown_names() {
+        let reg = Registry::embedded().unwrap();
+        for name in ["Water-SRK", "Water-PengRobinson", "SRK::Water", "unobtainium", ""] {
+            let refused = reg.with_reference(name, ReferenceState::Nbp).map(|_| ());
+            assert_eq!(refused, Err(Error::Load(LoadError::UnknownName(name.into()))), "{name}");
+        }
+        assert_eq!(reg.loaded().count(), 0);
+    }
+
     /// CoolProp lists "water" and "WATER" (and "H2O" and "h2o") as separate aliases; the index holds each key once,
     /// and every spelling resolves.
     #[test]

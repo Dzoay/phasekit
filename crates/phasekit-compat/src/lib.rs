@@ -172,6 +172,31 @@ mod tests {
         assert!((rho / 10.0 - 1.0).abs() < 1e-15, "{rho}");
     }
 
+    /// E10 (PLAN.md M10.1): a registry re-gauged by `with_reference` serves its reference state through the strings
+    /// under every name of the fluid, the `HEOS::` prefix included, bit for bit what the kernel's re-gauged handle
+    /// gives; `Native` on top of it restores the EOS's own values, and the registry it was made from is unchanged.
+    #[test]
+    fn registry_with_reference_reaches_strings() {
+        use phasekit_core::{Quality, ReferenceState, Temperature};
+        let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+        let native = registry.get("n-Propane").unwrap();
+        let liquid = Input::qt(Quality::new(0.0).unwrap(), Temperature::new(273.15).unwrap());
+        let strings =
+            |reg: &Registry, output, fluid| props_si_in(reg, output, "T", 273.15, "Q", 0.0, fluid).map(f64::to_bits);
+        let iir = registry.with_reference("propane", ReferenceState::Iir).unwrap();
+        let kernel = native.with_reference(ReferenceState::Iir).unwrap().state(liquid).unwrap();
+        for fluid in ["n-Propane", "R290", "HEOS::propane", "74-98-6"] {
+            assert_eq!(strings(&iir, "H", fluid), Ok(kernel.h(Basis::Mass).to_bits()), "{fluid}");
+            assert_eq!(strings(&iir, "S", fluid), Ok(kernel.s(Basis::Mass).to_bits()), "{fluid}");
+        }
+        let state = native.state(liquid).unwrap();
+        let back = iir.with_reference("n-Propane", ReferenceState::Native).unwrap();
+        for reg in [&registry, &back] {
+            assert_eq!(strings(reg, "H", "n-Propane"), Ok(state.h(Basis::Mass).to_bits()));
+            assert_eq!(strings(reg, "S", "n-Propane"), Ok(state.s(Basis::Mass).to_bits()));
+        }
+    }
+
     /// The string grammar: unknown keys and pairs whose bases disagree are refused by name, before the kernel.
     #[test]
     fn keys_and_pairs_are_checked() {
