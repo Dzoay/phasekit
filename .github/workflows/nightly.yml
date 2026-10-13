@@ -103,6 +103,7 @@ jobs:
           cargo xtask oracle --kind sigma --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind melt --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind melt --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
+          cargo xtask oracle --kind refstate --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind transport --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind transport --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind transport --set probes --out "$FIXTURES/coolprop-8.0.0" --write-manifest
@@ -143,6 +144,8 @@ jobs:
             cargo xtask oracle --kind melt --out "$FIXTURES/coolprop-8.0.0" --check
             cargo xtask oracle --kind melt --tier all --out "$FIXTURES/coolprop-8.0.0" --check
             echo "pass $pass: melt/*.csv and all/melt.csv identical"
+            cargo xtask oracle --kind refstate --out "$FIXTURES/coolprop-8.0.0" --check
+            echo "pass $pass: refstate/*.csv identical"
             cargo xtask oracle --kind transport --out "$FIXTURES/coolprop-8.0.0" --check
             cargo xtask oracle --kind transport --tier all --out "$FIXTURES/coolprop-8.0.0" --check
             cargo xtask oracle --kind transport --set probes --out "$FIXTURES/coolprop-8.0.0" --check

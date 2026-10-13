@@ -8,18 +8,20 @@ use std::collections::HashMap;
 
 use phasekit_core::internal::{FluidRecord, IdealTerm};
 use phasekit_core::{
-    Basis, CriticalPoint, DataSet, Density, DomainPolicy, Error, FlashOptions, Fluid, Input, Order, Phase, Pressure,
-    Quality, Registry, RootPolicy, SatAccuracy, SaturationCurve, State, Strategy, Temperature,
+    Basis, CriticalPoint, DataSet, Density, DomainPolicy, Error, FlashOptions, Fluid, Input, Phase, Pressure, Quality,
+    Registry, RootPolicy, SatAccuracy, SaturationCurve, State, Strategy, Temperature,
 };
-use phasekit_verify::eos::{Majorants, carried};
 use phasekit_verify::fixture::Kind;
 use phasekit_verify::register::{RowKey, exempt_row};
 use phasekit_verify::term::IdealScale;
 use phasekit_verify::{CheckError, DIVERGENCES, Fixture, ToleranceClass, Window, fixture};
 
+#[path = "common/caloric.rs"]
+mod caloric;
 #[path = "common/sweep.rs"]
 mod sweep;
 
+use caloric::eos_bound;
 use sweep::Failures;
 
 /// The superancillary of `name` from the embedded blob, under `data_set` and the hash gate.
@@ -138,26 +140,6 @@ fn saturated(fluid: &Fluid, curve: &dyn SaturationCurve, t: f64) -> (State, Stat
         fluid.flash(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap()), &opts).unwrap()
     };
     (at(sat.bubble.rho, Phase::Liquid), at(sat.dew.rho, Phase::Gas))
-}
-
-/// `Prop`'s bound (VERIFICATION.md §5) on an h (`entropy` false) or s near `want` at (T, ρ), with `Term` carried
-/// through the relation.
-fn eos_bound(
-    fluid: &Fluid,
-    (record, ideal): (&FluidRecord, &IdealScale),
-    t: f64,
-    rho: f64,
-    entropy: bool,
-    want: f64,
-) -> f64 {
-    let (eos, r) = (fluid.model().helmholtz().unwrap(), record.eos.gas_constant);
-    let critical = fluid.model().critical_point().unwrap();
-    let bundle = (eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two)).bundle().unwrap();
-    let majorants = Majorants::at(record, ideal, t, rho);
-    let relation = if entropy { "smolar" } else { "hmolar" };
-    let spread = carried(relation, &bundle, &majorants, r, t, rho, fluid.info().molar_mass());
-    let scale = want.abs().max(if entropy { r } else { r * t });
-    ToleranceClass::Prop.bound_carried(scale, Window::at(t, rho, critical.t, critical.rho), spread).unwrap()
 }
 
 /// `CaloricFit` (VERIFICATION.md §5) of an h or u (`entropy` false) or an s at T.

@@ -1333,8 +1333,85 @@ def transport(CP, lock, config, files, args):
     return out
 
 
+# The `refstate` kind (section 3.5): h and s in CoolProp's named reference states (map 01 section 3), each set with
+# `set_reference_state` and reset to DEF after its rows: it edits the process-wide fluid library, and an AbstractState
+# made before keeps its old offsets (map 01 R14). Per reference state: its anchor (IIR: saturated liquid at 273.15 K,
+# defined as h = 200 kJ/kg and s = 1 kJ/(kg K); ASHRAE: saturated liquid at 233.15 K, h = s = 0; NBP: saturated liquid at
+# 101325 Pa, h = s = 0), then REFSTATE_ROWS saturated states, T uniform over [Tlow, Tlow + 0.9 (Tc - Tlow)] and Q
+# alternating 0 and 1, each on a fresh AbstractState. A reference state CoolProp refuses gives one anchor row with its
+# error status. x1 and x2 are the pair's inputs in SI units (QT: Q, K; PQ: Pa, Q). The
+# fluids: the core subset and the three of CoolProp's own reference-state test (`CoolProp-Tests.cpp:2263-2436`); the
+# kind has no all-fluid tier, and its full set is the core one.
+REFSTATE_COLUMNS = ["refstate", "role", "pair", "x1", "x2", "status", "h_mass", "s_mass"]
+REFSTATE_UNITS = ["-", "-", "-", "pair", "pair", "-", "J/kg", "J/kg/K"]
+REFSTATE_TOL = ["label", "label", "label", "in", "in", "label", "prop", "prop"]
+REFSTATE_ANCHORS = [("IIR", "QT", 0.0, 273.15), ("ASHRAE", "QT", 0.0, 233.15), ("NBP", "PQ", 101325.0, 0.0)]
+REFSTATE_ROWS = 20  # saturated states per reference state
+REFSTATE_TEST_FLUIDS = ["R124", "R134a", "n-Propane"]
+
+
+def refstate_value(CP, name, pair, x1, x2):
+    """(h_mass, s_mass, status) on a fresh state at the pair's inputs, in the reference state currently set."""
+    try:
+        state = CP.AbstractState("HEOS", name)
+        state.update(getattr(CP, f"{pair}_INPUTS"), x1, x2)
+        return state.hmass(), state.smass(), "ok"
+    except Exception as exception:  # every oracle failure becomes a status, never a crash
+        return math.nan, math.nan, f"err:{error_class(exception)}"
+
+
+def refstate_rows(CP, name, rows, seed):
+    """One fluid's rows: (floats, lines), each reference state's temperatures from its own SplitMix64 stream."""
+    probe = CP.AbstractState("HEOS", name)
+    t_low = max(probe.Tmin(), probe.Ttriple())
+    t_high = t_low + 0.9 * (probe.T_critical() - t_low)
+    floats, lines = [], []
+    for k, (ref, pair, x1, x2) in enumerate(REFSTATE_ANCHORS):
+        rng = splitmix64(seed + k)
+        try:
+            CP.set_reference_state(name, ref)
+        except Exception as exception:  # a refused reference state is a row, never a crash
+            floats += [x1, x2, math.nan, math.nan]
+            lines.append(f"{ref},anchor,{pair},{cell(x1)},{cell(x2)},err:{error_class(exception)},nan,nan\n")
+            continue
+        try:
+            cases = [("anchor", pair, x1, x2)]
+            cases += [("state", "QT", float(i % 2), uniform(rng, t_low, t_high)) for i in range(rows)]
+            for role, case_pair, y1, y2 in cases:
+                h, s, status = refstate_value(CP, name, case_pair, y1, y2)
+                floats += [y1, y2, h, s]
+                lines.append(f"{ref},{role},{case_pair},{cell(y1)},{cell(y2)},{status},{cell(h)},{cell(s)}\n")
+        finally:
+            CP.set_reference_state(name, "DEF")
+    return floats, lines
+
+
+def refstate(CP, lock, config, files, args):
+    """The `refstate` kind: refstate/<Fluid>.csv for the core subset and REFSTATE_TEST_FLUIDS (one anchor and
+    REFSTATE_ROWS saturated states per reference state), the same files in the full set."""
+    if args.tier == "all":
+        fail("--kind refstate has no all-fluid tier (section 3.5)")
+    rows = args.rows or REFSTATE_ROWS
+    names = sorted(CORE_FLUIDS + REFSTATE_TEST_FLUIDS)
+    if args.fluids:
+        unknown = [name for name in args.fluids.split(",") if name not in names]
+        if unknown:
+            fail(f"--fluids: not refstate fluids: {', '.join(unknown)}")
+        names = [name for name in names if name in args.fluids.split(",")]
+    grid = (f"per reference state: its anchor, then n={rows} QT states, T~U[Tlow,Tlow+0.9(Tc-Tlow)], "
+            "Tlow=max(Tmin,Ttriple), Q alternating 0,1")
+    out = {}
+    for name in names:
+        sha = assert_fluid(CP, files, name)
+        floats, lines = refstate_rows(CP, name, rows, args.seed)
+        text = header("refstate", lock, config, [(name, sha)], REFSTATE_COLUMNS, REFSTATE_TOL, floats,
+                      units=REFSTATE_UNITS, grid=grid)
+        out[f"refstate/{name}.csv"] = text + "".join(lines)
+    return out
+
+
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "sat": sat,
-              "flash": flash, "sigma": sigma, "melt": melt, "transport": transport}
+              "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate}
 
 
 def write(out, files):
