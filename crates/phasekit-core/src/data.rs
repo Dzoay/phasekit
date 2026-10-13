@@ -432,14 +432,33 @@ pub struct PseudoPure {
     pub t_range: (f64, f64),
 }
 
-/// One melting-curve segment (Simon-type form, map 07); the full form lands at M8.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// One melting-curve segment (map 02 §3.7): its form, its reference point (T₀, p₀) and its range, `t_min` ≤ `t_max`
+/// whichever way the JSON orders them (Water's ice Ih segment runs from 273.16 K down to 251.165 K as p rises). The
+/// curve never evaluates a segment outside its range (user decision 6; ROT-049).
+#[derive(Clone, Debug, PartialEq)]
 #[allow(missing_docs)]
 pub struct MeltingSegment {
+    pub form: MeltingForm,
     pub t0: f64,
     pub p0: f64,
     pub t_min: f64,
     pub t_max: f64,
+}
+
+/// A melting segment's form, CoolProp's three (`Ancillaries.h:186-245`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum MeltingForm {
+    /// Simon's p = p₀ + a((T/T₀)^c − 1).
+    Simon {
+        /// a, Pa.
+        a: f64,
+        /// c.
+        c: f64,
+    },
+    /// p = p₀(1 + Σ aᵢ((T/T₀)^tᵢ − 1)), the (aᵢ, tᵢ) in file order.
+    PolynomialInTr(Box<[(f64, f64)]>),
+    /// p = p₀(1 + Σ aᵢ(T/T₀ − 1)^tᵢ), the (aᵢ, tᵢ) in file order.
+    PolynomialInTheta(Box<[(f64, f64)]>),
 }
 
 /// What the shipped superancillary was fitted to. Datagen verifies CoolProp's `source_eos_hash` stamp
@@ -849,9 +868,7 @@ impl FluidRecord {
         let mut bytes = Vec::new();
         self.eos.encode(&mut bytes);
         bytes.extend_from_slice(&self.molar_mass.to_le_bytes());
-        for s in &self.melting {
-            [s.t0, s.p0, s.t_min, s.t_max].iter().for_each(|x| bytes.extend_from_slice(&x.to_le_bytes()));
-        }
+        bytes.extend_from_slice(&crate::blob::melting(&self.melting));
         bytes.extend_from_slice(self.name.as_bytes());
         ModelKey::from_content(&bytes)
     }
@@ -867,6 +884,9 @@ impl FluidRecord {
         let mut builder = PureFluid::builder(info.with_aliases(&aliases), eos, self.limits);
         if let Some(calorics) = self.calorics() {
             builder = builder.calorics(calorics);
+        }
+        if let Some(curve) = crate::melting::MeltingCurve::new(&self.melting) {
+            builder = builder.melting(curve);
         }
         // A whole record carries its transport models and its σ fit, either without the other; the registry's eager
         // parts leave both to its lazy closure.
@@ -974,7 +994,12 @@ mod tests {
         r.superancillary_fit =
             Some(SaStamp { shape: e.shape_hash(), gas_constant: e.gas_constant, rho_reducing: e.rho_reducing });
         r.superancillary = Some(superancillary());
-        r.melting = vec![MeltingSegment { t0: 251.165, p0: 208.566e6, t_min: 251.165, t_max: 256.164 }];
+        let ice_iii = MeltingForm::PolynomialInTr(Box::new([(0.299_948, 60.0)]));
+        let ice_vi = MeltingForm::Simon { a: 1.074_76e9, c: 4.6 };
+        r.melting = vec![
+            MeltingSegment { form: ice_iii, t0: 251.165, p0: 208.566e6, t_min: 251.165, t_max: 256.164 },
+            MeltingSegment { form: ice_vi, t0: 256.164, p0: 350.1e6, t_min: 256.164, t_max: 273.31 },
+        ];
         let ancillary = |exponential, tau_r, reducing| Ancillary {
             exponential,
             tau_r,
@@ -1107,8 +1132,8 @@ mod tests {
         }
         type Edit = fn(&mut Vec<u8>);
         let cases: [(Edit, &str); 5] = [
-            (|b| b[8] = 6, "blob version 6; this build reads version 5"),
-            (|b| b[12] = 9, "blob lists 9 sections; version 5 has 10"),
+            (|b| b[8] = 7, "blob version 7; this build reads version 6"),
+            (|b| b[12] = 9, "blob lists 9 sections; version 6 has 10"),
             (|b| b[32] = 2, "section table: entry 2 at"),
             (|b| b[40] += 8, "where section 1 (metadata) belongs"),
             (|b| b.extend([0; 8]), "blob has 8 bytes after its last section"),
@@ -1148,6 +1173,10 @@ mod tests {
         assert_eq!(format_error(&blob_with(0, |b| _ = b.pop())), "metadata section is truncated");
         assert_eq!(format_error(&blob_with(1, |b| b.push(99))), "eos section: unknown tag 99");
         assert_eq!(format_error(&blob_with(9, |b| b.push(1))), "corrections section is truncated");
+        // Filled at M8.11: a melting segment opens with its form's tag, 0-2, and a polynomial lists its terms.
+        assert_eq!(format_error(&blob_with(8, |b| b.push(3))), "melting form tag 3");
+        assert_eq!(format_error(&blob_with(8, |b| _ = b.pop())), "melting section is truncated");
+        assert_eq!(format_error(&blob_with(8, |b| b[33] = 9)), "melting section is truncated");
         // Filled at M6.9: the four ancillaries' flags are 0-3, and nothing follows QT's range.
         assert_eq!(format_error(&blob_with(5, |b| b.extend([0; 8]))), "ancillaries: 8 bytes after the last field");
         assert_eq!(format_error(&blob_with(5, |b| _ = b.pop())), "ancillaries section is truncated");
@@ -1360,7 +1389,8 @@ mod tests {
         assert_eq!(heavier.eos.eos_hash(), base.eos.eos_hash());
         assert_ne!(heavier.model_key(), base.model_key());
         let mut melting = base.clone();
-        melting.melting = vec![MeltingSegment { t0: 1.0, p0: 2.0, t_min: 1.0, t_max: 3.0 }];
+        let form = MeltingForm::PolynomialInTheta(Box::new([(1.5, 1.0)]));
+        melting.melting = vec![MeltingSegment { form, t0: 1.0, p0: 2.0, t_min: 1.0, t_max: 3.0 }];
         assert_eq!(melting.eos.eos_hash(), base.eos.eos_hash());
         assert_ne!(melting.model_key(), base.model_key());
         let mut p0 = melting.clone();

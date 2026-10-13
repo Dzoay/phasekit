@@ -42,6 +42,7 @@ mod flash;
 mod fluid;
 mod helmholtz;
 mod input;
+mod melting;
 mod model;
 mod num;
 mod prop;
@@ -83,7 +84,7 @@ pub use units::{Basis, Density, Enthalpy, Entropy, InternalEnergy, Pressure, Qua
 pub mod internal {
     pub use crate::data::{
         Ancillary, CaloricCurves, CaloricFreshness, CaloricStamp, CaloricView, Edit, Environmental, EosRecord,
-        FluidRecord, MeltingSegment, Patch, PseudoPure, SaFreshness, SaStamp, Superancillary,
+        FluidRecord, MeltingForm, MeltingSegment, Patch, PseudoPure, SaFreshness, SaStamp, Superancillary,
     };
     pub use crate::helmholtz::{
         DoubleExponentialTerm, GaoBTerm, GaussianTerm, IdealTerm, Lemmon2005Term, MAX_POW, NonAnalyticTerm,

@@ -286,4 +286,16 @@ pub trait ThermoModel: Any + Send + Sync + fmt::Debug {
     fn surface_tension(&self, _t: f64) -> Result<f64, Error> {
         Err(Error::NoModel { prop: Prop::SurfaceTension })
     }
+
+    /// The melting pressure at `t`, Pa, never extrapolated past the curve's segments (user decision 6); `Ambiguous`
+    /// where two branches hold `t` (Water's ice Ih beside ice III and V).
+    fn melting_pressure(&self, _t: f64) -> Result<f64, Error> {
+        Err(Error::NoModel { prop: Prop::MeltingPressure })
+    }
+
+    /// The melting temperature at `p`, K, never extrapolated past the curve's segments (user decision 6). Single-valued:
+    /// `Enforce` refuses a state below it (`DomainError::BelowMeltingLine`).
+    fn melting_temperature(&self, _p: f64) -> Result<f64, Error> {
+        Err(Error::NoModel { prop: Prop::MeltingTemperature })
+    }
 }

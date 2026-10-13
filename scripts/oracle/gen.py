@@ -161,6 +161,17 @@ FACTS = {
          ("HEOS", "Helium", "DmolarT_INPUTS", 18000, 5.5, "conductivity")),
         ("div0035_lambda_helium_t5.9_rho15000", "AbstractState",
          ("HEOS", "Helium", "DmolarT_INPUTS", 15000, 5.9, "conductivity")),
+        # Hydrogen's and OrthoHydrogen's melting line at their triple points, beside their triple pressures, and at
+        # 20 K beside ParaHydrogen's (DIV-0036; map 02 section 6 row 5).
+        ("div0036_melting_p_hydrogen_t13.957", "AbstractState",
+         ("HEOS", "Hydrogen", "melting_line", "iP", "iT", 13.957)),
+        ("div0036_ptriple_hydrogen", "Props1SI", ("Hydrogen", "ptriple")),
+        ("div0036_melting_p_orthohydrogen_t14.008", "AbstractState",
+         ("HEOS", "OrthoHydrogen", "melting_line", "iP", "iT", 14.008)),
+        ("div0036_ptriple_orthohydrogen", "Props1SI", ("OrthoHydrogen", "ptriple")),
+        ("div0036_melting_p_hydrogen_t20", "AbstractState", ("HEOS", "Hydrogen", "melting_line", "iP", "iT", 20)),
+        ("div0036_melting_p_parahydrogen_t20", "AbstractState",
+         ("HEOS", "ParaHydrogen", "melting_line", "iP", "iT", 20)),
     ],
 }
 
@@ -1087,6 +1098,79 @@ def sigma(CP, lock, config, files, args):
     return out
 
 
+# The `melt` kind (section 3.5): CoolProp's melting line per segment of ANCILLARIES.melting_line, half the rows p(T) at
+# T uniform over the segment's range and half T(p) at p log-uniform over its pressures, each segment's p range from its
+# own formula at its two bounds (CoolProp's p(T) answers from the first segment holding T, which on Water's ice III and
+# V ranges is ice Ih's). Every row lies inside its segment: CoolProp's Simon T(p) below T_min (ROT-049) is not sampled.
+MELT_COLUMNS = ["input", "T", "p", "status"]
+MELT_UNITS = ["-", "K", "Pa", "-"]
+MELT_TOL = ["label", "prop", "prop", "label"]
+MELT_ROWS = {"core": 50, "all": 4, "full": 500}  # rows per segment
+
+
+def melt_p(kind, part, t):
+    """p at `t` on one part, as `Ancillaries.h:200-244` computes it."""
+    if kind == "Simon":
+        return part["p_0"] + part["a"] * ((t / part["T_0"]) ** part["c"] - 1)
+    if kind == "polynomial_in_Tr":
+        return part["p_0"] * (1 + sum(a * ((t / part["T_0"]) ** n - 1) for a, n in zip(part["a"], part["t"])))
+    return part["p_0"] * (1 + sum(a * (t / part["T_0"] - 1) ** n for a, n in zip(part["a"], part["t"])))
+
+
+def melt_rows(CP, name, line, rows, seed):
+    """One fluid's rows: (floats, lines), each segment's values from its own SplitMix64 stream."""
+    state = CP.AbstractState("HEOS", name)
+    floats, lines = [], []
+    for k, part in enumerate(line["parts"]):
+        rng = splitmix64(seed + k)
+        t_lo, t_hi = sorted((part["T_min"], part["T_max"]))
+        p_lo, p_hi = sorted((melt_p(line["type"], part, t_lo), melt_p(line["type"], part, t_hi)))
+        for i in range(rows):
+            given = "T" if i < rows // 2 else "p"
+            if given == "T":
+                t, p = uniform(rng, t_lo, t_hi), math.nan
+            else:
+                t, p = math.nan, math.exp(uniform(rng, math.log(p_lo), math.log(p_hi)))
+            try:
+                if given == "T":
+                    p = state.melting_line(CP.iP, CP.iT, t)
+                else:
+                    t = state.melting_line(CP.iT, CP.iP, p)
+                status = "ok"
+            except Exception as exception:  # every oracle failure becomes a status, never a crash
+                status = f"err:{error_class(exception)}"
+            floats += [t, p]
+            lines.append(f"{given},{cell(t)},{cell(p)},{status}\n")
+    return floats, lines
+
+
+def melt(CP, lock, config, files, args):
+    """The `melt` kind for the fluids with a melting line: melt/<Fluid>.csv in the core tier (50 rows per segment),
+    all/melt.csv (4) and the full set's files (500)."""
+    rows = args.rows or MELT_ROWS[args.tier]
+    results, shas = [], {}
+    for name in tier_fluids(args, files):
+        line = json.loads(files[name].read_text(encoding="utf-8"))["ANCILLARIES"].get("melting_line")
+        if line is None:
+            continue
+        shas[name] = assert_fluid(CP, files, name)
+        results.append((name, *melt_rows(CP, name, line, rows, args.seed)))
+    grid = (f"per segment of ANCILLARIES.melting_line: n={rows // 2} p(T), T~U[segment T range]; n={rows - rows // 2} "
+            "T(p), p~logU[segment p range, from its formula at its bounds]")
+    if args.tier == "all":
+        floats = [value for _, values, _ in results for value in values]
+        fluids = f"{len(results)} with a melting line, fluids_sha256={lock['fluids_sha256']}"
+        columns, tol, units = ["fluid", *MELT_COLUMNS], ["label", *MELT_TOL], ["-", *MELT_UNITS]
+        text = header("melt", lock, config, fluids, columns, tol, floats, units=units, grid=grid)
+        return {"all/melt.csv": text + "".join(f"{name},{line}" for name, _, lines in results for line in lines)}
+    out = {}
+    for name, floats, lines in results:
+        text = header("melt", lock, config, [(name, shas[name])], MELT_COLUMNS, MELT_TOL, floats, units=MELT_UNITS,
+                      grid=grid)
+        out[f"melt/{name}.csv"] = text + "".join(lines)
+    return out
+
+
 # The `transport` kind (section 3.5): CoolProp's viscosity and conductivity, totals and contributions, at stable
 # single-phase states (map 10 section 8.5): T uniform in [T_low, Tmax] and p log-uniform in [max(ptriple, 1 Pa), pmax]
 # from a SplitMix64 stream, rho from CoolProp's PT flash there, then transport on a fresh DT state at (T, rho), so a
@@ -1228,7 +1312,7 @@ def transport(CP, lock, config, files, args):
 
 
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "sat": sat,
-              "flash": flash, "sigma": sigma, "transport": transport}
+              "flash": flash, "sigma": sigma, "melt": melt, "transport": transport}
 
 
 def write(out, files):

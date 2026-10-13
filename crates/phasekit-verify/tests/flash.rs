@@ -4,6 +4,8 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
+use std::collections::BTreeMap;
+
 use phasekit_core::internal::FluidRecord;
 use phasekit_core::{
     Basis, DataSet, Density, DomainError, DomainPolicy, Error, FlashOptions, Fluid, Input, Pair, Phase, Pressure, Prop,
@@ -79,10 +81,12 @@ fn pt_matches_oracle() {
 
 /// PLAN.md M7.1 (ROT-074's round trips), class `Flash`: PT of each core fluid on a 40 × 40 grid, the cell centres of T
 /// in [max(Tmin, Ttriple), Tmax] and of log p in [1 Pa, pmax], round-trips (`FlashCheck::pt_round_trip`): DT at its
-/// (ρ, T) gives the same phase, and its p is the input's within `Flash`. Every point flashes but two, refused by typed
+/// (ρ, T) gives the same phase, and its p is the input's within `Flash`. Every point flashes but those refused by typed
 /// errors where CoolProp refuses too: Air at 84.0 K and 171 kPa lies between its dew and bubble pressure ancillaries,
 /// two-phase, where (p, T) fix no quality; Methanol at 181.2 K and 619 MPa, deep below its melting line (236 K there),
-/// has cv < 0 on its EOS (above 500 MPa at that T), which the acceptance gate refuses.
+/// has cv < 0 on its EOS (above 500 MPa at that T), which the acceptance gate refuses; and since M8.11 the 41 below
+/// their melting lines, `BelowMeltingLine` at the melting curve's T at their p (Air 8, CO₂ 5, Helium 2, Methanol 15,
+/// Nitrogen 11).
 #[test]
 fn pt_round_trips_on_a_40x40_log_p_t_grid() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
@@ -96,8 +100,23 @@ fn pt_round_trips_on_a_40x40_log_p_t_grid() {
     assert_eq!(check.report(20), None);
     let two_phase = Error::Undefined { prop: Prop::Q, phase: Phase::TwoPhase };
     let unstable = Error::Domain(DomainError::MechanicallyUnstable);
-    assert_eq!(refused, [("Air", (170_541.0, 84.003), two_phase), ("Methanol", (619_157_820.0, 181.165), unstable)]);
-    assert_eq!(check.compared, 14 * 1600 - 2);
+    let melting = |e: &Error| matches!(e, Error::Domain(DomainError::BelowMeltingLine { .. }));
+    let (solid, other): (Vec<_>, Vec<_>) = refused.into_iter().partition(|(_, _, e)| melting(e));
+    assert_eq!(other, [("Air", (170_541.0, 84.003), two_phase), ("Methanol", (619_157_820.0, 181.165), unstable)]);
+    for (name, (p, t), e) in &solid {
+        let t_melt = registry.get(name).unwrap().model().melting_temperature(*p).unwrap();
+        let at = |x: f64, y: f64| (x - y).abs() < 1e-3;
+        assert!(
+            matches!(e, Error::Domain(DomainError::BelowMeltingLine { t: tt, t_melt: tm }) if at(*tt, *t) && at(*tm, t_melt))
+        );
+    }
+    let per_fluid = solid.iter().fold(BTreeMap::new(), |mut n, (name, ..)| {
+        *n.entry(*name).or_insert(0) += 1;
+        n
+    });
+    let want = [("Air", 8), ("CarbonDioxide", 5), ("Helium", 2), ("Methanol", 15), ("Nitrogen", 11)];
+    assert_eq!(per_fluid.into_iter().collect::<Vec<_>>(), want);
+    assert_eq!(check.compared, 14 * 1600 - 2 - 41);
 }
 
 /// One fluid of [`pt_round_trips_on_a_40x40_log_p_t_grid`]: PT at the 40 × 40 cell centres, round-tripped into
@@ -169,8 +188,8 @@ fn d_x_round_trips() {
 /// max(0.5 K, 1e-3 Tc), at Q 0.05, 0.25, 0.5, 0.75 and 0.95: the QT state. Single phase: those and CarbonDioxide and
 /// Hydrogen on CoolProp's 20 × 20 (log p, T) grids, p from max(p at the triple point, 1e-6 pmax) to pmax and T from the
 /// domain's lowest temperature to Tmax, at the cells' centres as every grid here (VERIFICATION.md §3.6): the PT state
-/// wherever PT gives one, all but one (a solid Hydrogen state; see below). HS of each returns its phase, T and ρ within
-/// 1e-9 and its quality within 1e-8.
+/// wherever PT gives one, which since M8.11 is not below the fluid's melting line. HS of each returns its phase, T and
+/// ρ within 1e-9 and its quality within 1e-8.
 #[test]
 fn hs_round_trips() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
@@ -184,16 +203,10 @@ fn hs_round_trips() {
     for name in ["Water", "Nitrogen", "CarbonDioxide", "R134a", "MM", "n-Pentane", "Methane", "Hydrogen"] {
         hs_on_the_log_p_t_grid(&mut single, &registry, name);
     }
-    // One PT truth, Hydrogen at 38.6 K and 782 MPa, lies far below its melting line, solid (melting lines arrive at
-    // M8): there its EOS's isentrope folds, s rising again as T falls, and PS's highest root at that p is refused
-    // under the triple point's temperature.
-    let [hydrogen] = single.failures.as_slice() else { panic!("{:?}", single.report(20)) };
-    assert!(
-        hydrogen.starts_with("Hydrogen")
-            && hydrogen.contains("782454277")
-            && hydrogen.ends_with("BelowMinTemperature { t: 13.957, t_min: 13.957 })")
-    );
-    assert_eq!((single.compared, single.two_phase), (3199, 0));
+    // Until M8.11 one PT truth, Hydrogen at 38.6 K and 782 MPa, lay far below its melting line, where its EOS's
+    // isentrope folds and HS failed; PT now refuses it with the grid's 30 other solid states, of 3200.
+    assert_eq!(single.report(20), None);
+    assert_eq!((single.compared, single.two_phase), (3200 - 31, 0));
 }
 
 /// `n` points from `a` to `b`, both ends included: the `k`-th.
@@ -261,7 +274,10 @@ fn su_round_trips() {
 /// SU, DH, DS and DU ([`FlashCheck`]) and HP, PS, PU and DP (T within 1e-9; M7.9: an input a few ulp over pmax, as a
 /// state at pmax reads its p back, is on it). And an x colder than the lowest temperature's (the EOS's gas 5 % below
 /// it) is `BelowMinTemperature` for HP, DH and DP, as is a DH 1e-11 of its scale under the liquid's there, while one
-/// 1e-14 under it is that liquid.
+/// 1e-14 under it is that liquid. M8.11: CO₂'s and Nitrogen's melting lines rise from their triple points, so their
+/// compressed liquid at the lowest temperature is solid; theirs is on the melting line at its pressure, the bound
+/// there, and a DH 1e-10 under it is `BelowMeltingLine`. Nitrogen's state at pmax and 1.2 Tc is solid too (it melts
+/// at 283.8 K there), so its state at pmax is on the line.
 #[test]
 fn caloric_pairs_round_trip_on_the_domain_bounds() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
@@ -289,10 +305,12 @@ fn on_the_domain_bounds(check: &mut FlashCheck, failures: &mut Failures, registr
         fluid.flash(Input::pt(Pressure::new(p).unwrap(), Temperature::new(t).unwrap()), &FlashOptions::new())
     };
     let compressed = (10.0 * p_sat).max(1e6);
+    let on_the_line = |p: f64, t: f64| fluid.model().melting_temperature(p).map_or(t, |t_melt| t_melt.max(t));
+    let t_liquid = on_the_line(compressed, t_low);
     let truths = [
-        pt(compressed, t_low),
+        pt(compressed, t_liquid),
         pt(0.5 * p_sat, t_low),
-        pt(limits.p_max(), 1.2 * t_c),
+        pt(limits.p_max(), on_the_line(limits.p_max(), 1.2 * t_c)),
         pt(1e6, limits.t_max()),
         pt(limits.p_max(), limits.t_max()),
     ];
@@ -303,7 +321,7 @@ fn on_the_domain_bounds(check: &mut FlashCheck, failures: &mut Failures, registr
         check.dx_round_trip(name, fluid, &truth);
         compared += p_x_and_dp_round_trip(failures, name, fluid, &truth);
     }
-    colder_than_the_domain(failures, name, fluid, (t_low, p_sat, compressed));
+    colder_than_the_domain(failures, name, fluid, (t_low, p_sat, compressed), t_liquid);
     compared
 }
 
@@ -324,26 +342,32 @@ fn p_x_and_dp_round_trip(failures: &mut Failures, name: &str, fluid: &Fluid, tru
 /// Below the domain's lowest temperature `t_low` (its saturation pressure `p_sat`, the liquid's pressure there
 /// `compressed`): an h within 1e-13 of its scale under the liquid's (D+X's tolerance there) is that state, one 1e-11
 /// under it is colder than the domain, and so are HP, DH and DP of the EOS's gas 5 % below `t_low`
-/// (`BelowMinTemperature`).
+/// (`BelowMinTemperature`). Where the melting line at `compressed` lies above `t_low`, the liquid is on it, at
+/// `t_liquid`, and a DH 1e-10 under it is `BelowMeltingLine`.
 fn colder_than_the_domain(
     failures: &mut Failures,
     name: &str,
     fluid: &Fluid,
     (t_low, p_sat, compressed): (f64, f64, f64),
+    t_liquid: f64,
 ) {
     let m = Basis::Molar;
     let pt = |p: f64, t: f64, opts: &FlashOptions| {
         fluid.flash(Input::pt(Pressure::new(p).unwrap(), Temperature::new(t).unwrap()), opts).unwrap()
     };
     let below = |r: &Result<State, Error>| matches!(r, Err(Error::Domain(DomainError::BelowMinTemperature { .. })));
-    let liquid = pt(compressed, t_low, &FlashOptions::new());
-    let scale = liquid.h(m).abs().max(liquid.gas_constant() * t_low);
+    let melting = |r: &Result<State, Error>| matches!(r, Err(Error::Domain(DomainError::BelowMeltingLine { .. })));
+    let liquid = pt(compressed, t_liquid, &FlashOptions::new());
+    let scale = liquid.h(m).abs().max(liquid.gas_constant() * t_liquid);
     let dh = |under: f64| fluid.state(Input::new(Pair::DH, liquid.rho(m), liquid.h(m) - under * scale, m).unwrap());
     let within = dh(1e-14);
-    let ok = within.as_ref().is_ok_and(|back| (back.t() / t_low - 1.0).abs() < 1e-12);
+    let ok = within.as_ref().is_ok_and(|back| (back.t() / t_liquid - 1.0).abs() < 1e-12);
     failures.check(ok, || format!("{name} DH 1e-14 under the lowest temperature's liquid: {within:?}"));
-    let under = dh(1e-11);
-    failures.check(below(&under), || format!("{name} DH 1e-11 under the lowest temperature's liquid: {under:?}"));
+    // Along the isochore p falls too, so the melting line's T falls at about half T's rate: 1e-11 under is within
+    // `AT_BOUND` of it, 1e-10 beyond.
+    let (under, colder) =
+        if t_liquid > t_low { (dh(1e-10), melting as fn(&_) -> bool) } else { (dh(1e-11), below as _) };
+    failures.check(colder(&under), || format!("{name} DH under the lowest temperature's liquid: {under:?}"));
     // A gas: a cold liquid's isochore can meet its isobar again inside the domain (Water's density maximum).
     let cold = pt(0.1 * p_sat, 0.95 * t_low, &FlashOptions::new().with_domain(DomainPolicy::Extrapolate));
     for (pair, x, y) in

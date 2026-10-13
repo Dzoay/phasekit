@@ -59,6 +59,8 @@ pub enum Strategy {
     Saturation,
     /// TOMS 748 in ln p along an isentrope (HS, SU), each iterate a PS flash.
     Isentrope,
+    /// TOMS 748 in T along a melting-curve segment, for its T_melt(p) (M8.11).
+    Melting,
     /// Newton in (T₀, ρ₀) for an ECS conformal state: the reference fluid's α^r and Z equal the target's (map 05 U8).
     Conformal,
 }

@@ -677,8 +677,9 @@ fn ecs_lj_parameters_come_from_the_ecs_record() {
 /// within their printed digits, for every fluid whose viscosity this step evaluates; the friction-theory fluids with
 /// paper rows (SF₆, H₂S) among them. The others say the step that evaluates them. A row beyond its printed digits passes
 /// only within the `Measured` bound a register entry records for its table (DIV-0021, DIV-0022; VERIFICATION.md §6),
-/// and those rows are pinned. The nine rows outside the EOS's range (CO₂ at 100 and 10 000 K, Methanol at 630 K, the
-/// xylenes above p_max) are evaluated with `DomainPolicy::Extrapolate`, and the 13 at a (T, ρ) inside the dome, where
+/// and those rows are pinned. The ten rows outside the EOS's range (CO₂ at 100 and 10 000 K, Methanol at 630 K, the
+/// xylenes above p_max, and since M8.11 cyclohexane's 300 K liquid at 9.9508 mol/dm³, below its melting line) are
+/// evaluated with `DomainPolicy::Extrapolate`, and the 13 at a (T, ρ) inside the dome, where
 /// η is `Undefined` (M8.10), at the single phase there, as their papers evaluate them: six saturated densities rounded
 /// into the dome (Ammonia's 200 K liquid, 7.4e-4 below ρ′), the xylenes' and cyclohexane's six dilute checks at 300 and
 /// 400 K, up to 99 times ρ″, and cyclohexane's 500 K liquid, 4.6 % below ρ′.
@@ -693,7 +694,8 @@ fn viscosity_paper_rows() {
     assert_eq!((checked.get("SulfurHexafluoride"), checked.get("HydrogenSulfide")), (Some(&6), Some(&4)));
     assert_eq!((checked.get("Water"), checked.get("HeavyWater")), (Some(&17), Some(&3)));
     assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (29, 157, 0), "{checked:?}");
-    let outside = ["CarbonDioxide 133", "CarbonDioxide 135", "Methanol 218", "Methanol 219", "m-Xylene 252"];
+    let outside =
+        ["CarbonDioxide 133", "CarbonDioxide 135", "CycloHexane 233", "Methanol 218", "Methanol 219", "m-Xylene 252"];
     assert_eq!(
         rows.extrapolated,
         [&outside[..], &["m-Xylene 259", "o-Xylene 265", "o-Xylene 269", "o-Xylene 272"]].concat()
