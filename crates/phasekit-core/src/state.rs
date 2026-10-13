@@ -508,6 +508,18 @@ mod tests {
         assert_eq!(gas.one_phase(), Some(gas));
     }
 
+    /// A split is extrapolated if either phase is, its vapour's alone included, and carries its own solve's path, not
+    /// its liquid's.
+    #[test]
+    fn a_split_keeps_its_path_and_either_phase_s_extrapolation() {
+        let b = Bundle { a00: 0.0, a10: 1.5, a01: 1.0, a20: -1.5, a11: 0.0, a02: -1.0 };
+        let gas = State::from_total(KEY, 300.0, 40.0, R, 0.04, Phase::Gas, &b).unwrap().mark_extrapolated();
+        let liquid = State::from_total(KEY, 300.0, 4_000.0, R, 0.04, Phase::Liquid, &b).unwrap();
+        let path = SolvePath { strategy: Strategy::Vle, iterations: 3 };
+        let split = State::split(liquid, gas, Quality::new(0.5).unwrap(), 300.0, gas.p(), path).unwrap();
+        assert_eq!((split.path(), split.is_extrapolated()), (path, true));
+    }
+
     /// ROT-013 (map 01 U4): a single phase has no quality, `None` rather than CoolProp's −1 sentinel; a split's is its
     /// value.
     #[test]
