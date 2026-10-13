@@ -493,11 +493,12 @@ mod tests {
     }
 
     /// ROT-010 (M8.10): a saturated phase is a single phase. At Q = 0 a split's one phase is its liquid, at Q = 1 its
-    /// vapour, each the state it was built from; strictly inside the dome there is none. A single phase is its own.
+    /// vapour, each the state it was built from, at its own T (a pseudo-pure fluid's dew point is not at its bubble
+    /// point's, E3); strictly inside the dome there is none. A single phase is its own.
     #[test]
     fn one_phase_is_the_saturated_side_at_q_0_and_1() {
         let b = Bundle { a00: 0.0, a10: 1.5, a01: 1.0, a20: -1.5, a11: 0.0, a02: -1.0 };
-        let gas = State::from_total(KEY, 300.0, 40.0, R, 0.04, Phase::Gas, &b).unwrap();
+        let gas = State::from_total(KEY, 301.0, 40.0, R, 0.04, Phase::Gas, &b).unwrap();
         let liquid = State::from_total(KEY, 300.0, 4_000.0, R, 0.04, Phase::Liquid, &b).unwrap();
         let split = |q| State::from_split(liquid, gas, Quality::new(q).unwrap(), 300.0, 1.5 * gas.p()).unwrap();
         assert_eq!(split(0.0).one_phase(), Some(liquid));
