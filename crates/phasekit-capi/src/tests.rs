@@ -394,7 +394,7 @@ fn pk_batch_refuses_a_bad_call_whole() {
 /// Every export, by name.
 #[cfg(any(
     all(target_os = "linux", target_env = "gnu", any(target_arch = "x86_64", target_arch = "aarch64")),
-    all(target_os = "windows", target_env = "msvc")
+    all(target_os = "windows", target_arch = "x86_64")
 ))]
 const EXPORTS: [&str; 11] = [
     "pk_props_si",
@@ -414,7 +414,7 @@ const EXPORTS: [&str; 11] = [
 /// value is not `reference`'s bits. `handle` carries a new registry, then a new fluid, from one call to the next.
 #[cfg(any(
     all(target_os = "linux", target_env = "gnu", any(target_arch = "x86_64", target_arch = "aarch64")),
-    all(target_os = "windows", target_env = "msvc")
+    all(target_os = "windows", target_arch = "x86_64")
 ))]
 fn call_export(name: &str, (registry, fluid, reference): (pk_registry, pk_fluid, u64), handle: &mut u64) -> i32 {
     let ((w, wl), (t, p), mut buf, mut needed, mut value) = (s("Water"), ([300.0], [1e5]), [0 as c_char; 64], 0, 0.0);
@@ -468,7 +468,7 @@ fn call_export(name: &str, (registry, fluid, reference): (pk_registry, pk_fluid,
 /// rounding mode, flags and traps as they were after every export.
 #[cfg(any(
     all(target_os = "linux", target_env = "gnu", any(target_arch = "x86_64", target_arch = "aarch64")),
-    all(target_os = "windows", target_env = "msvc")
+    all(target_os = "windows", target_arch = "x86_64")
 ))]
 #[test]
 fn pk_exports_restore_the_callers_fp_environment() {

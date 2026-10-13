@@ -33,21 +33,21 @@ impl Drop for Guard {
 pub(crate) mod linux;
 #[cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))]
 pub(crate) use linux as sys;
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 // The C runtime's functions and types, not the ABI's: cbindgen skips them.
 /// cbindgen:ignore
 pub(crate) mod windows;
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 pub(crate) use windows as sys;
 #[cfg(not(any(
     all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")),
-    all(target_os = "windows", target_env = "msvc")
+    all(target_os = "windows", target_arch = "x86_64")
 )))]
 // The C runtime's functions and types, not the ABI's: cbindgen skips them.
 /// cbindgen:ignore
 mod none;
 #[cfg(not(any(
     all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")),
-    all(target_os = "windows", target_env = "msvc")
+    all(target_os = "windows", target_arch = "x86_64")
 )))]
 use none as sys;

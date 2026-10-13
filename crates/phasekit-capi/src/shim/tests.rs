@@ -310,7 +310,7 @@ fn migration_lists_every_config_key() {
 /// poll them. Inside, rounding is to nearest; after, the host's again.
 #[cfg(any(
     all(target_os = "linux", target_env = "gnu", any(target_arch = "x86_64", target_arch = "aarch64")),
-    all(target_os = "windows", target_env = "msvc")
+    all(target_os = "windows", target_arch = "x86_64")
 ))]
 #[test]
 fn shim_fp_guard_matches_v8_0_0() {
