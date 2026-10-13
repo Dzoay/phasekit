@@ -14,7 +14,7 @@ fn p_x(state: &State) -> [Input; 3] {
 }
 
 /// PH, PS and PU of the PT state of `fluid` at (p, T) return its phase, and its T and ρ within class `Flash`
-/// (1e-9), solved along the isobar; the inputs checked.
+/// (1e-9), solved by Newton in (T, ln ρ) in at most 12 iterations (issue #143); the inputs checked.
 #[cfg(feature = "fluids-all")]
 fn round_trips(fluid: &Fluid, p: f64, t: f64) -> usize {
     let truth = fluid.state(pt(p, t)).unwrap();
@@ -26,7 +26,8 @@ fn round_trips(fluid: &Fluid, p: f64, t: f64) -> usize {
             near(back.t(), t) && near(back.rho(m), truth.rho(m)) && back.phase() == truth.phase(),
             "{input:?}: {back:?} against {truth:?}"
         );
-        assert_eq!(back.path().strategy, Strategy::Isobar, "{input:?}");
+        let path = back.path();
+        assert!(path.strategy == Strategy::TRhoNewton && path.iterations <= 12, "{input:?} at {t} K: {path:?}");
     }
     3
 }
@@ -73,6 +74,19 @@ fn pxcdj_named_regressions() {
     ];
     let checked: usize = cases.iter().map(|&(name, t, p)| round_trips(&embedded(name), p, t)).sum();
     assert_eq!(checked, 3 * cases.len());
+}
+
+/// Issue #143: under an imposed phase P+X's Newton in (T, ln ρ) does not run (its branch check is PT's unimposed
+/// rule), and the search in T answers: Water's compressed liquid at 5 MPa and 320 K, under `Liquid`.
+#[cfg(feature = "fluids-all")]
+#[test]
+fn p_x_under_a_hint_searches_in_t() {
+    let water = embedded("Water");
+    let truth = water.state(pt(5e6, 320.0)).unwrap();
+    for input in p_x(&truth) {
+        let back = water.flash(input, &FlashOptions::new().with_phase(Phase::Liquid)).unwrap();
+        assert!((back.t() / 320.0 - 1.0).abs() < 1e-9 && back.path().strategy == Strategy::Isobar, "{back:?}");
+    }
 }
 
 /// The P+X acceptance gate (D6, `reproduces_x`): the solved state's x within 1e-9 of its scale, |x| or at least RT
@@ -203,5 +217,5 @@ fn errors_name_the_failing_strategy() {
     assert_eq!(bare.state(pu), Err(Error::Unsupported { pair: Pair::PU }));
 
     let solved = water.state(ph(hot(500.0), 1e6)).unwrap();
-    assert!(solved.path().strategy == Strategy::Isobar && solved.path().iterations > 0, "{:?}", solved.path());
+    assert!(solved.path().strategy == Strategy::TRhoNewton && solved.path().iterations > 0, "{:?}", solved.path());
 }

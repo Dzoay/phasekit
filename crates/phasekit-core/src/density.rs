@@ -81,13 +81,36 @@ pub(crate) fn bracketed(
             continue;
         }
         let step = (next - u).abs();
-        if newton_converged(step, scaled_residual(pressure, p, rho, rt, b.a01), previous, (STEP_TOL, FLOOR)) {
+        if stops(step, scaled_residual(pressure, p, rho, rt, b.a01), previous, slope <= SOFT * p) {
             return Ok((math::exp(next), iteration));
         }
         (u, previous) = (next, step);
     }
     Err(failed(MAX_BRACKETED))
 }
+
+/// Whether [`bracketed`]'s Newton stops after a step of `length` with the residual's scaled `size` and the last step
+/// `previous`: converged ([`newton_converged`]), or on a `soft` branch ([`SOFT`]) [`quadratically_done`].
+fn stops(length: f64, size: f64, previous: f64, soft: bool) -> bool {
+    newton_converged(length, size, previous, (STEP_TOL, FLOOR)) || (soft && quadratically_done(length, previous))
+}
+
+/// Whether Newton, converging quadratically, has a step of `length` after one of `previous` that leaves the next
+/// within [`PREDICTED`] of the root (issue #143: it spares the iteration that would confirm it). The next error is
+/// about C·length², C ≈ length/previous² from the two steps; where convergence is slower than quadratic the estimate
+/// only grows, and the test is stricter than [`STEP_TOL`].
+fn quadratically_done(length: f64, previous: f64) -> bool {
+    previous.is_finite() && length <= 1e-6 && length * length * length <= PREDICTED * previous * previous
+}
+
+/// The error in ln ρ, predicted from the quadratic convergence, below which [`quadratically_done`] stops: a hundredth of
+/// [`STEP_TOL`], so the density returned is as precise as a step to [`STEP_TOL`] leaves it.
+const PREDICTED: f64 = 1e-16;
+
+/// [`quadratically_done`] stops a solve only on a soft branch, (∂p/∂ln ρ)_T within this many times p (a gas, a
+/// supercritical state): a stiff liquid's p moves by its bulk modulus per unit of ln ρ, so an ulp of ln ρ there is
+/// 1e-11 of p, and only the iteration that confirms the root holds p to its rounding.
+const SOFT: f64 = 100.0;
 
 /// [`bracketed`]'s bracket in ln ρ, p(T, ρ) below p at `below` and above it at `above`, and whether an iterate has
 /// confirmed each end (`confirmed`: below, above).
@@ -250,6 +273,16 @@ mod tests {
         let at = |b: &Bundle, dp: f64| reproduces(2.0, 3.0, 5.0, 15.0 + dp, b);
         assert!(at(&soft, 4.4e-11) && !at(&soft, 4.6e-11));
         assert!(at(&stiff, 2.9e-9) && !at(&stiff, 3.01e-9));
+    }
+
+    /// Issue #143: a step of 1e-9 after one of 1e-4 predicts the next within 1e-16 of the root (1e-27/1e-8), so the
+    /// solve stops; one of 1e-6 after 1e-3 does not (1e-18/1e-6), nor a first step, nor one over 1e-6, nor slow
+    /// convergence, a step half the last.
+    #[test]
+    fn quadratic_convergence_stops_a_step_early() {
+        assert!(quadratically_done(1e-9, 1e-4));
+        assert!(!quadratically_done(1e-6, 1e-3) && !quadratically_done(1e-9, f64::INFINITY));
+        assert!(!quadratically_done(2e-6, 1.0) && !quadratically_done(1e-15, 2e-15));
     }
 
     /// The residual's scale, exactly: |3 − 1| / (2·5·(1 + |−0.5|)) = 2/15.

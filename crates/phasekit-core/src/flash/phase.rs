@@ -9,6 +9,7 @@ use crate::model::ThermoModel;
 use crate::saturation::{SatAccuracy, SatPair, SaturationCurve};
 use crate::state::{Phase, Strategy};
 
+use super::cubic::Cubic;
 use super::{FlashOptions, no_quality};
 
 /// Where a (T, ρ) point lies.
@@ -212,9 +213,11 @@ pub(super) enum Where {
 ///   gas's; an imposed `TwoPhase` is refused, since (p, T) fix no quality;
 /// - the critical point itself: that point;
 /// - at or above Tc: supercritical above pc, else a supercritical gas, on one branch from a thousandth of the ideal
-///   gas's density (or of the largest) to the model's largest;
+///   gas's density (or of the largest) to the model's largest, from Peng and Robinson's density ([`Cubic`]; the ideal
+///   gas's without an acentric factor);
 /// - below Tc above pc, or above the saturation pressure: a (supercritical) liquid between ρ′(T) and the largest
-///   density, from ρ′; below it, a gas between a thousandth of the ideal gas's density and ρ″(T), from the ideal gas's.
+///   density, from ρ′; below it, a gas between a thousandth of the ideal gas's density and ρ″(T), from the cubic's gas
+///   root, as above.
 ///   A `Guess` curve's saturation is the VLE's, seeded by it;
 /// - a pseudo-pure fluid's `Definition`: liquid above the bubble pressure ancillary, gas below the dew one, each from
 ///   its ancillary's seed and unbracketed, as CoolProp's (the blend's EOS has its own dome); between them (p, T) is
@@ -233,7 +236,11 @@ pub(super) fn pt_branch(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) 
         return hinted_branch(hint, fitted, t, (ideal, rho_max));
     }
     let crit = labelling_critical(fluid, curve)?;
-    if let Some(branch) = critical_branch(crit, p, t, (floor, ideal, rho_max)) {
+    // A gas's or a supercritical state's Newton starts at Peng and Robinson's density, where it has one (issue #143).
+    let omega = fluid.info().constants().acentric;
+    let cubic = |t_c, p_c| omega.and_then(|omega| Cubic::new(t_c, p_c, omega, eos.gas_constant()).density(t, p));
+    let gas_seed = crit.and_then(|(t_c, p_c, _)| cubic(t_c, p_c)).unwrap_or(ideal);
+    if let Some(branch) = critical_branch(crit, p, t, (floor, gas_seed, rho_max)) {
         return Ok(Where::One(branch));
     }
     let over_pc = above_pc(crit, p);
@@ -252,7 +259,7 @@ pub(super) fn pt_branch(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) 
     let lower = sat.bubble.rho * (1.0 - SAT_RELAX);
     let liquid = Branch { phase: liquid, bracket: Some((lower, rho_max)), seed: sat.bubble.rho, liquid: true };
     let upper = sat.dew.rho / (1.0 - SAT_RELAX);
-    let gas = Branch { phase: Phase::Gas, bracket: Some((floor, upper)), seed: ideal, liquid: false };
+    let gas = Branch { phase: Phase::Gas, bracket: Some((floor, upper)), seed: gas_seed, liquid: false };
     Ok(if over_pc || p > sat.bubble.p {
         Where::One(liquid)
     } else if p < sat.bubble.p {
@@ -290,18 +297,13 @@ fn critical_branch(
     crit: Option<(f64, f64, f64)>,
     p: f64,
     t: f64,
-    (floor, ideal, rho_max): (f64, f64, f64),
+    (floor, seed, rho_max): (f64, f64, f64),
 ) -> Option<Branch> {
     let (t_c, p_c, rho_c) = crit?;
     if t == t_c && p == p_c {
         return Some(Branch { phase: Phase::CriticalPoint, bracket: None, seed: rho_c, liquid: false });
     }
-    (t >= t_c).then(|| Branch {
-        phase: supercritical(p, p_c),
-        bracket: Some((floor, rho_max)),
-        seed: ideal,
-        liquid: false,
-    })
+    (t >= t_c).then(|| Branch { phase: supercritical(p, p_c), bracket: Some((floor, rho_max)), seed, liquid: false })
 }
 
 /// A pseudo-pure fluid's PT branch by its `Definition` (`sat`, its ancillaries at T): the `liquid` above the bubble

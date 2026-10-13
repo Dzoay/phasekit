@@ -51,6 +51,9 @@ pub enum Strategy {
     Ancillary,
     /// TOMS 748 in T along an isobar (P+X), each iterate a density solve at (T, p).
     Isobar,
+    /// Newton in (T, ln ρ) on a P+X pair's (p, x), one bundle an iterate, from the span's saturated end or Peng and
+    /// Robinson's (T, ρ); [`Strategy::Isobar`] where it does not converge.
+    TRhoNewton,
     /// TOMS 748 in T along an isochore (D+X), each iterate DT's state at (T, ρ).
     Isochore,
     /// TOMS 748 in ln ρ along an isotherm (T+X), on each monotonic piece of x(ρ), each iterate DT's state at (T, ρ).

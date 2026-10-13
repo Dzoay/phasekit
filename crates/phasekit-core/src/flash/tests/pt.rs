@@ -270,3 +270,19 @@ fn pt_range_is_one_rule() {
     assert!(flagged.is_extrapolated() && flagged.phase() == Phase::SupercriticalGas, "{flagged:?}");
     assert!((flagged.p() / 1e6 - 1.0).abs() < 1e-15);
 }
+
+/// Issue #143: a supercritical state's density solve starts at Peng and Robinson's density ([`super::cubic::Cubic`]).
+/// Dense supercritical Methane and n-Propane at 1.1 T_c and 1.5 ρ_c, where the ideal gas's density is about three
+/// times too small, converge in at most 4 iterations (from the ideal gas's, 12 and 6).
+#[cfg(feature = "fluids-all")]
+#[test]
+fn pt_starts_at_the_cubics_density() {
+    for name in ["Methane", "n-Propane"] {
+        let fluid = embedded(name);
+        let c = fluid.model().critical_point().unwrap();
+        let dense = fluid.state(Input::dt(Density::molar(1.5 * c.rho).unwrap(), Temperature::new(1.1 * c.t).unwrap()));
+        let back = fluid.state(pt(dense.unwrap().p(), 1.1 * c.t)).unwrap();
+        assert!((back.rho(Basis::Molar) / (1.5 * c.rho) - 1.0).abs() < 1e-12, "{name}: {back:?}");
+        assert!(back.path().iterations <= 4, "{name}: {:?}", back.path());
+    }
+}
