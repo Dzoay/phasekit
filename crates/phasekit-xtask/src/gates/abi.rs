@@ -51,26 +51,20 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
     if !ok {
         return Err(vec!["cargo build -p phasekit-capi failed".into()]);
     }
-    let exports = check_exports(&exported(repo, &target.join("debug/libphasekit_capi.so"))?)?;
+    let exports =
+        check_exports(&repo.dynamic_symbols(&target.join("debug/libphasekit_capi.so")).map_err(|e| vec![e])?)?;
     // Its own target directory: a cdylib's file name carries no feature hash, so the shim's would replace the default's.
     let shim = target.join("shim").to_string_lossy().into_owned();
     let build = ["build", "-p", "phasekit-capi", "--features", "coolproplib-shim", "--target-dir", &shim];
     if !repo.cargo(&build).map_err(|e| vec![e])?.0 {
         return Err(vec!["cargo build -p phasekit-capi --features coolproplib-shim failed".into()]);
     }
-    check_shim_exports(&exported(repo, &target.join("shim/debug/libphasekit_capi.so"))?)?;
+    check_shim_exports(&repo.dynamic_symbols(&target.join("shim/debug/libphasekit_capi.so")).map_err(|e| vec![e])?)?;
     Ok(format!(
         "{HEADER} is cbindgen's and strict C99; the library exports {exports} pk_* symbols and nothing else, the shim's \
          build the {} Tier A names",
         TIER_A.len()
     ))
-}
-
-/// The `nm -D --defined-only` listing of a built library.
-fn exported(repo: &Repo, library: &std::path::Path) -> Result<String, Vec<String>> {
-    let library = library.to_string_lossy().into_owned();
-    let (ok, listing, err) = repo.tool("nm", &["-D", "--defined-only", &library]).map_err(|e| vec![e])?;
-    if ok { Ok(listing) } else { Err(vec![format!("nm {library} failed: {}", err.trim())]) }
 }
 
 /// The committed header equals cbindgen's: the first differing line otherwise.
