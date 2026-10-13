@@ -508,9 +508,11 @@ records the measurements and the re-plan (D9). **Prerequisites.** User decisions
 (the gate); the tools of G1-G8; fearless_simd 1.1's MSRV is the workspace's 1.89 (user decision MS1). M12 does not
 move `MILESTONE`: M11 stays the first open milestone.
 
-- **M12.1 The α^r batch and its scalar baseline.** `HelmholtzModel::residual_batch(t, rho, order, out, exec)`, a
-  defaulted trait method (a minor semver change, D9) that runs `residual` per point under `Reference` and `Parallel`;
-  mismatched lengths are an `Error`. Bench `alphar_batch/scalar`: the `alphar_order2` grid as one batch per bench
+- **M12.1 The α^r batch and its scalar baseline.** `ExecPolicy` moves from L6 `batch` to a new L0 module `exec` (its
+  executors hold no physics, ARCHITECTURE.md §7; the public path is unchanged, S-03), so that L2 can take a policy
+  without pointing up (D1). `HelmholtzModel::residual_batch(t, rho, order, out, exec)`, a defaulted trait method (a
+  minor semver change, D9), runs `residual` per point under `Reference` and `Parallel`; mismatched lengths are an
+  `Error`. Bench `alphar_batch/scalar`: the `alphar_order2` grid as one batch per bench
   fluid (VERIFICATION.md §12). *Red:* `residual_batch_is_residual_per_point`, bitwise against per-point `residual`
   for every embedded fluid at every order under both policies, against a stub returning `Error::Unsupported`. *Done
   when:* green, and the i7-8700K's `results/M12-intel-core-i7-8700k.csv` holds `alphar_batch/scalar` for the bench
@@ -521,9 +523,9 @@ move `MILESTONE`: M11 stays the first open milestone.
   block order, so each lane's sums keep the scalar order. *Red:* `lanes_are_scalar_bitwise`: for every embedded
   fluid, the residual on `Lanes<2>`, `Lanes<4>` and `Lanes<8>` equals the scalar residual lane by lane at every order
   on the `eos` grid, the δ → 0 and τ = δ = 1 neighbourhoods and NaN inputs included.
-- **M12.3 The `exec` module and the `ExecPolicy` variant.** A crate-private `exec`: `LaneKernel` ("what") and
-  `run_scalar`, `run_lanes::<W>` (chunks of W points, a remainder padded by duplicating a valid lane, K17) and
-  `run_parallel` ("how"). `ExecPolicy` gains a lanes variant (proposed name `Simd`); `residual_batch` runs it. The
+- **M12.3 The executors and the `ExecPolicy` variant.** M12.1's L0 `exec` gains the crate-private `LaneKernel`
+  ("what") and `run_scalar`, `run_lanes::<W>` (chunks of W points, a remainder padded by duplicating a valid lane, K17)
+  and `run_parallel` ("how"). `ExecPolicy` gains a lanes variant (proposed name `Simd`); `residual_batch` runs it. The
   portable `Lanes<2>` at the build's baseline (SSE2, NEON, simd128) is ARCHITECTURE.md §7's step 1: measured against
   the scalar path, it stays the executor without the `simd` feature only on a measured win; otherwise the variant runs
   the scalar path there, with the same bits. *Red:* `policy_equivalence` over `residual_batch` with the new variant,

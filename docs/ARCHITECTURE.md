@@ -638,9 +638,10 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      run unchanged. fearless_simd's vector types need a `Simd` token that `Real::from_f64` cannot carry, so `Lanes<W>`
      is a `[f64; W]` whose `#[inline(always)]` lane loops LLVM vectorises inside fearless_simd's `dispatch!`, which
      supplies the safe runtime dispatch; the kernel path is `#[inline(always)]` down to the lane operations (checked in
-     fearless_simd 1.1.0's source and its `MANUAL_INLINING.md`, 2026-10-13). A
-     crate-private `exec` module separates `LaneKernel` ("what") from `run_scalar`/`run_lanes<W>`/`run_parallel`
-     ("how"); the batch hooks and an `ExecPolicy` variant return with it. WASM `simd128` is a second build (K11, K15).
+     fearless_simd 1.1.0's source and its `MANUAL_INLINING.md`, 2026-10-13). A crate-private `exec` module separates
+     `LaneKernel` ("what") from `run_scalar`/`run_lanes<W>`/`run_parallel` ("how"); it sits at L0 with `ExecPolicy`,
+     as its executors hold no physics, so L2's batch hook can take a policy (D1). The batch hooks and an `ExecPolicy`
+     variant return with it. WASM `simd128` is a second build (K11, K15).
   3. `simd` enables `libm` (user decision SL1), so its lanes are bitwise equal to the `libm` scalar path. The vector
      `exp`/`ln` are ports of the locked `libm` crate's, operation for operation (fearless_simd has none; dependencies
      §4); any other transcendental a laned kernel needs is ported the same way or called per lane through `math`.
