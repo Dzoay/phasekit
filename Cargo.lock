@@ -457,7 +457,7 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "phasekit-capi"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "cc",
  "phasekit-compat",
@@ -467,7 +467,7 @@ dependencies = [
 
 [[package]]
 name = "phasekit-compat"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "phasekit-core",
  "phasekit-data",
@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "phasekit-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "libm",
  "phasekit-data",
@@ -485,11 +485,11 @@ dependencies = [
 
 [[package]]
 name = "phasekit-data"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "phasekit-verify"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "allocation-counter",
  "criterion",
@@ -504,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "phasekit-wasm"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "phasekit-compat",
  "phasekit-core",
@@ -515,7 +515,7 @@ dependencies = [
 
 [[package]]
 name = "phasekit-xtask"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "phasekit-core",
  "phasekit-verify",
