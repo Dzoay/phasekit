@@ -410,16 +410,8 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
 | M8.8 | ECS |
 | M8.9 | rhosr-CS, Chung, other hard-coded models |
 | M8.10 | Two-phase and missing models |
+| M8.11 | Melting lines |
 
-- **M8.11 Melting lines.** *Failing tests:* `div_0002` three-part proof (IAPWS R14-08, 4 points; Corrected ice VI p0),
-  `heavy_water_melting_herrig` (4 points, class `Paper`), `simon_segments_respect_t_min` (Hydrogen T(0.5·p_min) =
-  9.52 K below T_min 13.957 K in the oracle; map 02 §6), `melting_meets_the_triple_pressure` (datagen: every melting
-  curve gives p_melt(T_triple) within its fit's stated tolerance of p_triple, Helium exempt, waivers listed; map 02
-  §6), `enforce_refuses_below_the_melting_line`, `melting_caloric_data_lives_in_the_model`. *Do:* add the `melt` kind;
-  `MeltingSegment` with [T_min, T_max] per segment; `DomainError::BelowMeltingLine` in `Enforce` for every pair. **New
-  entry:** Hydrogen and OrthoHydrogen melting (p_melt(13.957 K) = 23.6 MPa vs p_triple 7.36 kPa), `Investigate`
-  against Datchi 2000. *Carried from M7.9:* the robustness corpus's melting-line states (#2639, #1936) become
-  `BelowMeltingLine` refusals. *Done when:* green.
 - **M8.12 Transport bench.** *Failing test:* none (measurement step). *Do:* criterion `pt_viscosity_conductivity`
   recorded (no §7 target; CoolProp 34 µs for Water, map 10 §8.2). Close M8: set `MILESTONE = 9`. *Done when:* row
   recorded.
@@ -429,7 +421,6 @@ bound (DIV-0021, DIV-0022), stage by stage where staged, but for the rows that w
 `TransportDirect` and `TransportEcs` where it converges, outside registered exemptions; DIV-0002 three-part proof;
 DIV-0004 (η, λ) refusal; DIV-0009 recorded; the new q_D, Ammonia, R1234yf, ECS-LJ and Hydrogen entries proved;
 thermo-only workloads read 0 transport sections.
-**ROT rows.** M8.11: ROT-036, ROT-048, ROT-049, ROT-051.
 **User decisions implemented.** 2 (DIV-0002 applied by default), 6 (σ and melting fits not extrapolated).
 
 ### M9 Parallel batches, `libm` and performance gates
