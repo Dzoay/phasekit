@@ -227,10 +227,25 @@ pub fn second_partial_floor(x: f64, y: f64, w: f64) -> f64 {
 }
 
 /// The `Term` scales M_ij of the order-3 total bundle at (T, ρ), i + j ≤ 3: [`Majorants`]' sums, to order 3.
-fn order_three_scales(setup: &Setup<'_>, t: f64, rho: f64) -> Derivs {
-    let e = &setup.record.eos;
+fn order_three_scales(record: &FluidRecord, ideal: &IdealScale, t: f64, rho: f64) -> Derivs {
+    let e = &record.eos;
     let (tau, delta) = (e.t_reducing / t, rho / e.rho_reducing);
-    Derivs::from_fn(Order::Three, |i, j| majorant::eos(e, tau, delta, i, j) + setup.ideal.get(t, rho, i, j))
+    Derivs::from_fn(Order::Three, |i, j| majorant::eos(e, tau, delta, i, j) + ideal.get(t, rho, i, j))
+}
+
+/// Σ_ij |∂X/∂A_ij|·M_ij of the second partial `p` at `point` = [R, T, ρ, M] of one phase of `record`'s model `eos`: the
+/// `Term` scales of the order-3 entries carried through its relation, as [`EosCheck::order_three_rows`] carries them
+/// (VERIFICATION.md §5); `ideal` is [`IdealScale::new`] of the same record.
+pub fn carried_second_partial(
+    p: SecondPartial,
+    eos: &dyn HelmholtzModel,
+    (record, ideal): (&FluidRecord, &IdealScale),
+    point: [f64; 4],
+) -> f64 {
+    let [_, t, rho, _] = point;
+    let total = eos.ideal(t, rho, Order::Three) + eos.residual(t, rho, Order::Three);
+    let scales = order_three_scales(record, ideal, t, rho);
+    carried_order_three(&|state, d| state.second_partial(p, d).unwrap_or(f64::NAN), &total, &scales, point)
 }
 
 /// Σ_ij |∂X/∂A_ij|·M_ij of the order-3 output `x` at the total bundle `d`, over its ten entries to order 3: as
@@ -444,7 +459,8 @@ impl EosCheck {
         let Some(setup) = self.setup(fluid, record) else { return };
         for (row, Point { t, rho, state, window, .. }) in self.points(fixture, rows, fluid, &setup) {
             let total = setup.eos.ideal(t, rho, Order::Three) + setup.eos.residual(t, rho, Order::Three);
-            let (scales, point) = (order_three_scales(&setup, t, rho), [setup.r, t, rho, setup.molar_mass]);
+            let scales = order_three_scales(setup.record, &setup.ideal, t, rho);
+            let point = [setup.r, t, rho, setup.molar_mass];
             for (column, prop, evaluate, floor) in order_three_outputs(which, fluid, &state) {
                 let Some(want) = fixture.value(row, &column) else { continue };
                 let spread = carried_order_three(&*evaluate, &total, &scales, point);
@@ -626,6 +642,22 @@ mod tests {
         assert!((carried(P, T, Dmolar) / want - 1.0).abs() < 1e-3, "{} against {want}", carried(P, T, Dmolar));
         let want = r * t / rho * (2.0 * m_(0, 1) + 4.0 * m_(0, 2) + m_(0, 3));
         assert!((carried(P, Dmolar, T) / want - 1.0).abs() < 1e-3, "{} against {want}", carried(P, Dmolar, T));
+    }
+
+    /// M10.3: `carried_second_partial` is the order-3 carry at the record's own scales, [`Majorants`]' sums: at Water's
+    /// (700 K, 5 000 mol/m³), (∂²p/∂T²)_ρ carries (ρR/T)·M21 to the differences' rounding.
+    #[test]
+    fn carried_second_partial_carries_the_records_scales() {
+        use DerivVar::{Dmolar, P, T};
+        let (state, record, _) = water();
+        let (r, m, t, rho) = (record.eos.gas_constant, record.molar_mass, state.t(), state.rho(Basis::Molar));
+        let registry = phasekit_core::Registry::from_embedded(phasekit_core::DataSet::Parity).unwrap();
+        let eos = registry.get("Water").unwrap().model().helmholtz().unwrap();
+        let ideal = IdealScale::new(&record).unwrap();
+        let p = SecondPartial { first: Partial { of: P, wrt: T, at: Dmolar }, wrt: T, at: Dmolar };
+        let got = carried_second_partial(p, eos, (&record, &ideal), [r, t, rho, m]);
+        let want = rho * r / t * order_three_scales(&record, &ideal, t, rho).get(2, 1).unwrap();
+        assert!((got / want - 1.0).abs() < 1e-3, "{got} against {want}");
     }
 
     /// TC1: the carried scale of a partial linear in the bundle is exact. (∂p/∂T)_ρ = ρR(1 + A01 − A11) and (∂p/∂ρ)_T =

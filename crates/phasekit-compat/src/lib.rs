@@ -15,7 +15,8 @@ use phasekit_core::{Basis, Error, FlashOptions, Fluid, Input, Pair, Prop, Regist
 mod keys;
 
 pub use keys::{
-    OUTPUT_COUNT, Output, output_names, pair_name, parse_input, parse_output, parse_pair_name, phase_index, phase_name,
+    OUTPUT_COUNT, Output, output_names, pair_name, parse_derivative, parse_input, parse_output, parse_pair_name,
+    phase_index, phase_name,
 };
 
 /// How a vector call reports a failed point (map 14: PropsSI fills +inf, HAPropsSI raises on the first).

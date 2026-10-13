@@ -111,7 +111,8 @@ pub struct RowKey<'a> {
 pub struct Exempt {
     /// Fixture kinds.
     pub kinds: &'static [Kind],
-    /// Columns (`props` outputs for the long format); `"*"` for every column.
+    /// Columns (`props` outputs for the long format, its derivative strings by their pattern, `d(X)/d(Y)|Z` and
+    /// `d(d(X)/d(Y)|Z)/d(W)|V`); `"*"` for every column.
     pub columns: &'static [&'static str],
     /// Rows.
     pub rows: Rows,
@@ -210,7 +211,8 @@ pub static DIVERGENCES: &[Divergence] = &[
                    QT(0.5, 280 K) is -1.71e-7 1/Pa (2026-10-13); SQ3: the residual h, s and g too, where its Water h^r \
                    at QT(0.5, 500 K) is -6256 J/mol, against its phases' -35254 and -2340 (2026-10-13); M10.2: \
                    kappa_s, the PIP, the Prandtl number and s^0 too (h0 and u0 depend on T alone, so are given in the \
-                   dome), where its R1130(E) c_p at a two-phase DT state is negative, -37.5 J/(kg K) (2026-10-13)",
+                   dome), where its R1130(E) c_p at a two-phase DT state is negative, -37.5 J/(kg K) (2026-10-13); M10.3: the α terms and the \
+                   derivative strings too, which the oracle evaluates at the mixture's mean density (2026-10-13)",
         exempt: Some(Exempt {
             kinds: &[Kind::Props],
             columns: &[
@@ -230,6 +232,16 @@ pub static DIVERGENCES: &[Divergence] = &[
                 "Gmolar_residual",
                 "Smolar_idealgas",
                 "Smass_idealgas",
+                "alphar",
+                "dalphar_dtau_constdelta",
+                "dalphar_ddelta_consttau",
+                "alpha0",
+                "dalpha0_dtau_constdelta",
+                "dalpha0_ddelta_consttau",
+                "d2alpha0_ddelta2_consttau",
+                "d3alpha0_ddelta3_consttau",
+                "d(X)/d(Y)|Z",
+                "d(d(X)/d(Y)|Z)/d(W)|V",
             ],
             rows: Rows::TwoPhase,
         }),

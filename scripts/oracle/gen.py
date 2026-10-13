@@ -1455,6 +1455,13 @@ PROPS_OUTPUTS = [
     "alpha0", "dalpha0_dtau_constdelta", "dalpha0_ddelta_consttau", "d2alpha0_ddelta2_consttau",
     "d3alpha0_ddelta3_consttau", "Phase",
 ]
+# Since M10.3 the derivative strings (map 01 §4a; `CoolProp-Tests.cpp:1744, 1829`): the `eos` kind's 12 first and 10
+# second partials, as CoolProp parses them from `PropsSI`'s output key, at the DT states, as the `eos` kind checks them
+# (a heavy fluid's saturated liquid near its triple point, p ~ 1e-12 rho R T, leaves both sides' Jacobian ratios O(1)
+# apart).
+PROPS_DERIVATIVES = [f"d({of})/d({wrt})|{at}" for of, wrt, at in EOS_PARTIALS] + [
+    f"d(d({of})/d({wrt})|{at})/d({wrt_2})|{at_2}" for of, wrt, at, wrt_2, at_2 in EOS_SECONDS
+]
 PROPS_TRIVIAL = [
     "GWP20", "GWP100", "GWP500", "FH", "HH", "PH", "ODP", "gas_constant", "molar_mass", "acentric", "dipole_moment",
     "rhomass_reducing", "rhomolar_reducing", "rhomolar_critical", "rhomass_critical", "T_reducing", "T_critical",
@@ -1487,7 +1494,7 @@ def props_rows(job):
     lines, floats = [], []
     for pair, x1, x2 in states:
         inputs = ("T", x2, "Dmolar", x1) if pair == "DT" else ("Q", x1, "T", x2)
-        for output in PROPS_OUTPUTS:
+        for output in PROPS_OUTPUTS + (PROPS_DERIVATIVES if pair == "DT" else []):
             value, status = call(CP, "PropsSI", (output, *inputs, name))
             floats += [x1, x2, value]
             lines.append(f"{pair},{cell(x1)},{cell(x2)},{output},{status},{cell(value)}\n")
@@ -1522,7 +1529,8 @@ def props(CP, lock, config, files, args):
         jobs.append((name, states))
     grid = (f"n={rows} per fluid: DT T~U[Tlow,Tmax] rho~logU[{EOS_RHO_SPAN!r}*rhoL(Tlow),rhoL(Tlow)] drawn again "
             f"while p > pmax, then QT T~U[Tlow,Tlow+0.9(Tc-Tlow)] Q=0,0.5,1 cycling; Tlow=max(Tmin,EOS Ttriple); "
-            f"seed={args.seed}; no phase imposed; then Props1SI of the 28 trivial outputs")
+            f"seed={args.seed}; no phase imposed; the 85 outputs at each, then 22 derivative strings at the DT ones; then Props1SI "
+            "of the 28 trivial outputs")
     out = {}
     for (name, _), (lines, floats) in zip(jobs, pool_map(props_rows, jobs, args.jobs)):
         text = header("props", lock, config, [(name, shas[name])], PROPS_COLUMNS, PROPS_TOL, floats,

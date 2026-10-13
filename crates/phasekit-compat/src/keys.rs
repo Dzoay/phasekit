@@ -2,7 +2,7 @@
 //! table lists every name once; a key also matches as its all-uppercase form, as CoolProp registers both (`DMASS`
 //! works, `dmass` does not). Matching is ASCII byte for byte, so no locale enters it (map 01 R17, R18).
 
-use phasekit_core::{Basis, Constant, Pair, Phase, Prop, Var};
+use phasekit_core::{Basis, Constant, DerivVar, Pair, Partial, Phase, Prop, SecondPartial, Var};
 
 /// What a `PropsSI` output key names: a kernel property, or the state's phase (CoolProp's `Phase`, its index as a
 /// float).
@@ -162,9 +162,58 @@ fn matches(key: &str, name: &str) -> bool {
     key == name || (key.eq_ignore_ascii_case(name) && !key.bytes().any(|b| b.is_ascii_lowercase()))
 }
 
-/// The output a CoolProp output key names: one of its 85 outputs or 24 aliases, or an uppercase form of one.
+/// The output a CoolProp output key names: one of its 85 outputs or 24 aliases, or an uppercase form of one, or a
+/// derivative string ([`parse_derivative`]).
 pub fn parse_output(key: &str) -> Option<Output> {
+    table(key).or_else(|| parse_derivative(key).map(Output::Prop))
+}
+
+/// One of the table's outputs.
+fn table(key: &str) -> Option<Output> {
     OUTPUTS.iter().find(|(name, _)| matches(key, name)).map(|(_, output)| *output)
+}
+
+/// The first-order variable a table key names (`DerivVar`: T, P, ρ, h, s, u, g in both bases; map 01 §4a).
+fn deriv_var(key: &str) -> Option<DerivVar> {
+    Some(match table(key)? {
+        Output::Prop(Prop::T) => DerivVar::T,
+        Output::Prop(Prop::P) => DerivVar::P,
+        Output::Prop(Prop::Dmolar) => DerivVar::Dmolar,
+        Output::Prop(Prop::Dmass) => DerivVar::Dmass,
+        Output::Prop(Prop::Hmolar) => DerivVar::Hmolar,
+        Output::Prop(Prop::Hmass) => DerivVar::Hmass,
+        Output::Prop(Prop::Smolar) => DerivVar::Smolar,
+        Output::Prop(Prop::Smass) => DerivVar::Smass,
+        Output::Prop(Prop::Umolar) => DerivVar::Umolar,
+        Output::Prop(Prop::Umass) => DerivVar::Umass,
+        Output::Prop(Prop::Gmolar) => DerivVar::Gmolar,
+        Output::Prop(Prop::Gmass) => DerivVar::Gmass,
+        _ => return None,
+    })
+}
+
+/// `d(X)/d(Y)|Z`, the first partial (∂X/∂Y)_Z.
+fn first(key: &str) -> Option<Partial> {
+    let (of, rest) = key.strip_prefix("d(")?.split_once(")/d(")?;
+    let (wrt, at) = rest.split_once(")|")?;
+    Some(Partial { of: deriv_var(of)?, wrt: deriv_var(wrt)?, at: deriv_var(at)? })
+}
+
+/// A derivative string, strictly (ROT-167; map 01 R20, where CoolProp reads `x(P)/y(T)|Dmolar` as `d(P)/d(T)|Dmolar`):
+/// `d(X)/d(Y)|Z`, the first partial (∂X/∂Y)_Z, or `d(d(X)/d(Y)|Z)/d(W)|V`, the second (∂/∂W (∂X/∂Y)_Z)_V, each of X to V
+/// a table key of one of the 12 first-order variables, with nothing around them. CoolProp also differentiates c_v, c_p,
+/// w, τ and δ, which user decision OD1 defers: such a string is an unknown output, as is `d(X)/d(Y)|sigma`.
+pub fn parse_derivative(key: &str) -> Option<Prop> {
+    let Some(rest) = key.strip_prefix("d(d(") else {
+        return first(key).map(Prop::Partial);
+    };
+    // X)/d(Y)|Z)/d(W)|V: no key holds a parenthesis or a bar, so each split is the only one.
+    let (of, rest) = rest.split_once(")/d(")?;
+    let (wrt, rest) = rest.split_once(")|")?;
+    let (at, rest) = rest.split_once(")/d(")?;
+    let (wrt_2, at_2) = rest.split_once(")|")?;
+    let first = Partial { of: deriv_var(of)?, wrt: deriv_var(wrt)?, at: deriv_var(at)? };
+    Some(Prop::SecondPartial(SecondPartial { first, wrt: deriv_var(wrt_2)?, at: deriv_var(at_2)? }))
 }
 
 /// The output names in CoolProp's order, its 85 outputs first, then its aliases.
@@ -251,8 +300,10 @@ mod tests {
 
     /// Rot: ROT-167 (map 01 R20). CoolProp's derivative parser checks only for a '(' after the first character, so
     /// `x(P)/y(T)|Dmolar` reads as d(P)/d(T)|Dmolar, and its key table matches any case it registered loosely. Here a
-    /// key is a table name or its exact uppercase form, nothing else: lax derivative spellings, lowercase forms,
-    /// padding and a NUL are unknown outputs, and Tau, Delta and G, which no input pair takes, are not input keys.
+    /// key is a table name or its exact uppercase form, or a derivative string exactly `d(X)/d(Y)|Z` or
+    /// `d(d(X)/d(Y)|Z)/d(W)|V` over the 12 first-order variables, nothing else: lax spellings, lowercase forms, padding
+    /// and a NUL are unknown outputs, as are derivatives of c_v, c_p, w, τ, δ (user decision OD1) and along the
+    /// saturation curve; Tau, Delta and G, which no input pair takes, are not input keys.
     #[test]
     fn strict_grammar_rejects_lax_keys() {
         let lax = ["x(P)/y(T)|Dmolar", "zz(P)junk/q(T)more|Dmolar", "d(Phase)/d(T)|P", "dmass", "t", " T", "T ", "T\0"];
@@ -267,6 +318,22 @@ mod tests {
         }
         assert_eq!(parse_input("DMOLAR"), Some((Var::D, Some(Basis::Molar))));
         assert_eq!(parse_input("QMASS"), Some((Var::Q, None)));
+        // M10.3: CoolProp's own invalid strings (`CoolProp-Tests.cpp:1806-1815`), and what it accepts beyond them.
+        let invalid = ["d()/d(P)|T", "d(Dmolar)/d()|T", "d(Dmolar)/d(P)|", "d(XXXX)/d(P)|T", "d(Dmolar)d(P)|T"];
+        let lax = ["D(P)/D(T)|Dmolar", "d(P) /d(T)|Dmolar", "d(P)/d(T)|Dmolar|T", "d(d(P)/d(T)|Dmolar)/d(T)"];
+        let deferred = ["d(Cvmass)/d(T)|P", "d(P)/d(T)|sigma", "d(Tau)/d(T)|P", "d(Phase)/d(T)|P"];
+        let others = ["d(Dmolar)/d(P)T", "d(Bvirial)/d(P)T", "d(Tcrit)/d(P)T"];
+        for key in invalid.into_iter().chain(lax).chain(deferred).chain(others) {
+            assert_eq!(parse_output(key), None, "{key}");
+        }
+        let (p, rho) = (DerivVar::P, DerivVar::Dmolar);
+        let first = Partial { of: p, wrt: rho, at: DerivVar::T };
+        assert_eq!(parse_output("d(P)/d(Dmolar)|T"), Some(Output::Prop(Prop::Partial(first))));
+        assert_eq!(parse_output("d(P)/d(DMOLAR)|T"), parse_output("d(P)/d(Dmolar)|T"));
+        let second = SecondPartial { first, wrt: rho, at: DerivVar::T };
+        assert_eq!(parse_output("d(d(P)/d(Dmolar)|T)/d(Dmolar)|T"), Some(Output::Prop(Prop::SecondPartial(second))));
+        let mass = Partial { of: DerivVar::Hmass, wrt: DerivVar::T, at: DerivVar::P };
+        assert_eq!(parse_output("d(H)/d(T)|P"), Some(Output::Prop(Prop::Partial(mass))), "H is Hmass");
     }
 
     /// Map 01 R17, R18: CoolProp folds keys through the C library's locale-dependent `toupper`, under which a Turkish
