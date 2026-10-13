@@ -440,9 +440,7 @@ version, Node.js LTS (wasm-bindgen-test), cargo-about, cargo-semver-checks.
 | M10.6 | The Tier A CoolPropLib.h shim (`coolproplib-shim`): v8.0.0's codes as a pinned table, the process-wide `errstring`, the `HAPropsSI` stub, `set_config_*` per P6 (MIGRATION.md); the `codes` kind; `gates abi`'s Tier A exports |
 | M10.7 | The FP guard of every export: traps masked and round-to-nearest inside; `pk_*` restores the caller's environment, the shim clears the sticky flags as v8.0.0 |
 | M10.8 | `phasekit-wasm`: the browser package (`PropsSI`, the typed flash, one batch over typed arrays, `withPack`, `withReference`, `free()`), its Node tests on the baseline and `simd128` builds, `gates features` over its tree and its size budget |
-
-- **M10.9 Release v0.1.** Run the release checklist (section 5.4). Close M10: set `MILESTONE = 11`. *Done when:* tag
-  `v0.1.0` on a green `main`.
+| M10.9 | v0.1.0: the release checklist (section 5.4), the release workflow and its scripts, `cargo xtask changelog`, MIGRATION.md's examples; M10 closed |
 
 **Exit gate.** G1-G8 incl. `abi` and the wasm `features` check; reference states within `RefAnchor`; 85-output gate; C
 smoke on Linux and Windows; shim codes match v8.0.0 and the cross-thread `errstring` handoff works; `HAPropsSI` stub

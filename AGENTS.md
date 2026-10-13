@@ -84,6 +84,6 @@ The rules are defined in [CONTRIBUTING.md](CONTRIBUTING.md). The ones agents get
 | Path | What |
 |---|---|
 | `docs/` | brief, decisions, architecture, plan, verification, rot register, dependencies, migration; `coolprop-map/` and `research/` (frozen evidence); `history/` (frozen, with the type sketch) |
-| `scripts/` | `fetch-coolprop.sh`, `check-toolchain.sh`, `oracle/gen.py` (the fixture generator), `baseline/` (the C++ CoolProp baseline) |
+| `scripts/` | `fetch-coolprop.sh`, `check-toolchain.sh`, `oracle/gen.py` (the fixture generator), `baseline/` (the C++ CoolProp baseline), `release/` (the release artefacts) |
 | `crates/phasekit-*` | the workspace: core, data, verify, xtask, compat, capi, wasm; py later |
 | `reference/` | gitignored: the CoolProp checkout and local papers |
