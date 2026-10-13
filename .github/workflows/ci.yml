@@ -53,6 +53,8 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: G7 cargo clippy -p phasekit-core -p phasekit-compat --no-default-features --all-targets -- -D warnings
         run: cargo clippy -p phasekit-core -p phasekit-compat --no-default-features --all-targets -- -D warnings
+      - name: clippy on the libm backend (PLAN.md M9.3)
+        run: cargo clippy -p phasekit-core --features libm --all-targets -- -D warnings
 
   linux:
     name: linux
@@ -90,6 +92,10 @@ jobs:
         run: cargo nextest run --workspace --profile ci
       - name: G3 cargo test --doc --workspace
         run: cargo test --doc --workspace
+      - name: phasekit-core's tests on the libm backend (PLAN.md M9.3; the ulp report in the log)
+        run: |
+          cargo nextest run -p phasekit-core --features libm --profile ci -E 'not test(std_vs_libm_ulp_report)'
+          cargo nextest run -p phasekit-core --features libm --profile ci -E 'test(std_vs_libm_ulp_report)' --no-capture
       - name: G8 cargo xtask gates all --except mutants (the mutants job runs that one)
         run: cargo xtask gates all --except mutants
       - name: Fluid data changes (job summary; PRs that change data; PLAN.md M2.9a)

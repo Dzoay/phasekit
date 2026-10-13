@@ -7,8 +7,8 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-# D1: features only ADD capability; none changes numerics (K13). Core's only third-party dependencies are optional
-# (tier T1, docs/DEPENDENCIES.md): `rayon` (M9.1) and `libm` (M9.3). Later, only behind measured or scheduled
+# D1: features only ADD capability; none but `libm` changes numerics (K13). Core's only third-party dependencies are
+# optional (tier T1, docs/DEPENDENCIES.md): `rayon` (M9.1) and `libm` (M9.3). Later, only behind measured or scheduled
 # triggers: `simd` (fearless_simd, if the post-0.1 SIMD gate fires) and `json` (serde_json, when a
 # runtime-JSON consumer is scheduled; until then the serde mirror lives in phasekit-xtask, S-12).
 [features]
@@ -18,9 +18,13 @@ fluids-all = ["embedded", "phasekit-data/all"]
 fluids-core = ["embedded", "phasekit-data/core"]
 # `ExecPolicy::Parallel` runs its fixed chunks on rayon's pool, with the bits of the calling thread's run (K6).
 rayon = ["dep:rayon"]
+# `math` on the `libm` crate instead of the platform's maths library (M9.3): the one feature that changes numerics,
+# for bit-identical results across targets; its default is decided on evidence at M9.5 (user decision 12).
+libm = ["dep:libm"]
 
 [dependencies]
 phasekit-data = { workspace = true, optional = true }
+libm = { version = "0.2.16", optional = true }
 rayon = { version = "1.12", optional = true }
 
 # T3 dev-only (docs/DEPENDENCIES.md; dependencies §2.12): invariants over any input (PLAN.md M1.14); never in a public API.
