@@ -422,12 +422,8 @@ the reference machine (user decisions P3, RM1).
 | M9.1 | `ExecPolicy::Parallel` on rayon |
 | M9.2 | Thread scaling recorded |
 | M9.2a | Non-analytic terms at the requested order |
+| M9.3 | `libm` backend |
 
-- **M9.3 `libm` backend.** *Failing tests:* `libm_backend_matches_the_libm_crate_bitwise` (every `math` function on
-  10⁶ random and edge inputs: subnormals, ±709.78, NaN, ±∞), `std_vs_libm_ulp_report` (recorded per target, not
-  asserted across targets). *Do:* the opt-in `libm` feature routing `math` (R14); the feature is the documented
-  exception to "features never change numerics" (dependencies §4); `gates deps` checks core under `--features libm`
-  and `--features rayon,libm` as M9.1 did under `--features rayon`. *Done when:* green.
 - **M9.4 Cross-target hash.** *Failing test:* `canonical_grid_hash` (`tests/cross_target.rs`) over the grid VERIFICATION.md
   §9.4 defines (the one definition); CI job `hash-compare` collects it from x86_64-linux, x86_64-windows-msvc,
   aarch64-linux and wasm32-wasip2, with and without `libm`. *Done when:* hashes recorded for both backends on all four

@@ -1,15 +1,17 @@
 //! `gates deps`: the zero-dependency guard (dependencies §3.4 item 1; ROT-156). `phasekit-core` depends on
-//! `phasekit-data` only and `phasekit-data` on nothing; core's optional executors (PLAN.md M9.1) add their own crate
-//! and nothing else.
+//! `phasekit-data` only and `phasekit-data` on nothing; core's optional features (`rayon`, PLAN.md M9.1; `libm`,
+//! M9.3) each add their own crate and nothing else.
 
 use super::{Verdict, no_args};
 use crate::repo::Repo;
 
 /// Each guarded crate, the features it is built with, and exactly the crates its normal and build dependency tree
 /// names at depth 1 then (itself included).
-const GUARDED: [(&str, &str, &[&str]); 3] = [
+const GUARDED: [(&str, &str, &[&str]); 5] = [
     ("phasekit-core", "", &["phasekit-core", "phasekit-data"]),
     ("phasekit-core", "rayon", &["phasekit-core", "phasekit-data", "rayon"]),
+    ("phasekit-core", "libm", &["phasekit-core", "phasekit-data", "libm"]),
+    ("phasekit-core", "rayon,libm", &["phasekit-core", "phasekit-data", "rayon", "libm"]),
     ("phasekit-data", "", &["phasekit-data"]),
 ];
 
@@ -93,5 +95,18 @@ mod tests {
         assert!(errors.len() == 1 && errors[0].contains("no longer depends on rayon"), "{errors:?}");
         assert!(check("phasekit-core", "", &with_rayon).is_err());
         assert!(check("phasekit-core", "simd", TREE).is_err());
+    }
+
+    /// PLAN.md M9.3: `--features libm` adds exactly `libm`, and `--features rayon,libm` exactly the two.
+    #[test]
+    fn the_libm_feature_adds_exactly_libm() {
+        let with_libm = format!("{TREE}libm v0.2.16\n");
+        assert_eq!(check("phasekit-core", "libm", &with_libm), Ok(vec!["phasekit-data".into(), "libm".into()]));
+        let both = format!("{with_libm}rayon v1.12.0\n");
+        assert_eq!(check("phasekit-core", "rayon,libm", &both).map(|d| d.len()), Ok(3));
+        assert!(check("phasekit-core", "libm", &both).unwrap_err()[0].contains("rayon v1.12.0"));
+        assert!(
+            check("phasekit-core", "rayon,libm", &with_libm).unwrap_err()[0].contains("no longer depends on rayon")
+        );
     }
 }

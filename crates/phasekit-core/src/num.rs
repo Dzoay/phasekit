@@ -99,16 +99,20 @@ impl Real for f64 {
     }
 }
 
-/// The only place the library calls a transcendental function (D12, dependencies R14). Default: `std`;
-/// the `libm` feature (M9) swaps in the `libm` crate. Whether that makes results bit-identical on Linux,
-/// Windows and WASM is a property to prove with the M9 cross-target hash, not an assumption (dependencies
-/// §4). clippy's `disallowed-methods` rejects every `f64` transcendental elsewhere (E16).
+/// The only place the library calls a transcendental function (D12, dependencies R14). Default: `std`, the
+/// platform's maths library; the opt-in `libm` feature (M9.3) swaps in the `libm` crate, the one feature that changes
+/// numerics (docs/DEPENDENCIES.md T1). Whether that makes results bit-identical on Linux, Windows and WASM is a
+/// property the M9.4 cross-target hash proves, not an assumption (dependencies §4). clippy's `disallowed-methods`
+/// rejects every `f64` transcendental elsewhere (E16).
 pub mod math {
     macro_rules! choke {
-        ($($(#[$doc:meta])* $name:ident => $std:ident;)*) => {$(
+        ($($(#[$doc:meta])* $name:ident => $std:ident, $libm:ident;)*) => {$(
             $(#[$doc])*
             #[allow(clippy::disallowed_methods)]
             pub fn $name(x: f64) -> f64 {
+                #[cfg(feature = "libm")]
+                return libm::$libm(x);
+                #[cfg(not(feature = "libm"))]
                 x.$std()
             }
         )*};
@@ -116,34 +120,37 @@ pub mod math {
 
     choke! {
         /// e^x.
-        exp => exp;
+        exp => exp, exp;
         /// e^x − 1.
-        expm1 => exp_m1;
+        expm1 => exp_m1, expm1;
         /// Natural logarithm.
-        ln => ln;
+        ln => ln, log;
         /// ln(1 + x).
-        ln_1p => ln_1p;
+        ln_1p => ln_1p, log1p;
         /// Square root.
-        sqrt => sqrt;
+        sqrt => sqrt, sqrt;
         /// Hyperbolic sine.
-        sinh => sinh;
+        sinh => sinh, sinh;
         /// Hyperbolic cosine.
-        cosh => cosh;
+        cosh => cosh, cosh;
         /// Arctangent.
-        atan => atan;
+        atan => atan, atan;
         /// Arccosine (IAPWS R12-08's Y(ξ)).
-        acos => acos;
+        acos => acos, acos;
         /// Sine (IAPWS R12-08's Y(ξ)).
-        sin => sin;
+        sin => sin, sin;
         /// Tangent (IAPWS R12-08's Y(ξ)).
-        tan => tan;
+        tan => tan, tan;
         /// Cosine (datagen's Chebyshev-Lobatto nodes).
-        cos => cos;
+        cos => cos, cos;
     }
 
     /// x^y.
     #[allow(clippy::disallowed_methods)]
     pub fn powf(x: f64, y: f64) -> f64 {
+        #[cfg(feature = "libm")]
+        return libm::pow(x, y);
+        #[cfg(not(feature = "libm"))]
         x.powf(y)
     }
 
@@ -207,6 +214,118 @@ pub(crate) fn solve_small<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N])
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every one-argument function of [`math`] with its `libm` and `std` counterparts.
+    #[cfg(feature = "libm")]
+    #[allow(clippy::disallowed_methods, clippy::type_complexity)]
+    const UNARY: [(&str, fn(f64) -> f64, fn(f64) -> f64, fn(f64) -> f64); 12] = [
+        ("exp", math::exp, libm::exp, f64::exp),
+        ("expm1", math::expm1, libm::expm1, f64::exp_m1),
+        ("ln", math::ln, libm::log, f64::ln),
+        ("ln_1p", math::ln_1p, libm::log1p, f64::ln_1p),
+        ("sqrt", math::sqrt, libm::sqrt, f64::sqrt),
+        ("sinh", math::sinh, libm::sinh, f64::sinh),
+        ("cosh", math::cosh, libm::cosh, f64::cosh),
+        ("atan", math::atan, libm::atan, f64::atan),
+        ("acos", math::acos, libm::acos, f64::acos),
+        ("sin", math::sin, libm::sin, f64::sin),
+        ("tan", math::tan, libm::tan, f64::tan),
+        ("cos", math::cos, libm::cos, f64::cos),
+    ];
+
+    /// 10⁶ inputs for [`libm_backend_matches_the_libm_crate_bitwise`]: the edges (±0, the smallest subnormal and
+    /// normal, ±709.78 around e^x's overflow, ±745 around its underflow, ±1, ±π, NaN, ±∞), then uniform bit
+    /// patterns (every exponent, subnormals, NaNs and infinities included) and uniform values in ±800, alternately.
+    #[cfg(feature = "libm")]
+    fn inputs() -> Vec<f64> {
+        let edges = [
+            0.0,
+            5e-324,
+            f64::MIN_POSITIVE,
+            709.78,
+            709.79,
+            745.0,
+            1.0,
+            core::f64::consts::PI,
+            1e-300,
+            1e300,
+            f64::MAX,
+            f64::INFINITY,
+        ];
+        let mut xs: Vec<f64> = edges.iter().flat_map(|&x| [x, -x]).chain([f64::NAN]).collect();
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        while xs.len() < 1_000_000 {
+            // SplitMix64 (VERIFICATION.md §3.1), inlined: the core has no sampler.
+            state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            z ^= z >> 31;
+            xs.push(if xs.len() % 2 == 0 {
+                f64::from_bits(z)
+            } else {
+                (z >> 11) as f64 / (1u64 << 53) as f64 * 1600.0 - 800.0
+            });
+        }
+        xs
+    }
+
+    /// PLAN.md M9.3 (dependencies R14): with the `libm` feature every function of [`math`] is the `libm` crate's, bit
+    /// for bit, on 10⁶ inputs and edges; `powf` on each input against the next as exponent, and against 0.5, 2, −1,
+    /// ±∞ and NaN. `powi` stays the in-house chain.
+    #[cfg(feature = "libm")]
+    #[test]
+    fn libm_backend_matches_the_libm_crate_bitwise() {
+        let xs = inputs();
+        for (name, ours, theirs, _) in UNARY {
+            for &x in &xs {
+                assert_eq!(ours(x).to_bits(), theirs(x).to_bits(), "{name}({x:e})");
+            }
+        }
+        let exponents = [0.5, 2.0, -1.0, f64::INFINITY, f64::NEG_INFINITY, f64::NAN];
+        for (k, &x) in xs.iter().enumerate() {
+            for y in exponents.into_iter().chain(xs.get(k + 1).copied()) {
+                assert_eq!(math::powf(x, y).to_bits(), libm::pow(x, y).to_bits(), "powf({x:e}, {y:e})");
+            }
+        }
+    }
+
+    /// PLAN.md M9.3: how far `std` (the platform's maths library) and `libm` lie apart on this target, recorded (run
+    /// with `--no-capture`), not asserted across targets: per function, the inputs whose results differ and the
+    /// largest distance in ulps where both are finite. Asserted: `libm` is never non-finite where `std` is finite, or
+    /// the reverse, away from the overflow edges (within 1e-12 relative of the largest finite result, the two may
+    /// round to opposite sides of f64::MAX).
+    #[cfg(feature = "libm")]
+    #[test]
+    #[allow(clippy::print_stdout, reason = "the report is this test's record, read with --no-capture")]
+    fn std_vs_libm_ulp_report() {
+        // ulps between two finite doubles of the same sign class, through their ordered integer images.
+        let ordered = |x: f64| {
+            let b = x.to_bits() as i64;
+            if b < 0 { i64::MIN - b } else { b }
+        };
+        let ulps = |a: f64, b: f64| ordered(a).abs_diff(ordered(b));
+        let xs = inputs();
+        let report = UNARY.iter().map(|&(name, _, libm_fn, std_fn)| {
+            let (mut differ, mut worst, mut worst_at) = (0, 0, 0.0);
+            for &x in &xs {
+                let (a, b) = (std_fn(x), libm_fn(x));
+                if a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan()) {
+                    continue;
+                }
+                differ += 1;
+                let edge = |v: f64| v.is_infinite() || v.abs() > f64::MAX * (1.0 - 1e-12);
+                assert!(a.is_finite() == b.is_finite() || edge(a) || edge(b), "{name}({x:e}): std {a:e}, libm {b:e}");
+                if a.is_finite() && b.is_finite() && ulps(a, b) > worst {
+                    (worst, worst_at) = (ulps(a, b), x);
+                }
+            }
+            format!("{name:6} {differ:7} of {} differ, at most {worst} ulp (at {worst_at:e})", xs.len())
+        });
+        let lines: Vec<String> = report.collect();
+        println!("std vs libm on {}:\n{}", std::env::consts::ARCH, lines.join("\n"));
+        assert_eq!(lines.len(), UNARY.len());
+    }
 
     /// ROT-067 (map 03 §3.4: `MatInv_2` has no zero-determinant guard): a singular 2×2 system, a zero row and a
     /// non-finite entry are errors, never infinities or NaN.
