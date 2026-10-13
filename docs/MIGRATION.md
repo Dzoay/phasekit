@@ -1,8 +1,56 @@
 # Migrating from CoolProp
 
 Where each CoolProp call goes in phasekit is the table of [ARCHITECTURE.md §12](ARCHITECTURE.md#12-facades-and-migration).
-This page is for C hosts that keep CoolProp's `CoolPropLib.h` and swap the library. The runnable examples and the
-divergence list come with the release ([PLAN.md §5.2](PLAN.md#52-documentation)).
+This page shows the same call in each of phasekit's interfaces, the C shim for hosts that keep CoolProp's
+`CoolPropLib.h`, and where phasekit's numbers differ from CoolProp 8.0.0's.
+
+## One call, four ways
+
+CoolProp's `PropsSI("T", "P", 101325, "Q", 0, "Water")`, Water's normal boiling point, in Rust: through the strings
+(`phasekit-compat`), then through the typed API, whose state answers any property. This is
+`crates/phasekit-compat/examples/migration.rs`; `cargo run -p phasekit-compat --example migration` runs it.
+
+```rust
+let t = phasekit_compat::props_si("T", "P", 101_325.0, "Q", 0.0, "Water")?;
+
+let water = Registry::embedded()?.get("Water")?;
+let state = water.flash(Input::pq(Pressure::new(101_325.0)?, Quality::new(0.0)?), &FlashOptions::new())?;
+assert_eq!(state.t(), t);
+```
+
+In C, through `pk_*` (`include/phasekit.h`): every string with its length, a status returned, the value through a
+pointer. `crates/phasekit-capi/tests/c/smoke.c` is a complete program, built and run on Linux and Windows.
+
+```c
+pk_registry registry = 0;
+double t = 0.0;
+if (pk_registry_new(PK_DATASET_CORRECTED, &registry) == PK_OK &&
+    pk_props_si(registry, "T", 1, "P", 1, 101325.0, "Q", 1, 0.0, "Water", 5, &t) == PK_OK) {
+    /* t is 373.124... K */
+}
+pk_registry_free(registry);
+```
+
+In a browser, through the `phasekit` package; free the handle objects with `free()`. Its tests are
+`crates/phasekit-wasm/tests/node.rs`.
+
+```js
+const registry = new Registry();
+const t = registry.PropsSI("T", "P", 101325, "Q", 0, "Water");
+registry.free();
+```
+
+## Where phasekit differs from CoolProp 8.0.0
+
+- **The grammar is strict** (map 01 R7, R17-R20): no output is echoed from an input, a key is its name or its
+  all-uppercase form only, a fluid string is one name (`HEOS::` optional), and a derivative string has nothing around
+  it. CoolProp's lax forms are unknown keys here.
+- **Numbers.** Each deliberate difference from CoolProp 8.0.0's values (a corrected coefficient, another solver
+  branch, a property CoolProp gets wrong) is an entry of the divergence register,
+  [`crates/phasekit-verify/src/register.rs`](../crates/phasekit-verify/src/register.rs), with its evidence and the
+  test that proves it ([VERIFICATION.md §6](VERIFICATION.md#6-divergence-register)). `DataSet::Parity` reproduces
+  CoolProp's data without the corrections.
+- **CoolProp's problems designed out**, each with its test: [ROT-REGISTER.md](ROT-REGISTER.md).
 
 ## The CoolPropLib.h shim
 
