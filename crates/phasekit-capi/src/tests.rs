@@ -1,6 +1,8 @@
 //! The ABI's own tests (PLAN.md M10.4; ROT-148 to ROT-150, ROT-159), calling the exports as a C caller does.
 
 #![allow(unsafe_code, reason = "the tests call the unsafe exports, each with valid buffers")]
+// The shim's build exports no pk_* function. A plain `#[cfg(test)]` on the module keeps cargo-mutants out of it.
+#![cfg(not(feature = "coolproplib-shim"))]
 
 use super::*;
 
@@ -386,5 +388,114 @@ fn pk_batch_refuses_a_bad_call_whole() {
     let empty = unsafe { batch(fluid, &["Hmass"], (&[], ("P", &[])), 0, (none, none.cast(), 0)) };
     assert_eq!((empty, last()), (PK_OK, String::new()));
     assert_eq!(pk_fluid_free(fluid), PK_OK);
+    assert_eq!(pk_registry_free(registry), PK_OK);
+}
+
+/// Every export, by name.
+#[cfg(any(
+    all(target_os = "linux", target_env = "gnu", any(target_arch = "x86_64", target_arch = "aarch64")),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
+const EXPORTS: [&str; 11] = [
+    "pk_props_si",
+    "pk_props1_si",
+    "pk_phase_si",
+    "pk_batch",
+    "pk_fluid_name",
+    "pk_registry_with_reference",
+    "pk_registry_new",
+    "pk_registry_free",
+    "pk_fluid_new",
+    "pk_fluid_free",
+    "pk_last_error",
+];
+
+/// Calls the export `name` with good arguments on `registry` and its Water `fluid`: its status, or -1 if `pk_props_si`'s
+/// value is not `reference`'s bits. `handle` carries a new registry, then a new fluid, from one call to the next.
+#[cfg(any(
+    all(target_os = "linux", target_env = "gnu", any(target_arch = "x86_64", target_arch = "aarch64")),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
+fn call_export(name: &str, (registry, fluid, reference): (pk_registry, pk_fluid, u64), handle: &mut u64) -> i32 {
+    let ((w, wl), (t, p), mut buf, mut needed, mut value) = (s("Water"), ([300.0], [1e5]), [0 as c_char; 64], 0, 0.0);
+    let ((keys, lens), (mut out, mut cells)) = (([s("Hmass").0], [5]), ([0.0], [0]));
+    // SAFETY (each): every string is its own length's bytes; every output is writable for what the call writes.
+    unsafe {
+        match name {
+            "pk_props_si" => {
+                let (status, h) = props(registry, "Hmass", ("T", 300.0), ("P", 1e5), "Water");
+                if h.to_bits() == reference { status } else { -1 }
+            }
+            "pk_props1_si" => pk_props1_si(registry, s("Tcrit").0, 5, w, wl, &mut value),
+            "pk_phase_si" => {
+                pk_phase_si(registry, s("T").0, 1, 300.0, s("P").0, 1, 1e5, w, wl, buf.as_mut_ptr(), 64, &mut needed)
+            }
+            "pk_batch" => {
+                let (o, st) = (out.as_mut_ptr(), cells.as_mut_ptr());
+                pk_batch(
+                    fluid,
+                    keys.as_ptr(),
+                    lens.as_ptr(),
+                    1,
+                    s("T").0,
+                    1,
+                    t.as_ptr(),
+                    s("P").0,
+                    1,
+                    p.as_ptr(),
+                    1,
+                    o,
+                    st,
+                    1,
+                )
+            }
+            "pk_fluid_name" => pk_fluid_name(fluid, buf.as_mut_ptr(), 64, &mut needed),
+            "pk_registry_with_reference" => {
+                pk_registry_with_reference(registry, s("R134a").0, 5, s("ASHRAE").0, 6, handle)
+            }
+            "pk_registry_new" => pk_registry_free(*handle).max(pk_registry_new(PK_DATASET_PARITY, handle)),
+            "pk_registry_free" => pk_registry_free(*handle),
+            "pk_fluid_new" => pk_fluid_new(registry, w, wl, handle),
+            "pk_fluid_free" => pk_fluid_free(*handle),
+            _ => i32::try_from(pk_last_error(buf.as_mut_ptr(), 64)).unwrap_or(-1) - 1,
+        }
+    }
+}
+
+/// Rot: ROT-151 (map 11 F17; PLAN.md M10.7). Every export runs round-to-nearest with every trap masked, and gives the
+/// caller its environment back. A caller rounding toward zero, with FE_OVERFLOW raised and FE_INVALID's trap enabled
+/// (where the hardware traps: aarch64 cores need not), gets `pk_props_si`'s round-to-nearest bits, and finds its
+/// rounding mode, flags and traps as they were after every export.
+#[cfg(any(
+    all(target_os = "linux", target_env = "gnu", any(target_arch = "x86_64", target_arch = "aarch64")),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
+#[test]
+fn pk_exports_restore_the_callers_fp_environment() {
+    use crate::fp::sys::probe::{
+        INVALID, OVERFLOW, TOWARD_ZERO, clear_flags, flags, raise_overflow, rounding, set_rounding, set_traps, traps,
+    };
+    let (registry, nearest, mut handle) = (new_registry_handle(), rounding(), 0);
+    let fluid = fluid_handle(registry, "Water");
+    let reference = props(registry, "Hmass", ("T", 300.0), ("P", 1e5), "Water").1.to_bits();
+    set_rounding(TOWARD_ZERO);
+    clear_flags();
+    raise_overflow();
+    set_traps(INVALID);
+    let host = (rounding(), flags(), traps());
+    let after: Vec<(&str, i32, (i32, i32, i32))> = EXPORTS
+        .iter()
+        .map(|name| {
+            (*name, call_export(name, (registry, fluid, reference), &mut handle), (rounding(), flags(), traps()))
+        })
+        .collect();
+    set_traps(0);
+    clear_flags();
+    set_rounding(nearest);
+    assert!(host.0 == TOWARD_ZERO && host.1 & OVERFLOW != 0, "the host's rounding and flag: {host:?}");
+    assert!(host.2 == INVALID || cfg!(target_arch = "aarch64"), "the trap was not enabled: {host:?}");
+    for (name, status, environment) in after {
+        assert_eq!((status, environment), (PK_OK, host), "{name}");
+    }
     assert_eq!(pk_registry_free(registry), PK_OK);
 }

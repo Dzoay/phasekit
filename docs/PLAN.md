@@ -438,14 +438,8 @@ version, Node.js LTS (wasm-bindgen-test), cargo-about, cargo-semver-checks.
 | M10.4 | `phasekit-capi`: the `pk_*` C ABI (registries, fluids, the PropsSI strings), its committed header, `gates abi` |
 | M10.5 | `pk_batch`: the point-major C batch on a `pk_fluid`, each cell's `PK_*` status; compat's `batch_si`, the batch over the strings |
 | M10.6 | The Tier A CoolPropLib.h shim (`coolproplib-shim`): v8.0.0's codes as a pinned table, the process-wide `errstring`, the `HAPropsSI` stub, `set_config_*` per P6 (MIGRATION.md); the `codes` kind; `gates abi`'s Tier A exports |
+| M10.7 | The FP guard of every export: traps masked and round-to-nearest inside; `pk_*` restores the caller's environment, the shim clears the sticky flags as v8.0.0 |
 
-- **M10.7 FP guard.** *Failing tests:* `pk_exports_restore_the_callers_fp_environment` (traps masked and
-  round-to-nearest inside; the caller's control word **and sticky flags** restored on return) and
-  `shim_fp_guard_matches_v8_0_0` (the three cases of `CoolProp-Tests-FPUGuard.cpp:27-82`: traps masked inside, an
-  already-masked environment unchanged, flags cleared; map 11 F17: clearing is intended for polling hosts such as
-  Excel/VBA). *Do:* save, set, restore in every `pk_*` export; the shim's guard additionally clears the sticky flags
-  as v8.0.0 does (user decision 9b); `_controlfp_s` on Windows, `fe*` on glibc, declared directly; no-op on
-  wasm. *Done when:* green on Linux and Windows.
 - **M10.8 Browser WASM.** *Failing tests:* wasm-bindgen-test under Node: `water_nbp_in_range` ([373.124, 373.125] K),
   `dh_dt_at_constant_p_equals_cp` (class `Identity`), `dp_dt_sat_is_positive` (the pure-fluid parts of
   `test_wasm.mjs`; map 11 §8), `with_pack_adds_a_fluid_and_misses_are_not_cached` (E6), `batch_round_trips_float64array`

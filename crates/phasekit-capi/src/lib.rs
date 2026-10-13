@@ -31,11 +31,12 @@ use phasekit_compat::{CompatError, batch_si, fluid_in, parse_reference_state, ph
 use phasekit_core::batch::Status;
 use phasekit_core::{DataSet, Error, Fluid, Registry};
 
+mod fp;
 mod handles;
 mod last_error;
 pub mod shim;
 
-#[cfg(all(test, not(feature = "coolproplib-shim")))]
+#[cfg(test)]
 mod tests;
 
 use handles::{fluids, lock, registries};
@@ -143,8 +144,9 @@ impl From<Error> for Fail {
 }
 
 /// Runs an export's body: its status, its thread's last error set (empty on success), and a panic caught as
-/// `PK_PANIC` (map 11 F16; ROT-150).
+/// `PK_PANIC` (map 11 F16; ROT-150); under the FP guard, which gives the caller its environment back ([`fp`]; ROT-151).
 fn guard(body: impl FnOnce() -> Result<(), Fail>) -> i32 {
+    let _fp = fp::Guard::new(false);
     match catch_unwind(AssertUnwindSafe(body)) {
         Ok(Ok(())) => {
             last_error::set("");
@@ -302,6 +304,7 @@ fn new_registry(registry: Registry) -> Result<pk_registry, Fail> {
 #[cfg(not(feature = "coolproplib-shim"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pk_last_error(buf: *mut c_char, len: usize) -> usize {
+    let _fp = fp::Guard::new(false);
     let message = last_error::get();
     // SAFETY: the caller's contract; a null `needed` is allowed.
     let _ = unsafe { put_text(&message, (buf, len), std::ptr::null_mut()) };

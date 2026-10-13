@@ -500,6 +500,23 @@ mod tests {
         assert_eq!(props1_si_in(&registry, "T", "Water"), Err(CompatError::NotAConstant("T".into())));
     }
 
+    /// ROT-151 (map 12 R18: a `de_DE` locale breaks CoolProp's number parsing). No string holds a number: a fluid string
+    /// with fractions is refused by name in either decimal punctuation, before anything is parsed, and a key padded,
+    /// in another case or with a separator is unknown. Values cross as `f64` only, so no locale reaches them.
+    #[test]
+    fn malformed_numbers_and_keys_are_refused() {
+        let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+        let call = |output, name1, fluid| props_si_in(&registry, output, name1, 300.0, "P", 1e5, fluid);
+        for fluid in ["Water[0.5]", "Water[0,5]", "R32[0.5]&R125[0.5]", "R32[0,5]&R125[0,5]"] {
+            assert_eq!(call("Hmass", "T", fluid), Err(CompatError::InvalidFluid(fluid.into())), "{fluid}");
+        }
+        assert!(matches!(call("Hmass", "T", "Water 1,0"), Err(CompatError::Core(Error::Load(_)))), "no such fluid");
+        for key in ["Hmass ", " Hmass", "hmass", "Hmass,", "H,mass", "1,5"] {
+            assert_eq!(call(key, "T", "Water"), Err(CompatError::UnknownOutput(key.into())), "{key}");
+            assert_eq!(call("Hmass", key, "Water"), Err(CompatError::UnknownInput(key.into())), "{key}");
+        }
+    }
+
     /// The string grammar: unknown keys and pairs whose bases disagree are refused by name, before the kernel.
     #[test]
     fn keys_and_pairs_are_checked() {

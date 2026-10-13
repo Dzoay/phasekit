@@ -28,6 +28,10 @@ exclude_globs = [
     # Process glue (runs cargo, git and rustc; reads and writes files): G8 itself exercises it, unit tests cannot.
     "crates/phasekit-xtask/src/repo.rs",
     "crates/phasekit-xtask/src/main.rs",
+    # The FP guard off Linux (PLAN.md M10.7): Windows x64's MXCSR and every other target's no-op. They do not compile
+    # where the mutants job runs; the Windows runner runs their tests (`pk_exports_restore_the_callers_fp_environment`).
+    "crates/phasekit-capi/src/fp/windows.rs",
+    "crates/phasekit-capi/src/fp/none.rs",
 ]
 
 exclude_re = [

@@ -32,6 +32,9 @@ The default `pk_*` library exports none of these names, so it can share a proces
   `unknown: <message>` for a state that fails. `Props1SI` takes the fluid and the output in either order.
 - **Buffers.** A buffer of `n` bytes takes a string shorter than `n`. Otherwise the call returns 0, writes nothing and
   sets the `errstring`.
+- **FP environment.** Every call masks every FP trap and rounds to nearest inside, then gives back the host's traps and
+  rounding and clears the sticky flags. A host that unmasks traps (Delphi) does not fault, and one that polls the flags
+  (Excel/VBA) sees none. The `pk_*` library gives the host its own flags back instead.
 
 ### Different
 
