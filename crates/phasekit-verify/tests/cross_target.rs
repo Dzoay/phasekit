@@ -8,7 +8,10 @@ use phasekit_core::batch::Status;
 use phasekit_core::{
     Basis, Density, Enthalpy, Error, Fluid, Input, Order, Pressure, Quality, Registry, State, Temperature, math,
 };
-use phasekit_verify::SplitMix64;
+use phasekit_verify::{SplitMix64, fixture};
+
+/// The hash every target reproduces with `libm` (VERIFICATION.md §9.4): the four agreed at M9.4.
+const LIBM: (&str, &str) = fixture!("hash/libm.txt");
 
 /// FNV-1a 64, fed byte by byte.
 struct Fnv(u64);
@@ -112,8 +115,9 @@ fn fluid_grid(hash: &mut Fnv, registry: &Registry, fluid: &Fluid, name: &str) ->
 
 /// VERIFICATION.md §9.4 (PLAN.md M9.4): the canonical grid of all 136 embedded fluids, 128 points each, hashed.
 /// Printed for the CI job that collects it from x86_64 Linux, Windows MSVC, aarch64 Linux and wasip2, with std and with
-/// `libm`; std hashes are reported, never asserted. Asserted here: every fluid hashed its 128 points, and at least
-/// three in four of the flashes succeeded, so the hash covers answers, not only refusals.
+/// `libm`; std hashes are reported, never asserted. Asserted: with `libm`, the committed `fixtures/hash/libm.txt` on
+/// every target (class `Exact`); every fluid hashed its 128 points; and at least three in four of the flashes
+/// succeeded, so the hash covers answers, not only refusals.
 #[test]
 fn canonical_grid_hash() {
     let registry = Registry::embedded().unwrap();
@@ -124,12 +128,17 @@ fn canonical_grid_hash() {
         let (p, o) = fluid_grid(&mut hash, registry, registry.get(f.name).unwrap(), f.name);
         (points, ok) = (points + p, ok + o);
     }
-    let target = format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS);
+    let os = if cfg!(target_family = "wasm") { "wasi" } else { std::env::consts::OS }; // empty under wasip2
+    let target = format!("{}-{os}", std::env::consts::ARCH);
     let line = format!("hash={:016x} target={target} math={}", hash.0, math::BACKEND);
     #[allow(clippy::print_stdout, reason = "the hash line is this test's record, collected by CI")]
     {
-        println!("{line}");
+        println!("\n{line}");
     }
     assert_eq!(points, phasekit_data::FLUIDS.len() * 128, "{line}");
     assert!(4 * ok >= 3 * points, "{ok} of {points} flashes succeeded: {line}");
+    if math::BACKEND == "libm" {
+        let want = LIBM.1.lines().find(|l| !l.starts_with('#')).unwrap();
+        assert_eq!(format!("{:016x}", hash.0), want, "{line} against {}", LIBM.0);
+    }
 }

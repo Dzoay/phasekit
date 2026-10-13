@@ -96,7 +96,7 @@ jobs:
         run: |
           for features in "" "--features phasekit-core/libm"; do
             # shellcheck disable=SC2086 # an empty or two-word feature list
-            cargo nextest run -p phasekit-verify --test cross_target --profile ci --no-capture $features | grep '^hash=' | tee -a hash.txt
+            cargo nextest run -p phasekit-verify --test cross_target --profile ci --no-capture $features | grep -o 'hash=[0-9a-f]* target=[^ ]* math=[a-z]*' | tee -a hash.txt
           done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -238,7 +238,7 @@ jobs:
         run: |
           for features in "" "--features phasekit-core/libm"; do
             # shellcheck disable=SC2086 # an empty or two-word feature list
-            cargo nextest run -p phasekit-verify --test cross_target --profile ci --no-capture $features | grep '^hash=' | tee -a hash.txt
+            cargo nextest run -p phasekit-verify --test cross_target --profile ci --no-capture $features | grep -o 'hash=[0-9a-f]* target=[^ ]* math=[a-z]*' | tee -a hash.txt
           done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -270,7 +270,7 @@ jobs:
         run: |
           for features in "" "--features phasekit-core/libm"; do
             # shellcheck disable=SC2086 # an empty or two-word feature list
-            cargo nextest run -p phasekit-verify --test cross_target --profile ci --no-capture $features | grep '^hash=' | tee -a hash.txt
+            cargo nextest run -p phasekit-verify --test cross_target --profile ci --no-capture $features | grep -o 'hash=[0-9a-f]* target=[^ ]* math=[a-z]*' | tee -a hash.txt
           done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -304,7 +304,7 @@ jobs:
         run: |
           for features in "" "--features phasekit-core/libm"; do
             # shellcheck disable=SC2086 # an empty or two-word feature list
-            cargo nextest run -p phasekit-verify --test cross_target --target wasm32-wasip2 --profile ci --no-capture $features | grep '^hash=' | tee -a hash.txt
+            cargo nextest run -p phasekit-verify --test cross_target --target wasm32-wasip2 --profile ci --no-capture $features | grep -o 'hash=[0-9a-f]* target=[^ ]* math=[a-z]*' | tee -a hash.txt
           done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
