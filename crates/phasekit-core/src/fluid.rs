@@ -404,20 +404,22 @@ impl Fluid {
             Prop::SpeedOfSound => state.speed_of_sound()?,
             Prop::Z => state.z(),
             Prop::Cp0molar | Prop::Cp0mass => {
-                // cp⁰ = R·(1 − A20⁰): needs the model's ideal part (E1).
-                let ideal = self.model.derivs(state, Order::Two).and_then(|d| d.ideal());
+                // cp⁰ = R·(1 − A20⁰): the model's ideal part (E1) at one phase. A function of T alone, so in the dome
+                // too (SQ3), as CoolProp: there the Helmholtz part's at the state's T, A20⁰ being free of ρ.
+                let ideal = match state.one_phase() {
+                    Some(one) => self.model.derivs(&one, Order::Two).and_then(|d| d.ideal()),
+                    None => self.model.helmholtz().map(|h| h.ideal(state.t(), state.rho(molar), Order::Two)),
+                };
                 let a20 = ideal.and_then(|d| d.get(2, 0)).ok_or(Error::NoModel { prop })?;
                 let cp0 = state.gas_constant() * (1.0 - a20);
                 if prop == Prop::Cp0mass { cp0 / m } else { cp0 }
             }
             Prop::HmolarResidual | Prop::SmolarResidual | Prop::GmolarResidual => {
-                if state.quality().is_some() {
-                    return Err(Error::Undefined { prop, phase: state.phase() });
-                }
-                let residual = self.model.derivs(state, Order::One).and_then(|d| d.residual());
+                let one = one_phase(state, prop)?;
+                let residual = self.model.derivs(&one, Order::One).and_then(|d| d.residual());
                 let entry = |i, j| residual.and_then(|d| d.get(i, j)).ok_or(Error::NoModel { prop });
                 let (a00, a10, a01) = (entry(0, 0)?, entry(1, 0)?, entry(0, 1)?);
-                let (r, t) = (state.gas_constant(), state.t());
+                let (r, t) = (one.gas_constant(), one.t());
                 match prop {
                     Prop::HmolarResidual => r * t * (a10 + a01),
                     Prop::SmolarResidual => r * (a10 - a00),
@@ -448,12 +450,16 @@ impl Fluid {
         })
     }
 
-    /// The model's order-3 total bundle at `state` (E1), at Q = 0 and 1 at its saturated phase (SQ2): undefined
-    /// strictly inside the dome, `NoModel` from a model without one.
+    /// The model's order-3 total bundle at `state` as one phase (E1), `NoModel` from a model without one.
     fn order_three(&self, state: &State, prop: Prop) -> Result<Derivs, Error> {
-        let one = state.one_phase().ok_or(Error::Undefined { prop, phase: state.phase() })?;
-        self.model.derivs(&one, Order::Three).map(|d| d.total()).ok_or(Error::NoModel { prop })
+        self.model.derivs(&one_phase(state, prop)?, Order::Three).map(|d| d.total()).ok_or(Error::NoModel { prop })
     }
+}
+
+/// `state` as the one phase `prop` reads from the model's `derivs`: a single phase's own, at Q = 0 and 1 a saturated
+/// phase (SQ2, SQ3), undefined strictly inside the dome.
+fn one_phase(state: &State, prop: Prop) -> Result<State, Error> {
+    state.one_phase().ok_or(Error::Undefined { prop, phase: state.phase() })
 }
 
 #[cfg(test)]
@@ -553,43 +559,55 @@ mod tests {
         assert!(gamma.is_err(), "{gamma:?}");
     }
 
-    /// SQ2 (ROT-010, DIV-0004): at Q = 0 and 1 the partials, κ_T, β, the second partials and Γ are the saturated phase's,
-    /// as CoolProp's are: on Water's 500 K isotherm and Air's 101 325 Pa isobar (whose dew point is at its own T, E3)
-    /// each is, bit for bit, the single phase's at that phase's T and ρ. Strictly inside the dome they stay `Undefined`.
+    /// SQ2, SQ3 (ROT-010, DIV-0004): at Q = 0 and 1 the partials, κ_T, β, the second partials, Γ, c_p⁰ and the
+    /// residual h, s and g are the saturated phase's, as CoolProp's are: on Water's 500 K isotherm and Air's 101 325 Pa
+    /// isobar (whose dew point is at its own T, E3) each is, bit for bit, the single phase's at that phase's T and ρ.
+    /// Strictly inside the dome they stay `Undefined`, but for c_p⁰, a function of T alone: the dilute gas's at the
+    /// state's T, Air's between its bubble and dew temperatures.
     #[cfg(feature = "fluids-all")]
     #[test]
-    fn saturated_order_three_outputs_are_the_saturated_phase_s() {
+    fn saturated_derivs_outputs_are_the_saturated_phase_s() {
         use DerivVar::{Dmolar, Hmass, P, Smolar, T};
         let registry = crate::Registry::embedded().unwrap();
         let (water, air) = (registry.get("Water").unwrap(), registry.get("Air").unwrap());
         let first = Partial { of: Hmass, wrt: P, at: T };
-        let outputs = [
+        let cp0 = [Prop::Cp0molar, Prop::Cp0mass];
+        let refused = [
             Prop::Partial(first),
             Prop::IsothermalCompressibility,
             Prop::IsobaricExpansion,
             Prop::SecondPartial(SecondPartial { first: Partial { of: P, wrt: Dmolar, at: T }, wrt: T, at: Dmolar }),
             Prop::SecondPartial(SecondPartial { first, wrt: Smolar, at: P }),
             Prop::FundamentalDerivative,
+            Prop::HmolarResidual,
+            Prop::SmolarResidual,
+            Prop::GmolarResidual,
         ];
-        let (quality, t) = (|q| Quality::new(q).unwrap(), Temperature::new(500.0).unwrap());
-        for (q, phase) in [(0.0, Phase::Liquid), (1.0, Phase::Gas)] {
-            let sides =
-                [(water, Input::qt(quality(q), t)), (air, Input::pq(Pressure::new(101_325.0).unwrap(), quality(q)))];
-            for (fluid, input) in sides {
-                let split = fluid.state(input).unwrap();
-                let side = split.one_phase().unwrap();
+        let outputs = [&cp0[..], &refused].concat();
+        let sides: [(&Fluid, fn(Quality) -> Input); 2] = [
+            (water, |q| Input::qt(q, Temperature::new(500.0).unwrap())),
+            (air, |q| Input::pq(Pressure::new(101_325.0).unwrap(), q)),
+        ];
+        let same = |fluid: &Fluid, a: &State, b: &State, props: &[Prop]| {
+            for &prop in props {
+                let (got, want) = (fluid.prop(a, prop).unwrap(), fluid.prop(b, prop).unwrap());
+                assert_eq!(got.to_bits(), want.to_bits(), "{a:?} {prop:?}: {got}, the single phase's {want}");
+            }
+        };
+        for (fluid, input) in sides {
+            let split = |q| fluid.state(input(Quality::new(q).unwrap())).unwrap();
+            for (q, phase) in [(0.0, Phase::Liquid), (1.0, Phase::Gas)] {
+                let side = split(q).one_phase().unwrap();
                 let at =
                     Input::dt(Density::molar(side.rho(Basis::Molar)).unwrap(), Temperature::new(side.t()).unwrap());
-                let single = fluid.flash(at, &FlashOptions::new().with_phase(phase)).unwrap();
-                for prop in outputs {
-                    let (got, want) = (fluid.prop(&split, prop).unwrap(), fluid.prop(&single, prop).unwrap());
-                    assert_eq!(got.to_bits(), want.to_bits(), "{input:?} {prop:?}: {got}, the single phase's {want}");
-                }
+                same(fluid, &split(q), &fluid.flash(at, &FlashOptions::new().with_phase(phase)).unwrap(), &outputs);
             }
-        }
-        let wet = water.state(Input::qt(quality(0.5), t)).unwrap();
-        for prop in outputs {
-            assert_eq!(water.prop(&wet, prop), Err(Error::Undefined { prop, phase: Phase::TwoPhase }));
+            let wet = split(0.5);
+            for prop in refused {
+                assert_eq!(fluid.prop(&wet, prop), Err(Error::Undefined { prop, phase: Phase::TwoPhase }));
+            }
+            let dilute = fluid.state(Input::dt(Density::molar(1.0).unwrap(), Temperature::new(wet.t()).unwrap()));
+            same(fluid, &wet, &dilute.unwrap(), &cp0);
         }
     }
 

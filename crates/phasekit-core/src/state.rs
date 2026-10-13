@@ -394,9 +394,9 @@ impl State {
         }
     }
 
-    /// This state as one phase, the one transport and the order-3 bundle read (ROT-010, M8.10, SQ2): a single phase's
-    /// own; at Q = 0 or 1 a split's saturated liquid or vapour, the single phase it was built from, its p the EOS's at
-    /// its T and ρ; `None` strictly inside the dome.
+    /// This state as one phase, the one transport and the model's `derivs` read (ROT-010, M8.10, SQ2, SQ3): a single
+    /// phase's own; at Q = 0 or 1 a split's saturated liquid or vapour, the single phase it was built from, its p the
+    /// EOS's at its T and ρ; `None` strictly inside the dome.
     pub(crate) fn one_phase(&self) -> Option<State> {
         let side = |pt: Point, phase| {
             let p = relations::pressure(self.r, pt.t, pt.rho, &pt.b);
