@@ -384,6 +384,22 @@ impl State {
             Body::TwoPhase { .. } => None,
         }
     }
+
+    /// This state as one phase, the one transport reads (ROT-010, M8.10): a single phase's own; at Q = 0 or 1 a split's
+    /// saturated liquid or vapour, the single phase it was built from, its p the EOS's at its T and ρ; `None` strictly
+    /// inside the dome.
+    pub(crate) fn one_phase(&self) -> Option<State> {
+        let side = |pt: Point, phase| {
+            let p = relations::pressure(self.r, pt.t, pt.rho, &pt.b);
+            State { t: pt.t, p, phase, body: Body::Single(pt), ..*self }
+        };
+        match self.body {
+            Body::Single(_) => Some(*self),
+            Body::TwoPhase { q: 0.0, liquid, .. } => Some(side(liquid, Phase::Liquid)),
+            Body::TwoPhase { q: 1.0, vapour, .. } => Some(side(vapour, Phase::Gas)),
+            Body::TwoPhase { .. } => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -474,6 +490,21 @@ mod tests {
         assert_eq!(s.partial(partial), undefined(Prop::Partial(partial)));
         assert_eq!(s.h(Basis::Molar), (liquid.h(Basis::Molar) + gas.h(Basis::Molar)) / 2.0);
         assert_eq!(s.rho(Basis::Molar), 1.0 / ((1.0 / 4_000.0 + 1.0 / 40.0) / 2.0));
+    }
+
+    /// ROT-010 (M8.10): a saturated phase is a single phase. At Q = 0 a split's one phase is its liquid, at Q = 1 its
+    /// vapour, each the state it was built from; strictly inside the dome there is none. A single phase is its own.
+    #[test]
+    fn one_phase_is_the_saturated_side_at_q_0_and_1() {
+        let b = Bundle { a00: 0.0, a10: 1.5, a01: 1.0, a20: -1.5, a11: 0.0, a02: -1.0 };
+        let gas = State::from_total(KEY, 300.0, 40.0, R, 0.04, Phase::Gas, &b).unwrap();
+        let liquid = State::from_total(KEY, 300.0, 4_000.0, R, 0.04, Phase::Liquid, &b).unwrap();
+        let split = |q| State::from_split(liquid, gas, Quality::new(q).unwrap(), 300.0, 1.5 * gas.p()).unwrap();
+        assert_eq!(split(0.0).one_phase(), Some(liquid));
+        assert_eq!(split(1.0).one_phase(), Some(gas));
+        assert_eq!(split(0.5).one_phase(), None);
+        assert_eq!(split(1e-300).one_phase(), None);
+        assert_eq!(gas.one_phase(), Some(gas));
     }
 
     /// ROT-013 (map 01 U4): a single phase has no quality, `None` rather than CoolProp's −1 sentinel; a split's is its

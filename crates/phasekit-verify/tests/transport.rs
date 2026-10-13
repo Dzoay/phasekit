@@ -678,11 +678,17 @@ fn ecs_lj_parameters_come_from_the_ecs_record() {
 /// paper rows (SF₆, H₂S) among them. The others say the step that evaluates them. A row beyond its printed digits passes
 /// only within the `Measured` bound a register entry records for its table (DIV-0021, DIV-0022; VERIFICATION.md §6),
 /// and those rows are pinned. The nine rows outside the EOS's range (CO₂ at 100 and 10 000 K, Methanol at 630 K, the
-/// xylenes above p_max) are evaluated with `DomainPolicy::Extrapolate`; their hardcoded models land at M8.9.
+/// xylenes above p_max) are evaluated with `DomainPolicy::Extrapolate`, and the 13 at a (T, ρ) inside the dome, where
+/// η is `Undefined` (M8.10), at the single phase there, as their papers evaluate them: six saturated densities rounded
+/// into the dome (Ammonia's 200 K liquid, 7.4e-4 below ρ′), the xylenes' and cyclohexane's six dilute checks at 300 and
+/// 400 K, up to 99 times ρ″, and cyclohexane's 500 K liquid, 4.6 % below ρ′.
 #[test]
 fn viscosity_paper_rows() {
     let rows = paper_rows(Prop::Viscosity, ".eta.csv");
     assert!(rows.failures.is_empty(), "{:#?}", rows.failures);
+    let dome = ["Ammonia 86", "Ammonia 87", "CycloHexane 231", "CycloHexane 235", "R123 145", "R123 147", "R23 206"];
+    let xylenes = ["m-Xylene 250", "m-Xylene 254", "n-Propane 46", "o-Xylene 263", "o-Xylene 267", "p-Xylene 276"];
+    assert_eq!(rows.in_dome, [&dome[..], &xylenes[..]].concat());
     let checked = &rows.checked;
     assert_eq!((checked.get("SulfurHexafluoride"), checked.get("HydrogenSulfide")), (Some(&6), Some(&4)));
     assert_eq!((checked.get("Water"), checked.get("HeavyWater")), (Some(&17), Some(&3)));
@@ -711,11 +717,14 @@ fn viscosity_paper_rows() {
 }
 
 /// PLAN.md M8.6: the arbiter rows of M8.3 among CoolProp's 141 active conductivity rows (Helium's excepted) within
-/// their printed digits, for every fluid whose conductivity this step evaluates, as `viscosity_paper_rows` does η's.
+/// their printed digits, for every fluid whose conductivity this step evaluates, as `viscosity_paper_rows` does η's,
+/// the two inside the dome (R123's and R23's 180 K liquids, saturated densities rounded into it) at the single phase
+/// there.
 #[test]
 fn conductivity_paper_rows() {
     let rows = paper_rows(Prop::Conductivity, ".lambda.csv");
     assert!(rows.failures.is_empty(), "{:#?}", rows.failures);
+    assert_eq!(rows.in_dome, ["R123 441", "R23 499"]);
     let checked = &rows.checked;
     assert_eq!((checked.get("Water"), checked.get("HeavyWater")), (Some(&12), Some(&3)));
     assert_eq!((checked.len(), checked.values().sum::<usize>(), rows.later), (27, 105, 0), "{checked:?}");
@@ -787,6 +796,8 @@ struct PaperRows {
     later: usize,
     /// Rows outside the EOS's range, "fluid line".
     extrapolated: Vec<String>,
+    /// Rows at a (T, ρ) inside the dome, evaluated at the single phase there (M8.10), "fluid line".
+    in_dome: Vec<String>,
     /// Rows beyond their printed digits, within the bound of (register entry or restated release, fluid).
     beyond: Vec<(&'static str, &'static str)>,
     /// What failed.
@@ -813,8 +824,9 @@ fn paper_rows(prop: Prop, suffix: &str) -> PaperRows {
         let fluid = path.split('/').nth(1).unwrap();
         for row in (0..table.rows().len()).filter(|&r| arbitrates(fluid, table.printed(r, "provenance").unwrap())) {
             let line = table.value(row, "line").unwrap();
-            let (outside, outcome) = paper_row(registry.get(fluid).unwrap(), path, &table, row, prop);
+            let (outside, in_dome, outcome) = paper_row(registry.get(fluid).unwrap(), path, &table, row, prop);
             rows.extrapolated.extend(outside.then(|| format!("{fluid} {line}")));
+            rows.in_dome.extend(in_dome.then(|| format!("{fluid} {line}")));
             match outcome {
                 Ok(None) => rows.later += 1,
                 Ok(Some(id)) => {
@@ -828,22 +840,23 @@ fn paper_rows(prop: Prop, suffix: &str) -> PaperRows {
     rows
 }
 
-/// One arbiter row: whether it lies outside the EOS's range (evaluated only on request), and `None` when its form
-/// lands later, else the register entry whose bound it needs beyond its printed digits.
+/// One arbiter row: whether it lies outside the EOS's range (evaluated only on request) and inside the dome, and `None`
+/// when its form lands later, else the register entry whose bound it needs beyond its printed digits.
 fn paper_row(
     fluid: &Fluid,
     path: &str,
     table: &Fixture<'_>,
     row: usize,
     prop: Prop,
-) -> (bool, Result<Option<Option<&'static str>>, String>) {
-    let value = paper_row_value(fluid, table, row, DomainPolicy::Enforce, prop);
-    if matches!(value, Err(Error::Domain(_))) {
-        // A row outside the EOS's range, inside the correlation's.
-        let extrapolated = paper_row_value(fluid, table, row, DomainPolicy::Extrapolate, prop);
-        return (true, paper_row_check(path, table, row, extrapolated));
+) -> (bool, bool, Result<Option<Option<&'static str>>, String>) {
+    let mut value = paper_row_value(fluid, table, row, DomainPolicy::Enforce, prop);
+    // A row outside the EOS's range, inside the correlation's.
+    let outside = matches!(value, Err(Error::Domain(_)));
+    if outside {
+        value = paper_row_value(fluid, table, row, DomainPolicy::Extrapolate, prop);
     }
-    (false, paper_row_check(path, table, row, value))
+    let in_dome = matches!(value, Ok((_, true)));
+    (outside, in_dome, paper_row_check(path, table, row, value.map(|(v, _)| v)))
 }
 
 /// `value` against its row: `None` when its form lands later, else the register entry, or the release whose cell the
@@ -902,14 +915,15 @@ fn registered_bound(path: &str) -> Option<(&'static str, f64)> {
     })
 }
 
-/// `prop` at a CoolProp test row's inputs (T and a molar or mass density, a quality, or a pressure) under `domain`.
+/// `prop` at a CoolProp test row's inputs (T and a molar or mass density, a quality, or a pressure) under `domain`, and
+/// whether they lie inside the dome, where it is the single phase's there ([`transport_rows::dome_side`]).
 fn paper_row_value(
     fluid: &Fluid,
     table: &Fixture<'_>,
     row: usize,
     domain: DomainPolicy,
     prop: Prop,
-) -> Result<f64, Error> {
+) -> Result<(f64, bool), Error> {
     let t = Temperature::new(table.value(row, "T").unwrap())?;
     let x = table.value(row, "x").unwrap();
     let input = match table.printed(row, "x_kind").unwrap() {
@@ -922,5 +936,11 @@ fn paper_row_value(
     // CoolProp's zero-density rows (1e-5 kg/m³) outside the range: below the triple point no VLE can label them.
     let dilute = domain == DomainPolicy::Extrapolate && x <= 1e-3;
     let options = if dilute { options.with_phase(Phase::Gas) } else { options };
-    fluid.prop(&fluid.flash(input, &options)?, prop)
+    let state = fluid.flash(input, &options)?;
+    let side = transport_rows::dome_side(fluid, &state);
+    let state = match side {
+        Some(phase) => fluid.flash(input, &options.with_phase(phase))?,
+        None => state,
+    };
+    Ok((fluid.prop(&state, prop)?, side.is_some()))
 }

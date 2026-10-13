@@ -1,7 +1,20 @@
 //! The 318 active transport rows of CoolProp v8.0.0's tests (`CoolProp-Tests.cpp:44-301, 347-581`), one file per fluid
-//! and property, each with its independent second transcription (PLAN.md M8.3; VERIFICATION.md §4.2).
+//! and property, each with its independent second transcription (PLAN.md M8.3; VERIFICATION.md §4.2), and the phase a
+//! row's state takes inside the dome.
 
+#![allow(dead_code, reason = "each test binary that includes the rows uses its part of them")]
+
+use phasekit_core::{Basis, Fluid, Phase, State};
 use phasekit_verify::fixture;
+
+/// The single phase a check value at a (T, ρ) inside the dome is evaluated at, on its side of ρ_c, metastable, as its
+/// paper evaluates the correlation (M8.10: transport refuses a two-phase state, ROT-010); `None` for any other state,
+/// a saturated phase among them.
+pub fn dome_side(fluid: &Fluid, state: &State) -> Option<Phase> {
+    state.quality().filter(|q| 0.0 < *q && *q < 1.0)?;
+    let rho_c = fluid.model().critical_point()?.rho;
+    Some(if state.rho(Basis::Molar) < rho_c { Phase::Gas } else { Phase::Liquid })
+}
 
 /// A committed fixture: (path, text).
 pub type Text = (&'static str, &'static str);

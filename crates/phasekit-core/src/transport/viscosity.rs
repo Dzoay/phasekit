@@ -51,6 +51,19 @@ impl<'a> TransportInputs<'a> {
         TransportInputs { model: Some(model), ..self }
     }
 
+    /// The state's one phase ([`State::one_phase`]), the one transport reads; `None` strictly inside the dome.
+    pub(super) fn one_phase(&self) -> Option<State> {
+        self.state.one_phase()
+    }
+
+    /// These inputs at `state`, a phase of the same fluid.
+    pub(super) fn at<'b>(&self, state: &'b State) -> TransportInputs<'b>
+    where
+        'a: 'b,
+    {
+        TransportInputs { state, ..*self }
+    }
+
     /// The fluid's own critical point, if its model is known and has one.
     pub(super) fn critical(&self) -> Option<CriticalPoint> {
         self.model.and_then(ThermoModel::critical_point)

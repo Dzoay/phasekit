@@ -28,6 +28,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0006", div_0006),
     ("DIV-0007", div_0007),
     ("DIV-0008", div_0008),
+    ("DIV-0009", div_0009),
     ("DIV-0011", div_0011),
     ("DIV-0012", div_0012),
     ("DIV-0014", div_0014),
@@ -69,9 +70,11 @@ fn record(fluid: &str, set: DataSet) -> FluidRecord {
     record
 }
 
-/// DIV-0004, part M5 (`SkipOracle`; map 10 R18): c_p and c_v inside the dome are `Undefined { prop, TwoPhase }`, a
+/// DIV-0004 (`SkipOracle`; map 10 R18). Part M5: c_p and c_v inside the dome are `Undefined { prop, TwoPhase }`, a
 /// DT state there as for any two-phase state, where CoolProp returns numbers (Water QT(0.5, 400 K): c_p 4056.47,
-/// c_v 2913.73 J/kg/K, measured 2026-10-05). The oracle's two-phase viscosity, the M8 part, is in the register's facts.
+/// c_v 2913.73 J/kg/K, measured 2026-10-05). Part M8 (M8.10): so are η and λ, where the oracle evaluates its
+/// correlations at the mixture's density: its Water η at QT(0.5, 500 K), 1.6048e-5 Pa s, lies below the saturated
+/// vapour's, which phasekit gives at Q = 1, the single phase's.
 fn div_0004() {
     let water = Registry::embedded().unwrap().get("Water").unwrap();
     let state = water.state(Input::dt(Density::molar(1_000.0).unwrap(), Temperature::new(400.0).unwrap())).unwrap();
@@ -81,7 +84,23 @@ fn div_0004() {
         assert!(matches!(undefined, Error::Undefined { phase: Phase::TwoPhase, .. }), "{prop:?}: {undefined:?}");
     }
     assert!(state.h(Basis::Mass).is_finite());
-    assert!(fact("div0004_eta_t500_q0.5") > 0.0, "the oracle answers a two-phase viscosity (part M8)");
+    let at = |q: f64| water.state(Input::qt(Quality::new(q).unwrap(), Temperature::new(500.0).unwrap())).unwrap();
+    for prop in [Prop::Viscosity, Prop::Conductivity] {
+        let undefined = Err(Error::Undefined { prop, phase: Phase::TwoPhase });
+        assert_eq!((water.prop(&state, prop), water.prop(&at(0.5), prop)), (undefined.clone(), undefined));
+    }
+    let (oracle, vapour) = (fact("div0004_eta_t500_q0.5"), water.prop(&at(1.0), Prop::Viscosity).unwrap());
+    assert!(oracle < vapour, "the oracle's two-phase η, {oracle}, below the saturated vapour's, {vapour}");
+}
+
+/// DIV-0009 (`Investigate`; map 12 §6.3, ROT-120): v8.0.0's R1233zd(E) has no viscosity model (the oracle raises
+/// "Viscosity model is not available"; v7.2.0 answered 6.3689e-4 Pa s), and phasekit's η is `NoModel`, never a value
+/// borrowed from elsewhere. Resolution: a model through the register (upstream 14da1f0d restored and refit it).
+fn div_0009() {
+    let fluid = Registry::embedded().unwrap().get("R1233zd(E)").unwrap();
+    let state = fluid.state(Input::pt(Pressure::new(101_325.0).unwrap(), Temperature::new(300.0).unwrap())).unwrap();
+    assert_eq!(fluid.prop(&state, Prop::Viscosity), Err(Error::NoModel { prop: Prop::Viscosity }));
+    assert!(fact("div0009_eta_t300_p101325").is_nan(), "the oracle has none either");
 }
 
 /// DIV-0011 (`SkipOracle`; map 12 §6.3, R8; ROT-063): phasekit's third virial coefficient is the exact Taylor
@@ -410,7 +429,7 @@ fn transport_text(file: &str) -> &'static str {
 }
 
 /// `prop` of `fluid` at a CoolProp test row's T and `x`, the row's density (`x_kind` `Dmolar`, `Dmass` or `D`) or
-/// quality (`Q`).
+/// quality (`Q`); inside the dome, the single phase's there ([`transport_rows::dome_side`]).
 fn row_value(fluid: &str, table: &Fixture<'_>, row: usize, x: f64, prop: Prop) -> f64 {
     let fluid = Registry::embedded().unwrap().get(fluid).unwrap();
     let t = Temperature::new(table.value(row, "T").unwrap()).unwrap();
@@ -419,7 +438,12 @@ fn row_value(fluid: &str, table: &Fixture<'_>, row: usize, x: f64, prop: Prop) -
         "Q" => Input::qt(Quality::new(x).unwrap(), t),
         _ => Input::dt(Density::mass(x).unwrap(), t),
     };
-    fluid.prop(&fluid.state(input).unwrap(), prop).unwrap()
+    let state = fluid.state(input).unwrap();
+    let state = match transport_rows::dome_side(fluid, &state) {
+        Some(phase) => fluid.flash(input, &FlashOptions::new().with_phase(phase)).unwrap(),
+        None => state,
+    };
+    fluid.prop(&state, prop).unwrap()
 }
 
 /// M8.3's CoolProp test table of `fluid` and `prop`, with its path.
@@ -651,18 +675,37 @@ fn div_0029() {
     }
 }
 
-/// `prop` of `fluid` at `t` and the mass density `rho` (`Extrapolate`: a table row may lie beyond the EOS's range).
+/// `prop` of `fluid` at `t` and the mass density `rho` as a table row is: `Extrapolate`, since it may lie beyond the
+/// EOS's range, and inside the dome the single phase's there ([`transport_rows::dome_side`]).
 fn at_mass(fluid: &str, t: f64, rho: f64, prop: Prop) -> f64 {
     let fluid = Registry::embedded().unwrap().get(fluid).unwrap();
     let input = Input::dt(Density::mass(rho).unwrap(), Temperature::new(t).unwrap());
     let options = FlashOptions::new().with_domain(phasekit_core::DomainPolicy::Extrapolate);
+    let state = fluid.flash(input, &options).unwrap();
+    let options = transport_rows::dome_side(fluid, &state).map_or(options, |phase| options.with_phase(phase));
+    fluid.prop(&fluid.flash(input, &options).unwrap(), prop).unwrap()
+}
+
+/// `prop` of `fluid` at `t` and the molar density `rho` as a table row is, inside the dome the single phase's there
+/// ([`transport_rows::dome_side`]).
+fn at_molar(fluid: &str, t: f64, rho: f64, prop: Prop) -> f64 {
+    let fluid = Registry::embedded().unwrap().get(fluid).unwrap();
+    let input = Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap());
+    let state = fluid.state(input).unwrap();
+    let options =
+        transport_rows::dome_side(fluid, &state).map_or(FlashOptions::new(), |p| FlashOptions::new().with_phase(p));
     fluid.prop(&fluid.flash(input, &options).unwrap(), prop).unwrap()
 }
 
 /// DIV-0030 (`SkipOracle`; map 05 R3, M8.9), the replacing check: Ammonia's λ is finite and continuous across Tufeu's
 /// T_c, 405.4 K, at a gas, a near-critical and a liquid density, and equals CoolProp's term outside the floored band;
-/// the exempt cell still differs: the oracle's 6.26 W/(m K) at 405.3999 K and 50 kg/m³.
+/// the exempt cell still differs: the oracle's 6.26 W/(m K) at 405.3999 K and 50 kg/m³. Below the EOS's T_c the
+/// near-critical density is in the dome, where λ is `Undefined` (M8.10), so the term is checked at the single phase there.
 fn div_0030() {
+    let ammonia = Registry::embedded().unwrap().get("Ammonia").unwrap();
+    let dome = ammonia.state(Input::dt(Density::mass(235.0).unwrap(), Temperature::new(405.4).unwrap())).unwrap();
+    let undefined = Error::Undefined { prop: Prop::Conductivity, phase: Phase::TwoPhase };
+    assert_eq!(ammonia.prop(&dome, Prop::Conductivity), Err(undefined));
     for rho in [50.0, 235.0, 600.0] {
         let lambda = |t: f64| at_mass("Ammonia", t, rho, Prop::Conductivity);
         let band = [405.2401, 405.3, 405.3999, 405.4, 405.4001, 405.5, 405.5599].map(lambda);
@@ -728,11 +771,7 @@ fn div_0032() {
 /// 0.01 mol/dm³; the 440 K and 310 K conductivity points are off by the cited amounts. Resolution: the paper's g9 under
 /// Corrected, and Friend's critical-term constants.
 fn div_0033() {
-    let molar = |t: f64, rho: f64, prop: Prop| {
-        let fluid = Registry::embedded().unwrap().get("Ethane").unwrap();
-        let state = fluid.state(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap())).unwrap();
-        fluid.prop(&state, prop).unwrap()
-    };
+    let molar = |t: f64, rho: f64, prop: Prop| at_molar("Ethane", t, rho, prop);
     let eta = [(100.0, 21330.0, 878.68e-6, 1.6e-3), (430.0, 12780.0, 58.70e-6, 3.8e-4)];
     for (t, rho, printed, cited) in eta {
         let off = molar(t, rho, Prop::Viscosity) / printed - 1.0;
@@ -750,11 +789,6 @@ fn div_0033() {
 /// DIV-0034 (`Investigate`; map 10 §8.1, M8.9): R23's rows lie within their values at the density plus or minus half a
 /// printed unit; CO₂'s and R123's are off by the cited amounts. Resolution: the papers' own tables.
 fn div_0034() {
-    let molar = |fluid: &str, t: f64, rho: f64, prop: Prop| {
-        let fluid = Registry::embedded().unwrap().get(fluid).unwrap();
-        let state = fluid.state(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap())).unwrap();
-        fluid.prop(&state, prop).unwrap()
-    };
     let r23 = [
         (180.0, 21097.0, Prop::Viscosity, 353.88e-6, 0.005e-6),
         (420.0, 7564.0, Prop::Viscosity, 39.459e-6, 0.0005e-6),
@@ -762,7 +796,7 @@ fn div_0034() {
         (420.0, 7564.0, Prop::Conductivity, 50.19e-3, 0.005e-3),
     ];
     for (t, rho, prop, printed, half) in r23 {
-        let (lo, hi) = (molar("R23", t, rho - 0.5, prop), molar("R23", t, rho + 0.5, prop));
+        let (lo, hi) = (at_molar("R23", t, rho - 0.5, prop), at_molar("R23", t, rho + 0.5, prop));
         assert!(lo.min(hi) - half <= printed && printed <= lo.max(hi) + half, "R23 {prop:?} at {t} K");
     }
     let co2 = at_mass("CarbonDioxide", 300.0, 1400.0, Prop::Viscosity) / 0.50594e-3 - 1.0;

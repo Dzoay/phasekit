@@ -194,7 +194,10 @@ pub static DIVERGENCES: &[Divergence] = &[
         arbiter: None,
         policy: Policy::SkipOracle,
         fix: Fix::Code("phasekit_core::state"),
-        evidence: "map 05 §6, map 10 R18: two-phase viscosity/conductivity are meaningless",
+        evidence: "map 05 §6, map 10 R18: two-phase viscosity/conductivity are meaningless; M8.10: the oracle's Water \
+                   eta at QT(0.5, 500 K), 1.6048e-5 Pa s, lies below its saturated vapour's, 1.6594e-5: phasekit \
+                   refuses eta and lambda strictly inside the dome and gives the saturated phase's at Q = 0 and 1 \
+                   (2026-10-13)",
         exempt: Some(Exempt {
             kinds: &[Kind::Props],
             columns: &["Cpmass", "Cpmolar", "Cvmass", "Cvmolar", "viscosity", "conductivity"],
@@ -269,7 +272,8 @@ pub static DIVERGENCES: &[Divergence] = &[
         arbiter: None,
         policy: Policy::Investigate,
         fix: Fix::None,
-        evidence: "map 12 §6.3: v8.0.0 raises 'Viscosity model is not available'; restored upstream 14da1f0d",
+        evidence: "map 12 §6.3: v8.0.0 raises 'Viscosity model is not available'; restored upstream 14da1f0d; M8.10: \
+                   phasekit's eta is NoModel too (2026-10-13)",
         exempt: None,
         tolerance: None,
         table_tolerances: &[],
