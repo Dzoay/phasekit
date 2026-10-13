@@ -17,6 +17,9 @@ crate-type = ["cdylib", "rlib"]
 default = ["fluids-all"]
 fluids-all = ["phasekit-compat/fluids-all"]
 fluids-core = ["phasekit-compat/fluids-core"]
+# The Tier A CoolPropLib.h shim's build (D11): it exports CoolProp's Tier A names and no `pk_*` one, and is distributed
+# as `phasekit_coolproplib` (user decision P1). No workspace member enables it, so the workspace's builds stay `pk_*`.
+coolproplib-shim = []
 
 [dependencies]
 phasekit-compat.workspace = true

@@ -57,6 +57,8 @@ jobs:
         run: cargo clippy -p phasekit-core -p phasekit-compat --no-default-features --all-targets -- -D warnings
       - name: clippy on the libm backend (PLAN.md M9.3)
         run: cargo clippy -p phasekit-core --features libm --all-targets -- -D warnings
+      - name: clippy on the Tier A shim's build (PLAN.md M10.6)
+        run: cargo clippy -p phasekit-capi --features coolproplib-shim --all-targets -- -D warnings
 
   linux:
     name: linux

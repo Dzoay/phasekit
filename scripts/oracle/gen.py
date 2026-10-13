@@ -18,6 +18,7 @@ import json
 import math
 import os
 import platform
+import re
 import struct
 import sys
 import tempfile
@@ -1539,9 +1540,54 @@ def props(CP, lock, config, files, args):
     return out
 
 
+# The `codes` kind (section 3.5; map 01 R1, R2; D11): the v8.0.0 integer codes the Tier A shim pins. `codes/coolprop.csv`
+# is the wheel's: every name `get_parameter_index` takes (the 85 outputs and the 24 aliases of `DataStructures.cpp:130-153`,
+# each also in upper case, which `index_map_insert` registers too; `:157-160`) and a few it refuses, as -1; the phase names
+# `get_phase_index` takes; the input-pair enum's values (`CoolProp.constants`). The wheel has no `get_input_pair_index`,
+# so `codes/pair-names.csv` holds the names it takes, `input_pair_list` of `src/DataStructures.cpp` in order, collisions
+# included: the map keeps a name's first entry (`index_map.emplace`, `:563-571`). Fluids and tiers play no part.
+CODES_ALIASES = ["D", "H", "M", "S", "U", "C", "O", "G", "V", "L", "pcrit", "Pcrit", "Tcrit", "Ttriple", "ptriple",
+                 "rhocrit", "Tmin", "Tmax", "pmax", "pmin", "molemass", "molarmass", "A", "I"]
+CODES_REFUSED = ["dmass", "hMass", "Tcrit2", "D&H", "d(P)/d(T)|Dmolar"]
+CODES_PHASES = ["phase_liquid", "phase_supercritical", "phase_supercritical_gas", "phase_supercritical_liquid",
+                "phase_critical_point", "phase_gas", "phase_twophase", "phase_unknown", "phase_not_imposed"]
+PAIR_SOURCE = "src/DataStructures.cpp"
+
+
+def codes(CP, lock, config, files, args):
+    import CoolProp.constants as constants
+
+    def index(lookup, name):
+        try:
+            return int(lookup(name))
+        except ValueError:
+            return -1
+
+    names = []
+    for name in PROPS_OUTPUTS + CODES_ALIASES:
+        names.extend(spelling for spelling in dict.fromkeys([name, name.upper()]) if spelling not in names)
+    pairs = sorted((int(getattr(constants, n)), n) for n in dir(constants) if n.endswith("_INPUTS") or n == "INPUT_PAIR_INVALID")
+    rows = [("parameter", name, index(CP.get_parameter_index, name)) for name in names + CODES_REFUSED]
+    rows += [("phase", name, index(CP.get_phase_index, name)) for name in CODES_PHASES]
+    rows += [("pair", name, value) for value, name in pairs]
+    floats = [float(code) for _, _, code in rows]
+    text = header("codes", lock, config, "none", ["table", "name", "index"], ["label", "label", "exact"], floats)
+    wheel = text + "".join(f"{table},{name},{cell(float(code))}\n" for table, name, code in rows)
+    source = (ROOT / "reference" / "CoolProp" / PAIR_SOURCE).read_text(encoding="utf-8")
+    table = source.split("const input_pair_info input_pair_list[] = {", 1)[1].split("};", 1)[0]
+    entries = re.findall(r'\{(\w+_INPUTS), "(\w+)",', table)
+    if len(entries) != len(pairs) - 1:
+        fail(f"{PAIR_SOURCE}: {len(entries)} input_pair_list entries, the wheel has {len(pairs) - 1} pairs")
+    names_header = "".join(f"# {line}\n" for line in [
+        "fixture: codes/v1", f"source: coolprop-source:{PAIR_SOURCE}@{lock['git']}", "columns: name,pair",
+        "tol: label,label"])
+    pair_names = names_header + "".join(f"{name},{pair}\n" for pair, name in entries)
+    return {"codes/coolprop.csv": wheel, "codes/pair-names.csv": pair_names}
+
+
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "sat": sat,
               "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
-              "props": props}
+              "props": props, "codes": codes}
 
 
 def write(out, files):

@@ -1,0 +1,47 @@
+# fixture: codes/v1
+# source: coolprop-source:src/DataStructures.cpp@ae81610e7d23efc57f9d051c8e70a4d66e87537f
+# columns: name,pair
+# tol: label,label
+QT_INPUTS,QT_INPUTS
+QmassT_INPUTS,QmassT_INPUTS
+QS_INPUTS,QSmolar_INPUTS
+QmassS_INPUTS,QmassSmolar_INPUTS
+QS_INPUTS,QSmass_INPUTS
+QmassS_INPUTS,QmassSmass_INPUTS
+HQ_INPUTS,HmolarQ_INPUTS
+HQmass_INPUTS,HmolarQmass_INPUTS
+HQ_INPUTS,HmassQ_INPUTS
+HQmass_INPUTS,HmassQmass_INPUTS
+DmassQ_INPUTS,DmassQ_INPUTS
+DmassQmass_INPUTS,DmassQmass_INPUTS
+DmolarQ_INPUTS,DmolarQ_INPUTS
+DmolarQmass_INPUTS,DmolarQmass_INPUTS
+PQ_INPUTS,PQ_INPUTS
+PQmass_INPUTS,PQmass_INPUTS
+PT_INPUTS,PT_INPUTS
+DmassT_INPUTS,DmassT_INPUTS
+DmolarT_INPUTS,DmolarT_INPUTS
+HmassT_INPUTS,HmassT_INPUTS
+HmolarT_INPUTS,HmolarT_INPUTS
+SmassT_INPUTS,SmassT_INPUTS
+SmolarT_INPUTS,SmolarT_INPUTS
+TUmass_INPUTS,TUmass_INPUTS
+TUmolar_INPUTS,TUmolar_INPUTS
+DmassP_INPUTS,DmassP_INPUTS
+DmolarP_INPUTS,DmolarP_INPUTS
+HmassP_INPUTS,HmassP_INPUTS
+HmolarP_INPUTS,HmolarP_INPUTS
+PSmass_INPUTS,PSmass_INPUTS
+PSmolar_INPUTS,PSmolar_INPUTS
+PUmass_INPUTS,PUmass_INPUTS
+PUmolar_INPUTS,PUmolar_INPUTS
+DmassHmass_INPUTS,DmassHmass_INPUTS
+DmolarHmolar_INPUTS,DmolarHmolar_INPUTS
+DmassSmass_INPUTS,DmassSmass_INPUTS
+DmolarSmolar_INPUTS,DmolarSmolar_INPUTS
+DmassUmass_INPUTS,DmassUmass_INPUTS
+DmolarUmolar_INPUTS,DmolarUmolar_INPUTS
+HmassSmass_INPUTS,HmassSmass_INPUTS
+HmolarSmolar_INPUTS,HmolarSmolar_INPUTS
+SmassUmass_INPUTS,SmassUmass_INPUTS
+SmolarUmolar_INPUTS,SmolarUmolar_INPUTS

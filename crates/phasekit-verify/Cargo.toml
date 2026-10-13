@@ -18,6 +18,8 @@ phasekit-core = { workspace = true, features = ["fluids-all"] }
 # so the workspace stays free of `unsafe` code.
 [dev-dependencies]
 allocation-counter = "0.8"
+# The Tier A shim's pinned v8.0.0 codes, against the `codes` fixture (tests/codes.rs; PLAN.md M10.6).
+phasekit-capi = { workspace = true, features = ["fluids-all"] }
 # The PropsSI-style facade, so the seams reach it by name (tests/new_family.rs, tests/gibbs_seam.rs; PLAN.md M5.9).
 phasekit-compat = { workspace = true, features = ["fluids-all"] }
 # The AD oracle for Jet4 and the power-term fast path (tests/terms.rs; PLAN.md M3.2): scalar duals only, so no

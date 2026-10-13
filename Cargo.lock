@@ -417,6 +417,7 @@ dependencies = [
  "criterion",
  "gungraun",
  "num-dual",
+ "phasekit-capi",
  "phasekit-compat",
  "phasekit-core",
  "phasekit-data",

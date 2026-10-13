@@ -284,6 +284,13 @@ impl Repo {
         Ok((output.status.success(), text(&output.stdout), text(&output.stderr)))
     }
 
+    /// The `nm -D --defined-only` listing of a built library: its defined dynamic symbols (`gates abi`).
+    pub fn dynamic_symbols(&self, library: &Path) -> Result<String, String> {
+        let library = library.to_string_lossy().into_owned();
+        let (ok, listing, err) = self.tool("nm", &["-D", "--defined-only", &library])?;
+        if ok { Ok(listing) } else { Err(format!("nm {library} failed: {}", err.trim())) }
+    }
+
     /// Runs `cargo mutants --in-diff` on `diff` (configured by `.cargo/mutants.toml`) with the pass's own `args`, its
     /// progress on the terminal. Builds happen in cargo-mutants' own copy of the tree outside the repository, so an
     /// inherited `CARGO_TARGET_DIR` is dropped and `reference/` is named through `PHASEKIT_REFERENCE_DIR`. The output

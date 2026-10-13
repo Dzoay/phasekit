@@ -1,6 +1,6 @@
 //! `phasekit-capi`: the `pk_*` C ABI (PLAN.md M10.4; D11, user decisions 1, 9a), over `phasekit-compat`, so its keys,
 //! fluid strings and errors are the strings' (ROT-169). Its header, `include/phasekit.h`, is cbindgen's output,
-//! committed.
+//! committed. The Tier A CoolPropLib.h shim, a separate build of this crate, is [`shim`] (M10.6).
 //!
 //! The conventions, every export alike (map 11 F1-F5, F16):
 //! - **Status returns.** Each function returns an `int32_t` status, `PK_OK` (0) or one of the `PK_*` codes, and sets
@@ -16,6 +16,12 @@
 // clippy's `disallowed_macros` honours an allow only at the crate root, so this one is here; `gates lints` keeps
 // `thread_local` to last_error.rs, the C ABI's one piece of per-thread state (D8, D11, E13).
 #![allow(clippy::disallowed_macros, reason = "the per-thread last error, in last_error.rs alone (gates lints)")]
+// The shim's build (`coolproplib-shim`) exports CoolProp's Tier A names and none of `pk_*`, whose code it then leaves
+// unused (D11).
+#![cfg_attr(
+    feature = "coolproplib-shim",
+    allow(dead_code, unused_imports, reason = "the shim's build exports no pk_* function")
+)]
 
 use std::ffi::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -27,8 +33,9 @@ use phasekit_core::{DataSet, Error, Fluid, Registry};
 
 mod handles;
 mod last_error;
+pub mod shim;
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "coolproplib-shim")))]
 mod tests;
 
 use handles::{fluids, lock, registries};
@@ -292,6 +299,7 @@ fn new_registry(registry: Registry) -> Result<pk_registry, Fail> {
 /// # Safety
 /// `buf` is null or points to `len` writable bytes.
 #[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pk_last_error(buf: *mut c_char, len: usize) -> usize {
     let message = last_error::get();
@@ -306,6 +314,7 @@ pub unsafe extern "C" fn pk_last_error(buf: *mut c_char, len: usize) -> usize {
 /// # Safety
 /// `out` is null or points to writable memory for one `pk_registry`.
 #[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pk_registry_new(data_set: i32, out: *mut pk_registry) -> i32 {
     guard(|| {
@@ -322,6 +331,7 @@ pub unsafe extern "C" fn pk_registry_new(data_set: i32, out: *mut pk_registry) -
 
 /// Frees a registry. Fluids made from it stay valid (each holds what it needs); a call already using it finishes.
 #[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
 #[unsafe(no_mangle)]
 pub extern "C" fn pk_registry_free(registry: pk_registry) -> i32 {
     guard(|| {
@@ -338,6 +348,7 @@ pub extern "C" fn pk_registry_free(registry: pk_registry) -> i32 {
 /// `fluid` and `reference` point to `fluid_len` and `reference_len` readable bytes; `out` is null or points to writable
 /// memory for one `pk_registry`.
 #[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pk_registry_with_reference(
     registry: pk_registry,
@@ -366,6 +377,7 @@ pub unsafe extern "C" fn pk_registry_with_reference(
 /// # Safety
 /// `name` points to `name_len` readable bytes; `out` is null or points to writable memory for one `pk_fluid`.
 #[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pk_fluid_new(
     registry: pk_registry,
@@ -385,6 +397,7 @@ pub unsafe extern "C" fn pk_fluid_new(
 
 /// Frees a fluid handle; a call already using it finishes.
 #[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
 #[unsafe(no_mangle)]
 pub extern "C" fn pk_fluid_free(fluid: pk_fluid) -> i32 {
     guard(|| {
@@ -399,6 +412,7 @@ pub extern "C" fn pk_fluid_free(fluid: pk_fluid) -> i32 {
 /// # Safety
 /// `buf` is null or points to `len` writable bytes; `needed` is null or points to writable memory for one `size_t`.
 #[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pk_fluid_name(fluid: pk_fluid, buf: *mut c_char, len: usize, needed: *mut usize) -> i32 {
     guard(|| {
@@ -415,6 +429,7 @@ pub unsafe extern "C" fn pk_fluid_name(fluid: pk_fluid, buf: *mut c_char, len: u
 /// Each string pointer points to its length's readable bytes; `out` is null or points to writable memory for one
 /// `double`.
 #[allow(unsafe_code, clippy::too_many_arguments, reason = "PropsSI's six arguments, with the lengths and the output")]
+#[cfg(not(feature = "coolproplib-shim"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pk_props_si(
     registry: pk_registry,
@@ -452,6 +467,7 @@ pub unsafe extern "C" fn pk_props_si(
 /// `output` and `fluid` point to their lengths' readable bytes; `out` is null or points to writable memory for one
 /// `double`.
 #[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pk_props1_si(
     registry: pk_registry,
@@ -477,6 +493,7 @@ pub unsafe extern "C" fn pk_props1_si(
 /// Each string pointer points to its length's readable bytes; `buf` is null or points to `len` writable bytes; `needed`
 /// is null or points to writable memory for one `size_t`.
 #[allow(unsafe_code, clippy::too_many_arguments, reason = "PhaseSI's five arguments, with the lengths and the output")]
+#[cfg(not(feature = "coolproplib-shim"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pk_phase_si(
     registry: pk_registry,
@@ -516,6 +533,7 @@ pub unsafe extern "C" fn pk_phase_si(
 /// `name2` to their lengths' readable bytes; `values1` and `values2` to `n` readable doubles; `out` and `status` to
 /// `cells` writable doubles and `int32_t`s that overlap nothing else. Any pointer may be null when its length is 0.
 #[allow(unsafe_code, clippy::too_many_arguments, reason = "each buffer with its length, as every pk_* call")]
+#[cfg(not(feature = "coolproplib-shim"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pk_batch(
     fluid: pk_fluid,

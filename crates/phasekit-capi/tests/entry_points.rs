@@ -3,6 +3,7 @@
 //! contract makes the caller's to keep. No call panics or writes its output on failure, and each status is one the
 //! ABI defines; `pk_batch` gets any point and cell counts its buffers hold, and writes its cells only on success. The seed is fixed, so every machine runs the same cases.
 
+#![cfg(not(feature = "coolproplib-shim"))] // the shim's build exports no pk_* function
 #![allow(unsafe_code, reason = "the test calls the unsafe exports, each with valid buffers")]
 #![allow(clippy::unwrap_used, reason = "test-crate helpers")]
 
