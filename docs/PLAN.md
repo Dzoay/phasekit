@@ -409,10 +409,8 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
 | M8.7 | IAPWS water and heavy water |
 | M8.8 | ECS |
 | M8.9 | rhosr-CS, Chung, other hard-coded models |
+| M8.10 | Two-phase and missing models |
 
-- **M8.10 Two-phase and missing models.** *Failing tests:* `two_phase_transport_is_undefined` (the DIV-0004 η, λ part:
-  oracle Water η(500 K, Q = 0.5) = 1.6048e-5 is not asserted), `r1233zd_e_viscosity_is_no_model` (DIV-0009 stays
-  `Investigate`; v8.0.0 data has no model). *Done when:* green.
 - **M8.11 Melting lines.** *Failing tests:* `div_0002` three-part proof (IAPWS R14-08, 4 points; Corrected ice VI p0),
   `heavy_water_melting_herrig` (4 points, class `Paper`), `simon_segments_respect_t_min` (Hydrogen T(0.5·p_min) =
   9.52 K below T_min 13.957 K in the oracle; map 02 §6), `melting_meets_the_triple_pressure` (datagen: every melting
@@ -431,7 +429,7 @@ bound (DIV-0021, DIV-0022), stage by stage where staged, but for the rows that w
 `TransportDirect` and `TransportEcs` where it converges, outside registered exemptions; DIV-0002 three-part proof;
 DIV-0004 (η, λ) refusal; DIV-0009 recorded; the new q_D, Ammonia, R1234yf, ECS-LJ and Hydrogen entries proved;
 thermo-only workloads read 0 transport sections.
-**ROT rows.** M8.10: ROT-010 (transport part), ROT-120. M8.11: ROT-036, ROT-048, ROT-049, ROT-051.
+**ROT rows.** M8.11: ROT-036, ROT-048, ROT-049, ROT-051.
 **User decisions implemented.** 2 (DIV-0002 applied by default), 6 (σ and melting fits not extrapolated).
 
 ### M9 Parallel batches, `libm` and performance gates

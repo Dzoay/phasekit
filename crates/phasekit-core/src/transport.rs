@@ -1423,23 +1423,35 @@ pub(crate) struct TransportSet {
 }
 
 impl TransportSet {
-    /// η at `x`, or `NoModel`.
+    /// η at `x`, or `NoModel`; `Undefined` inside the dome.
     pub(crate) fn viscosity(&self, x: &TransportInputs<'_>) -> Result<f64, Error> {
         let viscosity = self.record.viscosity.as_ref().ok_or(Error::NoModel { prop: Prop::Viscosity })?;
-        viscosity.stages(x, &self.references).map(|s| s.total())
+        let state = x.one_phase().ok_or(Error::Undefined { prop: Prop::Viscosity, phase: x.phase() })?;
+        viscosity.stages(&x.at(&state), &self.references).map(|s| s.total())
     }
 
-    /// λ at `x`, or `NoModel`.
+    /// λ at `x`, or `NoModel`; `Undefined` inside the dome.
     pub(crate) fn conductivity(&self, x: &TransportInputs<'_>) -> Result<f64, Error> {
         self.evaluate(x).1.map(|s| s.total())
     }
 
-    /// η's and λ's stages at `x`, η evaluated once and passed to λ explicitly (map 05 R6, U6).
+    /// η's and λ's stages at `x`, η evaluated once and passed to λ explicitly (map 05 R6, U6). A fluid without a model
+    /// says so anywhere; a model reads one phase (ROT-010, DIV-0004): at Q = 0 or 1 the saturated phase, a single phase
+    /// in its own right, and none strictly inside the dome, where η and λ are `Undefined` (CoolProp evaluates its
+    /// correlations at the mixture's density there).
     pub(crate) fn evaluate(&self, x: &TransportInputs<'_>) -> Stages {
         let viscosity = self.record.viscosity.as_ref().ok_or(Error::NoModel { prop: Prop::Viscosity });
-        let eta = viscosity.and_then(|v| v.stages(x, &self.references));
         let conductivity = self.record.conductivity.as_ref().ok_or(Error::NoModel { prop: Prop::Conductivity });
-        let lambda = conductivity.and_then(|c| c.stages(x, &eta, &self.references));
+        let Some(state) = x.one_phase() else {
+            let undefined = |prop| Error::Undefined { prop, phase: x.phase() };
+            return (
+                viscosity.and(Err(undefined(Prop::Viscosity))),
+                conductivity.and(Err(undefined(Prop::Conductivity))),
+            );
+        };
+        let x = x.at(&state);
+        let eta = viscosity.and_then(|v| v.stages(&x, &self.references));
+        let lambda = conductivity.and_then(|c| c.stages(&x, &eta, &self.references));
         (eta, lambda)
     }
 }
@@ -2048,5 +2060,95 @@ pub(crate) mod tests {
         };
         let percent = |t: f64| format!("{:+.2}", 100.0 * (water.model().surface_tension(t).unwrap() / iapws(t) - 1.0));
         assert_eq!((percent(300.0), percent(600.0)), ("+0.12".to_string(), "-0.90".to_string()));
+    }
+
+    /// The models `name` has, [η, λ], each refused at `wet`, a state strictly inside the dome: `Undefined`, or
+    /// `NoModel` without one.
+    #[cfg(feature = "fluids-all")]
+    fn refused_in_the_dome(name: &str, fluid: &Fluid, wet: &crate::State) -> [bool; 2] {
+        let transport = crate::Registry::embedded().unwrap().record(name).unwrap().transport.unwrap_or_default();
+        let has = [transport.viscosity.is_some(), transport.conductivity.is_some()];
+        for (prop, model) in [Prop::Viscosity, Prop::Conductivity].into_iter().zip(has) {
+            let want =
+                if model { Error::Undefined { prop, phase: crate::Phase::TwoPhase } } else { Error::NoModel { prop } };
+            assert_eq!(fluid.prop(wet, prop), Err(want), "{name}");
+        }
+        has
+    }
+
+    /// η and λ at `saturated`, a Q = 0 or 1 state, against `phase`'s own state at its T and ρ: within 1e-12, or the same
+    /// error.
+    #[cfg(feature = "fluids-all")]
+    fn saturated_side_is_its_phase(name: &str, fluid: &Fluid, saturated: &crate::State, phase: crate::Phase) {
+        use crate::{Basis, Density, FlashOptions, Input, Temperature};
+        let input =
+            Input::dt(Density::molar(saturated.rho(Basis::Molar)).unwrap(), Temperature::new(saturated.t()).unwrap());
+        let side = fluid.flash(input, &FlashOptions::new().with_phase(phase)).unwrap();
+        for prop in [Prop::Viscosity, Prop::Conductivity] {
+            let (got, want) = (fluid.prop(saturated, prop), fluid.prop(&side, prop));
+            let same = match (&got, &want) {
+                (Ok(a), Ok(b)) => (a / b - 1.0).abs() < 1e-12,
+                _ => got == want,
+            };
+            assert!(same, "{name} {phase:?}, {prop:?}: {got:?}, {want:?}");
+        }
+    }
+
+    /// Rot: ROT-010 (map 05 §6, map 10 R18; DIV-0004, its η and λ part). Strictly inside the dome η and λ are
+    /// `Undefined { prop, TwoPhase }` for every fluid with a model, where CoolProp evaluates its correlations at the
+    /// mixture's density (Water QT(0.5, 500 K): η 1.6048e-5 Pa s, below the saturated vapour's 1.6594e-5). A saturated
+    /// phase is a single phase: at Q = 0 and 1 they are its liquid's and its vapour's, as the papers print them
+    /// (Friend et al. 1989's methane liquid at 182 K), from that phase's own state.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn two_phase_transport_is_undefined() {
+        use crate::{Density, Input, Phase, Quality, Temperature};
+        let registry = crate::Registry::embedded().unwrap();
+        let (mut saturated_sides, mut wet, mut models) = (0, 0, [0, 0]);
+        for f in phasekit_data::FLUIDS {
+            let fluid = registry.get(f.name).unwrap();
+            let t = Temperature::new(0.8 * fluid.model().critical_point().unwrap().t).unwrap();
+            let at = |q: f64| fluid.state(Input::qt(Quality::new(q).unwrap(), t));
+            // A pseudo-pure fluid's QT has only Q = 0 and 1.
+            if let Ok(state) = at(0.5) {
+                let has = refused_in_the_dome(f.name, fluid, &state);
+                wet += 1;
+                models = [models[0] + usize::from(has[0]), models[1] + usize::from(has[1])];
+            }
+            for (q, phase) in [(0.0, Phase::Liquid), (1.0, Phase::Gas)] {
+                let Ok(saturated) = at(q) else { continue };
+                saturated_side_is_its_phase(f.name, fluid, &saturated, phase);
+                saturated_sides += 1;
+            }
+        }
+        assert_eq!((wet, models, saturated_sides), (130, [61, 58], 272), "every fluid's sides, pseudo-pure ones too");
+        let water = registry.get("Water").unwrap();
+        let dome = water.state(Input::dt(Density::molar(1_000.0).unwrap(), Temperature::new(400.0).unwrap())).unwrap();
+        for prop in [Prop::Viscosity, Prop::Conductivity] {
+            assert_eq!(water.prop(&dome, prop), Err(Error::Undefined { prop, phase: Phase::TwoPhase }));
+        }
+    }
+
+    /// Rot: ROT-120 (map 05 R15, map 12 §6.3 row 2; DIV-0009). v8.0.0's R1233zd(E) has no viscosity, as CoolProp says
+    /// ("Viscosity model is not available"; v7.2.0 answered 6.3689e-4 Pa s), and no conductivity or σ: each is `NoModel`,
+    /// in the dome too. A model returns through the register (DIV-0009 stays `Investigate`; upstream 14da1f0d).
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn r1233zd_e_viscosity_is_no_model() {
+        use crate::{Input, Pressure, Quality, Temperature};
+        let fluid = crate::Registry::embedded().unwrap().get("R1233zd(E)").unwrap();
+        let t = Temperature::new(300.0).unwrap();
+        for input in [Input::pt(Pressure::new(101_325.0).unwrap(), t), Input::qt(Quality::new(0.5).unwrap(), t)] {
+            let state = fluid.state(input).unwrap();
+            for prop in [Prop::Viscosity, Prop::Conductivity] {
+                assert_eq!(fluid.prop(&state, prop), Err(Error::NoModel { prop }), "{input:?}");
+            }
+        }
+        let sigma = Error::NoModel { prop: Prop::SurfaceTension };
+        assert_eq!(
+            fluid.model().surface_tension(300.0),
+            Err(sigma),
+            "no fit either (\"surface tension curve not provided\")"
+        );
     }
 }

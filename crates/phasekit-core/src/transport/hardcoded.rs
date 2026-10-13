@@ -468,15 +468,24 @@ mod tests {
 
     /// ROT-111, map 05 R3: Ammonia's λ is finite at Tufeu's T_c, 405.4 K, where CoolProp's is NaN, and at 405.3999 K and
     /// 50 kg/m³, where CoolProp's is 6.26 W/(m K); it is continuous across the floored band, 405.24-405.56 K, and equal
-    /// to the unfloored term outside it.
+    /// to the unfloored term outside it. Below the EOS's T_c, 405.56 K, the near-critical density lies in the dome,
+    /// where λ is `Undefined` (M8.10): there the term is checked at the single (liquid) phase.
     #[test]
     fn ammonia_lambda_is_finite_near_405_4_k() {
-        use crate::{Density, Input, Prop, Temperature};
+        use crate::{Density, FlashOptions, Input, Phase, Prop, Temperature};
         let fluid = crate::Registry::embedded().unwrap().get("Ammonia").unwrap();
         let lambda = |t: f64, rho: f64| {
-            let state = fluid.state(Input::dt(Density::mass(rho).unwrap(), Temperature::new(t).unwrap())).unwrap();
+            let input = Input::dt(Density::mass(rho).unwrap(), Temperature::new(t).unwrap());
+            let state = fluid.state(input).unwrap();
+            let state = match state.quality() {
+                Some(_) => fluid.flash(input, &FlashOptions::new().with_phase(Phase::Liquid)).unwrap(),
+                None => state,
+            };
             fluid.prop(&state, Prop::Conductivity).unwrap()
         };
+        let dome = fluid.state(Input::dt(Density::mass(235.0).unwrap(), Temperature::new(405.4).unwrap())).unwrap();
+        let undefined = Error::Undefined { prop: Prop::Conductivity, phase: Phase::TwoPhase };
+        assert_eq!(fluid.prop(&dome, Prop::Conductivity), Err(undefined));
         for rho in [50.0, 100.0, 235.0] {
             let inside = [405.3999, 405.4, 405.4001].map(|t| lambda(t, rho));
             assert!(inside.iter().all(|l| l.is_finite() && *l < 1.0), "{rho}: {inside:?}");
