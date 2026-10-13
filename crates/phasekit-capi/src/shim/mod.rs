@@ -263,6 +263,7 @@ pub unsafe extern "C" fn get_fluid_param_string(
 /// # Safety
 /// `param` is null or NUL-terminated.
 #[allow(unsafe_code)]
+#[allow(clippy::useless_conversion, reason = "`long` is 32 bits on Windows and wasm, 64 on Linux")]
 #[cfg_attr(feature = "coolproplib-shim", unsafe(no_mangle))]
 pub unsafe extern "C" fn get_param_index(param: *const c_char) -> c_long {
     run(-1, || {
@@ -278,6 +279,7 @@ pub unsafe extern "C" fn get_param_index(param: *const c_char) -> c_long {
 /// # Safety
 /// `pair` is null or NUL-terminated.
 #[allow(unsafe_code)]
+#[allow(clippy::useless_conversion, reason = "`long` is 32 bits on Windows and wasm, 64 on Linux")]
 #[cfg_attr(feature = "coolproplib-shim", unsafe(no_mangle))]
 pub unsafe extern "C" fn get_input_pair_index(pair: *const c_char) -> c_long {
     run(-1, || {
