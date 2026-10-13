@@ -417,11 +417,10 @@ performance and memory gates enforced (D8, D9, D12). **Prerequisites.** M8; `ray
 dependencies (the first third-party dependencies of core; R2, R12); `valgrind` on the Linux CI runner for gungraun;
 the reference machine (user decisions P3, RM1).
 
-- **M9.1 `ExecPolicy::Parallel`.** *Failing tests:* `policy_equivalence_parallel_is_bitwise` (every pair, 10⁵ points,
-  chunk sizes 16, 64, 1024), `one_to_n_threads_bitwise` (1..N rayon threads),
-  `parallel_without_the_feature_is_sequential_and_identical`. *Do:* the `rayon` feature, fixed chunks (multiple of 16,
-  independent of thread count; K6); `gates deps` accepts exactly `rayon` and `libm` under `--features rayon,libm`.
-  *Done when:* green.
+| Step | Landed |
+|---|---|
+| M9.1 | `ExecPolicy::Parallel` on rayon |
+
 - **M9.2 Thread scaling.** *Failing command:* `cargo xtask bench --record scaling` (no harness). *Do:* the
   `scaling_same_and_different_fluids` bench at 1, 2, 4 and N threads, N = the reference machine's physical cores (the
   dev box's i7-8700K: 6 cores, 12 hardware threads); it records throughput relative to one thread, it asserts nothing
@@ -439,7 +438,8 @@ the reference machine (user decisions P3, RM1).
 - **M9.3 `libm` backend.** *Failing tests:* `libm_backend_matches_the_libm_crate_bitwise` (every `math` function on
   10⁶ random and edge inputs: subnormals, ±709.78, NaN, ±∞), `std_vs_libm_ulp_report` (recorded per target, not
   asserted across targets). *Do:* the opt-in `libm` feature routing `math` (R14); the feature is the documented
-  exception to "features never change numerics" (dependencies §4). *Done when:* green.
+  exception to "features never change numerics" (dependencies §4); `gates deps` checks core under `--features libm`
+  and `--features rayon,libm` as M9.1 did under `--features rayon`. *Done when:* green.
 - **M9.4 Cross-target hash.** *Failing test:* `canonical_grid_hash` (`tests/cross_target.rs`) over the grid VERIFICATION.md
   §9.4 defines (the one definition); CI job `hash-compare` collects it from x86_64-linux, x86_64-windows-msvc,
   aarch64-linux and wasm32-wasip2, with and without `libm`. *Done when:* hashes recorded for both backends on all four
