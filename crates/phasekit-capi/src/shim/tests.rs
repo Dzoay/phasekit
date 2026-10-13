@@ -303,3 +303,42 @@ fn migration_lists_every_config_key() {
     want.sort();
     assert_eq!(got, want);
 }
+
+/// Rot: ROT-151 (user decision 9b; `CoolProp-Tests-FPUGuard.cpp:27-82`). The shim's guard is v8.0.0's: a trap the host
+/// enabled is masked inside, so a 0/0 there is a quiet NaN, and enabled again after; an environment with every trap
+/// masked stays so; and the sticky flags are cleared on return, the host's and those raised inside, for hosts that
+/// poll them. Inside, rounding is to nearest; after, the host's again.
+#[cfg(any(
+    all(target_os = "linux", target_env = "gnu", any(target_arch = "x86_64", target_arch = "aarch64")),
+    all(target_os = "windows", target_env = "msvc")
+))]
+#[test]
+fn shim_fp_guard_matches_v8_0_0() {
+    use crate::fp::sys::probe::{
+        INVALID, OVERFLOW, TOWARD_ZERO, flags, rounding, set_flags, set_rounding, set_traps, traps,
+    };
+    let _serial = serial();
+    let nearest = rounding();
+    let inside = || {
+        run((0, 0, false), || {
+            let nan = std::hint::black_box(0.0_f64) / std::hint::black_box(0.0);
+            Ok((traps(), rounding(), nan.is_nan()))
+        })
+    };
+    set_rounding(TOWARD_ZERO);
+    set_flags(OVERFLOW);
+    set_traps(INVALID);
+    let trapping = traps() == INVALID;
+    let (unmasked, masked_inside) = (inside(), (traps(), flags(), rounding()));
+    set_traps(0);
+    let (masked, still_masked) = (inside(), (traps(), flags(), rounding()));
+    set_flags(OVERFLOW);
+    let value = props("Hmass", ("T", 300.0), ("P", 1e5), "Water");
+    let polled = flags();
+    set_rounding(nearest);
+    assert_eq!(unmasked, (0, nearest, true), "masked, to nearest and a quiet NaN inside");
+    assert_eq!(masked_inside, (if trapping { INVALID } else { 0 }, 0, TOWARD_ZERO), "the trap back, the flags cleared");
+    assert!(trapping || cfg!(target_arch = "aarch64"), "the trap was not enabled");
+    assert_eq!((masked, still_masked), ((0, nearest, true), (0, 0, TOWARD_ZERO)), "a masked host stays masked");
+    assert!(value.is_finite() && polled == 0, "PropsSI leaves a clean status word: {polled:#x}");
+}

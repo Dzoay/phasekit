@@ -38,8 +38,10 @@ const HUGE: f64 = f64::INFINITY;
 /// The `errstring` `HAPropsSI` sets: humid air is not in v0.1, so it is a stub until the humid-air milestone (D11).
 pub const HAPROPSSI_MESSAGE: &str = "HAPropsSI is not available in this version of phasekit";
 
-/// Runs a shim function's body: its value, or `failed` with the `errstring` set to the failure (a caught panic too).
+/// Runs a shim function's body: its value, or `failed` with the `errstring` set to the failure (a caught panic too);
+/// under the FP guard, which clears the sticky flags on return as v8.0.0's does (user decision 9b; [`crate::fp`]).
 fn run<T>(failed: T, body: impl FnOnce() -> Result<T, String>) -> T {
+    let _fp = crate::fp::Guard::new(true);
     match catch_unwind(AssertUnwindSafe(body)) {
         Ok(Ok(value)) => value,
         Ok(Err(message)) => {
