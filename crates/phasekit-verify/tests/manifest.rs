@@ -118,6 +118,7 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("coolprop-8.0.0/transport/Water.csv"),
     fixture!("coolprop-8.0.0/transport/n-Heptane.csv"),
     fixture!("coolprop-8.0.0/transport/probes.csv"),
+    fixture!("hash/libm.txt"),
     fixture!("mp/check-points.csv"),
     fixture!("mp/fastchebpure-2026.06.02-v2/Ammonia.csv"),
     fixture!("mp/fastchebpure-2026.06.02-v2/CarbonDioxide.csv"),
