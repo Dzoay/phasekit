@@ -270,3 +270,121 @@ fn registry_with_reference_reaches_the_strings() {
         assert_eq!(pk_registry_free(handle), PK_OK);
     }
 }
+
+/// A new fluid handle for `name` in `registry`.
+fn fluid_handle(registry: pk_registry, name: &str) -> pk_fluid {
+    let (mut handle, (n, nl)) = (0, s(name));
+    // SAFETY: `name` is its own length's bytes; `handle` is writable.
+    assert_eq!(unsafe { pk_fluid_new(registry, n, nl, &mut handle) }, PK_OK);
+    handle
+}
+
+/// A batch's `out` and `status` buffers and their cell count.
+type Cells = (*mut f64, *mut i32, usize);
+
+/// `pk_batch` with `T` = `t` and the input key `name2` = `p`, `n` points and `cells` cells into `out` and `status`.
+///
+/// # Safety
+/// `t` and `p` hold `n` values or `n` is over PTRDIFF_MAX doubles; `out` and `status` are null or hold `cells`.
+unsafe fn batch(
+    fluid: pk_fluid,
+    keys: &[&str],
+    (t, (name2, p)): (&[f64], (&str, &[f64])),
+    n: usize,
+    cells: Cells,
+) -> i32 {
+    let (ptrs, lens): (Vec<_>, Vec<_>) = keys.iter().map(|k| s(k)).unzip();
+    let ((a, al), (b, bl), (out, status, cells)) = (s("T"), s(name2), cells);
+    // SAFETY: the keys and names are their own lengths' bytes; the rest is this function's contract.
+    unsafe {
+        pk_batch(
+            fluid,
+            ptrs.as_ptr(),
+            lens.as_ptr(),
+            keys.len(),
+            a,
+            al,
+            t.as_ptr(),
+            b,
+            bl,
+            p.as_ptr(),
+            n,
+            out,
+            status,
+            cells,
+        )
+    }
+}
+
+/// PLAN.md M10.5 (map 11 F15, F23; user decision 11). `pk_batch` on a `pk_fluid` is `batch::evaluate` on its fluid, bit
+/// for bit and status for status: point-major `out[i*M + k]`, each cell's status its `PK_*` code. `T` before `P`, in
+/// PropsSI's order, is the kernel's `PT` with the operands swapped. T ≤ 0, NaN and a pressure over the model's limit
+/// fail their points' cells, NaN with their codes; the other points succeed.
+#[test]
+fn pk_batch_equals_rust_batch_bitwise() {
+    use phasekit_core::batch::{BatchRequest, evaluate};
+    use phasekit_core::{Basis, DerivVar, Pair, Partial, Prop};
+    let registry = new_registry_handle();
+    let fluid = fluid_handle(registry, "Water");
+    let keys = ["T", "Hmass", "Dmolar", "Q", "viscosity", "d(P)/d(T)|Dmolar", "Cvmass"];
+    let dp_dt = Prop::Partial(Partial { of: DerivVar::P, wrt: DerivVar::T, at: DerivVar::Dmolar });
+    let props = [Prop::T, Prop::Hmass, Prop::Dmolar, Prop::Q, Prop::Viscosity, dp_dt, Prop::Cvmass];
+    let t = [300.0, 500.0, 700.0, 1000.0, -1.0, f64::NAN, 400.0];
+    let p = [1e5, 1e6, 2e7, 1e8, 1e5, 1e5, 1e10];
+    let (n, m) = (t.len(), keys.len());
+    let (mut out, mut status) = (vec![0.0; n * m], vec![-1; n * m]);
+    // SAFETY: `t` and `p` hold `n` values; `out` and `status` hold n x m cells.
+    let call = unsafe { batch(fluid, &keys, (&t, ("P", &p)), n, (out.as_mut_ptr(), status.as_mut_ptr(), n * m)) };
+    assert_eq!((call, last()), (PK_OK, String::new()));
+    let registry_rs = Registry::from_embedded(DataSet::Corrected).unwrap();
+    let (mut want, mut cells) = (vec![0.0; n * m], vec![Status::Ok; n * m]);
+    let req = BatchRequest::new(Pair::PT, Basis::Molar, &p, &t, &props);
+    evaluate(registry_rs.get("Water").unwrap(), &req, &mut want, &mut cells).unwrap();
+    assert_eq!(
+        out.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+        want.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+    );
+    assert_eq!(status, cells.into_iter().map(status_code).collect::<Vec<_>>());
+    for code in [PK_OK, PK_INVALID_INPUT, PK_DOMAIN] {
+        assert!(status.contains(&code), "no cell is {code}: {status:?}");
+    }
+    assert_eq!((pk_fluid_free(fluid), pk_registry_free(registry)), (PK_OK, PK_OK));
+}
+
+/// PLAN.md M10.5 (map 11 F2). A bad call to `pk_batch` is refused whole, before any cell is written: an unknown output
+/// key, `Phase` (not a property), two keys that form no pair, `cells` other than n x m, more points than any buffer
+/// holds, a null or misaligned buffer, a stale fluid. With no points, null buffers and no cells make a good call.
+#[test]
+fn pk_batch_refuses_a_bad_call_whole() {
+    let registry = new_registry_handle();
+    let fluid = fluid_handle(registry, "Water");
+    let (t, p) = ([300.0, 400.0], [1e5, 1e5]);
+    let (mut out, mut status) = ([7.0; 4], [-9; 4]);
+    let (o, st) = (out.as_mut_ptr(), status.as_mut_ptr());
+    let misaligned = o.cast::<u8>().wrapping_add(1).cast::<f64>();
+    let cases: [(&[&str], &str, usize, Cells, i32); 8] = [
+        (&["Hmass", "X"], "P", 2, (o, st, 4), PK_UNKNOWN_KEY),
+        (&["Phase"], "P", 2, (o, st, 2), PK_UNKNOWN_KEY),
+        (&["Hmass"], "T", 2, (o, st, 2), PK_UNKNOWN_KEY),
+        (&["Hmass", "P"], "P", 2, (o, st, 3), PK_BAD_LENGTH),
+        (&["Hmass"], "P", usize::MAX, (o, st, 4), PK_BAD_LENGTH),
+        (&["Hmass", "P"], "P", 2, (std::ptr::null_mut(), st, 4), PK_NULL_POINTER),
+        (&["Hmass", "P"], "P", 2, (o, std::ptr::null_mut(), 4), PK_NULL_POINTER),
+        (&["Hmass", "P"], "P", 2, (misaligned, st, 4), PK_NULL_POINTER),
+    ];
+    for (keys, name2, n, cells, want) in cases {
+        // SAFETY: `t` and `p` hold 2 values, or `n` is over PTRDIFF_MAX doubles; `out` and `status` hold 4 cells.
+        let got = unsafe { batch(fluid, keys, (&t, (name2, &p)), n, cells) };
+        assert_eq!(got, want, "{keys:?} {name2} {n}: {}", last());
+    }
+    assert_eq!(pk_fluid_free(fluid), PK_OK);
+    // SAFETY: as above.
+    let stale = unsafe { batch(fluid, &["Hmass", "P"], (&t, ("P", &p)), 2, (o, st, 4)) };
+    assert_eq!((stale, out, status), (PK_STALE_HANDLE, [7.0; 4], [-9; 4]), "no cell is written");
+    let (none, fluid) = (std::ptr::null_mut(), fluid_handle(registry, "Water"));
+    // SAFETY: no points and no cells: nothing is read or written.
+    let empty = unsafe { batch(fluid, &["Hmass"], (&[], ("P", &[])), 0, (none, none.cast(), 0)) };
+    assert_eq!((empty, last()), (PK_OK, String::new()));
+    assert_eq!(pk_fluid_free(fluid), PK_OK);
+    assert_eq!(pk_registry_free(registry), PK_OK);
+}

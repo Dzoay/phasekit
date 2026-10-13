@@ -21,7 +21,7 @@ use std::ffi::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use phasekit_compat::{CompatError, fluid_in, parse_reference_state, phase_si_in, props_si_in, props1_si_in};
+use phasekit_compat::{CompatError, batch_si, fluid_in, parse_reference_state, phase_si_in, props_si_in, props1_si_in};
 use phasekit_core::batch::Status;
 use phasekit_core::{DataSet, Error, Fluid, Registry};
 
@@ -43,7 +43,7 @@ pub type pk_fluid = u64;
 
 /// Success.
 pub const PK_OK: i32 = 0;
-/// A batch cell computed outside the validated domain, flagged, not a failure (M10.5).
+/// A batch cell computed outside the validated domain, flagged, not a failure.
 pub const PK_EXTRAPOLATED: i32 = 1;
 /// A quantity failed validation: NaN, infinite, non-positive T, p or density, Q outside [0, 1].
 pub const PK_INVALID_INPUT: i32 = 2;
@@ -64,11 +64,12 @@ pub const PK_LOAD: i32 = 9;
 /// Another kernel failure.
 pub const PK_OTHER: i32 = 10;
 /// A key or a fluid string outside the grammar: an unknown output or input key, two keys that form no pair, a fluid
-/// string the grammar refuses, a state-dependent output asked of `pk_props1_si`, an unknown reference state.
+/// string the grammar refuses, a state-dependent output asked of `pk_props1_si`, `Phase` asked of `pk_batch`, an unknown
+/// reference state.
 pub const PK_UNKNOWN_KEY: i32 = 11;
-/// A required pointer is null.
+/// A required pointer is null, or not aligned for its type.
 pub const PK_NULL_POINTER: i32 = 12;
-/// A length is larger than any buffer can be (over `PTRDIFF_MAX`).
+/// A length is larger than any buffer can be (over `PTRDIFF_MAX` bytes), or a batch's buffers do not hold its cells.
 pub const PK_BAD_LENGTH: i32 = 13;
 /// A string is not UTF-8.
 pub const PK_BAD_UTF8: i32 = 14;
@@ -168,6 +169,58 @@ unsafe fn text<'a>(ptr: *const c_char, len: usize, what: &str) -> Result<&'a str
     // SAFETY: non-null, `len` ≤ isize::MAX, readable for `len` bytes by the caller's contract.
     let bytes = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len) };
     std::str::from_utf8(bytes).map_err(|_| Fail::new(PK_BAD_UTF8, format!("{what} is not UTF-8")))
+}
+
+/// The `len` values at `ptr`; none if `len` is 0, when `ptr` may be null.
+///
+/// # Safety
+/// `ptr` is null or points to `len` readable `T`s that stay unchanged during the call.
+#[allow(unsafe_code)]
+unsafe fn values<'a, T>(ptr: *const T, len: usize, what: &str) -> Result<&'a [T], Fail> {
+    if len == 0 {
+        return Ok(&[]);
+    }
+    buffer(ptr, len, what)?;
+    // SAFETY: non-null, aligned, at most isize::MAX bytes, readable for `len` `T`s by the caller's contract.
+    Ok(unsafe { std::slice::from_raw_parts(ptr, len) })
+}
+
+/// The `len` writable values at `ptr`; none if `len` is 0, when `ptr` may be null.
+///
+/// # Safety
+/// `ptr` is null or points to `len` writable `T`s that nothing else reads or writes during the call.
+#[allow(unsafe_code)]
+unsafe fn values_mut<'a, T>(ptr: *mut T, len: usize, what: &str) -> Result<&'a mut [T], Fail> {
+    if len == 0 {
+        return Ok(&mut []);
+    }
+    buffer(ptr.cast_const(), len, what)?;
+    // SAFETY: non-null, aligned, at most isize::MAX bytes, writable for `len` `T`s and unaliased by the caller's
+    // contract.
+    Ok(unsafe { std::slice::from_raw_parts_mut(ptr, len) })
+}
+
+/// Whether a buffer of `len` `T`s at `ptr` can be a slice: not null, aligned, at most `PTRDIFF_MAX` bytes.
+fn buffer<T>(ptr: *const T, len: usize, what: &str) -> Result<(), Fail> {
+    if ptr.is_null() || !ptr.is_aligned() {
+        return Err(Fail::new(PK_NULL_POINTER, format!("{what} is null or not aligned")));
+    }
+    if len.checked_mul(size_of::<T>()).is_none_or(|bytes| isize::try_from(bytes).is_err()) {
+        return Err(Fail::new(PK_BAD_LENGTH, format!("{what}: {len} values are over PTRDIFF_MAX bytes")));
+    }
+    Ok(())
+}
+
+/// The `m` output keys at `keys`, key `k` of `lens[k]` bytes.
+///
+/// # Safety
+/// `keys` and `lens` are null or point to `m` readable entries; each key points to its length's readable bytes.
+#[allow(unsafe_code)]
+unsafe fn keys<'a>(keys: *const *const c_char, lens: *const usize, m: usize) -> Result<Vec<&'a str>, Fail> {
+    // SAFETY: the caller's contract.
+    let (keys, lens) = unsafe { (values(keys, m, "outputs")?, values(lens, m, "output_lens")?) };
+    // SAFETY: the caller's contract, for each key.
+    keys.iter().zip(lens).map(|(&key, &len)| unsafe { text(key, len, "an output key") }).collect()
 }
 
 /// Writes `value` to `out`.
@@ -447,5 +500,58 @@ pub unsafe extern "C" fn pk_phase_si(
         let phase = phase_si_in(&*self::registry(registry)?, name1, value1, name2, value2, fluid)?;
         // SAFETY: the caller's contract.
         unsafe { put_text(phase, (buf, len), needed) }
+    })
+}
+
+/// `n` points of the input pair that the keys `name1` and `name2` name, in either order as `PropsSI`'s, at `values1[i]`
+/// and `values2[i]`, on `fluid`: output `k` of point `i`, of the output key `outputs[k]` (`output_lens[k]` bytes), into
+/// `out[i * m + k]` and its status into `status[i * m + k]` (point-major, map 11 F15, F23; user decision 11). Each cell
+/// is `pk_props_si`'s value bit for bit, or NaN with its failure's code. `out` and `status` hold `cells` = n x m each.
+///
+/// The call's own status is `PK_OK` when its keys, handle and buffers are good, whatever its cells'. An unknown key, an
+/// output that is not a property (`Phase`), or `cells` other than n x m refuses the whole call, with no cell written.
+///
+/// # Safety
+/// `outputs` and `output_lens` point to `m` readable entries, each key to its length's readable bytes; `name1` and
+/// `name2` to their lengths' readable bytes; `values1` and `values2` to `n` readable doubles; `out` and `status` to
+/// `cells` writable doubles and `int32_t`s that overlap nothing else. Any pointer may be null when its length is 0.
+#[allow(unsafe_code, clippy::too_many_arguments, reason = "each buffer with its length, as every pk_* call")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pk_batch(
+    fluid: pk_fluid,
+    outputs: *const *const c_char,
+    output_lens: *const usize,
+    m: usize,
+    name1: *const c_char,
+    name1_len: usize,
+    values1: *const f64,
+    name2: *const c_char,
+    name2_len: usize,
+    values2: *const f64,
+    n: usize,
+    out: *mut f64,
+    status: *mut i32,
+    cells: usize,
+) -> i32 {
+    guard(|| {
+        // SAFETY: the caller's contract.
+        let (keys, input1, input2) = unsafe {
+            (
+                keys(outputs, output_lens, m)?,
+                (text(name1, name1_len, "name1")?, values(values1, n, "values1")?),
+                (text(name2, name2_len, "name2")?, values(values2, n, "values2")?),
+            )
+        };
+        if n.checked_mul(m) != Some(cells) {
+            return Err(Fail::new(PK_BAD_LENGTH, format!("{n} points of {m} outputs are not {cells} cells")));
+        }
+        // SAFETY: the caller's contract.
+        let (out, status) = unsafe { (values_mut(out, cells, "out")?, values_mut(status, cells, "status")?) };
+        let mut cell = vec![Status::Ok; cells];
+        batch_si(&*self::fluid(fluid)?, &keys, input1, input2, out, &mut cell)?;
+        for (code, cell) in status.iter_mut().zip(cell) {
+            *code = status_code(cell);
+        }
+        Ok(())
     })
 }

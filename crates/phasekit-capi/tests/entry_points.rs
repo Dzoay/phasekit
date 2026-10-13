@@ -1,7 +1,7 @@
 //! Rot: ROT-150 (map 12 §9; map 11 F2, F16). The C entry points over arbitrary input: each string argument any bytes
 //! with their own length, a null pointer, or a length over PTRDIFF_MAX; never a length past a real buffer, which the C
 //! contract makes the caller's to keep. No call panics or writes its output on failure, and each status is one the
-//! ABI defines. The seed is fixed, so every machine runs the same cases.
+//! ABI defines; `pk_batch` gets any point and cell counts its buffers hold, and writes its cells only on success. The seed is fixed, so every machine runs the same cases.
 
 #![allow(unsafe_code, reason = "the test calls the unsafe exports, each with valid buffers")]
 #![allow(clippy::unwrap_used, reason = "test-crate helpers")]
@@ -79,6 +79,13 @@ fn registry() -> pk_registry {
     handle
 }
 
+fn water(registry: pk_registry) -> pk_fluid {
+    let mut handle = 0;
+    // SAFETY: "Water" is 5 bytes; `handle` is writable.
+    assert_eq!(unsafe { pk_fluid_new(registry, c"Water".as_ptr(), 5, &mut handle) }, PK_OK);
+    handle
+}
+
 proptest! {
     #![proptest_config(config())]
 
@@ -87,6 +94,7 @@ proptest! {
         args in prop::collection::vec(arg(), 4),
         values in prop::collection::vec(prop_oneof![Just(300.0), Just(1e5), Just(0.5), any::<f64>()], 2),
         len in 0usize..12,
+        (n, cells) in (0usize..=2, 0usize..=4),
     ) {
         let registry = registry();
         let [o, a, b, f] = [args[0].raw(), args[1].raw(), args[2].raw(), args[3].raw()];
@@ -105,6 +113,15 @@ proptest! {
         let status = unsafe { pk_fluid_new(registry, f.0, f.1, &mut fluid) };
         prop_assert!(STATUSES.contains(&status) && (status == PK_OK) == (fluid != 0), "{status} {fluid}");
         prop_assert!(fluid == 0 || pk_fluid_free(fluid) == PK_OK);
+        let water = water(registry);
+        let ((keys, lens), (mut out, mut codes)) = (([o.0], [o.1]), ([-7.0; 4], [-9; 4]));
+        // SAFETY: as above; `values` holds 2 doubles and `n` ≤ 2; `out` and `codes` hold 4 cells and `cells` ≤ 4.
+        let status = unsafe { pk_batch(water, keys.as_ptr(), lens.as_ptr(), 1, a.0, a.1, values.as_ptr(), b.0, b.1, values.as_ptr(), n, out.as_mut_ptr(), codes.as_mut_ptr(), cells) };
+        prop_assert!(STATUSES.contains(&status), "{status}");
+        let written = if status == PK_OK { cells } else { 0 };
+        prop_assert!(codes[..written].iter().all(|c| STATUSES.contains(c)), "{codes:?}");
+        prop_assert!(out[written..].iter().all(|&v| v == -7.0) && codes[written..].iter().all(|&c| c == -9), "{status} wrote {out:?}");
+        prop_assert_eq!(pk_fluid_free(water), PK_OK);
         prop_assert_eq!(pk_registry_free(registry), PK_OK);
     }
 }

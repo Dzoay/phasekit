@@ -10,6 +10,7 @@
 
 use core::fmt;
 
+use phasekit_core::batch::{self, BatchRequest, BatchSummary, Status};
 use phasekit_core::{Basis, Error, FlashOptions, Fluid, Input, Pair, Prop, Registry, State};
 
 mod keys;
@@ -47,6 +48,8 @@ pub enum CompatError {
     InvalidFluid(String),
     /// `Props1SI` of an output that depends on the state.
     NotAConstant(String),
+    /// A batch output that is not a property: `Phase`, which is `PhaseSI`'s.
+    NotAProperty(String),
     /// The kernel refused the call.
     Core(Error),
 }
@@ -65,6 +68,7 @@ impl fmt::Display for CompatError {
             CompatError::InvalidPair(a, b) => write!(f, "`{a}` and `{b}` do not form an input pair"),
             CompatError::InvalidFluid(s) => write!(f, "`{s}` is not a fluid name"),
             CompatError::NotAConstant(k) => write!(f, "`{k}` depends on the state"),
+            CompatError::NotAProperty(k) => write!(f, "`{k}` is not a property; a batch's outputs are"),
             CompatError::Core(e) => write!(f, "{e}"),
         }
     }
@@ -98,14 +102,7 @@ struct Plan<'r> {
 impl<'r> Plan<'r> {
     fn new(registry: &'r Registry, output: &str, name1: &str, name2: &str, fluid: &str) -> Result<Self, CompatError> {
         let output = parse_output(output).ok_or_else(|| CompatError::UnknownOutput(output.into()))?;
-        let (v1, b1) = parse_input(name1).ok_or_else(|| CompatError::UnknownInput(name1.into()))?;
-        let (v2, b2) = parse_input(name2).ok_or_else(|| CompatError::UnknownInput(name2.into()))?;
-        let invalid = || CompatError::InvalidPair(name1.into(), name2.into());
-        let basis = match (b1, b2) {
-            (Some(a), Some(b)) if a != b => return Err(invalid()),
-            (a, b) => a.or(b).unwrap_or(Basis::Molar),
-        };
-        let (pair, swapped) = Pair::from_vars(v1, v2).ok_or_else(invalid)?;
+        let (pair, swapped, basis) = pair_of(name1, name2)?;
         Ok(Plan { output, pair, swapped, basis, fluid: fluid_in(registry, fluid)? })
     }
 
@@ -123,6 +120,19 @@ impl<'r> Plan<'r> {
             Output::Phase => Ok(f64::from(phase_index(state.phase()))),
         }
     }
+}
+
+/// The pair two input keys name, whether they come in its reverse order, and their basis (molar if neither says).
+fn pair_of(name1: &str, name2: &str) -> Result<(Pair, bool, Basis), CompatError> {
+    let (v1, b1) = parse_input(name1).ok_or_else(|| CompatError::UnknownInput(name1.into()))?;
+    let (v2, b2) = parse_input(name2).ok_or_else(|| CompatError::UnknownInput(name2.into()))?;
+    let invalid = || CompatError::InvalidPair(name1.into(), name2.into());
+    let basis = match (b1, b2) {
+        (Some(a), Some(b)) if a != b => return Err(invalid()),
+        (a, b) => a.or(b).unwrap_or(Basis::Molar),
+    };
+    let (pair, swapped) = Pair::from_vars(v1, v2).ok_or_else(invalid)?;
+    Ok((pair, swapped, basis))
 }
 
 /// `PropsSI(output, name1, value1, name2, value2, fluid)` over any registry. No echo shortcut (map 01 R7):
@@ -176,6 +186,30 @@ pub fn props_si_vec_in(
         Some(e) if out.iter().all(|v| !v.is_finite()) => Err(e.into()),
         _ => Ok(out),
     }
+}
+
+/// A batch over the strings on `fluid`, the one batch of the C and browser facades (map 11 U4, F23): points `i` of the
+/// pair the input keys `name1` and `name2` name, in either order as `PropsSI`'s, at `values1[i]` and `values2[i]`;
+/// output `k` of point `i`, of the output key `outputs[k]`, into `out[i * M + k]` and its status into `status[i * M + k]`.
+/// It is [`batch::evaluate`], whose cells are the scalar path's bit for bit, with the keys read first, for the whole
+/// call: an unknown key, or `Phase`, which is not a property, refuses it before any cell is written.
+pub fn batch_si(
+    fluid: &Fluid,
+    outputs: &[&str],
+    (name1, values1): (&str, &[f64]),
+    (name2, values2): (&str, &[f64]),
+    out: &mut [f64],
+    status: &mut [Status],
+) -> Result<BatchSummary, CompatError> {
+    let property = |key: &&str| match parse_output(key) {
+        Some(Output::Prop(prop)) => Ok(prop),
+        Some(Output::Phase) => Err(CompatError::NotAProperty((*key).into())),
+        None => Err(CompatError::UnknownOutput((*key).into())),
+    };
+    let props = outputs.iter().map(property).collect::<Result<Vec<_>, _>>()?;
+    let (pair, swapped, basis) = pair_of(name1, name2)?;
+    let (x, y) = if swapped { (values2, values1) } else { (values1, values2) };
+    Ok(batch::evaluate(fluid, &BatchRequest::new(pair, basis, x, y, &props), out, status)?)
 }
 
 /// Point `i` of a vector operand, a length-1 one at every point.
@@ -455,6 +489,43 @@ mod tests {
         assert!(props1_si("Tcrit", "Water").is_ok_and(|t| (t - 647.096).abs() < 1e-3));
         assert_eq!(phase_si("T", 700.0, "Dmolar", 10.0, "Water"), Ok("supercritical_gas"));
         assert_eq!(phase_si("T", 300.0, "P", 101_325.0, "Water"), Ok("liquid"));
+    }
+
+    /// M10.5: `batch_si` is `props_si_in` cell for cell, bit for bit or the same refusal as its status, the keys read as
+    /// `PropsSI` reads them: `T` before `P` reverses the pair's order, and `Hmass` makes the basis mass. A bad key, an
+    /// output that is not a property or a short buffer refuses the whole call, with no cell written.
+    #[test]
+    fn batch_si_is_props_si_cell_for_cell() {
+        let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+        let water = registry.get("Water").unwrap();
+        let outputs = ["Hmass", "Dmolar", "Q", "viscosity"];
+        let failed = |(n1, v1): (&str, &[f64; 3]), (n2, v2): (&str, &[f64; 3])| {
+            let (mut out, mut status) = ([0.0; 12], [Status::Ok; 12]);
+            let summary = batch_si(water, &outputs, (n1, v1), (n2, v2), &mut out, &mut status).unwrap();
+            for (i, k) in (0..3).flat_map(|i| (0..4).map(move |k| (i, k))) {
+                let want = match props_si_in(&registry, outputs[k], n1, v1[i], n2, v2[i], "Water") {
+                    Ok(v) => (v.to_bits(), Status::Ok),
+                    Err(CompatError::Core(e)) => (f64::NAN.to_bits(), Status::from(&e)),
+                    Err(_) => (u64::MAX, Status::Other), // a key the call refuses whole: never here
+                };
+                assert_eq!((out[i * 4 + k].to_bits(), status[i * 4 + k]), want, "{n1} {n2} point {i} {}", outputs[k]);
+            }
+            summary.failed_cells
+        };
+        let (t, p, h) = ([300.0, 700.0, -1.0], [1e5, 1e6, 1e5], [1e5, 3e6, 2e6]);
+        assert!((4..12).contains(&failed(("T", &t), ("P", &p))), "T ≤ 0 fails its point, and only Q elsewhere");
+        assert!(failed(("P", &p), ("Hmass", &h)) < 12);
+        let (mut out, mut status) = ([7.0; 3], [Status::Ok; 3]);
+        let mut call = |outputs: &[&str], n2| batch_si(water, outputs, ("T", &t), (n2, &p), &mut out, &mut status);
+        assert_eq!(call(&["Phase"], "P"), Err(CompatError::NotAProperty("Phase".into())));
+        assert_eq!(call(&["Hmass", "X"], "P"), Err(CompatError::UnknownOutput("X".into())));
+        assert_eq!(call(&["Hmass"], "T"), Err(CompatError::InvalidPair("T".into(), "T".into())));
+        assert_eq!(call(&["Hmass", "P"], "P"), Err(CompatError::Core(Error::Shape { expected: 6, found: 3 })));
+        assert_eq!(out, [7.0; 3], "a refused call writes no cell");
+        assert_eq!(
+            format!("{}", CompatError::NotAProperty("Phase".into())),
+            "`Phase` is not a property; a batch's outputs are"
+        );
     }
 
     /// Every key of the grammar reaches its kernel name, CoolProp's spellings and one-letter aliases (map 01 §4a): an

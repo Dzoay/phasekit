@@ -840,7 +840,7 @@ VTPR/UNIFAC, mixture transport (map 05 U14), an expression DSL (map 05 U11).
 | `specify_phase` | `FlashOptions::with_phase` | Per call, never sticky (map 01 R12) |
 | `set_reference_state` (global) | `Fluid::with_reference` → new handle; `Registry::with_reference(name, ..)` → new registry | Value, not mutation (map 15); reaches strings, `pk_registry_with_reference` and JS `withReference` |
 | `first_partial_deriv`, `d(X)/d(Y)\|Z` strings | `Prop::Partial(Partial { of, wrt, at })`, `State::partial` | Second partials M7; string grammar M10 (§3.7) |
-| `PropsSImulti`, `fast_evaluate` | `batch::evaluate` | Per-cell status; point-major buffers in Rust, C and NumPy `(N, M)` |
+| `PropsSImulti`, `fast_evaluate` | `batch::evaluate`; over the strings `phasekit_compat::batch_si`, in C `pk_batch` | Per-cell status; point-major buffers in Rust, C and NumPy `(N, M)` |
 | low-level `alphar`, `dalphar_dtau`; `Bvirial` | `fluid.model().helmholtz()?.residual(t, rho, order)`; `zero_density(t)` | Reducing-invariant A_ij; CoolProp's τ/δ-scaled forms are `Prop::Alphar` and the like, A_ij/(τ^i δ^j) at the published reducing state (`FluidInfo::constants`) |
 | CoolPropLib.h | `phasekit-capi`: `pk_*`, plus the Tier A shim (`coolproplib-shim`) at v0.1 | `pk_*`: pinned string keys, generational `u64` handles, lengths on every buffer, `catch_unwind`, thread-local error, FP guard (map 11 F1-F5, F16). Shim: CoolProp's names and signatures, v8.0.0 integer codes, process-wide `errstring` (D11) |
 | `HAPropsSI` | Tier A shim stub until the humid-air milestone | Returns `_HUGE` and sets a documented "not available" `errstring`; the symbol exists so hosts that bind every symbol at load time still load (D11) |

@@ -11,7 +11,7 @@
 // Success.
 #define PK_OK 0
 
-// A batch cell computed outside the validated domain, flagged, not a failure (M10.5).
+// A batch cell computed outside the validated domain, flagged, not a failure.
 #define PK_EXTRAPOLATED 1
 
 // A quantity failed validation: NaN, infinite, non-positive T, p or density, Q outside [0, 1].
@@ -42,13 +42,14 @@
 #define PK_OTHER 10
 
 // A key or a fluid string outside the grammar: an unknown output or input key, two keys that form no pair, a fluid
-// string the grammar refuses, a state-dependent output asked of `pk_props1_si`, an unknown reference state.
+// string the grammar refuses, a state-dependent output asked of `pk_props1_si`, `Phase` asked of `pk_batch`, an unknown
+// reference state.
 #define PK_UNKNOWN_KEY 11
 
-// A required pointer is null.
+// A required pointer is null, or not aligned for its type.
 #define PK_NULL_POINTER 12
 
-// A length is larger than any buffer can be (over `PTRDIFF_MAX`).
+// A length is larger than any buffer can be (over `PTRDIFF_MAX` bytes), or a batch's buffers do not hold its cells.
 #define PK_BAD_LENGTH 13
 
 // A string is not UTF-8.
@@ -185,6 +186,33 @@ int32_t pk_phase_si(pk_registry registry,
                     char *buf,
                     size_t len,
                     size_t *needed);
+
+// `n` points of the input pair that the keys `name1` and `name2` name, in either order as `PropsSI`'s, at `values1[i]`
+// and `values2[i]`, on `fluid`: output `k` of point `i`, of the output key `outputs[k]` (`output_lens[k]` bytes), into
+// `out[i * m + k]` and its status into `status[i * m + k]` (point-major, map 11 F15, F23; user decision 11). Each cell
+// is `pk_props_si`'s value bit for bit, or NaN with its failure's code. `out` and `status` hold `cells` = n x m each.
+//
+// The call's own status is `PK_OK` when its keys, handle and buffers are good, whatever its cells'. An unknown key, an
+// output that is not a property (`Phase`), or `cells` other than n x m refuses the whole call, with no cell written.
+//
+// # Safety
+// `outputs` and `output_lens` point to `m` readable entries, each key to its length's readable bytes; `name1` and
+// `name2` to their lengths' readable bytes; `values1` and `values2` to `n` readable doubles; `out` and `status` to
+// `cells` writable doubles and `int32_t`s that overlap nothing else. Any pointer may be null when its length is 0.
+int32_t pk_batch(pk_fluid fluid,
+                 const char *const *outputs,
+                 const size_t *output_lens,
+                 size_t m,
+                 const char *name1,
+                 size_t name1_len,
+                 const double *values1,
+                 const char *name2,
+                 size_t name2_len,
+                 const double *values2,
+                 size_t n,
+                 double *out,
+                 int32_t *status,
+                 size_t cells);
 
 #ifdef __cplusplus
 }  // extern "C"

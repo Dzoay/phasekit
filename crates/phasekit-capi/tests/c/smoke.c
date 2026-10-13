@@ -40,6 +40,17 @@ int main(void) {
 
     CHECK(pk_fluid_new(registry, "R718", 4, &water) == PK_OK);
     CHECK(pk_fluid_name(water, name, sizeof name, &needed) == PK_OK && strcmp(name, "Water") == 0);
+    {
+        const char *keys[2] = {"Hmass", "Q"};
+        size_t lens[2] = {5, 1};
+        double ts[2] = {300.0, -1.0}, ps[2] = {101325.0, 101325.0}, out[4], h = 0.0;
+        int32_t cells[4];
+        CHECK(pk_batch(water, keys, lens, 2, "T", 1, ts, "P", 1, ps, 2, out, cells, 4) == PK_OK);
+        CHECK(props(registry, "Hmass", "T", 300.0, "P", 101325.0, "Water", &h) == PK_OK);
+        CHECK(cells[0] == PK_OK && out[0] == h);
+        CHECK(cells[2] == PK_INVALID_INPUT && isnan(out[2]) && cells[3] == PK_INVALID_INPUT && isnan(out[3]));
+        CHECK(pk_batch(water, keys, lens, 2, "T", 1, ts, "P", 1, ps, 2, out, cells, 3) == PK_BAD_LENGTH);
+    }
     CHECK(pk_fluid_free(water) == PK_OK && pk_fluid_free(water) == PK_STALE_HANDLE);
     CHECK(pk_registry_free(registry) == PK_OK && pk_registry_free(registry) == PK_STALE_HANDLE);
     CHECK(props(registry, "T", "P", 101325.0, "Q", 0.0, "Water", &t) == PK_STALE_HANDLE);
