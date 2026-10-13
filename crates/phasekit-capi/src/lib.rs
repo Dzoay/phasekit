@@ -36,7 +36,7 @@ mod handles;
 mod last_error;
 pub mod shim;
 
-#[cfg(all(test, not(feature = "coolproplib-shim")))]
+#[cfg(test)]
 mod tests;
 
 use handles::{fluids, lock, registries};

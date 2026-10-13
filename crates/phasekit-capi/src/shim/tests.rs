@@ -315,7 +315,7 @@ fn migration_lists_every_config_key() {
 #[test]
 fn shim_fp_guard_matches_v8_0_0() {
     use crate::fp::sys::probe::{
-        INVALID, OVERFLOW, TOWARD_ZERO, flags, rounding, set_flags, set_rounding, set_traps, traps,
+        INVALID, TOWARD_ZERO, clear_flags, flags, raise_overflow, rounding, set_rounding, set_traps, traps,
     };
     let _serial = serial();
     let nearest = rounding();
@@ -326,13 +326,15 @@ fn shim_fp_guard_matches_v8_0_0() {
         })
     };
     set_rounding(TOWARD_ZERO);
-    set_flags(OVERFLOW);
+    clear_flags();
+    raise_overflow();
     set_traps(INVALID);
     let trapping = traps() == INVALID;
     let (unmasked, masked_inside) = (inside(), (traps(), flags(), rounding()));
     set_traps(0);
     let (masked, still_masked) = (inside(), (traps(), flags(), rounding()));
-    set_flags(OVERFLOW);
+    clear_flags();
+    raise_overflow();
     let value = props("Hmass", ("T", 300.0), ("P", 1e5), "Water");
     let polled = flags();
     set_rounding(nearest);

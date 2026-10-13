@@ -1,6 +1,8 @@
 //! The ABI's own tests (PLAN.md M10.4; ROT-148 to ROT-150, ROT-159), calling the exports as a C caller does.
 
 #![allow(unsafe_code, reason = "the tests call the unsafe exports, each with valid buffers")]
+// The shim's build exports no pk_* function. A plain `#[cfg(test)]` on the module keeps cargo-mutants out of it.
+#![cfg(not(feature = "coolproplib-shim"))]
 
 use super::*;
 
@@ -471,13 +473,14 @@ fn call_export(name: &str, (registry, fluid, reference): (pk_registry, pk_fluid,
 #[test]
 fn pk_exports_restore_the_callers_fp_environment() {
     use crate::fp::sys::probe::{
-        INVALID, OVERFLOW, TOWARD_ZERO, flags, rounding, set_flags, set_rounding, set_traps, traps,
+        INVALID, OVERFLOW, TOWARD_ZERO, clear_flags, flags, raise_overflow, rounding, set_rounding, set_traps, traps,
     };
     let (registry, nearest, mut handle) = (new_registry_handle(), rounding(), 0);
     let fluid = fluid_handle(registry, "Water");
     let reference = props(registry, "Hmass", ("T", 300.0), ("P", 1e5), "Water").1.to_bits();
     set_rounding(TOWARD_ZERO);
-    set_flags(OVERFLOW);
+    clear_flags();
+    raise_overflow();
     set_traps(INVALID);
     let host = (rounding(), flags(), traps());
     let after: Vec<(&str, i32, (i32, i32, i32))> = EXPORTS
@@ -487,9 +490,9 @@ fn pk_exports_restore_the_callers_fp_environment() {
         })
         .collect();
     set_traps(0);
-    set_flags(0);
+    clear_flags();
     set_rounding(nearest);
-    assert_eq!((host.0, host.1), (TOWARD_ZERO, OVERFLOW));
+    assert!(host.0 == TOWARD_ZERO && host.1 & OVERFLOW != 0, "the host's rounding and flag: {host:?}");
     assert!(host.2 == INVALID || cfg!(target_arch = "aarch64"), "the trap was not enabled: {host:?}");
     for (name, status, environment) in after {
         assert_eq!((status, environment), (PK_OK, host), "{name}");

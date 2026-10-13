@@ -46,8 +46,11 @@ pub(super) fn restore(env: &Env, clear: bool) {
 }
 
 /// Test support: the caller's side of the environment, through glibc's `fe*` functions (the trap ones are GNU's).
-#[cfg(all(test, target_env = "gnu"))]
+#[cfg(test)]
+#[allow(clippy::mixed_attributes_style, reason = "the outer cfg(test) keeps cargo-mutants out; the inner names glibc")]
 pub(crate) mod probe {
+    #![cfg(target_env = "gnu")]
+
     use std::ffi::c_int;
 
     unsafe extern "C" {
@@ -56,7 +59,6 @@ pub(crate) mod probe {
         fn fedisableexcept(excepts: c_int) -> c_int;
         fn fetestexcept(excepts: c_int) -> c_int;
         fn feclearexcept(excepts: c_int) -> c_int;
-        fn fesetexceptflag(flags: *const u64, excepts: c_int) -> c_int;
         fn fegetround() -> c_int;
         fn fesetround(round: c_int) -> c_int;
     }
@@ -91,15 +93,14 @@ pub(crate) mod probe {
         // SAFETY: reads the thread's FP environment.
         unsafe { fetestexcept(super::ALL) }
     }
-    /// Sets exactly the sticky flags `excepts`, raising no trap.
-    pub(crate) fn set_flags(excepts: c_int) {
-        // glibc's `fexcept_t` is at most 8 bytes; `fesetexceptflag` reads the bits `excepts` names.
-        let bits = u64::try_from(excepts).unwrap_or(0);
-        // SAFETY: `bits` is readable for one `fexcept_t`.
-        unsafe {
-            feclearexcept(super::ALL);
-            fesetexceptflag(&bits, excepts);
-        }
+    /// Raises the overflow flag (and the inexact one) as a host's own arithmetic does.
+    pub(crate) fn raise_overflow() {
+        std::hint::black_box(std::hint::black_box(f64::MAX) * std::hint::black_box(2.0));
+    }
+    /// Clears every sticky flag.
+    pub(crate) fn clear_flags() {
+        // SAFETY: changes the thread's FP environment.
+        unsafe { feclearexcept(super::ALL) };
     }
     /// The rounding mode.
     pub(crate) fn rounding() -> c_int {

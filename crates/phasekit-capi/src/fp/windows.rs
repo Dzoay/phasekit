@@ -1,4 +1,5 @@
-//! MSVC's FP environment: `_controlfp_s` for the masks and the rounding mode, the UCRT's `fe*exceptflag` for the flags.
+//! MSVC's FP environment: `_controlfp_s` for the masks and the rounding mode, the UCRT's C99 `fe*` functions for the
+//! flags, one family for reading, clearing and setting them.
 
 #![allow(unsafe_code, reason = "the C runtime's FP environment functions")]
 
@@ -12,7 +13,7 @@ pub(crate) struct Env {
 
 unsafe extern "C" {
     fn _controlfp_s(current: *mut c_uint, new: c_uint, mask: c_uint) -> c_int;
-    fn _clearfp() -> c_uint;
+    fn feclearexcept(excepts: c_int) -> c_int;
     fn fegetexceptflag(flags: *mut c_ulong, excepts: c_int) -> c_int;
     fn fesetexceptflag(flags: *const c_ulong, excepts: c_int) -> c_int;
 }
@@ -31,7 +32,7 @@ pub(super) fn hold() -> Env {
     unsafe {
         _controlfp_s(&mut control, 0, 0);
         fegetexceptflag(&mut flags, ALL);
-        _clearfp();
+        feclearexcept(ALL);
         _controlfp_s(&mut unused, MASKED_NEAREST, CONTROL);
     }
     Env { control, flags }
@@ -42,7 +43,7 @@ pub(super) fn restore(env: &Env, clear: bool) {
     let mut unused = 0;
     // SAFETY: as in `hold`.
     unsafe {
-        _clearfp();
+        feclearexcept(ALL);
         _controlfp_s(&mut unused, env.control, CONTROL);
         if !clear {
             fesetexceptflag(&env.flags, ALL);
@@ -50,19 +51,19 @@ pub(super) fn restore(env: &Env, clear: bool) {
     }
 }
 
-/// Test support: the caller's side of the environment, through `_controlfp_s` and the UCRT's flag functions.
+/// Test support: the caller's side of the environment: `_controlfp_s` for the traps and the rounding mode, the UCRT's
+/// `fe*` functions for the flags, as the guard reads them.
 #[cfg(test)]
 pub(crate) mod probe {
-    use std::ffi::{c_int, c_uint, c_ulong};
+    use std::ffi::{c_int, c_uint};
 
     unsafe extern "C" {
         fn _controlfp_s(current: *mut c_uint, new: c_uint, mask: c_uint) -> c_int;
-        fn _statusfp() -> c_uint;
-        fn _clearfp() -> c_uint;
-        fn fesetexceptflag(flags: *const c_ulong, excepts: c_int) -> c_int;
+        fn fetestexcept(excepts: c_int) -> c_int;
+        fn feclearexcept(excepts: c_int) -> c_int;
     }
 
-    /// The UCRT's `FE_INVALID` and `FE_OVERFLOW`, as `_controlfp_s`'s `_EM_INVALID` and `_EM_OVERFLOW`.
+    /// The UCRT's `FE_INVALID`, as `_controlfp_s`'s `_EM_INVALID`; `FE_OVERFLOW`.
     pub(crate) const INVALID: c_int = 0x10;
     pub(crate) const OVERFLOW: c_int = 0x04;
     /// `_RC_CHOP`.
@@ -85,19 +86,19 @@ pub(crate) mod probe {
         // SAFETY: changes the thread's FP environment.
         unsafe { _controlfp_s(&mut unused, masks, 0x1f) };
     }
-    /// The raised sticky flags, in `_statusfp`'s bits (`_SW_INVALID` 0x10, `_SW_OVERFLOW` 0x04, ...).
+    /// The raised sticky flags.
     pub(crate) fn flags() -> c_int {
-        // SAFETY: reads the thread's FP status.
-        c_int::try_from(unsafe { _statusfp() } & 0x1f).unwrap_or(0)
+        // SAFETY: reads the thread's FP environment.
+        unsafe { fetestexcept(super::ALL) }
     }
-    /// Sets exactly the sticky flags `excepts`, raising no trap.
-    pub(crate) fn set_flags(excepts: c_int) {
-        let bits = c_ulong::try_from(excepts).unwrap_or(0);
-        // SAFETY: `bits` is readable for one `fexcept_t`.
-        unsafe {
-            _clearfp();
-            fesetexceptflag(&bits, excepts);
-        }
+    /// Raises the overflow flag (and the inexact one) as a host's own arithmetic does.
+    pub(crate) fn raise_overflow() {
+        std::hint::black_box(std::hint::black_box(f64::MAX) * std::hint::black_box(2.0));
+    }
+    /// Clears every sticky flag.
+    pub(crate) fn clear_flags() {
+        // SAFETY: changes the thread's FP environment.
+        unsafe { feclearexcept(super::ALL) };
     }
     /// The rounding mode.
     pub(crate) fn rounding() -> c_int {
