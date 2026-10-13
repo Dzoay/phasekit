@@ -54,8 +54,8 @@ reference/   gitignored: the pinned CoolProp checkout and local papers
 ## Getting started (contributors)
 
 Requirements: the latest stable Rust with the `wasm32-unknown-unknown`, `wasm32-wasip2` and `x86_64-pc-windows-msvc`
-targets, [uv](https://docs.astral.sh/uv/) for the CoolProp oracle, and the cargo tools that
-`scripts/check-toolchain.sh` lists; it reports what is missing and how to install it.
+targets, [uv](https://docs.astral.sh/uv/) for the CoolProp oracle, Valgrind for the instruction gate, and the cargo
+tools that `scripts/check-toolchain.sh` lists; it reports what is missing and how to install it.
 
 ```sh
 scripts/check-toolchain.sh         # reports which of the tools above are missing
