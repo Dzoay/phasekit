@@ -424,25 +424,8 @@ the reference machine (user decisions P3, RM1).
 | M9.2a | Non-analytic terms at the requested order |
 | M9.3 | `libm` backend |
 | M9.4 | Cross-target hash, the `libm` hash committed |
+| M9.5 | `libm` decision: it stays opt-in |
 
-- **M9.5 `libm` decision.** Apply this rule (user decision 12; threshold set here; VERIFICATION.md §9.4 cites it).
-  `libm` becomes a default feature of `phasekit-core`, forwarded by compat (and capi, wasm at M10), if and only if
-  **both** hold:
-  1. *Bit-identity:* with `libm`, the M9.4 hash is identical on all four targets.
-  2. *Cost:* on the reference machine (user decisions P3, RM1; measured on the laptop, user decision RM2), the geometric mean of the libm/std median-time ratios over the six
-     scalar gate benches (α^r order 2, properties at (T, ρ), QT, PQ, PT, PH; each on the VERIFICATION.md §12 bench
-     fluids, its ratio the geometric mean over those fluids; criterion, ≥ 30 samples each, same build) is **≤ 1.05**,
-     and no single bench ratio exceeds **1.10**.
-
-  *Justification:* exp throughput is the kernel's cost centre (kernel-performance §2.4), so these benches measure
-  what `libm` changes. 5 % sits far inside every §7 target's margin over CoolProp (PT ≤ 3 µs vs 19-27 µs, PH ≤ 15 µs
-  vs 119-376 µs), so the migration benefit is unchanged. In return, bit-identity makes cross-platform results
-  `Exact`-class, which removes the arm64/FMA class of brittle tests (map 12 R17) and is what K17 asks for.
-  wasm32-unknown-unknown already uses the `libm` port (kernel-performance §2.4.2; prior-art verification log item
-  12), so browsers pay nothing. The 10 % cap stops one regressed path (e.g. `powf`-heavy NonAnalytic Water) hiding
-  behind the mean. *(The 5 % and 10 % values are judgement, not measurement.)* *Done when:* the measured numbers
-  and the outcome are written into ARCHITECTURE.md D12 and the CHANGELOG; if either condition fails, `libm` stays
-  opt-in and VERIFICATION.md §5 keeps its cross-target tolerances.
 - **M9.6 Performance gates enforced.** *Failing command:* `cargo xtask gates perf` (no thresholds yet). *Do:* gungraun
   instruction-count benches on Linux CI failing on a > 5 % increase against the baseline committed in this step
   *(inference: noise margin)*; criterion medians on the reference machine against the ARCHITECTURE.md §7 table (one command the user runs on the
@@ -543,7 +526,7 @@ ROT-168, ROT-170, ROT-172. M10.4: ROT-023, ROT-148, ROT-149, ROT-150, ROT-159, R
 ROT-147. M10.7: ROT-151. M10.8: ROT-154, ROT-157, ROT-158. M10.9: ROT-155.
 **User decisions implemented.** 9a (`pk_*` + Tier A, `HAPropsSI` stub), 9b (v8.0.0 codes, process-wide `errstring`,
 v8.0.0 FP-flag clearing in the shim only), 8 (wasip2 Rust only, no WIT), 1 (`pk_`), 11 (C and JS point-major), 12
-(forwarded `libm` if default).
+(`libm` stays opt-in, ARCHITECTURE.md D12).
 
 ## 4. Post-0.1 roadmap
 

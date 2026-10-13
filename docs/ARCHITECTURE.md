@@ -454,9 +454,13 @@ build (E7).
 `Clone`; compat adds `CompatError`. No panics on input, enforced by lints (`todo`, `unimplemented`, `panic`,
 `unwrap_used`, `expect_used` denied; `indexing_slicing` denied in `batch` and `flash`) and by property tests (E12,
 S-06). NaN is never a typed result. One `math` choke point for every `f64` transcendental, an own `powi` chain, no FMA
-(§9). `libm` is decided at M9 on evidence (user decision 12): opt-in until then (the feature itself lands at M9.3,
-as §2 lists it under M9), the default only if the
-cross-target hash proves bit-identity and the measured speed cost is under the threshold PLAN.md sets. *Rejected:* an
+(§9). `libm` stays an opt-in feature: M9.5 applied user decision 12's rule, which makes it the default only if its
+cross-target hash is one on x86_64 Linux, Windows MSVC, aarch64 Linux and wasm32-wasip2, and if the geometric mean of
+its libm/std median-time ratios over six scalar benches (α^r order 2, properties at (T, ρ), QT, PQ, PT, PH; each over
+the §12 bench fluids) is ≤ 1.05 with none above 1.10. Bit-identity holds (`fixtures/hash/libm.txt`, asserted on all
+four targets). The cost does not, on the laptop (user decision RM2; criterion, three interleaved rounds): COSTLINE.
+With `libm`, results are the same bits on every target; without it, each target's maths library gives its own
+(VERIFICATION.md §5's classes absorb the difference). *Rejected:* an
 error type per layer (the winner had four); a NaN mode in core (P9); bit-exact oracle parity (K18); stating libm
 bit-identity as fact before the cross-target hash proves it (E16).
 
