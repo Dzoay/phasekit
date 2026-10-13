@@ -223,7 +223,7 @@ fn ashrae34_class_is_absent_for_every_fluid() {
 
 /// CoolProp's buffer and string conventions (`str2buf`; map 11 F2): a buffer of `n` bytes takes a string shorter than
 /// `n`, or nothing is written and the call fails; `PhaseSI` writes `unknown: <message>` for a state that fails; the
-/// codes are -1 for an unknown name; a panic is caught.
+/// codes are -1 for an unknown name.
 #[test]
 fn shim_strings_and_buffers_follow_str2buf() {
     let _serial = serial();
@@ -262,6 +262,14 @@ fn shim_strings_and_buffers_follow_str2buf() {
     assert_eq!((index(get_input_pair_index, "PT_INPUTS"), index(get_input_pair_index, "QS_INPUTS")), (17, 5));
     assert_eq!(index(get_input_pair_index, "QSmolar_INPUTS"), -1);
     assert_eq!(errstring(), "`QSmolar_INPUTS` is not an input pair name");
+}
+
+/// ROT-150 (map 11 F16). A panic in a shim function's body is its failure value with the `errstring` set. Where a panic
+/// aborts (wasm32-wasip2), there is no unwind to catch.
+#[cfg(panic = "unwind")]
+#[test]
+fn shim_panics_are_caught() {
+    let _serial = serial();
     assert_eq!(run(7, || -> Result<i32, String> { std::panic::panic_any("a bug") }), 7);
     assert!(errstring().contains("panic"));
 }
