@@ -474,3 +474,13 @@ speedup is at most 2.5× even if everything else vectorises perfectly 4 wide (ab
 | # | Question | Decision | Notes |
 |---|---|---|---|
 | SL1 | How do SIMD lanes stay bitwise equal to the scalar path when std's exp and ln cannot be vectorised bit for bit? | **The `simd` feature requires `libm`** | `simd` enables `libm`. A SIMD build's scalar path therefore runs the `libm` crate, bit-identical across targets (M9.4, `fixtures/hash/libm.txt`), and its lanes are bitwise equal to that path. The lane exp and ln are ports of the locked `libm` crate's, operation for operation. Any other transcendental a laned kernel needs is ported the same way or called per lane through `math`. So `simd` changes numerics only as `libm` does, and `libm` stays the one exception to K13. The cost: the paths a SIMD build does not lane (the flashes) run at libm's 1.35-1.53× of std (D12). The gate (ARCHITECTURE.md §7) is unchanged: it still compares with the M9 record, std's scalar path. *Rejected:* an in-house exp/ln as everyone's reference (reopens M9.5); lanes as a tolerance-checked `Fast` policy (gives up K17's bitwise check); std called per lane (puts the gate out of reach). |
+
+## The v0.1.0 release (2026-10-13)
+
+Asked when M10.9's pull request was ready: PLAN.md §5.4 wants the nightly green for the 3 nights before the tag, and each
+registry's first release is manual (dependencies R19).
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| RL1 | When is v0.1.0 tagged? | **Merge M10.9 when green; tag `v0.1.0` and `m10` after three nightly runs on the final main pass** | The nightly had been green every night, but not on the final main. The tags are signed; `v0.1.0` starts the release workflow, which attaches the C library and the npm package to the GitHub release. |
+| RL2 | Who does the first crates.io and npm publishes? | **The maintainer** | Given the commands and the trusted-publishing settings; no credential enters an agent's session. The workflow publishes later releases once the repository variable `TRUSTED_PUBLISHING` is `true`. |

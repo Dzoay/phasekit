@@ -3,6 +3,8 @@
 //! merge follows), all of them before the first tag (CONTRIBUTING.md "Versions"), grouped by type, oldest first, above
 //! the sections already there.
 
+use std::process::ExitCode;
+
 use crate::repo::Repo;
 
 const CHANGELOG: &str = "CHANGELOG.md";
@@ -24,30 +26,30 @@ const TYPES: [(&str, &str); 10] = [
     ("revert", "Reverts"),
 ];
 
-pub fn main(args: &[String]) -> std::process::ExitCode {
+pub fn main(args: &[String]) -> ExitCode {
     let (version, date, rev) = match args {
         [version, date] => (version, date, "HEAD"),
         [version, date, rev] => (version, date, rev.as_str()),
         _ => {
             eprintln!("usage: cargo xtask changelog <version> <date> [<rev>], e.g. 0.1.0 2026-10-20 origin/main");
-            return std::process::ExitCode::FAILURE;
+            return ExitCode::FAILURE;
         }
     };
     let repo = Repo::locate();
-    match write(&repo, version, date, rev) {
+    match run(&repo, version, date, rev) {
         Ok(n) => {
             println!("{CHANGELOG}: {version} with {n} commits");
-            std::process::ExitCode::SUCCESS
+            ExitCode::SUCCESS
         }
         Err(e) => {
             eprintln!("changelog: {e}");
-            std::process::ExitCode::FAILURE
+            ExitCode::FAILURE
         }
     }
 }
 
-/// Writes the section of the commits up to `rev`; returns how many subjects it lists.
-fn write(repo: &Repo, version: &str, date: &str, rev: &str) -> Result<usize, String> {
+/// Writes the section of the commits up to `rev`, through `repo` (git and the file); returns how many subjects it lists.
+fn run(repo: &Repo, version: &str, date: &str, rev: &str) -> Result<usize, String> {
     let last = repo.git(&["tag", "--list", "v*", "--sort=-creatordate"])?;
     let range = last.lines().next().map_or_else(|| rev.to_string(), |tag| format!("{tag}..{rev}"));
     let subjects = repo.git(&["log", "--reverse", "--format=%s", &range])?;

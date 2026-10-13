@@ -82,6 +82,9 @@ exclude_re = [
     # `fetch-fastchebpure`'s `run` downloads, unpacks and writes through `repo`, like a gate's `run`; the nightly runs it,
     # and what it applies (the conversion, the lock and the manifest lines) is the module's pure functions, mutated.
     "fastchebpure\\.rs:.*replace run -> Result<String, String>",
+    # `changelog`'s `run` reads git and writes CHANGELOG.md through `repo`; the release PR runs it, and its sections are
+    # `section`'s, which the unit test checks.
+    "changelog\\.rs:.*replace run -> Result<usize, String>",
     # `gates::main` and `usage` dispatch the subcommands and print the verdicts: G8 runs them on every PR.
     "replace (main|usage) -> ExitCode",
     "in (main|usage)$",
