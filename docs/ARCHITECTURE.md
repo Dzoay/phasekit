@@ -168,8 +168,8 @@ refused, never approximated at a small δ (map 12 R8). The out-of-tree van der W
 ### 3.4 The package seam: `ThermoModel`, `PureFluid`, `Fluid` (D3, D10)
 
 `ThermoModel` has three required methods (`info`, `capabilities`, `flash`) and defaulted ones that refuse with a
-typed error (`critical_point`, `helmholtz`, `derivs` through `helmholtz`, the transport and σ outputs), so a family
-implements only what it has. `Fluid` is `Arc<dyn ThermoModel>` plus a `Gauge`: it checks the pair against the
+typed error (`critical_point`, `limits`, `helmholtz`, `derivs` through `helmholtz`, the transport and σ outputs), so a
+family implements only what it has. `Fluid` is `Arc<dyn ThermoModel>` plus a `Gauge`: it checks the pair against the
 model's `Capabilities`, converts the `Input` to a molar `NativeInput` in the native gauge, and applies the gauge to
 the `State` the model returns.
 
@@ -217,8 +217,9 @@ Gibbs solid. Order ≥ 3 and the ideal/residual parts come from `ThermoModel::de
 `NoModel` for a family without an ideal part.
 
 The second partials, the fundamental derivative, κ_T and β come from order 3 (M7.10); Cv, Cp, w, τ and δ as derivative
-variables are deferred (user decision OD1). The strict `d(X)/d(Y)|Z` grammar and the 8 α-term outputs arrive in
-compat at M10.
+variables are deferred (user decision OD1). CoolProp's state-independent outputs are `Prop::Constant(Constant)`, from
+the model's limits and critical point and its data's published constants (`FluidInfo::constants`). The strict
+`d(X)/d(Y)|Z` grammar and the 8 α-term outputs arrive in compat at M10.3.
 
 ### 3.8 Registry, data sources, flash, batch, saturation
 

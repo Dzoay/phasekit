@@ -95,6 +95,7 @@ pub fn to_json(r: &FluidRecord) -> Value {
         },
         "limits": {"t_min": num(l.t_min()), "t_max": num(l.t_max()), "p_max": num(l.p_max()), "t_triple": l.t_triple().map_or(Value::Null, num)},
         "critical": r.critical.map_or(Value::Null, |c| json!({"t": num(c.t), "p": num(c.p), "rho": num(c.rho), "origin": if c.origin == CriticalOrigin::Model { "Model" } else { "Published" }})),
+        "constants": {"acentric": r.acentric.map_or(Value::Null, num), "p_reducing": r.p_reducing.map_or(Value::Null, num), "p_sat_min": r.p_sat_min.map_or(Value::Null, num)},
         "eos": Value::Object(eos),
         "superancillary_fit": r.superancillary_fit.map_or(Value::Null, |s| json!({"shape": format!("{:016x}", s.shape.get()), "gas_constant": num(s.gas_constant), "rho_reducing": num(s.rho_reducing)})),
         "superancillary": r.superancillary.as_ref().map_or(Value::Null, |sa| {
@@ -199,6 +200,9 @@ pub fn from_json(v: &Value) -> Result<FluidRecord, String> {
         .collect::<Result<_, _>>()?;
     (r.cas, r.refprop_name, r.inchi_key) = (opt_text(v, "cas"), opt_text(v, "refprop_name"), opt_text(v, "inchi_key"));
     r.critical = section(v, "critical").map(critical_from).transpose()?;
+    let constants = v.get("constants").ok_or("no constants")?;
+    let constant = |k| section(constants, k).map(|_| float(constants, k)).transpose();
+    (r.acentric, r.p_reducing, r.p_sat_min) = (constant("acentric")?, constant("p_reducing")?, constant("p_sat_min")?);
     r.superancillary_fit = section(v, "superancillary_fit").map(fit_from).transpose()?;
     r.pseudo_pure = section(v, "pseudo_pure").map(pseudo_pure_from).transpose()?;
     r.melting = list(v, "melting")?.iter().map(melting_from).collect::<Result<_, _>>()?;

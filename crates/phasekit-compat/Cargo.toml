@@ -19,5 +19,9 @@ fluids-core = ["embedded", "phasekit-core/fluids-core"]
 [dependencies]
 phasekit-core.workspace = true
 
+[dev-dependencies]
+# The fluid list, for tests over every embedded fluid.
+phasekit-data.workspace = true
+
 [lints]
 workspace = true

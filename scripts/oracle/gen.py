@@ -194,6 +194,28 @@ FACTS = {
         ("div0036_melting_p_hydrogen_t20", "AbstractState", ("HEOS", "Hydrogen", "melting_line", "iP", "iT", 20)),
         ("div0036_melting_p_parahydrogen_t20", "AbstractState",
          ("HEOS", "ParaHydrogen", "melting_line", "iP", "iT", 20)),
+        ("div0037_q_water_t400_rho10", "PropsSI", ("Q", "T", 400, "Dmolar", 10, "Water")),
+        ("div0037_qmass_r407c_t291.68", "PropsSI",
+         ("Qmass", "T", 291.67568518763323, "Dmolar", 405.544225835316, "R407C")),
+        ("div0038_gwp100_r134a", "Props1SI", ("R134a", "GWP100")),
+        ("div0039_rhomass_reducing_water", "Props1SI", ("Water", "rhomass_reducing")),
+        ("div0040_t_triple_ammonia", "Props1SI", ("Ammonia", "T_triple")),
+        ("div0041_sigma_r125_t318.0", "PropsSI",
+         ("surface_tension", "T", 318.00780422661575, "Dmolar", 532.3155734056108, "R125")),
+        ("div0042_tcrit_air_q0.5_t100", "PropsSI", ("T_critical", "Q", 0.5, "T", 100, "Air")),
+        ("div0042_h_air_q0.5_t100", "PropsSI", ("Hmolar", "Q", 0.5, "T", 100, "Air")),
+        ("div0043_g_air_q0_t80", "PropsSI", ("Gmolar", "Q", 0, "T", 80, "Air")),
+        ("div0043_h_air_q0_t80", "PropsSI", ("Hmolar", "Q", 0, "T", 80, "Air")),
+        ("div0044_z_r1234yf_t203.94", "PropsSI",
+         ("Z", "T", 203.94070458008517, "Dmolar", 803.4844557660671, "R1234yf")),
+        *[
+            (f"div0044_{key.lower()}_propyleneglycol_q1_t225.99", "PropsSI",
+             (key, "Q", 1, "T", 225.99105497362368, "PropyleneGlycol"))
+            for key in ("Z", "P", "Dmolar")
+        ],
+        ("div0044_gas_constant_propyleneglycol", "Props1SI", ("PropyleneGlycol", "gas_constant")),
+        ("div0045_eta_propylene_q1_t104.87", "PropsSI", ("viscosity", "Q", 1, "T", 104.86761486209713, "Propylene")),
+        ("div0045_lambda_r14_q1_t215.07", "PropsSI", ("conductivity", "Q", 1, "T", 215.06807556754023, "R14")),
     ],
 }
 
@@ -1410,8 +1432,108 @@ def refstate(CP, lock, config, files, args):
     return out
 
 
+# The `props` kind (section 3.5): CoolProp's 85 outputs (map 01 section 4a, in `parameter_info_list` order) through
+# `PropsSI` at direct states inside phasekit's domain, long format. Per fluid, PROPS_STATES states from one SplitMix64
+# stream: the first half DT, T ~ U[Tlow, Tmax] and rho ~ logU[1e-6 rhoL(Tlow), rhoL(Tlow)] with no phase imposed (so
+# some lie in the dome), drawn again where CoolProp's p there exceeds pmax (the kind checks the outputs, not the domain
+# policy, D6); the second half QT, T ~ U[Tlow, Tlow + 0.9 (Tc - Tlow)] with Q cycling 0, 0.5, 1; Tlow the higher of
+# Tmin and the EOS's own Ttriple (CoolProp's Ttriple is its Tmin, map 09 R8); every output at each; then the 28 trivial
+# outputs through `Props1SI` (pair `Props1SI`, x1 = x2 = nan), whose failures are an inf return with the errstring set
+# (`call`). x1 and x2 are the pair's inputs in SI molar units (DT: mol/m3, K; QT: Q, K). A refused output is
+# `err:<class>` with value nan.
+PROPS_OUTPUTS = [
+    "T", "P", "Dmolar", "Hmolar", "Smolar", "Umolar", "Gmolar", "Helmholtzmolar", "Dmass", "Hmass", "Smass", "Umass",
+    "Gmass", "Helmholtzmass", "Q", "Qmass", "Delta", "Tau", "Cpmolar", "Cpmass", "Cvmolar", "Cvmass", "Cp0molar",
+    "Cp0mass", "Hmolar_residual", "Smolar_residual", "Gmolar_residual", "Hmolar_idealgas", "Smolar_idealgas",
+    "Umolar_idealgas", "Hmass_idealgas", "Smass_idealgas", "Umass_idealgas", "GWP20", "GWP100", "GWP500", "FH", "HH",
+    "PH", "ODP", "Bvirial", "Cvirial", "dBvirial_dT", "dCvirial_dT", "gas_constant", "molar_mass", "acentric",
+    "dipole_moment", "rhomass_reducing", "rhomolar_reducing", "rhomolar_critical", "rhomass_critical", "T_reducing",
+    "T_critical", "T_triple", "T_max", "T_min", "P_min", "P_max", "p_critical", "p_reducing", "p_triple",
+    "fraction_min", "fraction_max", "T_freeze", "speed_of_sound", "viscosity", "conductivity", "surface_tension",
+    "Prandtl", "isothermal_compressibility", "isobaric_expansion_coefficient", "isentropic_expansion_coefficient", "Z",
+    "fundamental_derivative_of_gas_dynamics", "PIP", "alphar", "dalphar_dtau_constdelta", "dalphar_ddelta_consttau",
+    "alpha0", "dalpha0_dtau_constdelta", "dalpha0_ddelta_consttau", "d2alpha0_ddelta2_consttau",
+    "d3alpha0_ddelta3_consttau", "Phase",
+]
+PROPS_TRIVIAL = [
+    "GWP20", "GWP100", "GWP500", "FH", "HH", "PH", "ODP", "gas_constant", "molar_mass", "acentric", "dipole_moment",
+    "rhomass_reducing", "rhomolar_reducing", "rhomolar_critical", "rhomass_critical", "T_reducing", "T_critical",
+    "T_triple", "T_max", "T_min", "P_min", "P_max", "p_critical", "p_reducing", "p_triple", "fraction_min",
+    "fraction_max", "T_freeze",
+]
+PROPS_COLUMNS = ["pair", "x1", "x2", "output", "status", "value"]
+PROPS_UNITS = ["-", "pair", "pair", "-", "-", "output"]
+PROPS_TOL = ["label", "in", "in", "label", "label", "prop"]
+PROPS_STATES = {"core": 10, "full": 200}  # states per fluid, half DT and half QT
+
+
+def props_dt_state(CP, name, rng, bounds, rho_l):
+    """A DT state (pair, rho, T) whose CoolProp p is at most pmax, the next draw of `rng` that gives one."""
+    t_low, t_max, p_max = bounds
+    for _ in range(1000):
+        t = uniform(rng, t_low, t_max)
+        rho = log_uniform(rng, EOS_RHO_SPAN * rho_l, rho_l)
+        p, status = call(CP, "PropsSI", ("P", "T", t, "Dmolar", rho, name))
+        if status == "ok" and p <= p_max:
+            return ("DT", rho, t)
+    fail(f"props: {name}: no DT state at or below pmax in 1000 draws")
+
+
+def props_rows(job):
+    """One fluid's rows, in a pool child: (lines, floats)."""
+    import CoolProp.CoolProp as CP  # the parent's module, inherited through fork
+
+    name, states = job
+    lines, floats = [], []
+    for pair, x1, x2 in states:
+        inputs = ("T", x2, "Dmolar", x1) if pair == "DT" else ("Q", x1, "T", x2)
+        for output in PROPS_OUTPUTS:
+            value, status = call(CP, "PropsSI", (output, *inputs, name))
+            floats += [x1, x2, value]
+            lines.append(f"{pair},{cell(x1)},{cell(x2)},{output},{status},{cell(value)}\n")
+    for output in PROPS_TRIVIAL:
+        value, status = call(CP, "Props1SI", (output, name))
+        floats += [math.nan, math.nan, value]
+        lines.append(f"Props1SI,nan,nan,{output},{status},{cell(value)}\n")
+    return lines, floats
+
+
+def props(CP, lock, config, files, args):
+    """The `props` kind: props/<Fluid>.csv for the core subset (10 states each) and the full set's files (200); no
+    all-fluid tier."""
+    if args.tier == "all":
+        fail("--kind props has no all-fluid tier (section 3.5)")
+    rows = args.rows or PROPS_STATES[args.tier]
+    jobs, shas = [], {}
+    for name in tier_fluids(args, files):
+        shas[name] = assert_fluid(CP, files, name)
+        state = CP.AbstractState("HEOS", name)
+        t_triple = json.loads(files[name].read_text(encoding="utf-8"))["EOS"][0]["Ttriple"]
+        t_low, t_max, tc, p_max = max(state.Tmin(), t_triple), state.Tmax(), state.T_critical(), state.pmax()
+        state.update(CP.QT_INPUTS, 0, t_low)
+        rho_l = state.rhomolar()
+        rng = splitmix64(args.seed)
+        states = []
+        for i in range(rows):
+            if i < rows // 2:
+                states.append(props_dt_state(CP, name, rng, (t_low, t_max, p_max), rho_l))
+            else:
+                states.append(("QT", (0.0, 0.5, 1.0)[i % 3], uniform(rng, t_low, t_low + 0.9 * (tc - t_low))))
+        jobs.append((name, states))
+    grid = (f"n={rows} per fluid: DT T~U[Tlow,Tmax] rho~logU[{EOS_RHO_SPAN!r}*rhoL(Tlow),rhoL(Tlow)] drawn again "
+            f"while p > pmax, then QT T~U[Tlow,Tlow+0.9(Tc-Tlow)] Q=0,0.5,1 cycling; Tlow=max(Tmin,EOS Ttriple); "
+            f"seed={args.seed}; no phase imposed; then Props1SI of the 28 trivial outputs")
+    out = {}
+    for (name, _), (lines, floats) in zip(jobs, pool_map(props_rows, jobs, args.jobs)):
+        text = header("props", lock, config, [(name, shas[name])], PROPS_COLUMNS, PROPS_TOL, floats,
+                      units=PROPS_UNITS, grid=grid)
+        out[f"props/{name}.csv"] = text + "".join(lines)
+    return out
+
+
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "sat": sat,
-              "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate}
+              "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
+              "props": props}
 
 
 def write(out, files):

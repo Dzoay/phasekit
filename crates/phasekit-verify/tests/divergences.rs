@@ -55,6 +55,15 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0034", div_0034),
     ("DIV-0035", div_0035),
     ("DIV-0036", div_0036),
+    ("DIV-0037", div_0037),
+    ("DIV-0038", div_0038),
+    ("DIV-0039", div_0039),
+    ("DIV-0040", div_0040),
+    ("DIV-0041", div_0041),
+    ("DIV-0042", div_0042),
+    ("DIV-0043", div_0043),
+    ("DIV-0044", div_0044),
+    ("DIV-0045", div_0045),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1006,4 +1015,111 @@ fn div_0036() {
     assert!(p("Hydrogen", 20.0) > 1.9 * p("ParaHydrogen", 20.0));
     let ortho = phasekit_core::internal::record(registry, "OrthoHydrogen").unwrap();
     assert!(ortho.melting[0].t_min < ortho.limits.t_triple().unwrap(), "{:?}", ortho.limits);
+}
+
+/// `PropsSI` through the compat strings over the embedded `Parity` registry, at DT(ρ mol/m³, T) or QT(Q, T).
+fn props(output: &str, pair: (&str, f64, f64), fluid: &str) -> Result<f64, phasekit_compat::CompatError> {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    match pair {
+        ("DT", rho, t) => phasekit_compat::props_si_in(&registry, output, "T", t, "Dmolar", rho, fluid),
+        (_, q, t) => phasekit_compat::props_si_in(&registry, output, "Q", q, "T", t, fluid),
+    }
+}
+
+/// DIV-0037 (`SkipOracle`; ROT-013, M10.2): a single phase has no quality. Water's gas at DT(10 mol/m³, 400 K) is the
+/// oracle's −1 and here `Undefined`; R407C's gas at DT(405.54 mol/m³, 291.68 K) has the oracle's Qmass 1, here
+/// `Undefined` too.
+fn div_0037() {
+    let undefined = |prop| Err(phasekit_compat::CompatError::Core(Error::Undefined { prop, phase: Phase::Gas }));
+    assert_eq!(props("Q", ("DT", 10.0, 400.0), "Water"), undefined(Prop::Q));
+    assert_eq!(fact("div0037_q_water_t400_rho10"), -1.0);
+    let r407c = props("Qmass", ("DT", 405.544_225_835_316, 291.675_685_187_633_23), "R407C");
+    assert_eq!(r407c, undefined(Prop::Qmass));
+    assert_eq!(fact("div0037_qmass_r407c_t291.68"), 1.0);
+}
+
+/// DIV-0038 (`SkipOracle`; map 09 §9, D14, M10.2): the shipped records carry no environmental metadata, so R134a's
+/// GWP100 is `NoModel` here and the oracle's 1430 (restricted data) is not asserted.
+fn div_0038() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    assert_eq!(phasekit_core::internal::record(&registry, "R134a").unwrap().environmental, None);
+    let gwp = registry.get("R134a").unwrap().constant(phasekit_core::Constant::Gwp100);
+    assert_eq!(gwp, Err(Error::NoModel { prop: Prop::Constant(phasekit_core::Constant::Gwp100) }));
+    assert_eq!(fact("div0038_gwp100_r134a"), 1430.0);
+}
+
+/// DIV-0039 (`SkipOracle`; map 01 R5, ROT-008, M10.2): Water's `rhomass_reducing` is ρ_r·M, 322 kg/m³, here; the oracle
+/// refuses it.
+fn div_0039() {
+    use phasekit_core::Constant::{MolarMass, RhomassReducing, RhomolarReducing};
+    let water = Registry::from_embedded(DataSet::Parity).unwrap().get("Water").unwrap().clone();
+    let (mass, molar, m) =
+        (water.constant(RhomassReducing), water.constant(RhomolarReducing), water.constant(MolarMass));
+    assert_eq!(mass, Ok(molar.unwrap() * m.unwrap()));
+    assert!(mass.clone().is_ok_and(|rho| (rho - 322.0).abs() < 1e-9), "{mass:?}");
+    assert!(fact("div0039_rhomass_reducing_water").is_nan(), "refused by the oracle");
+}
+
+/// DIV-0040 (`SkipOracle`; map 09 R8, M10.2): Ammonia's EOS states its triple point as 195.49 K and its lowest
+/// temperature as 195.495 K; phasekit's T_triple is the first and its T_min the second, the oracle's T_triple the second.
+fn div_0040() {
+    use phasekit_core::Constant::{TMin, TTriple};
+    let ammonia = Registry::from_embedded(DataSet::Parity).unwrap().get("Ammonia").unwrap().clone();
+    assert_eq!((ammonia.constant(TTriple), ammonia.constant(TMin)), (Ok(195.49), Ok(195.495)));
+    assert_eq!(fact("div0040_t_triple_ammonia"), 195.495);
+}
+
+/// DIV-0041 (`SkipOracle`; map 05 §1, M10.2): σ is a function of T, so R125's gas at DT(532.3 mol/m³, 318.0 K) has its
+/// saturated interface's σ at 318.0 K here; the oracle refuses σ at a single-phase state.
+fn div_0041() {
+    let (rho, t) = (532.315_573_405_610_8, 318.007_804_226_615_75);
+    assert_eq!(props("Phase", ("DT", rho, t), "R125").unwrap(), 5.0, "a gas");
+    let r125 = Registry::from_embedded(DataSet::Parity).unwrap().get("R125").unwrap().clone();
+    assert_eq!(props("surface_tension", ("DT", rho, t), "R125"), Ok(r125.model().surface_tension(t).unwrap()));
+    assert!(fact("div0041_sigma_r125_t318.0").is_nan(), "refused by the oracle");
+}
+
+/// DIV-0042 (`SkipOracle`; map 01 R7, ROT-165, M10.2): Air's QT inside its dome is refused (user decisions PP1, PP2),
+/// so its T_critical there is refused too; the oracle answers the trivial output, 132.5306 K, while refusing its h.
+fn div_0042() {
+    let refused = props("T_critical", ("QT", 0.5, 100.0), "Air");
+    assert_eq!(refused, props("Hmolar", ("QT", 0.5, 100.0), "Air"));
+    assert!(matches!(refused, Err(phasekit_compat::CompatError::Core(Error::InvalidInput { .. }))), "{refused:?}");
+    assert_eq!(fact("div0042_tcrit_air_q0.5_t100"), 132.5306);
+    assert!(fact("div0042_h_air_q0.5_t100").is_nan(), "the oracle refuses the state's h");
+}
+
+/// DIV-0043 (`SkipOracle`; map 13 §4, M10.2): Air's saturated liquid at 80 K has g = h − Ts here; the oracle refuses g
+/// there (its α⁰ at δ = −inf) while its h matches this one's.
+fn div_0043() {
+    let at = ("QT", 0.0, 80.0);
+    let [g, h, s] = ["Gmolar", "Hmolar", "Smolar"].map(|o| props(o, at, "Air").unwrap());
+    assert!((g - (h - 80.0 * s)).abs() <= 1e-9 * h.abs().max(80.0 * s.abs()), "{g} {h} {s}");
+    assert!(fact("div0043_g_air_q0_t80").is_nan(), "refused by the oracle");
+    let oracle = fact("div0043_h_air_q0_t80");
+    assert!((h - oracle).abs() <= ToleranceClass::Prop.bound(oracle.abs().max(8.314 * 80.0)).unwrap(), "{h} {oracle}");
+}
+
+/// DIV-0044 (`SkipOracle`; map 02 §3.4, M10.2): Z is p/(ρRT) of the state here. Inside R1234yf's dome at DT(803.48
+/// mol/m³, 203.94 K) that is 0.0086, where the oracle's 1 + δα^r_δ at the mixture's density is −0.164; at
+/// PropyleneGlycol's saturated vapour at 225.99 K, 1.47 from its superancillary's p and ρ″, where the oracle's EOS at ρ″
+/// gives 1.0.
+fn div_0044() {
+    let z = props("Z", ("DT", 803.484_455_766_067_1, 203.940_704_580_085_17), "R1234yf").unwrap();
+    assert!((z - 0.0086).abs() < 1e-4 && fact("div0044_z_r1234yf_t203.94") < -0.16, "{z}");
+    let z = props("Z", ("QT", 1.0, 225.991_054_973_623_68), "PropyleneGlycol").unwrap();
+    assert!((z - 1.47).abs() < 0.01, "{z}");
+    assert!((fact("div0044_z_propyleneglycol_q1_t225.99") - 1.0).abs() < 1e-12);
+}
+
+/// DIV-0045 (`Investigate`; M8.8, M10.2): at Propylene's saturated vapour at 104.87 K the two ECS solves' η part by
+/// 1.8e-5 relative, at R14's at 215.07 K their λ by 23 %, beyond `TransportEcs`.
+fn div_0045() {
+    let ecs = ToleranceClass::TransportEcs.bound(1.0).unwrap();
+    let eta = props("viscosity", ("QT", 1.0, 104.867_614_862_097_13), "Propylene").unwrap();
+    let off = eta / fact("div0045_eta_propylene_q1_t104.87") - 1.0;
+    assert!(off.abs() > 1e3 * ecs && (off.abs() - 1.8e-5).abs() < 1e-6, "{off:e}");
+    let lambda = props("conductivity", ("QT", 1.0, 215.068_075_567_540_23), "R14").unwrap();
+    let off = lambda / fact("div0045_lambda_r14_q1_t215.07") - 1.0;
+    assert!((off.abs() - 0.23).abs() < 0.01, "{off}");
 }

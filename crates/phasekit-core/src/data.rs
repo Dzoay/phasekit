@@ -13,7 +13,9 @@ use crate::helmholtz::{
     Lemmon2005Term, MAX_POW, MultiParameterEos, NonAnalyticBlock, NonAnalyticTerm, OffsetReference, PowerBlock,
     PowerTerm, ResidualBlock, TauExpBlock,
 };
-use crate::model::{CriticalOrigin, CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source};
+use crate::model::{
+    Constants, CriticalOrigin, CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Reducing, Source,
+};
 use crate::transport::{SurfaceTension, TransportRecord, TransportSet};
 
 /// Position of a data-backed fluid in its source's index.
@@ -707,6 +709,11 @@ pub struct FluidRecord {
     pub eos: EosRecord,
     pub limits: Limits,
     pub critical: Option<CriticalPoint>,
+    /// The EOS's published constants no calculation reads (CoolProp's trivial outputs, map 01 §4a): its acentric
+    /// factor, its reducing state's pressure and the saturation pressure at T_min (map 09 R8).
+    pub acentric: Option<f64>,
+    pub p_reducing: Option<f64>,
+    pub p_sat_min: Option<f64>,
     pub melting: Vec<MeltingSegment>,
     /// What the shipped superancillary was fitted to, if the fluid has one.
     pub superancillary_fit: Option<SaStamp>,
@@ -744,6 +751,9 @@ impl FluidRecord {
             eos,
             limits,
             critical: None,
+            acentric: None,
+            p_reducing: None,
+            p_sat_min: None,
             melting: Vec::new(),
             superancillary_fit: None,
             superancillary: None,
@@ -881,6 +891,8 @@ impl FluidRecord {
         if let Some(c) = self.critical.filter(|c| c.origin == CriticalOrigin::Published) {
             info = info.with_published_critical(c);
         }
+        let reducing = Reducing { t: self.eos.t_reducing, rho: self.eos.rho_reducing, p: self.p_reducing };
+        info = info.with_constants(Constants::new(Some(reducing), self.acentric, self.p_sat_min));
         let mut builder = PureFluid::builder(info.with_aliases(&aliases), eos, self.limits);
         if let Some(calorics) = self.calorics() {
             builder = builder.calorics(calorics);
@@ -1132,8 +1144,8 @@ mod tests {
         }
         type Edit = fn(&mut Vec<u8>);
         let cases: [(Edit, &str); 5] = [
-            (|b| b[8] = 7, "blob version 7; this build reads version 6"),
-            (|b| b[12] = 9, "blob lists 9 sections; version 6 has 10"),
+            (|b| b[8] = 8, "blob version 8; this build reads version 7"),
+            (|b| b[12] = 9, "blob lists 9 sections; version 7 has 10"),
             (|b| b[32] = 2, "section table: entry 2 at"),
             (|b| b[40] += 8, "where section 1 (metadata) belongs"),
             (|b| b.extend([0; 8]), "blob has 8 bytes after its last section"),

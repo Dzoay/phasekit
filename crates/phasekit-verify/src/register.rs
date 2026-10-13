@@ -66,6 +66,12 @@ pub enum Rows {
     All,
     /// Two-phase rows (0 < Q < 1).
     TwoPhase,
+    /// Rows outside the dome's interior: single-phase states and the saturated ones at Q = 0 and 1.
+    OnePhase,
+    /// The `props` kind's QT rows at Q = 0 and 1: a saturated phase.
+    Saturated,
+    /// The `props` kind's rows on or inside the dome: the two-phase ones and the saturated ones.
+    Dome,
     /// Rows outside the model's domain.
     BelowDomain,
     /// Rows with lo ≤ T ≤ hi.
@@ -201,11 +207,30 @@ pub static DIVERGENCES: &[Divergence] = &[
                    (2026-10-13); SQ1: c_p, c_v and w as well, the oracle's at Q = 0 and 1 (Water at 500 K, Air at \
                    101325 Pa), where its Water c_p at QT(0.5, 500 K) is 35464 J/(kg K), against its phases' 4663 and \
                    3463 (2026-10-13); SQ2: the partials, kappa_T, beta and Gamma too, where its kappa_T for CO2 at \
-                   QT(0.5, 280 K) is -1.71e-7 1/Pa (2026-10-13); SQ3: the residual h, s and g too, where its Water \
-                   h^r at QT(0.5, 500 K) is -6256 J/mol, against its phases' -35254 and -2340 (2026-10-13)",
+                   QT(0.5, 280 K) is -1.71e-7 1/Pa (2026-10-13); SQ3: the residual h, s and g too, where its Water h^r \
+                   at QT(0.5, 500 K) is -6256 J/mol, against its phases' -35254 and -2340 (2026-10-13); M10.2: \
+                   kappa_s, the PIP, the Prandtl number and s^0 too (h0 and u0 depend on T alone, so are given in the \
+                   dome), where its R1130(E) c_p at a two-phase DT state is negative, -37.5 J/(kg K) (2026-10-13)",
         exempt: Some(Exempt {
             kinds: &[Kind::Props],
-            columns: &["Cpmass", "Cpmolar", "Cvmass", "Cvmolar", "viscosity", "conductivity"],
+            columns: &[
+                "Cpmass",
+                "Cpmolar",
+                "Cvmass",
+                "Cvmolar",
+                "viscosity",
+                "conductivity",
+                "Prandtl",
+                "isothermal_compressibility",
+                "isobaric_expansion_coefficient",
+                "isentropic_expansion_coefficient",
+                "PIP",
+                "Hmolar_residual",
+                "Smolar_residual",
+                "Gmolar_residual",
+                "Smolar_idealgas",
+                "Smass_idealgas",
+            ],
             rows: Rows::TwoPhase,
         }),
         tolerance: None,
@@ -307,9 +332,14 @@ pub static DIVERGENCES: &[Divergence] = &[
         policy: Policy::SkipOracle,
         fix: Fix::Code("phasekit_core::helmholtz"),
         evidence: "map 12 §6.3, R8: Cvirial from delta = 1e-12 off -6.7e-5/-7.1e-5/+1.9e-5; exact Taylor path (E4); \
-                   M5.6: B, dB/dT off up to 1.5e-8, 8.6e-8 (Methanol), the series confirmed from its JSON",
-        exempt: Some(Exempt { kinds: &[Kind::Eos], columns: &["Cvirial", "dCvirial_dT"], rows: Rows::All }),
-        tolerance: Some(Tolerance::Relative(9e-8)),
+                   M5.6: B, dB/dT off up to 1.5e-8, 8.6e-8 (Methanol), the series confirmed from its JSON; M10.2: \
+                   2.14e-7 for Oxygen's B at 56.89 K, the props kind's lowest temperatures (2026-10-13)",
+        exempt: Some(Exempt {
+            kinds: &[Kind::Eos, Kind::Props],
+            columns: &["Cvirial", "dCvirial_dT"],
+            rows: Rows::All,
+        }),
+        tolerance: Some(Tolerance::Relative(3e-7)),
         table_tolerances: &[],
         proof: &[5],
         status: DivStatus::Open,
@@ -399,7 +429,19 @@ pub static DIVERGENCES: &[Divergence] = &[
         evidence: "map 02 §6, M6.7: the oracle's computed critical point is less converged than the EOS's own on flat \
                    critical isotherms: DimethylCarbonate rhoc_num 2.0e-6 off (K2 7.5e-11 there, dK2/dln rho 3.7e-5); \
                    Chlorine's critical region is degenerate (K1, K2 within 1e-12 of 0 from 7950 to 8153 mol/m3)",
-        exempt: Some(Exempt { kinds: &[Kind::Crit], columns: &["Tc_num", "pc_num", "rhoc_num"], rows: Rows::All }),
+        exempt: Some(Exempt {
+            kinds: &[Kind::Crit, Kind::Props],
+            columns: &[
+                "Tc_num",
+                "pc_num",
+                "rhoc_num",
+                "T_critical",
+                "p_critical",
+                "rhomolar_critical",
+                "rhomass_critical",
+            ],
+            rows: Rows::All,
+        }),
         tolerance: None,
         table_tolerances: &[],
         proof: &[6],
@@ -436,8 +478,8 @@ pub static DIVERGENCES: &[Divergence] = &[
                    with Q at fixed T, weighting its VLE sides' pressures (1.3e-9 apart), and sits 1e-8 from phasekit's VLE, \
                    whose g' = g'' to 1e-15",
         exempt: Some(Exempt {
-            kinds: &[Kind::Flash],
-            columns: &["p"],
+            kinds: &[Kind::Flash, Kind::Props],
+            columns: &["p", "P"],
             rows: Rows::TwoPhaseTBand { lo: 200.0, hi: 220.0 },
         }),
         tolerance: None,
@@ -799,8 +841,8 @@ pub static DIVERGENCES: &[Divergence] = &[
                    1.07 % of NIST TN 1334's 54 single-phase rows of 5-6.5 K at 0.2-0.4 MPa (its own EOS and eta), where \
                    the oracle is NaN at 5.5 K, 68.51 kg/m3 and 8.1 % off at 5.3 K, 55.47 kg/m3 (2026-10-13)",
         exempt: Some(Exempt {
-            kinds: &[Kind::Transport],
-            columns: &["lambda"],
+            kinds: &[Kind::Transport, Kind::Props],
+            columns: &["lambda", "conductivity", "Prandtl"],
             rows: Rows::TBand { lo: 3.5, hi: 12.0 },
         }),
         tolerance: None,
@@ -826,6 +868,237 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[8],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0037",
+        fluids: &["*"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::state"),
+        evidence: "map 01 §4c, ROT-013: CoolProp's Q of a single-phase state is the sentinel -1, or 1 for a \
+                   pseudo-pure gas (its Qmass then 1 too, refused for other single phases); phasekit's is `Undefined` \
+                   (Q exists only on and inside the dome); M10.2: Water's gas at DT(10 mol/m3, 400 K), -1, and every \
+                   single-phase `props` row of the core subset; R407C's gas at DT(405.54 mol/m3, 291.68 K), Qmass 1 \
+                   (2026-10-13)",
+        exempt: Some(Exempt { kinds: &[Kind::Props], columns: &["Q", "Qmass"], rows: Rows::OnePhase }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[10],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0038",
+        fluids: &["*"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::fluid"),
+        evidence: "map 09 §9, R17, D14: the environmental and safety metadata (GWP20, GWP100, GWP500, ODP and the NFPA \
+                   704 FH, HH, PH) come from a DTU table of REFPROP files with no source or licence, so phasekit ships \
+                   none and answers `NoModel`; the oracle's are numbers, its sentinels refused (R134a's ODP); M10.2: \
+                   R134a's GWP100 1430 (2026-10-13)",
+        exempt: Some(Exempt {
+            kinds: &[Kind::Props],
+            columns: &["GWP20", "GWP100", "GWP500", "ODP", "FH", "HH", "PH"],
+            rows: Rows::All,
+        }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[10],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0039",
+        fluids: &["*"],
+        part: Part::Reducing,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::fluid"),
+        evidence: "map 01 R5, ROT-008: CoolProp lists rhomass_reducing but no keyed output computes it, so every call \
+                   fails ('This input is not valid for keyed_output'); phasekit gives rho_r M; M10.2: every `props` \
+                   row of the core subset (2026-10-13)",
+        exempt: Some(Exempt { kinds: &[Kind::Props], columns: &["rhomass_reducing"], rows: Rows::All }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[10],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0040",
+        fluids: &[
+            "Ammonia",
+            "CycloPropane",
+            "DiethylEther",
+            "Ethanol",
+            "MD4M",
+            "MethylLinoleate",
+            "MethylLinolenate",
+            "Neon",
+            "Propyne",
+            "R114",
+            "R124",
+            "R13",
+            "R14",
+            "R21",
+            "R236EA",
+            "R40",
+        ],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::fluid"),
+        evidence: "map 09 R8: CoolProp's T_triple is its T_min (FluidLibrary.h:386, a \\todo) and never reads the \
+                   EOS's Ttriple, which differs for these 16 fluids; phasekit's T_triple is the EOS's own and T_min \
+                   stays T_min; M10.2: Ammonia's 195.49 K against the oracle's 195.495 (2026-10-13)",
+        exempt: Some(Exempt { kinds: &[Kind::Props], columns: &["T_triple"], rows: Rows::All }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[10],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0041",
+        fluids: &["*"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::fluid"),
+        evidence: "map 05 §1, M8.4: sigma is a function of T on its fit's range; CoolProp gives it only from a \
+                   two-phase state ('surface tension is only defined within the two-phase region'), phasekit at any \
+                   state below the fit's T_c, the saturated interface's at that T; M10.2: R125 at DT(532.3 mol/m3, \
+                   318.0 K), a gas (2026-10-13)",
+        exempt: Some(Exempt { kinds: &[Kind::Props], columns: &["surface_tension"], rows: Rows::OnePhase }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[10],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0042",
+        fluids: &["Air", "R404A", "R407C", "R410A", "R507A", "SES36"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_compat"),
+        evidence: "map 01 R7, ROT-165: CoolProp answers an output equal to an input, and its trivial outputs, before \
+                   it flashes the state, so where its QT flash of a pseudo-pure fluid refuses 0 < Q < 1 it still \
+                   returns T, Q and the constants; phasekit flashes first and refuses every output of a refused state \
+                   (user decisions PP1, PP2: no QT inside a pseudo-pure dome); M10.2: Air's and R410A's QT rows at Q = \
+                   0.5 (2026-10-13)",
+        exempt: Some(Exempt {
+            kinds: &[Kind::Props],
+            columns: &[
+                "T",
+                "Q",
+                "gas_constant",
+                "molar_mass",
+                "acentric",
+                "rhomolar_reducing",
+                "rhomolar_critical",
+                "rhomass_critical",
+                "T_reducing",
+                "T_critical",
+                "T_triple",
+                "T_max",
+                "T_min",
+                "P_min",
+                "P_max",
+                "p_critical",
+                "p_reducing",
+                "p_triple",
+            ],
+            rows: Rows::TwoPhase,
+        }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[10],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0043",
+        fluids: &["Air", "R404A", "R407C", "R410A", "R507A", "SES36"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::state"),
+        evidence: "map 13 §4, M10.2: CoolProp's g and a of a pseudo-pure fluid's saturated phase (QT at Q = 0 or 1) \
+                   fail ('calc_alpha0_deriv_nocache returned invalid number with inputs nTau: 0, nDelta: 0, tau: -0, \
+                   delta: -inf'), while its h and s there are numbers (Air's h 61.749 J/mol at Q = 0, 80 K); \
+                   phasekit's are h - Ts and u - Ts of that phase (2026-10-13)",
+        exempt: Some(Exempt {
+            kinds: &[Kind::Props],
+            columns: &["Gmolar", "Gmass", "Helmholtzmolar", "Helmholtzmass"],
+            rows: Rows::Saturated,
+        }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[10],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0044",
+        fluids: &["*"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::state"),
+        evidence: "map 02 §3.4, M10.2: CoolProp's Z is 1 + delta alphar_delta at the state's density, not its p/(rho R \
+                   T): inside the dome that is the EOS at the mixture's mean density, a point of no phase (R1234yf at \
+                   DT(803.48 mol/m3, 203.94 K): -0.164, where phasekit's p/(rho R T) is 0.0086), and at a saturated \
+                   phase the EOS at the superancillary's density, off its saturation p by the superancillary's misfit: \
+                   4.9e-11 relative for Methanol's liquid at 308.14 K, 0.47 for PropyleneGlycol's vapour at 225.99 K \
+                   (DIV-0016's range: Z 1.0, its own p/(rho R T) 1.47), 7.8e-2 for MethylOleate's (2026-10-13)",
+        exempt: Some(Exempt { kinds: &[Kind::Props], columns: &["Z"], rows: Rows::Dome }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[10],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0045",
+        fluids: &[
+            "EthylBenzene",
+            "Propylene",
+            "R11",
+            "R116",
+            "R12",
+            "R124",
+            "R13",
+            "R14",
+            "R141b",
+            "R142b",
+            "R143a",
+            "R218",
+            "R22",
+            "R227EA",
+            "R236EA",
+            "R236FA",
+            "R245fa",
+            "R32",
+            "RC318",
+        ],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "M8.8, map 10 §8.4: the transport kind checks ECS (and R22's rho*_sr-CS) on its own grid, stable \
+                   single phases, in class `TransportEcs`; the props kind's states reach saturated phases near the \
+                   triple point and dilute gases, where the two conformal solves part by more: eta 1.8e-5 relative for \
+                   Propylene's vapour at 104.87 K (the oracle's 3.0273e-6 Pa s), 1.5e-5 for EthylBenzene's, 1.8e-6 for \
+                   R236EA's, lambda 23 % for R14's vapour at 215.07 K (the oracle's 0.0150 W/(m K); DIV-0026's q_D), \
+                   and phasekit's conformal Newton refuses R12's and R22's saturated and an R227EA state where the \
+                   oracle's converges; these 19 fluids' eta, lambda and Prandtl cells of the props kind are not \
+                   asserted until it is understood which solve is right there (2026-10-13)",
+        exempt: Some(Exempt {
+            kinds: &[Kind::Props],
+            columns: &["viscosity", "conductivity", "Prandtl"],
+            rows: Rows::All,
+        }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[10],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an
@@ -834,8 +1107,10 @@ pub fn exempt_at(register: &[Divergence], fluid: &str, kind: Kind, column: &str,
     exempt_row(register, fluid, kind, column, RowKey { t, input: None, two_phase: false })
 }
 
-/// [`exempt_at`] for a row known by more than its T ([`RowKey`]): [`Rows::GivenP`] exempts the rows given p,
-/// [`Rows::TwoPhaseTBand`] the two-phase rows of a temperature band and [`Rows::PtInputs`] the PT rows.
+/// [`exempt_at`] for a row known by more than its T ([`RowKey`]): [`Rows::TwoPhase`] exempts the two-phase rows,
+/// [`Rows::OnePhase`] the others, [`Rows::Saturated`] the `props` kind's QT rows at Q = 0 and 1, [`Rows::Dome`] both,
+/// [`Rows::GivenP`] the rows given p, [`Rows::TwoPhaseTBand`] the two-phase rows of a temperature band and
+/// [`Rows::PtInputs`] the PT rows.
 pub fn exempt_row(
     register: &[Divergence],
     fluid: &str,
@@ -849,6 +1124,10 @@ pub fn exempt_row(
         let rows = match e.rows {
             Rows::All => true,
             Rows::TBand { lo, hi } => lo <= t && t <= hi,
+            Rows::TwoPhase => two_phase,
+            Rows::OnePhase => !two_phase,
+            Rows::Saturated => input == Some("QT") && !two_phase,
+            Rows::Dome => two_phase || input == Some("QT"),
             Rows::GivenP => input == Some("p"),
             Rows::TwoPhaseTBand { lo, hi } => two_phase && lo <= t && t <= hi,
             Rows::PtInputs => input == Some("PT"),
@@ -979,6 +1258,18 @@ mod tests {
         assert_eq!((at("A", Kind::Checkpoints, "rhoV", 1.5), at("B", Kind::Checkpoints, "p", 1.5)), (None, None));
         assert_eq!(at("B", Kind::Sat, "p", 9.0), Some("DIV-0102"));
         assert_eq!(at("B", Kind::Props, "p", 9.0), None, "two-phase rows need more than T");
+        let props = |two_phase| exempt_row(&register, "B", Kind::Props, "p", RowKey { t: 9.0, input: None, two_phase });
+        assert_eq!([props(true), props(false)], [Some("DIV-0103"), None]);
+        // DIV-0037 and DIV-0043: a single-phase or saturated row's Q; a pseudo-pure fluid's saturated g (QT at 0 or 1).
+        let row = |fluid, column, input, two_phase| {
+            exempt_row(DIVERGENCES, fluid, Kind::Props, column, RowKey { t: 300.0, input: Some(input), two_phase })
+        };
+        assert_eq!([row("Water", "Q", "DT", false), row("Water", "Q", "DT", true)], [Some("DIV-0037"), None]);
+        let g = |input, two_phase| row("R410A", "Gmolar", input, two_phase);
+        assert_eq!([g("QT", false), g("QT", true), g("DT", false)], [Some("DIV-0043"), None, None]);
+        // DIV-0044: Z on or inside the dome, never of a single phase.
+        let z = |input, two_phase| row("Water", "Z", input, two_phase);
+        assert_eq!([z("QT", false), z("DT", true), z("DT", false)], [Some("DIV-0044"), Some("DIV-0044"), None]);
         let pg = |column, t| exempt_at(DIVERGENCES, "PropyleneGlycol", Kind::Checkpoints, column, t);
         assert_eq!(
             [pg("rhoV", 213.0), pg("p", 227.6028), pg("rhoL", 213.0), pg("p", 228.0)],

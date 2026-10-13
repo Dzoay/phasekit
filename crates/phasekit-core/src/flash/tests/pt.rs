@@ -158,7 +158,7 @@ fn a_guess_changes_no_output() {
         Prop::Cvirial,
         Prop::DBvirialDT,
         Prop::DCvirialDT,
-        Prop::MolarMass,
+        Prop::Constant(crate::Constant::MolarMass),
         Prop::Viscosity,
         Prop::Conductivity,
         Prop::SurfaceTension,

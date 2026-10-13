@@ -34,8 +34,9 @@ const MAGIC: &[u8; 8] = b"PKITBLOB";
 /// to the filled metadata section; version 3 (M8.6) adds a staged conductivity's reducing state and Methane's snapshot
 /// (critical point, saturated-vapour ancillary, reducing state) to the filled transport section; version 4 (M8.8) an ECS
 /// conductivity's reducing state; version 5 (M8.9) a viscosity's and an ECS conductivity's named Lennard-Jones source;
-/// version 6 (M8.11) each melting segment's form and coefficients. Packs keep their own version.
-pub(crate) const VERSION: u32 = 6;
+/// version 6 (M8.11) each melting segment's form and coefficients; version 7 (M10.2) the published constants (acentric
+/// factor, reducing pressure, saturation pressure at T_min) to the filled metadata section. Packs keep their own version.
+pub(crate) const VERSION: u32 = 7;
 /// The pack format version.
 const PACK_VERSION: u32 = 1;
 const HEADER: usize = 32;
@@ -181,6 +182,7 @@ fn metadata(r: &FluidRecord) -> Vec<u8> {
         [c.t, c.p, c.rho].into_iter().for_each(|x| put_f64(out, x));
         out.push(tag_of(&ORIGINS, c.origin));
     });
+    [r.acentric, r.p_reducing, r.p_sat_min].into_iter().for_each(|x| put_opt(&mut out, x, put_f64));
     put_str(&mut out, &r.source.bibkey);
     put_opt(&mut out, r.source.doi.as_deref(), put_str);
     out.push(tag_of(&TERMS, r.source.terms));
@@ -210,6 +212,7 @@ fn read_metadata(bytes: &[u8], eos: EosRecord) -> Result<FluidRecord, LoadError>
         let (t, p, rho) = (r.f64()?, r.f64()?, r.f64()?);
         Ok(CriticalPoint { t, p, rho, origin: from_tag(&ORIGINS, r.u8()?, "critical-point origin")? })
     })?;
+    let [acentric, p_reducing, p_sat_min] = [r.opt(Reader::f64)?, r.opt(Reader::f64)?, r.opt(Reader::f64)?];
     let bibkey: String = r.str()?;
     let doi = r.opt(Reader::str)?;
     let terms = from_tag(&TERMS, r.u8()?, "data terms")?;
@@ -224,7 +227,8 @@ fn read_metadata(bytes: &[u8], eos: EosRecord) -> Result<FluidRecord, LoadError>
     source.citations = citations;
     let mut record = FluidRecord::new(&name, molar_mass, source, eos, limits);
     (record.aliases, record.cas, record.refprop_name, record.inchi_key) = (aliases, cas, refprop_name, inchi_key);
-    record.critical = critical;
+    (record.critical, record.acentric, record.p_reducing, record.p_sat_min) =
+        (critical, acentric, p_reducing, p_sat_min);
     Ok(record)
 }
 
