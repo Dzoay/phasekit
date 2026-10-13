@@ -169,4 +169,7 @@ exclude_re = [
     # Equivalent (M8.11): the flash refuses T < T_melt·(1 − AT_BOUND); `<=` differs only at that product exactly, which
     # no solved state reaches (T_melt is read at the state's own p).
     "flash\\.rs:168:87: replace < with <= in above_melting_line",
+    # Equivalent (M9.1): a batch of one chunk skips rayon, `chunk < n`; with `<=` that one chunk goes to rayon, whose
+    # parallel iterator runs a single piece inline on the calling thread, the same thread and bits.
+    "batch\\.rs:[0-9]+:[0-9]+: replace < with <= in evaluate",
 ]

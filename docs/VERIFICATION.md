@@ -651,8 +651,10 @@ SES36's departures are listed with their reason (its ancillaries and EOS disagre
 
 - `policy_equivalence(fluid, req, candidate)`: every cell and `Status` bitwise equal to `ExecPolicy::Reference` (sketch
   `conformance.rs`). Batch vs scalar: `batch::evaluate` vs a loop of `Fluid::flash` + getters on the same inputs.
-- `Parallel { chunk }` for chunk ∈ {1, 16, 1024, N} on rayon pools of 1, 2, 4 and `available_parallelism` threads,
-  N mod chunk ≠ 0 included (kernel-performance §3.3); without `rayon`, `Parallel` runs sequentially with the same bits.
+- `Parallel { chunk }` for chunk ∈ {1, 16, 64, 1024, N} (rounded up to a multiple of 16, K6) on rayon pools of 1 to
+  `available_parallelism` threads, N mod chunk ≠ 0 included (kernel-performance §3.3); without `rayon`, `Parallel`
+  runs sequentially with the same bits (G4: wasm builds core without it). A family model that refuses off rayon's
+  workers shows that the chunks do run on the pool.
 - Concurrency stress: N threads × M fluids, each result bitwise equal to the serial run (map 11 §8); 16 threads racing
   the first `get` of one fluid decode it once (counting source).
 - Warm starts (`with_guess`) are another path: `Flash`, never `Exact` (K7). Thread tests are
@@ -730,7 +732,7 @@ definition of the subcommands; PLAN.md steps add them in the order of the last c
 
 | Gate | Rule | From (PLAN.md) |
 |---|---|---|
-| `deps` | zero-dependency guard: `cargo tree -p phasekit-core -e normal,build --depth 1 --prefix none` prints only `phasekit-core` and `phasekit-data`, and the same for `phasekit-data` (itself only); from M9 `--features rayon,libm` adds exactly those two (dependencies §3.4, R1) | M0.4 |
+| `deps` | zero-dependency guard: `cargo tree -p phasekit-core -e normal,build --depth 1 --prefix none` prints only `phasekit-core` and `phasekit-data`, and the same for `phasekit-data` (itself only); `--features rayon` adds exactly `rayon` (M9.1), and from M9.3 `libm` and `rayon,libm` add exactly those (dependencies §3.4, R1) | M0.4 |
 | `lints` | the workspace sets `unsafe_code = "forbid"` and every workspace member has `[lints] workspace = true`, except `phasekit-capi`, which may instead declare `unsafe_code = "deny"` in its own `[lints.rust]` (per-item `allow` with a SAFETY comment; BRIEF "memory safe"; D17) | M0.4 |
 | `counts` | executed-test count: the passed tests per test binary per target (the host's G3 run and, from M0.5, the wasm32-wasip2 G4 run), from nextest's JUnit report (profile `counts`, the store moved to the cargo target directory with `--tool-config-file`) and, for doctests, `cargo test --doc`'s `test result: ok. N passed` lines against `ci/test-counts.txt` (`<target> <package>::<binary> <min>`; `<binary>` is `lib`, `main`, `doc` or the integration-test name); fails if nothing ran, a listed binary is missing, runs 0 tests or runs fewer than its minimum, or a binary that runs tests is not listed (map 10 R1). The PR adding tests raises minimums with `gates counts --update`, which never lowers one; lowering one by hand needs a `# lowered: <reason>` comment | M0.4 |
 | `ignores` | every `#[ignore = "..."]` reason starts with `DIV-NNNN: `, `issue #N: ` or `nightly: `; DIV ids exist and are not `ResolvedUpstream` (checked against the register from M1.6); `nightly:` only in `tests/sweeps.rs`; a bare `#[ignore]` fails. Each run publishes the ignored list (map 10 R14) | M0.4 |

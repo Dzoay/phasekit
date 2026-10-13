@@ -1,5 +1,5 @@
-//! Batch on real fluids (PLAN.md M5.8; VERIFICATION.md §9.1; ARCHITECTURE.md §7): the batch driver is the scalar path
-//! cell by cell, bit for bit, into point-major buffers.
+//! Batch on real fluids (PLAN.md M5.8, M9.1; VERIFICATION.md §9.1; ARCHITECTURE.md §7): the batch driver is the scalar
+//! path cell by cell, bit for bit, into point-major buffers, and every executor and thread count gives the same bits.
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
@@ -82,4 +82,104 @@ fn out_is_point_major() {
     }
     assert_eq!([status[2], status[5]], [Status::Undefined, Status::Undefined], "single phases have no Q");
     assert!(status[8] == Status::Ok && out[8] > 0.0 && out[8] < 1.0, "the third point is two-phase: {}", out[8]);
+}
+
+/// Executors and threads (PLAN.md M9.1). Thread tests: wasm has no rayon (D17).
+#[cfg(not(target_family = "wasm"))]
+mod parallel {
+    use std::num::NonZeroUsize;
+
+    use phasekit_core::batch::ExecPolicy;
+    use phasekit_core::{Fluid, Var};
+
+    use super::*;
+
+    /// Points per pair in [`policy_equivalence_parallel_is_bitwise`]: 19 pairs make 99 997 points, about 10⁵, and 5 263
+    /// is a multiple of none of the chunk sizes, so every batch ends on a short chunk (VERIFICATION.md §9.1).
+    const POINTS_PER_PAIR: usize = 5_263;
+
+    /// Inputs of every pair read off `n` DT truths of a fluid (the [`points`] sample): T, p, ρ, h, s and u off the
+    /// scalar state, Q its quality or, for a single phase, a uniform draw, so the Q-pairs land in the dome too. A truth
+    /// the scalar flash refuses gives NaN inputs, which the batch refuses cell by cell.
+    fn pair_inputs(registry: &Registry, name: &str, n: usize, seed: u64) -> Vec<(Pair, Vec<f64>, Vec<f64>)> {
+        let fluid = registry.get(name).unwrap();
+        let (rho, t) = points(registry, name, n, seed);
+        let mut rng = SplitMix64::new(seed ^ 0x9e37_79b9_7f4a_7c15);
+        let truths: Vec<[f64; 7]> = rho
+            .iter()
+            .zip(&t)
+            .map(|(rho, t)| {
+                let q = rng.next_f64();
+                match fluid.state(Input::dt(Density::molar(*rho).unwrap(), Temperature::new(*t).unwrap())) {
+                    Ok(s) => {
+                        let m = Basis::Molar;
+                        [s.t(), s.p(), s.rho(m), s.h(m), s.s(m), s.u(m), s.quality().unwrap_or(q)]
+                    }
+                    Err(_) => [f64::NAN; 7],
+                }
+            })
+            .collect();
+        let column = |var: Var| -> Vec<f64> {
+            let k = [Var::T, Var::P, Var::D, Var::H, Var::S, Var::U, Var::Q].iter().position(|v| *v == var).unwrap();
+            truths.iter().map(|truth| truth[k]).collect()
+        };
+        Pair::ALL.iter().map(|&pair| (pair, column(pair.vars().0), column(pair.vars().1))).collect()
+    }
+
+    /// Every cell's bits and status of `req` under `exec`.
+    fn run(fluid: &Fluid, req: &BatchRequest<'_>, exec: ExecPolicy) -> (Vec<u64>, Vec<Status>) {
+        let cells = req.cells().unwrap();
+        let (mut out, mut status) = (vec![0.0; cells], vec![Status::Other; cells]);
+        batch::evaluate(fluid, &req.with_exec(exec), &mut out, &mut status).unwrap();
+        (out.iter().map(|v| v.to_bits()).collect(), status)
+    }
+
+    fn parallel(chunk: usize) -> ExecPolicy {
+        ExecPolicy::Parallel { chunk: NonZeroUsize::new(chunk).unwrap() }
+    }
+
+    /// VERIFICATION.md §9.1, class `Exact` (ROT-135; K6, K17): every pair, 5 263 points each (about 10⁵ in all) of
+    /// R1234yf, through `Parallel` at chunks of 16, 64 and 1 024 points on rayon's global pool, every cell and status
+    /// bitwise the `Reference` path's: single-phase, two-phase, near-critical and refused cells alike.
+    #[test]
+    fn policy_equivalence_parallel_is_bitwise() {
+        let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
+        let fluid = registry.get("R1234yf").unwrap();
+        let (mut points, mut refused) = (0, 0);
+        for (pair, x, y) in pair_inputs(&registry, "R1234yf", POINTS_PER_PAIR, 7) {
+            let req = BatchRequest::new(pair, Basis::Molar, &x, &y, &OUTPUTS);
+            let reference = run(fluid, &req, ExecPolicy::Reference);
+            for chunk in [16, 64, 1024] {
+                assert!(run(fluid, &req, parallel(chunk)) == reference, "{pair:?} in chunks of {chunk}");
+            }
+            (points, refused) = (points + x.len(), refused + reference.1.iter().filter(|s| **s != Status::Ok).count());
+        }
+        assert!(points == Pair::ALL.len() * POINTS_PER_PAIR && refused > 0, "{points} points, {refused} refused");
+    }
+
+    /// VERIFICATION.md §9.1, class `Exact` (K6): PT and HP batches of n-Propane and R1234yf under `Parallel` on rayon
+    /// pools of 1 to `available_parallelism` threads (at least 4), every cell and status bitwise the `Reference`
+    /// path's: fixed chunks make the bits independent of the thread count.
+    #[test]
+    fn one_to_n_threads_bitwise() {
+        let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
+        let n = std::thread::available_parallelism().map_or(4, NonZeroUsize::get).max(4);
+        let mut pools = 0;
+        for (seed, name) in [(11, "n-Propane"), (12, "R1234yf")] {
+            let fluid = registry.get(name).unwrap();
+            for (pair, x, y) in pair_inputs(&registry, name, 1_000, seed) {
+                if !matches!(pair, Pair::PT | Pair::HP) {
+                    continue;
+                }
+                let req = BatchRequest::new(pair, Basis::Molar, &x, &y, &OUTPUTS);
+                let reference = run(fluid, &req, ExecPolicy::Reference);
+                for threads in 1..=n {
+                    let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+                    assert!(pool.install(|| run(fluid, &req, parallel(16))) == reference, "{name} {pair:?}, {threads}");
+                    pools += 1;
+                }
+            }
+        }
+        assert_eq!(pools, 4 * n);
+    }
 }
