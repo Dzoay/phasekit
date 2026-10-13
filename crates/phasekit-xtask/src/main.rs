@@ -7,6 +7,7 @@
 //!   blob per fluid (EOS section written by `phasekit_core::internal::EosRecord::encode`, the same encoder the
 //!   runtime hash gate uses, E14), the name/alias/CAS index with declared references, and the per-fluid
 //!   features (with ECS implications) in `phasekit-data`.
+//! - `changelog <version> <date>`: the release's `CHANGELOG.md` section from the commit subjects since the last tag.
 //! - `baseline`: builds and runs the C++ CoolProp v8.0.0 baseline of scripts/baseline/ in a scratch directory; with
 //!   `--check`, checks the committed result files (M1.15).
 //! - `oracle`: runs scripts/oracle/gen.py through `uv run --no-project --python 3.12 --with CoolProp==8.0.0` (M1.3),
@@ -22,6 +23,7 @@
 
 mod baseline;
 mod bench;
+mod changelog;
 mod datagen;
 mod fastchebpure;
 mod fluid;
@@ -38,11 +40,12 @@ fn main() -> ExitCode {
         Some((task, rest)) if task == "oracle" => oracle::main(rest),
         Some((task, rest)) if task == "baseline" => baseline::main(rest),
         Some((task, rest)) if task == "bench" => bench::main(rest),
+        Some((task, rest)) if task == "changelog" => changelog::main(rest),
         Some((task, rest)) if task == "fluid" => fluid::main(rest),
         Some((task, rest)) if task == "datagen" => datagen::main(rest),
         Some((task, rest)) if task == "fetch-fastchebpure" => fastchebpure::main(rest),
         _ => {
-            eprintln!("usage: cargo xtask <baseline|bench|datagen|fetch-fastchebpure|fluid|oracle|gates>");
+            eprintln!("usage: cargo xtask <baseline|bench|changelog|datagen|fetch-fastchebpure|fluid|oracle|gates>");
             ExitCode::FAILURE
         }
     }
