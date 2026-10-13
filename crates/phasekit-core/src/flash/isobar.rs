@@ -309,7 +309,7 @@ pub(super) fn cubic_seed(fluid: &PureFluid, p: f64, x: f64, var: Caloric, span: 
             return None;
         }
         let next = (t - at / slope).clamp(span.lo, span.hi);
-        if (next - t).abs() <= SEED_TOL * t {
+        if (next / t - 1.0).abs() <= SEED_TOL {
             return Some((next, cubic.density(next, p)?));
         }
         t = next;
