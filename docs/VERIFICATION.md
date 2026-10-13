@@ -637,7 +637,8 @@ SES36's departures are listed with their reason (its ancillaries and EOS disagre
   cached, misses are not.
 - allocation-counter's counting global allocator (user decision AC1) asserts 0 heap allocations per flash and per batch
   point after warm-up (M5). At compile time: Send + Sync, `size_of::<State>() <= 256`, `size_of::<Error>() <= 48`
-  (ARCHITECTURE.md §3.8); PLAN.md M9.7 records the actual `State` size (208 B in the sketch) and asserts only the bound.
+  (ARCHITECTURE.md §3.8); `tests/allocations.rs::state_fits_256_bytes` (M9.7) asserts the bound and pins the size,
+  208 B on 64-bit targets.
 - Tests that cannot fail (ROT-294; user decisions TQ1, TQ2, which replace the earlier deferral of mutation testing):
   `gates assertions` requires every `#[test]` to assert (or be `#[should_panic]`) and rejects an `assert_eq!` or
   `assert_ne!` with identical sides; `clippy_bans_fire` keeps clippy's tautology lints firing; `gates mutants` runs
