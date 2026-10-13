@@ -569,9 +569,10 @@ fn q_d_is_read() {
 /// conductivity (M8.6), and the ρ*_sr-CS and Chung viscosities, against CoolProp's totals at the oracle's states (the
 /// all-fluid tier and the core subset) in class `TransportDirect`, one case per model; the hard-coded stages of staged
 /// models are checked stage by stage (`viscosity_stages_match_contributions`, `conductivity_stages_match_contributions`).
+/// DIV-0035's 14 Helium λ cells of 3.5-12 K are exempt (its replacing check is `div_0035`).
 #[test]
 fn hardcoded_models_match_oracle() {
-    let (mut cases, mut failures) = (BTreeMap::new(), Vec::new());
+    let (mut cases, mut failures, mut exempt) = (BTreeMap::new(), Vec::new(), 0);
     let kinds = [("eta_model", "hardcoded", "eta"), ("eta_model", "rhosr", "eta"), ("eta_model", "chung", "eta")];
     for (column, model, property) in kinds.into_iter().chain([("lambda_model", "hardcoded", "lambda")]) {
         for_transport_rows(column, model, |table, row, name, record, state, references| {
@@ -582,17 +583,17 @@ fn hardcoded_models_match_oracle() {
                 failures.push(format!("{name} row {row}: the oracle has no {property}"));
                 return;
             }
-            let (eta, lambda) = phasekit_core::internal::transport_stages_with(record, state, references).unwrap();
-            let got = if property == "eta" { eta.map(|s| s.total()) } else { lambda.map(|s| s.total()) };
-            let checked = got.map_err(|e| e.to_string()).and_then(|got| {
-                let scale = table.value(row, property).unwrap();
-                table.check_scaled(row, property, got, scale).map_err(|e| format!("{e:?}"))
-            });
+            if register::exempt_at(DIVERGENCES, name, Kind::Transport, property, state.t()).is_some() {
+                exempt += 1;
+                return;
+            }
+            let checked = hardcoded_total(table, row, record, state, references, property);
             failures.extend(checked.err().map(|e| format!("{name} row {row} {property}: {e}")));
             *cases.entry(format!("{property} {model} {name}")).or_insert(0) += 1;
         });
     }
     assert!(failures.is_empty(), "{failures:#?}");
+    assert_eq!(exempt, 14);
     let models: Vec<&str> = cases.keys().map(String::as_str).collect();
     let rhosr = ["R124", "R1234yf", "R1234ze(E)", "R152A", "R22", "R245fa", "R32"].map(|f| format!("eta rhosr {f}"));
     let whole = ["Helium", "Methanol", "R23", "m-Xylene", "o-Xylene", "p-Xylene"].map(|f| format!("eta hardcoded {f}"));
@@ -601,6 +602,24 @@ fn hardcoded_models_match_oracle() {
     let mut want: Vec<String> = [&chung[..], &whole[..], &rhosr[..], &lambda[..]].concat();
     want.sort();
     assert_eq!(models, want);
+}
+
+/// A model's total `property` (`eta`, `lambda`) at a transport row against the oracle's in the row's class: the ratio
+/// of the difference to its bound.
+fn hardcoded_total(
+    table: &Fixture<'_>,
+    row: usize,
+    record: &FluidRecord,
+    state: &State,
+    references: &[Fluid],
+    property: &str,
+) -> Result<f64, String> {
+    let (eta, lambda) = phasekit_core::internal::transport_stages_with(record, state, references).unwrap();
+    let got = if property == "eta" { eta.map(|s| s.total()) } else { lambda.map(|s| s.total()) };
+    got.map_err(|e| e.to_string()).and_then(|got| {
+        let scale = table.value(row, property).unwrap();
+        table.check_scaled(row, property, got, scale).map_err(|e| format!("{e:?}"))
+    })
 }
 
 /// PLAN.md M8.9 (map 05 R4): a ρ*_sr-CS record's (ρ s_r)_c is ρ_r R (τα^r_τ − α^r) at its EOS's reducing state: six of

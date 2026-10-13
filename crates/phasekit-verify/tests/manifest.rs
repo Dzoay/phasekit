@@ -177,6 +177,8 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("paper/HeavyWater/IAPWS-R4-84-2007.A5.csv"),
     fixture!("paper/HeavyWater/IAPWS-R4-84-2007.B4.check.csv"),
     fixture!("paper/HeavyWater/IAPWS-R4-84-2007.B4.csv"),
+    fixture!("paper/Helium/Arp-NIST-TN1334-1998.B.check.csv"),
+    fixture!("paper/Helium/Arp-NIST-TN1334-1998.B.csv"),
     fixture!("paper/Helium/CoolProp-Tests.eta.check.csv"),
     fixture!("paper/Helium/CoolProp-Tests.eta.csv"),
     fixture!("paper/Helium/CoolProp-Tests.lambda.check.csv"),

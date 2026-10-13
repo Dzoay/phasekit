@@ -372,6 +372,7 @@ Procedure (`tests/arbiters.rs`, on the mutable `FluidRecord` seam, ARCHITECTURE.
 | n-Heptane, D6 α⁰ | Jaeschke & Schley 1995 closed-form c_p⁰ | equation | no table needed | M4 |
 | 130 SA fluids | P-mp check points (Θ = 0.5, 0.3, 0.1), fastchebpure dense files | K3 (mp) | SA vs mp: p median 4.8e-14, max 4.7e-9 (map 10 §8.1) | M5 SA, M6 VLE |
 | Transport, 40 fluids | the 318 `CoolProp-Tests.cpp` rows re-labelled (`paper/<Fluid>/CoolProp-Tests.{eta,lambda}.csv`, M8.3): only `paper` and `iapws` rows arbitrate, never Helium's (ROT-124); `refprop`, `self`, `experiment` and unsourced rows do not (map 13 §8, map 10 R6) | rows | median 7.8e-6 vs oracle; 262 arbiter rows over 56 fluid-property pairs | M8 |
+| Helium λ | NIST TN 1334 (rev. 1998) Appendix B (OA): the 54 single-phase rows of 5-6.5 K on the 0.2-0.4 MPa isobars, Hands and Arp 1981 on TN 1334's own EOS and η | rows | `Inconsistent` (1.1e-2); DIV-0035's replacing check, within its measured 1.2e-2 | HE1 |
 
 `phasekit_verify::arbiters::ARBITERS` (PLAN.md M1.7) holds these rows as records, all `Expected` or `Unpublished`
 at M1 until their tables are transcribed; the 12 one-row fluids join at M1.12, the n-Heptane and D6 c_p⁰ equation checks
