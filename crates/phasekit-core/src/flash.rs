@@ -9,6 +9,7 @@
 //! dispatches, solves DT and PT, and holds what they share.
 #![deny(clippy::indexing_slicing)] // E12: no panicking index on the flash path, its modules' included
 
+mod cubic;
 mod isentrope;
 mod isobar;
 mod isochore;
@@ -324,6 +325,16 @@ impl Caloric {
             Caloric::H => b.a11 + b.a01 + b.a02,
             Caloric::S => b.a11 - b.a01,
             Caloric::U => b.a11,
+        }
+    }
+
+    /// (∂x/∂T)_ρ and (∂x/∂ln ρ)_T from the total bundle at T: for h R·(A01 − A20 − A11), for s −R·A20/T and for u
+    /// −R·A20, then the slope [`Caloric::slope_sign`] signs, times RT (R for s). P+X's Newton in (T, ln ρ) reads them.
+    fn jacobian(self, r: f64, t: f64, b: &Bundle) -> (f64, f64) {
+        match self {
+            Caloric::H => (r * (b.a01 - b.a20 - b.a11), r * t * self.slope_sign(b)),
+            Caloric::S => (-r * b.a20 / t, r * self.slope_sign(b)),
+            Caloric::U => (-r * b.a20, r * t * self.slope_sign(b)),
         }
     }
 

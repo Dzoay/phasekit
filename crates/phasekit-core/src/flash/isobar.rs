@@ -1,6 +1,7 @@
 //! P+X: PH, PS and PU along the isobar ([`px`]), split by the saturation at p ([`saturation_at_p`]), T found on each
 //! single-phase stretch by the search in T ([`isobar`]).
 
+use crate::derivs::Order;
 use crate::error::{DomainError, Error};
 use crate::fluid::PureFluid;
 use crate::input::Pair;
@@ -11,6 +12,7 @@ use crate::saturation::{SatAccuracy, SatPair, SatSide};
 use crate::state::{Phase, SolvePath, State, Strategy};
 use crate::units::Quality;
 
+use super::cubic::Cubic;
 use super::phase::{Branch, Where, generic_vle, labelling_critical, pt_branch};
 use super::quality::{curve_at_p, split_sides};
 use super::search::{root_in_t, toms748_kept};
@@ -36,33 +38,34 @@ pub(super) fn px(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOp
     }
     let (t_low, t_high) = t_search(fluid);
     let hint = opts.phase_hint();
-    let along = |lo, hi, ends, liquid| isobar(fluid, p, x, var, opts, Span { lo, hi, ends, liquid });
+    let along = |lo, hi, ends, liquid, edge| isobar(fluid, p, x, var, opts, Span { lo, hi, ends, liquid, edge });
     if hint.is_some_and(|h| h != Phase::TwoPhase) {
-        return along(t_low, t_high, (None, None), false);
+        return along(t_low, t_high, (None, None), false, None);
     }
     let Some((sat, strategy)) = saturation_at_p(fluid, p, t_low, opts)? else {
         if hint == Some(Phase::TwoPhase) {
             return Err(no_quality());
         }
-        return along(t_low, t_high, (None, None), false);
+        return along(t_low, t_high, (None, None), false, None);
     };
     // Each saturated side's x, the EOS's at its (T, ρ): a pseudo-pure side's ρ is the EOS's at its (T, p), as PQ's.
-    let side = |side: &SatSide, liquid: bool| -> Result<f64, Error> {
+    // Each side's x and its (T, ρ), where the side's span begins its Newton ([`newton_t_rho`]).
+    let side = |side: &SatSide, liquid: bool| -> Result<(f64, (f64, f64)), Error> {
         let rho = match strategy {
             Strategy::Ancillary => crate::density::at_t_p(fluid.eos(), side.t, side.p, side.rho, liquid)?.0,
             _ => side.rho,
         };
-        Ok(var.at(fluid.eos().gas_constant(), side.t, &total(fluid, side.t, rho)?))
+        Ok((var.at(fluid.eos().gas_constant(), side.t, &total(fluid, side.t, rho)?), (side.t, rho)))
     };
     // The lever rule's quality on x: below 0 the liquid, above 1 the gas, unless `TwoPhase` is imposed; then an x the
     // acceptance gate takes for a side's is that side (an HS root on the dome's edge).
-    let (x_l, x_v) = (side(&sat.bubble, true)?, side(&sat.dew, false)?);
+    let ((x_l, bubble), (x_v, dew)) = (side(&sat.bubble, true)?, side(&sat.dew, false)?);
     let (q, imposed) = ((x - x_l) / (x_v - x_l), hint == Some(Phase::TwoPhase));
     if !imposed && q < 0.0 {
-        return along(t_low, sat.bubble.t, (None, Some(x_l)), true);
+        return along(t_low, sat.bubble.t, (None, Some(x_l)), true, Some(bubble));
     }
     if !imposed && q > 1.0 {
-        return along(sat.dew.t, t_high, (Some(x_v), None), false);
+        return along(sat.dew.t, t_high, (Some(x_v), None), false, Some(dew));
     }
     let q = edge_quality(var, fluid.eos().gas_constant(), &sat, x, (x_l, x_v), q)?;
     let state = match strategy {
@@ -138,22 +141,27 @@ fn generic_sat_p(fluid: &PureFluid, p: f64, t_low: f64) -> Result<Option<(SatPai
 }
 
 /// A stretch of a P+X isobar that holds one single-phase branch: T from `lo` to `hi`, x known at a saturated end
-/// (`ends`), and the side of the dome it lies on (`liquid`: the root PT takes at exactly psat). A span never reaches
-/// into a pseudo-pure dome: its saturated end is the bubble or dew temperature, whose x it is given.
-struct Span {
-    lo: f64,
-    hi: f64,
-    ends: (Option<f64>, Option<f64>),
-    liquid: bool,
+/// (`ends`), the side of the dome it lies on (`liquid`: the root PT takes at exactly psat), and that saturated end's
+/// (T, ρ) (`edge`). A span never reaches into a pseudo-pure dome: its saturated end is the bubble or dew temperature,
+/// whose x it is given.
+pub(super) struct Span {
+    pub(super) lo: f64,
+    pub(super) hi: f64,
+    pub(super) ends: (Option<f64>, Option<f64>),
+    pub(super) liquid: bool,
+    pub(super) edge: Option<(f64, f64)>,
 }
 
-/// The single-phase state of x on `span` of the isobar at p ([`Strategy::Isobar`]): the root in T of x(T) − x
-/// ([`root_in_t`]), each iterate PT's density at (T, p) by its branch rule ([`pt_branch`]), seeded by the last
-/// iterate's ([`Walk`]). The acceptance gate: p and x reproduced, and unless a phase is imposed the state stable; then
-/// the domain, as PT's.
+/// The single-phase state of x on `span` of the isobar at p ([`Strategy::Isobar`]): Newton in (T, ln ρ)
+/// ([`newton_t_rho`]), else the root in T of x(T) − x ([`root_in_t`]), each iterate PT's density at (T, p) by its branch
+/// rule ([`pt_branch`]), seeded by the last iterate's ([`Walk`]). The acceptance gate: p and x reproduced, and unless a
+/// phase is imposed the state stable; then the domain, as PT's.
 fn isobar(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions, span: Span) -> Result<State, Error> {
     let eos = fluid.eos();
     let (r, m, key) = (eos.gas_constant(), fluid.info().molar_mass(), fluid.info().key());
+    if let Some(state) = newton_t_rho(fluid, p, x, var, opts, &span) {
+        return within_domain(fluid, state, opts);
+    }
     let (lo, hi, ends) = (span.lo, span.hi, (span.ends.0.map(|end| end - x), span.ends.1.map(|end| end - x)));
     let mut walk = Walk { fluid, p, opts, span, seed: f64::NAN };
     let residual = |t: f64| {
@@ -207,3 +215,109 @@ impl Walk<'_> {
         Ok((branch, rho))
     }
 }
+
+/// The single-phase state of x on `span` of the isobar at p by Newton in (T, ln ρ) on (p, x) (issue #143; CoolProp's
+/// `HSU_P_flash_singlephase_Newton`), one bundle an iterate, from the span's saturated end or else Peng and Robinson's
+/// (T, ρ) at (p, x) ([`cubic_seed`]); a step is shortened to at most 20 % in T and 0.5 in ln ρ. `None`, and
+/// [`isobar`]'s search answers, where a phase is imposed or it has no seed, an iterate leaves the span or the stable
+/// states, it does not converge, or the state it reaches is not PT's at its (p, T): outside that branch's densities,
+/// or failing the acceptance gate.
+fn newton_t_rho(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions, span: &Span) -> Option<State> {
+    if opts.phase_hint().is_some() {
+        return None;
+    }
+    let (r, m, key) = (fluid.eos().gas_constant(), fluid.info().molar_mass(), fluid.info().key());
+    let (mut t, rho) = span.edge.or_else(|| cubic_seed(fluid, p, x, var, span))?;
+    let mut u = math::ln(rho);
+    for iteration in 1..=NEWTON_ITER {
+        let rho = math::exp(u);
+        let b = total(fluid, t, rho).ok()?;
+        let (dp, dx) = (crate::relations::pressure(r, t, rho, &b) - p, var.at(r, t, &b) - x);
+        let (p_t, p_u) = (rho * r * (b.a01 - b.a11), rho * r * t * (2.0 * b.a01 + b.a02));
+        let (x_t, x_u) = var.jacobian(r, t, &b);
+        let det = p_t * x_u - p_u * x_t;
+        // An iterate where the model is mechanically unstable ends it: Peng and Robinson's seed can lie inside the
+        // model's spinodal near its critical point (R32 at 5.95 MPa and 351 K). A singular or non-finite step leaves T
+        // non-finite, which the span refuses below.
+        if p_u <= 0.0 {
+            return None;
+        }
+        let (step_t, step_u) = ((dx * p_u - dp * x_u) / det, (dp * x_t - dx * p_t) / det);
+        if (step_t / t).abs() <= NEWTON_TOL && step_u.abs() <= NEWTON_TOL {
+            return pt_state(fluid, (p, x, var), opts, span, (t, rho, &b)).map(|branch| {
+                let path = SolvePath { strategy: Strategy::TRhoNewton, iterations: iteration };
+                State::single(key, t, rho, r, m, branch.phase, &b, path).ok()
+            })?;
+        }
+        let shrink = (0.2 * t / step_t.abs()).min(0.5 / step_u.abs()).min(1.0);
+        (t, u) = (t + shrink * step_t, u + shrink * step_u);
+        if !(span.lo <= t && t <= span.hi) {
+            return None;
+        }
+    }
+    None
+}
+
+/// Iterations [`newton_t_rho`] may take.
+const NEWTON_ITER: u16 = 40;
+
+/// [`newton_t_rho`] has converged when its step in T is within this share of T and its step in ln ρ within this.
+const NEWTON_TOL: f64 = 1e-13;
+
+/// The branch of PT at (p, T) on the span's side, if the state (T, ρ) with total bundle `b` is that branch's and passes
+/// [`isobar`]'s acceptance gate: ρ within the branch's densities, p and x reproduced, the state stable.
+pub(super) fn pt_state(
+    fluid: &PureFluid,
+    (p, x, var): (f64, f64, Caloric),
+    opts: &FlashOptions,
+    span: &Span,
+    (t, rho, b): (f64, f64, &crate::derivs::Bundle),
+) -> Option<Branch> {
+    let r = fluid.eos().gas_constant();
+    let branch = match pt_branch(fluid, p, t, opts).ok()? {
+        Where::One(branch) => branch,
+        Where::Both { liquid, gas } => {
+            if span.liquid {
+                liquid
+            } else {
+                gas
+            }
+        }
+    };
+    let (lo, hi) = branch.bracket?;
+    let reproduced = crate::density::reproduces(r, t, rho, p, b) && reproduces_x(var, r, t, x, var.at(r, t, b));
+    (lo <= rho && rho <= hi && reproduced && accept(r, t, b).is_ok()).then_some(branch)
+}
+
+/// Peng and Robinson's (T, ρ) at (p, x) on `span` ([`Cubic`]): the T where the model's own ideal-gas x at (T, p) plus
+/// the cubic's departure is x, by Newton on a numerical slope kept within the span, from the critical temperature (the
+/// span's nearer end outside it). `None` without a critical point or an acentric factor, where the cubic has no root,
+/// where x falls as T rises, or where it does not converge.
+pub(super) fn cubic_seed(fluid: &PureFluid, p: f64, x: f64, var: Caloric, span: &Span) -> Option<(f64, f64)> {
+    let eos = fluid.eos();
+    let (r, crit) = (eos.gas_constant(), fluid.critical_point()?);
+    let cubic = Cubic::new(crit.t, crit.p, fluid.info().constants().acentric?, r);
+    let residual = |t: f64| -> Option<f64> {
+        let ideal = eos.ideal(t, p / (r * t), Order::Two).bundle()?;
+        Some(var.at(r, t, &ideal) + cubic.departure(var, t, p, cubic.density(t, p)?)? - x)
+    };
+    let mut t = crit.t.clamp(span.lo, span.hi);
+    for _ in 0..SEED_ITER {
+        let (at, beside) = (residual(t)?, residual(t * (1.0 + SEED_STEP))?);
+        let slope = (beside - at) / (t * SEED_STEP);
+        if slope <= 0.0 {
+            return None;
+        }
+        let next = (t - at / slope).clamp(span.lo, span.hi);
+        if (next / t - 1.0).abs() <= SEED_TOL {
+            return Some((next, cubic.density(next, p)?));
+        }
+        t = next;
+    }
+    None
+}
+
+/// [`cubic_seed`]'s iterations, its relative step in T for the slope, and the share of T its last step is within.
+const SEED_ITER: u16 = 30;
+const SEED_STEP: f64 = 1e-6;
+const SEED_TOL: f64 = 1e-6;
