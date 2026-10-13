@@ -1,0 +1,4 @@
+# The browser package's release .wasm (wasm32-unknown-unknown, before wasm-bindgen), baseline and simd128, in bytes:
+# its first green size, 1076570 (PLAN.md M10.8), + 10 % (`cargo xtask gates features`). Raise it only with a reason
+# written here.
+1184227

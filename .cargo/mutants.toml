@@ -32,6 +32,9 @@ exclude_globs = [
     # where the mutants job runs; the Windows runner runs their tests (`pk_exports_restore_the_callers_fp_environment`).
     "crates/phasekit-capi/src/fp/windows.rs",
     "crates/phasekit-capi/src/fp/none.rs",
+    # The browser package (PLAN.md M10.8): it compiles only for wasm32-unknown-unknown, never where the mutants job runs;
+    # the wasm-browser job runs its tests under Node.
+    "crates/phasekit-wasm/src/**",
 ]
 
 exclude_re = [

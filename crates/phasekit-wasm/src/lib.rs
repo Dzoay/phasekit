@@ -1,0 +1,178 @@
+//! `phasekit-wasm`: the browser package (PLAN.md M10.8; D11; E6, E7; map 11 U12, F23). wasm-bindgen over
+//! `phasekit-compat`, with the five core fluids embedded (E7) and more from packs a page fetches (`withPack`, E6).
+//!
+//! - [`Registry`]: `new Registry()`, `withPack(bytes)`, `withReference(fluid, state)`, `PropsSI(...)`, `fluid(name)`.
+//! - [`Fluid`]: `flash(name1, value1, name2, value2)`, the typed flash, and `evaluate(outputs, name1, values1, name2,
+//!   values2)`, the one batch: point-major `Float64Array` values (N × M) and a `Uint8Array` of cell codes.
+//! - Errors are JS `Error`s. JS's garbage collector never frees wasm memory, so `Registry` and `Fluid`, the handle
+//!   objects, are freed with `free()`; the `State` and `Batch` a call returns are values, freed the same way.
+//!
+//! Only the browser target has JavaScript; elsewhere the crate is empty.
+
+#![cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+
+use core::fmt::Display;
+
+use phasekit_compat as compat;
+use phasekit_core::batch::Status;
+use phasekit_core::{DataSet, FlashOptions, Pack};
+use wasm_bindgen::prelude::*;
+
+/// A JS `Error` with `e`'s message.
+fn js(e: impl Display) -> JsError {
+    JsError::new(&e.to_string())
+}
+
+/// A registry: the five core fluids, any fetched packs, any re-gauged fluids. A handle object: free it with `free()`.
+#[wasm_bindgen]
+pub struct Registry {
+    inner: phasekit_core::Registry,
+}
+
+#[wasm_bindgen]
+impl Registry {
+    /// The embedded fluids, CoolProp's data with the published corrections (user decision 2).
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<Registry, JsError> {
+        Ok(Registry { inner: phasekit_core::Registry::from_embedded(DataSet::Corrected).map_err(js)? })
+    }
+
+    /// A new registry that also serves the fluids of a pack (E6): its bytes as fetched. This one is unchanged.
+    #[wasm_bindgen(js_name = withPack)]
+    pub fn with_pack(&self, bytes: &[u8]) -> Result<Registry, JsError> {
+        let pack = Pack::new(bytes.into()).map_err(js)?;
+        Ok(Registry { inner: self.inner.with_source(Box::new(pack), DataSet::Corrected).map_err(js)? })
+    }
+
+    /// A new registry in which the fluid `fluid` names reports in the reference state named `reference`: CoolProp's
+    /// `IIR`, `ASHRAE`, `NBP`, or `DEF` (and `RESET`) for the model's own (E10). This one is unchanged.
+    #[wasm_bindgen(js_name = withReference)]
+    pub fn with_reference(&self, fluid: &str, reference: &str) -> Result<Registry, JsError> {
+        let state = compat::parse_reference_state(reference)
+            .ok_or_else(|| js(format!("`{reference}` is not IIR, ASHRAE, NBP, DEF or RESET")))?;
+        let name = compat::fluid_in(&self.inner, fluid).map_err(js)?.info().name().to_string();
+        Ok(Registry { inner: self.inner.with_reference(&name, state).map_err(js)? })
+    }
+
+    /// CoolProp's `PropsSI(output, name1, value1, name2, value2, fluid)`: the compat strings' keys and checks.
+    #[wasm_bindgen(js_name = PropsSI)]
+    pub fn props_si(
+        &self,
+        output: &str,
+        name1: &str,
+        value1: f64,
+        name2: &str,
+        value2: f64,
+        fluid: &str,
+    ) -> Result<f64, JsError> {
+        compat::props_si_in(&self.inner, output, name1, value1, name2, value2, fluid).map_err(js)
+    }
+
+    /// The fluid a fluid string names (a name, alias or CAS number). A handle object: free it with `free()`.
+    pub fn fluid(&self, name: &str) -> Result<Fluid, JsError> {
+        Ok(Fluid { inner: compat::fluid_in(&self.inner, name).map_err(js)?.clone() })
+    }
+}
+
+/// One fluid of a registry. A handle object: free it with `free()`.
+#[wasm_bindgen]
+pub struct Fluid {
+    inner: phasekit_core::Fluid,
+}
+
+#[wasm_bindgen]
+impl Fluid {
+    /// Its canonical name.
+    #[wasm_bindgen(getter)]
+    pub fn name(&self) -> String {
+        self.inner.info().name().to_string()
+    }
+
+    /// The typed flash: the state at the values of two input keys, in either order as `PropsSI`'s.
+    pub fn flash(&self, name1: &str, value1: f64, name2: &str, value2: f64) -> Result<State, JsError> {
+        let state =
+            compat::flash_si(&self.inner, (name1, value1), (name2, value2), &FlashOptions::new()).map_err(js)?;
+        Ok(State { fluid: self.inner.clone(), state })
+    }
+
+    /// The batch (map 11 F23): N points of the pair two input keys name, at `values1[i]` and `values2[i]`; output `k`
+    /// of point `i`, of the output key `outputs[k]`, is `values[i * M + k]`, with its cell code at `status[i * M + k]`.
+    /// A failed cell is NaN with its code; a bad key or a length mismatch refuses the whole call.
+    pub fn evaluate(
+        &self,
+        outputs: Vec<String>,
+        name1: &str,
+        values1: &[f64],
+        name2: &str,
+        values2: &[f64],
+    ) -> Result<Batch, JsError> {
+        let keys: Vec<&str> = outputs.iter().map(String::as_str).collect();
+        let cells = values1.len().checked_mul(keys.len()).ok_or_else(|| js("the batch has too many cells"))?;
+        let (mut values, mut cell) = (vec![0.0; cells], vec![Status::Ok; cells]);
+        compat::batch_si(&self.inner, &keys, (name1, values1), (name2, values2), &mut values, &mut cell).map_err(js)?;
+        Ok(Batch { values, status: cell.into_iter().map(compat::status_code).collect(), outputs: keys.len() })
+    }
+}
+
+/// A state of a fluid, from [`Fluid::flash`].
+#[wasm_bindgen]
+pub struct State {
+    fluid: phasekit_core::Fluid,
+    state: phasekit_core::State,
+}
+
+#[wasm_bindgen]
+impl State {
+    /// Its temperature, K.
+    #[wasm_bindgen(getter, js_name = T)]
+    pub fn t(&self) -> f64 {
+        self.state.t()
+    }
+
+    /// Its pressure, Pa.
+    #[wasm_bindgen(getter, js_name = P)]
+    pub fn p(&self) -> f64 {
+        self.state.p()
+    }
+
+    /// Its phase, as CoolProp's `PhaseSI` names it.
+    #[wasm_bindgen(getter)]
+    pub fn phase(&self) -> String {
+        compat::phase_name(self.state.phase()).to_string()
+    }
+
+    /// Any `PropsSI` output key at this state.
+    pub fn get(&self, output: &str) -> Result<f64, JsError> {
+        compat::output_at(&self.fluid, &self.state, output).map_err(js)
+    }
+}
+
+/// A batch's result, from [`Fluid::evaluate`].
+#[wasm_bindgen]
+pub struct Batch {
+    values: Vec<f64>,
+    status: Vec<u8>,
+    outputs: usize,
+}
+
+#[wasm_bindgen]
+impl Batch {
+    /// The values, point-major (N × M), as a `Float64Array`.
+    #[wasm_bindgen(getter)]
+    pub fn values(&self) -> Vec<f64> {
+        self.values.clone()
+    }
+
+    /// Each cell's code, as a `Uint8Array`: 0 for success, 1 for a flagged extrapolation, then the failures, as the C
+    /// batch's `PK_*` codes number them.
+    #[wasm_bindgen(getter)]
+    pub fn status(&self) -> Vec<u8> {
+        self.status.clone()
+    }
+
+    /// M, the outputs per point.
+    #[wasm_bindgen(getter)]
+    pub fn outputs(&self) -> usize {
+        self.outputs
+    }
+}
