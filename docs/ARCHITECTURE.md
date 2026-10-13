@@ -460,7 +460,7 @@ its libm/std median-time ratios over six scalar benches (α^r order 2, propertie
 the §12 bench fluids) is ≤ 1.05 with none above 1.10. Bit-identity holds (`fixtures/hash/libm.txt`, asserted on all
 four targets). The cost does not, on the laptop (user decision RM2; criterion medians, three interleaved rounds, 2026-10-13):
 `libm` is 1.44 times std (glibc) in geometric mean, from 1.35 (properties at (T, ρ)) to 1.53 (PH) per bench and 1.20 to
-2.04 per fluid, Water's non-analytic `powf` the dearest.
+2.04 per fluid, Water the dearest.
 With `libm`, results are the same bits on every target; without it, each target's maths library gives its own
 (VERIFICATION.md §5's classes absorb the difference). *Rejected:* an
 error type per layer (the winner had four); a NaN mode in core (P9); bit-exact oracle parity (K18); stating libm
