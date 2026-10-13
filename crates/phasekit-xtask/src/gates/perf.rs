@@ -97,10 +97,9 @@ pub fn baseline_file(counts: &[(String, u64)]) -> String {
     header.to_string() + &rows.iter().map(|r| format!("{r}\n")).collect::<String>()
 }
 
-/// Checks `counts` against `baseline`: each within 5 % above its row, every row run, every count baselined.
-pub fn check(baseline: &str, counts: &[(String, u64)]) -> Verdict {
-    let mut rows = Vec::new();
-    let mut errors = Vec::new();
+/// The rows of a baseline file, each `bench,instructions` with a positive count; a malformed row is an error.
+fn baseline_rows(baseline: &str) -> (Vec<(&str, u64)>, Vec<String>) {
+    let (mut rows, mut errors) = (Vec::new(), Vec::new());
     for line in baseline.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
         match line.split_once(',').map(|(id, ir)| (id, ir.trim().parse::<u64>())) {
             Some((id, Ok(ir))) if ir > 0 => rows.push((id, ir)),
@@ -110,6 +109,12 @@ pub fn check(baseline: &str, counts: &[(String, u64)]) -> Verdict {
     if rows.is_empty() && errors.is_empty() {
         errors.push(format!("{BASELINE} has no rows"));
     }
+    (rows, errors)
+}
+
+/// Checks `counts` against `baseline`: each within 5 % above its row, every row run, every count baselined.
+pub fn check(baseline: &str, counts: &[(String, u64)]) -> Verdict {
+    let (rows, mut errors) = baseline_rows(baseline);
     let mut largest = (f64::NEG_INFINITY, String::new());
     let mut faster = Vec::new();
     for (id, ir) in counts {
@@ -117,40 +122,46 @@ pub fn check(baseline: &str, counts: &[(String, u64)]) -> Verdict {
             errors.push(format!("{id}: no baseline row ({ir} instructions)"));
             continue;
         };
-        let change = *ir as f64 / base as f64 - 1.0;
-        if u128::from(*ir) * 100 > u128::from(base) * (100 + LIMIT_PERCENT) {
+        let (scaled, change) = (u128::from(*ir) * 100, *ir as f64 / base as f64 - 1.0);
+        if scaled > u128::from(base) * (100 + LIMIT_PERCENT) {
             errors.push(format!(
                 "{id}: {ir} instructions, {:+.1} % over the baseline's {base} (limit +5 %)",
                 100.0 * change
             ));
-        } else if u128::from(*ir) * 100 < u128::from(base) * (100 - LIMIT_PERCENT) {
+        } else if scaled < u128::from(base) * (100 - LIMIT_PERCENT) {
             faster.push(format!("{id} {:+.1} %", 100.0 * change));
         }
         if change > largest.0 {
             largest = (change, id.clone());
         }
     }
-    for (id, _) in rows.iter().filter(|(row, _)| !counts.iter().any(|(id, _)| id == row)) {
-        errors.push(format!("{id}: in the baseline but not run"));
-    }
+    let unrun = rows.iter().filter(|(row, _)| !counts.iter().any(|(id, _)| id == row));
+    errors.extend(unrun.map(|(id, _)| format!("{id}: in the baseline but not run")));
     if !errors.is_empty() {
         return Err(errors);
     }
     let note = if faster.is_empty() { String::new() } else { format!("; more than 5 % fewer: {}", faster.join(", ")) };
+    let (change, id) = largest;
     Ok(format!(
-        "{} benchmarks within +5 % of the baseline, the largest change {:+.1} % ({}){note}",
+        "{} benchmarks within +5 % of the baseline, the largest change {:+.1} % ({id}){note}",
         counts.len(),
-        100.0 * largest.0,
-        largest.1
+        100.0 * change
     ))
 }
 
-/// Checks a criterion results file (`date,commit,step,bench,fluid,median,unit,...`) against [`TARGETS`]: each matching
-/// row's median at or under its target, or exempted by an `exemptions` line `<bench> <fluid|*> issue #N: <reason>`. An
-/// exemption that matches no miss fails too, so the list cannot go stale.
-pub fn check_targets(results: &str, exemptions: &str) -> Verdict {
-    let mut errors = Vec::new();
-    let mut exempt = Vec::new();
+/// One results row against [`TARGETS`] and the exemptions (bench, fluid or `*`, used).
+enum Judged {
+    /// No target applies.
+    Untargeted,
+    Met,
+    /// Over its target, and an exemption covers it.
+    Exempted,
+    Failed(String),
+}
+
+/// The exemption lines `<bench> <fluid|*> issue #N: <reason>`, each unused so far; a malformed line is an error.
+fn exemption_lines(exemptions: &str) -> (Vec<(&str, &str, bool)>, Vec<String>) {
+    let (mut exempt, mut errors) = (Vec::new(), Vec::new());
     for line in exemptions.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
         let mut fields = line.splitn(3, ' ');
         match (fields.next(), fields.next(), fields.next()) {
@@ -160,38 +171,53 @@ pub fn check_targets(results: &str, exemptions: &str) -> Verdict {
             _ => errors.push(format!("{EXEMPTIONS}: not `<bench> <fluid|*> issue #N: <reason>`: {line}")),
         }
     }
+    (exempt, errors)
+}
+
+/// One results row (`date,commit,step,bench,fluid,median,unit,...`) judged, marking the exemption it uses.
+fn judge(line: &str, exempt: &mut [(&str, &str, bool)]) -> Judged {
+    let cells: Vec<&str> = line.split(',').collect();
+    let (Some(&bench), Some(&fluid), Some(median), Some(&unit)) =
+        (cells.get(3), cells.get(4), cells.get(5), cells.get(6))
+    else {
+        return Judged::Failed(format!("not a results row: {line}"));
+    };
+    let Some(&(_, _, target, label)) = TARGETS.iter().find(|(b, f, ..)| *b == bench && f.is_none_or(|f| f == fluid))
+    else {
+        return Judged::Untargeted;
+    };
+    match median.parse::<f64>() {
+        Err(_) => Judged::Failed(format!("{bench} {fluid}: median {median} is not a number")),
+        Ok(_) if unit != "ns" => Judged::Failed(format!("{bench} {fluid}: unit {unit}, not ns")),
+        Ok(ns) if ns <= target => Judged::Met,
+        Ok(ns) => match exempt.iter_mut().find(|(b, f, _)| *b == bench && (*f == "*" || *f == fluid)) {
+            Some(e) => {
+                e.2 = true;
+                Judged::Exempted
+            }
+            None => {
+                Judged::Failed(format!("{bench} {fluid}: {ns:.1} ns over §7's {label} ({target} ns) and not exempted"))
+            }
+        },
+    }
+}
+
+/// Checks a criterion results file (`date,commit,step,bench,fluid,median,unit,...`) against [`TARGETS`]: each matching
+/// row's median at or under its target, or exempted by an `exemptions` line `<bench> <fluid|*> issue #N: <reason>`. An
+/// exemption that matches no miss fails too, so the list cannot go stale.
+pub fn check_targets(results: &str, exemptions: &str) -> Verdict {
+    let (mut exempt, mut errors) = exemption_lines(exemptions);
     let (mut met, mut missed) = (0, 0);
     for line in results.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
-        let cells: Vec<&str> = line.split(',').collect();
-        let (Some(bench), Some(fluid), Some(median), Some(unit)) =
-            (cells.get(3), cells.get(4), cells.get(5), cells.get(6))
-        else {
-            errors.push(format!("not a results row: {line}"));
-            continue;
-        };
-        let Some(&(_, _, target, label)) =
-            TARGETS.iter().find(|(b, f, ..)| b == bench && f.is_none_or(|f| f == *fluid))
-        else {
-            continue;
-        };
-        let Ok(ns) = median.parse::<f64>() else {
-            errors.push(format!("{bench} {fluid}: median {median} is not a number"));
-            continue;
-        };
-        if *unit != "ns" {
-            errors.push(format!("{bench} {fluid}: unit {unit}, not ns"));
-        } else if ns <= target {
-            met += 1;
-        } else if let Some(e) = exempt.iter_mut().find(|(b, f, _)| b == bench && (*f == "*" || f == fluid)) {
-            e.2 = true;
-            missed += 1;
-        } else {
-            errors.push(format!("{bench} {fluid}: {ns:.1} ns over §7's {label} ({target} ns) and not exempted"));
+        match judge(line, &mut exempt) {
+            Judged::Untargeted => {}
+            Judged::Met => met += 1,
+            Judged::Exempted => missed += 1,
+            Judged::Failed(error) => errors.push(error),
         }
     }
-    for (bench, fluid, _) in exempt.iter().filter(|(.., used)| !used) {
-        errors.push(format!("{EXEMPTIONS}: {bench} {fluid} matches no miss: remove it"));
-    }
+    let stale = exempt.iter().filter(|(.., used)| !used);
+    errors.extend(stale.map(|(bench, fluid, _)| format!("{EXEMPTIONS}: {bench} {fluid} matches no miss: remove it")));
     if met + missed == 0 && errors.is_empty() {
         errors.push("no results row has a §7 target".into());
     }
