@@ -261,7 +261,7 @@ mod tests {
             z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
             z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
             z ^= z >> 31;
-            xs.push(if xs.len() % 2 == 0 {
+            xs.push(if xs.len().is_multiple_of(2) {
                 f64::from_bits(z)
             } else {
                 (z >> 11) as f64 / (1u64 << 53) as f64 * 1600.0 - 800.0

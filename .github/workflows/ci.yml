@@ -53,6 +53,8 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: G7 cargo clippy -p phasekit-core -p phasekit-compat --no-default-features --all-targets -- -D warnings
         run: cargo clippy -p phasekit-core -p phasekit-compat --no-default-features --all-targets -- -D warnings
+      - name: clippy on the libm backend (PLAN.md M9.3)
+        run: cargo clippy -p phasekit-core --features libm --all-targets -- -D warnings
 
   linux:
     name: linux

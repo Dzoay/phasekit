@@ -761,7 +761,7 @@ required check on `main`. They pin GitHub's own actions by commit, install the t
 
 | Workflow: job | Runner | Runs |
 |---|---|---|
-| `ci`: `fmt`, `clippy` | Linux | G1; G2 and G7 |
+| `ci`: `fmt`, `clippy` | Linux | G1; G2 and G7, and clippy on `phasekit-core --features libm` (M9.3) |
 | `ci`: `linux` | Linux | G3 and the doctests; `phasekit-core`'s tests with `--features libm` (M9.3); G8 as `gates all --except mutants`; `cargo deny check`, `cargo shear`, `reuse lint`; on a PR that changes data, `cargo xtask fluid diff --base origin/main` in the job summary |
 | `ci`: `mutants (shard k of 4)`, `mutants` | Linux | G8's `gates mutants --shard k/4` in four jobs beside `linux` (user decisions CI2, CI6); `mutants`, the required check, passes only when all four do |
 | `ci`: `msrv` | Linux | G3 and the doctests on the workspace `rust-version` (user decision MS1) |
