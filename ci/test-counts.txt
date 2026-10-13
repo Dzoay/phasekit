@@ -9,7 +9,7 @@ x86_64-unknown-linux-gnu phasekit-verify::gibbs_seam 3
 x86_64-unknown-linux-gnu phasekit-verify::lazy_load 13
 x86_64-unknown-linux-gnu phasekit-verify::new_family 10
 x86_64-unknown-linux-gnu phasekit-verify::register 12
-x86_64-unknown-linux-gnu phasekit-xtask::main 126
+x86_64-unknown-linux-gnu phasekit-xtask::main 127
 x86_64-unknown-linux-gnu phasekit-core::doc 2
 wasm32-wasip2 phasekit-core::lib 222
 wasm32-wasip2 phasekit-verify::lib 58
