@@ -644,6 +644,22 @@ mod tests {
         assert!((carried(P, Dmolar, T) / want - 1.0).abs() < 1e-3, "{} against {want}", carried(P, Dmolar, T));
     }
 
+    /// M10.3: `carried_second_partial` is the order-3 carry at the record's own scales, [`Majorants`]' sums: at Water's
+    /// (700 K, 5 000 mol/m³), (∂²p/∂T²)_ρ carries (ρR/T)·M21 to the differences' rounding.
+    #[test]
+    fn carried_second_partial_carries_the_records_scales() {
+        use DerivVar::{Dmolar, P, T};
+        let (state, record, _) = water();
+        let (r, m, t, rho) = (record.eos.gas_constant, record.molar_mass, state.t(), state.rho(Basis::Molar));
+        let registry = phasekit_core::Registry::from_embedded(phasekit_core::DataSet::Parity).unwrap();
+        let eos = registry.get("Water").unwrap().model().helmholtz().unwrap();
+        let ideal = IdealScale::new(&record).unwrap();
+        let p = SecondPartial { first: Partial { of: P, wrt: T, at: Dmolar }, wrt: T, at: Dmolar };
+        let got = carried_second_partial(p, eos, (&record, &ideal), [r, t, rho, m]);
+        let want = rho * r / t * order_three_scales(&record, &ideal, t, rho).get(2, 1).unwrap();
+        assert!((got / want - 1.0).abs() < 1e-3, "{got} against {want}");
+    }
+
     /// TC1: the carried scale of a partial linear in the bundle is exact. (∂p/∂T)_ρ = ρR(1 + A01 − A11) and (∂p/∂ρ)_T =
     /// RT(1 + 2A01 + A02), so with the scales M01 = 3, M11 = 5, M02 = 6 they carry ρR(3 + 5) and RT(2·3 + 6); the
     /// central differences' rounding is within 1e-3 of that.
