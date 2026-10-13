@@ -7,7 +7,7 @@
 use core::ops::{Add, Div, Mul, Neg, Sub};
 
 use super::{Real, math, sealed};
-use crate::derivs::{Derivs, Order, SLOTS, idx};
+use crate::derivs::{Derivs, Order, idx};
 
 /// `n!` for n ≤ 4.
 const FACTORIAL: [f64; 5] = [1.0, 1.0, 2.0, 6.0, 24.0];
@@ -44,7 +44,10 @@ const PRODUCT: [(u8, u8, u8); 70] = {
 /// `$triples` entries of [`PRODUCT`]. Every order runs this one code, so a shorter jet's entries are the longer one's
 /// bits.
 macro_rules! jet {
-    ($(#[$meta:meta])* $vis:vis struct $name:ident: $order:expr, $ord:literal, $slots:literal, $triples:literal) => {
+    (
+        $(#[$meta:meta])* $vis:vis struct $name:ident: $order:expr, $ord:literal, $slots:literal, $triples:literal
+        $(; $(#[$imeta:meta])+)?
+    ) => {
         $(#[$meta])*
         #[derive(Clone, Copy, Debug, PartialEq)]
         $vis struct $name {
@@ -52,6 +55,7 @@ macro_rules! jet {
             c: [f64; $slots],
         }
 
+        $($(#[$imeta])+)?
         impl $name {
             /// A constant.
             pub const fn constant(value: f64) -> Self {
@@ -277,12 +281,14 @@ jet! {
 jet! {
     /// [`Jet4`] truncated at total order 2 (PLAN.md M9.2a): the NonAnalytic block's jet for bundles of order ≤ 2, its 6
     /// entries bitwise `Jet4`'s of order ≤ 2.
-    pub(crate) struct Jet2: Order::Two, 2, 6, 15
+    pub(crate) struct Jet2: Order::Two, 2, 6, 15;
+    #[allow(dead_code, reason = "`Jet4`'s inherent API, generated for both: the core reads `Jet2` through `Real`")]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::derivs::SLOTS;
 
     /// x³ at x = 2 along τ: 8, 12, 12, 6, 0; along a mixed variable τδ at (2, 3): ∂τ∂δ(τδ)³ = 9τ²δ² = 324.
     #[test]
