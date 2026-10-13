@@ -408,24 +408,8 @@ with per-segment domains; two-phase transport refused (D7 transport section, map
 | M8.6 | Staged conductivity and Olchowy-Sengers |
 | M8.7 | IAPWS water and heavy water |
 | M8.8 | ECS |
+| M8.9 | rhosr-CS, Chung, other hard-coded models |
 
-- **M8.9 rhosr-CS, Chung, other hard-coded models.** *Failing tests:* `hardcoded_models_match_their_paper_tables`
-  then `hardcoded_models_match_oracle`, one case per model of map 05 U9 (rho*sr-CS; the Chung LJ estimate) and U10
-  (xylenes and cyclohexane, Shan R23, Friend Ω22, Huber 2016 CO₂, the R123 critical term; Helium oracle-only, map 05
-  says no paper can arbitrate it; Ammonia defect-flagged); `ammonia_lambda_is_finite_near_405_4_k`
-  (map 05 R3: the oracle gives 6.26 W/m/K at 405.3999 K, 50 kg/m³ and NaN at 405.4 K);
-  `rhosr_critical_matches_the_eos` (map 05 R4: R1234yf's stored −54468.48 vs −54095.50 from the current EOS);
-  `ecs_lj_parameters_come_from_the_ecs_record` (map 05 R17). *Do:* `x_crossover` read or refused; the Chung LJ fill
-  becomes a typed, named choice in the record (`LjSource::{Model, Chung}`), never silent. **New entries:** Ammonia λ,
-  `SkipOracle`, exempt `transport` `lambda` rows with |T − 405.4 K| < 1 K *(inference: band width set from the
-  measured divergence when the step runs)*, replacing check: finite and continuous across 405.4 K; the Corrected model
-  (Monogenidou 2018 or a bounded term) waits for the paper check (map 05 Q3). R1234yf `rhosr_critical`,
-  `Investigate`, Parity keeps the stored value. R124, R22, R245fa, R32 ECS λ with Chung LJ, `Investigate` pending
-  Huber 2003 and McLinden 2000. *Carried from M8.5, M8.6 and M8.8:* the 9 fluids whose viscosity has a hard-coded
-  stage (Benzene, CarbonDioxide, CycloHexane, Ethane, Hydrogen, ParaHydrogen, Toluene, n-Heptane, n-Hexane), the 20
-  whose conductivity has a hard-coded stage or reads an η not yet evaluated, and the 9 arbiter rows outside the EOS's
-  range but inside the correlation's (CO₂ at 100 and 10 000 K, Methanol at 630 K, the xylenes above p_max; flashed
-  under `DomainPolicy::Extrapolate`). *Done when:* green or registered.
 - **M8.10 Two-phase and missing models.** *Failing tests:* `two_phase_transport_is_undefined` (the DIV-0004 η, λ part:
   oracle Water η(500 K, Q = 0.5) = 1.6048e-5 is not asserted), `r1233zd_e_viscosity_is_no_model` (DIV-0009 stays
   `Investigate`; v8.0.0 data has no model). *Done when:* green.
@@ -447,8 +431,7 @@ bound (DIV-0021, DIV-0022), stage by stage where staged, but for the rows that w
 `TransportDirect` and `TransportEcs` where it converges, outside registered exemptions; DIV-0002 three-part proof;
 DIV-0004 (η, λ) refusal; DIV-0009 recorded; the new q_D, Ammonia, R1234yf, ECS-LJ and Hydrogen entries proved;
 thermo-only workloads read 0 transport sections.
-**ROT rows.** M8.9: ROT-111, ROT-112, ROT-113. M8.10: ROT-010
-(transport part), ROT-120. M8.11: ROT-036, ROT-048, ROT-049, ROT-051.
+**ROT rows.** M8.10: ROT-010 (transport part), ROT-120. M8.11: ROT-036, ROT-048, ROT-049, ROT-051.
 **User decisions implemented.** 2 (DIV-0002 applied by default), 6 (σ and melting fits not extrapolated).
 
 ### M9 Parallel batches, `libm` and performance gates

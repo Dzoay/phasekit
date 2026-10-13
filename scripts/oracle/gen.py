@@ -133,6 +133,34 @@ FACTS = {
         ("div0024_lambda_methane_t100", "PropsSI", ("L", "T", 100, "Dmolar", 28800, "Methane")),
         ("div0025_lambda_npentane_t460", "PropsSI", ("L", "T", 460, "Dmass", 377.687, "n-Pentane")),
         ("div0025_eta_npentane_t460", "PropsSI", ("V", "T", 460, "Dmass", 377.687, "n-Pentane")),
+        # CoolProp at M8.9's check rows (DIV-0027: o-xylene's Table 6 against its Eq. (12); DIV-0030: Ammonia's Tufeu
+        # term at its own Tc; DIV-0031: the papers' own correlations; DIV-0032: the viscosity the critical term reads;
+        # DIV-0033: Friend's ethane; DIV-0034: the papers not obtained; DIV-0035: Helium's critical term, NaN in two
+        # lobes either side of its critical isochore).
+        ("div0027_lambda_oxylene_t300", "PropsSI", ("L", "T", 300, "Dmass", 1e-12, "o-Xylene")),
+        ("div0030_lambda_ammonia_t405.3999_rho50", "PropsSI", ("L", "T", 405.3999, "Dmass", 50, "Ammonia")),
+        ("div0030_lambda_ammonia_t405.4_rho50", "PropsSI", ("L", "T", 405.4, "Dmass", 50, "Ammonia")),
+        ("div0031_eta_benzene_t300", "PropsSI", ("V", "T", 300, "Dmass", 875, "Benzene")),
+        ("div0031_eta_heptane_t250", "PropsSI", ("V", "T", 250, "Dmass", 720, "n-Heptane")),
+        ("div0031_eta_methanol_t300", "PropsSI", ("V", "T", 300, "Dmass", 788.41, "Methanol")),
+        ("div0032_lambda_cyclopentane_t512", "PropsSI", ("L", "T", 512, "Dmass", 400, "Cyclopentane")),
+        ("div0032_eta_cyclopentane_t512", "PropsSI", ("V", "T", 512, "Dmass", 400, "Cyclopentane")),
+        ("div0032_lambda_isopentane_t460", "PropsSI", ("L", "T", 460, "Dmass", 329.914, "Isopentane")),
+        ("div0032_eta_isopentane_t460", "PropsSI", ("V", "T", 460, "Dmass", 329.914, "Isopentane")),
+        ("div0032_lambda_heptane_t535", "PropsSI", ("L", "T", 535, "Dmass", 100, "n-Heptane")),
+        ("div0032_eta_heptane_t535", "PropsSI", ("V", "T", 535, "Dmass", 100, "n-Heptane")),
+        ("div0032_lambda_hexane_t400", "PropsSI", ("L", "T", 400, "Dmass", 650, "n-Hexane")),
+        ("div0033_eta_ethane_t100", "PropsSI", ("V", "T", 100, "Dmolar", 21330, "Ethane")),
+        ("div0033_lambda_ethane_t440", "PropsSI", ("L", "T", 440, "Dmolar", 1520, "Ethane")),
+        ("div0034_eta_r23_t180", "PropsSI", ("V", "T", 180, "Dmolar", 21097, "R23")),
+        ("div0034_eta_co2_t300", "PropsSI", ("V", "T", 300, "Dmass", 1400, "CarbonDioxide")),
+        ("div0034_lambda_r123_t180", "PropsSI", ("L", "T", 180, "Dmass", 0.002873, "R123")),
+        ("div0035_lambda_helium_t5.5_rho17000", "AbstractState",
+         ("HEOS", "Helium", "DmolarT_INPUTS", 17000, 5.5, "conductivity")),
+        ("div0035_lambda_helium_t5.5_rho18000", "AbstractState",
+         ("HEOS", "Helium", "DmolarT_INPUTS", 18000, 5.5, "conductivity")),
+        ("div0035_lambda_helium_t5.9_rho15000", "AbstractState",
+         ("HEOS", "Helium", "DmolarT_INPUTS", 15000, 5.9, "conductivity")),
     ],
 }
 
@@ -1129,7 +1157,10 @@ def transport_line(state, t, rho, phase, models, floats, lines):
 # Fixed DT states for the branches no random state reaches (`--set probes`, M8.6), (T, rho in mol/m3) per fluid.
 # Friend's methane conductivity reads the saturated vapour's density in the vapour below the critical point, and
 # picks its chi_T* by Eq. 26 (rho* = 1 - rho/10139 = 0), Eq. 23 (|rho*| < 0.03) or Eq. 19a within |T*| < 0.03 of
-# 190.55 K; a liquid and a supercritical state close the set. Every state is single phase.
+# 190.55 K; a liquid and a supercritical state close the set. Helium's conductivity has a critical term for
+# 3.5 < T < 12 K (M8.9): seven states blend the scaled equation's kappa_T (W <= 1) outside and between the two lobes
+# where the blend is negative (DIV-0035), four use kappa_T alone (W > 1), and two sit on 3.5 and 12 K, where the term
+# is off. Every state is single phase.
 TRANSPORT_PROBES = {
     "Methane": [
         (120.0, 20.0), (150.0, 400.0), (170.0, 1500.0), (185.0, 4986.0),
@@ -1137,6 +1168,11 @@ TRANSPORT_PROBES = {
         (191.0, 10000.0), (192.0, 10350.0), (195.0, 9900.0),
         (191.0, 9000.0), (194.0, 11500.0),
         (100.0, 28000.0), (300.0, 5000.0),
+    ],
+    "Helium": [
+        (5.3, 15000.0), (6.0, 19000.0), (5.4, 21000.0), (5.8, 14500.0), (5.8, 20500.0), (6.1, 17278.0), (5.5, 17300.0),
+        (5.6, 12500.0), (8.0, 10000.0), (4.5, 1500.0), (4.0, 33000.0),
+        (3.5, 1000.0), (12.0, 17000.0),
     ],
 }
 

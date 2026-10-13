@@ -11,7 +11,7 @@
 use core::any::Any;
 
 use super::conductivity::{olchowy_sengers, residual};
-use super::viscosity::{TransportInputs, ViscosityStages, kinetic_theory, lennard_jones, stages, sum};
+use super::viscosity::{TransportInputs, ViscosityStages, kinetic_theory, stages, sum};
 use super::{
     ConductivityModel, ConductivityStages, EcsConductivity, EcsViscosity, LennardJones, OlchowySengers, ViscosityModel,
 };
@@ -123,8 +123,8 @@ fn reference_state(reference: &PureFluid, conformal: Conformal, rho: f64) -> Res
 }
 
 /// The kinetic-theory dilute viscosity of the target, Pa s, from the viscosity block's Lennard-Jones parameters.
-fn eta_dilute(lj: Option<LennardJones>, x: &TransportInputs<'_>) -> Result<f64, Error> {
-    Ok(kinetic_theory(lennard_jones(lj)?, x.molar_mass(), x.t()))
+fn eta_dilute(lj: LennardJones, x: &TransportInputs<'_>) -> f64 {
+    kinetic_theory(lj, x.molar_mass(), x.t())
 }
 
 /// ECS viscosity at `x` (`TransportRoutines.cpp:1203-1264`): η = η₀ + η_ref(T₀, ρ₀ ψ) F_η with the reference's
@@ -132,13 +132,13 @@ fn eta_dilute(lj: Option<LennardJones>, x: &TransportInputs<'_>) -> Result<f64, 
 /// target's kinetic-theory term; the reference's terms scale by F_η.
 pub(crate) fn viscosity(
     ecs: &EcsViscosity,
-    lj: Option<LennardJones>,
+    lj: LennardJones,
     x: &TransportInputs<'_>,
     references: &[Fluid],
 ) -> Result<ViscosityStages, Error> {
     let reference = reference(references, &ecs.reference)?;
     let psi = psi(&ecs.psi, ecs.psi_rho_r, x);
-    let dilute = eta_dilute(lj, x)?;
+    let dilute = eta_dilute(lj, x);
     let conformal = conformal_state(x, reference)?;
     let state = reference_state(reference, conformal, conformal.rho * psi)?;
     let transport = reference.transport()?;
@@ -149,7 +149,7 @@ pub(crate) fn viscosity(
         );
     };
     let inputs = TransportInputs::new(&state, reference.info().molar_mass(), reference.eos());
-    let background = stages(staged, own.lennard_jones, &inputs)?;
+    let background = stages(staged, own.lennard_jones.parameters(), &inputs)?;
     let (f, h) = (x.t() / conformal.t, conformal.rho / x.rho());
     let f_eta = math::sqrt(f) * math::powf(h, -2.0 / 3.0) * math::sqrt(x.molar_mass() / reference.info().molar_mass());
     Ok(ViscosityStages {
@@ -166,7 +166,6 @@ pub(crate) fn viscosity(
 /// defaults but the record's q_D (map 05 R2) and the fluid's own η, `eta`.
 pub(crate) fn conductivity(
     ecs: &EcsConductivity,
-    lj: Option<LennardJones>,
     x: &TransportInputs<'_>,
     eta: &Result<ViscosityStages, Error>,
     references: &[Fluid],
@@ -174,7 +173,7 @@ pub(crate) fn conductivity(
     let reference = reference(references, &ecs.reference)?;
     let psi = psi(&ecs.psi, ecs.psi_rho_r, x);
     let f_int = sum(&ecs.f_int, x.t() / ecs.f_int_t_r);
-    let eta_star = eta_dilute(lj, x)? * 1e6;
+    let eta_star = eta_dilute(ecs.lennard_jones.parameters(), x) * 1e6;
     let m = x.molar_mass();
     let r = x.gas_constant() / m;
     let cp0 = x.cp0() / m;

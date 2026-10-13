@@ -23,8 +23,8 @@ use phasekit_core::internal::{
     BatschinskiHildebrand, Chung, Conductivity, ConductivityCritical, ConductivityDilute, ConductivityModel,
     ConductivityResidual, EcsConductivity, EcsViscosity, FrictionCubic, FrictionSecond, FrictionTheory, FriendMethane,
     HardcodedConductivity, HardcodedCriticalConductivity, HardcodedDiluteConductivity, HardcodedDiluteViscosity,
-    HardcodedHigherViscosity, HardcodedViscosity, Kappa, LennardJones, MAX_POW, OlchowySengers, Reducing, RhoSrCs,
-    Series, StagedConductivity, StagedViscosity, SurfaceTension, TransportRecord, Viscosity, ViscosityDilute,
+    HardcodedHigherViscosity, HardcodedViscosity, Kappa, LennardJones, LjSource, MAX_POW, OlchowySengers, Reducing,
+    RhoSrCs, Series, StagedConductivity, StagedViscosity, SurfaceTension, TransportRecord, Viscosity, ViscosityDilute,
     ViscosityHigher, ViscosityInitial, ViscosityModel,
 };
 use phasekit_core::{DataTerms, Source};
@@ -212,14 +212,16 @@ pub fn record(file: &str, transport: Option<&Value>, from: &FromFluid) -> Result
     let Some(transport) = transport else { return Ok(record) };
     let mut b = Block::new(file, "TRANSPORT".into(), transport)?;
     if b.has("viscosity") {
-        record.viscosity = Some(viscosity(active(file, b.get("viscosity")?)?)?);
+        record.viscosity = Some(viscosity(active(file, b.get("viscosity")?)?, from)?);
     }
     if b.has("conductivity") {
         let entry = b.get("conductivity")?;
         if entry.is_array() {
             return Err("TRANSPORT.conductivity is a list; v8.0.0 has one conductivity model per fluid".into());
         }
-        record.conductivity = Some(conductivity(Block::new(file, "TRANSPORT.conductivity".into(), entry)?, from)?);
+        let lj = record.viscosity.as_ref().map(|v| v.lennard_jones);
+        let block = Block::new(file, "TRANSPORT.conductivity".into(), entry)?;
+        record.conductivity = Some(conductivity(block, from, lj)?);
     }
     b.finish()?;
     Ok(record)
@@ -276,11 +278,15 @@ fn source(b: &mut Block<'_>) -> Result<Source, String> {
     Ok(Source::new(b.text("BibTeX")?, None, DataTerms::Published))
 }
 
-fn viscosity(mut b: Block<'_>) -> Result<Viscosity, String> {
+/// A viscosity block, with its Lennard-Jones parameters or, where it has none, Chung's estimate from the EOS reducing
+/// state, named (CoolProp's `default_transport`, `FluidLibrary.h:724-726, 1005-1013`).
+fn viscosity(mut b: Block<'_>, from: &FromFluid) -> Result<Viscosity, String> {
     let source = source(&mut b)?;
     let lennard_jones = match (b.has("sigma_eta"), b.has("epsilon_over_k")) {
-        (true, true) => Some(LennardJones { sigma: b.num("sigma_eta")?, epsilon_over_k: b.num("epsilon_over_k")? }),
-        (false, false) => None,
+        (true, true) => {
+            LjSource::Model(LennardJones { sigma: b.num("sigma_eta")?, epsilon_over_k: b.num("epsilon_over_k")? })
+        }
+        (false, false) => LjSource::chung(from.reducing.t, from.reducing.rho),
         _ => return Err(b.err("sigma_eta and epsilon_over_k come together (CoolProp ignores one alone)")),
     };
     let model = if b.has("type") {
@@ -427,11 +433,16 @@ fn chung(b: &mut Block<'_>) -> Result<Chung, String> {
     })
 }
 
-fn conductivity(mut b: Block<'_>, from: &FromFluid) -> Result<Conductivity, String> {
+/// A conductivity block; an ECS one takes the viscosity block's Lennard-Jones parameters, `lj`, or Chung's estimate
+/// without a viscosity block, as CoolProp's `conductivity_ECS` reads them (map 05 R17).
+fn conductivity(mut b: Block<'_>, from: &FromFluid, lj: Option<LjSource>) -> Result<Conductivity, String> {
     let source = source(&mut b)?;
     let model = if b.has("type") {
         match b.text("type")? {
-            "ECS" => ConductivityModel::Ecs(ecs_conductivity(&mut b, from)?),
+            "ECS" => {
+                let lj = lj.unwrap_or_else(|| LjSource::chung(from.reducing.t, from.reducing.rho));
+                ConductivityModel::Ecs(ecs_conductivity(&mut b, from, lj)?)
+            }
             other => return unknown(&b, other),
         }
     } else if b.has("hardcoded") {
@@ -456,14 +467,23 @@ fn conductivity(mut b: Block<'_>, from: &FromFluid) -> Result<Conductivity, Stri
 }
 
 /// An ECS conductivity, with the EOS reducing state its critical term reads (CoolProp's `get_reducing_state()`).
-fn ecs_conductivity(b: &mut Block<'_>, from: &FromFluid) -> Result<EcsConductivity, String> {
+fn ecs_conductivity(b: &mut Block<'_>, from: &FromFluid, lennard_jones: LjSource) -> Result<EcsConductivity, String> {
     let reference = b.text("reference_fluid")?.into();
     let (psi, psi_rho_r) = psi(b)?;
     let mut f_int = b.block("f_int")?;
     let (terms, f_int_t_r) = (f_int.series(["a", "t"])?, f_int.num("T_reducing")?);
     f_int.finish()?;
     let q_d = b.num("q_D")?;
-    Ok(EcsConductivity { reference, psi, psi_rho_r, f_int: terms, f_int_t_r, q_d, reducing: from.reducing })
+    Ok(EcsConductivity {
+        reference,
+        psi,
+        psi_rho_r,
+        f_int: terms,
+        f_int_t_r,
+        q_d,
+        reducing: from.reducing,
+        lennard_jones,
+    })
 }
 
 /// Methane's model with what it reads of the rest of the file (`TransportRoutines.cpp:1063-1140`): the critical point
