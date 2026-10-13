@@ -1,0 +1,16 @@
+# cargo-about's configuration for the release artefacts' third-party notices (PLAN.md §5.4 item 5): the C library and
+# the browser package each carry `cargo about generate about.hbs` of their own dependency tree, beside LICENSE-MIT,
+# LICENSE-APACHE and LICENSE-THIRD-PARTY (CoolProp's notice for the data). The accepted licences are deny.toml's; the
+# scripts run it `--offline --fail`, from the crates' own licence files, failing on one it cannot identify.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "ISC",
+    "Unicode-3.0",
+]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
