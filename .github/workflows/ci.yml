@@ -92,6 +92,17 @@ jobs:
         run: cargo nextest run --workspace --profile ci
       - name: G3 cargo test --doc --workspace
         run: cargo test --doc --workspace
+      - name: Cross-target hash with std and libm maths (PLAN.md M9.4; VERIFICATION.md §9.4)
+        run: |
+          for features in "" "--features phasekit-core/libm"; do
+            # shellcheck disable=SC2086 # an empty or two-word feature list
+            cargo nextest run -p phasekit-verify --test cross_target --profile ci --no-capture $features | grep '^hash=' | tee -a hash.txt
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hash-linux
+          path: hash.txt
+          if-no-files-found: error
       - name: phasekit-core's tests on the libm backend (PLAN.md M9.3; the ulp report in the log)
         run: |
           cargo nextest run -p phasekit-core --features libm --profile ci -E 'not test(std_vs_libm_ulp_report)'
@@ -223,6 +234,17 @@ jobs:
         run: cargo nextest run --workspace --exclude phasekit-xtask --profile ci
       - name: G3 cargo test --doc --workspace --exclude phasekit-xtask
         run: cargo test --doc --workspace --exclude phasekit-xtask
+      - name: Cross-target hash with std and libm maths (PLAN.md M9.4; VERIFICATION.md §9.4)
+        run: |
+          for features in "" "--features phasekit-core/libm"; do
+            # shellcheck disable=SC2086 # an empty or two-word feature list
+            cargo nextest run -p phasekit-verify --test cross_target --profile ci --no-capture $features | grep '^hash=' | tee -a hash.txt
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hash-windows
+          path: hash.txt
+          if-no-files-found: error
 
   aarch64:
     name: aarch64
@@ -244,6 +266,17 @@ jobs:
         run: cargo nextest run --workspace --exclude phasekit-xtask --profile ci
       - name: G3 cargo test --doc --workspace --exclude phasekit-xtask
         run: cargo test --doc --workspace --exclude phasekit-xtask
+      - name: Cross-target hash with std and libm maths (PLAN.md M9.4; VERIFICATION.md §9.4)
+        run: |
+          for features in "" "--features phasekit-core/libm"; do
+            # shellcheck disable=SC2086 # an empty or two-word feature list
+            cargo nextest run -p phasekit-verify --test cross_target --profile ci --no-capture $features | grep '^hash=' | tee -a hash.txt
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hash-aarch64
+          path: hash.txt
+          if-no-files-found: error
 
   wasip2:
     name: wasip2
@@ -267,6 +300,31 @@ jobs:
         run: cargo nextest run --workspace --exclude phasekit-xtask --target wasm32-wasip2 --profile ci
       - name: G4 cargo test --doc --workspace --exclude phasekit-xtask --target wasm32-wasip2
         run: cargo test --doc --workspace --exclude phasekit-xtask --target wasm32-wasip2
+      - name: Cross-target hash with std and libm maths (PLAN.md M9.4; VERIFICATION.md §9.4)
+        run: |
+          for features in "" "--features phasekit-core/libm"; do
+            # shellcheck disable=SC2086 # an empty or two-word feature list
+            cargo nextest run -p phasekit-verify --test cross_target --target wasm32-wasip2 --profile ci --no-capture $features | grep '^hash=' | tee -a hash.txt
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hash-wasip2
+          path: hash.txt
+          if-no-files-found: error
+
+  hash-compare:
+    name: hash-compare
+    needs: [linux, windows, aarch64, wasip2]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: hash-*
+      - name: The four targets' hashes (job summary; each target's libm run asserts the committed one)
+        run: |
+          { echo '```'; cat hash-*/hash.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cat hash-*/hash.txt
+          echo "distinct libm hashes: $(grep -h 'math=libm' hash-*/hash.txt | cut -d' ' -f1 | sort -u | wc -l)"
 
   wasm-browser:
     name: wasm-browser

@@ -105,6 +105,9 @@ impl Real for f64 {
 /// property the M9.4 cross-target hash proves, not an assumption (dependencies §4). clippy's `disallowed-methods`
 /// rejects every `f64` transcendental elsewhere (E16).
 pub mod math {
+    /// The backend this build's transcendentals run on: `"libm"` with the `libm` feature, else `"std"`.
+    pub const BACKEND: &str = if cfg!(feature = "libm") { "libm" } else { "std" };
+
     macro_rules! choke {
         ($($(#[$doc:meta])* $name:ident => $std:ident, $libm:ident;)*) => {$(
             $(#[$doc])*
