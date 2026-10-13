@@ -584,17 +584,15 @@ mod tests {
             Prop::GmolarResidual,
         ];
         let outputs = [&cp0[..], &refused].concat();
-        let sides: [(&Fluid, fn(Quality) -> Input); 2] = [
-            (water, |q| Input::qt(q, Temperature::new(500.0).unwrap())),
-            (air, |q| Input::pq(Pressure::new(101_325.0).unwrap(), q)),
-        ];
+        let qt: fn(Quality) -> Input = |q| Input::qt(q, Temperature::new(500.0).unwrap());
+        let pq: fn(Quality) -> Input = |q| Input::pq(Pressure::new(101_325.0).unwrap(), q);
         let same = |fluid: &Fluid, a: &State, b: &State, props: &[Prop]| {
             for &prop in props {
                 let (got, want) = (fluid.prop(a, prop).unwrap(), fluid.prop(b, prop).unwrap());
                 assert_eq!(got.to_bits(), want.to_bits(), "{a:?} {prop:?}: {got}, the single phase's {want}");
             }
         };
-        for (fluid, input) in sides {
+        for (fluid, input) in [(water, qt), (air, pq)] {
             let split = |q| fluid.state(input(Quality::new(q).unwrap())).unwrap();
             for (q, phase) in [(0.0, Phase::Liquid), (1.0, Phase::Gas)] {
                 let side = split(q).one_phase().unwrap();
