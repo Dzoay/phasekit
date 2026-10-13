@@ -2,11 +2,19 @@
 //! 0.9·N): throughput of DT + h + c_p at 1, 2, 4, the physical cores and the hardware threads, relative to one thread.
 //! The method is the C++ baseline's scaling rows (`coolprop-8.0.0-<machine>.scaling.csv`), so the speedups compare:
 //! 2000 states per thread on each bench fluid's (T, ρ) grid (SplitMix64 seed 1, T ~ U[1.05·T_c, min(1.5·T_c, T_max)], ρ
-//! ~ U[0.1, 2]·ρ_c), threads unpinned, the median wall time over 5 passes. A row is one fluid shared by every thread
-//! (`&Fluid` from one registry: the same fluid) or `mixed`, every thread taking the five fluids in turn (different
-//! fluids). Speedup = threads × the one-thread time per state over the N-thread time per state. It asserts nothing (K19
-//! targets are estimates): `cargo xtask bench --record scaling` sets `PHASEKIT_BENCH_SCALING` and records the rows it
-//! prints; a plain `cargo bench` skips it.
+//! ~ U[0.1, 2]·ρ_c), threads unpinned. Where the baseline times one run through the states in each of 5 passes, this
+//! runs through them 10 times in each of 7 passes after a warm-up, and times from the workers' own clocks. A row is one
+//! fluid shared by every thread (`&Fluid` from one registry: the same fluid) or `mixed`, every thread taking the five
+//! fluids in turn (different fluids); a last `control` row shares and reads nothing, so its speedup is the machine's
+//! ceiling. Speedup = threads × the one-thread time per state over the N-thread time per state. It asserts nothing (K19
+//! targets are estimates): `cargo xtask bench --record scaling` passes `--scaling <physical cores>` and records the
+//! rows it prints; a plain `cargo bench` skips it.
+
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "a bench program: it prints its rows, which `cargo xtask bench` records"
+)]
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
@@ -21,11 +29,15 @@ mod bench {
     /// The bench fluids (VERIFICATION.md §12).
     const FLUIDS: [&str; 5] = ["Water", "Methane", "R134a", "n-Propane", "n-Heptane"];
 
-    /// States per thread and pass.
+    /// Distinct states per thread: the C++ baseline's 2000.
     const PER_THREAD: usize = 2000;
 
-    /// Passes per row; the row is their median.
-    const PASSES: usize = 5;
+    /// Times each thread runs through its states in a pass: 10-90 ms of work, so the threads' wake-up skew (tens of µs)
+    /// stays well under a percent.
+    const REPEAT: usize = 10;
+
+    /// Timed passes per row, after an untimed one; the row is their median.
+    const PASSES: usize = 7;
 
     /// The baseline's single-phase (T, ρ) grid of a fluid, `PER_THREAD` states.
     fn grid(registry: &Registry, name: &str) -> Option<Vec<Input>> {
@@ -39,64 +51,59 @@ mod bench {
         (0..PER_THREAD).map(|_| dt()).collect()
     }
 
-    /// Physical cores (distinct `physical id`, `core id` pairs in /proc/cpuinfo), else the hardware threads.
-    fn physical_cores(threads: usize) -> usize {
-        let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
-        let mut cores = Vec::new();
-        let (mut package, mut core) = (None, None);
-        for line in cpuinfo.lines().chain([""]) {
-            let value = |key: &str| line.strip_prefix(key).and_then(|rest| rest.split(':').nth(1)).map(str::trim);
-            if let Some(v) = value("physical id") {
-                package = Some(v.to_string());
-            } else if let Some(v) = value("core id") {
-                core = Some(v.to_string());
-            } else if line.trim().is_empty() {
-                if let (Some(p), Some(c)) = (package.take(), core.take()) {
-                    if !cores.contains(&(p.clone(), c.clone())) {
-                        cores.push((p, c));
-                    }
-                }
-            }
-        }
-        if cores.is_empty() { threads } else { cores.len() }
+    /// A row's work for state `i`, shared by its threads.
+    type Work<'a> = Box<dyn Fn(usize) -> f64 + Sync + 'a>;
+
+    /// The control row's work for state `i`: a chain of exp and ln on the thread's own value, about a microsecond with
+    /// no data shared or read from memory. Its speedup is the machine's own (turbo and power limits), the ceiling for
+    /// every other row.
+    fn control(i: usize) -> f64 {
+        (0..40).fold(i as f64 * 1e-3, |y, _| phasekit_core::math::ln(phasekit_core::math::exp(y) + 1.0) - 0.5)
     }
 
-    /// The median wall time per state, in ns, of `threads` threads each running DT + h + c_p over its states: thread
-    /// `t`'s state `i` is `work[i]`'s input on `work[i]`'s fluid.
-    fn row(threads: usize, work: &[(&Fluid, Input)]) -> f64 {
-        let mut walls: Vec<f64> = (0..PASSES)
-            .map(|_| {
-                let start = Barrier::new(threads + 1);
-                std::thread::scope(|s| {
-                    for _ in 0..threads {
-                        s.spawn(|| {
-                            start.wait();
-                            let mut sum = 0.0;
-                            for (fluid, input) in work {
-                                if let Ok(state) = fluid.state(black_box(*input)) {
-                                    sum += state.h(Basis::Molar) + state.cp(Basis::Molar).unwrap_or(0.0);
-                                }
-                            }
-                            black_box(sum)
-                        });
-                    }
-                    start.wait();
-                    Instant::now()
-                })
-                .elapsed()
-                .as_secs_f64()
-                    * 1e9
-            })
-            .collect();
+    /// The median wall time per state, in ns, of `threads` threads each running `work` over states 0, 1, ….
+    fn row(threads: usize, work: &(dyn Fn(usize) -> f64 + Sync)) -> f64 {
+        pass(threads, work);
+        let mut walls: Vec<f64> = (0..PASSES).map(|_| pass(threads, work)).collect();
         walls.sort_by(f64::total_cmp);
-        walls[PASSES / 2] / PER_THREAD as f64
+        walls[PASSES / 2] / (PER_THREAD * REPEAT) as f64
+    }
+
+    /// One pass: the wall time in ns from the first worker's start to the last worker's end. Each worker reads the
+    /// clock itself once the barrier releases them all, so a descheduled spawning thread (more threads than cores)
+    /// cannot shorten it.
+    fn pass(threads: usize, work: &(dyn Fn(usize) -> f64 + Sync)) -> f64 {
+        let start = Barrier::new(threads);
+        let spans: Vec<(Instant, Instant)> = std::thread::scope(|s| {
+            let workers: Vec<_> = (0..threads)
+                .map(|_| {
+                    s.spawn(|| {
+                        start.wait();
+                        let begin = Instant::now();
+                        black_box((0..PER_THREAD * REPEAT).map(|i| work(black_box(i))).sum::<f64>());
+                        (begin, Instant::now())
+                    })
+                })
+                .collect();
+            workers.into_iter().filter_map(|w| w.join().ok()).collect()
+        });
+        let (first, last) = (spans.iter().map(|s| s.0).min(), spans.iter().map(|s| s.1).max());
+        first.zip(last).map_or(f64::NAN, |(first, last)| (last - first).as_secs_f64() * 1e9)
+    }
+
+    /// DT + h + c_p of `states[i]` on its fluid, cycling through the states.
+    fn dt_h_cp(states: &[(&Fluid, Input)], i: usize) -> f64 {
+        states.get(i % states.len().max(1)).map_or(0.0, |(fluid, input)| {
+            fluid.state(*input).map_or(0.0, |s| s.h(Basis::Molar) + s.cp(Basis::Molar).unwrap_or(0.0))
+        })
     }
 
     pub fn main() {
-        if std::env::var_os("PHASEKIT_BENCH_SCALING").is_none() {
-            println!("scaling: skipped (`cargo xtask bench --record scaling` runs it)");
-            return;
-        }
+        let args: Vec<String> = std::env::args().collect();
+        let scaling = args.iter().position(|a| a == "--scaling").and_then(|k| args.get(k + 1)?.parse::<usize>().ok());
+        let Some(physical) = scaling.filter(|n| *n > 0) else {
+            return println!("scaling: skipped (`cargo xtask bench --record scaling` runs it)");
+        };
         let Ok(registry) = Registry::embedded() else { return eprintln!("scaling: no embedded registry") };
         let mut work = Vec::new();
         for name in FLUIDS {
@@ -105,22 +112,24 @@ mod bench {
             };
             work.push((name, states.into_iter().map(|input| (fluid, input)).collect::<Vec<_>>()));
         }
-        let mixed: Vec<_> = (0..PER_THREAD).map(|i| work[i % FLUIDS.len()].1[i]).collect();
+        let mixed: Vec<_> = (0..PER_THREAD).filter_map(|i| work.get(i % FLUIDS.len())?.1.get(i).copied()).collect();
         work.push(("mixed", mixed));
         let hardware = std::thread::available_parallelism().map_or(1, NonZeroUsize::get);
-        let physical = physical_cores(hardware);
         let mut counts = vec![1, 2, 4, physical, hardware];
         counts.retain(|n| *n <= hardware);
         counts.sort_unstable();
         counts.dedup();
         println!("# cores: {physical} physical, {hardware} hardware threads");
         println!("# columns: mode,threads,states_per_thread,median_ns_per_state,speedup");
-        for (mode, states) in &work {
-            let one = row(1, states);
+        let mut rows: Vec<(&str, Work<'_>)> =
+            work.iter().map(|(mode, states)| (*mode, Box::new(|i| dt_h_cp(states, i)) as Work<'_>)).collect();
+        rows.push(("control", Box::new(control)));
+        for (mode, work) in &rows {
+            let one = row(1, work.as_ref());
             for &threads in &counts {
-                let ns = if threads == 1 { one } else { row(threads, states) };
+                let ns = if threads == 1 { one } else { row(threads, work.as_ref()) };
                 let speedup = threads as f64 * one / ns;
-                println!("{mode},{threads},{PER_THREAD},{ns:.1},{speedup:.3}");
+                println!("{mode},{threads},{},{ns:.1},{speedup:.3}", PER_THREAD * REPEAT);
             }
         }
     }

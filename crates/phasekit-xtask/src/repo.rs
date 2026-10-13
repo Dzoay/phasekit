@@ -305,12 +305,14 @@ impl Repo {
         if status.success() { Ok(()) } else { Err("cargo bench failed".into()) }
     }
 
-    /// The output of the thread-scaling bench (`benches/scaling.rs`, PLAN.md M9.2), which runs only with
-    /// `PHASEKIT_BENCH_SCALING` set.
+    /// The output of the thread-scaling bench (`benches/scaling.rs`, PLAN.md M9.2), told the machine's physical cores
+    /// (from /proc/cpuinfo; without core ids, as on Arm, the hardware threads).
     pub fn bench_scaling(&self) -> Result<String, String> {
+        let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
+        let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+        let cores = crate::bench::physical_cores(&cpuinfo).unwrap_or(threads).to_string();
         let output = Command::new(env!("CARGO"))
-            .args(["bench", "-p", "phasekit-verify", "--bench", "scaling"])
-            .env("PHASEKIT_BENCH_SCALING", "1")
+            .args(["bench", "-p", "phasekit-verify", "--bench", "scaling", "--", "--scaling", &cores])
             .current_dir(&self.root)
             .stderr(std::process::Stdio::inherit())
             .output()
@@ -343,6 +345,9 @@ impl Repo {
 
     /// The date, commit, CPU model, OS, rustc and CPU frequency governor a bench result is recorded with.
     pub fn machine(&self) -> Result<crate::bench::Machine, String> {
+        fn model<'a>(text: &'a str, key: &str) -> Option<(&'a str, &'a str)> {
+            text.lines().find_map(|l| l.trim().strip_prefix(key)?.split_once(':'))
+        }
         let run = |program: &str, args: &[&str]| -> String {
             let output = Command::new(program).args(args).current_dir(&self.root).output();
             output.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
@@ -350,7 +355,6 @@ impl Repo {
         // Arm's /proc/cpuinfo names no model (GitHub's aarch64 runners); lscpu reads it from the CPU part number.
         let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
         let lscpu = run("lscpu", &[]);
-        let model = |text: &str, key: &str| text.lines().find_map(|l| l.trim().strip_prefix(key)?.split_once(':'));
         let cpu = model(&cpuinfo, "model name").or_else(|| model(&lscpu, "Model name"));
         let governor = std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor");
         Ok(crate::bench::Machine {

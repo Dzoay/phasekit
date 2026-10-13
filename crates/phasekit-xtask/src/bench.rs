@@ -118,10 +118,27 @@ pub fn scaling_file(output: &str, machine: &Machine, step: &str) -> Result<Strin
         format!("# governor: {}", m.governor),
         format!("# date: {}, commit {}, step {step}", m.date, m.commit),
         cores.to_string(),
-        "# method: DT + h + c_p on the (T, rho) grid, threads unpinned, median of 5 passes (benches/scaling.rs)".into(),
+        "# method: DT + h + c_p on the (T, rho) grid, threads unpinned, median of 7 passes (benches/scaling.rs)".into(),
         format!("# columns: {SCALING_COLUMNS}"),
     ];
     Ok(header.into_iter().chain(rows.into_iter().map(String::from)).map(|l| l + "\n").collect())
+}
+
+/// Physical cores in /proc/cpuinfo: its distinct (`physical id`, `core id`) pairs, or `None` where it lists none.
+pub fn physical_cores(cpuinfo: &str) -> Option<usize> {
+    let mut cores = std::collections::BTreeSet::new();
+    let mut package = None;
+    for line in cpuinfo.lines() {
+        let Some((key, value)) = line.split_once(':') else { continue };
+        match key.trim() {
+            "physical id" => package = Some(value.trim()),
+            "core id" => {
+                cores.insert((package, value.trim()));
+            }
+            _ => {}
+        }
+    }
+    (!cores.is_empty()).then_some(cores.len())
 }
 
 /// `m2.9-lookup-cost` → `M2.9`.
@@ -215,6 +232,19 @@ mod tests {
         for refused in ["M5", "M5.", "M.1", "Mx.1", "5.11", "m5.11"] {
             assert_eq!(milestone_of_step(refused), None, "{refused}");
         }
+    }
+
+    /// Physical cores come from distinct (package, core) pairs: hyperthreads share a core id, packages repeat ids.
+    #[test]
+    fn physical_cores_count_distinct_cores() {
+        let cpu = |processor: usize, package: usize, core: usize| {
+            format!("processor\t: {processor}\nphysical id\t: {package}\ncore id\t\t: {core}\n\n")
+        };
+        let laptop: String = (0..8).map(|p| cpu(p, 0, p % 4)).collect();
+        assert_eq!(physical_cores(&laptop), Some(4));
+        let two_packages: String = (0..8).map(|p| cpu(p, p / 4, p % 4)).collect();
+        assert_eq!(physical_cores(&two_packages), Some(8));
+        assert_eq!(physical_cores("processor\t: 0\nBogoMIPS\t: 50.00\nCPU part\t: 0xd4f\n"), None);
     }
 
     /// `--record [scaling] [--step <step>]`, and nothing else.
