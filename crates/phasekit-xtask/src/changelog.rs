@@ -1,6 +1,7 @@
-//! `cargo xtask changelog <version> <date>`: a new section of `CHANGELOG.md` from the Conventional Commit subjects
-//! since the last `v*` tag (all of them before the first; CONTRIBUTING.md "Versions"), grouped by type, oldest first,
-//! above the sections already there.
+//! `cargo xtask changelog <version> <date> [<rev>]`: a new section of `CHANGELOG.md` from the Conventional Commit
+//! subjects since the last `v*` tag up to `rev` (`HEAD`; a release PR names `origin/main`, whose commits its squash
+//! merge follows), all of them before the first tag (CONTRIBUTING.md "Versions"), grouped by type, oldest first, above
+//! the sections already there.
 
 use crate::repo::Repo;
 
@@ -24,12 +25,16 @@ const TYPES: [(&str, &str); 10] = [
 ];
 
 pub fn main(args: &[String]) -> std::process::ExitCode {
-    let [version, date] = args else {
-        eprintln!("usage: cargo xtask changelog <version> <date>, e.g. 0.1.0 2026-10-20");
-        return std::process::ExitCode::FAILURE;
+    let (version, date, rev) = match args {
+        [version, date] => (version, date, "HEAD"),
+        [version, date, rev] => (version, date, rev.as_str()),
+        _ => {
+            eprintln!("usage: cargo xtask changelog <version> <date> [<rev>], e.g. 0.1.0 2026-10-20 origin/main");
+            return std::process::ExitCode::FAILURE;
+        }
     };
     let repo = Repo::locate();
-    match write(&repo, version, date) {
+    match write(&repo, version, date, rev) {
         Ok(n) => {
             println!("{CHANGELOG}: {version} with {n} commits");
             std::process::ExitCode::SUCCESS
@@ -41,10 +46,10 @@ pub fn main(args: &[String]) -> std::process::ExitCode {
     }
 }
 
-/// Writes the section; returns how many subjects it lists.
-fn write(repo: &Repo, version: &str, date: &str) -> Result<usize, String> {
+/// Writes the section of the commits up to `rev`; returns how many subjects it lists.
+fn write(repo: &Repo, version: &str, date: &str, rev: &str) -> Result<usize, String> {
     let last = repo.git(&["tag", "--list", "v*", "--sort=-creatordate"])?;
-    let range = last.lines().next().map(|tag| format!("{tag}..HEAD")).unwrap_or_else(|| "HEAD".to_string());
+    let range = last.lines().next().map_or_else(|| rev.to_string(), |tag| format!("{tag}..{rev}"));
     let subjects = repo.git(&["log", "--reverse", "--format=%s", &range])?;
     let subjects: Vec<&str> = subjects.lines().filter(|line| !line.is_empty()).collect();
     let old = repo.read(CHANGELOG).unwrap_or_default();
