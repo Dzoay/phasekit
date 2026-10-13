@@ -4,13 +4,19 @@
 //! ≤ 0.3 µs for 16-20 terms (ARCHITECTURE.md §7); the baseline's C++ CoolProp: 0.37 µs (n-Heptane, 12 terms) to
 //! 1.2 µs (Methane, 40), 2.7 µs (Water, 56; recorded from M5.11). `overhead` evaluates a residual part
 //! with no terms: the fixed cost of a call (virtual dispatch, the per-block `match`, the per-state τ and δ tables),
-//! which bounds the dispatch share. Recorded by `cargo xtask bench --record`.
+//! which bounds the dispatch share. `alphar_batch` (PLAN.md M12.1) evaluates the same grid as one
+//! `HelmholtzModel::residual_batch` call under `ExecPolicy::Reference`, reported per state: `scalar` with std's maths,
+//! `scalar_libm` built with `--features phasekit-core/libm`; M12's SIMD gate is measured against `scalar` (user decision
+//! SL3). Recorded by `cargo xtask bench --record`.
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
+    use std::time::{Duration, Instant};
+
     use criterion::{BenchmarkId, Criterion, criterion_group};
+    use phasekit_core::batch::ExecPolicy;
     use phasekit_core::internal::EosRecord;
-    use phasekit_core::{HelmholtzModel, Order, Registry};
+    use phasekit_core::{Derivs, HelmholtzModel, Order, Registry};
     use phasekit_verify::{SplitMix64, term};
 
     /// The bench fluids (VERIFICATION.md §12).
@@ -39,6 +45,27 @@ mod bench {
         g.finish();
     }
 
+    /// `states` as one `residual_batch` call per iteration, timed per state: criterion's median is then comparable
+    /// with `run`'s one state per iteration.
+    fn run_batch(c: &mut Criterion, label: &str, model: &dyn HelmholtzModel, states: &[(f64, f64)]) {
+        let (t, rho): (Vec<f64>, Vec<f64>) = states.iter().copied().unzip();
+        let mut out = vec![Derivs::zero(Order::Two); states.len()];
+        let per_state = u32::try_from(states.len()).unwrap_or(u32::MAX);
+        let backend = if phasekit_core::math::BACKEND == "libm" { "scalar_libm" } else { "scalar" };
+        let mut g = c.benchmark_group("alphar_batch");
+        g.bench_function(BenchmarkId::new(label, backend), |b| {
+            b.iter_custom(|iters| {
+                let start = Instant::now();
+                for _ in 0..iters {
+                    let batch = model.residual_batch(&t, &rho, Order::Two, &mut out, ExecPolicy::Reference);
+                    std::hint::black_box((batch.is_ok(), &mut out));
+                }
+                start.elapsed().checked_div(per_state).unwrap_or(Duration::ZERO)
+            });
+        });
+        g.finish();
+    }
+
     fn alphar_order2(c: &mut Criterion) {
         let Ok(registry) = Registry::embedded() else { return };
         for name in FLUIDS {
@@ -46,6 +73,7 @@ mod bench {
             let eos = term::residual_part(&record.eos);
             let (Ok(model), Some(states)) = (term::residual_model(&record, &eos), grid(&record)) else { return };
             run(c, "alphar_order2", name, model.eos(), &states);
+            run_batch(c, name, model.eos(), &states);
         }
         // The fixed cost: Methane's constants and grid, no terms.
         let Ok(record) = phasekit_core::internal::record(registry, "Methane") else { return };

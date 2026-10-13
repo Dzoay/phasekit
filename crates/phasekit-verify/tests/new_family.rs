@@ -424,6 +424,26 @@ fn parallel_batches_run_on_the_rayon_pool() {
     assert!(reference.iter().all(|s| *s != Status::Ok), "the reference path ran on the pool: {reference:?}");
 }
 
+/// PLAN.md M12.1 (K6): `residual_batch` places its chunks as the batch driver does. A `Parallel` batch of several
+/// chunks runs them on rayon's workers, and `Reference` runs on the calling thread, where [`OnThePool`]'s residual is
+/// NaN.
+#[cfg(not(target_family = "wasm"))] // a thread test: wasm has no rayon (D17)
+#[test]
+fn parallel_residual_batches_run_on_the_rayon_pool() {
+    let model = OnThePool(VanDerWaals { a: 0.1355, b: 3.2e-5 });
+    let t = vec![2.0 * model.0.critical().t; 64];
+    let rho: Vec<f64> = (1..=64).map(|i| f64::from(i) * 50.0).collect();
+    let pressure_like = |exec| {
+        let mut out = vec![Derivs::zero(Order::One); t.len()];
+        model.residual_batch(&t, &rho, Order::One, &mut out, exec).unwrap();
+        out.iter().map(|d| d.get(0, 1).unwrap_or(f64::NAN)).collect::<Vec<f64>>()
+    };
+    let parallel = pressure_like(ExecPolicy::Parallel { chunk: NonZeroUsize::new(16).unwrap() });
+    assert!(parallel.iter().all(|v| v.is_finite()), "four chunks of 16 off the pool: {parallel:?}");
+    let reference = pressure_like(ExecPolicy::Reference);
+    assert!(reference.iter().all(|v| v.is_nan()), "the reference path ran on the pool: {reference:?}");
+}
+
 #[cfg(not(target_family = "wasm"))] // wasip2 has no thread spawning; the corpus runs there without this test
 #[test]
 fn sixteen_threads_share_one_fluid_bitwise() {

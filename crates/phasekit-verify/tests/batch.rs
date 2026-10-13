@@ -3,8 +3,12 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::batch::{self, BatchRequest, Status};
-use phasekit_core::{Basis, DataSet, Density, Input, Pair, Prop, Registry, Temperature};
+use std::num::NonZeroUsize;
+
+use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
+use phasekit_core::{
+    Basis, DataSet, Density, Derivs, Error, HelmholtzModel, Input, Order, Pair, Prop, Registry, Temperature,
+};
 use phasekit_verify::SplitMix64;
 
 /// Outputs that cover single-phase and two-phase answers and refusals (cp, w and Q are undefined somewhere).
@@ -181,5 +185,69 @@ mod parallel {
             }
         }
         assert_eq!(pools, 4 * n);
+    }
+}
+
+/// PLAN.md M12.1 (VERIFICATION.md §9.1, class `Exact`): `HelmholtzModel::residual_batch` is `residual` at every point,
+/// every entry bit for bit, for every embedded fluid at every order, under `Reference` and `Parallel` (16-point chunks,
+/// a short last one included). The points span the fluid's T range and ρ up to `rho_max`, with ρ = 0, T_max and NaN
+/// inputs; unequal lengths are a `Shape` error.
+#[test]
+fn residual_batch_is_residual_per_point() {
+    let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
+    let parallel = ExecPolicy::Parallel { chunk: NonZeroUsize::new(16).unwrap() };
+    let mut rng = SplitMix64::new(12);
+    let mut fluids = 0;
+    for name in registry.names() {
+        let record = phasekit_core::internal::record(&registry, name).unwrap();
+        let (fluid, (t_min, t_max)) =
+            (record.clone().compile().unwrap(), (record.limits.t_min(), record.limits.t_max()));
+        let eos = fluid.eos();
+        let (mut t, mut rho): (Vec<f64>, Vec<f64>) = (0..40)
+            .map(|_| {
+                let t = rng.uniform(t_min, t_max);
+                (t, rng.uniform(0.0, eos.rho_max(t)))
+            })
+            .unzip();
+        t.extend([t_min, t_max, f64::NAN, t_max]);
+        rho.extend([0.0, eos.rho_max(t_max), 1.0, f64::NAN]);
+        for order in [Order::One, Order::Two, Order::Three, Order::Four] {
+            for exec in [ExecPolicy::Reference, parallel] {
+                assert_batch_is_per_point(name, eos, (&t, &rho), order, exec);
+            }
+        }
+        let (mut short, mut out) =
+            (vec![Derivs::zero(Order::Two); t.len() - 1], vec![Derivs::zero(Order::Two); t.len()]);
+        for shape in [
+            eos.residual_batch(&t, &rho, Order::Two, &mut short, ExecPolicy::Reference),
+            eos.residual_batch(&t, &rho[1..], Order::Two, &mut out, parallel),
+        ] {
+            assert!(matches!(shape, Err(Error::Shape { .. })), "{name}: {shape:?}");
+        }
+        assert!(eos.residual_batch(&[], &[], Order::Two, &mut [], parallel).is_ok(), "{name}: empty batch");
+        fluids += 1;
+    }
+    assert!(fluids >= 130, "{fluids} fluids");
+}
+
+/// One fluid, order and policy of [`residual_batch_is_residual_per_point`]: every entry of every point bit for bit.
+fn assert_batch_is_per_point(
+    name: &str,
+    eos: &dyn HelmholtzModel,
+    (t, rho): (&[f64], &[f64]),
+    order: Order,
+    exec: ExecPolicy,
+) {
+    let mut out = vec![Derivs::zero(order); t.len()];
+    eos.residual_batch(t, rho, order, &mut out, exec).unwrap();
+    let bits = |d: &Derivs| {
+        (0..=4)
+            .flat_map(|n| (0..=n).map(move |i| (i, n - i)))
+            .map(|(i, j)| d.get(i, j).map(f64::to_bits))
+            .collect::<Vec<_>>()
+    };
+    for (i, got) in out.iter().enumerate() {
+        let want = eos.residual(t[i], rho[i], order);
+        assert_eq!(bits(got), bits(&want), "{name} {order:?} {exec:?} point {i}: T {} ρ {}", t[i], rho[i]);
     }
 }
