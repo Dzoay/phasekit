@@ -265,3 +265,33 @@ fn shim_strings_and_buffers_follow_str2buf() {
     assert_eq!(run(7, || -> Result<i32, String> { std::panic::panic_any("a bug") }), 7);
     assert!(errstring().contains("panic"));
 }
+
+/// User decision P6: docs/MIGRATION.md's `set_config_*` table lists each of v8.0.0's keys once, with its type and what
+/// the shim does with it.
+#[test]
+fn migration_lists_every_config_key() {
+    let doc = include_str!("../../../../docs/MIGRATION.md");
+    let rows: Vec<Vec<&str>> = doc
+        .lines()
+        .filter_map(|line| line.strip_prefix("| `")?.strip_suffix(" |"))
+        .map(|row| row.split(" | ").collect())
+        .collect();
+    let want: Vec<Vec<String>> = config_keys()
+        .map(|(key, kind)| {
+            let (kind, treatment) = match (key, kind) {
+                ("DONT_CHECK_PROPERTY_LIMITS", _) => ("bool", "`DomainPolicy::Extrapolate` while true"),
+                ("LIST_STRING_DELIMITER", _) => ("string", "the delimiter of `FluidsList` and `aliases`"),
+                (_, Kind::Bool) => ("bool", "ignored"),
+                (_, Kind::Double) => ("double", "ignored"),
+                (_, Kind::Text) => ("string", "ignored"),
+                (_, Kind::Int) => ("integer", "refused (no Tier A setter)"),
+            };
+            vec![format!("{key}`"), kind.to_string(), treatment.to_string()]
+        })
+        .collect();
+    let mut got: Vec<Vec<String>> = rows.iter().map(|row| row.iter().map(|cell| cell.to_string()).collect()).collect();
+    got.sort();
+    let mut want = want;
+    want.sort();
+    assert_eq!(got, want);
+}

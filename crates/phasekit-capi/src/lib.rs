@@ -1,6 +1,6 @@
 //! `phasekit-capi`: the `pk_*` C ABI (PLAN.md M10.4; D11, user decisions 1, 9a), over `phasekit-compat`, so its keys,
 //! fluid strings and errors are the strings' (ROT-169). Its header, `include/phasekit.h`, is cbindgen's output,
-//! committed.
+//! committed. The Tier A CoolPropLib.h shim, a separate build of this crate, is [`shim`] (M10.6).
 //!
 //! The conventions, every export alike (map 11 F1-F5, F16):
 //! - **Status returns.** Each function returns an `int32_t` status, `PK_OK` (0) or one of the `PK_*` codes, and sets

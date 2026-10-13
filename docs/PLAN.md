@@ -437,21 +437,8 @@ version, Node.js LTS (wasm-bindgen-test), cargo-about, cargo-semver-checks.
 | M10.3 | The strict `d(X)/d(Y)\|Z` and `d(d(X)/d(Y)\|Z)/d(W)\|V` grammar, the 8 τ- and δ-scaled α outputs, the `props` kind's 22 derivative strings |
 | M10.4 | `phasekit-capi`: the `pk_*` C ABI (registries, fluids, the PropsSI strings), its committed header, `gates abi` |
 | M10.5 | `pk_batch`: the point-major C batch on a `pk_fluid`, each cell's `PK_*` status; compat's `batch_si`, the batch over the strings |
+| M10.6 | The Tier A CoolPropLib.h shim (`coolproplib-shim`): v8.0.0's codes as a pinned table, the process-wide `errstring`, the `HAPropsSI` stub, `set_config_*` per P6 (MIGRATION.md); the `codes` kind; `gates abi`'s Tier A exports |
 
-- **M10.6 Tier A CoolPropLib.h shim.** *Failing tests:* `parameter_and_pair_codes_match_v8_0_0` (map 01 R1, R2: every
-  parameter code equals the oracle's `get_parameter_index` and every phase code its `get_phase_index`; input-pair
-  values equal `CoolProp.constants`; the wheel exposes no `get_input_pair_index`, so pair *names*, collisions included
-  ("QS_INPUTS", "HQ_INPUTS"), come from `src/DataStructures.cpp:513-572` with `coolprop-source:` provenance;
-  VERIFICATION.md §3.3), `errstring_is_readable_from_another_thread` (set on thread A, read on thread B, last writer
-  wins; #3211, map 11 §8), `hapropssi_is_a_documented_stub` (returns `_HUGE` (+inf) and sets "HAPropsSI is not
-  available in this version of phasekit"), `propssi_fills_inf_on_error`, `shim_exports_exactly_tier_a` (`PropsSI`,
-  `Props1SI`, `PhaseSI`, `HAPropsSI`, `get_global_param_string`, `get_fluid_param_string`, `get_param_index`,
-  `get_input_pair_index`, `set_config_*`), `fluids_list_ignores_unrelated_config`, `set_config_follows_decision_6`, and
-  `get_fluid_param_string`'s ASHRAE 34 class absent for every fluid, never "UNKNOWN" or "?" (map 09 R17, ROT-057; the
-  numeric metadata are M10.2's `compat_metadata_has_no_sentinels`).
-  *Do:* add the `codes` kind; feature `coolproplib-shim`, a separate build with CoolProp's names and signatures (D11);
-  the process-wide `errstring` slot; `set_config_*` per user decision P6: a shim-side settings store (process-wide, shim only) whose keys with a phasekit equivalent become per-call options (`FlashOptions`, `DomainPolicy`, `FillPolicy`) on every shim call, display keys such as `LIST_STRING_DELIMITER` read by shim functions, every other v8.0.0 key accepted, ignored and listed in MIGRATION.md; the key-by-key mapping table is written in this step; no global state reaches the kernel. *Done when:* green on Linux and
-  Windows.
 - **M10.7 FP guard.** *Failing tests:* `pk_exports_restore_the_callers_fp_environment` (traps masked and
   round-to-nearest inside; the caller's control word **and sticky flags** restored on return) and
   `shim_fp_guard_matches_v8_0_0` (the three cases of `CoolProp-Tests-FPUGuard.cpp:27-82`: traps masked inside, an
