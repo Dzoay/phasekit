@@ -152,9 +152,9 @@ fn subcritical_without_a_curve_uses_the_eos_vle() {
 
 /// PLAN.md M7.3: P+X on a family with no saturation curve takes the saturation at p from the generic VLE of its EOS
 /// (M7.2), at the T where that VLE's pressure is p. Van der Waals at 0.8 Tc: its two-phase state (Q 0.25), its liquid
-/// and its gas; at 0.8 Tc and 2 pc a liquid above the critical pressure; at 1.2 Tc and 1.5 pc a supercritical state; and
-/// a gas at 100 K below the saturation pressure at the domain's lowest temperature (50 K), where every state is a gas.
-/// PH and PS of each return it: its phase, T and ρ within 1e-9, its quality within 1e-9.
+/// and its gas; at 0.8 Tc and 2 pc a liquid above the critical pressure; at 1.2 Tc and 1.5 pc a supercritical state;
+/// and a gas at 100 K below the saturation pressure at the domain's lowest temperature (50 K), where every state is a
+/// gas. PH and PS of each return it: its phase, T and ρ within 1e-9, its quality within 1e-9.
 #[test]
 fn p_x_without_a_curve_uses_the_eos_vle() {
     let (model, crit) = vdw();
@@ -240,9 +240,9 @@ impl SaturationCurve for Maxwell {
     }
 }
 
-/// The van der Waals saturation at `t` ≤ Tc by a Maxwell construction: p and the molar Gibbs energy equal on both sides.
-/// p_sat bisects on g′ − g″ between the spinodal pressures, and each side's density bisects p(ρ) = p_sat between its
-/// spinodal and its bound, every bisection down to adjacent floats.
+/// The van der Waals saturation at `t` ≤ Tc by a Maxwell construction: p and the molar Gibbs energy equal on both
+/// sides. p_sat bisects on g′ − g″ between the spinodal pressures, and each side's density bisects p(ρ) = p_sat between
+/// its spinodal and its bound, every bisection down to adjacent floats.
 fn maxwell(a: f64, b: f64, t: f64) -> SatPair {
     let model = Maxwell { a, b };
     let (rho_c, t_c) = (1.0 / (3.0 * b), 8.0 * a / (27.0 * R * b));
@@ -371,6 +371,57 @@ fn batch_reports_every_cell_and_policies_agree() {
     assert!(out[3..6].iter().all(|v| v.is_nan()) && summary.failed_cells == 5);
     let parallel = ExecPolicy::Parallel { chunk: NonZeroUsize::new(2).unwrap() };
     policy_equivalence(fluid, &req, parallel).unwrap();
+}
+
+/// van der Waals whose residual is NaN unless a rayon worker thread evaluates it, so a batch shows where it ran.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Debug)]
+struct OnThePool(VanDerWaals);
+
+#[cfg(not(target_family = "wasm"))]
+impl HelmholtzModel for OnThePool {
+    fn gas_constant(&self) -> f64 {
+        R
+    }
+    fn residual(&self, t: f64, rho: f64, order: Order) -> Derivs {
+        match rayon::current_thread_index() {
+            Some(_) => self.0.residual(t, rho, order),
+            None => Derivs::from_fn(order, |_, _| f64::NAN),
+        }
+    }
+    fn ideal(&self, t: f64, rho: f64, order: Order) -> Derivs {
+        self.0.ideal(t, rho, order)
+    }
+    fn rho_max(&self, t: f64) -> f64 {
+        self.0.rho_max(t)
+    }
+}
+
+/// PLAN.md M9.1 (K6): with rayon on, a `Parallel` batch of several chunks runs them on rayon's workers, never on the
+/// calling thread, and `Reference` runs on the calling thread. The family's residual is NaN off the pool, so a
+/// `Parallel` batch that ran its chunks in turn on the caller, with bits that would otherwise match, fails here.
+#[cfg(not(target_family = "wasm"))] // a thread test: wasm has no rayon (D17)
+#[test]
+fn parallel_batches_run_on_the_rayon_pool() {
+    let model = OnThePool(VanDerWaals { a: 0.1355, b: 3.2e-5 });
+    let crit = model.0.critical();
+    let source = Source::new("vanderWaals-1873", None, DataTerms::Published);
+    let info = FluidInfo::new("vdW-pool", 0.039_948, source, ModelKey::from_content(b"vdw on the rayon pool")).unwrap();
+    let package = PureFluid::builder(info, model, Limits::new(50.0, 2000.0, 1e9).unwrap()).critical(crit).build();
+    let reg = Registry::empty().with_model(Arc::new(package)).unwrap();
+    let fluid = reg.get("vdW-pool").unwrap();
+    let x: Vec<f64> = (1..=64).map(|i| f64::from(i) * 50.0).collect();
+    let y = vec![2.0 * crit.t; x.len()];
+    let req = BatchRequest::new(Pair::DT, Basis::Molar, &x, &y, &[Prop::P]);
+    let statuses = |exec| {
+        let (mut out, mut status) = (vec![0.0; x.len()], vec![Status::Other; x.len()]);
+        batch::evaluate(fluid, &req.with_exec(exec), &mut out, &mut status).unwrap();
+        status
+    };
+    let parallel = statuses(ExecPolicy::Parallel { chunk: NonZeroUsize::new(16).unwrap() });
+    assert!(parallel.iter().all(|s| *s == Status::Ok), "four chunks of 16 off the pool: {parallel:?}");
+    let reference = statuses(ExecPolicy::Reference);
+    assert!(reference.iter().all(|s| *s != Status::Ok), "the reference path ran on the pool: {reference:?}");
 }
 
 #[cfg(not(target_family = "wasm"))] // wasip2 has no thread spawning; the corpus runs there without this test

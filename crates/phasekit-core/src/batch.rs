@@ -5,6 +5,11 @@
 
 use core::num::NonZeroUsize;
 
+#[cfg(feature = "rayon")]
+use rayon::iter::{IndexedParallelIterator, ParallelIterator};
+#[cfg(feature = "rayon")]
+use rayon::slice::{ParallelSlice, ParallelSliceMut};
+
 use crate::error::Error;
 use crate::flash::FlashOptions;
 use crate::fluid::Fluid;
@@ -21,10 +26,12 @@ pub enum ExecPolicy {
     /// The scalar reference path: the source of truth.
     #[default]
     Reference,
-    /// Fixed chunks, run on rayon when the `rayon` feature (M9) is on and sequentially otherwise. Chunks
-    /// are independent and cold-started, so results are bitwise identical for any thread count (K6).
+    /// Fixed chunks, run on rayon's current pool (the global one, or the pool `ThreadPool::install` runs the
+    /// caller in) when the `rayon` feature is on, and in turn on the calling thread otherwise; a batch of one
+    /// chunk always runs on the calling thread. Chunks are independent and cold-started, so results are bitwise
+    /// identical for any thread count (K6).
     Parallel {
-        /// Points per chunk.
+        /// Points per chunk, rounded up to a multiple of 16 (K6: whole lanes for a later SIMD executor).
         chunk: NonZeroUsize,
     },
 }
@@ -132,17 +139,29 @@ pub fn evaluate(
     if cells == 0 {
         return Ok(BatchSummary { points: n, failed_cells: 0 }); // E12: no zero-sized chunks
     }
-    let chunk = match req.exec {
-        ExecPolicy::Parallel { chunk } => chunk.get(),
-        ExecPolicy::Reference => n,
-    };
-    // `rayon` (M9) replaces this loop with `par_chunks_mut` over the same boundaries.
-    let mut failed = 0;
-    let points = req.x.chunks(chunk).zip(req.y.chunks(chunk));
-    for ((xs, ys), (out, status)) in points.zip(out.chunks_mut(chunk * m).zip(status.chunks_mut(chunk * m))) {
-        failed += run_chunk(fluid, req, xs, ys, out, status);
+    // At most `n` points per chunk, so `chunk * m` is at most `cells`.
+    let chunk = chunk_points(req.exec, n);
+    #[cfg(feature = "rayon")]
+    if chunk < n {
+        let (points, outs) = (req.x.par_chunks(chunk).zip(req.y.par_chunks(chunk)), out.par_chunks_mut(chunk * m));
+        let chunks = points.zip(outs.zip(status.par_chunks_mut(chunk * m)));
+        let failed = chunks.map(|((xs, ys), (out, status))| run_chunk(fluid, req, xs, ys, out, status)).sum();
+        return Ok(BatchSummary { points: n, failed_cells: failed });
     }
+    // One chunk, or no rayon: the chunks in turn on the calling thread, with the boundaries rayon's would have.
+    let (points, outs) = (req.x.chunks(chunk).zip(req.y.chunks(chunk)), out.chunks_mut(chunk * m));
+    let chunks = points.zip(outs.zip(status.chunks_mut(chunk * m)));
+    let failed = chunks.map(|((xs, ys), (out, status))| run_chunk(fluid, req, xs, ys, out, status)).sum();
     Ok(BatchSummary { points: n, failed_cells: failed })
+}
+
+/// Points per chunk, at most `n`: `Reference` takes the batch as one chunk; `Parallel` rounds its `chunk` up to a
+/// multiple of 16 (K6), saturating at the largest multiple below `usize::MAX`.
+fn chunk_points(exec: ExecPolicy, n: usize) -> usize {
+    match exec {
+        ExecPolicy::Parallel { chunk } => chunk.get().checked_next_multiple_of(16).unwrap_or(usize::MAX - 15).min(n),
+        ExecPolicy::Reference => n,
+    }
 }
 
 /// One chunk, point by point. Returns the failed-cell count.
@@ -195,6 +214,44 @@ mod tests {
         assert_eq!(out.first(), Some(&300.0));
         assert!(out.iter().skip(2).all(|v| v.is_nan()), "{out:?}");
         assert!(matches!(Input::new(Pair::DT, f64::NAN, 300.0, Basis::Molar), Err(Error::InvalidInput { .. })));
+    }
+
+    /// K6 (PLAN.md M9.1): `Parallel` chunks are a multiple of 16 points, rounded up from the policy's `chunk` and
+    /// saturating below `usize::MAX`, and never longer than the batch; `Reference` is one chunk of the whole batch.
+    #[test]
+    fn parallel_chunks_are_a_multiple_of_16() {
+        let parallel = |chunk| ExecPolicy::Parallel { chunk: NonZeroUsize::new(chunk).unwrap() };
+        let cases = [(1, 16), (15, 16), (16, 16), (17, 32), (1000, 1008), (1024, 1024), (usize::MAX, usize::MAX - 15)];
+        for (chunk, points) in cases {
+            assert_eq!(chunk_points(parallel(chunk), usize::MAX), points, "chunk {chunk}");
+        }
+        assert_eq!((chunk_points(parallel(64), 40), chunk_points(parallel(1), 5)), (40, 5));
+        assert_eq!(chunk_points(ExecPolicy::Reference, 5), 5);
+    }
+
+    /// K6, K13 (PLAN.md M9.1): built without `rayon`, `Parallel` runs its chunks in turn on the calling thread, every
+    /// cell and status bitwise the `Reference` path's, at any chunk size, a short last chunk included. G4 runs this:
+    /// wasm builds core without rayon, while the native workspace enables it through phasekit-verify's thread tests.
+    #[cfg(not(feature = "rayon"))]
+    #[test]
+    fn parallel_without_the_feature_is_sequential_and_identical() {
+        let fluid = Fluid::new(Arc::new(FluidRecord::synthetic("X").unwrap().compile().unwrap()));
+        let liquid = FlashOptions::new().with_phase(crate::state::Phase::Liquid);
+        let x: Vec<f64> = (0..100).map(|i| if i == 7 { f64::NAN } else { 4000.0 + 20.0 * f64::from(i) }).collect();
+        let y: Vec<f64> = (0..100).map(|i| if i == 50 { -1.0 } else { 250.0 + f64::from(i) }).collect();
+        let outputs = [Prop::T, Prop::P, Prop::Cpmolar];
+        let req = BatchRequest::new(Pair::DT, Basis::Molar, &x, &y, &outputs).with_flash(liquid);
+        let run = |exec| {
+            let (mut out, mut status) = (vec![0.0; 300], vec![Status::Other; 300]);
+            let summary = evaluate(&fluid, &req.with_exec(exec), &mut out, &mut status).unwrap();
+            (out.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), status, summary)
+        };
+        let reference = run(ExecPolicy::Reference);
+        assert!(reference.2.failed_cells == 6 && reference.1.iter().filter(|s| **s == Status::Ok).count() == 294);
+        for chunk in [1, 16, 64, 1024] {
+            let parallel = ExecPolicy::Parallel { chunk: NonZeroUsize::new(chunk).unwrap() };
+            assert!(run(parallel) == reference, "chunk {chunk}");
+        }
     }
 
     /// E12: every buffer shape is either evaluated or refused with `Shape`; nothing panics (zero outputs and
