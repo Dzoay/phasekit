@@ -255,7 +255,15 @@ mod tests {
         assert_eq!(parse_args(&args("--record scaling")), Some((true, None)));
         assert_eq!(parse_args(&args("--record --step M9.2")), Some((false, Some("M9.2".into()))));
         assert_eq!(parse_args(&args("--record scaling --step M9.2")), Some((true, Some("M9.2".into()))));
-        for refused in ["", "scaling", "--record --step", "--record scaling M9.2", "--record --step M9.2 x"] {
+        let refused_args = [
+            "",
+            "scaling",
+            "--record --step",
+            "--record scaling M9.2",
+            "--record --stop M9.2",
+            "--record --step M9.2 x",
+        ];
+        for refused in refused_args {
             assert_eq!(parse_args(&args(refused)), None, "{refused}");
         }
     }
@@ -282,9 +290,17 @@ mod tests {
         let tail: Vec<&str> = file.lines().rev().take(5).collect();
         assert_eq!(tail[..3], ["mixed,4,2000,700.0,3.600", "Water,1,2000,2690.5,1.000", head.lines().nth(1).unwrap()]);
         assert_eq!(tail[4], "# cores: 4 physical, 8 hardware threads");
-        for bad in
-            ["Water,0,2000,1.0,1.0", "Water,1,2000,nan,1.0", "Water,1,2000,1.0", ",1,2000,1.0,1.0", "Water,1,x,1,1"]
-        {
+        let bad_rows = [
+            "Water,0,2000,1.0,1.0",
+            "Water,1,0,1.0,1.0",
+            "Water,1,2000,nan,1.0",
+            "Water,1,2000,-1.0,1.0",
+            "Water,1,2000,1.0,0.0",
+            "Water,1,2000,1.0",
+            ",1,2000,1.0,1.0",
+            "Water,1,x,1,1",
+        ];
+        for bad in bad_rows {
             assert!(scaling_file(&format!("{head}{bad}\n"), &m, "M9.2").is_err(), "{bad}");
         }
         assert!(scaling_file(&head, &m, "M9.2").unwrap_err().contains("no rows"));
