@@ -1,32 +1,19 @@
 //! `Jet4`, the in-house bivariate jet (D2, S-07): exact derivatives to total order 4 for formulas written over
 //! [`Real`]. The separable term kinds use precomputed factors instead (`helmholtz::power`); `Jet4` serves the
 //! non-separable kinds (NonAnalytic, M4.1), families outside the core and the tests that check the fast path.
+//! `Jet2`, crate-private, is the same code truncated at total order 2 (PLAN.md M9.2a, user decision NA1): a product's
+//! entry of total order n sums only entries of order ≤ n, in the same order, so `Jet2`'s entries are bitwise `Jet4`'s.
 
 use core::ops::{Add, Div, Mul, Neg, Sub};
 
 use super::{Real, math, sealed};
-use crate::derivs::{Derivs, Order, SLOTS, idx};
-
-/// A truncated bivariate Taylor polynomial `f(τ₀ + h, δ₀ + k) = Σ_(i+j≤4) c_ij h^i k^j` around a point (τ₀, δ₀):
-/// arithmetic on it carries every partial derivative to total order 4 exactly, up to rounding. Value parts are
-/// computed with the same operations as on `f64`, so a formula's value is bitwise the same on both.
-///
-/// ```
-/// use phasekit_core::{Jet4, Real};
-/// let (tau, delta) = (Jet4::tau(1.5), Jet4::delta(0.5));
-/// let f = tau.powi(2) * delta.exp(); // τ² e^δ
-/// assert_eq!(f.derivative(2, 1), Some(2.0 * phasekit_core::math::exp(0.5))); // ∂³f/∂τ²∂δ = 2e^δ
-/// ```
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Jet4 {
-    /// `c_ij` at `idx(i, j)`: the derivative divided by `i! j!`.
-    c: [f64; SLOTS],
-}
+use crate::derivs::{Derivs, Order, idx};
 
 /// `n!` for n ≤ 4.
 const FACTORIAL: [f64; 5] = [1.0, 1.0, 2.0, 6.0, 24.0];
 
 /// The 70 slot triples `(k, a, b)` of a product: `c_k += x_a · y_b` whenever the exponents of a and b add up to k's.
+/// Ordered by k's total order, so a jet of order n reads a prefix: 15 triples for n = 2, all 70 for n = 4.
 const PRODUCT: [(u8, u8, u8); 70] = {
     let mut table = [(0u8, 0u8, 0u8); 70];
     let mut n = 0;
@@ -53,210 +40,255 @@ const PRODUCT: [(u8, u8, u8); 70] = {
     table
 };
 
-impl Jet4 {
-    /// A constant.
-    pub const fn constant(value: f64) -> Self {
-        let mut c = [0.0; SLOTS];
-        c[0] = value;
-        Self { c }
-    }
-
-    /// The first variable at `tau`: `τ₀ + h`.
-    pub const fn tau(tau: f64) -> Self {
-        let mut c = [0.0; SLOTS];
-        (c[0], c[idx(1, 0)]) = (tau, 1.0);
-        Self { c }
-    }
-
-    /// The second variable at `delta`: `δ₀ + k`.
-    pub const fn delta(delta: f64) -> Self {
-        let mut c = [0.0; SLOTS];
-        (c[0], c[idx(0, 1)]) = (delta, 1.0);
-        Self { c }
-    }
-
-    /// The value at the expansion point.
-    pub const fn value(&self) -> f64 {
-        self.c[0]
-    }
-
-    /// `∂^(i+j)f / ∂τ^i ∂δ^j` at the expansion point, or `None` for `i + j > 4`.
-    pub fn derivative(&self, i: usize, j: usize) -> Option<f64> {
-        (i + j <= 4).then(|| self.c[idx(i, j)] * FACTORIAL[i] * FACTORIAL[j])
-    }
-
-    /// The scaled derivatives `A_ij = τ^i δ^j ∂^(i+j)f/∂τ^i∂δ^j` of [`Derivs`], with `(tau, delta)` the expansion
-    /// point this jet was built at.
-    pub fn derivs(&self, tau: f64, delta: f64) -> Derivs {
-        Derivs::from_fn(Order::Four, |i, j| {
-            self.c[idx(i, j)] * FACTORIAL[i] * FACTORIAL[j] * math::powi(tau, i as i32) * math::powi(delta, j as i32)
-        })
-    }
-
-    /// `f(self)` from `f` and its first four derivatives at the value: `Σ_n f⁽ⁿ⁾/n! εⁿ` by Horner, with `ε = self −
-    /// value` nilpotent (ε⁵ = 0). The value part is `d[0]` itself. Each Horner product skips a zero factor, so an
-    /// infinite derivative reaches only the slots its power of ε fills: `|δ − 1|^(10/3)` at δ = 1 has f⁗ = ∞ and
-    /// ε⁴ = k⁴, and only `c_04` is infinite, where 0 · ∞ would have made every slot NaN (M4.6). Finite results are
-    /// bitwise those of the plain product.
-    fn compose(self, d: [f64; 5]) -> Self {
-        let mut eps = self;
-        eps.c[0] = 0.0;
-        let mut r = Self::constant(d[4] / FACTORIAL[4]);
-        for n in (0..4).rev() {
-            r = r.times_nilpotent(eps) + d[n] / FACTORIAL[n];
+/// A jet type of total order `$ord`, with `$slots` = (ord + 1)(ord + 2)/2 coefficients and products over the first
+/// `$triples` entries of [`PRODUCT`]. Every order runs this one code, so a shorter jet's entries are the longer one's
+/// bits.
+macro_rules! jet {
+    (
+        $(#[$meta:meta])* $vis:vis struct $name:ident: $order:expr, $ord:literal, $slots:literal, $triples:literal
+        $(; $(#[$imeta:meta])+)?
+    ) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy, Debug, PartialEq)]
+        $vis struct $name {
+            /// `c_ij` at `idx(i, j)`: the derivative divided by `i! j!`.
+            c: [f64; $slots],
         }
-        r.c[0] = d[0];
-        r
-    }
 
-    /// `self · eps` for an `eps` whose value is zero, every product with an exact zero factor skipped.
-    fn times_nilpotent(self, eps: Self) -> Self {
-        let mut c = [0.0; SLOTS];
-        for &(k, a, b) in &PRODUCT[1..] {
-            let (x, y) = (self.c[usize::from(a)], eps.c[usize::from(b)]);
-            if x != 0.0 && y != 0.0 {
-                c[usize::from(k)] += x * y;
+        $($(#[$imeta])+)?
+        impl $name {
+            /// A constant.
+            pub const fn constant(value: f64) -> Self {
+                let mut c = [0.0; $slots];
+                c[0] = value;
+                Self { c }
+            }
+
+            /// The first variable at `tau`: `τ₀ + h`.
+            pub const fn tau(tau: f64) -> Self {
+                let mut c = [0.0; $slots];
+                (c[0], c[idx(1, 0)]) = (tau, 1.0);
+                Self { c }
+            }
+
+            /// The second variable at `delta`: `δ₀ + k`.
+            pub const fn delta(delta: f64) -> Self {
+                let mut c = [0.0; $slots];
+                (c[0], c[idx(0, 1)]) = (delta, 1.0);
+                Self { c }
+            }
+
+            /// The value at the expansion point.
+            pub const fn value(&self) -> f64 {
+                self.c[0]
+            }
+
+            /// `∂^(i+j)f / ∂τ^i ∂δ^j` at the expansion point, or `None` beyond the jet's total order.
+            pub fn derivative(&self, i: usize, j: usize) -> Option<f64> {
+                (i + j <= $ord).then(|| self.c[idx(i, j)] * FACTORIAL[i] * FACTORIAL[j])
+            }
+
+            /// The scaled derivatives `A_ij = τ^i δ^j ∂^(i+j)f/∂τ^i∂δ^j` of [`Derivs`] to the jet's order, with
+            /// `(tau, delta)` the expansion point this jet was built at.
+            pub fn derivs(&self, tau: f64, delta: f64) -> Derivs {
+                Derivs::from_fn($order, |i, j| {
+                    self.c[idx(i, j)]
+                        * FACTORIAL[i]
+                        * FACTORIAL[j]
+                        * math::powi(tau, i as i32)
+                        * math::powi(delta, j as i32)
+                })
+            }
+
+            /// `f(self)` from `f` and its derivatives at the value, those beyond the jet's order unread: `Σ_n f⁽ⁿ⁾/n!
+            /// εⁿ` by Horner, with `ε = self − value` nilpotent. The value part is `d[0]` itself. Each Horner product
+            /// skips a zero factor, so an infinite derivative reaches only the slots its power of ε fills:
+            /// `|δ − 1|^(10/3)` at δ = 1 has f⁗ = ∞ and ε⁴ = k⁴, and only `c_04` is infinite, where 0 · ∞ would have
+            /// made every slot NaN (M4.6). Finite results are bitwise those of the plain product.
+            fn compose(self, d: [f64; 5]) -> Self {
+                let mut eps = self;
+                eps.c[0] = 0.0;
+                let mut r = Self::constant(d[$ord] / FACTORIAL[$ord]);
+                for n in (0..$ord).rev() {
+                    r = r.times_nilpotent(eps) + d[n] / FACTORIAL[n];
+                }
+                r.c[0] = d[0];
+                r
+            }
+
+            /// `self · eps` for an `eps` whose value is zero, every product with an exact zero factor skipped.
+            fn times_nilpotent(self, eps: Self) -> Self {
+                let mut c = [0.0; $slots];
+                for &(k, a, b) in &PRODUCT[1..$triples] {
+                    let (x, y) = (self.c[usize::from(a)], eps.c[usize::from(b)]);
+                    if x != 0.0 && y != 0.0 {
+                        c[usize::from(k)] += x * y;
+                    }
+                }
+                Self { c }
+            }
+
+            /// `x^y` with derivatives `(y)_k x^(y−k)` to the jet's order; a zero falling factorial gives an exact zero,
+            /// so `x⁰`, `x¹` stay finite at x = 0.
+            fn power(self, y: f64, pow: impl Fn(f64) -> f64) -> Self {
+                let mut d = [0.0; 5];
+                let mut falling = 1.0;
+                for (k, slot) in d.iter_mut().enumerate().take($ord + 1) {
+                    *slot = if falling == 0.0 { 0.0 } else { falling * pow(y - k as f64) };
+                    falling *= y - k as f64;
+                }
+                self.compose(d)
             }
         }
-        Self { c }
-    }
 
-    /// `x^y` with derivatives `(y)_k x^(y−k)`; a zero falling factorial gives an exact zero, so `x⁰`, `x¹` stay
-    /// finite at x = 0.
-    fn power(self, y: f64, pow: impl Fn(f64) -> f64) -> Self {
-        let mut d = [0.0; 5];
-        let mut falling = 1.0;
-        for (k, slot) in d.iter_mut().enumerate() {
-            *slot = if falling == 0.0 { 0.0 } else { falling * pow(y - k as f64) };
-            falling *= y - k as f64;
+        impl Add for $name {
+            type Output = Self;
+            fn add(mut self, o: Self) -> Self {
+                self.c.iter_mut().zip(o.c).for_each(|(a, b)| *a += b);
+                self
+            }
         }
-        self.compose(d)
-    }
-}
 
-impl Add for Jet4 {
-    type Output = Self;
-    fn add(mut self, o: Self) -> Self {
-        self.c.iter_mut().zip(o.c).for_each(|(a, b)| *a += b);
-        self
-    }
-}
-
-impl Sub for Jet4 {
-    type Output = Self;
-    fn sub(mut self, o: Self) -> Self {
-        self.c.iter_mut().zip(o.c).for_each(|(a, b)| *a -= b);
-        self
-    }
-}
-
-impl Mul for Jet4 {
-    type Output = Self;
-    fn mul(self, o: Self) -> Self {
-        let mut c = [0.0; SLOTS];
-        c[0] = self.c[0] * o.c[0];
-        for &(k, a, b) in &PRODUCT[1..] {
-            c[usize::from(k)] += self.c[usize::from(a)] * o.c[usize::from(b)];
+        impl Sub for $name {
+            type Output = Self;
+            fn sub(mut self, o: Self) -> Self {
+                self.c.iter_mut().zip(o.c).for_each(|(a, b)| *a -= b);
+                self
+            }
         }
-        Self { c }
-    }
+
+        impl Mul for $name {
+            type Output = Self;
+            fn mul(self, o: Self) -> Self {
+                let mut c = [0.0; $slots];
+                c[0] = self.c[0] * o.c[0];
+                for &(k, a, b) in &PRODUCT[1..$triples] {
+                    c[usize::from(k)] += self.c[usize::from(a)] * o.c[usize::from(b)];
+                }
+                Self { c }
+            }
+        }
+
+        impl Div for $name {
+            type Output = Self;
+            fn div(self, o: Self) -> Self {
+                let r = 1.0 / o.c[0];
+                let inverse = [r, -r * r, 2.0 * r * r * r, -6.0 * r * r * r * r, 24.0 * r * r * r * r * r];
+                let mut q = self * o.compose(inverse);
+                q.c[0] = self.c[0] / o.c[0];
+                q
+            }
+        }
+
+        impl Neg for $name {
+            type Output = Self;
+            fn neg(mut self) -> Self {
+                self.c.iter_mut().for_each(|a| *a = -*a);
+                self
+            }
+        }
+
+        impl Add<f64> for $name {
+            type Output = Self;
+            fn add(mut self, x: f64) -> Self {
+                self.c[0] += x;
+                self
+            }
+        }
+
+        impl Mul<f64> for $name {
+            type Output = Self;
+            fn mul(mut self, x: f64) -> Self {
+                self.c.iter_mut().for_each(|a| *a *= x);
+                self
+            }
+        }
+
+        impl sealed::Sealed for $name {}
+
+        impl Real for $name {
+            fn from_f64(x: f64) -> Self {
+                Self::constant(x)
+            }
+            /// Composed with unit derivatives, then scaled by e^x₀ once: a subnormal e^x₀ (NonAnalytic terms far from
+            /// the critical point) is rounded once, not at every Horner step.
+            fn exp(self) -> Self {
+                let e = math::exp(self.c[0]);
+                let mut r = self.compose([1.0; 5]) * e;
+                r.c[0] = e;
+                r
+            }
+            fn expm1(self) -> Self {
+                let e = math::exp(self.c[0]);
+                self.compose([math::expm1(self.c[0]), e, e, e, e])
+            }
+            fn ln(self) -> Self {
+                let r = 1.0 / self.c[0];
+                self.compose([math::ln(self.c[0]), r, -r * r, 2.0 * r * r * r, -6.0 * r * r * r * r])
+            }
+            fn ln_1p(self) -> Self {
+                let r = 1.0 / (1.0 + self.c[0]);
+                self.compose([math::ln_1p(self.c[0]), r, -r * r, 2.0 * r * r * r, -6.0 * r * r * r * r])
+            }
+            fn powi(self, n: i32) -> Self {
+                let x = self.c[0];
+                self.power(f64::from(n), |e| math::powi(x, e as i32))
+            }
+            fn powf(self, y: f64) -> Self {
+                let x = self.c[0];
+                self.power(y, |e| math::powf(x, e))
+            }
+            fn sqrt(self) -> Self {
+                let (x, s) = (self.c[0], math::sqrt(self.c[0]));
+                self.compose([s, 0.5 / s, -0.25 / (s * x), 0.375 / (s * x * x), -0.9375 / (s * x * x * x)])
+            }
+            fn sinh(self) -> Self {
+                let (s, c) = (math::sinh(self.c[0]), math::cosh(self.c[0]));
+                self.compose([s, c, s, c, s])
+            }
+            fn cosh(self) -> Self {
+                let (s, c) = (math::sinh(self.c[0]), math::cosh(self.c[0]));
+                self.compose([c, s, c, s, c])
+            }
+            /// atan′ = 1/u, atan″ = −2x/u², atan‴ = (6x² − 2)/u³, atan⁗ = −24x(x² − 1)/u⁴ with u = 1 + x².
+            fn atan(self) -> Self {
+                let x = self.c[0];
+                let r = 1.0 / (1.0 + x * x);
+                let d3 = (6.0 * x * x - 2.0) * r * r * r;
+                self.compose([math::atan(x), r, -2.0 * x * r * r, d3, -24.0 * x * (x * x - 1.0) * r * r * r * r])
+            }
+            fn abs(self) -> Self {
+                if self.c[0].is_sign_negative() { -self } else { self }
+            }
+        }
+    };
 }
 
-impl Div for Jet4 {
-    type Output = Self;
-    fn div(self, o: Self) -> Self {
-        let r = 1.0 / o.c[0];
-        let mut q = self * o.compose([r, -r * r, 2.0 * r * r * r, -6.0 * r * r * r * r, 24.0 * r * r * r * r * r]);
-        q.c[0] = self.c[0] / o.c[0];
-        q
-    }
+jet! {
+    /// A truncated bivariate Taylor polynomial `f(τ₀ + h, δ₀ + k) = Σ_(i+j≤4) c_ij h^i k^j` around a point (τ₀, δ₀):
+    /// arithmetic on it carries every partial derivative to total order 4 exactly, up to rounding. Value parts are
+    /// computed with the same operations as on `f64`, so a formula's value is bitwise the same on both.
+    ///
+    /// ```
+    /// use phasekit_core::{Jet4, Real};
+    /// let (tau, delta) = (Jet4::tau(1.5), Jet4::delta(0.5));
+    /// let f = tau.powi(2) * delta.exp(); // τ² e^δ
+    /// assert_eq!(f.derivative(2, 1), Some(2.0 * phasekit_core::math::exp(0.5))); // ∂³f/∂τ²∂δ = 2e^δ
+    /// ```
+    pub struct Jet4: Order::Four, 4, 15, 70
 }
 
-impl Neg for Jet4 {
-    type Output = Self;
-    fn neg(mut self) -> Self {
-        self.c.iter_mut().for_each(|a| *a = -*a);
-        self
-    }
-}
-
-impl Add<f64> for Jet4 {
-    type Output = Self;
-    fn add(mut self, x: f64) -> Self {
-        self.c[0] += x;
-        self
-    }
-}
-
-impl Mul<f64> for Jet4 {
-    type Output = Self;
-    fn mul(mut self, x: f64) -> Self {
-        self.c.iter_mut().for_each(|a| *a *= x);
-        self
-    }
-}
-
-impl sealed::Sealed for Jet4 {}
-
-impl Real for Jet4 {
-    fn from_f64(x: f64) -> Self {
-        Self::constant(x)
-    }
-    /// Composed with unit derivatives, then scaled by e^x₀ once: a subnormal e^x₀ (NonAnalytic terms far from the
-    /// critical point) is rounded once, not at every Horner step.
-    fn exp(self) -> Self {
-        let e = math::exp(self.c[0]);
-        let mut r = self.compose([1.0; 5]) * e;
-        r.c[0] = e;
-        r
-    }
-    fn expm1(self) -> Self {
-        let e = math::exp(self.c[0]);
-        self.compose([math::expm1(self.c[0]), e, e, e, e])
-    }
-    fn ln(self) -> Self {
-        let r = 1.0 / self.c[0];
-        self.compose([math::ln(self.c[0]), r, -r * r, 2.0 * r * r * r, -6.0 * r * r * r * r])
-    }
-    fn ln_1p(self) -> Self {
-        let r = 1.0 / (1.0 + self.c[0]);
-        self.compose([math::ln_1p(self.c[0]), r, -r * r, 2.0 * r * r * r, -6.0 * r * r * r * r])
-    }
-    fn powi(self, n: i32) -> Self {
-        let x = self.c[0];
-        self.power(f64::from(n), |e| math::powi(x, e as i32))
-    }
-    fn powf(self, y: f64) -> Self {
-        let x = self.c[0];
-        self.power(y, |e| math::powf(x, e))
-    }
-    fn sqrt(self) -> Self {
-        let (x, s) = (self.c[0], math::sqrt(self.c[0]));
-        self.compose([s, 0.5 / s, -0.25 / (s * x), 0.375 / (s * x * x), -0.9375 / (s * x * x * x)])
-    }
-    fn sinh(self) -> Self {
-        let (s, c) = (math::sinh(self.c[0]), math::cosh(self.c[0]));
-        self.compose([s, c, s, c, s])
-    }
-    fn cosh(self) -> Self {
-        let (s, c) = (math::sinh(self.c[0]), math::cosh(self.c[0]));
-        self.compose([c, s, c, s, c])
-    }
-    /// atan′ = 1/u, atan″ = −2x/u², atan‴ = (6x² − 2)/u³, atan⁗ = −24x(x² − 1)/u⁴ with u = 1 + x².
-    fn atan(self) -> Self {
-        let x = self.c[0];
-        let r = 1.0 / (1.0 + x * x);
-        let d3 = (6.0 * x * x - 2.0) * r * r * r;
-        self.compose([math::atan(x), r, -2.0 * x * r * r, d3, -24.0 * x * (x * x - 1.0) * r * r * r * r])
-    }
-    fn abs(self) -> Self {
-        if self.c[0].is_sign_negative() { -self } else { self }
-    }
+jet! {
+    /// [`Jet4`] truncated at total order 2 (PLAN.md M9.2a): the NonAnalytic block's jet for bundles of order ≤ 2, its 6
+    /// entries bitwise `Jet4`'s of order ≤ 2.
+    pub(crate) struct Jet2: Order::Two, 2, 6, 15;
+    #[allow(dead_code, reason = "`Jet4`'s inherent API, generated for both: the core reads `Jet2` through `Real`")]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::derivs::SLOTS;
 
     /// x³ at x = 2 along τ: 8, 12, 12, 6, 0; along a mixed variable τδ at (2, 3): ∂τ∂δ(τδ)³ = 9τ²δ² = 324.
     #[test]
@@ -296,6 +328,36 @@ mod tests {
                     assert_eq!(got, if infinite { f64::INFINITY } else { 0.0 }, "y ({i}, {j})");
                 }
             }
+        }
+    }
+
+    /// PLAN.md M9.2a: `Jet2` is `Jet4` truncated, bit for bit. A formula through every `Real` method, the
+    /// operators and an infinite fourth derivative (|δ − 1|^(10/3) at δ = 1), at points on both sides of 1: each entry
+    /// of order ≤ 2 has the same bits on both jets, and `Jet2` has none above.
+    #[test]
+    fn jet2_entries_are_jet4_bitwise() {
+        fn formula<R: Real>(tau: R, delta: R) -> R {
+            let w = (delta + -1.0).abs();
+            let a = (tau * delta).exp() + (tau + 0.5).ln() * delta.expm1() - (delta * 0.3).ln_1p() / tau.sqrt();
+            let b = tau.powi(3) * w.powf(10.0 / 3.0) + (tau * 0.2).sinh() * delta.cosh() + delta.atan() * -2.0;
+            a * b + w.powf(0.85) / (tau * tau + delta)
+        }
+        for (tau, delta) in [(1.5, 0.5), (0.7, 1.0), (1.0, 1.3), (2.5, 1e-3)] {
+            let two = formula(Jet2::tau(tau), Jet2::delta(delta));
+            let four = formula(Jet4::tau(tau), Jet4::delta(delta));
+            for n in 0..=2 {
+                for i in 0..=n {
+                    let (a, b) = (two.derivative(i, n - i), four.derivative(i, n - i));
+                    assert_eq!(a.map(f64::to_bits), b.map(f64::to_bits), "({i}, {}) at ({tau}, {delta})", n - i);
+                }
+            }
+            assert_eq!(
+                (two.derivative(3, 0), two.derivative(0, 3), four.derivative(0, 3).is_some()),
+                (None, None, true)
+            );
+            let (d2, d4) = (two.derivs(tau, delta), four.derivs(tau, delta));
+            assert_eq!(d2.order(), Order::Two);
+            assert_eq!(d2.get(2, 0).map(f64::to_bits), d4.get(2, 0).map(f64::to_bits));
         }
     }
 

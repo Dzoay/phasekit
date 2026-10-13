@@ -1,19 +1,21 @@
 //! Non-analytic terms `n Δ^b δ ψ` (Span & Wagner 1996, Wagner & Pruß 2002; CarbonDioxide 3 terms, Water 2) with
 //! `Δ = θ² + B[(δ − 1)²]^a`, `θ = (1 − τ) + A[(δ − 1)²]^(1/(2β))` and `ψ = e^(−C(δ − 1)² − D(τ − 1)²)`. They are not
-//! separable, so each term is evaluated once on [`Jet4`] (D2). `[(δ − 1)²]^p` is written `|δ − 1|^(2p)`: no division by
+//! separable, so each term is evaluated once on a jet (D2): [`Jet4`] for bundles of order 3 and 4, and for order 1 and
+//! 2 `Jet2`, its truncation, whose entries are the same bits at about a third of the work (PLAN.md M9.2a, user
+//! decision NA1). `[(δ − 1)²]^p` is written `|δ − 1|^(2p)`: no division by
 //! δ − 1, no 0/0 form and no nudge away from δ = 1 or τ = 1, unlike CoolProp's 10ε offset (map 02 §6, ROT-065). At
 //! τ = δ = 1, the critical point, the block returns its limits there (`NonAnalyticBlock::critical`, E17).
 
 use super::NonAnalyticTerm;
 use crate::derivs::{Derivs, Order};
 use crate::error::{Error, LoadError};
-use crate::num::{Jet4, Real};
+use crate::num::{Jet2, Jet4, Real};
 
 /// One term's `f = n Δ^b ψ` at (τ, δ), as jets: α = δ·f is the paper formula.
-fn f(p: &NonAnalyticTerm, tau: Jet4, delta: Jet4) -> Jet4 {
+fn f<R: Real>(p: &NonAnalyticTerm, tau: R, delta: R) -> R {
     let (w, u) = (delta + -1.0, tau + -1.0);
     let aw = w.abs();
-    let theta = Jet4::constant(1.0) - tau + aw.powf(1.0 / p.beta) * p.big_a;
+    let theta = R::from_f64(1.0) - tau + aw.powf(1.0 / p.beta) * p.big_a;
     let big_delta = theta * theta + aw.powf(2.0 * p.a) * p.big_b;
     let psi = (-(w * w * p.big_c) - u * u * p.big_d).exp();
     big_delta.powf(p.b) * psi * p.n
@@ -42,16 +44,26 @@ impl NonAnalyticBlock {
         Ok(Self { terms: terms.into() })
     }
 
-    /// `A_ij += τ^i δ^j ∂^(i+j)α/∂τ^i∂δ^j` of every term, from one `Jet4` evaluation at (τ, δ); at τ = δ = 1, the
-    /// limits of [`Self::critical`].
-    pub(crate) fn accumulate(&self, tau: f64, delta: f64, acc: &mut Derivs) {
+    /// `A_ij += τ^i δ^j ∂^(i+j)α/∂τ^i∂δ^j` of every term to order `ORD`, from one jet evaluation at (τ, δ): `Jet2`
+    /// for `ORD` ≤ 2, `Jet4` above; at τ = δ = 1, the limits of [`Self::critical`].
+    pub(crate) fn accumulate<const ORD: usize>(&self, tau: f64, delta: f64, acc: &mut Derivs) {
         if tau == 1.0 && delta == 1.0 {
-            *acc = *acc + self.critical();
+            *acc = *acc + self.critical(acc.order());
             return;
         }
-        let (t, d) = (Jet4::tau(tau), Jet4::delta(delta));
-        let sum = self.terms.iter().fold(Jet4::constant(0.0), |sum, p| sum + f(p, t, d));
-        *acc = *acc + (sum * d).derivs(tau, delta);
+        let terms = if ORD <= 2 {
+            let d = Jet2::delta(delta);
+            (self.sum(Jet2::tau(tau), d) * d).derivs(tau, delta)
+        } else {
+            let d = Jet4::delta(delta);
+            (self.sum(Jet4::tau(tau), d) * d).derivs(tau, delta)
+        };
+        *acc = *acc + terms;
+    }
+
+    /// `Σ f` over the terms at (τ, δ).
+    fn sum<R: Real>(&self, tau: R, delta: R) -> R {
+        self.terms.iter().fold(R::from_f64(0.0), |sum, p| sum + f(p, tau, delta))
     }
 
     /// The block at τ = δ = 1, where every term's Δ vanishes: Δ^b has no second τ-derivative there, and the terms'
@@ -60,10 +72,10 @@ impl NonAnalyticBlock {
     /// Δ^(b−1) diverges fastest. For Water's and CarbonDioxide's terms these are the limits from every direction, and
     /// A20 → −∞ (c_v → +∞). Orders 3 and 4 have no single limit (A30 changes sign with 1 − τ) and are NaN. No nudge
     /// off the point (ROT-065).
-    fn critical(&self) -> Derivs {
+    fn critical(&self, order: Order) -> Derivs {
         let least = self.terms.iter().map(|p| p.b).fold(f64::INFINITY, f64::min);
         let n: f64 = self.terms.iter().filter(|p| p.b == least).map(|p| p.n).sum();
-        Derivs::from_fn(Order::Four, |i, j| match (i, j) {
+        Derivs::from_fn(order, |i, j| match (i, j) {
             (2, 0) => n * f64::INFINITY,
             _ if i + j <= 2 => 0.0,
             _ => f64::NAN,
@@ -73,8 +85,7 @@ impl NonAnalyticBlock {
     /// Exact δ → 0 Taylor coefficients `[a_k(τ), τ·da_k/dτ]`, k = 0, 1, 2: α = δ·f(τ, δ) with `f = n Δ^b ψ` analytic at
     /// δ = 0 (there |δ − 1| = 1), so `a_1 = f(τ, 0)` and `a_2 = ∂f/∂δ(τ, 0)`.
     pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 2]; 3] {
-        let (t, d) = (Jet4::tau(tau), Jet4::delta(0.0));
-        let g = self.terms.iter().fold(Jet4::constant(0.0), |sum, p| sum + f(p, t, d));
+        let g = self.sum(Jet4::tau(tau), Jet4::delta(0.0));
         let at = |i: usize, j: usize| g.derivative(i, j).unwrap_or(f64::NAN);
         [[0.0, 0.0], [at(0, 0), tau * at(1, 0)], [at(0, 1), tau * at(1, 1)]]
     }
@@ -100,10 +111,31 @@ mod tests {
         let [a0, a1, a2] = block.zero_density_series(tau);
         assert_eq!(a0, [0.0, 0.0]);
         let mut acc = Derivs::zero(Order::One);
-        block.accumulate(tau, delta, &mut acc);
+        block.accumulate::<1>(tau, delta, &mut acc);
         for (k, got) in [(0, acc.get(0, 0).unwrap()), (1, acc.get(1, 0).unwrap())] {
             let series = a1[k] * delta + a2[k] * delta * delta;
             assert!(((got - series) / series).abs() < 1e-14, "{k}: {got} vs {series}");
+        }
+    }
+
+    /// PLAN.md M9.2a (user decision NA1): an order-2 bundle evaluates the block at order 2, on `Jet2`: its entries are
+    /// bitwise the order-4 evaluation's, and it holds nothing above its order, where `Jet4` wrote order 3 and 4 terms.
+    /// Near and at the critical point too, where the limits are built at the bundle's order.
+    #[test]
+    fn non_analytic_order_two_stops_at_order_two() {
+        let block = NonAnalyticBlock::new(&water()).unwrap();
+        for (tau, delta) in [(0.95, 1.1), (1.2, 0.3), (0.999_999, 1.000_001), (1.0, 1.0), (1.0, 1.01), (0.9, 1.0)] {
+            let (mut two, mut four) = (Derivs::zero(Order::Two), Derivs::zero(Order::Four));
+            block.accumulate::<2>(tau, delta, &mut two);
+            block.accumulate::<4>(tau, delta, &mut four);
+            for n in 0..=2 {
+                for i in 0..=n {
+                    let bits = |d: &Derivs| d.get(i, n - i).map(f64::to_bits);
+                    assert_eq!(bits(&two), bits(&four), "A{i}{} at ({tau}, {delta})", n - i);
+                }
+            }
+            let nothing_above = Derivs::from_fn(Order::Two, |i, j| two.get(i, j).unwrap_or(f64::NAN));
+            assert_eq!(two, nothing_above, "({tau}, {delta})");
         }
     }
 

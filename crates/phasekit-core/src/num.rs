@@ -6,6 +6,7 @@ use core::ops::{Add, Div, Mul, Neg, Sub};
 
 mod jet;
 
+pub(crate) use jet::Jet2;
 pub use jet::Jet4;
 
 mod sealed {

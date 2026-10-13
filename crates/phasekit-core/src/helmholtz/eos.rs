@@ -20,7 +20,7 @@ pub(crate) enum ResidualBlock {
     Gaussian(GaussianBlock<GaussianTau>),
     /// GaoB terms (Ammonia).
     GaoB(GaussianBlock<GaoBTau>),
-    /// Non-analytic terms (Water, CarbonDioxide): not separable, evaluated on `Jet4`.
+    /// Non-analytic terms (Water, CarbonDioxide): not separable, evaluated on a jet of the bundle's order.
     NonAnalytic(NonAnalyticBlock),
 }
 
@@ -60,7 +60,7 @@ impl MultiParameterEos {
                 ResidualBlock::TauExp(b) => b.accumulate::<f64, ORD>(vars, &mut acc),
                 ResidualBlock::Gaussian(b) => b.accumulate::<f64, ORD>(vars, &mut acc),
                 ResidualBlock::GaoB(b) => b.accumulate::<f64, ORD>(vars, &mut acc),
-                ResidualBlock::NonAnalytic(b) => b.accumulate(vars.tau, vars.delta_pow[1], &mut acc),
+                ResidualBlock::NonAnalytic(b) => b.accumulate::<ORD>(vars.tau, vars.delta_pow[1], &mut acc),
             }
         }
         acc

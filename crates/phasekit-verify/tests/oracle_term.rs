@@ -184,6 +184,42 @@ fn nonanalytic_matches_oracle_away_from_the_critical_point() {
     assert_eq!(check.report(20), None);
 }
 
+/// PLAN.md M9.2a (user decision NA1), class `Exact`: the NonAnalytic blocks of CarbonDioxide (3 terms) and Water (2)
+/// at order 2 against today's `Jet4` evaluation, their order-4 bundle, at the term fixtures' 120 (T, ρ) each and at the
+/// reducing point (τ = δ = 1, the block's critical limits): every entry of order ≤ 2 bitwise, as the truncated jet
+/// forms each with the same operations in the same order.
+#[test]
+fn non_analytic_order_two_equals_jet4() {
+    let registry = Registry::embedded().unwrap();
+    let mut checked = 0;
+    for (path, text) in
+        TERM_CORE.iter().filter(|(path, _)| path.contains("/Water.") || path.contains("/CarbonDioxide."))
+    {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
+        let record = phasekit_core::internal::record(registry, name).unwrap();
+        let eos = one_block(&record.eos, "NonAnalytic", 0..record.eos.non_analytic.len());
+        let package = term::residual_model(&record, &eos).unwrap();
+        let rows = blocks(&fixture).into_iter().filter(|block| block.kind == "NonAnalytic").flat_map(|b| b.rows);
+        let mut points: Vec<(f64, f64)> =
+            rows.map(|row| (fixture.value(row, "T").unwrap(), fixture.value(row, "rhomolar").unwrap())).collect();
+        points.push((eos.t_reducing, eos.rho_reducing));
+        for (t, rho) in points {
+            let (two, four) = (package.eos().residual(t, rho, Order::Two), package.eos().residual(t, rho, Order::Four));
+            assert_order_two_bits(&two, &four, &format!("{name} at T = {t}, rho = {rho}"));
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 2 * 121);
+}
+
+/// Every entry of order ≤ 2 of `two` has the bits of `four`'s.
+fn assert_order_two_bits(two: &phasekit_core::Derivs, four: &phasekit_core::Derivs, at: &str) {
+    for (i, j) in [(0, 0), (1, 0), (0, 1), (2, 0), (1, 1), (0, 2)] {
+        assert_eq!(two.get(i, j).map(f64::to_bits), four.get(i, j).map(f64::to_bits), "A{i}{j}, {at}");
+    }
+}
+
 /// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/all/term.csv, the all-fluid tier (VERIFICATION.md §3.6): α^r and
 /// its 14 derivatives of every fluid without NonAnalytic terms (134 of 136; Water and CarbonDioxide wait for M4.1) at
 /// 4 (τ, δ) each, phase imposed, against the whole residual part compiled from the `Parity` record:

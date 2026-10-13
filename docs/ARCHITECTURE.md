@@ -106,7 +106,7 @@ signatures are the code's; this section keeps what the code cannot say: why each
 
 | Seam | Where (`crates/phasekit-core/src/`) | Invariant |
 |---|---|---|
-| `Real` | `num.rs` | sealed; `f64` and `Jet4` only, so methods can be added without a break (S-02, E16) |
+| `Real` | `num.rs` | sealed; `f64` and `Jet4` only (and the crate-private `Jet2`, M9.2a), so methods can be added without a break (S-02, E16) |
 | `Derivs<R>`, `Bundle`, `PointDerivs` | `derivs.rs` | reducing-invariant A_ij to order 4; `Bundle` is the order-2 slice a `State` stores |
 | `HelmholtzModel` | `helmholtz/mod.rs` | object-safe, `Send + Sync`, in (T, ρ); `zero_density` exact or `None` |
 | `ThermoModel` | `model.rs` | object-safe, `Any + Send + Sync`; its flash sees a validated molar `NativeInput`, never a gauge |
@@ -128,7 +128,8 @@ saturation curve in the builder; initialiser and `Derivs::from_fn` closures) and
 ### 3.1 Numbers and the derivative currency (D2)
 
 `Real` is sealed, so methods (a lane `Mask`/`select`, if SIMD ever lands) can be added without a break (S-02, E16).
-It is implemented by `f64` and the in-house bivariate `Jet4`.
+It is implemented by `f64` and the in-house bivariate `Jet4`, and inside the core by `Jet2`, `Jet4`'s code truncated at
+order 2 (M9.2a).
 
 `Derivs` holds `A_ij = τ^i δ^j ∂^(i+j)α/∂τ^i∂δ^j`, reducing-invariant, to order 4. `Bundle` is its order-2 slice
 (`a00, a10, a01, a20, a11, a02`): what a `State` stores per phase point and what `relations` turns into p, h, s, u, cv,
@@ -272,7 +273,8 @@ data inside core (no runtime-loading split, mixed licence, WASM size); a crate p
 `Real` (`f64` now, the in-house bivariate `Jet4` at M3, lanes only if the SIMD gate fires). It is public because
 families outside the core write formulas over it and evaluate them on `Jet4`; it is sealed so methods can be added.
 Separable term kinds use the precomputed-factor fast path (`accumulate::<R, const ORD>`): τ-side falling factorials and
-δ-side exact polynomials in `x = cδ^l` (E4). Non-separable terms and new families use `Jet4`. Bundles go to order 4
+δ-side exact polynomials in `x = cδ^l` (E4). Non-separable terms and new families use `Jet4`; the NonAnalytic block
+uses `Jet2` for bundles of order ≤ 2, bitwise `Jet4`'s entries (user decision NA1). Bundles go to order 4
 behind an `Order` mask, so second partial derivatives, the fundamental derivative and critical points are open to every
 family (Extensible's order-2 fatal flaw avoided). Virials come from `HelmholtzModel::zero_density`, exact.
 *Why:*
