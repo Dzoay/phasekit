@@ -4,6 +4,9 @@
 # Rust build output
 /target/
 
+# Release artefacts, which scripts/release/ builds (the release workflow; PLAN.md §5.4)
+/dist/
+
 # Nightly full oracle fixture set, regenerated and never committed (docs/VERIFICATION.md §3.6)
 /crates/phasekit-verify/fixtures-full/
 

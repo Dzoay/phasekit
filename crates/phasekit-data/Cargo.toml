@@ -6,7 +6,10 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = true
 
 # D7: one feature per fluid. A fluid's feature enables the features of its ECS transport reference fluids, so
 # a subset build can never miss a reference (map 05 §5). `core` is the TDD set of map 09 §9.

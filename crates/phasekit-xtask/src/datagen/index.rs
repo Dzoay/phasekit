@@ -205,7 +205,10 @@ pub fn cargo_toml(entries: &[Entry]) -> String {
          edition.workspace = true\n\
          rust-version.workspace = true\n\
          license.workspace = true\n\
-         publish.workspace = true\n\n\
+         repository.workspace = true\n\
+         keywords.workspace = true\n\
+         categories.workspace = true\n\
+         publish = true\n\n\
          # D7: one feature per fluid. A fluid's feature enables the features of its ECS transport reference fluids, so\n\
          # a subset build can never miss a reference (map 05 §5). `core` is the TDD set of map 09 §9.\n\
          [features]\n\

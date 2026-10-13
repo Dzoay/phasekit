@@ -4,8 +4,8 @@ A modular, memory-safe Rust library for thermophysical properties, starting with
 and all states of matter. It is a from-scratch successor to [CoolProp](https://github.com/CoolProp/CoolProp), not a
 binding, verified against CoolProp 8.0.0 and the published literature.
 
-> **Status: in development, not yet released.** The closed milestones are the repository's `m*` tags; the steps and
-> what v0.1 holds are in [docs/PLAN.md](docs/PLAN.md).
+> **Status: v0.1.0, the first release.** Releases are the repository's `v*` tags, with the C library and the browser
+> package attached; what changed is in [CHANGELOG.md](CHANGELOG.md), what comes next in [docs/PLAN.md](docs/PLAN.md).
 
 ## Goals
 
@@ -21,12 +21,19 @@ binding, verified against CoolProp 8.0.0 and the published literature.
   tested entry in a divergence register.
 - **Easy migration:** a `PropsSI`-style string API, a C ABI with a small CoolProp-compatible shim, and later Python.
 
-## v0.1 (planned)
+## v0.1
 
 All 136 CoolProp 8.0.0 pure and pseudo-pure fluids; all 19 input pairs; transport properties and surface tension
 where models exist; melting lines; reference states; derivative outputs; parallel batches; the `PropsSI`-style API, the
 C ABI and a browser WebAssembly package. Cubic models, mixtures, IF97, incompressibles, humid air, Python and plotting
 follow afterwards ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)).
+
+| Use it from | Get | Start with |
+|---|---|---|
+| Rust | the crates `phasekit-core` (the typed API) and `phasekit-compat` (CoolProp's strings) | `crates/phasekit-compat/examples/migration.rs` |
+| C | the release's archive: `include/phasekit.h` and the `pk_*` library | `crates/phasekit-capi/tests/c/smoke.c` |
+| A CoolProp host | the same archive's `phasekit_coolproplib`, CoolProp's Tier A functions | [docs/MIGRATION.md](docs/MIGRATION.md) |
+| A browser | the npm package `phasekit` (`phasekit/simd` for the `simd128` build) | `crates/phasekit-wasm/tests/node.rs` |
 
 ## Documentation
 
@@ -38,6 +45,7 @@ follow afterwards ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)).
 | [docs/VERIFICATION.md](docs/VERIFICATION.md) | Oracle fixtures, literature arbiters, tolerances, the divergence register, CI gates |
 | [docs/ROT-REGISTER.md](docs/ROT-REGISTER.md) | Every CoolProp problem found, how phasekit avoids it, and the test that proves it |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | The maintainer's decisions, dated; they override older text |
+| [docs/MIGRATION.md](docs/MIGRATION.md) | From CoolProp to phasekit, in each interface; the C shim; where the numbers differ |
 | [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) | The dependency tiers |
 | `docs/coolprop-map/`, `docs/research/` | Frozen evidence: a 15-part map of CoolProp 8.0.0 and the design-stage research |
 | `docs/history/` | Frozen: how the architecture was chosen (four proposals, judges, critiques) and the type sketch |
@@ -46,8 +54,9 @@ follow afterwards ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)).
 
 ```text
 docs/        design, plan and evidence (above)
-scripts/     fetch-coolprop.sh, check-toolchain.sh, the oracle generator (oracle/) and the C++ baseline (baseline/)
-crates/      the Cargo workspace: phasekit-core, -data, -compat, -verify, -xtask; later -capi, -wasm, -py
+scripts/     fetch-coolprop.sh, check-toolchain.sh, the oracle generator (oracle/), the C++ baseline (baseline/) and
+             the release artefacts (release/)
+crates/      the Cargo workspace: phasekit-core, -data, -compat, -capi, -wasm, -verify, -xtask; later -py
 reference/   gitignored: the pinned CoolProp checkout and local papers
 ```
 

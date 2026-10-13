@@ -5,7 +5,11 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = true
 
 # D1: features only ADD capability; none but `libm` changes numerics (K13). Core's only third-party dependencies are
 # optional (tier T1, docs/DEPENDENCIES.md): `rayon` (M9.1) and `libm` (M9.3). Later, only behind measured or scheduled
