@@ -329,6 +329,14 @@ mod tests {
             check_targets(&only_a_miss, exemptions),
             Ok("0 medians meet ARCHITECTURE.md §7, 1 misses re-planned".into())
         );
+        // One met and one exempted: both counted; and a median in another unit than ns is refused.
+        let one_each = format!("{}{}", row("pt_flash/pt_h", "Water", 7_000.0), row("pt_flash/pt_h", "R134a", 2_000.0));
+        assert_eq!(
+            check_targets(&one_each, exemptions),
+            Ok("1 medians meet ARCHITECTURE.md §7, 1 misses re-planned".into())
+        );
+        let micro = row("pt_flash/pt_h", "R134a", 2.0).replace(",ns,", ",µs,");
+        assert!(check_targets(&micro, "").unwrap_err()[0].contains("unit µs, not ns"));
         assert!(check_targets("", "").is_err());
     }
 
