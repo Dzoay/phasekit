@@ -50,7 +50,7 @@ impl<T> Table<T> {
         let index = match self.free.pop() {
             Some(index) => index,
             None => {
-                let index = u32::try_from(self.slots.len()).ok().filter(|i| *i < u32::MAX)?;
+                let index = next_index(self.slots.len())?;
                 self.slots.push(Slot { generation: 1, value: None });
                 index
             }
@@ -86,11 +86,35 @@ impl<T> Table<T> {
     }
 }
 
+/// The index of a table's next new slot when it has `len`: any but `u32::MAX`, whose handle would need 33 bits.
+fn next_index(len: usize) -> Option<u32> {
+    u32::try_from(len).ok().filter(|i| *i < u32::MAX)
+}
+
+/// The handle of a slot's generation: the generation in the high 32 bits, index + 1 (at most `u32::MAX`) in the low.
 fn handle(index: u32, generation: u32) -> u64 {
-    (u64::from(generation) << 32) | (u64::from(index) + 1)
+    (u64::from(generation) << 32) + u64::from(index) + 1
 }
 
 fn split(h: u64) -> Option<(u32, u32)> {
     let index = u32::try_from(h & 0xffff_ffff).ok()?.checked_sub(1)?;
     Some((index, u32::try_from(h >> 32).ok()?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ROT-150 (map 11 F3). The last index is `u32::MAX` − 1, so a table with every other index taken makes no new slot;
+    /// each handle splits back into its index and generation, and 0 is none.
+    #[test]
+    fn every_handle_splits_back_and_the_last_index_fits() {
+        let last = usize::try_from(u32::MAX - 1).unwrap_or(usize::MAX);
+        assert_eq!((next_index(last), next_index(last + 1)), (Some(u32::MAX - 1), None));
+        for (index, generation) in [(0, 1), (7, 1 << 31), (u32::MAX - 1, u32::MAX)] {
+            assert_eq!(split(handle(index, generation)), Some((index, generation)));
+        }
+        assert_eq!((handle(0, 1), handle(2, 3)), ((1 << 32) + 1, (3 << 32) + 3));
+        assert_eq!(split(0), None);
+    }
 }

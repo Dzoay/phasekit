@@ -74,8 +74,8 @@ x86_64-unknown-linux-gnu phasekit-verify::refstate 2
 wasm32-wasip2 phasekit-verify::refstate 2
 x86_64-unknown-linux-gnu phasekit-verify::props 4
 wasm32-wasip2 phasekit-verify::props 4
-x86_64-unknown-linux-gnu phasekit-capi::lib 10
+x86_64-unknown-linux-gnu phasekit-capi::lib 11
 x86_64-unknown-linux-gnu phasekit-capi::smoke 1
 x86_64-unknown-linux-gnu phasekit-capi::entry_points 1
-wasm32-wasip2 phasekit-capi::lib 6
+wasm32-wasip2 phasekit-capi::lib 7
 wasm32-wasip2 phasekit-capi::entry_points 1
