@@ -29,45 +29,44 @@ fn hot_get_allocates_nothing() {
     assert!(miss.count_total > 0, "the miss's error owns its name: {miss:?}");
 }
 
-/// PLAN.md M3.8 (ARCHITECTURE.md §7: EOS ≤ 25 KiB per fluid; recorded at M3, enforced from M9): the compiled residual
-/// part of every fluid keeps at most 25 KiB on the heap (measured: Methanol's 44 terms keep
-/// 13,690 bytes, the most), and evaluating α^r to order 4 allocates nothing.
+/// PLAN.md M9.7 (ARCHITECTURE.md §6: per fluid, EOS ≤ 25 KiB and superancillary ≤ 25 KiB; recorded at M3 and M6,
+/// enforced from M9): the heap each fluid's compiled residual part and decoded superancillary keep, and that evaluating
+/// them allocates nothing.
+/// - EOS: every fluid within 25 KiB; Water's 56 terms keep 15 626 B on 64-bit targets, the most (M3.8 recorded
+///   Methanol's 13 690 B as the most; the test asserted only the budget).
+/// - Superancillary: over budget for 97 of the 130 (median 27 472 B, PropyleneGlycol's 39 576 B), re-planned in issue
+///   #146. The three forward curves and their boundaries, what CoolProp stores, fit 25 KiB for all but two fluids,
+///   PropyleneGlycol and one more; the stored T(ln p) inverse adds about a quarter. Pinned below 40 KiB until the issue
+///   is decided. With 32-bit pointers (wasm32) each curve keeps 112 B less.
 #[test]
-fn compiled_residual_parts_fit_25_kib() {
+fn eos_and_superancillary_bytes_per_fluid() {
     let registry = Registry::embedded().unwrap();
-    let mut largest = (0, "");
+    let (mut largest_eos, mut sizes, mut forward_over) = ((0, ""), Vec::new(), Vec::new());
     for f in phasekit_data::FLUIDS {
         let record = phasekit_core::internal::record(registry, f.name).unwrap();
         let eos = term::residual_part(&record.eos);
         let mut kept = None;
         let built = allocation_counter::measure(|| kept = Some(term::residual_model(&record, &eos).unwrap()));
         let model = kept.unwrap();
-        largest = largest.max((built.bytes_current, f.name));
+        largest_eos = largest_eos.max((built.bytes_current, f.name));
         let (t, rho) = (record.eos.t_reducing, record.eos.rho_reducing);
         let call = allocation_counter::measure(|| {
             std::hint::black_box(model.eos().residual(std::hint::black_box(t), rho, Order::Four));
         });
         assert_eq!(call.count_total, 0, "{}: {call:?}", f.name);
-    }
-    assert!(largest.0 <= 25 * 1024, "{} keeps {} bytes", largest.1, largest.0);
-}
-
-/// PLAN.md M6.11 (ARCHITECTURE.md §7: superancillary ≤ 25 KiB per fluid; recorded at M6, enforced from M9): the heap a
-/// decoded superancillary keeps, recorded: median 27 472 B over the 130, PropyleneGlycol's 39 576 B the most, 97 of
-/// them above the 25 KiB target (the stored inverse and extrema on top of CoolProp's three curves), which M9.7 meets by
-/// optimisation or a recorded re-plan; pinned below 40 KiB until then. With 32-bit pointers (wasm32) each curve keeps
-/// 112 B less. QT and PQ on the decoded curve allocate nothing.
-#[test]
-fn superancillary_bytes_are_recorded() {
-    let registry = Registry::embedded().unwrap();
-    let mut sizes = Vec::new();
-    for f in phasekit_data::FLUIDS {
-        let record = phasekit_core::internal::record(registry, f.name).unwrap();
-        let mut kept = None;
-        let built = allocation_counter::measure(|| kept = record.superancillary_curve());
-        if kept.is_some() {
+        let mut curve = None;
+        let built = allocation_counter::measure(|| curve = record.superancillary_curve());
+        if let (Some(_), Some(sa)) = (curve, record.superancillary.as_ref()) {
             sizes.push((built.bytes_current, f.name));
+            let forward = sa.curves.iter().map(|c| c.len() * 13 * 8).sum::<usize>() + sa.breaks.len() * 8;
+            if forward > 25 * 1024 {
+                forward_over.push(f.name);
+            }
         }
+    }
+    assert!(largest_eos.0 <= 25 * 1024, "{largest_eos:?}");
+    if cfg!(target_pointer_width = "64") {
+        assert_eq!(largest_eos, (15_626, "Water"));
     }
     sizes.sort_unstable();
     let (largest, median) = (sizes[sizes.len() - 1], sizes[sizes.len() / 2].0);
@@ -76,6 +75,7 @@ fn superancillary_bytes_are_recorded() {
     let want = (130, 27_472 - pointers, (39_576 - pointers, "PropyleneGlycol"), 97);
     assert_eq!((sizes.len(), median, largest, over), want);
     assert!(largest.0 <= 40 * 1024);
+    assert!(forward_over.len() == 2 && forward_over.contains(&"PropyleneGlycol"), "{forward_over:?}");
     let water = registry.get("Water").unwrap();
     let quality = Quality::new(0.5).unwrap();
     let (qt, pq) =
@@ -86,6 +86,46 @@ fn superancillary_bytes_are_recorded() {
             std::hint::black_box(water.state(std::hint::black_box(input)).unwrap());
         });
         assert_eq!(call.count_total, 0, "{input:?}: {call:?}");
+    }
+}
+
+/// `key` of /proc/self/status (`VmRSS:`, `RssAnon:`, `RssFile:`), in KiB.
+#[cfg(target_os = "linux")]
+#[allow(clippy::disallowed_methods, reason = "a Linux test reads its own process's memory counters")]
+fn status_kib(key: &str) -> u64 {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap();
+    let line = status.lines().find_map(|l| l.strip_prefix(key)).unwrap();
+    line.trim().trim_end_matches("kB").trim().parse().unwrap()
+}
+
+/// PLAN.md M9.7 (ARCHITECTURE.md §6: all 136 loaded ≤ 8 MiB RSS *(inference)*): one `Registry::get` of every embedded
+/// fluid, in this test's own process (nextest), measured from /proc/self/status around the loads. The heap grows by 6.1
+/// MiB (`RssAnon`), within 8 MiB; RSS by 15.3 MiB, as loading reads every byte of each fluid's blob for its checksum
+/// and so maps 9.2 MiB of read-only blob pages (`RssFile`; the blobs total 9.0 MB). The RSS budget is re-planned in
+/// issue #146; pinned below 16 MiB until it is decided. CoolProp: 104.5 MiB for one state of every fluid (the C++
+/// baseline).
+#[cfg(target_os = "linux")]
+#[test]
+fn all_136_loaded_rss() {
+    let (rss, anon) = (status_kib("VmRSS:"), status_kib("RssAnon:"));
+    let registry = Registry::embedded().unwrap();
+    for f in phasekit_data::FLUIDS {
+        std::hint::black_box(registry.get(f.name).unwrap());
+    }
+    let (rss, anon) = (status_kib("VmRSS:") - rss, status_kib("RssAnon:") - anon);
+    assert_eq!(phasekit_data::FLUIDS.len(), 136);
+    assert!(anon <= 8 * 1024, "heap {anon} KiB over 8 MiB");
+    assert!(rss <= 16 * 1024, "RSS {rss} KiB over 16 MiB (issue #146)");
+}
+
+/// PLAN.md M9.7 (ARCHITECTURE.md §3.8 and §6: per state ≤ 256 B on the stack): `State` is 208 B on 64-bit targets,
+/// recorded here, and within 256 B on every target (as `lib.rs` asserts at compile time).
+#[test]
+fn state_fits_256_bytes() {
+    let size = std::mem::size_of::<phasekit_core::State>();
+    assert!(size <= 256, "{size} B");
+    if cfg!(target_pointer_width = "64") {
+        assert_eq!(size, 208);
     }
 }
 

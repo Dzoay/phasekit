@@ -412,11 +412,6 @@ step keeps its full text.
 
 ### M9 Parallel batches, `libm` and performance gates
 
-**Goal.** Thread-parallel batches bitwise equal to the scalar reference; the `libm` default decided on evidence;
-performance and memory gates enforced (D8, D9, D12). **Prerequisites.** M8; `rayon` and `libm` as optional core
-dependencies (the first third-party dependencies of core; R2, R12); `valgrind` on the Linux CI runner for gungraun;
-the reference machine (user decisions P3, RM1).
-
 | Step | Landed |
 |---|---|
 | M9.1 | `ExecPolicy::Parallel` on rayon |
@@ -426,18 +421,7 @@ the reference machine (user decisions P3, RM1).
 | M9.4 | Cross-target hash, the `libm` hash committed |
 | M9.5 | `libm` decision: it stays opt-in |
 | M9.6 | Performance gates: the instruction gate in CI, §7 misses re-planned |
-
-- **M9.7 Memory budgets.** *Failing tests:* `eos_and_superancillary_bytes_per_fluid` (≤ 25 KiB each),
-  `all_136_loaded_rss` (≤ 8 MiB, Linux; ARCHITECTURE.md §6 *(inference)*), `state_fits_256_bytes` (asserts
-  `size_of::<State>() <= 256` as ARCHITECTURE.md §3.8 does and records the actual size). *Carried from M6.11:* 97 of the 130 decoded superancillaries exceed 25 KiB (median
-  27 472 B, PropyleneGlycol's 39 576 B; #88). Close M9:
-  set `MILESTONE = 10`. *Done when:* green or re-planned.
-
-**Exit gate.** G1-G8 incl. `perf`; `policy_equivalence` bitwise for 1..N threads; scaling recorded (0.9·N target);
-cross-target hashes recorded; the `libm` rule applied and documented; §7 targets met or re-planned; memory budgets.
-**ROT rows.** M9.1: ROT-135. M9.2: ROT-031. M9.6: ROT-064.
-**User decisions implemented.** 12 (`libm` decided on evidence), 11 (point-major chunks), NA1 (non-analytic terms
-at the requested order).
+| M9.7 | Memory budgets, M9 closed |
 
 ### M10 Facades and v0.1
 
@@ -625,6 +609,8 @@ arrives its fluid stays oracle-only, labelled provisional; nothing waits on it. 
 misses re-planned at M9.6 (issues #142 QT and PQ, #143 PT and PH, #144 α^r and properties at (T, ρ); each named in
 `ci/perf-exemptions.txt`): optimise, or restate the target. The reference machine's M9 record waits for the user's
 `cargo xtask bench --record --step M9.6` and `cargo xtask gates perf --targets` on the i7-8700K (user decision RM2).
+The memory budgets re-planned at M9.7 (issue #146): the superancillary's stored inverse (97 of 130 over 25 KiB) and
+15.3 MiB of RSS with all 136 loaded (6.1 MiB of it heap).
 
 **Waiting for a paper.** Each item moves when a copy reaches `reference/papers/`.
 
