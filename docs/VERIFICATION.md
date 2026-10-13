@@ -748,7 +748,7 @@ definition of the subcommands; PLAN.md steps add them in the order of the last c
 | `datagen` | `cargo xtask datagen` regenerates blobs, index and features; `git diff --exit-code` on the outputs | M2.5 |
 | `features` | `cargo tree -f '{p} [{f}]'`: `phasekit-compat --no-default-features --features fluids-core` resolves to the three workspace crates and enables `phasekit-data/core` and the fluids its list names only (E7, M5.9); from M10.8 also `-p phasekit-wasm --target wasm32-unknown-unknown`, and the `.wasm` size within `crates/phasekit-wasm/size-budget.txt` | M5.9, M10.8 |
 | `perf` | gungraun instruction counts of the tracked benches within 5 % of the baseline committed at M9.6 (Linux) | M9.6 |
-| `abi` | the cbindgen header compiles as C99 with `-pedantic-errors` (GCC/Clang) and with `/W4 /WX` (MSVC, C11 mode); exported symbols: the `pk_*` library exports no CoolProp name, the `coolproplib-shim` build exactly the Tier A names (map 11 §8, D11) | M10.4 |
+| `abi` | the committed header is the pinned cbindgen CLI's output, and it compiles as C99 with `-pedantic-errors` (GCC/Clang; MSVC's `/W4 /WX`, C11 mode, is `c_smoke` on the Windows runner); exported symbols: the `pk_*` library exports no CoolProp name, the `coolproplib-shim` build exactly the Tier A names (map 11 §8, D11) | M10.4 |
 | `core-frozen` | section 10 | M11, M14 |
 
 Also per PR: `cargo deny check` (bans incl. `bincode`, `serde_cbor`, and `once_cell` and `lazy_static` as direct

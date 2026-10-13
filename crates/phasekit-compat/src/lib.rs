@@ -16,7 +16,7 @@ mod keys;
 
 pub use keys::{
     OUTPUT_COUNT, Output, output_names, pair_name, parse_derivative, parse_input, parse_output, parse_pair_name,
-    phase_index, phase_name,
+    parse_reference_state, phase_index, phase_name,
 };
 
 /// How a vector call reports a failed point (map 14: PropsSI fills +inf, HAPropsSI raises on the first).

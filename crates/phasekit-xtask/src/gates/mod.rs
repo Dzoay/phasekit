@@ -2,6 +2,7 @@
 //! is a pure check over text, tested in its module, plus a `run` that gathers that text from the repository. Every
 //! gate fails closed: no input to check is a failure, never a pass (ROT-127).
 
+mod abi;
 mod assertions;
 mod complexity;
 mod counts;
@@ -28,7 +29,7 @@ type Verdict = Result<String, Vec<String>>;
 type Gate = fn(&Repo, &[String]) -> Verdict;
 
 /// The gates in force, in the order `gates all` runs them (VERIFICATION.md §11.2).
-const GATES: [(&str, Gate); 14] = [
+const GATES: [(&str, Gate); 15] = [
     ("deps", deps::run),
     ("lints", lints::run),
     ("counts", counts::run),
@@ -39,6 +40,7 @@ const GATES: [(&str, Gate); 14] = [
     ("register", register::run),
     ("datagen", datagen::run),
     ("features", features::run),
+    ("abi", abi::run),
     ("assertions", assertions::run),
     ("complexity", complexity::run),
     ("perf", perf::run),

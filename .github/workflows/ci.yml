@@ -25,6 +25,7 @@ env:
   CARGO_SHEAR_VERSION: "1.14.0"
   REUSE_VERSION: "6.2.0"
   GUNGRAUN_VERSION: "0.20.0" # = the gungraun dev-dependency of phasekit-verify (its runner must match)
+  CBINDGEN_VERSION: "0.29.2" # `gates abi` regenerates phasekit-capi's header with it (PLAN.md M10.4)
 
 defaults:
   run:
@@ -73,12 +74,12 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.tools
-          key: tools-${{ runner.os }}-${{ runner.arch }}-wasmtime-${{ env.WASMTIME_VERSION }}-nextest-${{ env.CARGO_NEXTEST_VERSION }}-deny-${{ env.CARGO_DENY_VERSION }}-shear-${{ env.CARGO_SHEAR_VERSION }}
-      - name: Install wasmtime, cargo-nextest, cargo-deny and cargo-shear
+          key: tools-${{ runner.os }}-${{ runner.arch }}-wasmtime-${{ env.WASMTIME_VERSION }}-nextest-${{ env.CARGO_NEXTEST_VERSION }}-deny-${{ env.CARGO_DENY_VERSION }}-shear-${{ env.CARGO_SHEAR_VERSION }}-cbindgen-${{ env.CBINDGEN_VERSION }}
+      - name: Install wasmtime, cargo-nextest, cargo-deny, cargo-shear and cbindgen
         if: steps.tools.outputs.cache-hit != 'true'
         run: >-
           cargo install --locked --root ~/.tools "wasmtime-cli@$WASMTIME_VERSION" "cargo-nextest@$CARGO_NEXTEST_VERSION"
-          "cargo-deny@$CARGO_DENY_VERSION" "cargo-shear@$CARGO_SHEAR_VERSION"
+          "cargo-deny@$CARGO_DENY_VERSION" "cargo-shear@$CARGO_SHEAR_VERSION" "cbindgen@$CBINDGEN_VERSION"
       - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
       - name: CoolProp checkout cache
         id: coolprop

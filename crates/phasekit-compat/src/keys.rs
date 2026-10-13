@@ -2,7 +2,7 @@
 //! table lists every name once; a key also matches as its all-uppercase form, as CoolProp registers both (`DMASS`
 //! works, `dmass` does not). Matching is ASCII byte for byte, so no locale enters it (map 01 R17, R18).
 
-use phasekit_core::{Basis, Constant, DerivVar, Pair, Partial, Phase, Prop, SecondPartial, Var};
+use phasekit_core::{Basis, Constant, DerivVar, Pair, Partial, Phase, Prop, ReferenceState, SecondPartial, Var};
 
 /// What a `PropsSI` output key names: a kernel property, or the state's phase (CoolProp's `Phase`, its index as a
 /// float).
@@ -249,6 +249,18 @@ pub fn parse_pair_name(name: &str) -> Option<(Pair, Option<Basis>)> {
     Some((pair, if free(x) && free(y) { None } else { Some(basis) }))
 }
 
+/// The reference state a CoolProp name gives (`set_reference_stateS`, `CoolProp.cpp:969-1025`): IIR, ASHRAE, NBP, and
+/// DEF or RESET for the model's own zero (`ReferenceState::Native`); exact names only.
+pub fn parse_reference_state(name: &str) -> Option<ReferenceState> {
+    Some(match name {
+        "IIR" => ReferenceState::Iir,
+        "ASHRAE" => ReferenceState::Ashrae,
+        "NBP" => ReferenceState::Nbp,
+        "DEF" | "RESET" => ReferenceState::Native,
+        _ => return None,
+    })
+}
+
 /// CoolProp's index of a phase (`enum phases`, `DataStructures.h:183-194`), which its `Phase` output returns as a float
 /// (M10.6 checks the codes against the oracle). A solid, which CoolProp has no phase for, is its `unknown`.
 pub fn phase_index(phase: Phase) -> u8 {
@@ -350,6 +362,24 @@ mod tests {
         }
         assert_eq!(parse_output("İ"), None);
         assert_eq!(parse_output("I"), Some(Output::Prop(Prop::SurfaceTension)));
+    }
+
+    /// CoolProp's five reference-state names, exactly, and nothing else (map 01 §3).
+    #[test]
+    fn reference_state_names_are_coolprops() {
+        let names = [
+            ("IIR", ReferenceState::Iir),
+            ("ASHRAE", ReferenceState::Ashrae),
+            ("NBP", ReferenceState::Nbp),
+            ("DEF", ReferenceState::Native),
+            ("RESET", ReferenceState::Native),
+        ];
+        for (name, reference) in names {
+            assert_eq!(parse_reference_state(name), Some(reference), "{name}");
+        }
+        for name in ["iir", "Iir", " NBP", "NATIVE", "", "IIR\0"] {
+            assert_eq!(parse_reference_state(name), None, "{name:?}");
+        }
     }
 
     /// Map 01 §4c: every phase's CoolProp index (`enum phases`, which M10.6 checks against the oracle) and `PhaseSI`

@@ -206,6 +206,19 @@ impl Repo {
         if status.success() { Ok(dest.to_path_buf()) } else { Err(format!("curl {url} failed: {status}")) }
     }
 
+    /// The repository's root.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Writes `text` to a file outside the repository (a gate's scratch file under the target directory).
+    pub fn write_outside(&self, path: &Path, text: &str) -> Result<(), String> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+        }
+        std::fs::write(path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))
+    }
+
     /// The text of a file outside the repository (a download or an extracted archive).
     pub fn read_outside(&self, path: &Path) -> Result<String, String> {
         std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))
@@ -258,6 +271,17 @@ impl Repo {
             return Err(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim()));
         }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
+    /// Runs `program <args>` in the root (a tool a gate reads: cbindgen, nm, cc); returns (success, stdout, stderr).
+    pub fn tool(&self, program: &str, args: &[&str]) -> Result<(bool, String, String), String> {
+        let output = Command::new(program)
+            .args(args)
+            .current_dir(&self.root)
+            .output()
+            .map_err(|e| format!("cannot run {program} {}: {e}", args.join(" ")))?;
+        let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
+        Ok((output.status.success(), text(&output.stdout), text(&output.stderr)))
     }
 
     /// Runs `cargo mutants --in-diff` on `diff` (configured by `.cargo/mutants.toml`) with the pass's own `args`, its
