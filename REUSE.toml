@@ -37,6 +37,13 @@ precedence = "override"
 SPDX-FileCopyrightText = "2026 The phasekit contributors"
 SPDX-License-Identifier = "MIT OR Apache-2.0"
 
+# Hashes phasekit computes over its own results (the cross-target hash, VERIFICATION.md §9.4): the project's own.
+[[annotations]]
+path = "crates/phasekit-verify/fixtures/hash/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 The phasekit contributors"
+SPDX-License-Identifier = "MIT OR Apache-2.0"
+
 # NIST fastchebpure's multiprecision saturation files, converted, and their pin (VERIFICATION.md §3.7; user decisions
 # 3a, 3b; PLAN.md M6.1). The licence text records the decision-3a facts and the NIST disclaimer.
 [[annotations]]

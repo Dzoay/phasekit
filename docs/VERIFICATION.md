@@ -774,7 +774,7 @@ required check on `main`. They pin GitHub's own actions by commit, install the t
 | `nightly`: `thread scaling` | Linux x86-64; aarch64 Linux | `cargo xtask bench --record scaling` at the latest `Plan-Step:` (12): the results file in the run summary and the `scaling-<runner>` artifact; informational (PLAN.md M9.2) |
 | `weekly`: `latest-deps` | Linux | `cargo update`, then the workspace tests |
 | `weekly`: `mutants` | Linux, 8 shards | a full `cargo mutants` run in the gate's two passes, a report (user decisions TQ2, CI1, CI5) |
-| `hash-compare` (from M9.4) | the four test targets | `tests/cross_target.rs` with std and with `--features libm`, the hashes collected and compared (9.4) |
+| `ci`: `linux`, `windows`, `aarch64`, `wasip2`; `hash-compare` | the four test targets | each runs `tests/cross_target.rs` with std and with `--features phasekit-core/libm` and uploads its two hash lines; `hash-compare` lists the eight in its job summary (9.4). The libm runs assert `fixtures/hash/libm.txt` |
 
 ### 11.4 Outcomes of an oracle comparison
 

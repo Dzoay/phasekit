@@ -423,11 +423,8 @@ the reference machine (user decisions P3, RM1).
 | M9.2 | Thread scaling recorded |
 | M9.2a | Non-analytic terms at the requested order |
 | M9.3 | `libm` backend |
+| M9.4 | Cross-target hash, the `libm` hash committed |
 
-- **M9.4 Cross-target hash.** *Failing test:* `canonical_grid_hash` (`tests/cross_target.rs`) over the grid VERIFICATION.md
-  §9.4 defines (the one definition); CI job `hash-compare` collects it from x86_64-linux, x86_64-windows-msvc,
-  aarch64-linux and wasm32-wasip2, with and without `libm`. *Done when:* hashes recorded for both backends on all four
-  targets; if the `libm` hashes agree, that hash is committed as `fixtures/hash/libm.txt` and asserted from then on.
 - **M9.5 `libm` decision.** Apply this rule (user decision 12; threshold set here; VERIFICATION.md §9.4 cites it).
   `libm` becomes a default feature of `phasekit-core`, forwarded by compat (and capi, wasm at M10), if and only if
   **both** hold:
