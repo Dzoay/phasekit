@@ -1026,23 +1026,15 @@ fn props(output: &str, pair: (&str, f64, f64), fluid: &str) -> Result<f64, phase
     }
 }
 
-/// The kernel error a compat call returns.
-fn core(e: phasekit_compat::CompatError) -> Error {
-    match e {
-        phasekit_compat::CompatError::Core(e) => e,
-        other => panic!("not a kernel error: {other:?}"),
-    }
-}
-
 /// DIV-0037 (`SkipOracle`; ROT-013, M10.2): a single phase has no quality. Water's gas at DT(10 mol/m³, 400 K) is the
 /// oracle's −1 and here `Undefined`; R407C's gas at DT(405.54 mol/m³, 291.68 K) has the oracle's Qmass 1, here
 /// `Undefined` too.
 fn div_0037() {
-    let water = props("Q", ("DT", 10.0, 400.0), "Water").map_err(core);
-    assert_eq!(water, Err(Error::Undefined { prop: Prop::Q, phase: Phase::Gas }));
+    let undefined = |prop| Err(phasekit_compat::CompatError::Core(Error::Undefined { prop, phase: Phase::Gas }));
+    assert_eq!(props("Q", ("DT", 10.0, 400.0), "Water"), undefined(Prop::Q));
     assert_eq!(fact("div0037_q_water_t400_rho10"), -1.0);
-    let r407c = props("Qmass", ("DT", 405.544_225_835_316, 291.675_685_187_633_23), "R407C").map_err(core);
-    assert_eq!(r407c, Err(Error::Undefined { prop: Prop::Qmass, phase: Phase::Gas }));
+    let r407c = props("Qmass", ("DT", 405.544_225_835_316, 291.675_685_187_633_23), "R407C");
+    assert_eq!(r407c, undefined(Prop::Qmass));
     assert_eq!(fact("div0037_qmass_r407c_t291.68"), 1.0);
 }
 
@@ -1090,9 +1082,9 @@ fn div_0041() {
 /// DIV-0042 (`SkipOracle`; map 01 R7, ROT-165, M10.2): Air's QT inside its dome is refused (user decisions PP1, PP2),
 /// so its T_critical there is refused too; the oracle answers the trivial output, 132.5306 K, while refusing its h.
 fn div_0042() {
-    let refused = props("T_critical", ("QT", 0.5, 100.0), "Air").map_err(core);
-    assert_eq!(refused, props("Hmolar", ("QT", 0.5, 100.0), "Air").map_err(core));
-    assert!(refused.is_err());
+    let refused = props("T_critical", ("QT", 0.5, 100.0), "Air");
+    assert_eq!(refused, props("Hmolar", ("QT", 0.5, 100.0), "Air"));
+    assert!(matches!(refused, Err(phasekit_compat::CompatError::Core(Error::InvalidInput { .. }))), "{refused:?}");
     assert_eq!(fact("div0042_tcrit_air_q0.5_t100"), 132.5306);
     assert!(fact("div0042_h_air_q0.5_t100").is_nan(), "the oracle refuses the state's h");
 }

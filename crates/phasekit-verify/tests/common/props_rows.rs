@@ -201,7 +201,11 @@ impl Model {
                 let (w2, p) = (self.r * t / self.m * (d - x * x / bundle.a20), rho * self.r * t * bundle.a01);
                 let kappa_s = rho * self.m * w2 / p;
                 return ToleranceClass::Term
-                    .bound((kappa_s * (column("speed_sound") / w2.sqrt() * 2.0 + column("p") / p.abs())).abs())
+                    .bound(
+                        (kappa_s
+                            * (column("speed_sound") / phasekit_core::math::sqrt(w2) * 2.0 + column("p") / p.abs()))
+                        .abs(),
+                    )
                     .unwrap_or(0.0);
             }
             _ => f64::NAN,
