@@ -155,8 +155,9 @@ exclude_re = [
     # Equivalent (M8.9): the hard-coded forms' comparisons are CoolProp's strict ones, and differ from `<=` only at
     # equality, where both sides give the same value: Tufeu's ammonia term at its floor (the reduced temperature is the
     # floor either way) and at ρ = 0.6 ρ_c (its two density branches are one expression there); helium's critical term
-    # at 12 K, where exp(−18.66 ΔT²) puts it 1e-15 below λ, under `TransportDirect`. The probes sit on 3.5 K, where the
-    # term is not, and 12 K.
+    # at 12 K, where exp(−18.66 ΔT²) puts it 1e-15 below λ, under `TransportDirect`, and at W = 1, where the blend
+    # W κ_T + (1 − W) κ_T' is κ_T. The probes sit on 3.5 K, where the term is not, and 12 K, and either side of W = 1.
     "transport/hardcoded\\.rs:[0-9]+:[0-9]+: replace < with <= in ammonia_critical",
     "transport/hardcoded\\.rs:363:36: replace < with <= in helium_conductivity",
+    "transport/hardcoded\\.rs:[0-9]+:[0-9]+: replace > with >= in helium_critical",
 ]
