@@ -1,4 +1,4 @@
-/* phasekit's C ABI, pk_* (SPDX-License-Identifier: MIT OR Apache-2.0). */
+/* phasekit's C ABI, pk_* (MIT OR Apache-2.0). */
 
 #ifndef PHASEKIT_H
 #define PHASEKIT_H

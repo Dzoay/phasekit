@@ -159,7 +159,9 @@ fn null_and_bad_lengths_return_status() {
 }
 
 /// Rot: ROT-150 (map 11 F16: exceptions escaping `extern "C"`). A panic inside an export's body never unwinds into the
-/// caller: `guard` returns `PK_PANIC` and sets the thread's last error.
+/// caller: `guard` returns `PK_PANIC` and sets the thread's last error. Where a panic aborts (wasm32-wasip2), there is
+/// no unwind to catch.
+#[cfg(panic = "unwind")]
 #[test]
 fn panics_never_cross_the_boundary() {
     #[allow(clippy::panic, reason = "the panic the guard must catch")]

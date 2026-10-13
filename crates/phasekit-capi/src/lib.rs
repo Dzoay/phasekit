@@ -13,6 +13,10 @@
 //! - Only `int32_t`, `uint64_t`, `size_t`, `double` and `char` cross the boundary (map 11 F4), and no panic does: each
 //!   export catches it as `PK_PANIC`.
 
+// clippy's `disallowed_macros` honours an allow only at the crate root, so this one is here; `gates lints` keeps
+// `thread_local` to last_error.rs, the C ABI's one piece of per-thread state (D8, D11, E13).
+#![allow(clippy::disallowed_macros, reason = "the per-thread last error, in last_error.rs alone (gates lints)")]
+
 use std::ffi::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;

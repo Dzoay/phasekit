@@ -2,11 +2,7 @@
 //! and `pk_last_error` copies it out. A thread never sees another's (the Tier A shim's process-wide `errstring` is a
 //! separate slot, D11). One of the two modules allowed per-thread or shared state (D8, E13).
 
-#![allow(
-    clippy::disallowed_types,
-    clippy::disallowed_macros,
-    reason = "the C ABI's per-thread last error, its only per-thread state (D11, E13)"
-)]
+#![allow(clippy::disallowed_types, reason = "the C ABI's per-thread last error, its only per-thread state (D11, E13)")]
 
 use std::cell::RefCell;
 
