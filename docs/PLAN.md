@@ -439,17 +439,8 @@ version, Node.js LTS (wasm-bindgen-test), cargo-about, cargo-semver-checks.
 | M10.5 | `pk_batch`: the point-major C batch on a `pk_fluid`, each cell's `PK_*` status; compat's `batch_si`, the batch over the strings |
 | M10.6 | The Tier A CoolPropLib.h shim (`coolproplib-shim`): v8.0.0's codes as a pinned table, the process-wide `errstring`, the `HAPropsSI` stub, `set_config_*` per P6 (MIGRATION.md); the `codes` kind; `gates abi`'s Tier A exports |
 | M10.7 | The FP guard of every export: traps masked and round-to-nearest inside; `pk_*` restores the caller's environment, the shim clears the sticky flags as v8.0.0 |
+| M10.8 | `phasekit-wasm`: the browser package (`PropsSI`, the typed flash, one batch over typed arrays, `withPack`, `withReference`, `free()`), its Node tests on the baseline and `simd128` builds, `gates features` over its tree and its size budget |
 
-- **M10.8 Browser WASM.** *Failing tests:* wasm-bindgen-test under Node: `water_nbp_in_range` ([373.124, 373.125] K),
-  `dh_dt_at_constant_p_equals_cp` (class `Identity`), `dp_dt_sat_is_positive` (the pure-fluid parts of
-  `test_wasm.mjs`; map 11 §8), `with_pack_adds_a_fluid_and_misses_are_not_cached` (E6), `batch_round_trips_float64array`
-  (point-major `Float64Array` (N × M) and a `Uint8Array` status; map 11 F23), `handles_do_not_leak_over_1e5_calls`
-  (create and free a fluid handle 10⁵ times; wasm memory stops growing after the first 10³ *(inference)*; map 11 §5g).
-  *Do:* `phasekit-wasm` on compat with `default-features = false, features = ["fluids-core"]`: `PropsSI`, typed flash,
-  one batch `evaluate`, `withPack`, `withReference`, explicit `free()` on the only handle objects; baseline and
-  `+simd128` builds; `gates features` extended to the wasm tree (no `phasekit-data` features beyond `core` and its 5
-  fluids) and the `.wasm` size budget (first green size + 10 %, committed in `crates/phasekit-wasm/size-budget.txt`
-  *(inference: no evidence for an absolute number)*). *Done when:* both builds pass in CI.
 - **M10.9 Release v0.1.** Run the release checklist (section 5.4). Close M10: set `MILESTONE = 11`. *Done when:* tag
   `v0.1.0` on a green `main`.
 

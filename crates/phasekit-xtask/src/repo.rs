@@ -291,6 +291,16 @@ impl Repo {
         if ok { Ok(listing) } else { Err(format!("nm {library} failed: {}", err.trim())) }
     }
 
+    /// Runs `cargo <build>` and returns the size in bytes of the `artifact` it builds (`gates features`' .wasm budget).
+    pub fn build_size(&self, build: &[String], artifact: &Path) -> Result<u64, String> {
+        let args: Vec<&str> = build.iter().map(String::as_str).collect();
+        if !self.cargo(&args)?.0 {
+            return Err(format!("cargo {} failed", args.join(" ")));
+        }
+        let size = std::fs::metadata(artifact).map_err(|e| format!("cannot stat {}: {e}", artifact.display()))?.len();
+        Ok(size)
+    }
+
     /// Runs `cargo mutants --in-diff` on `diff` (configured by `.cargo/mutants.toml`) with the pass's own `args`, its
     /// progress on the terminal. Builds happen in cargo-mutants' own copy of the tree outside the repository, so an
     /// inherited `CARGO_TARGET_DIR` is dropped and `reference/` is named through `PHASEKIT_REFERENCE_DIR`. The output

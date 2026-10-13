@@ -110,21 +110,9 @@ fn kernel_status(e: &Error) -> i32 {
     status_code(Status::from(e))
 }
 
-/// A batch `Status`'s code.
+/// A batch `Status`'s code: compat's, shared with the browser batch.
 fn status_code(status: Status) -> i32 {
-    match status {
-        Status::Ok => PK_OK,
-        Status::Extrapolated => PK_EXTRAPOLATED,
-        Status::InvalidInput => PK_INVALID_INPUT,
-        Status::Unsupported => PK_UNSUPPORTED,
-        Status::Domain => PK_DOMAIN,
-        Status::NoConvergence => PK_NO_CONVERGENCE,
-        Status::Ambiguous => PK_AMBIGUOUS,
-        Status::Undefined => PK_UNDEFINED,
-        Status::NoModel => PK_NO_MODEL,
-        Status::Load => PK_LOAD,
-        _ => PK_OTHER,
-    }
+    i32::from(phasekit_compat::status_code(status))
 }
 
 impl From<CompatError> for Fail {

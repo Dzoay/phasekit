@@ -36,8 +36,10 @@ deny = [
     { crate = "bincode", reason = "RUSTSEC-2025-0141 (docs/DEPENDENCIES.md)" },
     { crate = "serde_cbor", reason = "unmaintained, RUSTSEC-2021-0127 (docs/DEPENDENCIES.md)" },
     # std has OnceLock and LazyLock. A facade whose own dependency needs one of these (wasm-bindgen and pyo3 use
-    # once_cell) lists that dependency in `wrappers` when it lands.
-    { crate = "once_cell", reason = "use std::sync::OnceLock / LazyLock (docs/DEPENDENCIES.md)" },
+    # once_cell) lists that dependency in `wrappers` when it lands: wasm-bindgen with phasekit-wasm (M10.8).
+    { crate = "once_cell", reason = "use std::sync::OnceLock / LazyLock (docs/DEPENDENCIES.md)", wrappers = [
+        "wasm-bindgen",
+    ] },
     { crate = "lazy_static", reason = "use std::sync::LazyLock (docs/DEPENDENCIES.md)" },
 ]
 

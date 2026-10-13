@@ -114,11 +114,52 @@ impl<'r> Plan<'r> {
 
     /// The output at the two input values.
     fn eval(&self, value1: f64, value2: f64, flash: &FlashOptions) -> Result<f64, Error> {
-        let state = self.state(value1, value2, flash)?;
-        match self.output {
-            Output::Prop(prop) => self.fluid.prop(&state, prop),
-            Output::Phase => Ok(f64::from(phase_index(state.phase()))),
-        }
+        value(self.fluid, &self.state(value1, value2, flash)?, self.output)
+    }
+}
+
+/// An output's value at a state of `fluid`.
+fn value(fluid: &Fluid, state: &State, output: Output) -> Result<f64, Error> {
+    match output {
+        Output::Prop(prop) => fluid.prop(state, prop),
+        Output::Phase => Ok(f64::from(phase_index(state.phase()))),
+    }
+}
+
+/// The value of the output key `output` at a state of `fluid` (the browser package's states).
+pub fn output_at(fluid: &Fluid, state: &State, output: &str) -> Result<f64, CompatError> {
+    let parsed = parse_output(output).ok_or_else(|| CompatError::UnknownOutput(output.into()))?;
+    Ok(value(fluid, state, parsed)?)
+}
+
+/// The state of `fluid` at the values of two input keys, in either order as `PropsSI`'s (the browser package's flash).
+pub fn flash_si(
+    fluid: &Fluid,
+    (name1, value1): (&str, f64),
+    (name2, value2): (&str, f64),
+    flash: &FlashOptions,
+) -> Result<State, CompatError> {
+    let (pair, swapped, basis) = pair_of(name1, name2)?;
+    let (x, y) = if swapped { (value2, value1) } else { (value1, value2) };
+    Ok(fluid.flash(Input::new(pair, x, y, basis)?, flash)?)
+}
+
+/// A batch cell's code, which the C batch (`PK_*`) and the browser batch share (map 11 F15, F23): 0 for success, 1 for
+/// a flagged extrapolation, then the kernel's failures in `Status` order, 10 for any other. Pinned and append-only, as
+/// `Status`'s discriminants are not an ABI.
+pub fn status_code(status: Status) -> u8 {
+    match status {
+        Status::Ok => 0,
+        Status::Extrapolated => 1,
+        Status::InvalidInput => 2,
+        Status::Unsupported => 3,
+        Status::Domain => 4,
+        Status::NoConvergence => 5,
+        Status::Ambiguous => 6,
+        Status::Undefined => 7,
+        Status::NoModel => 8,
+        Status::Load => 9,
+        _ => 10,
     }
 }
 
@@ -515,6 +556,31 @@ mod tests {
             assert_eq!(call(key, "T", "Water"), Err(CompatError::UnknownOutput(key.into())), "{key}");
             assert_eq!(call("Hmass", key, "Water"), Err(CompatError::UnknownInput(key.into())), "{key}");
         }
+    }
+
+    /// M10.8: the browser package's typed flash and its outputs are `props_si_in`'s, bit for bit or the same refusal:
+    /// `flash_si` reads the keys as `PropsSI` reads them (either order, the basis from the keys) and takes the flash
+    /// options; `output_at` reads any output key at the state, `Phase` too.
+    #[test]
+    fn flash_si_and_output_at_are_props_si() {
+        let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+        let water = registry.get("Water").unwrap();
+        let options = FlashOptions::new();
+        for ((n1, v1), (n2, v2)) in
+            [(("T", 300.0), ("P", 1e5)), (("P", 1e5), ("T", 300.0)), (("Hmass", 2e6), ("P", 1e5))]
+        {
+            let state = flash_si(water, (n1, v1), (n2, v2), &options).unwrap();
+            for key in ["Dmass", "Hmolar", "Q", "Phase"] {
+                let want = props_si_in(&registry, key, n1, v1, n2, v2, "Water").map(f64::to_bits);
+                assert_eq!(output_at(water, &state, key).map(f64::to_bits), want, "{n1} {n2} {key}");
+            }
+            assert_eq!(output_at(water, &state, "X"), Err(CompatError::UnknownOutput("X".into())));
+        }
+        let refused = flash_si(water, ("T", 300.0), ("T", 300.0), &options).unwrap_err();
+        assert_eq!(refused, CompatError::InvalidPair("T".into(), "T".into()));
+        let extrapolate = options.with_domain(phasekit_core::DomainPolicy::Extrapolate);
+        let supercooled = |flash| flash_si(water, ("T", 260.0), ("P", 1e5), flash).map(|s| s.t());
+        assert!(supercooled(&options).is_err() && supercooled(&extrapolate) == Ok(260.0));
     }
 
     /// The string grammar: unknown keys and pairs whose bases disagree are refused by name, before the kernel.

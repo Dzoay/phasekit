@@ -1,0 +1,27 @@
+[package]
+name = "phasekit-wasm"
+description = "The browser package: wasm-bindgen over phasekit-compat, the five core fluids and fetched packs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The browser module (`cdylib`, through wasm-bindgen-cli) and the Rust form its tests call (`rlib`).
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Only the browser target has JavaScript: elsewhere (the host, wasip2) the crate is empty and pulls in nothing, so the
+# workspace's other builds never link wasm-bindgen's JS imports. E7: the five core fluids, more from packs (E6).
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+phasekit-compat = { workspace = true, features = ["fluids-core"] }
+phasekit-core.workspace = true
+wasm-bindgen = "0.2.129"
+
+# wasm-bindgen-test runs the tests under Node (tier T3); verify gives them its tolerance classes.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+phasekit-verify.workspace = true
+wasm-bindgen-test = "0.3.79"
+
+[lints]
+workspace = true

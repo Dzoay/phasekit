@@ -26,6 +26,7 @@ env:
   REUSE_VERSION: "6.2.0"
   GUNGRAUN_VERSION: "0.20.0" # = the gungraun dev-dependency of phasekit-verify (its runner must match)
   CBINDGEN_VERSION: "0.29.2" # `gates abi` regenerates phasekit-capi's header with it (PLAN.md M10.4)
+  WASM_BINDGEN_VERSION: "0.2.129" # = the wasm-bindgen dependency of phasekit-wasm (its test runner must match)
 
 defaults:
   run:
@@ -70,7 +71,8 @@ jobs:
       - uses: ./.github/actions/rust
         with:
           components: clippy # clippy_bans_fire runs clippy on the lint probe
-          targets: wasm32-wasip2 # `gates counts` also measures the G4 run
+          # `gates counts` also measures the G4 run; `gates features` builds the browser package (M10.8)
+          targets: wasm32-wasip2,wasm32-unknown-unknown
       - name: Tool cache
         id: tools
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -367,6 +369,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/rust
         with:
+          components: clippy
           targets: wasm32-unknown-unknown
       - name: G5 cargo check --workspace --target wasm32-unknown-unknown
         run: cargo check --workspace --target wasm32-unknown-unknown
@@ -376,3 +379,24 @@ jobs:
         run: cargo build -p phasekit-core --no-default-features --features fluids-core --target wasm32-unknown-unknown
         env:
           RUSTFLAGS: -C target-feature=+simd128
+      - name: clippy on the browser package (it compiles only for this target)
+        run: cargo clippy -p phasekit-wasm --target wasm32-unknown-unknown --all-targets -- -D warnings
+      - name: Tool cache
+        id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-wasm-bindgen-${{ env.WASM_BINDGEN_VERSION }}
+      - name: Install wasm-bindgen-cli
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: cargo install --locked --root ~/.tools "wasm-bindgen-cli@$WASM_BINDGEN_VERSION"
+      - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
+      # The runner's Node (an LTS release) runs them; weak references as the package ships (ROT-158).
+      - name: The browser package's tests under Node, baseline and simd128 (PLAN.md M10.8)
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+          WASM_BINDGEN_WEAKREF: "1"
+        run: |
+          node --version
+          cargo test -p phasekit-wasm --target wasm32-unknown-unknown
+          RUSTFLAGS="-C target-feature=+simd128" cargo test -p phasekit-wasm --target wasm32-unknown-unknown
