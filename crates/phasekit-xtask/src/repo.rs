@@ -261,9 +261,9 @@ impl Repo {
     }
 
     /// Runs `cargo mutants --in-diff` on `diff` (configured by `.cargo/mutants.toml`) with the pass's own `args`, its
-    /// progress on the terminal.
-    /// Builds happen in cargo-mutants' own copy of the tree outside the repository, so an inherited
-    /// `CARGO_TARGET_DIR` is dropped and `reference/` is named through `PHASEKIT_REFERENCE_DIR`. The output is removed after a successful run and kept after a failed one.
+    /// progress on the terminal. Builds happen in cargo-mutants' own copy of the tree outside the repository, so an
+    /// inherited `CARGO_TARGET_DIR` is dropped and `reference/` is named through `PHASEKIT_REFERENCE_DIR`. The output
+    /// is removed after a successful run and kept after a failed one.
     pub fn cargo_mutants(&self, pass: &str, diff: &str, args: &[&str]) -> Result<MutantsRun, String> {
         let dir = std::env::temp_dir().join(format!("phasekit-mutants-{}-{pass}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -333,9 +333,11 @@ impl Repo {
         Ok(path.display().to_string())
     }
 
-    /// Runs `benches/instructions.rs` under gungraun with `--features phasekit-core/libm` (PLAN.md M9.6), each
-    /// benchmark saving its `summary.json`, and returns every summary of this run: the bench's earlier output is
-    /// removed first, so a renamed benchmark cannot linger.
+    /// Runs `benches/instructions.rs` under gungraun (PLAN.md M9.6) as a static `x86_64-unknown-linux-musl` binary with
+    /// `--features phasekit-core/libm`, each benchmark saving its `summary.json`, and returns every summary of this
+    /// run: the bench's earlier output is removed first, so a renamed benchmark cannot linger. No glibc is involved, so
+    /// the counts are the same on any x86-64 Linux with the same toolchain, and valgrind runs it where the system's
+    /// dynamic loader uses AVX-512, which valgrind 3.25 cannot decode (an x86-64-v4 distribution).
     pub fn instruction_summaries(&self) -> Result<Vec<String>, String> {
         let out = self.target_dir().join("gungraun").join("phasekit-verify").join("instructions");
         if out.exists() {
@@ -343,12 +345,15 @@ impl Repo {
         }
         let status = Command::new(env!("CARGO"))
             .args(["bench", "-p", "phasekit-verify", "--bench", "instructions", "--features", "phasekit-core/libm"])
+            .args(["--target", "x86_64-unknown-linux-musl"])
             .env("GUNGRAUN_SAVE_SUMMARY", "json")
             .current_dir(&self.root)
             .status()
             .map_err(|e| format!("cannot run cargo bench: {e}"))?;
         if !status.success() {
-            return Err("cargo bench --bench instructions failed (gungraun needs valgrind and gungraun-runner)".into());
+            return Err("cargo bench --bench instructions failed (it needs valgrind, gungraun-runner and the \
+                        x86_64-unknown-linux-musl target)"
+                .into());
         }
         let (mut pending, mut found) = (vec![out.clone()], Vec::new());
         while let Some(dir) = pending.pop() {

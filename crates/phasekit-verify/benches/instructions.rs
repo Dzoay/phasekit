@@ -2,8 +2,9 @@
 //! runs each workload once under Callgrind, its setup excluded. The workloads are the §7 rows on the bench fluids, each
 //! over 16 states of the criterion benches' grids: the order-2 α^r bundle, properties at (T, ρ) (DT + h + c_p), QT
 //! and PQ on the superancillary, PT + h and PH + T single phase, and a lookup by name. `cargo xtask gates perf` builds
-//! this with `--features phasekit-core/libm`, so the counts do not depend on the platform's maths library (glibc picks
-//! its exp by CPU and version), and fails on a count more than 5 % over `benches/baseline/instructions.csv`.
+//! this for `x86_64-unknown-linux-musl` with `--features phasekit-core/libm`, a static binary with no glibc, so the
+//! counts do not depend on the machine's maths library or loader (glibc picks its exp by CPU and version), and fails on
+//! a count more than 5 % over `benches/baseline/instructions.csv`.
 //! Linux only: elsewhere `main` is empty, so G6 still builds every target.
 
 #[cfg(target_os = "linux")]
@@ -46,8 +47,17 @@ mod bench {
         (model, single(name))
     }
 
+    /// Runs every state's flash once outside the measurement, so the fluid's lazily decoded parts (its superancillary,
+    /// caloric curves, melting line) are in place and the count is the steady-state cost (criterion's warm-up).
+    fn warmed(work: (&'static Fluid, Vec<Input>)) -> (&'static Fluid, Vec<Input>) {
+        for input in &work.1 {
+            black_box(work.0.state(*input).ok());
+        }
+        work
+    }
+
     fn dt_setup(name: &str) -> (&'static Fluid, Vec<Input>) {
-        (fluid(name), single(name).into_iter().map(|(rho, t)| dt(rho, t)).collect())
+        warmed((fluid(name), single(name).into_iter().map(|(rho, t)| dt(rho, t)).collect()))
     }
 
     /// The criterion benches' saturation grid: T ~ U[T_t + 0.05 (T_c − T_t), 0.98 T_c], Q ~ U[0, 1]; QT inputs, or PQ
@@ -74,11 +84,11 @@ mod bench {
     }
 
     fn qt_setup(name: &str) -> (&'static Fluid, Vec<Input>) {
-        saturation(name, false)
+        warmed(saturation(name, false))
     }
 
     fn pq_setup(name: &str) -> (&'static Fluid, Vec<Input>) {
-        saturation(name, true)
+        warmed(saturation(name, true))
     }
 
     /// PT or PH inputs read off the single-phase grid's DT states.
@@ -97,11 +107,11 @@ mod bench {
     }
 
     fn pt_setup(name: &str) -> (&'static Fluid, Vec<Input>) {
-        single_inputs(name, false)
+        warmed(single_inputs(name, false))
     }
 
     fn ph_setup(name: &str) -> (&'static Fluid, Vec<Input>) {
-        single_inputs(name, true)
+        warmed(single_inputs(name, true))
     }
 
     #[library_benchmark]
@@ -112,11 +122,7 @@ mod bench {
     #[bench::n_heptane(args = ("n-Heptane",), setup = alphar_setup)]
     fn alphar_order2(work: (&'static dyn HelmholtzModel, Vec<(f64, f64)>)) -> f64 {
         let (model, states) = work;
-        states
-            .iter()
-            .map(|&(rho, t)| black_box(model.residual(black_box(t), rho, Order::Two)).get(0, 0))
-            .flatten()
-            .sum()
+        states.iter().filter_map(|&(rho, t)| black_box(model.residual(black_box(t), rho, Order::Two)).get(0, 0)).sum()
     }
 
     #[library_benchmark]
@@ -176,17 +182,20 @@ mod bench {
         states.into_iter().filter_map(|input| black_box(fluid.state(black_box(input))).ok()).map(|s| s.t()).sum()
     }
 
+    /// The criterion bench's keys: R134a's name, an alias and its CAS number.
+    const KEYS: [&str; 3] = ["R134a", "r134A", "811-97-2"];
+
+    /// The registry, with R134a decoded and every key looked up once outside the measurement.
     fn registry() -> &'static Registry {
-        Registry::embedded().unwrap_or_else(|_| std::process::abort())
+        let registry = Registry::embedded().unwrap_or_else(|_| std::process::abort());
+        KEYS.iter().for_each(|key| drop(black_box(registry.get(key))));
+        registry
     }
 
     #[library_benchmark]
     #[bench::name(setup = registry)]
     fn lookup_by_name(registry: &'static Registry) -> usize {
-        ["R134a", "r134a", "811-97-2", "HFC134a"]
-            .iter()
-            .filter(|key| black_box(registry.get(black_box(key))).is_ok())
-            .count()
+        KEYS.iter().filter(|key| black_box(registry.get(black_box(key))).is_ok()).count()
     }
 
     library_benchmark_group!(

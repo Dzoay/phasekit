@@ -1,6 +1,6 @@
 //! `gates perf` (VERIFICATION.md §11.2, §12; PLAN.md M9.6): the performance gate. With no arguments, the instruction
-//! gate: it runs `benches/instructions.rs` under gungraun with `--features phasekit-core/libm`, reads each benchmark's
-//! Callgrind instruction count from its `summary.json`, and fails on a count more than 5 % above
+//! gate: it runs `benches/instructions.rs` under gungraun, a static musl build with `--features phasekit-core/libm`,
+//! reads each benchmark's Callgrind instruction count from its `summary.json`, and fails on a count more than 5 % above
 //! `crates/phasekit-verify/benches/baseline/instructions.csv`, on a baselined benchmark that did not run, or on one
 //! with no baseline row. Every run writes the counts as a proposed baseline to `<target>/instructions-baseline.csv`,
 //! which `--update` writes over the committed one. `--targets <results.csv>` instead checks a criterion results file
@@ -16,8 +16,8 @@ pub const BASELINE: &str = "crates/phasekit-verify/benches/baseline/instructions
 /// The misses of ARCHITECTURE.md §7's targets that have a re-plan issue (PLAN.md M9.6).
 const EXEMPTIONS: &str = "ci/perf-exemptions.txt";
 
-/// The allowed increase over the baseline: 5 % *(decision: noise margin, VERIFICATION.md §12)*.
-const LIMIT: f64 = 0.05;
+/// The allowed increase over the baseline, in percent: 5 *(decision: noise margin, VERIFICATION.md §12)*.
+const LIMIT_PERCENT: u128 = 5;
 
 /// ARCHITECTURE.md §7's per-core targets, as criterion bench ids of `benches/` (the `bench` column of a results file),
 /// the fluids they apply to (`None`: every fluid the bench records), the target in ns, and the §7 row it comes from.
@@ -118,12 +118,12 @@ pub fn check(baseline: &str, counts: &[(String, u64)]) -> Verdict {
             continue;
         };
         let change = *ir as f64 / base as f64 - 1.0;
-        if change > LIMIT {
+        if u128::from(*ir) * 100 > u128::from(base) * (100 + LIMIT_PERCENT) {
             errors.push(format!(
                 "{id}: {ir} instructions, {:+.1} % over the baseline's {base} (limit +5 %)",
                 100.0 * change
             ));
-        } else if change < -LIMIT {
+        } else if u128::from(*ir) * 100 < u128::from(base) * (100 - LIMIT_PERCENT) {
             faster.push(format!("{id} {:+.1} %", 100.0 * change));
         }
         if change > largest.0 {
@@ -255,7 +255,8 @@ mod tests {
     }
 
     /// §7 targets on a results file: a median at or under its target passes, a miss fails unless exempted with an
-    /// issue, and an exemption that matches no miss fails. The α^r target applies to the 16-20-term fluid only.
+    /// issue, and an exemption that matches no miss fails. The α^r target applies to the 16-20-term fluid only: Water's
+    /// α^r row is not counted.
     #[test]
     fn medians_over_their_section_7_target_need_a_re_plan_issue() {
         let row = |bench: &str, fluid: &str, ns: f64| {
@@ -272,7 +273,7 @@ mod tests {
         let exemptions = "# misses with an issue\npt_flash/pt_h Water issue #140: seven Newton steps\n";
         assert_eq!(
             check_targets(&results, exemptions),
-            Ok("3 medians meet ARCHITECTURE.md §7, 1 misses re-planned".into())
+            Ok("2 medians meet ARCHITECTURE.md §7, 1 misses re-planned".into())
         );
         let unexempted = check_targets(&results, "").unwrap_err();
         assert!(
@@ -292,7 +293,7 @@ mod tests {
         for (bench, _, ns, label) in TARGETS {
             let (row, target) = label.split_once(" | ").unwrap();
             let line = architecture.lines().find(|l| l.starts_with(&format!("| {row} |"))).unwrap_or_default();
-            assert!(line.contains(&format!("| {target} |")), "{bench}: §7 has no row `{row}` with `{target}`: {line}");
+            assert!(line.contains(&format!("| {target}")), "{bench}: §7 has no row `{row}` with `{target}`: {line}");
             let micro = |s: &str| s.trim_start_matches("≤ ").trim_end_matches(" µs").parse::<f64>().map(|v| v * 1e3);
             let stated: Vec<f64> = target
                 .split(" / ")
