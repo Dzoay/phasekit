@@ -38,7 +38,8 @@ pub enum Error {
         roots: Roots,
     },
     /// The property is undefined in this phase: cp, cv, w and transport inside the dome (map 02 §6,
-    /// map 10 R18), quality outside it (no −1 sentinel, map 01 §4c).
+    /// map 10 R18), quality outside it (no −1 sentinel, map 01 §4c), and a correlation where it has no value
+    /// (helium's λ near its critical point, DIV-0035).
     Undefined {
         /// The refused property.
         prop: Prop,

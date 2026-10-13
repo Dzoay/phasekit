@@ -14,7 +14,7 @@ use crate::helmholtz::HelmholtzModel;
 use crate::math;
 use crate::model::{CriticalPoint, ThermoModel};
 use crate::prop::{DerivVar, Partial};
-use crate::state::State;
+use crate::state::{Phase, State};
 use crate::units::Basis;
 
 /// Avogadro's number as CoolProp's Rainwater-Friend term has it (CODATA 2010; `TransportRoutines.cpp:153`).
@@ -73,6 +73,10 @@ impl<'a> TransportInputs<'a> {
 
     pub(super) fn t(&self) -> f64 {
         self.state.t()
+    }
+
+    pub(super) fn phase(&self) -> Phase {
+        self.state.phase()
     }
 
     pub(super) fn rho(&self) -> f64 {

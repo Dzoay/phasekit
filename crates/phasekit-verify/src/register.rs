@@ -655,8 +655,8 @@ pub static DIVERGENCES: &[Divergence] = &[
                    its own Tc, 405.4 K, at every density: the oracle gives 6.26 W/m/K at 405.3999 K and 50 kg/m3, \
                    about 100 times the conductivity there, and NaN at 405.4 K; phasekit floors the term's reduced \
                    temperature at the gap to the EOS's Tc, 405.56 K, so it is CoolProp's outside 405.24-405.56 K and \
-                   finite and continuous inside (2026-10-12); the Corrected model (Monogenidou et al. 2018, or a bound \
-                   from Tufeu's paper) waits for the paper check (map 05 Q3)",
+                   finite and continuous inside (2026-10-12; user decision AM1); the Corrected model (Monogenidou et \
+                   al. 2018, or a bound from Tufeu's paper) waits for the paper check (map 05 Q3)",
         exempt: Some(Exempt {
             kinds: &[Kind::Transport],
             columns: &["lambda"],
@@ -766,6 +766,25 @@ pub static DIVERGENCES: &[Divergence] = &[
             ("paper/CarbonDioxide/CoolProp-Tests.eta.csv", Tolerance::Relative(2e-5)),
             ("paper/R123/CoolProp-Tests.lambda.csv", Tolerance::Relative(1e-3)),
         ],
+        proof: &[8],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0035",
+        fluids: &["Helium"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_core::transport::hardcoded"),
+        evidence: "map 05 §3.8 row 4, M8.9: Hands and Arp's critical conductivity term as REFPROP and CoolProp code \
+                   it blends kappa_T with the scaled equation's inside W <= 1 and takes the blend's square root, and \
+                   the blend is negative in two lobes either side of the critical isochore from 5.20 to 5.99 K (at \
+                   5.5 K, 64.6-68.5 and 69.9-73.8 kg/m3), where the oracle's lambda is NaN (5.5 K at 17000 and 18000 \
+                   mol/m3, 5.9 K at 15000); phasekit refuses lambda there as `Undefined` (D12: NaN is never a typed \
+                   result) (2026-10-13)",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[],
         proof: &[8],
         status: DivStatus::Open,
     },

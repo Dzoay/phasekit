@@ -9,6 +9,7 @@ use super::{Chung, ConductivityStages, LennardJones, Reducing, RhoSrCs};
 use crate::derivs::Order;
 use crate::error::Error;
 use crate::math;
+use crate::prop::Prop;
 
 /// x^n as CoolProp's `pow(x, n)` computes it, the C library's `pow`, not a multiplication chain: methanol's
 /// hard-sphere term amplifies the difference past `TransportDirect` (Ammonia's `powInt` is `math::powi`).
@@ -363,7 +364,9 @@ pub(crate) fn helium_conductivity(x: &TransportInputs<'_>, eta: f64) -> Result<C
     Ok(ConductivityStages { dilute: lambda_0, residual: lambda_e, critical })
 }
 
-/// Helium's critical term (3.5 < T < 12 K), W/(m K): κ_T blended with the scaled-equation one inside W ≤ 1.
+/// Helium's critical term (3.5 < T < 12 K), W/(m K): κ_T blended with the scaled-equation one inside W ≤ 1. The blend
+/// is negative in a wedge about the critical isochore from 5.21 to 5.99 K, where the term's square root has no value
+/// (CoolProp's λ is NaN there): λ is refused as `Undefined` (D12, DIV-0035).
 fn helium_critical(x: &TransportInputs<'_>, eta: f64, rho: f64) -> Result<f64, Error> {
     let (x0, e1, e2, beta, gamma, delta) = (0.392, 2.8461, 0.27156, 0.3554, 1.1743, 4.304);
     let (rhoc_crit, tc, pc, t) = (69.158, 5.18992, 2.2746e5, x.t());
@@ -387,9 +390,14 @@ fn helium_critical(x: &TransportInputs<'_>, eta: f64, rho: f64) -> Result<f64, E
         let k_t_prime = 1.0 / (rhs * pow_n(rho / rhoc_crit, 2) * pc);
         w * k_t + (1.0 - w) * k_t_prime
     };
-    Ok(3.4685233e-17 * 3.726229668 * math::sqrt(k_t_bar) * pow_n(t, 2) / rho / eta
+    let lambda_c = 3.4685233e-17 * 3.726229668 * math::sqrt(k_t_bar) * pow_n(t, 2) / rho / eta
         * pow_n(dpdt, 2)
-        * math::exp(-18.66 * pow_n(delta_t, 2) - 4.25 * pow_n(delta_rho, 4)))
+        * math::exp(-18.66 * pow_n(delta_t, 2) - 4.25 * pow_n(delta_rho, 4));
+    if lambda_c.is_finite() {
+        Ok(lambda_c)
+    } else {
+        Err(Error::Undefined { prop: Prop::Conductivity, phase: x.phase() })
+    }
 }
 
 /// CO₂'s dilute conductivity, Huber et al. 2016 Eq. (3) (`TransportRoutines.cpp:830-838`), W/(m K), in the EOS's τ.
@@ -479,6 +487,22 @@ mod tests {
             }
         }
         assert!(lambda(405.3999, 50.0) < 6.26 / 10.0, "about 100x below CoolProp's 6.26 W/(m K)");
+    }
+
+    /// Chung's dilute stage is its zero-density limit, as the module splits a whole model: at 1e-4 mol/m³, Y ≈ 5e-9, so
+    /// G₂ is 1 and η_p 0 within 1e-6, and the total is the dilute stage, for both v8.0.0 Chung fluids. CoolProp files
+    /// the whole η under `critical`, so the oracle checks only the total.
+    #[test]
+    fn chung_dilute_stage_is_the_zero_density_limit() {
+        use crate::{Density, Input, Temperature};
+        let registry = crate::Registry::embedded().unwrap();
+        for name in ["Cyclopentane", "Isopentane"] {
+            let record = registry.record(name).unwrap();
+            let input = Input::dt(Density::molar(1e-4).unwrap(), Temperature::new(400.0).unwrap());
+            let state = registry.get(name).unwrap().state(input).unwrap();
+            let stages = crate::internal::viscosity_stages(&record, &state).unwrap();
+            assert!((stages.dilute / stages.total() - 1.0).abs() < 1e-6, "{name}: {stages:?}");
+        }
     }
 
     /// The higher-order CO₂ term's triple point is the EOS's (`HEOS.Ttriple()` in CoolProp).

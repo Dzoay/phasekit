@@ -311,7 +311,8 @@ fn sigma_matches_oracle() {
 }
 
 /// The oracle's transport files: the all-fluid tier (8 states per fluid), the core subset's (200 each), and the probes
-/// of the branches no random state reaches (M8.6: Methane's ancillary and near-critical χ).
+/// of the branches no random state reaches (M8.6: Methane's ancillary and near-critical χ; M8.9: Helium's critical
+/// term).
 const TRANSPORT_FIXTURES: [(&str, &str); 16] = [
     fixture!("coolprop-8.0.0/all/transport.csv"),
     fixture!("coolprop-8.0.0/transport/probes.csv"),

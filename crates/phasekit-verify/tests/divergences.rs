@@ -51,6 +51,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0032", div_0032),
     ("DIV-0033", div_0033),
     ("DIV-0034", div_0034),
+    ("DIV-0035", div_0035),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -767,4 +768,25 @@ fn div_0034() {
     let co2 = at_mass("CarbonDioxide", 300.0, 1400.0, Prop::Viscosity) / 0.50594e-3 - 1.0;
     let r123 = at_mass("R123", 180.0, 0.002873, Prop::Conductivity) / 2.473e-3 - 1.0;
     assert!((co2 - 1.05e-5).abs() < 5e-7 && (r123 + 9.56e-4).abs() < 5e-6, "{co2:e} {r123:e}");
+}
+
+/// DIV-0035 (`SkipOracle`; map 05 §3.8 row 4, M8.9), the replacing check: where the oracle's helium λ is NaN, in both
+/// lobes of its critical term's negative blend, phasekit refuses λ as `Undefined` and still gives η; between the lobes
+/// and outside them λ is finite (`transport/probes.csv` checks it against the oracle there).
+fn div_0035() {
+    let fluid = Registry::embedded().unwrap().get("Helium").unwrap();
+    let at =
+        |t: f64, rho: f64| fluid.state(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap())).unwrap();
+    let lobes = [(5.5, 17000.0, "t5.5_rho17000"), (5.5, 18000.0, "t5.5_rho18000"), (5.9, 15000.0, "t5.9_rho15000")];
+    for (t, rho, name) in lobes {
+        assert!(fact(&format!("div0035_lambda_helium_{name}")).is_nan(), "{name}: the oracle's λ");
+        let state = at(t, rho);
+        let refused = Error::Undefined { prop: Prop::Conductivity, phase: state.phase() };
+        assert_eq!(fluid.prop(&state, Prop::Conductivity), Err(refused), "{name}");
+        assert!(fluid.prop(&state, Prop::Viscosity).is_ok_and(|eta| eta.is_finite() && eta > 0.0), "{name}");
+    }
+    for (t, rho) in [(5.5, 16000.0), (5.5, 17300.0), (5.5, 19000.0), (6.0, 15000.0)] {
+        let lambda = fluid.prop(&at(t, rho), Prop::Conductivity);
+        assert!(lambda.as_ref().is_ok_and(|l| l.is_finite() && *l > 0.0), "{t} K, {rho} mol/m³: {lambda:?}");
+    }
 }

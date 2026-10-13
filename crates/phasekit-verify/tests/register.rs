@@ -460,6 +460,18 @@ fn div_0030_to_0034(facts: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0030", "DIV-0031", "DIV-0032", "DIV-0033", "DIV-0034"]
 }
 
+/// DIV-0035: the oracle's helium λ is NaN in both lobes of its critical term's negative blend.
+fn div_0035(facts: &Fixture<'_>) -> Vec<&'static str> {
+    for name in [
+        "div0035_lambda_helium_t5.5_rho17000",
+        "div0035_lambda_helium_t5.5_rho18000",
+        "div0035_lambda_helium_t5.9_rho15000",
+    ] {
+        assert!(matches!(fact(facts, name), Some(("ok", v)) if v.is_nan()), "{name}");
+    }
+    vec!["DIV-0035"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -478,6 +490,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0027,
         div_0028_to_0029,
         div_0030_to_0034,
+        div_0035,
     ]
     .iter()
     .flat_map(|group| group(&facts))
