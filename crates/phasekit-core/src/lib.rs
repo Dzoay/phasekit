@@ -68,10 +68,11 @@ pub use fluid::{Fluid, Gauge, PureFluid, PureFluidBuilder, ReferenceState};
 pub use helmholtz::HelmholtzModel;
 pub use input::{Capabilities, Input, NativeInput, Pair, Var};
 pub use model::{
-    Citation, CitationRole, CriticalOrigin, CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Source, ThermoModel,
+    Citation, CitationRole, Constants, CriticalOrigin, CriticalPoint, DataTerms, FluidInfo, Limits, ModelKey, Reducing,
+    Source, ThermoModel,
 };
 pub use num::{Jet4, Real};
-pub use prop::{DerivVar, Partial, Prop, SecondPartial};
+pub use prop::{Constant, DerivVar, Partial, Prop, SecondPartial};
 pub use registry::Registry;
 pub use relations::{GibbsDerivs, bundle_from_gibbs};
 pub use saturation::{SatAccuracy, SatPair, SatSide, SaturationCurve};

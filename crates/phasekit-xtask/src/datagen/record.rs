@@ -65,6 +65,9 @@ pub fn to_record(source: &super::Source) -> Result<FluidRecord, String> {
     }
     let c = &fluid.states.critical;
     fluid_record.critical = Some(CriticalPoint { t: c.t, p: c.p, rho: c.rhomolar, origin: CriticalOrigin::Published });
+    // CoolProp's trivial outputs (map 01 §4a): its p_triple and P_min are the saturated liquid's p at T_min (map 09 R8).
+    (fluid_record.acentric, fluid_record.p_reducing) = (Some(eos.acentric), Some(reducing.p));
+    fluid_record.p_sat_min = Some(eos.states.sat_min_liquid.p);
     fluid_record.environmental = info.environmental.as_ref().map(environmental).transpose().map_err(|e| at(&e))?;
     fluid_record.melting = melting(&fluid.ancillaries).map_err(|e| at(&format!("ANCILLARIES.melting_line: {e}")))?;
     fluid_record.pseudo_pure = pseudo_pure(fluid, eos).map_err(|e| at(&e))?;

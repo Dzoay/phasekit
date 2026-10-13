@@ -11,7 +11,7 @@ use crate::helmholtz::HelmholtzModel;
 use crate::input::{Capabilities, Input, NativeInput, Pair, Var};
 use crate::melting::MeltingCurve;
 use crate::model::{CriticalOrigin, CriticalPoint, FluidInfo, Limits, ThermoModel};
-use crate::prop::Prop;
+use crate::prop::{Constant, DerivVar, Partial, Prop, SecondPartial};
 use crate::saturation::SatAccuracy;
 use crate::saturation::SaturationCurve;
 use crate::state::State;
@@ -286,6 +286,9 @@ impl ThermoModel for PureFluid {
     fn critical_point(&self) -> Option<CriticalPoint> {
         *self.model_critical.get_or_init(|| self.model_critical())
     }
+    fn limits(&self) -> Option<&Limits> {
+        Some(&self.limits)
+    }
     fn helmholtz(&self) -> Option<&dyn HelmholtzModel> {
         Some(&*self.eos)
     }
@@ -440,7 +443,15 @@ impl Fluid {
                     _ => v.dc_dt,
                 }
             }
-            Prop::MolarMass => m,
+            Prop::Qmass => state.quality().ok_or(Error::Undefined { prop, phase: state.phase() })?,
+            Prop::Tau | Prop::Delta => {
+                let reducing = self.info().constants().reducing.ok_or(Error::NoModel { prop })?;
+                if prop == Prop::Tau { reducing.t / state.t() } else { state.rho(molar) / reducing.rho }
+            }
+            Prop::HmolarIdealGas | Prop::SmolarIdealGas | Prop::UmolarIdealGas => self.ideal_gas(state, prop)?,
+            Prop::HmassIdealGas => self.ideal_gas(state, Prop::HmolarIdealGas)? / m,
+            Prop::SmassIdealGas => self.ideal_gas(state, Prop::SmolarIdealGas)? / m,
+            Prop::UmassIdealGas => self.ideal_gas(state, Prop::UmolarIdealGas)? / m,
             Prop::Viscosity => self.model.viscosity(state)?,
             Prop::Conductivity => self.model.conductivity(state)?,
             Prop::SurfaceTension => self.model.surface_tension(state.t())?,
@@ -451,7 +462,93 @@ impl Fluid {
             Prop::FundamentalDerivative => state.fundamental_derivative(&self.order_three(state, prop)?)?,
             Prop::IsothermalCompressibility => state.isothermal_compressibility()?,
             Prop::IsobaricExpansion => state.isobaric_expansion()?,
+            Prop::IsentropicExpansion => {
+                let (p, rho, s) = (DerivVar::P, DerivVar::Dmolar, DerivVar::Smolar);
+                state.rho(molar) / state.p() * state.partial(Partial { of: p, wrt: rho, at: s })?
+            }
+            Prop::Prandtl => state.cp(mass)? * self.model.viscosity(state)? / self.model.conductivity(state)?,
+            Prop::Pip => self.pip(state)?,
+            // The τ- and δ-scaled α terms land at M10.3.
+            Prop::Alphar
+            | Prop::DalpharDtau
+            | Prop::DalpharDdelta
+            | Prop::Alpha0
+            | Prop::Dalpha0Dtau
+            | Prop::Dalpha0Ddelta
+            | Prop::D2alpha0Ddelta2
+            | Prop::D3alpha0Ddelta3 => return Err(Error::NoModel { prop }),
+            Prop::Constant(c) => self.constant(c)?,
         })
+    }
+
+    /// A state-independent output: the model's limits and critical point, or a published constant of its data;
+    /// `NoModel` where the model has none (CoolProp's trivial outputs, map 01 §4a; Props1SI).
+    pub fn constant(&self, c: Constant) -> Result<f64, Error> {
+        let info = self.info();
+        let (m, k) = (info.molar_mass(), info.constants());
+        let (limits, critical, reducing) = (self.model.limits(), self.model.critical_point(), k.reducing);
+        let value = match c {
+            Constant::GasConstant => self.model.helmholtz().map(|h| h.gas_constant()),
+            Constant::MolarMass => Some(m),
+            Constant::Acentric => k.acentric,
+            Constant::RhomassReducing => reducing.map(|r| r.rho * m),
+            Constant::RhomolarReducing => reducing.map(|r| r.rho),
+            Constant::TReducing => reducing.map(|r| r.t),
+            Constant::PReducing => reducing.and_then(|r| r.p),
+            Constant::RhomolarCritical => critical.map(|c| c.rho),
+            Constant::RhomassCritical => critical.map(|c| c.rho * m),
+            Constant::TCritical => critical.map(|c| c.t),
+            Constant::PCritical => critical.map(|c| c.p),
+            Constant::TTriple => limits.and_then(Limits::t_triple),
+            Constant::TMin => limits.map(Limits::t_min),
+            Constant::TMax => limits.map(Limits::t_max),
+            Constant::PMax => limits.map(Limits::p_max),
+            Constant::PMin | Constant::PTriple => k.p_sat_min,
+            // No Helmholtz fluid's data carry a dipole moment (CoolProp's HEOS has none either); the fraction limits
+            // and freezing point are an incompressible solution's; the environmental metadata are restricted (D14).
+            Constant::DipoleMoment
+            | Constant::FractionMin
+            | Constant::FractionMax
+            | Constant::TFreeze
+            | Constant::Gwp20
+            | Constant::Gwp100
+            | Constant::Gwp500
+            | Constant::Fh
+            | Constant::Hh
+            | Constant::Ph
+            | Constant::Odp => None,
+        };
+        value.ok_or(Error::NoModel { prop: Prop::Constant(c) })
+    }
+
+    /// h⁰ = RT(1 + A10⁰) and u⁰ = RT·A10⁰, functions of T alone, so in the dome too, at its T (as c_p⁰, SQ3), and
+    /// s⁰ = R(A10⁰ − A00⁰), of T and ρ, so at one phase: from the model's ideal part (E1), in the state's gauge (h⁰ + h^r
+    /// is h).
+    fn ideal_gas(&self, state: &State, prop: Prop) -> Result<f64, Error> {
+        let ideal = match state.one_phase() {
+            Some(one) => self.model.derivs(&one, Order::One).and_then(|d| d.ideal()),
+            None if prop == Prop::SmolarIdealGas => return Err(Error::Undefined { prop, phase: state.phase() }),
+            None => self.model.helmholtz().map(|h| h.ideal(state.t(), state.rho(Basis::Molar), Order::One)),
+        };
+        let entry = |i, j| ideal.as_ref().and_then(|d| d.get(i, j)).ok_or(Error::NoModel { prop });
+        let (r, t, gauge) = (state.gas_constant(), state.t(), state.gauge());
+        Ok(match prop {
+            Prop::HmolarIdealGas => r * t * (1.0 + entry(1, 0)?) + gauge.dh(),
+            Prop::SmolarIdealGas => r * (entry(1, 0)? - entry(0, 0)?) + gauge.ds(),
+            _ => r * t * entry(1, 0)? + gauge.dh(),
+        })
+    }
+
+    /// The phase identification parameter 2 − ρ[(∂²p/∂ρ∂T)/(∂p/∂T)_ρ − (∂²p/∂ρ²)_T/(∂p/∂ρ)_T] (Venkatarathnam and
+    /// Oellrich 2011), as CoolProp writes it: order 3, at one phase.
+    fn pip(&self, state: &State) -> Result<f64, Error> {
+        use DerivVar::{Dmolar, P, T};
+        let total = self.order_three(state, Prop::Pip)?;
+        let (dp_drho, dp_dt) = (Partial { of: P, wrt: Dmolar, at: T }, Partial { of: P, wrt: T, at: Dmolar });
+        let d2p_drho_dt = state.second_partial(SecondPartial { first: dp_drho, wrt: T, at: Dmolar }, &total)?;
+        let d2p_drho2 = state.second_partial(SecondPartial { first: dp_drho, wrt: Dmolar, at: T }, &total)?;
+        let rho = state.rho(Basis::Molar);
+        Ok(2.0 - rho * (d2p_drho_dt / state.partial(dp_dt)? - d2p_drho2 / state.partial(dp_drho)?))
     }
 
     /// The model's order-3 total bundle at `state` as one phase (E1), `NoModel` from a model without one.
@@ -681,6 +778,86 @@ mod tests {
         let co2 = registry.get("CarbonDioxide").unwrap();
         assert_eq!(co2.with_reference(ReferenceState::Nbp).unwrap_err(), Error::Domain(below));
         assert!(methane.with_reference(ReferenceState::Nbp).is_ok());
+    }
+
+    /// M10.2: h⁰ + h^r is h and s⁰ + s^r is s in any gauge, the ideal parts carrying the gauge (h⁰ shifts by Δh, s⁰
+    /// by Δs, u⁰ by Δh), in both bases; in the dome h⁰ and u⁰, functions of T, are the single phase's at that T, and s⁰,
+    /// which depends on ρ, is refused.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn ideal_gas_parts_add_up_in_any_gauge() {
+        let registry = crate::Registry::from_embedded(crate::DataSet::Parity).unwrap();
+        let native = registry.get("Water").unwrap();
+        let gauge = Gauge::new(1_234.5, -6.7).unwrap();
+        let fluid = native.with_gauge(gauge);
+        let gas = Input::dt(Density::molar(10.0).unwrap(), Temperature::new(500.0).unwrap());
+        let (state, unshifted) = (fluid.state(gas).unwrap(), native.state(gas).unwrap());
+        let prop = |f: &Fluid, s: &State, p: Prop| f.prop(s, p).unwrap();
+        let close = |a: f64, b: f64| (a - b).abs() <= 1e-12 * a.abs().max(b.abs()).max(1.0);
+        let h = prop(&fluid, &state, Prop::HmolarIdealGas) + prop(&fluid, &state, Prop::HmolarResidual);
+        let s = prop(&fluid, &state, Prop::SmolarIdealGas) + prop(&fluid, &state, Prop::SmolarResidual);
+        assert!(close(h, state.h(Basis::Molar)) && close(s, state.s(Basis::Molar)), "{h} {s}");
+        for (p, shift) in
+            [(Prop::HmolarIdealGas, 1_234.5), (Prop::SmolarIdealGas, -6.7), (Prop::UmolarIdealGas, 1_234.5)]
+        {
+            assert!(close(prop(&fluid, &state, p) - prop(native, &unshifted, p), shift), "{p:?}");
+        }
+        let m = fluid.info().molar_mass();
+        for (mass, molar) in [
+            (Prop::HmassIdealGas, Prop::HmolarIdealGas),
+            (Prop::SmassIdealGas, Prop::SmolarIdealGas),
+            (Prop::UmassIdealGas, Prop::UmolarIdealGas),
+        ] {
+            assert!(close(prop(&fluid, &state, mass) * m, prop(&fluid, &state, molar)), "{mass:?}");
+        }
+        let at = |q| Input::qt(Quality::new(q).unwrap(), Temperature::new(500.0).unwrap());
+        let wet = fluid.state(at(0.5)).unwrap();
+        for p in [Prop::HmolarIdealGas, Prop::UmolarIdealGas] {
+            assert!(close(prop(&fluid, &wet, p), prop(&fluid, &state, p)), "{p:?}");
+        }
+        let s0 = Prop::SmolarIdealGas;
+        assert_eq!(fluid.prop(&wet, s0), Err(Error::Undefined { prop: s0, phase: Phase::TwoPhase }));
+    }
+
+    /// M10.2 (map 01 §4a): the state-independent outputs come from the model's limits and critical point and its data's
+    /// published constants, under any gauge, and are `NoModel` where the data have none: the toy record states its
+    /// reducing state but no acentric factor, triple point or saturation pressure at T_min, and no Helmholtz fluid has a
+    /// dipole moment or an incompressible solution's fraction limits.
+    #[test]
+    fn constants_come_from_the_model_and_its_data() {
+        use crate::prop::Constant as C;
+        let mut record = FluidRecord::synthetic("X").unwrap();
+        (record.acentric, record.p_reducing) = (Some(0.25), Some(3.0e6));
+        let fluid = Fluid::new(Arc::new(record.compile().unwrap())).with_gauge(Gauge::new(5.0, 6.0).unwrap());
+        let m = fluid.info().molar_mass();
+        let given = [
+            (C::GasConstant, 8.3),
+            (C::MolarMass, m),
+            (C::Acentric, 0.25),
+            (C::TReducing, 382.513),
+            (C::RhomolarReducing, 4290.0),
+            (C::RhomassReducing, 4290.0 * m),
+            (C::PReducing, 3.0e6),
+            (C::TMin, 169.0),
+            (C::TMax, 420.0),
+            (C::PMax, 100e6),
+        ];
+        for (c, want) in given {
+            assert_eq!(fluid.constant(c), Ok(want), "{c:?}");
+        }
+        let absent = [C::TTriple, C::PTriple, C::PMin, C::DipoleMoment, C::FractionMin, C::FractionMax, C::TFreeze];
+        for c in absent.into_iter().chain([C::Gwp20, C::Gwp100, C::Gwp500, C::Fh, C::Hh, C::Ph, C::Odp]) {
+            assert_eq!(fluid.constant(c), Err(Error::NoModel { prop: Prop::Constant(c) }), "{c:?}");
+        }
+        let critical = fluid.model().critical_point();
+        assert_eq!(fluid.constant(C::TCritical).ok(), critical.map(|c| c.t));
+        assert_eq!(fluid.constant(C::RhomassCritical).ok(), critical.map(|c| c.rho * m));
+        let liquid = FlashOptions::new().with_phase(Phase::Liquid);
+        let input = Input::dt(Density::molar(5_000.0).unwrap(), Temperature::new(300.0).unwrap());
+        let state = fluid.flash(input, &liquid).unwrap();
+        assert_eq!(fluid.prop(&state, Prop::Constant(C::TReducing)), Ok(382.513));
+        assert_eq!(fluid.prop(&state, Prop::Tau), Ok(382.513 / 300.0));
+        assert_eq!(fluid.prop(&state, Prop::Delta), Ok(5_000.0 / 4290.0));
     }
 
     /// Rot: ROT-036 (map 02 §5 row 7, map 11 F8). CoolProp keys its melting data by fluid name in one process-global

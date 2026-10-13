@@ -484,6 +484,30 @@ fn div_0036(facts: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0036"]
 }
 
+/// DIV-0037 to DIV-0045 (M10.2, the props kind): the oracle's Q sentinel and a pseudo-pure gas's Qmass, R134a's GWP100,
+/// the refused `rhomass_reducing`, Ammonia's T_triple (its T_min), σ refused at a gas, the trivial output and echo
+/// answered at a refused pseudo-pure QT state, a pseudo-pure g refused where h is given, Z inside the dome and at
+/// PropyleneGlycol's saturated vapour against its own p/(ρRT), and the two ECS values the entry cites.
+fn div_0037_to_0045(facts: &Fixture<'_>) -> Vec<&'static str> {
+    let ok = |name: &str| ok_fact(facts, name);
+    let refused = |name: &str| matches!(fact(facts, name), Some((status, _)) if status.starts_with("err:"));
+    assert_eq!((ok("div0037_q_water_t400_rho10"), ok("div0037_qmass_r407c_t291.68")), (-1.0, 1.0));
+    assert!(cites(ok("div0038_gwp100_r134a"), "1430"));
+    assert!(refused("div0039_rhomass_reducing_water"));
+    assert!(cites(ok("div0040_t_triple_ammonia"), "195.495"));
+    assert!(refused("div0041_sigma_r125_t318.0"));
+    assert!(ok("div0042_tcrit_air_q0.5_t100").is_finite() && refused("div0042_h_air_q0.5_t100"));
+    assert!(refused("div0043_g_air_q0_t80") && cites(ok("div0043_h_air_q0_t80"), "61.749"));
+    assert!(cites(ok("div0044_z_r1234yf_t203.94"), "-0.164"));
+    let z = ok("div0044_z_propyleneglycol_q1_t225.99");
+    let (p, rho) = (ok("div0044_p_propyleneglycol_q1_t225.99"), ok("div0044_dmolar_propyleneglycol_q1_t225.99"));
+    let own = p / (rho * ok("div0044_gas_constant_propyleneglycol") * 225.991_054_973_623_68);
+    assert!(cites(z, "1.0") && cites(own, "1.47") && cites((own - z) / z, "0.47"), "Z {z}, p/(ρRT) {own}");
+    assert!(cites(ok("div0045_eta_propylene_q1_t104.87") * 1e6, "3.0273"));
+    assert!(cites(ok("div0045_lambda_r14_q1_t215.07"), "0.0150"));
+    vec!["DIV-0037", "DIV-0038", "DIV-0039", "DIV-0040", "DIV-0041", "DIV-0042", "DIV-0043", "DIV-0044", "DIV-0045"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -504,6 +528,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0030_to_0034,
         div_0035,
         div_0036,
+        div_0037_to_0045,
     ]
     .iter()
     .flat_map(|group| group(&facts))

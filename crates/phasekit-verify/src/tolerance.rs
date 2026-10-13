@@ -171,6 +171,11 @@ impl ToleranceClass {
     /// `Flash`'s bound on a vapour quality (VERIFICATION.md §5): 1e-8, absolute.
     pub const FLASH_QUALITY: f64 = 1e-8;
 
+    /// `Flash`'s near-critical bounds on a temperature and a density (VERIFICATION.md §5), relative: 1e-8 and 1e-6.
+    pub const FLASH_NC_T: f64 = 1e-8;
+    #[allow(missing_docs)]
+    pub const FLASH_NC_RHO: f64 = 1e-6;
+
     /// `SaFit`'s bound at one multiprecision point (VERIFICATION.md §5): 4 · |SA/mp − 1| of that point, floor 1e-14,
     /// relative to the multiprecision `value` (CoolProp's own acceptance rule, map 10 §3).
     pub fn sa_fit(ratio: f64, value: f64) -> f64 {

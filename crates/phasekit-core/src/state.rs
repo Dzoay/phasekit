@@ -191,6 +191,11 @@ impl State {
         self
     }
 
+    /// The reference-state offsets this state reports in.
+    pub(crate) fn gauge(&self) -> Gauge {
+        self.gauge
+    }
+
     pub(crate) fn with_gauge(mut self, gauge: Gauge) -> State {
         self.gauge = gauge;
         self

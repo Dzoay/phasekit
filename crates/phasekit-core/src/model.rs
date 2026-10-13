@@ -124,13 +124,46 @@ pub struct CriticalPoint {
     pub origin: CriticalOrigin,
 }
 
-/// Identity and metadata: names, molar mass, published critical point, provenance and content key.
+/// The state a Helmholtz EOS is reduced by: τ = T_r/T, δ = ρ/ρ_r (map 02 §3.1).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Reducing {
+    /// Temperature, K.
+    pub t: f64,
+    /// Molar density, mol/m³.
+    pub rho: f64,
+    /// Pressure, Pa, where the data state it.
+    pub p: Option<f64>,
+}
+
+/// Published constants a model's data carry and no calculation reads: CoolProp's trivial outputs (map 01 §4a). Each is
+/// `None` where the data do not state it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[non_exhaustive]
+pub struct Constants {
+    /// The EOS's reducing state.
+    pub reducing: Option<Reducing>,
+    /// Acentric factor.
+    pub acentric: Option<f64>,
+    /// The saturation pressure at T_min, Pa: CoolProp's `p_triple` and `P_min`, its saturated liquid at its lowest
+    /// temperature (map 09 R8).
+    pub p_sat_min: Option<f64>,
+}
+
+impl Constants {
+    /// The constants given; the others absent.
+    pub fn new(reducing: Option<Reducing>, acentric: Option<f64>, p_sat_min: Option<f64>) -> Constants {
+        Constants { reducing, acentric, p_sat_min }
+    }
+}
+
+/// Identity and metadata: names, molar mass, published critical point and constants, provenance and content key.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FluidInfo {
     name: Box<str>,
     aliases: Box<[Box<str>]>,
     molar_mass: f64,
     published_critical: Option<CriticalPoint>,
+    constants: Constants,
     source: Source,
     key: ModelKey,
 }
@@ -141,7 +174,8 @@ impl FluidInfo {
         if !(molar_mass.is_finite() && molar_mass > 0.0) {
             return Err(Error::InvalidInput { quantity: "molar mass", value: molar_mass });
         }
-        Ok(Self { name: name.into(), aliases: Box::new([]), molar_mass, published_critical: None, source, key })
+        let (aliases, published_critical, constants) = (Box::new([]) as Box<[Box<str>]>, None, Constants::default());
+        Ok(Self { name: name.into(), aliases, molar_mass, published_critical, constants, source, key })
     }
     /// Adds aliases (and CAS numbers); the registry matches them case-insensitively.
     pub fn with_aliases(mut self, aliases: &[&str]) -> Self {
@@ -152,6 +186,15 @@ impl FluidInfo {
     pub fn with_published_critical(mut self, c: CriticalPoint) -> Self {
         self.published_critical = Some(c);
         self
+    }
+    /// Records the published constants (metadata, never read by a calculation).
+    pub fn with_constants(mut self, constants: Constants) -> Self {
+        self.constants = constants;
+        self
+    }
+    /// The published constants.
+    pub fn constants(&self) -> &Constants {
+        &self.constants
     }
     /// Canonical name.
     pub fn name(&self) -> &str {
@@ -253,6 +296,12 @@ pub trait ThermoModel: Any + Send + Sync + fmt::Debug {
 
     /// The model's own critical point (used for phase labels), if it has one.
     fn critical_point(&self) -> Option<CriticalPoint> {
+        None
+    }
+
+    /// The model's validity limits, if it states them: T_min, T_max, p_max and the triple point (CoolProp's trivial
+    /// outputs read them, [`crate::Fluid::constant`]).
+    fn limits(&self) -> Option<&Limits> {
         None
     }
 

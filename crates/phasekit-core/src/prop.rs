@@ -49,7 +49,21 @@ pub enum Prop {
     DBvirialDT,
     /// dC/dT, m⁶/(mol² K).
     DCvirialDT,
-    MolarMass,
+    /// The mass-basis vapour quality: the molar one for a pure or pseudo-pure fluid, whose phases share one molar mass.
+    Qmass,
+    /// τ = T_r/T at the published reducing state.
+    Tau,
+    /// δ = ρ/ρ_r at the published reducing state.
+    Delta,
+    /// The ideal-gas part of h at the state's T, J/mol, in the handle's gauge (h = h⁰ + h^r).
+    HmolarIdealGas,
+    /// The ideal-gas part of s at the state's (T, ρ), J/(mol K), in the handle's gauge.
+    SmolarIdealGas,
+    /// The ideal-gas part of u at the state's T, J/mol, in the handle's gauge.
+    UmolarIdealGas,
+    HmassIdealGas,
+    SmassIdealGas,
+    UmassIdealGas,
     Viscosity,
     Conductivity,
     SurfaceTension,
@@ -69,6 +83,64 @@ pub enum Prop {
     IsothermalCompressibility,
     /// The isobaric expansion coefficient β = −(1/ρ)(∂ρ/∂T)_p, 1/K.
     IsobaricExpansion,
+    /// κ_s = (ρ/p)(∂p/∂ρ)_s, CoolProp's `isentropic_expansion_coefficient`.
+    IsentropicExpansion,
+    /// c_p·η/λ.
+    Prandtl,
+    /// The phase identification parameter of Venkatarathnam and Oellrich (2011), 2 − ρ[(∂²p/∂ρ∂T)/(∂p/∂T)_ρ −
+    /// (∂²p/∂ρ²)_T/(∂p/∂ρ)_T]: above 1 a gas, below 1 a liquid.
+    Pip,
+    /// The τ- and δ-scaled α terms CoolProp outputs: α^r, ∂α^r/∂τ, ∂α^r/∂δ, α⁰, ∂α⁰/∂τ, ∂α⁰/∂δ, ∂²α⁰/∂δ², ∂³α⁰/∂δ³.
+    Alphar,
+    DalpharDtau,
+    DalpharDdelta,
+    Alpha0,
+    Dalpha0Dtau,
+    Dalpha0Ddelta,
+    D2alpha0Ddelta2,
+    D3alpha0Ddelta3,
+    /// A state-independent output ([`crate::Fluid::constant`]).
+    Constant(Constant),
+}
+
+/// A fluid's state-independent outputs: CoolProp's trivial parameters (map 01 §4a), from the model's limits, critical
+/// point and published constants (`FluidInfo::constants`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+#[allow(missing_docs)] // CoolProp's output names; units are SI
+pub enum Constant {
+    GasConstant,
+    MolarMass,
+    Acentric,
+    DipoleMoment,
+    RhomassReducing,
+    RhomolarReducing,
+    RhomolarCritical,
+    RhomassCritical,
+    TReducing,
+    TCritical,
+    /// The EOS's own triple point, not CoolProp's T_min (map 09 R8).
+    TTriple,
+    TMax,
+    TMin,
+    /// The saturation pressure at T_min (CoolProp's `P_min` and `p_triple`, map 09 R8).
+    PMin,
+    PMax,
+    PCritical,
+    PReducing,
+    PTriple,
+    /// An incompressible solution's fraction limits and freezing temperature.
+    FractionMin,
+    FractionMax,
+    TFreeze,
+    /// Environmental and safety metadata: restricted data, never shipped (D14), so `NoModel` from the shipped blobs.
+    Gwp20,
+    Gwp100,
+    Gwp500,
+    Fh,
+    Hh,
+    Ph,
+    Odp,
 }
 
 /// A first-order state function a partial derivative can be taken of, with respect to, or at constant

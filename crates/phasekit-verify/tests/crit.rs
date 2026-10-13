@@ -8,6 +8,10 @@ use phasekit_verify::fixture::Kind;
 use phasekit_verify::register::exempt_at;
 use phasekit_verify::{DIVERGENCES, Fixture, ToleranceClass, fixture};
 
+/// `Flash`'s near-critical bounds (VERIFICATION.md §5), relative.
+const FLASH_NC_T: f64 = ToleranceClass::FLASH_NC_T;
+const FLASH_NC_RHO: f64 = ToleranceClass::FLASH_NC_RHO;
+
 /// The oracle's crit rows, one per fluid: CoolProp 8.0.0's published point (superancillaries off) and its computed one
 /// (on), fixtures/coolprop-8.0.0/all/crit.csv.
 fn crit() -> Fixture<'static> {
@@ -71,7 +75,8 @@ fn numerical_critical_point_of_row(crit: &Fixture<'_>, registry: &Registry, r: u
     assert!(k1.abs() <= 1e-9 && k2.abs() <= 1e-9, "{name}: K1 {k1}, K2 {k2}");
     let pseudo_pure = v("Tc_num") == v("Tc_pub") && v("rhoc_num") == v("rhoc_pub");
     if !pseudo_pure {
-        let cells = [(t, "Tc_num", 1e-8), (rho, "rhoc_num", 1e-6), (p, "pc_num", 1e-9)];
+        let flash = ToleranceClass::Flash.bound(1.0).unwrap();
+        let cells = [(t, "Tc_num", FLASH_NC_T), (rho, "rhoc_num", FLASH_NC_RHO), (p, "pc_num", flash)];
         for (got, column, bound) in
             cells.into_iter().filter(|c| exempt_at(DIVERGENCES, name, Kind::Crit, c.1, t).is_none())
         {
@@ -107,6 +112,7 @@ fn both_critical_points_are_exposed_distinctly() {
 fn model_critical_points_match_the_oracle() {
     let (crit, registry) = (crit(), Registry::from_embedded(DataSet::Parity).unwrap());
     let (mut failures, mut exempt, mut solved) = (Vec::new(), 0, 0);
+    let flash = ToleranceClass::Flash.bound(1.0).unwrap();
     for r in 0..crit.rows().len() {
         let name = crit.printed(r, "fluid").unwrap();
         let fluid = registry.get(name).unwrap();
@@ -119,7 +125,7 @@ fn model_critical_points_match_the_oracle() {
             solved += 1;
         }
         for (got, column, bound) in
-            [(model.t, "Tc_num", 1e-8), (model.rho, "rhoc_num", 1e-6), (model.p, "pc_num", 1e-9)]
+            [(model.t, "Tc_num", FLASH_NC_T), (model.rho, "rhoc_num", FLASH_NC_RHO), (model.p, "pc_num", flash)]
         {
             let want = crit.value(r, column).unwrap();
             if exempt_at(DIVERGENCES, name, Kind::Crit, column, model.t).is_some() {
