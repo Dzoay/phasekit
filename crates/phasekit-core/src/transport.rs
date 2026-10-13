@@ -2010,9 +2010,11 @@ pub(crate) mod tests {
 
     /// Rot: ROT-114 (map 05 R13). σ is a pure function of T over its fit's range, from the fluid's T_min to the lower of
     /// the fit's own T_c and the model's critical temperature. Between the two, where CoolProp throws ("T > Tc"), it is a
-    /// `Domain` error, never 0 and never an extrapolation (user decision 6). One case per affected fluid: 62 of the 108
-    /// fits have T_c,σ below the model's T_c, map 05's nine (measured against the published critical point) among them,
-    /// and 20 by more than 1 mK.
+    /// `Domain` error, never 0 and never an extrapolation (user decision 6). One case per affected fluid: 57 of the 108
+    /// fits have T_c,σ below the model's T_c by more than 1e-12 of it, map 05's nine (measured against the published
+    /// critical point) among them, and 20 by more than 1 mK. Five more lie within 1e-12 (Argon, Ethane, Ethylene,
+    /// IsoButane, n-Butane), on a side the maths library can pick (M9.3: `libm` moves Ethylene's numerical T_c from
+    /// 1.8e-12 K above its 282.35 to 0.6e-12 K below); each fluid is still asserted on the side it falls.
     #[cfg(feature = "fluids-all")]
     #[test]
     fn surface_tension_between_tc_sigma_and_tc_eos() {
@@ -2027,16 +2029,17 @@ pub(crate) mod tests {
                 let refused = DomainError::AboveMaxTemperature { t, t_max: fit.t_c };
                 assert_eq!(model.surface_tension(t), Err(refused.into()), "{name}");
                 assert_eq!(model.surface_tension(fit.t_c), Ok(0.0), "{name}: σ(T_c,σ) = 0");
-                affected.push((*name, t_c - fit.t_c > 1e-3));
+                affected.push((*name, t_c - fit.t_c > 1e-3, t_c - fit.t_c <= 1e-12 * t_c));
             } else {
                 let refused = DomainError::AboveMaxTemperature { t: fit.t_c, t_max: t_c };
                 assert!(fit.t_c == t_c || model.surface_tension(fit.t_c) == Err(refused.into()), "{name}");
             }
         }
-        let names: Vec<&str> = affected.iter().map(|(name, _)| *name).collect();
+        let names: Vec<&str> = affected.iter().map(|(name, ..)| *name).collect();
         let map05 = ["Ammonia", "CarbonDioxide", "Ethanol", "IsoButane", "R1234ze(E)", "R404A", "R407C", "R507A"];
         assert!(map05.iter().chain(["SulfurHexafluoride"].iter()).all(|f| names.contains(f)), "{names:?}");
-        assert_eq!((affected.len(), affected.iter().filter(|(_, wide)| *wide).count()), (62, 20));
+        let counted = affected.iter().filter(|(.., rounding)| !rounding);
+        assert_eq!((counted.clone().count(), counted.filter(|(_, wide, _)| *wide).count()), (57, 20));
         let (name, _, fluid) = &fits[0];
         let t_min = crate::Registry::embedded().unwrap().record(name).unwrap().limits.t_min();
         let below = DomainError::BelowMinTemperature { t: t_min - 1.0, t_min };
