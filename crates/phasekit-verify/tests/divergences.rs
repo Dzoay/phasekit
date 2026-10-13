@@ -112,7 +112,8 @@ fn div_0002() {
 /// DT state there as for any two-phase state, where CoolProp returns numbers (Water QT(0.5, 400 K): c_p 4056.47,
 /// c_v 2913.73 J/kg/K, measured 2026-10-05). Part M8 (M8.10): so are η and λ, where the oracle evaluates its
 /// correlations at the mixture's density: its Water η at QT(0.5, 500 K), 1.6048e-5 Pa s, lies below the saturated
-/// vapour's, which phasekit gives at Q = 1, the single phase's.
+/// vapour's, which phasekit gives at Q = 1, the single phase's. SQ1: at Q = 0 and 1 c_p, c_v and w are the saturated
+/// phase's too, the oracle's, whose c_p at QT(0.5, 500 K) is no phase's.
 fn div_0004() {
     let water = Registry::embedded().unwrap().get("Water").unwrap();
     let state = water.state(Input::dt(Density::molar(1_000.0).unwrap(), Temperature::new(400.0).unwrap())).unwrap();
@@ -129,6 +130,31 @@ fn div_0004() {
     }
     let (oracle, vapour) = (fact("div0004_eta_t500_q0.5"), water.prop(&at(1.0), Prop::Viscosity).unwrap());
     assert!(oracle < vapour, "the oracle's two-phase η, {oracle}, below the saturated vapour's, {vapour}");
+    saturated_caloric_is_the_oracle_s();
+    let (oracle, liquid) = (fact("div0004_cpmass_water_t500_q0.5"), water.prop(&at(0.0), Prop::Cpmass).unwrap());
+    assert!(oracle > 7.0 * liquid, "the oracle's two-phase c_p, {oracle}, is no phase's (the liquid's {liquid})");
+}
+
+/// SQ1: at Q = 0 and 1, c_p, c_v and w are the saturated phase's, the oracle's within `Prop`: Water at 500 K, and Air at
+/// 101325 Pa, whose dew point is 2.8 K above its bubble point.
+fn saturated_caloric_is_the_oracle_s() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let (water, air) = (registry.get("Water").unwrap(), registry.get("Air").unwrap());
+    for q in [0.0, 1.0] {
+        let quality = Quality::new(q).unwrap();
+        let sides = [
+            ("water_t500", water, Input::qt(quality, Temperature::new(500.0).unwrap())),
+            ("air_p101325", air, Input::pq(Pressure::new(101_325.0).unwrap(), quality)),
+        ];
+        for (label, fluid, input) in sides {
+            let state = fluid.state(input).unwrap();
+            for (name, prop) in [("cpmass", Prop::Cpmass), ("cvmass", Prop::Cvmass), ("w", Prop::SpeedOfSound)] {
+                let (got, oracle) = (fluid.prop(&state, prop).unwrap(), fact(&format!("div0004_{name}_{label}_q{q}")));
+                let bound = ToleranceClass::Prop.bound(oracle.abs()).unwrap();
+                assert!((got - oracle).abs() <= bound, "{label} Q = {q} {name}: {got} against the oracle's {oracle}");
+            }
+        }
+    }
 }
 
 /// DIV-0009 (`Investigate`; map 12 §6.3, ROT-120): v8.0.0's R1233zd(E) has no viscosity model (the oracle raises

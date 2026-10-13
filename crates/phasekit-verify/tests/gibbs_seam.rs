@@ -148,7 +148,7 @@ fn solid_reaches_registry_batch_compat_and_reference_states() {
 }
 
 /// E2: an out-of-tree family builds a two-phase state (here ice + vapour) that flows through the registry,
-/// batch and compat exactly like the core's own vapour-liquid states.
+/// batch and compat exactly like the core's own vapour-liquid states, its saturated phases included (SQ1).
 #[test]
 fn two_phase_states_from_outside_the_core() {
     let reg = Registry::empty().with_model(Arc::new(ToyIce::new())).unwrap();
@@ -169,5 +169,8 @@ fn two_phase_states_from_outside_the_core() {
     let (mut out, mut status) = ([0.0; 9], [Status::Ok; 9]);
     batch::evaluate(ice, &req, &mut out, &mut status).unwrap();
     assert_eq!((out[0], out[3], out[6]), (0.0, 0.5, 1.0));
-    assert!(status.chunks(3).all(|row| row == [Status::Ok, Status::Ok, Status::Undefined]));
+    // c_p is undefined strictly inside the coexistence region; at Q = 0 it is the saturated solid's, as the core's (SQ1).
+    let row = |undefined: bool| [Status::Ok, Status::Ok, if undefined { Status::Undefined } else { Status::Ok }];
+    assert_eq!(status.to_vec(), [row(false), row(true), row(false)].concat());
+    assert_eq!(out[2], ice.state(pt(p, t)).unwrap().cp(Basis::Mass).unwrap());
 }

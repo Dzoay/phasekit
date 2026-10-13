@@ -71,6 +71,15 @@ FACTS = {
         ("div0002_melting_p_320k", "AbstractState", ("HEOS", "Water", "melting_line", "iP", "iT", 320)),
         ("div0003_rhomolar_reducing", "Props1SI", ("Nitrogen", "rhomolar_reducing")),
         ("div0004_eta_t500_q0.5", "PropsSI", ("V", "T", 500, "Q", 0.5, "Water")),
+        # c_p, c_v and w at Q = 0 and 1 on Water's 500 K isotherm and Air's 101325 Pa isobar (a pseudo-pure fluid's dew
+        # point at its own T), and Water's c_p strictly inside the dome, the EOS at the mean density (SQ1).
+        *[
+            (f"div0004_{name}_{label}_q{q}", "PropsSI", (key, *given, "Q", q, fluid))
+            for label, fluid, given in (("water_t500", "Water", ("T", 500)), ("air_p101325", "Air", ("P", 101325)))
+            for q in (0, 1)
+            for name, key in (("cpmass", "CPMASS"), ("cvmass", "CVMASS"), ("w", "A"))
+        ],
+        ("div0004_cpmass_water_t500_q0.5", "PropsSI", ("CPMASS", "T", 500, "Q", 0.5, "Water")),
         ("div0005_gas_constant", "Props1SI", ("Helium", "gas_constant")),
         *[
             (f"div0005_{name}_row{i}", "PropsSI", (key, "T", t, "Dmolar", rho, "Helium"))

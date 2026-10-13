@@ -198,7 +198,9 @@ pub static DIVERGENCES: &[Divergence] = &[
         evidence: "map 05 §6, map 10 R18: two-phase viscosity/conductivity are meaningless; M8.10: the oracle's Water \
                    eta at QT(0.5, 500 K), 1.6048e-5 Pa s, lies below its saturated vapour's, 1.6594e-5: phasekit \
                    refuses eta and lambda strictly inside the dome and gives the saturated phase's at Q = 0 and 1 \
-                   (2026-10-13)",
+                   (2026-10-13); SQ1: c_p, c_v and w as well, the oracle's at Q = 0 and 1 (Water at 500 K, Air at \
+                   101325 Pa), where its Water c_p at QT(0.5, 500 K) is 35464 J/(kg K), against its phases' 4663 and \
+                   3463 (2026-10-13)",
         exempt: Some(Exempt {
             kinds: &[Kind::Props],
             columns: &["Cpmass", "Cpmolar", "Cvmass", "Cvmolar", "viscosity", "conductivity"],
