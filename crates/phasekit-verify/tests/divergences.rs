@@ -113,7 +113,8 @@ fn div_0002() {
 /// c_v 2913.73 J/kg/K, measured 2026-10-05). Part M8 (M8.10): so are η and λ, where the oracle evaluates its
 /// correlations at the mixture's density: its Water η at QT(0.5, 500 K), 1.6048e-5 Pa s, lies below the saturated
 /// vapour's, which phasekit gives at Q = 1, the single phase's. SQ1: at Q = 0 and 1 c_p, c_v and w are the saturated
-/// phase's too, the oracle's, whose c_p at QT(0.5, 500 K) is no phase's.
+/// phase's too, the oracle's, whose c_p at QT(0.5, 500 K) is no phase's. SQ2: so are the partials, κ_T, β and Γ, where
+/// the oracle's κ_T for CO₂ at QT(0.5, 280 K) is negative.
 fn div_0004() {
     let water = Registry::embedded().unwrap().get("Water").unwrap();
     let state = water.state(Input::dt(Density::molar(1_000.0).unwrap(), Temperature::new(400.0).unwrap())).unwrap();
@@ -130,16 +131,36 @@ fn div_0004() {
     }
     let (oracle, vapour) = (fact("div0004_eta_t500_q0.5"), water.prop(&at(1.0), Prop::Viscosity).unwrap());
     assert!(oracle < vapour, "the oracle's two-phase η, {oracle}, below the saturated vapour's, {vapour}");
-    saturated_caloric_is_the_oracle_s();
+    saturated_outputs_are_the_oracle_s();
     let (oracle, liquid) = (fact("div0004_cpmass_water_t500_q0.5"), water.prop(&at(0.0), Prop::Cpmass).unwrap());
     assert!(oracle > 7.0 * liquid, "the oracle's two-phase c_p, {oracle}, is no phase's (the liquid's {liquid})");
+    let co2 = Registry::embedded().unwrap().get("CarbonDioxide").unwrap();
+    let wet = co2.state(Input::qt(Quality::new(0.5).unwrap(), Temperature::new(280.0).unwrap())).unwrap();
+    let kappa = Prop::IsothermalCompressibility;
+    assert_eq!(co2.prop(&wet, kappa), Err(Error::Undefined { prop: kappa, phase: Phase::TwoPhase }));
+    let oracle = fact("div0004_kappa_t_co2_t280_q0.5");
+    assert!(oracle < 0.0, "the oracle's two-phase κ_T, {oracle} 1/Pa, is negative, no phase's");
 }
 
-/// SQ1: at Q = 0 and 1, c_p, c_v and w are the saturated phase's, the oracle's within `Prop`: Water at 500 K, and Air at
-/// 101325 Pa, whose dew point is 2.8 K above its bubble point.
-fn saturated_caloric_is_the_oracle_s() {
+/// SQ1, SQ2: at Q = 0 and 1, c_p, c_v, w, a first and a second partial, κ_T, β and Γ are the saturated phase's, the
+/// oracle's within `Prop` (its floors, VERIFICATION.md §5): Water at 500 K, and Air at 101325 Pa, whose dew point is
+/// 2.8 K above its bubble point.
+fn saturated_outputs_are_the_oracle_s() {
+    use phasekit_core::DerivVar::{Dmolar, Hmass, P, T};
+    use phasekit_core::{Partial, SecondPartial};
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let (water, air) = (registry.get("Water").unwrap(), registry.get("Air").unwrap());
+    let curvature = SecondPartial { first: Partial { of: P, wrt: Dmolar, at: T }, wrt: T, at: Dmolar };
+    let outputs = [
+        ("cpmass", Prop::Cpmass),
+        ("cvmass", Prop::Cvmass),
+        ("w", Prop::SpeedOfSound),
+        ("dhmass_dp_t", Prop::Partial(Partial { of: Hmass, wrt: P, at: T })),
+        ("d2p_drho_t_dt_rho", Prop::SecondPartial(curvature)),
+        ("kappa_t", Prop::IsothermalCompressibility),
+        ("beta", Prop::IsobaricExpansion),
+        ("gamma", Prop::FundamentalDerivative),
+    ];
     for q in [0.0, 1.0] {
         let quality = Quality::new(q).unwrap();
         let sides = [
@@ -148,12 +169,27 @@ fn saturated_caloric_is_the_oracle_s() {
         ];
         for (label, fluid, input) in sides {
             let state = fluid.state(input).unwrap();
-            for (name, prop) in [("cpmass", Prop::Cpmass), ("cvmass", Prop::Cvmass), ("w", Prop::SpeedOfSound)] {
+            for (name, prop) in outputs {
                 let (got, oracle) = (fluid.prop(&state, prop).unwrap(), fact(&format!("div0004_{name}_{label}_q{q}")));
-                let bound = ToleranceClass::Prop.bound(oracle.abs()).unwrap();
+                let bound = ToleranceClass::Prop.bound(oracle.abs().max(prop_floor(fluid, &state, prop))).unwrap();
                 assert!((got - oracle).abs() <= bound, "{label} Q = {q} {name}: {got} against the oracle's {oracle}");
             }
         }
+    }
+}
+
+/// The `Prop` floor of `prop` at `state` (VERIFICATION.md §5): a partial's |X|/|Y|, a second partial's |X|/(|Y|·|W|),
+/// κ_T's 1/p, β's 1/T, Γ's 1, and none for the others.
+fn prop_floor(fluid: &phasekit_core::Fluid, state: &phasekit_core::State, prop: Prop) -> f64 {
+    use phasekit_verify::eos::{partial_floor, second_partial_floor, variable};
+    let value = |v| variable(fluid, state, v);
+    match prop {
+        Prop::Partial(p) => partial_floor(value(p.of), value(p.wrt)),
+        Prop::SecondPartial(p) => second_partial_floor(value(p.first.of), value(p.first.wrt), value(p.wrt)),
+        Prop::IsothermalCompressibility => 1.0 / state.p(),
+        Prop::IsobaricExpansion => 1.0 / state.t(),
+        Prop::FundamentalDerivative => 1.0,
+        _ => 0.0,
     }
 }
 

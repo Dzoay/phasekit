@@ -448,12 +448,11 @@ impl Fluid {
         })
     }
 
-    /// The model's order-3 total bundle at `state` (E1): undefined in the dome, `NoModel` from a model without one.
+    /// The model's order-3 total bundle at `state` (E1), at Q = 0 and 1 at its saturated phase (SQ2): undefined
+    /// strictly inside the dome, `NoModel` from a model without one.
     fn order_three(&self, state: &State, prop: Prop) -> Result<Derivs, Error> {
-        if state.quality().is_some() {
-            return Err(Error::Undefined { prop, phase: state.phase() });
-        }
-        self.model.derivs(state, Order::Three).map(|d| d.total()).ok_or(Error::NoModel { prop })
+        let one = state.one_phase().ok_or(Error::Undefined { prop, phase: state.phase() })?;
+        self.model.derivs(&one, Order::Three).map(|d| d.total()).ok_or(Error::NoModel { prop })
     }
 }
 
@@ -552,6 +551,46 @@ mod tests {
         assert_eq!(water.prop(&state, p), Err(Error::Undefined { prop: p, phase }));
         let gamma = water.prop(&state, Prop::FundamentalDerivative);
         assert!(gamma.is_err(), "{gamma:?}");
+    }
+
+    /// SQ2 (ROT-010, DIV-0004): at Q = 0 and 1 the partials, κ_T, β, the second partials and Γ are the saturated phase's,
+    /// as CoolProp's are: on Water's 500 K isotherm and Air's 101 325 Pa isobar (whose dew point is at its own T, E3)
+    /// each is, bit for bit, the single phase's at that phase's T and ρ. Strictly inside the dome they stay `Undefined`.
+    #[cfg(feature = "fluids-all")]
+    #[test]
+    fn saturated_order_three_outputs_are_the_saturated_phase_s() {
+        use DerivVar::{Dmolar, Hmass, P, Smolar, T};
+        let registry = crate::Registry::embedded().unwrap();
+        let (water, air) = (registry.get("Water").unwrap(), registry.get("Air").unwrap());
+        let first = Partial { of: Hmass, wrt: P, at: T };
+        let outputs = [
+            Prop::Partial(first),
+            Prop::IsothermalCompressibility,
+            Prop::IsobaricExpansion,
+            Prop::SecondPartial(SecondPartial { first: Partial { of: P, wrt: Dmolar, at: T }, wrt: T, at: Dmolar }),
+            Prop::SecondPartial(SecondPartial { first, wrt: Smolar, at: P }),
+            Prop::FundamentalDerivative,
+        ];
+        let (quality, t) = (|q| Quality::new(q).unwrap(), Temperature::new(500.0).unwrap());
+        for (q, phase) in [(0.0, Phase::Liquid), (1.0, Phase::Gas)] {
+            let sides =
+                [(water, Input::qt(quality(q), t)), (air, Input::pq(Pressure::new(101_325.0).unwrap(), quality(q)))];
+            for (fluid, input) in sides {
+                let split = fluid.state(input).unwrap();
+                let side = split.one_phase().unwrap();
+                let at =
+                    Input::dt(Density::molar(side.rho(Basis::Molar)).unwrap(), Temperature::new(side.t()).unwrap());
+                let single = fluid.flash(at, &FlashOptions::new().with_phase(phase)).unwrap();
+                for prop in outputs {
+                    let (got, want) = (fluid.prop(&split, prop).unwrap(), fluid.prop(&single, prop).unwrap());
+                    assert_eq!(got.to_bits(), want.to_bits(), "{input:?} {prop:?}: {got}, the single phase's {want}");
+                }
+            }
+        }
+        let wet = water.state(Input::qt(quality(0.5), t)).unwrap();
+        for prop in outputs {
+            assert_eq!(water.prop(&wet, prop), Err(Error::Undefined { prop, phase: Phase::TwoPhase }));
+        }
     }
 
     /// M7.10: a second partial along T at constant ρ, or along ρ at constant T, is the central difference of its
