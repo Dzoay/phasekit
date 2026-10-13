@@ -1,0 +1,2 @@
+# ARCHITECTURE.md §7 targets missed with a re-plan issue (`cargo xtask gates perf --targets`, PLAN.md M9.6):
+# `<bench> <fluid|*> issue #N: <reason>`, bench as a results file names it. A line matching no miss fails the gate.
