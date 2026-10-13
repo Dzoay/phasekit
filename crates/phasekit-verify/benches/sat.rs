@@ -1,13 +1,13 @@
 //! `qt_superancillary` and `pq_superancillary` (PLAN.md M6.11; VERIFICATION.md §12): the QT and PQ flashes on the
-//! superancillary, on the C++ baseline's saturation grid, SplitMix64 seed 1, T ~ U[T_t + 0.05 (T_c − T_t), 0.98 T_c] and
-//! Q ~ U[0, 1], PQ at the superancillary's p of each T. Target ≤ 0.1 µs (ARCHITECTURE.md §7); CoolProp 0.45 / 0.64 µs.
-//! Recorded by `cargo xtask bench --record`.
+//! superancillary plus h, the property a caller reads (user decision PF1), on the C++ baseline's saturation grid,
+//! SplitMix64 seed 1, T ~ U[T_t + 0.05 (T_c − T_t), 0.98 T_c] and Q ~ U[0, 1], PQ at the superancillary's p of each T.
+//! Target: ARCHITECTURE.md §7. Recorded by `cargo xtask bench --record`.
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
     use criterion::{BenchmarkId, Criterion, criterion_group};
     use phasekit_core::internal::FluidRecord;
-    use phasekit_core::{DataSet, Fluid, Input, Pressure, Quality, Registry, Temperature};
+    use phasekit_core::{Basis, DataSet, Fluid, Input, Pressure, Quality, Registry, Temperature};
     use phasekit_verify::SplitMix64;
 
     /// The bench fluids (VERIFICATION.md §12).
@@ -34,10 +34,10 @@ mod bench {
     }
 
     /// Times `work` over `states`, one state per iteration.
-    fn run<R>(c: &mut Criterion, id: (&str, &str), states: &[Input], work: impl Fn(Input) -> R) {
-        let (group, fluid) = id;
+    fn run<R>(c: &mut Criterion, id: (&str, &str, &str), states: &[Input], work: impl Fn(Input) -> R) {
+        let (group, fluid, name) = id;
         let mut g = c.benchmark_group(group);
-        g.bench_function(BenchmarkId::new(fluid, "flash"), |b| {
+        g.bench_function(BenchmarkId::new(fluid, name), |b| {
             let mut k = 0;
             b.iter(|| {
                 k = (k + 1) % states.len();
@@ -54,9 +54,9 @@ mod bench {
                 return;
             };
             let Some((qt, pq)) = grid(&record) else { return };
-            let flash = |input| Fluid::state(fluid, input);
-            run(c, ("qt_superancillary", name), &qt, flash);
-            run(c, ("pq_superancillary", name), &pq, flash);
+            let flash_h = |input| Fluid::state(fluid, input).map(|state| state.h(Basis::Molar));
+            run(c, ("qt_superancillary", name, "qt_h"), &qt, flash_h);
+            run(c, ("pq_superancillary", name, "pq_h"), &pq, flash_h);
         }
     }
 

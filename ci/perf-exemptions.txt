@@ -4,8 +4,6 @@ alphar_order2/residual n-Propane issue #144: 0.32 µs on the laptop, 0.37 µs on
 properties_at_t_rho/dt_h_cp Methane issue #144: 40 terms, 0.78 µs on the laptop
 properties_at_t_rho/dt_h_cp Water issue #144: 56 terms and two non-analytic, 1.21 µs on the laptop
 properties_at_t_rho/dt_h_cp n-Propane issue #144: 0.54 µs on the laptop
-qt_superancillary/flash * issue #142: the two-phase state builds both phases' bundles (0.60-2.32 µs on the laptop)
-pq_superancillary/flash * issue #142: the two-phase state builds both phases' bundles (0.85-2.61 µs on the laptop)
 pt_flash/pt_h Methane issue #143: about seven Newton steps from the ideal-gas seed (3.92 µs on the laptop)
 pt_flash/pt_h Water issue #143: about seven Newton steps from the ideal-gas seed (7.05 µs on the laptop)
 ph_flash/ph_t Methane issue #143: about ten PT solves per PH (48.4 µs on the laptop)

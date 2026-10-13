@@ -655,7 +655,7 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
 | α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs | M3 | n/a |
 | Same, AVX2 across states | ≤ 0.1 µs/state and ≥ 2.5×, or stop | M12 | n/a |
 | Properties at (T, ρ) | ≤ 0.5 µs | M5 | update(D,T)+h+cp 1.5-10.7 µs |
-| QT / PQ via superancillary | ≤ 0.1 µs | M6 | 0.45 / 0.64 µs |
+| QT / PQ + h via superancillary | ≤ CoolProp's on the same machine (user decision PF1) | M6 | update(QT or PQ) + hmolar, the C++ baseline's `qt_h` / `pq_h` |
 | PT / PH single phase | ≤ 3 µs / ≤ 15 µs | M7 | 19-27 µs / 119-376 µs |
 | Hot lookup by name | ≤ 50 ns *(inference)* | M2 | `PropsSI` rebuilds a backend: 76.5 µs |
 | Heap allocations per flash or batch point | 0 (counting `#[global_allocator]` test) | M5 | n/a |

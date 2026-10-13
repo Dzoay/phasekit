@@ -1,4 +1,4 @@
-// The C++ CoolProp v8.0.0 baseline (VERIFICATION.md §12, PLAN.md M1.15): 7 workloads x 5 fluids, one core, written as
+// The C++ CoolProp v8.0.0 baseline (VERIFICATION.md §12, PLAN.md M1.15): 9 workloads x 5 fluids, one core, written as
 // the CSV the Rust benches compare against. Grids are SplitMix64 draws (seed 1, the generator of
 // phasekit_verify::sample) between bounds printed in each row, so a Rust bench replays the same states. Every grid is
 // single phase or saturated by construction (no rejection sampling): (T, rho) above 1.05 Tc, saturation below 0.98 Tc.
@@ -183,7 +183,7 @@ int main(int argc, char** argv) {
 
     pin_to(2);  // the single-thread timing rows run on one CPU
     std::ofstream csv(out);
-    csv << header("coolprop-baseline/v1", argv, true,
+    csv << header("coolprop-baseline/v2", argv, true,
                   "one thread; per row the median, min and max over " + std::to_string(repeats) +
                       " passes of the mean ns per state",
                   "workload,fluid,states,median_ns,min_ns,max_ns,grid");
@@ -241,6 +241,16 @@ int main(int argc, char** argv) {
         row("pq", 10000, pq, [&](std::size_t i) {
             as->update(CoolProp::PQ_INPUTS, psat[i], sat[i].second);
             return as->T();
+        });
+        // (3b) QT and (4b) PQ plus h, the property a caller reads (user decision PF1): in the dome CoolProp's hmolar
+        // evaluates each saturated phase's EOS, SatL's and SatV's, at its density.
+        row("qt_h", 10000, qt, [&](std::size_t i) {
+            as->update(CoolProp::QT_INPUTS, sat[i].second, sat[i].first);
+            return as->hmolar();
+        });
+        row("pq_h", 10000, pq, [&](std::size_t i) {
+            as->update(CoolProp::PQ_INPUTS, psat[i], sat[i].second);
+            return as->hmolar();
         });
         // (5) PT and (6) PH single phase.
         row("pt", 2000, derived, [&](std::size_t i) {

@@ -484,3 +484,14 @@ registry's first release is manual (dependencies R19).
 |---|---|---|---|
 | RL1 | When is v0.1.0 tagged? | **Merge M10.9 when green; tag `v0.1.0` and `m10` after three nightly runs on the final main pass** | The nightly had been green every night, but not on the final main. The tags are signed; `v0.1.0` starts the release workflow, which attaches the C library and the npm package to the GitHub release. |
 | RL2 | Who does the first crates.io and npm publishes? | **The maintainer** | Given the commands and the trusted-publishing settings; no credential enters an agent's session. The workflow publishes later releases once the repository variable `TRUSTED_PUBLISHING` is `true`. |
+| RL3 | Does a pull request merged after M10.9 (#161, issue #143) wait for the tags? | **No: merge it when green; `v0.1.0` and `m10` still go on #159's release commit, 448f9a6** | The nightly runs after that commit count toward RL1's three, with later merges in them. |
+
+## QT and PQ against CoolProp (2026-10-13)
+
+Issue #142, re-planned at M9.6: §7's ≤ 0.1 µs for QT and PQ timed the flash alone, against CoolProp's update, which
+evaluates only the superancillary and leaves the saturated phases' EOS to the first property read. A `State` holds
+both phases' bundles (D8: `Copy`, no interior mutability), so it pays that work in the flash.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| PF1 | Defer the phases' bundles (a lazy `State`), restate the target, or build cheaper bundles? | **Restate the row as QT / PQ + h, the property a caller reads, against CoolProp's update + hmolar on the same machine; and build the saturated phases at order 1 strictly inside the dome** | CoolProp's two-phase hmolar evaluates each phase's EOS, so both sides do the same work. The C++ baseline adds `qt_h` and `pq_h` (format v2), which `gates perf --targets` reads for the machine. Strictly inside the dome a state reads only ρ, h, s and u (SQ1-SQ3), so its phases' second order is not computed; at Q = 0 and 1 it is. *Rejected:* a lazy `State`, which breaks D8 and would evaluate again at every read. |

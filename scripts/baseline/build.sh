@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The C++ CoolProp baseline (VERIFICATION.md §12, PLAN.md M1.15): builds CoolProp v8.0.0 Release (no -march, like the
-# wheels) and the harness from a throwaway clone of reference/CoolProp, then runs the 7 workloads x 5 fluids on one
+# wheels) and the harness from a throwaway clone of reference/CoolProp, then runs the 9 workloads x 5 fluids on one
 # core, the memory measures and the thread scaling, and writes crates/phasekit-verify/benches/baseline/
 # coolprop-8.0.0-<machine>.csv, .memory.csv and .scaling.csv.
 #

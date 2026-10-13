@@ -806,13 +806,14 @@ This section is the one definition of the bench harness, the C++ baseline and th
 - **Bench fluids:** Water (56 terms), Methane (40), R134a (21), n-Propane (18) and n-Heptane (12 power terms, chosen at
   M1.15 from the JSON term counts: one of 28 twelve-term fluids, with a superancillary and in the core subset;
   kernel-performance §3.3), on SplitMix64 grids shared with the C++ baseline.
-- **Workloads (7):** (1) the order-2 α^r bundle at (T, ρ); (2) properties at (T, ρ): update `DmolarT` + h + c_p; (3) QT
-  and (4) PQ through the superancillary; (5) PT and (6) PH single phase; (7) a by-name `PropsSI` call (name lookup).
+- **Workloads (9):** (1) the order-2 α^r bundle at (T, ρ); (2) properties at (T, ρ): update `DmolarT` + h + c_p; (3) QT
+  and (4) PQ through the superancillary, alone and plus h (`qt_h`, `pq_h`, the §7 row; user decision PF1); (5) PT and
+  (6) PH single phase; (7) a by-name `PropsSI` call (name lookup).
 - **C++ baseline (M1.15):** CoolProp v8.0.0 built Release, no `-march`, like the wheels (kernel-performance §2.9), from
   a throwaway clone of `reference/CoolProp` in a scratch directory, because CoolProp's configure writes generated
   headers and data into its own source tree (`CMakeLists.txt:557-559`, `dev/generate_headers.py`). The harness
-  `scripts/baseline/{build.sh,CMakeLists.txt,coolprop_baseline.cpp}` links the static library target and runs the 7
-  workloads × 5 fluids, writing `crates/phasekit-verify/benches/baseline/coolprop-8.0.0-<machine>.csv` (`cargo xtask
+  `scripts/baseline/{build.sh,CMakeLists.txt,coolprop_baseline.cpp}` links the static library target and runs the 9
+  workloads × 5 fluids (a `coolprop-baseline/v1` file, recorded before `qt_h` and `pq_h`, has 7), writing `crates/phasekit-verify/benches/baseline/coolprop-8.0.0-<machine>.csv` (`cargo xtask
   baseline` builds and runs it in `$SCRATCH`; `--check` checks every committed file). The file's header names the pin,
   CPU, OS, governor, compiler and date; each row is `workload,fluid,states,median_ns,min_ns,max_ns,grid`, the median,
   min and max over 7 passes of the mean ns per state, and `grid` the SplitMix64 bounds (seed 1) it drew from. Grids need
