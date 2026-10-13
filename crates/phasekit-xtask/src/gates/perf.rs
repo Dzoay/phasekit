@@ -252,6 +252,12 @@ mod tests {
         assert!(check("# only a header\n", &counts).is_err());
         assert!(check("k::a.water,x\n", &counts).unwrap_err()[0].contains("not a `bench,instructions` row"));
         assert!(check(&baseline_file(&counts), &counts).is_ok());
+        // Exactly 5 % fewer is not noted; only the faster benchmark is; the first of equal changes is the largest.
+        let note = check(&baseline, &[("k::a.water".into(), 950), ("k::b".into(), 900)]).unwrap();
+        assert!(note.ends_with("; more than 5 % fewer: k::b -10.0 %"), "{note}");
+        let tie = check(&baseline, &[("k::a.water".into(), 1_000), ("k::b".into(), 1_000)]).unwrap();
+        assert!(tie.ends_with("+0.0 % (k::a.water)"), "{tie}");
+        assert!(check("k::a.water,0\n", &counts).unwrap_err()[0].contains("not a `bench,instructions` row"));
     }
 
     /// §7 targets on a results file: a median at or under its target passes, a miss fails unless exempted with an
@@ -282,7 +288,21 @@ mod tests {
         );
         let stale = check_targets(&results, &format!("{exemptions}qt_superancillary/flash * issue #9: gone\n"));
         assert!(stale.unwrap_err()[0].contains("matches no miss"));
-        assert!(check_targets(&results, "pt_flash/pt_h Water slow\n").unwrap_err()[0].contains("not `<bench>"));
+        for malformed in ["pt_flash/pt_h Water slow", "pt_flash/pt_h Water issue #140", "pt_flash/pt_h Water slow: why"]
+        {
+            assert!(check_targets(&results, &format!("{malformed}\n")).unwrap_err()[0].contains("not `<bench>"));
+        }
+        // An exemption for another bench or another fluid does not cover a miss (and is stale itself).
+        for other in ["ph_flash/ph_t Water issue #1: x", "pt_flash/pt_h Methane issue #1: x"] {
+            let errors = check_targets(&results, &format!("{other}\n")).unwrap_err();
+            assert!(errors.len() == 2 && errors[0].contains("not exempted"), "{other}: {errors:?}");
+        }
+        // Comment lines are not rows; a file whose only target rows are exempted misses passes.
+        let only_a_miss = format!("# fixture: results\n{}", row("pt_flash/pt_h", "Water", 7_000.0));
+        assert_eq!(
+            check_targets(&only_a_miss, exemptions),
+            Ok("0 medians meet ARCHITECTURE.md §7, 1 misses re-planned".into())
+        );
         assert!(check_targets("", "").is_err());
     }
 
