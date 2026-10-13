@@ -4,6 +4,7 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
+use phasekit_core::internal::FluidRecord;
 use phasekit_core::{Basis, DataSet, Error, Fluid, Input, Pressure, Quality, ReferenceState, Registry, Temperature};
 use phasekit_verify::term::IdealScale;
 use phasekit_verify::{Fixture, ToleranceClass, fixture};
@@ -59,12 +60,12 @@ const REFUSED: [(&str, &str); 10] = [
     ("Water", "ASHRAE"),
 ];
 
-/// A fixture's reference state and its anchor's defining h and s, J/kg and J/(kg K) (map 01 §3).
-fn named(label: &str) -> Option<(ReferenceState, f64, f64)> {
+/// A fixture's reference state, its label and its anchor's defining h and s, J/kg and J/(kg K) (map 01 §3).
+fn named(label: &str) -> Option<(&'static str, ReferenceState, f64, f64)> {
     match label {
-        "IIR" => Some((ReferenceState::Iir, 200e3, 1e3)),
-        "ASHRAE" => Some((ReferenceState::Ashrae, 0.0, 0.0)),
-        "NBP" => Some((ReferenceState::Nbp, 0.0, 0.0)),
+        "IIR" => Some(("IIR", ReferenceState::Iir, 200e3, 1e3)),
+        "ASHRAE" => Some(("ASHRAE", ReferenceState::Ashrae, 0.0, 0.0)),
+        "NBP" => Some(("NBP", ReferenceState::Nbp, 0.0, 0.0)),
         _ => None,
     }
 }
@@ -98,6 +99,90 @@ fn offset_bounds(
     [bound(false), bound(true)]
 }
 
+/// What [`reference_states_hit_their_check_values`] found: its failures, the reference states the oracle refuses, the
+/// states compared and the largest fraction of their bounds they use (h, s).
+#[derive(Default)]
+struct Found<'a> {
+    failures: Failures,
+    refused: Vec<(&'a str, &'static str)>,
+    states: usize,
+    headroom: [f64; 2],
+}
+
+/// One fixture row of a reference state the oracle sets, the one before it in the file being its anchor's.
+struct Row<'t, 'a> {
+    table: &'t Fixture<'a>,
+    row: usize,
+    name: &'a str,
+    label: &'static str,
+}
+
+impl<'a> Found<'a> {
+    /// A reference state's anchor (definition `defined`, h and s) under each data set, and the oracle's, within
+    /// `RefAnchor`.
+    fn anchor(&mut self, registries: &[Registry; 2], r: &Row<'_, 'a>, reference: ReferenceState, defined: [f64; 2]) {
+        let bound = ToleranceClass::RefAnchor.bound(0.0).unwrap();
+        let at = input(r.table, r.row);
+        let oracle = [r.table.value(r.row, "h_mass").unwrap(), r.table.value(r.row, "s_mass").unwrap()];
+        for set in registries {
+            let state = set.get(r.name).unwrap().with_reference(reference).unwrap().state(at).unwrap();
+            let got = [state.h(Basis::Mass), state.s(Basis::Mass)];
+            for (value, defined) in got.into_iter().zip(defined) {
+                let (name, label) = (r.name, r.label);
+                let message = || format!("{name} {label} anchor: {value} for {defined}");
+                self.failures.check((value - defined).abs() <= bound, message);
+            }
+        }
+        for (value, defined) in oracle.into_iter().zip(defined) {
+            let (name, label) = (r.name, r.label);
+            let message = || format!("{name} {label}: the oracle's anchor {value} for {defined}");
+            self.failures.check((value - defined).abs() <= bound, message);
+        }
+    }
+
+    /// A saturated state in a reference state, against the oracle's, within `Prop` at it and at its `anchor` input.
+    fn state(&mut self, referenced: &Fluid, model: (&FluidRecord, &IdealScale), r: &Row<'_, 'a>, anchor: Input) {
+        let at = input(r.table, r.row);
+        let state = referenced.state(at).unwrap();
+        let bounds = offset_bounds(referenced, model, [at, anchor]);
+        for (k, (column, got)) in
+            [("h_mass", state.h(Basis::Mass)), ("s_mass", state.s(Basis::Mass))].into_iter().enumerate()
+        {
+            let checked = r.table.check_bound(r.row, column, got, bounds[k]);
+            let ratio = self.failures.ok(checked, |e| format!("{} {}: {e:?}", r.name, r.label));
+            self.headroom[k] = self.headroom[k].max(ratio.unwrap_or(0.0));
+        }
+        self.states += 1;
+    }
+
+    /// Every row of one fluid's file.
+    fn file(&mut self, registries: &[Registry; 2], (path, text): (&'a str, &'a str)) {
+        let table = Fixture::parse(path, text).unwrap();
+        let name = path.rsplit('/').next().unwrap().trim_end_matches(".csv");
+        let fluid = registries[0].get(name).unwrap();
+        let record = phasekit_core::internal::record(&registries[0], name).unwrap();
+        let ideal = IdealScale::new(&record).unwrap();
+        let mut anchor = None;
+        for row in 0..table.rows().len() {
+            let (label, reference, h0, s0) = named(table.printed(row, "refstate").unwrap()).unwrap();
+            let r = Row { table: &table, row, name, label };
+            match (fluid.with_reference(reference), table.printed(row, "status"), table.printed(row, "role")) {
+                (Ok(_), Some("ok"), Some("anchor")) => {
+                    self.anchor(registries, &r, reference, [h0, s0]);
+                    anchor = Some(input(&table, row));
+                }
+                (Ok(referenced), Some("ok"), _) => self.state(&referenced, (&record, &ideal), &r, anchor.unwrap()),
+                (resolved, _, _) if table.printed(row, "status") != Some("ok") => {
+                    self.refused.push((name, label));
+                    let typed = matches!(resolved, Err(Error::Domain(_)));
+                    self.failures.check(typed, || format!("{name} {label}: the oracle refuses it, here {resolved:?}"));
+                }
+                (resolved, ..) => self.failures.check(false, || format!("{name} {label}: {resolved:?}")),
+            }
+        }
+    }
+}
+
 /// Map 01 §8 (`CoolProp-Tests.cpp:2263-2436`, whose fluids n-Propane, R134a and R124 are three of these 17): under
 /// `Parity`, each reference state the oracle sets puts its defining h and s at its anchor, saturated liquid at 0 °C
 /// (IIR), at −40 °C (ASHRAE) or at 1 atm (NBP), within `RefAnchor` (1e-8 J/kg and J/(kg K), the bound CoolProp's own
@@ -106,55 +191,12 @@ fn offset_bounds(
 /// CoolProp refuses ([`REFUSED`]) are typed domain errors here.
 #[test]
 fn reference_states_hit_their_check_values() {
-    let anchor = ToleranceClass::RefAnchor.bound(0.0).unwrap();
     let registries = [DataSet::Parity, DataSet::Corrected].map(|set| Registry::from_embedded(set).unwrap());
-    let (mut failures, mut states, mut refused) = (Failures::default(), 0, Vec::new());
-    let mut headroom = [0.0_f64; 2];
-    for (path, text) in REFSTATE_FIXTURES {
-        let table = Fixture::parse(path, text).unwrap();
-        let name = path.rsplit('/').next().unwrap().trim_end_matches(".csv");
-        let fluid = registries[0].get(name).unwrap();
-        let record = phasekit_core::internal::record(&registries[0], name).unwrap();
-        let ideal = IdealScale::new(&record).unwrap();
-        let mut anchor_at = None;
-        for row in 0..table.rows().len() {
-            let label = table.printed(row, "refstate").unwrap();
-            let (reference, h0, s0) = named(label).unwrap();
-            let at = input(&table, row);
-            let resolved = fluid.with_reference(reference);
-            if table.printed(row, "status") != Some("ok") {
-                refused.push((name, label));
-                let typed = matches!(resolved, Err(Error::Domain(_)));
-                failures.check(typed, || format!("{name} {label}: the oracle refuses it, here {resolved:?}"));
-                continue;
-            }
-            let state = resolved.unwrap().state(at).unwrap();
-            let got = [state.h(Basis::Mass), state.s(Basis::Mass)];
-            let want = [table.value(row, "h_mass").unwrap(), table.value(row, "s_mass").unwrap()];
-            if table.printed(row, "role") == Some("anchor") {
-                anchor_at = Some(at);
-                for set in &registries {
-                    let state = set.get(name).unwrap().with_reference(reference).unwrap().state(at).unwrap();
-                    for (value, defined) in [(state.h(Basis::Mass), h0), (state.s(Basis::Mass), s0)] {
-                        let off = (value - defined).abs() > anchor;
-                        failures.check(!off, || format!("{name} {label} anchor: {value} for {defined} ({set:?})"));
-                    }
-                }
-                for (value, defined) in [(want[0], h0), (want[1], s0)] {
-                    let off = (value - defined).abs() > anchor;
-                    failures.check(!off, || format!("{name} {label}: the oracle's anchor {value} for {defined}"));
-                }
-                continue;
-            }
-            let bounds = offset_bounds(fluid, (&record, &ideal), [at, anchor_at.unwrap()]);
-            for (column, k) in [("h_mass", 0), ("s_mass", 1)] {
-                let checked = table.check_bound(row, column, got[k], bounds[k]);
-                let ratio = failures.ok(checked, |e| format!("{name} {label}: {e:?}"));
-                headroom[k] = headroom[k].max(ratio.unwrap_or(0.0));
-            }
-            states += 1;
-        }
+    let mut found = Found::default();
+    for file in REFSTATE_FIXTURES {
+        found.file(&registries, file);
     }
+    let (failures, headroom) = (&found.failures, found.headroom);
     let shown = failures.iter().take(20).collect::<Vec<_>>();
     assert_eq!(
         shown,
@@ -162,6 +204,6 @@ fn reference_states_hit_their_check_values() {
         "{} failures; the rest within {headroom:?} of their bounds",
         failures.len()
     );
-    assert_eq!(refused, REFUSED);
-    assert_eq!(states, (17 * 3 - REFUSED.len()) * 20);
+    assert_eq!(found.refused, REFUSED);
+    assert_eq!(found.states, (17 * 3 - REFUSED.len()) * 20);
 }
