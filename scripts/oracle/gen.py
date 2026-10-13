@@ -53,6 +53,14 @@ THOL_2016_TABLE3 = [(0, 200, 12600), (1, 350, 11400), (2, 383, 4290), (4, 360, 1
 NIST_IR_8474_TABLE3 = [(0, 4, 40000), (1, 4, 2000), (2, 10, 50000), (3, 10, 2000), (4, 300, 25000), (5, 300, 1000)]
 VIRIAL_STATES = [("propane", "n-Propane", 300), ("nitrogen", "Nitrogen", 300), ("water", "Water", 600)]
 BELL_TABLE_XI_MIXTURE = "HEOS::R1234yf[0.4]&R1234ze(E)[0.6]"  # z1 = 0.4 at T = 469 K, 3399 mol/m3 (map 10 section 8.4)
+# What a saturated phase gives at Q = 0 and 1, as a single phase (DIV-0004: c_p, c_v and w since SQ1, the partials and
+# order-3 outputs since SQ2, c_p0 and the residual h, s and g since SQ3).
+SATURATED_OUTPUTS = [("cpmass", "CPMASS"), ("cvmass", "CVMASS"), ("w", "A"), ("dhmass_dp_t", "d(Hmass)/d(P)|T"),
+                     ("d2p_drho_t_dt_rho", "d(d(P)/d(Dmolar)|T)/d(T)|Dmolar"),
+                     ("kappa_t", "isothermal_compressibility"), ("beta", "isobaric_expansion_coefficient"),
+                     ("gamma", "fundamental_derivative_of_gas_dynamics"), ("cp0mass", "CP0MASS"),
+                     ("hmolar_residual", "HMOLAR_RESIDUAL"), ("smolar_residual", "SMOLAR_RESIDUAL"),
+                     ("gmolar_residual", "GMOLAR_RESIDUAL")]
 FACTS = {
     "smoke": [
         ("r134a_h_t300_q1", "PropsSI", ("H", "T", 300, "Q", 1, "R134a")),
@@ -71,15 +79,20 @@ FACTS = {
         ("div0002_melting_p_320k", "AbstractState", ("HEOS", "Water", "melting_line", "iP", "iT", 320)),
         ("div0003_rhomolar_reducing", "Props1SI", ("Nitrogen", "rhomolar_reducing")),
         ("div0004_eta_t500_q0.5", "PropsSI", ("V", "T", 500, "Q", 0.5, "Water")),
-        # c_p, c_v and w at Q = 0 and 1 on Water's 500 K isotherm and Air's 101325 Pa isobar (a pseudo-pure fluid's dew
-        # point at its own T), and Water's c_p strictly inside the dome, the EOS at the mean density (SQ1).
+        # The saturated outputs at Q = 0 and 1 on Water's 500 K isotherm and Air's 101325 Pa isobar (a pseudo-pure
+        # fluid's dew point at its own T); strictly inside the dome, the EOS at the mean density, Water's c_p and
+        # residual h and CO2's kappa_T, and Air's c_p0 at the dome's T.
         *[
             (f"div0004_{name}_{label}_q{q}", "PropsSI", (key, *given, "Q", q, fluid))
             for label, fluid, given in (("water_t500", "Water", ("T", 500)), ("air_p101325", "Air", ("P", 101325)))
             for q in (0, 1)
-            for name, key in (("cpmass", "CPMASS"), ("cvmass", "CVMASS"), ("w", "A"))
+            for name, key in SATURATED_OUTPUTS
         ],
         ("div0004_cpmass_water_t500_q0.5", "PropsSI", ("CPMASS", "T", 500, "Q", 0.5, "Water")),
+        ("div0004_kappa_t_co2_t280_q0.5", "PropsSI",
+         ("isothermal_compressibility", "T", 280, "Q", 0.5, "CarbonDioxide")),
+        ("div0004_hmolar_residual_water_t500_q0.5", "PropsSI", ("HMOLAR_RESIDUAL", "T", 500, "Q", 0.5, "Water")),
+        ("div0004_cp0mass_air_p101325_q0.5", "PropsSI", ("CP0MASS", "P", 101325, "Q", 0.5, "Air")),
         ("div0005_gas_constant", "Props1SI", ("Helium", "gas_constant")),
         *[
             (f"div0005_{name}_row{i}", "PropsSI", (key, "T", t, "Dmolar", rho, "Helium"))

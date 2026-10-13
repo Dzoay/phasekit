@@ -200,7 +200,9 @@ pub static DIVERGENCES: &[Divergence] = &[
                    refuses eta and lambda strictly inside the dome and gives the saturated phase's at Q = 0 and 1 \
                    (2026-10-13); SQ1: c_p, c_v and w as well, the oracle's at Q = 0 and 1 (Water at 500 K, Air at \
                    101325 Pa), where its Water c_p at QT(0.5, 500 K) is 35464 J/(kg K), against its phases' 4663 and \
-                   3463 (2026-10-13)",
+                   3463 (2026-10-13); SQ2: the partials, kappa_T, beta and Gamma too, where its kappa_T for CO2 at \
+                   QT(0.5, 280 K) is -1.71e-7 1/Pa (2026-10-13); SQ3: the residual h, s and g too, where its Water \
+                   h^r at QT(0.5, 500 K) is -6256 J/mol, against its phases' -35254 and -2340 (2026-10-13)",
         exempt: Some(Exempt {
             kinds: &[Kind::Props],
             columns: &["Cpmass", "Cpmolar", "Cvmass", "Cvmolar", "viscosity", "conductivity"],

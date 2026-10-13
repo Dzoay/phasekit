@@ -292,16 +292,9 @@ impl State {
         self.p / (self.rho(Basis::Molar) * self.r * self.t)
     }
 
-    /// The single phase point, or `Undefined` in the dome (map 02 §6, map 10 R18).
-    fn single_point(&self, prop: Prop) -> Result<&Point, Error> {
-        match &self.body {
-            Body::Single(pt) => Ok(pt),
-            Body::TwoPhase { .. } => Err(Error::Undefined { prop, phase: self.phase }),
-        }
-    }
-
-    /// The point c_p, c_v and w read (SQ1, as CoolProp): a single phase's own, a split's saturated liquid at Q = 0 and its
-    /// vapour at Q = 1 (as `one_phase`), and `Undefined` strictly inside the dome.
+    /// The point c_p, c_v, w and the partials read (SQ1, SQ2, as CoolProp): a single phase's own, a split's saturated
+    /// liquid at Q = 0 and its vapour at Q = 1 (as `one_phase`), and `Undefined` strictly inside the dome (map 02 §6,
+    /// map 10 R18).
     fn saturated_point(&self, prop: Prop) -> Result<&Point, Error> {
         match &self.body {
             Body::Single(pt)
@@ -333,23 +326,24 @@ impl State {
             self.defined(Prop::SpeedOfSound, relations::speed_of_sound_squared(self.r, pt.t, self.molar_mass, &pt.b))?;
         if w2 > 0.0 { Ok(math::sqrt(w2)) } else { Err(DomainError::MechanicallyUnstable.into()) }
     }
-    /// A first partial derivative from the stored order-2 bundle: every family, no model call (E1).
+    /// A first partial derivative from the stored order-2 bundle: every family, no model call (E1); a saturated phase's
+    /// at Q = 0 and 1, undefined strictly inside the dome.
     pub fn partial(&self, p: Partial) -> Result<f64, Error> {
         let prop = Prop::Partial(p);
-        let pt = self.single_point(prop)?;
+        let pt = self.saturated_point(prop)?;
         let at = At { r: self.r, t: pt.t, rho: pt.rho, molar_mass: self.molar_mass, ds: self.gauge.ds(), b: &pt.b };
         relations::first_partial(p.of, p.wrt, p.at, &at).ok_or(Error::Undefined { prop, phase: self.phase })
     }
 
-    /// The isothermal compressibility κ_T = (1/ρ)(∂ρ/∂p)_T, 1/Pa, from the stored order-2 bundle; undefined in the
-    /// dome.
+    /// The isothermal compressibility κ_T = (1/ρ)(∂ρ/∂p)_T, 1/Pa, from the stored order-2 bundle; a saturated phase's at
+    /// Q = 0 and 1, undefined strictly inside the dome.
     pub fn isothermal_compressibility(&self) -> Result<f64, Error> {
         let p = Partial { of: DerivVar::Dmolar, wrt: DerivVar::P, at: DerivVar::T };
         self.per_density(Prop::IsothermalCompressibility, p, 1.0)
     }
 
-    /// The isobaric expansion coefficient β = −(1/ρ)(∂ρ/∂T)_p, 1/K, from the stored order-2 bundle; undefined in the
-    /// dome.
+    /// The isobaric expansion coefficient β = −(1/ρ)(∂ρ/∂T)_p, 1/K, from the stored order-2 bundle; a saturated phase's
+    /// at Q = 0 and 1, undefined strictly inside the dome.
     pub fn isobaric_expansion(&self) -> Result<f64, Error> {
         let p = Partial { of: DerivVar::Dmolar, wrt: DerivVar::T, at: DerivVar::P };
         self.per_density(Prop::IsobaricExpansion, p, -1.0)
@@ -357,27 +351,29 @@ impl State {
 
     /// `sign·p/ρ` for the first partial `p` of the density, as `prop`.
     fn per_density(&self, prop: Prop, p: Partial, sign: f64) -> Result<f64, Error> {
-        let pt = self.single_point(prop)?;
+        let pt = self.saturated_point(prop)?;
         let at = At { r: self.r, t: pt.t, rho: pt.rho, molar_mass: self.molar_mass, ds: self.gauge.ds(), b: &pt.b };
         let v = relations::first_partial(p.of, p.wrt, p.at, &at).ok_or(Error::Undefined { prop, phase: self.phase })?;
         Ok(sign * v / pt.rho)
     }
 
     /// A second partial derivative from `total`, the model's order-3 bundle at this state (`ThermoModel::derivs`,
-    /// E1); undefined in the dome and where the derivative is (a degenerate pair, a vanishing Jacobian).
+    /// E1), at Q = 0 and 1 at its saturated phase; undefined strictly inside the dome and where the derivative is (a
+    /// degenerate pair, a vanishing Jacobian).
     pub fn second_partial(&self, p: SecondPartial, total: &Derivs) -> Result<f64, Error> {
         let prop = Prop::SecondPartial(p);
-        let (pt, b) = (self.single_point(prop)?, total.bundle().ok_or(Error::NoModel { prop })?);
+        let (pt, b) = (self.saturated_point(prop)?, total.bundle().ok_or(Error::NoModel { prop })?);
         let at = At { r: self.r, t: pt.t, rho: pt.rho, molar_mass: self.molar_mass, ds: self.gauge.ds(), b: &b };
         let first = (p.first.of, p.first.wrt, p.first.at);
         relations::second_partial(first, (p.wrt, p.at), &at, total).ok_or(Error::Undefined { prop, phase: self.phase })
     }
 
     /// The fundamental derivative of gas dynamics Γ = 1 + ρ(∂²p/∂ρ²)_s / (2(∂p/∂ρ)_s) from `total`, the model's
-    /// order-3 bundle at this state; mechanically unstable where (∂p/∂ρ)_s ≤ 0, as the speed of sound is.
+    /// order-3 bundle at this state, at Q = 0 and 1 at its saturated phase; undefined strictly inside the dome, and
+    /// mechanically unstable where (∂p/∂ρ)_s ≤ 0, as the speed of sound is.
     pub fn fundamental_derivative(&self, total: &Derivs) -> Result<f64, Error> {
         let prop = Prop::FundamentalDerivative;
-        let (pt, b) = (self.single_point(prop)?, total.bundle().ok_or(Error::NoModel { prop })?);
+        let (pt, b) = (self.saturated_point(prop)?, total.bundle().ok_or(Error::NoModel { prop })?);
         let at = At { r: self.r, t: pt.t, rho: pt.rho, molar_mass: self.molar_mass, ds: self.gauge.ds(), b: &b };
         let (p, rho, s) = (DerivVar::P, DerivVar::Dmolar, DerivVar::Smolar);
         let undefined = || Error::Undefined { prop, phase: self.phase };
@@ -398,9 +394,9 @@ impl State {
         }
     }
 
-    /// This state as one phase, the one transport reads (ROT-010, M8.10): a single phase's own; at Q = 0 or 1 a split's
-    /// saturated liquid or vapour, the single phase it was built from, its p the EOS's at its T and ρ; `None` strictly
-    /// inside the dome.
+    /// This state as one phase, the one transport and the model's `derivs` read (ROT-010, M8.10, SQ2, SQ3): a single
+    /// phase's own; at Q = 0 or 1 a split's saturated liquid or vapour, the single phase it was built from, its p the
+    /// EOS's at its T and ρ; `None` strictly inside the dome.
     pub(crate) fn one_phase(&self) -> Option<State> {
         let side = |pt: Point, phase| {
             let p = relations::pressure(self.r, pt.t, pt.rho, &pt.b);
@@ -507,7 +503,7 @@ mod tests {
 
     /// SQ1 (ROT-010, DIV-0004): c_p, c_v and w read a saturated phase as a single one, as CoolProp does and as transport
     /// does (M8.10): at Q = 0 a split's are its liquid's, at Q = 1 its vapour's, w at the vapour's own T (E3). Strictly
-    /// inside the dome they stay `Undefined`, and every partial does at Q = 0 and 1 too.
+    /// inside the dome they stay `Undefined`.
     #[test]
     fn saturated_cp_cv_w_are_the_saturated_phase_s() {
         let b = Bundle { a00: 0.0, a10: 1.5, a01: 1.0, a20: -1.5, a11: 0.0, a02: -1.0 };
@@ -522,9 +518,48 @@ mod tests {
         let undefined = |prop| Err(Error::Undefined { prop, phase: Phase::TwoPhase });
         let refused = (undefined(Prop::Cpmolar), undefined(Prop::Cvmolar), undefined(Prop::SpeedOfSound));
         assert_eq!((caloric(&split(1e-300)), caloric(&split(0.5))), (refused.clone(), refused));
-        let partial =
-            Partial { of: crate::prop::DerivVar::Hmolar, wrt: crate::prop::DerivVar::T, at: crate::prop::DerivVar::P };
-        assert_eq!(split(0.0).partial(partial), undefined(Prop::Partial(partial)));
+    }
+
+    /// SQ2 (ROT-010, DIV-0004): the partials, κ_T, β, the second partials and Γ read the point c_p, c_v and w read: at
+    /// Q = 0 a split's liquid, at Q = 1 its vapour at its own T (E3), each from the order-3 bundle at that point.
+    /// Strictly inside the dome they stay `Undefined`.
+    #[test]
+    fn saturated_partials_are_the_saturated_phase_s() {
+        use DerivVar::{Dmolar, Hmolar, P, Smolar, T};
+        // Ideal-gas-like bundles (A01 = 1, A02 = −1, A03 = 2), so (∂p/∂ρ)_s > 0 and Γ is defined.
+        let total = |a20: f64| {
+            Derivs::from_fn(Order::Three, move |i, j| match (i, j) {
+                (1, 0) => 1.5,
+                (0, 1) => 1.0,
+                (2, 0) => a20,
+                (0, 2) => -1.0,
+                (3, 0) => -2.0 * a20,
+                (0, 3) => 2.0,
+                _ => 0.0,
+            })
+        };
+        let (dense, dilute) = (total(-2.5), total(-1.5));
+        let gas = State::from_total(KEY, 301.0, 40.0, R, 0.04, Phase::Gas, &dilute.bundle().unwrap()).unwrap();
+        let liquid = State::from_total(KEY, 300.0, 4_000.0, R, 0.04, Phase::Liquid, &dense.bundle().unwrap()).unwrap();
+        let split = |q| State::from_split(liquid, gas, Quality::new(q).unwrap(), 300.0, 1.5 * gas.p()).unwrap();
+        let first = Partial { of: Hmolar, wrt: T, at: P };
+        let second = SecondPartial { first: Partial { of: P, wrt: T, at: Dmolar }, wrt: Smolar, at: P };
+        let outputs = |s: &State, d: &Derivs| {
+            let (kappa, beta) = (s.isothermal_compressibility(), s.isobaric_expansion());
+            [s.partial(first), kappa, beta, s.second_partial(second, d), s.fundamental_derivative(d)]
+        };
+        let (of_liquid, of_gas) = (outputs(&liquid, &dense), outputs(&gas, &dilute));
+        assert!(of_liquid.iter().chain(&of_gas).all(Result::is_ok) && of_liquid != of_gas, "{of_liquid:?} {of_gas:?}");
+        assert_eq!((outputs(&split(0.0), &dense), outputs(&split(1.0), &dilute)), (of_liquid, of_gas));
+        let undefined = |prop| Err(Error::Undefined { prop, phase: Phase::TwoPhase });
+        let refused = [
+            undefined(Prop::Partial(first)),
+            undefined(Prop::IsothermalCompressibility),
+            undefined(Prop::IsobaricExpansion),
+            undefined(Prop::SecondPartial(second)),
+            undefined(Prop::FundamentalDerivative),
+        ];
+        assert_eq!((outputs(&split(1e-300), &dense), outputs(&split(0.5), &dense)), (refused.clone(), refused));
     }
 
     /// ROT-010 (M8.10): a saturated phase is a single phase. At Q = 0 a split's one phase is its liquid, at Q = 1 its

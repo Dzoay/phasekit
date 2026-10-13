@@ -30,7 +30,8 @@ pub enum Prop {
     SpeedOfSound,
     /// Compressibility factor p/(ρRT).
     Z,
-    /// Ideal-gas isobaric heat capacity: needs the model's ideal part (`ThermoModel::derivs`).
+    /// Ideal-gas isobaric heat capacity at the state's T, in the dome too: needs the model's ideal part
+    /// (`ThermoModel::derivs`, in the dome `ThermoModel::helmholtz`).
     Cp0molar,
     Cp0mass,
     /// Residual enthalpy RT·(A10^r + A01^r): needs the model's residual part (`ThermoModel::derivs`).

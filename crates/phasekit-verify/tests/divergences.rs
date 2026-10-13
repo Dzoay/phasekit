@@ -113,7 +113,9 @@ fn div_0002() {
 /// c_v 2913.73 J/kg/K, measured 2026-10-05). Part M8 (M8.10): so are η and λ, where the oracle evaluates its
 /// correlations at the mixture's density: its Water η at QT(0.5, 500 K), 1.6048e-5 Pa s, lies below the saturated
 /// vapour's, which phasekit gives at Q = 1, the single phase's. SQ1: at Q = 0 and 1 c_p, c_v and w are the saturated
-/// phase's too, the oracle's, whose c_p at QT(0.5, 500 K) is no phase's.
+/// phase's too, the oracle's, whose c_p at QT(0.5, 500 K) is no phase's. SQ2: so are the partials, κ_T, β and Γ, where
+/// the oracle's κ_T for CO₂ at QT(0.5, 280 K) is negative. SQ3: so are the residual h, s and g, where the oracle's
+/// Water h^r at QT(0.5, 500 K) is not its phases' lever rule.
 fn div_0004() {
     let water = Registry::embedded().unwrap().get("Water").unwrap();
     let state = water.state(Input::dt(Density::molar(1_000.0).unwrap(), Temperature::new(400.0).unwrap())).unwrap();
@@ -130,16 +132,49 @@ fn div_0004() {
     }
     let (oracle, vapour) = (fact("div0004_eta_t500_q0.5"), water.prop(&at(1.0), Prop::Viscosity).unwrap());
     assert!(oracle < vapour, "the oracle's two-phase η, {oracle}, below the saturated vapour's, {vapour}");
-    saturated_caloric_is_the_oracle_s();
+    saturated_outputs_are_the_oracle_s();
     let (oracle, liquid) = (fact("div0004_cpmass_water_t500_q0.5"), water.prop(&at(0.0), Prop::Cpmass).unwrap());
     assert!(oracle > 7.0 * liquid, "the oracle's two-phase c_p, {oracle}, is no phase's (the liquid's {liquid})");
+    let co2 = Registry::embedded().unwrap().get("CarbonDioxide").unwrap();
+    let wet = co2.state(Input::qt(Quality::new(0.5).unwrap(), Temperature::new(280.0).unwrap())).unwrap();
+    let kappa = Prop::IsothermalCompressibility;
+    assert_eq!(co2.prop(&wet, kappa), Err(Error::Undefined { prop: kappa, phase: Phase::TwoPhase }));
+    let oracle = fact("div0004_kappa_t_co2_t280_q0.5");
+    assert!(oracle < 0.0, "the oracle's two-phase κ_T, {oracle} 1/Pa, is negative, no phase's");
+    let h_r = Prop::HmolarResidual;
+    assert_eq!(water.prop(&at(0.5), h_r), Err(Error::Undefined { prop: h_r, phase: Phase::TwoPhase }));
+    let lever = (water.prop(&at(0.0), h_r).unwrap() + water.prop(&at(1.0), h_r).unwrap()) / 2.0;
+    let oracle = fact("div0004_hmolar_residual_water_t500_q0.5");
+    assert!(
+        (oracle / lever - 1.0).abs() > 0.5,
+        "the oracle's two-phase h^r, {oracle}, is not the lever rule's {lever}"
+    );
 }
 
-/// SQ1: at Q = 0 and 1, c_p, c_v and w are the saturated phase's, the oracle's within `Prop`: Water at 500 K, and Air at
-/// 101325 Pa, whose dew point is 2.8 K above its bubble point.
-fn saturated_caloric_is_the_oracle_s() {
+/// SQ1-SQ3: at Q = 0 and 1, c_p, c_v, w, a first and a second partial, κ_T, β, Γ, c_p⁰ and the residual h, s and g
+/// are the saturated phase's, the oracle's within `Prop` (its floors, VERIFICATION.md §5): Water at 500 K, and Air at
+/// 101325 Pa, whose dew point is 2.8 K above its bubble point. c_p⁰, a function of T alone, is the oracle's in the dome
+/// too, Air's at PQ(101325 Pa, 0.5) between those temperatures.
+fn saturated_outputs_are_the_oracle_s() {
+    use phasekit_core::DerivVar::{Dmolar, Hmass, P, T};
+    use phasekit_core::{Partial, SecondPartial};
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let (water, air) = (registry.get("Water").unwrap(), registry.get("Air").unwrap());
+    let curvature = SecondPartial { first: Partial { of: P, wrt: Dmolar, at: T }, wrt: T, at: Dmolar };
+    let outputs = [
+        ("cpmass", Prop::Cpmass),
+        ("cvmass", Prop::Cvmass),
+        ("w", Prop::SpeedOfSound),
+        ("dhmass_dp_t", Prop::Partial(Partial { of: Hmass, wrt: P, at: T })),
+        ("d2p_drho_t_dt_rho", Prop::SecondPartial(curvature)),
+        ("kappa_t", Prop::IsothermalCompressibility),
+        ("beta", Prop::IsobaricExpansion),
+        ("gamma", Prop::FundamentalDerivative),
+        ("cp0mass", Prop::Cp0mass),
+        ("hmolar_residual", Prop::HmolarResidual),
+        ("smolar_residual", Prop::SmolarResidual),
+        ("gmolar_residual", Prop::GmolarResidual),
+    ];
     for q in [0.0, 1.0] {
         let quality = Quality::new(q).unwrap();
         let sides = [
@@ -148,12 +183,38 @@ fn saturated_caloric_is_the_oracle_s() {
         ];
         for (label, fluid, input) in sides {
             let state = fluid.state(input).unwrap();
-            for (name, prop) in [("cpmass", Prop::Cpmass), ("cvmass", Prop::Cvmass), ("w", Prop::SpeedOfSound)] {
-                let (got, oracle) = (fluid.prop(&state, prop).unwrap(), fact(&format!("div0004_{name}_{label}_q{q}")));
-                let bound = ToleranceClass::Prop.bound(oracle.abs()).unwrap();
-                assert!((got - oracle).abs() <= bound, "{label} Q = {q} {name}: {got} against the oracle's {oracle}");
+            for (name, prop) in outputs {
+                within_prop(fluid, &state, prop, &format!("div0004_{name}_{label}_q{q}"));
             }
         }
+    }
+    let wet = air.state(Input::pq(Pressure::new(101_325.0).unwrap(), Quality::new(0.5).unwrap())).unwrap();
+    within_prop(air, &wet, Prop::Cp0mass, "div0004_cp0mass_air_p101325_q0.5");
+}
+
+/// `prop` at `state` is the oracle's `fact` within `Prop` (its floor, [`prop_floor`]).
+fn within_prop(fluid: &phasekit_core::Fluid, state: &phasekit_core::State, prop: Prop, fact_name: &str) {
+    let (got, oracle) = (fluid.prop(state, prop).unwrap(), fact(fact_name));
+    let bound = ToleranceClass::Prop.bound(oracle.abs().max(prop_floor(fluid, state, prop))).unwrap();
+    assert!((got - oracle).abs() <= bound, "{fact_name}: {got} against the oracle's {oracle}");
+}
+
+/// The `Prop` floor of `prop` at `state` (VERIFICATION.md §5): a partial's |X|/|Y|, a second partial's |X|/(|Y|·|W|),
+/// κ_T's 1/p, β's 1/T, Γ's 1, a molar energy's RT, c_p⁰'s and an entropy's R (per mass R/M), and none for the others.
+fn prop_floor(fluid: &phasekit_core::Fluid, state: &phasekit_core::State, prop: Prop) -> f64 {
+    use phasekit_verify::eos::{Floor, partial_floor, scale, second_partial_floor, variable};
+    let value = |v| variable(fluid, state, v);
+    let floor = |f| scale(f, 0.0, state.gas_constant(), state.t(), state.rho(Basis::Molar), state.p());
+    match prop {
+        Prop::HmolarResidual | Prop::GmolarResidual => floor(Floor::Energy),
+        Prop::SmolarResidual => floor(Floor::Entropy),
+        Prop::Cp0mass => floor(Floor::Entropy) / fluid.info().molar_mass(),
+        Prop::Partial(p) => partial_floor(value(p.of), value(p.wrt)),
+        Prop::SecondPartial(p) => second_partial_floor(value(p.first.of), value(p.first.wrt), value(p.wrt)),
+        Prop::IsothermalCompressibility => 1.0 / state.p(),
+        Prop::IsobaricExpansion => 1.0 / state.t(),
+        Prop::FundamentalDerivative => 1.0,
+        _ => 0.0,
     }
 }
 
