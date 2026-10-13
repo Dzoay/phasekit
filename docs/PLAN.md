@@ -425,16 +425,8 @@ the reference machine (user decisions P3, RM1).
 | M9.3 | `libm` backend |
 | M9.4 | Cross-target hash, the `libm` hash committed |
 | M9.5 | `libm` decision: it stays opt-in |
+| M9.6 | Performance gates: the instruction gate in CI, §7 misses re-planned |
 
-- **M9.6 Performance gates enforced.** *Failing command:* `cargo xtask gates perf` (no thresholds yet). *Do:* gungraun
-  instruction-count benches on Linux CI failing on a > 5 % increase against the baseline committed in this step
-  *(inference: noise margin)*; criterion medians on the reference machine against the ARCHITECTURE.md §7 table (one command the user runs on the
-  i7-8700K, user decision RM2). *Carried
-  from M6.11, M7.2 and M7.3:* QT and PQ ran 7 to 19 times their 0.1 µs target (#88: the two-phase `State` builds both
-  phases' EOS bundles eagerly, where CoolProp evaluates only the superancillary; a state that defers its bundles is one
-  way); Water's PT took 38.6 µs (#92: about seven Newton steps from the ideal-gas seed, each one α^r; a better seed and
-  M9.2a); PH takes about ten PT solves (#94). *Done when:* every §7 target is met, or each miss has a re-plan issue
-  with the measurement (targets are estimates, K19).
 - **M9.7 Memory budgets.** *Failing tests:* `eos_and_superancillary_bytes_per_fluid` (≤ 25 KiB each),
   `all_136_loaded_rss` (≤ 8 MiB, Linux; ARCHITECTURE.md §6 *(inference)*), `state_fits_256_bytes` (asserts
   `size_of::<State>() <= 256` as ARCHITECTURE.md §3.8 does and records the actual size). *Carried from M6.11:* 97 of the 130 decoded superancillaries exceed 25 KiB (median
@@ -629,7 +621,10 @@ still open; an item leaves it when a step or a decision takes it.
 
 **Open user decisions.** P4: the paywalled EOS papers (Ammonia, CO₂, R125, Air, Nitrogen, HFE143m). Until a paper
 arrives its fluid stays oracle-only, labelled provisional; nothing waits on it. The thread-scaling target's wording
-(issue #135): ARCHITECTURE.md §7's ≥ 0.9·N is above the laptop's own ceiling, and met on the aarch64 runner.
+(issue #135): ARCHITECTURE.md §7's ≥ 0.9·N is above the laptop's own ceiling, and met on the aarch64 runner. The §7
+misses re-planned at M9.6 (issues #142 QT and PQ, #143 PT and PH, #144 α^r and properties at (T, ρ); each named in
+`ci/perf-exemptions.txt`): optimise, or restate the target. The reference machine's M9 record waits for the user's
+`cargo xtask bench --record --step M9.6` and `cargo xtask gates perf --targets` on the i7-8700K (user decision RM2).
 
 **Waiting for a paper.** Each item moves when a copy reaches `reference/papers/`.
 

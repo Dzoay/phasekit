@@ -740,6 +740,7 @@ definition of the subcommands; PLAN.md steps add them in the order of the last c
 | `rot` | every ROT-REGISTER.md row whose milestone is below `phasekit_verify::MILESTONE` has no GAP status and no Proof still marked "new" that is due (PLAN.md §2.1 defines ticking) | M0.4 |
 | `assertions` | every `#[test]` in `crates/` (lint probes aside) contains `assert!`, `assert_eq!` or `assert_ne!`, or is `#[should_panic]`; no `assert_eq!`/`assert_ne!` has identical sides; comments and string literals are not code (ROT-294; map 10 R3, map 07 I11) | M0.4a |
 | `complexity` | every function under `crates/` (`generated.rs` and the ban probes aside), parsed with `syn`: cognitive complexity as G. Ann Campbell's *Cognitive Complexity* (SonarSource, version 1.7, 2023) specifies it, Appendix B in Rust (S3776; over 15 fails), and control-flow nesting of `if`, `match`, `for`, `while` and `loop`, else-if chains flat and closures transparent (S134; over 3 fails); or exempted in `ci/complexity-exemptions.txt` with ceilings and a reason, an exemption under the bars, over its ceilings or naming no function failing. Length is G2's: clippy's `too_many_lines` at 100 lines of code | M7.9c |
+| `perf` | the instruction gate: `benches/instructions.rs` under gungraun (Valgrind's Callgrind), a static `x86_64-unknown-linux-musl` build with `--features phasekit-core/libm`, so the counts depend on neither the machine's maths library nor its loader, every benchmark's instruction count at most 5 % above `benches/baseline/instructions.csv`, every baselined benchmark run and every benchmark baselined; each run writes its counts as a proposed baseline to `<target>/instructions-baseline.csv` (`--update` commits them). `--targets <results.csv>` checks a criterion results file of the reference machine against ARCHITECTURE.md §7, a miss failing unless `ci/perf-exemptions.txt` names its re-plan issue (12) | M9.6 |
 | `mutants` | `cargo mutants --in-diff` over the Rust changes since the merge base with `origin/main` (untracked files included), in two passes: phasekit-xtask's mutants on its own tests, every other mutant on the workspace's (user decision CI5); no mutant missed unless `.cargo/mutants.toml` excludes it with a reason; a timeout counts as caught and is listed. `--shard k/n` runs one of n slices of both passes (user decision CI6). How mutants are built, run and timed, and why: `.cargo/mutants.toml` (ROT-294; user decisions TQ1, TQ2, TQ3, CI4) | M0.4a |
 | `fixtures` | committed fixtures hash to their `MANIFEST.sha256` lines and the manifest lists nothing else; every committed fixture is read by a `fixture!` in a test besides `tests/manifest.rs` (which lists them all for `committed_fixtures_match_manifest`) and every `fixture!` path exists (map 10 R15); committed total ≤ 16 MiB (3.6) | M1.4 |
 | `register` | `check_register` + the 7.2 cross-id checks (also a test) | M1.6 |
@@ -764,6 +765,7 @@ required check on `main`. They pin GitHub's own actions by commit, install the t
 | `ci`: `fmt`, `clippy` | Linux | G1; G2 and G7, and clippy on `phasekit-core --features libm` (M9.3) |
 | `ci`: `linux` | Linux | G3 and the doctests; `phasekit-core`'s tests with `--features libm` (M9.3); G8 as `gates all --except mutants`; `cargo deny check`, `cargo shear`, `reuse lint`; on a PR that changes data, `cargo xtask fluid diff --base origin/main` in the job summary |
 | `ci`: `mutants (shard k of 4)`, `mutants` | Linux | G8's `gates mutants --shard k/4` in four jobs beside `linux` (user decisions CI2, CI6); `mutants`, the required check, passes only when all four do |
+| `ci`: `perf` | Linux + valgrind | G8's `gates perf`, the instruction gate, beside `linux` (whose `gates all` skips it); the run's counts uploaded as the `instructions-baseline` artifact |
 | `ci`: `msrv` | Linux | G3 and the doctests on the workspace `rust-version` (user decision MS1) |
 | `ci`: `windows`, `aarch64` | Windows MSVC; aarch64 Linux | G3 and the doctests without `phasekit-xtask`, so G6 is a real build; MSVC's transcendentals differ in ulps, which the classes absorb |
 | `ci`: `wasip2` | Linux + wasmtime | G4: fixtures through `include_str!`, no filesystem, thread tests compiled out |
@@ -845,9 +847,11 @@ The targets are [ARCHITECTURE.md §7](ARCHITECTURE.md#7-execution-strategies)'s,
 each bench recorded is in `benches/results/`, and CoolProp's numbers are in `benches/baseline/`.
 
 **Enforcement from M9 (E9):** (1) on Linux PRs, gungraun instruction counts of the tracked benches may not regress by
-more than 5 % against the baseline committed at M9 *(decision)*; (2) allocation counts stay 0 (a test, from M5); (3) the
-§7 targets are checked on the reference machine at each milestone close; a miss fails the milestone and is resolved by
-optimisation or a recorded re-plan with measurements, never by quietly editing the target. Wall-clock numbers from
+more than 5 % against the baseline committed at M9 *(decision)*: `gates perf` (11.2) over `benches/instructions.rs`,
+the §7 workloads on the bench fluids, 16 states each; (2) allocation counts stay 0 (a test, from M5); (3) the
+§7 targets are checked on the reference machine at each milestone close (`gates perf --targets` on its results file; user
+decision RM2: the user runs it on the i7-8700K); a miss fails the milestone and is resolved by optimisation or a
+recorded re-plan with measurements (an issue, named in `ci/perf-exemptions.txt`), never by quietly editing the target. Wall-clock numbers from
 shared CI runners are informational (noise) *(inference)*. The `libm` cost rule (ARCHITECTURE.md D12) and the SIMD gate
 (≥ 2.5× α^r batch throughput on AVX2 over the M9 baseline, or stop and re-plan; ARCHITECTURE.md §7) use the same
 harness.

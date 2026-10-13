@@ -261,9 +261,9 @@ impl Repo {
     }
 
     /// Runs `cargo mutants --in-diff` on `diff` (configured by `.cargo/mutants.toml`) with the pass's own `args`, its
-    /// progress on the terminal.
-    /// Builds happen in cargo-mutants' own copy of the tree outside the repository, so an inherited
-    /// `CARGO_TARGET_DIR` is dropped and `reference/` is named through `PHASEKIT_REFERENCE_DIR`. The output is removed after a successful run and kept after a failed one.
+    /// progress on the terminal. Builds happen in cargo-mutants' own copy of the tree outside the repository, so an
+    /// inherited `CARGO_TARGET_DIR` is dropped and `reference/` is named through `PHASEKIT_REFERENCE_DIR`. The output
+    /// is removed after a successful run and kept after a failed one.
     pub fn cargo_mutants(&self, pass: &str, diff: &str, args: &[&str]) -> Result<MutantsRun, String> {
         let dir = std::env::temp_dir().join(format!("phasekit-mutants-{}-{pass}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -321,9 +321,60 @@ impl Repo {
         if output.status.success() { Ok(stdout) } else { Err(format!("cargo bench --bench scaling failed: {stdout}")) }
     }
 
+    /// The cargo target directory: `CARGO_TARGET_DIR`, else `target/` under the root.
+    pub fn target_dir(&self) -> PathBuf {
+        std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| self.root.join("target"), PathBuf::from)
+    }
+
+    /// Writes `bytes` to `name` in the target directory; returns its path.
+    pub fn write_target(&self, name: &str, bytes: &[u8]) -> Result<String, String> {
+        let path = self.target_dir().join(name);
+        std::fs::write(&path, bytes).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+        Ok(path.display().to_string())
+    }
+
+    /// Runs `benches/instructions.rs` under gungraun (PLAN.md M9.6) as a static `x86_64-unknown-linux-musl` binary with
+    /// `--features phasekit-core/libm`, each benchmark saving its `summary.json`, and returns every summary of this
+    /// run: the bench's earlier output is removed first, so a renamed benchmark cannot linger. No glibc is involved, so
+    /// the counts are the same on any x86-64 Linux with the same toolchain, and valgrind runs it where the system's
+    /// dynamic loader uses AVX-512, which valgrind 3.25 cannot decode (an x86-64-v4 distribution).
+    pub fn instruction_summaries(&self) -> Result<Vec<String>, String> {
+        let out = self.target_dir().join("gungraun").join("phasekit-verify").join("instructions");
+        if out.exists() {
+            std::fs::remove_dir_all(&out).map_err(|e| format!("cannot clear {}: {e}", out.display()))?;
+        }
+        let status = Command::new(env!("CARGO"))
+            .args(["bench", "-p", "phasekit-verify", "--bench", "instructions", "--features", "phasekit-core/libm"])
+            .args(["--target", "x86_64-unknown-linux-musl"])
+            .env("GUNGRAUN_SAVE_SUMMARY", "json")
+            .current_dir(&self.root)
+            .status()
+            .map_err(|e| format!("cannot run cargo bench: {e}"))?;
+        if !status.success() {
+            return Err("cargo bench --bench instructions failed (it needs valgrind, gungraun-runner and the \
+                        x86_64-unknown-linux-musl target)"
+                .into());
+        }
+        let (mut pending, mut found) = (vec![out.clone()], Vec::new());
+        while let Some(dir) = pending.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for path in entries.flatten().map(|entry| entry.path()) {
+                if path.is_dir() {
+                    pending.push(path);
+                } else if path.file_name().is_some_and(|n| n == "summary.json") {
+                    found.push(std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?);
+                }
+            }
+        }
+        if found.is_empty() {
+            return Err(format!("no summary.json under {}", out.display()));
+        }
+        Ok(found)
+    }
+
     /// Every criterion result under the target directory: (`benchmark.json`, `estimates.json`) of each `new/` run.
     pub fn criterion_results(&self) -> Result<Vec<(String, String)>, String> {
-        let target = std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| self.root.join("target"), PathBuf::from);
+        let target = self.target_dir();
         let mut pending = vec![target.join("criterion")];
         let mut found = Vec::new();
         while let Some(dir) = pending.pop() {
