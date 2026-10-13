@@ -346,9 +346,9 @@ pub(crate) fn r23_conductivity(x: &TransportInputs<'_>) -> ConductivityStages {
     ConductivityStages { dilute: dilute / 1e3, residual: residual / 1e3, critical: critical / 1e3 }
 }
 
-/// Helium's conductivity, Hands and Arp 1981 as REFPROP codes it (`TransportRoutines.cpp:1005-1061`): λ₀ + λ_e, and
-/// for 3.5 < T < 12 K the critical term, which reads helium's own η, `eta`, Pa s, κ_T and (∂p/∂T)_ρ, with REFPROP's two
-/// unexplained factors.
+/// Helium's conductivity, Hands and Arp 1981 as REFPROP codes it (`TransportRoutines.cpp:1005-1061`) but for its
+/// critical term's scaled equation, which is as printed (HE1): λ₀ + λ_e, and for 3.5 < T < 12 K the critical term, which
+/// reads helium's own η, `eta`, Pa s, κ_T and (∂p/∂T)_ρ, with REFPROP's two unexplained factors.
 pub(crate) fn helium_conductivity(x: &TransportInputs<'_>, eta: f64) -> Result<ConductivityStages, Error> {
     let (rhoc, t, rho) = (68.0, x.t(), x.rho_mass());
     let summer = 3.739232544 / t - 2.620316969e1 / t / t + 5.982252246e1 / t / t / t - 4.926397634e1 / t / t / t / t;
@@ -364,30 +364,22 @@ pub(crate) fn helium_conductivity(x: &TransportInputs<'_>, eta: f64) -> Result<C
     Ok(ConductivityStages { dilute: lambda_0, residual: lambda_e, critical })
 }
 
-/// Helium's critical term (3.5 < T < 12 K), W/(m K): κ_T blended with the scaled-equation one inside W ≤ 1. The blend
-/// is negative in a wedge about the critical isochore from 5.21 to 5.99 K, where the term's square root has no value
-/// (CoolProp's λ is NaN there): λ is refused as `Undefined` (D12, DIV-0035).
+/// Helium's critical term (3.5 < T < 12 K), W/(m K): κ_T blended inside W ≤ 1 with the scaled equation's, which is
+/// evaluated as printed (HE1, DIV-0035; REFPROP's code, which CoolProp copies, mistypes it, and its blend is negative in
+/// two lobes either side of the critical isochore from 5.20 to 5.99 K, where CoolProp's λ is NaN). Its ρ_c, which that
+/// code mistypes, also sets the blend's bounds and the damping. The blend, its bounds, the damping and REFPROP's two
+/// unexplained factors are as CoolProp codes them: no printed source gives Hands and Arp's. A λ that is not finite is
+/// refused as `Undefined` (D12): exactly on the scaled equation's critical isochore x is infinite.
 fn helium_critical(x: &TransportInputs<'_>, eta: f64, rho: f64) -> Result<f64, Error> {
-    let (x0, e1, e2, beta, gamma, delta) = (0.392, 2.8461, 0.27156, 0.3554, 1.1743, 4.304);
-    let (rhoc_crit, tc, pc, t) = (69.158, 5.18992, 2.2746e5, x.t());
-    let (delta_t, delta_rho) = ((1.0 - t / tc).abs(), (1.0 - rho / rhoc_crit).abs());
+    let (s, t) = (&HELIUM_SCALED, x.t());
+    let (delta_t, delta_rho) = s.distance(t, rho);
     let k_t = x.isothermal_compressibility()?;
     let dpdt = x.dp_dt()?;
     let w = pow_n(delta_t / 0.2, 2) + pow_n(delta_rho / 0.25, 2);
     let k_t_bar = if w > 1.0 {
         k_t
     } else {
-        let xx = math::powf(delta_t / delta_rho, 1.0 / beta);
-        let h = e1
-            * (1.0 + xx / x0)
-            * math::powf(1.0 + e2 * math::powf(1.0 + xx / x0, 2.0 / beta), (gamma - 1.0) / (2.0 * beta));
-        let q = e2 * math::powf((xx + x0) / x0, 2.0 / beta);
-        let dhdx = e1
-            * (q * (gamma - 1.0) * math::powf(q + 1.0, (1.0 / 2.0) * (gamma - 1.0) / beta)
-                + pow_n(beta, 2) * math::powf(q + 1.0, (1.0 / 2.0) * (2.0 * beta + gamma - 1.0) / beta))
-            / (pow_n(beta, 2) * x0 * (q + 1.0));
-        let rhs = math::powf(delta_rho, delta - 1.0) * (delta * h - xx / beta * dhdx);
-        let k_t_prime = 1.0 / (rhs * pow_n(rho / rhoc_crit, 2) * pc);
+        let k_t_prime = 1.0 / (s.inverse_compressibility(delta_t, delta_rho) * pow_n(rho / s.rho_c, 2) * s.p_c);
         w * k_t + (1.0 - w) * k_t_prime
     };
     let lambda_c = 3.4685233e-17 * 3.726229668 * math::sqrt(k_t_bar) * pow_n(t, 2) / rho / eta
@@ -397,6 +389,61 @@ fn helium_critical(x: &TransportInputs<'_>, eta: f64, rho: f64) -> Result<f64, E
         Ok(lambda_c)
     } else {
         Err(Error::Undefined { prop: Prop::Conductivity, phase: x.phase() })
+    }
+}
+
+/// A critical region in the NBS scaled equation: x₀, E₁, E₂, β, γ, δ, and ρ_c (kg/m³), T_c (K) and p_c (Pa).
+struct Scaled {
+    x0: f64,
+    e1: f64,
+    e2: f64,
+    beta: f64,
+    gamma: f64,
+    delta: f64,
+    rho_c: f64,
+    t_c: f64,
+    p_c: f64,
+}
+
+/// Helium's: Kierstead's He⁴ data in the NBS equation, Levelt Sengers, Greer and Sengers 1976 Table 17 ("Equivalent NBS
+/// equation"; T_c on T₅₈), whose ρ_c is 69.58 kg/m³ where REFPROP's code has 69.158.
+const HELIUM_SCALED: Scaled = Scaled {
+    x0: 0.392,
+    e1: 2.8461,
+    e2: 0.27156,
+    beta: 0.3554,
+    gamma: 1.1743,
+    delta: 4.304,
+    rho_c: 69.58,
+    t_c: 5.18992,
+    p_c: 2.2746e5,
+};
+
+impl Scaled {
+    /// The reduced distances from the critical point, ΔT* = |T − T_c|/T_c and Δρ* = |ρ − ρ_c|/ρ_c (Hanley, McCarty and
+    /// Haynes 1974 eq. 22).
+    fn distance(&self, t: f64, rho: f64) -> (f64, f64) {
+        ((1.0 - t / self.t_c).abs(), (1.0 - rho / self.rho_c).abs())
+    }
+
+    /// The NBS equation's h(x) = E₁ u (1 + E₂ u^{2β})^{(γ−1)/2β}, u = (x + x₀)/x₀, and h′(x) (Levelt Sengers et al. 1976
+    /// eq. 3.1; Hanley, McCarty and Haynes 1974 eq. 21). REFPROP's code has u^{2/β}.
+    fn h(&self, x: f64) -> (f64, f64) {
+        let Scaled { x0, e1, e2, beta, gamma, .. } = *self;
+        let (u, p) = ((x + x0) / x0, (gamma - 1.0) / (2.0 * beta));
+        let u_2b = math::powf(u, 2.0 * beta);
+        let v = 1.0 + e2 * u_2b;
+        let h = e1 * u * math::powf(v, p);
+        let dh = e1 / x0 * math::powf(v, p) + (gamma - 1.0) / x0 * e1 * e2 * u_2b * math::powf(v, p - 1.0);
+        (h, dh)
+    }
+
+    /// The reduced inverse compressibility [ρ*² κ_T*]⁻¹ = |Δρ*|^{δ−1} [δh(x) − (x/β)h′(x)] at x = ΔT*/|Δρ*|^{1/β}
+    /// (Hanley, McCarty and Haynes 1974 eqs. 21-22; REFPROP's code has x = (ΔT*/Δρ*)^{1/β}).
+    fn inverse_compressibility(&self, delta_t: f64, delta_rho: f64) -> f64 {
+        let x = delta_t / math::powf(delta_rho, 1.0 / self.beta);
+        let (h, dh) = self.h(x);
+        math::powf(delta_rho, self.delta - 1.0) * (self.delta * h - x / self.beta * dh)
     }
 }
 
@@ -496,6 +543,61 @@ mod tests {
             }
         }
         assert!(lambda(405.3999, 50.0) < 6.26 / 10.0, "about 100x below CoolProp's 6.26 W/(m K)");
+    }
+
+    /// HE1 (DIV-0035): helium's scaled equation is Kierstead's He⁴ NBS equation as Levelt Sengers, Greer and Sengers
+    /// 1976 print it, Table 17 ("Equivalent NBS equation"), whose ρ_c is 69.58 kg/m³: its constants give the table's
+    /// derived amplitudes B, D, Γ, Γ′ (eqs. 3.2-3.4) and Γ/Γ′, and α = 2 − β(δ + 1) and δ = 1 + γ/β, each to its printed
+    /// digits.
+    #[test]
+    fn helium_scaled_equation_is_kiersteads() {
+        let Scaled { x0, e1, e2, beta, gamma, delta, rho_c, t_c, p_c } = HELIUM_SCALED;
+        assert_eq!((rho_c, t_c, p_c), (69.58, 5.18992, 2.2746e5));
+        let amplitude = math::powf(x0, gamma) / e1 * math::powf(e2, (1.0 - gamma) / (2.0 * beta));
+        let amplitude_prime = beta * math::powf(x0, gamma) / e1;
+        let derived = [
+            ("B", math::powf(x0, -beta), 1.395, 1e-3),
+            ("D", e1 * math::powf(1.0 + e2, (gamma - 1.0) / (2.0 * beta)), 3.019, 1e-3),
+            ("Γ", amplitude, 0.1611, 1e-4),
+            ("Γ′", amplitude_prime, 0.04158, 1e-5),
+            ("Γ/Γ′", amplitude / amplitude_prime, 3.87, 1e-2),
+            ("α", 2.0 - beta * (delta + 1.0), 0.115, 1e-3),
+            ("δ", 1.0 + gamma / beta, delta, 1e-3),
+        ];
+        for (name, got, printed, unit) in derived {
+            assert!((got - printed).abs() <= unit / 2.0, "{name}: {got} against the printed {printed}");
+        }
+    }
+
+    /// HE1: the scaled equation's reduced inverse compressibility, [ρ*² κ_T*]⁻¹ = |Δρ*|^{δ−1} [δh(x) − (x/β)h′(x)] at
+    /// x = ΔT*/|Δρ*|^{1/β} (Hanley, McCarty and Haynes 1974 eqs. 21-22), obeys the scaling law (Levelt Sengers et al.
+    /// 1976 eq. 2.12): it is positive throughout the region the blend reads (ΔT* ≤ 0.2, Δρ* ≤ 0.25), and homogeneous of
+    /// degree β(δ − 1) under (ΔT*, Δρ*) → (s ΔT*, s^β Δρ*), since x is unchanged.
+    #[test]
+    fn helium_scaled_compressibility_obeys_the_scaling_law() {
+        let s = &HELIUM_SCALED;
+        let degree = s.beta * (s.delta - 1.0);
+        let grid = (1..=40).flat_map(|i| (1..=50).map(move |j| (0.005 * f64::from(i), 0.005 * f64::from(j))));
+        for (dt, dr) in grid {
+            let inverse = s.inverse_compressibility(dt, dr);
+            assert!(inverse > 0.0, "ΔT* {dt}, Δρ* {dr}: {inverse}");
+            let scaled = s.inverse_compressibility(0.5 * dt, math::powf(0.5, s.beta) * dr);
+            let ratio = scaled / (math::powf(0.5, degree) * inverse);
+            assert!((ratio - 1.0).abs() < 1e-12, "ΔT* {dt}, Δρ* {dr}: {ratio}");
+        }
+    }
+
+    /// HE1: h′ as Hanley, McCarty and Haynes 1974 print it (eq. 21) is the derivative of h (Levelt Sengers et al. 1976
+    /// eq. 3.1): a central difference agrees to 1e-7 from x = 1e-3 to 1e6.
+    #[test]
+    fn helium_scaled_h_prime_is_h_s_derivative() {
+        let s = &HELIUM_SCALED;
+        for k in -3..=6 {
+            let x = math::powi(10.0, k);
+            let (step, (_, dh)) = (1e-6 * x, s.h(x));
+            let central = (s.h(x + step).0 - s.h(x - step).0) / (2.0 * step);
+            assert!((central / dh - 1.0).abs() < 1e-7, "x {x}: {central} against {dh}");
+        }
     }
 
     /// Chung's dilute stage is its zero-density limit, as the module splits a whole model: at 1e-4 mol/m³, Y ≈ 5e-9, so

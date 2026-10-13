@@ -22,6 +22,7 @@ const PAPERS: &[(Text, Text)] = &[
     ),
     (fixture!("paper/Helium/OrtizVega-JPCRD-2019.3.csv"), fixture!("paper/Helium/OrtizVega-JPCRD-2019.3.check.csv")),
     (fixture!("paper/Helium/OrtizVega-JPCRD-2019.4.csv"), fixture!("paper/Helium/OrtizVega-JPCRD-2019.4.check.csv")),
+    (fixture!("paper/Helium/Arp-NIST-TN1334-1998.B.csv"), fixture!("paper/Helium/Arp-NIST-TN1334-1998.B.check.csv")),
     (fixture!("paper/Water/IAPWS-R6-95-2018.6.csv"), fixture!("paper/Water/IAPWS-R6-95-2018.6.check.csv")),
     (fixture!("paper/Water/IAPWS-R6-95-2018.7.csv"), fixture!("paper/Water/IAPWS-R6-95-2018.7.check.csv")),
     (fixture!("paper/Water/IAPWS-R6-95-2018.8.csv"), fixture!("paper/Water/IAPWS-R6-95-2018.8.check.csv")),

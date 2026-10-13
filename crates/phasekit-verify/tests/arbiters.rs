@@ -32,7 +32,8 @@ fn arbiter_statuses_are_asserted() {
     };
     // The records evaluated so far, each by its own test in this file (PLAN.md M4.5 on; the paper constants of the
     // other α^r records at M5.7; the saturation tables at M6.10; the IAPWS transport releases at M8.7), but the melting
-    // tables at M8.11, by `tests/melting.rs::heavy_water_melting_herrig` and DIV-0002's proof.
+    // tables at M8.11, by `tests/melting.rs::heavy_water_melting_herrig` and DIV-0002's proof, and Helium's conductivity
+    // table at HE1, by DIV-0035's (computed on TN 1334's own EOS and η, so within a measured bound, not `Paper`).
     let alpha_r =
         ["Water", "R227EA", "R365MFC", "R115", "R13I1", "R1234ze(E)", "Helium", "R1130(E)", "Tetrahydrofuran"];
     let saturation = [("Water", ArbiterPart::Saturation), ("Helium", ArbiterPart::Saturation)];
@@ -41,7 +42,9 @@ fn arbiter_statuses_are_asserted() {
         .flat_map(|fluid| [(fluid, ArbiterPart::Viscosity), (fluid, ArbiterPart::Conductivity)]);
     let alpha_r = alpha_r.map(|fluid| (fluid, ArbiterPart::AlphaR));
     let melting = [("Water", ArbiterPart::Melting), ("HeavyWater", ArbiterPart::Melting)];
-    let evaluated: Vec<_> = alpha_r.into_iter().chain(saturation).chain(transport).chain(melting).collect();
+    let helium = [("Helium", ArbiterPart::Conductivity)];
+    let evaluated: Vec<_> =
+        alpha_r.into_iter().chain(saturation).chain(transport).chain(melting).chain(helium).collect();
     for a in ARBITERS {
         let is_evaluated = evaluated.contains(&(a.fluid, a.part));
         assert_eq!(!allowed(&a.status), is_evaluated, "{} {:?}: {:?}", a.fluid, a.part, a.status);

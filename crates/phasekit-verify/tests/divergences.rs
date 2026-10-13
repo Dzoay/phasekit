@@ -868,25 +868,65 @@ fn div_0034() {
     assert!((co2 - 1.05e-5).abs() < 5e-7 && (r123 + 9.56e-4).abs() < 5e-6, "{co2:e} {r123:e}");
 }
 
-/// DIV-0035 (`SkipOracle`; map 05 §3.8 row 4, M8.9), the replacing check: where the oracle's helium λ is NaN, in both
-/// lobes of its critical term's negative blend, phasekit refuses λ as `Undefined` and still gives η; between the lobes
-/// and outside them λ is finite (`transport/probes.csv` checks it against the oracle there).
+/// DIV-0035 (`SkipOracle`; map 05 §3.8 row 4, M8.9; HE1). REFPROP's code for helium's critical conductivity term, which
+/// CoolProp copies, mistypes the scaled equation it reads; phasekit evaluates it as Levelt Sengers, Greer and Sengers
+/// 1976 print it. The replacing check: NIST TN 1334's 54 single-phase rows of 5-6.5 K on its 0.2-0.4 MPa isobars, Hands
+/// and Arp's correlation on TN 1334's own EOS and η, within the table's measured bound (1.07 % at 5.3 K, 55.47 kg/m³).
+/// Where the oracle's λ is NaN, in both lobes of its negative blend, phasekit's is finite. The exempt band is the
+/// term's, 3.5-12 K, since ρ_c enters its damping too.
 fn div_0035() {
     let fluid = Registry::embedded().unwrap().get("Helium").unwrap();
-    let at =
-        |t: f64, rho: f64| fluid.state(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap())).unwrap();
+    let lambda = |t: f64, rho: Density| {
+        let state = fluid.state(Input::dt(rho, Temperature::new(t).unwrap())).unwrap();
+        fluid.prop(&state, Prop::Conductivity).unwrap()
+    };
     let lobes = [(5.5, 17000.0, "t5.5_rho17000"), (5.5, 18000.0, "t5.5_rho18000"), (5.9, 15000.0, "t5.9_rho15000")];
     for (t, rho, name) in lobes {
         assert!(fact(&format!("div0035_lambda_helium_{name}")).is_nan(), "{name}: the oracle's λ");
-        let state = at(t, rho);
-        let refused = Error::Undefined { prop: Prop::Conductivity, phase: state.phase() };
-        assert_eq!(fluid.prop(&state, Prop::Conductivity), Err(refused), "{name}");
-        assert!(fluid.prop(&state, Prop::Viscosity).is_ok_and(|eta| eta.is_finite() && eta > 0.0), "{name}");
+        let got = lambda(t, Density::molar(rho).unwrap());
+        assert!(got.is_finite() && got > 0.0, "{name}: {got}");
     }
-    for (t, rho) in [(5.5, 16000.0), (5.5, 17300.0), (5.5, 19000.0), (6.0, 15000.0)] {
-        let lambda = fluid.prop(&at(t, rho), Prop::Conductivity);
-        assert!(lambda.as_ref().is_ok_and(|l| l.is_finite() && *l > 0.0), "{t} K, {rho} mol/m³: {lambda:?}");
+    let file = "paper/Helium/Arp-NIST-TN1334-1998.B.csv";
+    let (path, text) = fixture!("paper/Helium/Arp-NIST-TN1334-1998.B.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let worst = (0..table.rows().len())
+        .map(|row| {
+            let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rho").unwrap());
+            lambda(t, Density::mass(rho).unwrap()) / table.value(row, "lambda").unwrap() - 1.0
+        })
+        .fold(0.0_f64, |worst, off| worst.max(off.abs()));
+    assert_eq!(table.rows().len(), 54, "{file}");
+    assert!(worst <= registered_table_bound("DIV-0035", file), "{file}: {worst:e}");
+    assert!(worst > 1e-2, "the bound is measured: {worst:e}");
+    probes_differ_where_the_term_is_on();
+}
+
+/// DIV-0035's oracle side, at the helium probe states of `transport/probes.csv`: where the critical term is on, 3.5 < T
+/// < 12 K, the seven inside the blend's region, W = (ΔT*/0.2)² + (Δρ*/0.25)² ≤ 1, move from the oracle's λ by 0.9-25 %
+/// (the scaled equation) and the four outside it by 1e-6 to 2e-4 (ρ_c in the damping); at 3.5 and 12 K, where it is
+/// off, λ is the oracle's in `TransportDirect`.
+fn probes_differ_where_the_term_is_on() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let fluid = registry.get("Helium").unwrap();
+    let (path, text) = fixture!("coolprop-8.0.0/transport/probes.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let mut counts = [0; 3];
+    for row in (0..table.rows().len()).filter(|&r| table.printed(r, "fluid") == Some("Helium")) {
+        let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rho").unwrap());
+        let state = fluid.state(Input::dt(Density::molar(rho).unwrap(), Temperature::new(t).unwrap())).unwrap();
+        let (got, oracle) = (fluid.prop(&state, Prop::Conductivity).unwrap(), table.value(row, "lambda").unwrap());
+        let off = (got / oracle - 1.0).abs();
+        let (dt, drho) = ((1.0 - t / 5.18992).abs(), (1.0 - state.rho(Basis::Mass) / 69.58).abs());
+        let blended = (dt / 0.2) * (dt / 0.2) + (drho / 0.25) * (drho / 0.25) <= 1.0;
+        let class = match (3.5 < t && t < 12.0, blended) {
+            (true, true) => (0, off > 5e-3),
+            (true, false) => (1, off > 1e-6 && off < 1e-3),
+            (false, _) => (2, (got - oracle).abs() <= ToleranceClass::TransportDirect.bound(oracle).unwrap()),
+        };
+        assert!(class.1, "{t} K, {rho} mol/m³: {got} against the oracle's {oracle}");
+        counts[class.0] += 1;
     }
+    assert_eq!(counts, [7, 4, 2]);
 }
 
 /// DIV-0036 (`Investigate`; map 02 §6 row 5): Hydrogen's and OrthoHydrogen's melting line, one Simon fit cited to

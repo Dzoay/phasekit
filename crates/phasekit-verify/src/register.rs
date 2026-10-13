@@ -787,11 +787,22 @@ pub static DIVERGENCES: &[Divergence] = &[
                    it blends kappa_T with the scaled equation's inside W <= 1 and takes the blend's square root, and \
                    the blend is negative in two lobes either side of the critical isochore from 5.20 to 5.99 K (at \
                    5.5 K, 64.6-68.5 and 69.9-73.8 kg/m3), where the oracle's lambda is NaN (5.5 K at 17000 and 18000 \
-                   mol/m3, 5.9 K at 15000); phasekit refuses lambda there as `Undefined` (D12: NaN is never a typed \
-                   result) (2026-10-13)",
-        exempt: None,
+                   mol/m3, 5.9 K at 15000); M8.9 refused lambda there as `Undefined` (D12: NaN is never a typed \
+                   result) (2026-10-13); HE1: that code, REFPROP's, mistypes the scaled equation it reads, Kierstead's \
+                   He4 NBS equation (Levelt Sengers, Greer and Sengers 1976 eq. 3.1 and Table 17): (1 + x/x0)^(2/beta) \
+                   for ^(2 beta), x = (dT/drho)^(1/beta) for dT/|drho|^(1/beta) (Hanley, McCarty and Haynes 1974 eq. \
+                   22) and rho_c 69.158 for 69.58 kg/m3, which also enters the term's damping and so moves lambda at \
+                   every state of 3.5-12 K (by 1e-8 to 2e-4 outside W <= 1); phasekit evaluates it as printed, finite \
+                   in the lobes and within \
+                   1.07 % of NIST TN 1334's 54 single-phase rows of 5-6.5 K at 0.2-0.4 MPa (its own EOS and eta), where \
+                   the oracle is NaN at 5.5 K, 68.51 kg/m3 and 8.1 % off at 5.3 K, 55.47 kg/m3 (2026-10-13)",
+        exempt: Some(Exempt {
+            kinds: &[Kind::Transport],
+            columns: &["lambda"],
+            rows: Rows::TBand { lo: 3.5, hi: 12.0 },
+        }),
         tolerance: None,
-        table_tolerances: &[],
+        table_tolerances: &[("paper/Helium/Arp-NIST-TN1334-1998.B.csv", Tolerance::Relative(1.2e-2))],
         proof: &[8],
         status: DivStatus::Open,
     },

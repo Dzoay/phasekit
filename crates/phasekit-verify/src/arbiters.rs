@@ -464,6 +464,18 @@ pub static ARBITERS: &[Arbiter] = &[
         status: ArbiterStatus::Inconsistent { residual: 3.5e-6 },
     },
     Arbiter {
+        fluid: "Helium",
+        part: ArbiterPart::Conductivity,
+        citation: Citation {
+            key: "Arp-NIST-TN1334-1998",
+            doi_or_report: Some("10.6028/NIST.TN.1334"),
+            role: Role::PropertyPaper,
+        },
+        tables: &[Table { file: "paper/Helium/Arp-NIST-TN1334-1998.B.csv", kind: TableKind::Rows, rows: Some(54) }],
+        constants: None,
+        status: ArbiterStatus::Inconsistent { residual: 1.1e-2 },
+    },
+    Arbiter {
         fluid: "R1234yf",
         part: ArbiterPart::AlphaR,
         citation: Citation {
