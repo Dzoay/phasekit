@@ -556,10 +556,11 @@ still open; an item leaves it when a step or a decision takes it.
 
 **Open user decisions.** P4: the paywalled EOS papers (Ammonia, CO₂, R125, Air, Nitrogen, HFE143m). Until a paper
 arrives its fluid stays oracle-only, labelled provisional; nothing waits on it. The thread-scaling target's wording
-(issue #135): ARCHITECTURE.md §7's ≥ 0.9·N is above the laptop's own ceiling, and met on the aarch64 runner. The §7
-misses re-planned at M9.6 (issues #142 QT and PQ, #143 PT and PH, #144 α^r and properties at (T, ρ); each named in
-`ci/perf-exemptions.txt`): optimise, or restate the target. The reference machine's M9 record waits for the user's
-`cargo xtask bench --record --step M9.6` and `cargo xtask gates perf --targets` on the i7-8700K (user decision RM2).
+(issue #135): ARCHITECTURE.md §7's ≥ 0.9·N is above the laptop's own ceiling, and met on the aarch64 runner and on the
+i7-8700K (`results/M9-intel-core-i7-8700k.scaling.csv`). The §7 misses re-planned at M9.6 (issues #142 QT and PQ,
+#143 PT and PH, #144 α^r and properties at (T, ρ); each named in `ci/perf-exemptions.txt`): optimise, or restate the
+target. The i7-8700K's M9 record (`results/M9-intel-core-i7-8700k.csv`, user decision RM2) passes
+`cargo xtask gates perf --targets`: 7 medians meet §7, and its 20 misses are those the exemptions name.
 The memory budgets re-planned at M9.7 (issue #146): the superancillary's stored inverse (97 of 130 over 25 KiB) and
 15.3 MiB of RSS with all 136 loaded (6.1 MiB of it heap).
 

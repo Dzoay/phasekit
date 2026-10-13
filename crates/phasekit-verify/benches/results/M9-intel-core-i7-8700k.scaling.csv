@@ -1,0 +1,45 @@
+# fixture: phasekit-bench-scaling/v1 (VERIFICATION.md §12; written by `cargo xtask bench --record scaling`)
+# machine: intel-core-i7-8700k
+# cpu: Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz
+# os: Linux 7.2.9-2-cachyos
+# rustc: rustc 1.99.0 (b940084d7 2026-09-28)
+# governor: powersave
+# date: 2026-10-13, commit ca074ab, step M9.6
+# cores: 6 physical, 12 hardware threads
+# method: DT + h + c_p on the (T, rho) grid, threads unpinned, median of 7 passes (benches/scaling.rs)
+# columns: mode,threads,states_per_thread,median_ns_per_state,speedup
+Water,1,20000,1355.8,1.000
+Water,2,20000,1353.4,2.003
+Water,4,20000,1428.2,3.797
+Water,6,20000,1440.5,5.647
+Water,12,20000,3077.5,5.287
+Methane,1,20000,891.6,1.000
+Methane,2,20000,903.8,1.973
+Methane,4,20000,932.8,3.823
+Methane,6,20000,941.9,5.680
+Methane,12,20000,2279.1,4.695
+R134a,1,20000,449.6,1.000
+R134a,2,20000,453.9,1.981
+R134a,4,20000,467.8,3.845
+R134a,6,20000,469.6,5.744
+R134a,12,20000,1008.5,5.349
+n-Propane,1,20000,657.5,1.000
+n-Propane,2,20000,650.5,2.022
+n-Propane,4,20000,667.5,3.940
+n-Propane,6,20000,674.3,5.850
+n-Propane,12,20000,1554.5,5.076
+n-Heptane,1,20000,430.5,1.000
+n-Heptane,2,20000,428.0,2.012
+n-Heptane,4,20000,435.4,3.956
+n-Heptane,6,20000,459.6,5.621
+n-Heptane,12,20000,1015.0,5.090
+mixed,1,20000,801.6,1.000
+mixed,2,20000,803.7,1.995
+mixed,4,20000,822.9,3.896
+mixed,6,20000,844.7,5.694
+mixed,12,20000,1744.9,5.513
+control,1,20000,835.5,1.000
+control,2,20000,850.8,1.964
+control,4,20000,870.4,3.840
+control,6,20000,865.2,5.794
+control,12,20000,946.8,10.590

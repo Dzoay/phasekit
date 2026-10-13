@@ -96,6 +96,15 @@ check_tool cargo-mutants "$INSTALL_CMD" cargo mutants --version
 check_tool cargo-nextest "$INSTALL_CMD" cargo nextest --version
 check_tool uv "https://docs.astral.sh/uv/" uv --version
 
+# The instruction gate (G8 `gates perf`) and `cargo xtask bench --record` run benches/instructions.rs under gungraun,
+# whose runner must be the version of the gungraun dev-dependency, and which runs Valgrind.
+gungraun=$(awk '/^name = "gungraun-runner"$/ { getline; gsub(/version = |"/, ""); print }' "$(dirname "$0")/../Cargo.lock")
+check_tool gungraun-runner "cargo install --locked --root ~/.local gungraun-runner@$gungraun" gungraun-runner --version
+if command -v gungraun-runner >/dev/null 2>&1 && [[ $(gungraun-runner --version) != "gungraun-runner $gungraun" ]]; then
+  fail "gungraun-runner: Cargo.lock has $gungraun (cargo install --locked --root ~/.local gungraun-runner@$gungraun)"
+fi
+check_tool valgrind "install valgrind with the system package manager" valgrind --version
+
 # `cargo xtask fetch-fastchebpure` (PLAN.md M6.1) downloads and unpacks NIST's fastchebpure release: warn only.
 for tool in "curl --version" "unzip -v"; do
   bin=${tool%% *}
