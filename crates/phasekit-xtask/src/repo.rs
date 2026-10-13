@@ -305,6 +305,22 @@ impl Repo {
         if status.success() { Ok(()) } else { Err("cargo bench failed".into()) }
     }
 
+    /// The output of the thread-scaling bench (`benches/scaling.rs`, PLAN.md M9.2), told the machine's physical cores
+    /// (from /proc/cpuinfo; without core ids, as on Arm, the hardware threads).
+    pub fn bench_scaling(&self) -> Result<String, String> {
+        let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
+        let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+        let cores = crate::bench::physical_cores(&cpuinfo).unwrap_or(threads).to_string();
+        let output = Command::new(env!("CARGO"))
+            .args(["bench", "-p", "phasekit-verify", "--bench", "scaling", "--", "--scaling", &cores])
+            .current_dir(&self.root)
+            .stderr(std::process::Stdio::inherit())
+            .output()
+            .map_err(|e| format!("cannot run cargo bench: {e}"))?;
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        if output.status.success() { Ok(stdout) } else { Err(format!("cargo bench --bench scaling failed: {stdout}")) }
+    }
+
     /// Every criterion result under the target directory: (`benchmark.json`, `estimates.json`) of each `new/` run.
     pub fn criterion_results(&self) -> Result<Vec<(String, String)>, String> {
         let target = std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| self.root.join("target"), PathBuf::from);
@@ -329,12 +345,17 @@ impl Repo {
 
     /// The date, commit, CPU model, OS, rustc and CPU frequency governor a bench result is recorded with.
     pub fn machine(&self) -> Result<crate::bench::Machine, String> {
+        fn model<'a>(text: &'a str, key: &str) -> Option<(&'a str, &'a str)> {
+            text.lines().find_map(|l| l.trim().strip_prefix(key)?.split_once(':'))
+        }
         let run = |program: &str, args: &[&str]| -> String {
             let output = Command::new(program).args(args).current_dir(&self.root).output();
             output.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
         };
+        // Arm's /proc/cpuinfo names no model (GitHub's aarch64 runners); lscpu reads it from the CPU part number.
         let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
-        let cpu = cpuinfo.lines().find_map(|l| l.strip_prefix("model name")).and_then(|l| l.split_once(':'));
+        let lscpu = run("lscpu", &[]);
+        let cpu = model(&cpuinfo, "model name").or_else(|| model(&lscpu, "Model name"));
         let governor = std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor");
         Ok(crate::bench::Machine {
             date: run("date", &["-u", "+%Y-%m-%d"]),

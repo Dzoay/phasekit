@@ -1,0 +1,31 @@
+# fixture: phasekit-bench-scaling/v1 (VERIFICATION.md §12; written by `cargo xtask bench --record scaling`)
+# machine: amd-epyc-7763-64-core-processor
+# cpu: AMD EPYC 7763 64-Core Processor
+# os: Linux 6.17.0-1022-azure
+# rustc: rustc 1.99.0 (b940084d7 2026-09-28)
+# governor: unknown
+# date: 2026-10-13, commit b9c7313, step M9.2
+# cores: 2 physical, 4 hardware threads
+# method: DT + h + c_p on the (T, rho) grid, threads unpinned, median of 7 passes (benches/scaling.rs)
+# columns: mode,threads,states_per_thread,median_ns_per_state,speedup
+Water,1,20000,5907.6,1.000
+Water,2,20000,5921.4,1.995
+Water,4,20000,10302.3,2.294
+Methane,1,20000,1093.6,1.000
+Methane,2,20000,1102.1,1.985
+Methane,4,20000,2510.6,1.742
+R134a,1,20000,572.4,1.000
+R134a,2,20000,570.8,2.005
+R134a,4,20000,831.8,2.753
+n-Propane,1,20000,742.7,1.000
+n-Propane,2,20000,746.7,1.989
+n-Propane,4,20000,1165.8,2.548
+n-Heptane,1,20000,513.6,1.000
+n-Heptane,2,20000,516.4,1.989
+n-Heptane,4,20000,751.8,2.733
+mixed,1,20000,1785.5,1.000
+mixed,2,20000,1798.0,1.986
+mixed,4,20000,2961.0,2.412
+control,1,20000,1040.7,1.000
+control,2,20000,1043.0,1.995
+control,4,20000,1094.4,3.804

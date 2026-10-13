@@ -420,12 +420,8 @@ the reference machine (user decisions P3, RM1).
 | Step | Landed |
 |---|---|
 | M9.1 | `ExecPolicy::Parallel` on rayon |
+| M9.2 | Thread scaling recorded |
 
-- **M9.2 Thread scaling.** *Failing command:* `cargo xtask bench --record scaling` (no harness). *Do:* the
-  `scaling_same_and_different_fluids` bench at 1, 2, 4 and N threads, N = the reference machine's physical cores (the
-  dev box's i7-8700K: 6 cores, 12 hardware threads); it records throughput relative to one thread, it asserts nothing
-  (K19 targets are estimates). *Done when:* recorded on the reference machine and CI runners; a result below 0.9·N at N
-  threads opens a re-plan issue with the measurement.
 - **M9.2a Non-analytic terms at the requested order** (user decision NA1). *Failing test:*
   `non_analytic_order_two_equals_jet4` (the block's order-2 bundle against the order ≤ 2 entries of today's `Jet4`
   evaluation at the `term` fixtures' (τ, δ) for Water and CarbonDioxide, the critical point's limits included: bitwise
@@ -448,7 +444,7 @@ the reference machine (user decisions P3, RM1).
   `libm` becomes a default feature of `phasekit-core`, forwarded by compat (and capi, wasm at M10), if and only if
   **both** hold:
   1. *Bit-identity:* with `libm`, the M9.4 hash is identical on all four targets.
-  2. *Cost:* on the reference machine (user decisions P3, RM1), the geometric mean of the libm/std median-time ratios over the six
+  2. *Cost:* on the reference machine (user decisions P3, RM1; measured on the laptop, user decision RM2), the geometric mean of the libm/std median-time ratios over the six
      scalar gate benches (α^r order 2, properties at (T, ρ), QT, PQ, PT, PH; each on the VERIFICATION.md §12 bench
      fluids, its ratio the geometric mean over those fluids; criterion, ≥ 30 samples each, same build) is **≤ 1.05**,
      and no single bench ratio exceeds **1.10**.
@@ -464,7 +460,8 @@ the reference machine (user decisions P3, RM1).
   opt-in and VERIFICATION.md §5 keeps its cross-target tolerances.
 - **M9.6 Performance gates enforced.** *Failing command:* `cargo xtask gates perf` (no thresholds yet). *Do:* gungraun
   instruction-count benches on Linux CI failing on a > 5 % increase against the baseline committed in this step
-  *(inference: noise margin)*; criterion medians on the reference machine against the ARCHITECTURE.md §7 table. *Carried
+  *(inference: noise margin)*; criterion medians on the reference machine against the ARCHITECTURE.md §7 table (one command the user runs on the
+  i7-8700K, user decision RM2). *Carried
   from M6.11, M7.2 and M7.3:* QT and PQ ran 7 to 19 times their 0.1 µs target (#88: the two-phase `State` builds both
   phases' EOS bundles eagerly, where CoolProp evaluates only the superancillary; a state that defers its bundles is one
   way); Water's PT took 38.6 µs (#92: about seven Newton steps from the ideal-gas seed, each one α^r; a better seed and
@@ -663,7 +660,8 @@ Every decision, and the steps it applies to, is in [DECISIONS.md](DECISIONS.md).
 still open; an item leaves it when a step or a decision takes it.
 
 **Open user decisions.** P4: the paywalled EOS papers (Ammonia, CO₂, R125, Air, Nitrogen, HFE143m). Until a paper
-arrives its fluid stays oracle-only, labelled provisional; nothing waits on it.
+arrives its fluid stays oracle-only, labelled provisional; nothing waits on it. The thread-scaling target's wording
+(issue #135): ARCHITECTURE.md §7's ≥ 0.9·N is above the laptop's own ceiling, and met on the aarch64 runner.
 
 **Waiting for a paper.** Each item moves when a copy reaches `reference/papers/`.
 

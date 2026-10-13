@@ -3,7 +3,9 @@
 # non-determinism fails), the full set is generated into fixtures-full/, the ignored sweeps run against it (L5), and
 # the report goes to the run summary. Fixtures are generated only here (K18): a run dispatched with `regenerate`
 # writes them instead and uploads them as the `fixtures` artifact, to be committed. Also the daily RustSec advisory
-# check (PLAN.md §5.3): a new advisory against a locked dependency shows up without waiting for a PR.
+# check (PLAN.md §5.3): a new advisory against a locked dependency shows up without waiting for a PR. And thread scaling
+# on a Linux x86-64 and an aarch64 runner (PLAN.md M9.2): each machine's results file goes to the run summary and the
+# `scaling-<runner>` artifact; shared runners' wall clock is informational (user decisions P3, RM1).
 name: nightly
 
 on:
@@ -182,6 +184,36 @@ jobs:
             echo
             echo "Sweep: $(grep -E '^ *Summary' sweep.log 2>/dev/null | tr '\n' ' ' || echo 'not run')"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  scaling:
+    name: thread scaling (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 100 # the latest Plan-Step trailer names the step the results are recorded at
+      - uses: ./.github/actions/rust
+      - name: cargo xtask bench --record scaling
+        run: |
+          step=$(git log --grep '^Plan-Step: ' -1 --format=%B | sed -n 's/^Plan-Step: //p' | tail -1)
+          cargo xtask bench --record scaling --step "$step"
+      - name: Results (run summary)
+        run: |
+          mkdir -p scaling
+          git ls-files --others --modified -- crates/phasekit-verify/benches/results/ | grep '\.scaling\.csv$' | while read -r f; do
+            cp "$f" scaling/
+            { echo '```'; cat "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scaling-${{ matrix.runner }}
+          path: scaling/
+          if-no-files-found: error
 
   advisories:
     name: advisories
