@@ -47,14 +47,11 @@ fn c_smoke() {
         format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))
     };
     assert!(built.status.success(), "{command:?}: {}", report(&built));
-    let mut run = Command::new(&exe);
-    if cfg!(windows) {
-        let path = std::env::var_os("PATH").unwrap_or_default();
-        run.env(
-            "PATH",
-            std::env::join_paths(std::iter::once(lib.clone()).chain(std::env::split_paths(&path))).unwrap(),
-        );
-    }
+    // The library's own directory first: cargo's search path for tests also names the profile directory, whose copy of
+    // the library may be an older build's, and on Linux it is searched before the program's runpath.
+    let (mut run, var) = (Command::new(&exe), if cfg!(windows) { "PATH" } else { "LD_LIBRARY_PATH" });
+    let path = std::env::var_os(var).unwrap_or_default();
+    run.env(var, std::env::join_paths(std::iter::once(lib.clone()).chain(std::env::split_paths(&path))).unwrap());
     let ran = run.output().unwrap();
     assert!(ran.status.success() && String::from_utf8_lossy(&ran.stdout).trim() == "ok", "{}", report(&ran));
     std::fs::remove_dir_all(&out).ok();

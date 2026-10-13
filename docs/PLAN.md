@@ -436,9 +436,8 @@ version, Node.js LTS (wasm-bindgen-test), cargo-about, cargo-semver-checks.
 | M10.2 | CoolProp's 85 outputs by name (the 8 α terms `NoModel` until M10.3), Props1SI, PhaseSI, fill policies, blob v7's published constants, the `props` kind |
 | M10.3 | The strict `d(X)/d(Y)\|Z` and `d(d(X)/d(Y)\|Z)/d(W)\|V` grammar, the 8 τ- and δ-scaled α outputs, the `props` kind's 22 derivative strings |
 | M10.4 | `phasekit-capi`: the `pk_*` C ABI (registries, fluids, the PropsSI strings), its committed header, `gates abi` |
+| M10.5 | `pk_batch`: the point-major C batch on a `pk_fluid`, each cell's `PK_*` status; compat's `batch_si`, the batch over the strings |
 
-- **M10.5 C batch.** *Failing test:* `pk_batch_equals_rust_batch_bitwise` (on a `pk_fluid`; point-major `out[i*M + k]`,
-  per-cell status). *Done when:* green.
 - **M10.6 Tier A CoolPropLib.h shim.** *Failing tests:* `parameter_and_pair_codes_match_v8_0_0` (map 01 R1, R2: every
   parameter code equals the oracle's `get_parameter_index` and every phase code its `get_phase_index`; input-pair
   values equal `CoolProp.constants`; the wheel exposes no `get_input_pair_index`, so pair *names*, collisions included
