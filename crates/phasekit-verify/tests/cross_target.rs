@@ -74,13 +74,12 @@ fn fluid_grid(hash: &mut Fnv, registry: &Registry, fluid: &Fluid, name: &str) ->
     let dt = |rho: f64, t: f64| Some(Input::dt(Density::molar(rho).ok()?, Temperature::new(t).ok()?));
     let flash = |input: Option<Input>| input.ok_or(Error::InvalidInput { quantity: "grid input", value: f64::NAN });
     let mut rng = SplitMix64::new(1);
-    let mut eos_point =
-        |rng: &mut SplitMix64| (rng.log_uniform(1e-6 * rho_l, rho_l), rng.uniform(t_low, limits.t_max()));
+    let eos_point = |rng: &mut SplitMix64| (rng.log_uniform(1e-6 * rho_l, rho_l), rng.uniform(t_low, limits.t_max()));
     let (mut points, mut ok) = (0, 0);
     let mut count = |hash: &mut Fnv, state: Result<State, Error>| {
         points += 1;
         ok += usize::from(hash.state(&state));
-        state
+        state.ok()
     };
     let helmholtz = fluid.model().helmholtz().unwrap();
     for _ in 0..64 {
