@@ -25,3 +25,8 @@ phasekit-data.workspace = true
 
 [lints]
 workspace = true
+
+# docs/MIGRATION.md's example, which needs embedded fluids.
+[[example]]
+name = "migration"
+required-features = ["embedded"]
