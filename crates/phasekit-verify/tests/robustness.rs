@@ -65,7 +65,7 @@ impl Case {
 fn corpus(registry: &Registry) -> Vec<Case> {
     use Pair::{DP, DQ, DS, DT, HP, HQ, HS, PQ, PS, PT, PU, QS, QT, ST};
     use Phase::{Gas, Liquid, Supercritical, SupercriticalGas, SupercriticalLiquid, TwoPhase};
-    use Want::{Ambiguous, In, Refused, Solid, State};
+    use Want::{Ambiguous, In, Refused, State};
     // CoolProp's critical point with its superancillaries on (the default): the curve's top, which labels states here
     // too; the published one where a fluid has no curve.
     let critical = |name: &str| match phasekit_core::internal::record(registry, name).unwrap().superancillary_curve() {
@@ -229,6 +229,15 @@ fn corpus(registry: &Registry) -> Vec<Case> {
         let p = registry.get("R32").unwrap().state(Input::new(QT, 1.0, t, Basis::Molar).unwrap());
         corpus.push(case("#2247", "R32", PT, p.map_or(f64::NAN, |s| s.p()), t + 1.0, In(Gas)));
     }
+    corpus.extend(melting_cases(registry));
+    corpus
+}
+
+/// The issues' melting-line states (M8.11).
+fn melting_cases(registry: &Registry) -> Vec<Case> {
+    use Pair::PT;
+    use Want::{Refused, Solid};
+    let mut corpus = Vec::new();
     // #2639 (:4074): Water 5 K below its melting line from just above its triple point's pressure to pmax: below
     // 273.16 K, under the triple point's temperature; on the ice VI branch, from 777 MPa, below its melting line.
     let water = registry.get("Water").unwrap();

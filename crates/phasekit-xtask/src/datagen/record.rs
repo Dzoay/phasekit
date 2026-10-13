@@ -335,26 +335,7 @@ fn melting(ancillaries: &serde_json::Value) -> Result<Vec<MeltingSegment>, Strin
     let mut segments: Vec<MeltingSegment> = Vec::with_capacity(parts.len());
     for (i, part) in parts.iter().enumerate() {
         let get = |key: &str| part.get(key).and_then(serde_json::Value::as_f64).ok_or(format!("part {i}: no {key}"));
-        let list = |key: &str| -> Result<Vec<f64>, String> {
-            let items = part.get(key).and_then(serde_json::Value::as_array).ok_or(format!("part {i}: no {key}"))?;
-            items.iter().map(|x| x.as_f64().ok_or(format!("part {i}: {key} not a number"))).collect()
-        };
-        let form = match kind {
-            "Simon" => MeltingForm::Simon { a: get("a")?, c: get("c")? },
-            "polynomial_in_Tr" | "polynomial_in_Theta" => {
-                let (a, t) = (list("a")?, list("t")?);
-                if a.is_empty() || a.len() != t.len() {
-                    return Err(format!("part {i}: {} a and {} t", a.len(), t.len()));
-                }
-                let terms = a.into_iter().zip(t).collect();
-                if kind == "polynomial_in_Tr" {
-                    MeltingForm::PolynomialInTr(terms)
-                } else {
-                    MeltingForm::PolynomialInTheta(terms)
-                }
-            }
-            other => return Err(format!("type {other}")),
-        };
+        let form = melting_form(kind, part, i)?;
         let (t_min, t_max) = (get("T_min")?, get("T_max")?);
         let segment =
             MeltingSegment { form, t0: get("T_0")?, p0: get("p_0")?, t_min: t_min.min(t_max), t_max: t_min.max(t_max) };
@@ -366,6 +347,27 @@ fn melting(ancillaries: &serde_json::Value) -> Result<Vec<MeltingSegment>, Strin
         segments.push(segment);
     }
     Ok(segments)
+}
+
+/// Part `i`'s form, of the curve's `kind`: Simon's a and c, or a polynomial's (aᵢ, tᵢ), at least one and as many t as a.
+fn melting_form(kind: &str, part: &serde_json::Value, i: usize) -> Result<MeltingForm, String> {
+    let get = |key: &str| part.get(key).and_then(serde_json::Value::as_f64).ok_or(format!("part {i}: no {key}"));
+    let list = |key: &str| -> Result<Vec<f64>, String> {
+        let items = part.get(key).and_then(serde_json::Value::as_array).ok_or(format!("part {i}: no {key}"))?;
+        items.iter().map(|x| x.as_f64().ok_or(format!("part {i}: {key} not a number"))).collect()
+    };
+    let polynomial = |a: Vec<f64>, t: Vec<f64>| -> Result<Box<[(f64, f64)]>, String> {
+        if a.is_empty() || a.len() != t.len() {
+            return Err(format!("part {i}: {} a and {} t", a.len(), t.len()));
+        }
+        Ok(a.into_iter().zip(t).collect())
+    };
+    match kind {
+        "Simon" => Ok(MeltingForm::Simon { a: get("a")?, c: get("c")? }),
+        "polynomial_in_Tr" => Ok(MeltingForm::PolynomialInTr(polynomial(list("a")?, list("t")?)?)),
+        "polynomial_in_Theta" => Ok(MeltingForm::PolynomialInTheta(polynomial(list("a")?, list("t")?)?)),
+        other => Err(format!("type {other}")),
+    }
 }
 
 /// A pseudo-pure fluid's saturation definition (D4; map 04 U4; PLAN.md M6.9): its `pL`, `pV`, `rhoL` and `rhoV`
