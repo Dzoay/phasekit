@@ -1,0 +1,49 @@
+[package]
+name = "phasekit-capi"
+description = "The pk_* C ABI over phasekit-compat: string keys, generational handles, status returns, a per-thread last error"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The C library (`cdylib`) and the Rust form its own tests call (`rlib`). Its header, include/phasekit.h, is cbindgen's
+# output, committed; `cargo xtask gates abi` checks it (PLAN.md M10.4; dependencies R15).
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# E7: the fluid set is forwarded, never implied.
+[features]
+default = ["fluids-all"]
+fluids-all = ["phasekit-compat/fluids-all"]
+fluids-core = ["phasekit-compat/fluids-core"]
+
+[dependencies]
+phasekit-compat.workspace = true
+phasekit-core.workspace = true
+
+# `c_smoke` builds tests/c/smoke.c with the platform's C compiler, which `cc` finds (MSVC's too; tier T3, PLAN.md M10.4).
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+cc = "1.2"
+
+# The entry points over arbitrary bytes, nulls and lengths (ROT-150; tier T3, std only, as phasekit-core's).
+[dev-dependencies]
+proptest = { version = "1.11", default-features = false, features = ["std"] }
+
+# The workspace's lints (root Cargo.toml), but `unsafe_code` relaxed to `deny`: each FFI item allows it with a SAFETY
+# comment (D17, BRIEF "memory safe"); `gates lints` accepts this crate's table and no other's.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+panic = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+too_many_lines = "deny"

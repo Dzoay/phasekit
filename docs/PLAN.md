@@ -435,21 +435,10 @@ version, Node.js LTS (wasm-bindgen-test), cargo-about, cargo-semver-checks.
 | M10.1 | IIR, ASHRAE, NBP and `Native` reference states, the `refstate` kind |
 | M10.2 | CoolProp's 85 outputs by name (the 8 α terms `NoModel` until M10.3), Props1SI, PhaseSI, fill policies, blob v7's published constants, the `props` kind |
 | M10.3 | The strict `d(X)/d(Y)\|Z` and `d(d(X)/d(Y)\|Z)/d(W)\|V` grammar, the 8 τ- and δ-scaled α outputs, the `props` kind's 22 derivative strings |
+| M10.4 | `phasekit-capi`: the `pk_*` C ABI (registries, fluids, the PropsSI strings), its committed header, `gates abi` |
 
-- **M10.4 `pk_*` C ABI.** *Failing tests:* `c_smoke` (compiles `crates/phasekit-capi/tests/c/smoke.c` against the
-  cdylib and the committed header with the platform C compiler that the `cc` crate finds (a dev-dependency of
-  `phasekit-capi`, tier T3 *(inference: `cc` is not in the dependencies research; `std::process::Command` with an
-  explicit compiler is the fallback)*): GCC or Clang with `-std=c99 -pedantic-errors -Wall -Werror`, MSVC `cl` with
-  `/std:c11 /W4 /WX` (cl has no C99 mode *(inference)*); runs on Linux and Windows CI), `stale_handle_is_an_error`
-  (generational u64), `free_during_use_gives_stale_handle_status`, `handle_generation_wraps_without_aliasing`,
-  `too_small_buffer_returns_the_needed_length` (map 11 F2), `null_and_bad_lengths_return_status`,
-  `panics_never_cross_the_boundary`, `pk_error_is_thread_local`, `default_library_exports_only_pk_symbols`. *Do:*
-  `phasekit-capi` (`unsafe_code = "deny"` with per-item `allow` and SAFETY comments; the thread-local error and handle
-  table modules allow `disallowed_types`, atomics and `thread_local!`, E13): registry, fluid, properties, batch,
-  `pk_registry_with_reference`, `pk_last_error(buf, len) -> needed`; exact names fixed in this step and frozen in the
-  header; `cargo xtask gates abi`. *Done when:* green; header committed; `abi` in G8.
-- **M10.5 C batch.** *Failing test:* `pk_batch_equals_rust_batch_bitwise` (point-major `out[i*M + k]`, per-cell
-  status). *Done when:* green.
+- **M10.5 C batch.** *Failing test:* `pk_batch_equals_rust_batch_bitwise` (on a `pk_fluid`; point-major `out[i*M + k]`,
+  per-cell status). *Done when:* green.
 - **M10.6 Tier A CoolPropLib.h shim.** *Failing tests:* `parameter_and_pair_codes_match_v8_0_0` (map 01 R1, R2: every
   parameter code equals the oracle's `get_parameter_index` and every phase code its `get_phase_index`; input-pair
   values equal `CoolProp.constants`; the wheel exposes no `get_input_pair_index`, so pair *names*, collisions included
