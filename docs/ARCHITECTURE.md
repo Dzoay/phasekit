@@ -643,11 +643,13 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      is a `[f64; W]` whose `#[inline(always)]` lane loops LLVM vectorises inside the level token's `vectorize`, the safe
      runtime dispatch fearless_simd's `dispatch!` expands to; the kernel path is `#[inline(always)]` down to the lane
      operations (checked in fearless_simd 1.1.0's source and its `MANUAL_INLINING.md`, 2026-10-13). `exec::run_simd`
-     matches `Level` itself instead of calling `dispatch!`, whose generic token cannot choose a const W: 8 lanes on
-     AVX-512, 4 on AVX2, 2 below (M12.4). A crate-private `exec` module separates
-     `LaneKernel` ("what") from `run_scalar`/`run_lanes<W>`/`run_parallel` ("how"); it sits at L0 with `ExecPolicy`,
-     as its executors hold no physics, so L2's batch hook can take a policy (D1). The batch hooks and an `ExecPolicy`
-     variant return with it. WASM `simd128` is a second build (K11, K15).
+     matches `Level` itself instead of calling `dispatch!`, whose generic token cannot choose a const W. W is four
+     vectors to a lane operation (user decision SL6): 32 lanes on AVX-512, 16 on AVX2, 8 below, and the last partial
+     group runs one vector wide. On the i7-8700K, n-Propane's α^r took 213, 120, 109 and 125 ns per state at one, two,
+     four and eight AVX2 vectors, and 356, 252, 184 and 192 ns at SSE4.2 (M12.7; AVX-512 follows the rule unmeasured). A
+     crate-private `exec` module separates `LaneKernel` ("what") from `run_scalar`/`run_lanes<W>`/`run_parallel`
+     ("how"); it sits at L0 with `ExecPolicy`, as its executors hold no physics, so L2's batch hook can take a policy
+     (D1). The batch hooks and an `ExecPolicy` variant return with it. WASM `simd128` is a second build (K11, K15).
   3. `simd` enables `libm` (user decision SL1), so its lanes are bitwise equal to the `libm` scalar path. The vector
      `exp`/`ln` are ports of the locked `libm` crate's, operation for operation (fearless_simd has none; dependencies
      §4); any other transcendental a laned kernel needs is ported the same way or called per lane through `math`.
