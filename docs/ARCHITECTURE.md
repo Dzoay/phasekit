@@ -409,8 +409,8 @@ decode (systems fatal flaw on Lean); late resolution by name through a `Weak` re
 bitwise equal. No batch hook ships without a caller (S-01): `residual_batch`, `flash_many`, the per-kind batch loops and
 `ExecPolicy::Auto` are deleted, to return with the SIMD milestone. A new `#[non_exhaustive]` variant is a minor semver
 change (materials-extensibility intro, citing the Cargo SemVer guide), and so is a defaulted trait method *(inference)*.
-SIMD comes after 0.1, behind a measured gate, as a `simd` feature of `phasekit-core` that enables `libm` (§7, user
-decision SL1).
+SIMD comes with M12, which may land before the `v0.1.0` tag (user decision RL4), behind a measured target, as a
+`simd` feature of `phasekit-core` that enables `libm` (§7, user decisions SL1, TG1).
 *Why:* K8-K17, R12, R13, T1b, the user's follow-up. *Rejected:* SIMD in v0.1 (Kernel fatal flaw); a `phasekit-simd`
 crate (S-02); unreachable v0.1 hooks (S-01); `std::simd` (nightly); per-ISA physics; features that change numerics.
 
@@ -605,10 +605,12 @@ sequenceDiagram
 - **No hot-path locks.** Lookups are atomic loads after first touch. Evaluation reads immutable data and writes only the
   stack and caller buffers. Even CoolProp's superancillary inverse, built under a per-call mutex (map 11 F7), becomes
   datagen output.
-- **Memory budget** (K19 targets, recorded from M3, enforced at M9): per fluid, EOS ≤ 25 KiB (the δ-factor polynomials
-  cost 200 B per power term, about 13 KiB for Water's 56 terms *(inference)*) + superancillary ≤ 25 KiB (v8.0.0: 2.81
-  MiB raw for 136 fluids, map 09); all 136 loaded ≤ 8 MiB RSS *(inference)*; per state ≤ 256 B on the stack; per batch
-  point 0 heap bytes. CoolProp: 100-300 KiB and 6 fluid copies per state (map 11), +67 MiB on first use (map 14).
+- **Memory budget** (K19 targets, recorded from M3, checked from M9; targets, not gates, user decision TG1): per fluid,
+  EOS ≤ 25 KiB (the δ-factor polynomials cost 200 B per power term, about 13 KiB for Water's 56 terms *(inference)*) +
+  superancillary ≤ 40 KiB with its stored T(ln p) inverse (v8.0.0: 2.81 MiB raw for 136 fluids, map 09); all 136 loaded
+  ≤ 16 MiB RSS, of it ≤ 8 MiB heap. The superancillary's and the RSS budgets are relaxed from K19's 25 KiB and 8 MiB,
+  which stay the goals (user decision MB1, issue #146). Per state ≤ 256 B on the stack; per batch point 0 heap bytes.
+  CoolProp: 100-300 KiB and 6 fluid copies per state (map 11), +67 MiB on first use (map 14).
 - **WASM memory.** Active data segments are copied into linear memory at instantiation (dependencies §2.6). The browser
   build therefore embeds `fluids-core` (feature forwarding, E7) and adds fetched packs as layers, so per-instance memory
   follows what the page uses (Kernel graft, E6).
@@ -645,24 +647,27 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
   3. `simd` enables `libm` (user decision SL1), so its lanes are bitwise equal to the `libm` scalar path. The vector
      `exp`/`ln` are ports of the locked `libm` crate's, operation for operation (fearless_simd has none; dependencies
      §4); any other transcendental a laned kernel needs is ported the same way or called per lane through `math`.
-  - The gate is ≥ 2.5× α^r batch throughput on AVX2 over the scalar path, on the reference machine, or stop and
-    re-plan (user decision SL3).
+  - The target is ≥ 2.5× α^r batch throughput on AVX2 over the scalar path, on the reference machine; `simd` ships if
+    it is faster than the scalar path (user decisions SL3, TG1).
 - **Dispatch.** `ExecPolicy` is a run-time value. Cargo features add executors but never change numerics (K13);
   `simd` changes them only by enabling `libm` (D12, user decision SL1).
   Summation-order-changing variants (across-terms SIMD, FMA) exist only as a separate future `Fast` policy with its own
   tolerance class (K9, K12).
 - **Differential testing.** `phasekit_verify::policy_equivalence(fluid, req, candidate)` asserts every cell and status
   bitwise equal to `Reference`. CI forces every dispatch level, and accelerated kernels must also pass the paper rows.
-- **Perf gates** (K19 estimates; criterion and counting-allocator benches recorded as each path lands, from M2, and
-  enforced from M9; the C++-level CoolProp baseline is built at M1; E9):
+- **Perf targets** (K19 estimates; criterion and counting-allocator benches recorded as each path lands, from M2, and
+  checked from M9; the C++-level CoolProp baseline is built at M1; E9). They are desirable targets, not gates: a miss is
+  logged in a `future-work` issue (user decision TG1). Where a row is relative to CoolProp, its first absolute target
+  stays the goal in that issue:
 
-| Gate (1 x86-64 core) | Target | First recorded | CoolProp 8.0.0 reference |
+| Workload (1 x86-64 core) | Target | First recorded | CoolProp 8.0.0 reference |
 |---|---|---|---|
-| α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs | M3 | n/a |
+| α^r bundle, order 2, 16-20 terms | ≤ CoolProp's on the same machine (user decision PF3; the goal ≤ 0.3 µs, issue #144) | M3 | the C++ baseline's `alphar2` |
 | Same, AVX2 across states | ≤ 0.1 µs/state (it ships at ≥ 2.5×, user decision SL3) | M12 | n/a |
-| Properties at (T, ρ) | ≤ 0.5 µs | M5 | update(D,T)+h+cp 1.5-10.7 µs |
+| Properties at (T, ρ) | ≤ CoolProp's on the same machine (user decision PF3; the goal ≤ 0.5 µs, issue #144) | M5 | update(D,T)+h+cp 1.5-10.7 µs; the C++ baseline's `dt_h_cp` |
 | QT / PQ + h via superancillary | ≤ CoolProp's on the same machine (user decision PF1) | M6 | update(QT or PQ) + hmolar, the C++ baseline's `qt_h` / `pq_h` |
-| PT / PH single phase | ≤ 3 µs / ≤ 15 µs | M7 | 19-27 µs / 119-376 µs |
+| PT single phase | ≤ ½ of CoolProp's on the same machine (user decision PF2; the goal ≤ 3 µs, issue #143) | M7 | 19-27 µs; the C++ baseline's `pt` |
+| PH single phase | ≤ 15 µs | M7 | 119-376 µs |
 | Hot lookup by name | ≤ 50 ns *(inference)* | M2 | `PropsSI` rebuilds a backend: 76.5 µs |
 | Heap allocations per flash or batch point | 0 (counting `#[global_allocator]` test) | M5 | n/a |
 | Thread scaling, same and different fluids | ≥ 0.9·N (1…N harness) | M9 | GIL-bound 0.97× on 4 threads |

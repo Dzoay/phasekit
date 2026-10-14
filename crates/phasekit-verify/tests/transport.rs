@@ -12,6 +12,7 @@ use phasekit_core::{
     DataSet, Density, DomainPolicy, Error, FlashOptions, Fluid, Input, LoadError, Phase, Pressure, Prop, Quality,
     Registry, Strategy, Temperature, math,
 };
+use phasekit_verify::backend;
 use phasekit_verify::{DIVERGENCES, Fixture, Kind, Tolerance, ToleranceClass, fixture, register};
 
 #[path = "common/transport_rows.rs"]
@@ -368,10 +369,12 @@ fn lands_later<T>(result: &Result<T, Error>) -> bool {
 
 /// PLAN.md M8.5 (map 05 U3): staged viscosity stage by stage against CoolProp's `viscosity_contributions` at the
 /// oracle's states (all-fluid tier and core subset), each stage and the total in class `TransportDirect` at the scale of
-/// the oracle's total. A staged model with a hardcoded stage (map 05 U10) says it lands at M8.9.
+/// the oracle's total. A staged model with a hardcoded stage (map 05 U10) says it lands at M8.9. On the `libm` backend,
+/// Ammonia's η and initial-density term at 8 states are counted, not asserted (user decision LB1, issue #170).
 #[test]
 fn viscosity_stages_match_contributions() {
-    let (mut checked, mut later, mut failures) = (BTreeSet::new(), BTreeSet::new(), Vec::new());
+    const TEST: &str = "viscosity_stages_match_contributions";
+    let (mut checked, mut later, mut failures, mut known) = (BTreeSet::new(), BTreeSet::new(), Vec::new(), 0);
     let columns = [("eta_dilute", 0), ("eta_initial_density", 1), ("eta_residual", 2), ("eta_critical", 3)];
     for_transport_rows("eta_model", "staged", |table, row, name, record, state, _| {
         if table.printed(row, "eta_status") != Some("ok") {
@@ -385,17 +388,21 @@ fn viscosity_stages_match_contributions() {
         }
         let stages = stages.unwrap();
         let scale = table.value(row, "eta").unwrap();
-        let got = [stages.dilute, stages.initial_density, stages.residual, stages.critical];
-        for (column, i) in columns {
-            let checked = table.check_scaled(row, column, got[i], scale);
-            failures.extend(checked.err().map(|e| format!("{name} row {row} {column}: {e:?}")));
+        let got = [stages.dilute, stages.initial_density, stages.residual, stages.critical, stages.total()];
+        for (column, i) in columns.into_iter().chain([("eta", 4)]) {
+            match table.check_scaled(row, column, got[i], scale) {
+                Err(_) if backend::known(math::BACKEND, TEST, name, column) => known += 1,
+                checked => failures.extend(checked.err().map(|e| format!("{name} row {row} {column}: {e:?}"))),
+            }
         }
-        let total = table.check_scaled(row, "eta", stages.total(), scale);
-        failures.extend(total.err().map(|e| format!("{name} row {row} eta: {e:?}")));
         checked.insert(name.to_string());
     });
     assert!(failures.is_empty(), "{failures:#?}");
-    assert_eq!((checked.len(), later.len()), (34, 0), "{checked:?} {later:?}");
+    assert_eq!(
+        (checked.len(), later.len(), known),
+        (34, 0, backend::known_cells(math::BACKEND, TEST)),
+        "{checked:?} {later:?}"
+    );
 }
 
 /// PLAN.md M8.6 (map 05 U4, R6): staged conductivity stage by stage against CoolProp's `conductivity_contributions` at
@@ -569,10 +576,12 @@ fn q_d_is_read() {
 /// conductivity (M8.6), and the ρ*_sr-CS and Chung viscosities, against CoolProp's totals at the oracle's states (the
 /// all-fluid tier and the core subset) in class `TransportDirect`, one case per model; the hard-coded stages of staged
 /// models are checked stage by stage (`viscosity_stages_match_contributions`, `conductivity_stages_match_contributions`).
-/// DIV-0035's 14 Helium λ cells of 3.5-12 K are exempt (its replacing check is `div_0035`).
+/// DIV-0035's 14 Helium λ cells of 3.5-12 K are exempt (its replacing check is `div_0035`). On the `libm` backend,
+/// Methanol's η at one state is counted, not asserted (user decision LB1, issue #170).
 #[test]
 fn hardcoded_models_match_oracle() {
-    let (mut cases, mut failures, mut exempt) = (BTreeMap::new(), Vec::new(), 0);
+    const TEST: &str = "hardcoded_models_match_oracle";
+    let (mut cases, mut failures, mut exempt, mut known) = (BTreeMap::new(), Vec::new(), 0, 0);
     let kinds = [("eta_model", "hardcoded", "eta"), ("eta_model", "rhosr", "eta"), ("eta_model", "chung", "eta")];
     for (column, model, property) in kinds.into_iter().chain([("lambda_model", "hardcoded", "lambda")]) {
         for_transport_rows(column, model, |table, row, name, record, state, references| {
@@ -587,13 +596,15 @@ fn hardcoded_models_match_oracle() {
                 exempt += 1;
                 return;
             }
-            let checked = hardcoded_total(table, row, record, state, references, property);
-            failures.extend(checked.err().map(|e| format!("{name} row {row} {property}: {e}")));
+            match hardcoded_total(table, row, record, state, references, property) {
+                Err(_) if backend::known(math::BACKEND, TEST, name, property) => known += 1,
+                checked => failures.extend(checked.err().map(|e| format!("{name} row {row} {property}: {e}"))),
+            }
             *cases.entry(format!("{property} {model} {name}")).or_insert(0) += 1;
         });
     }
     assert!(failures.is_empty(), "{failures:#?}");
-    assert_eq!(exempt, 14);
+    assert_eq!((exempt, known), (14, backend::known_cells(math::BACKEND, TEST)));
     let models: Vec<&str> = cases.keys().map(String::as_str).collect();
     let rhosr = ["R124", "R1234yf", "R1234ze(E)", "R152A", "R22", "R245fa", "R32"].map(|f| format!("eta rhosr {f}"));
     let whole = ["Helium", "Methanol", "R23", "m-Xylene", "o-Xylene", "p-Xylene"].map(|f| format!("eta hardcoded {f}"));

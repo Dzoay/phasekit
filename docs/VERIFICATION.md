@@ -703,8 +703,8 @@ so it needs no oracle (`crates/phasekit-verify/src/conformance.rs`).
 | FD | `fd_first_order` | A10, A01 vs FD in dimensional T, ρ | `Fd` | M1 |
 | Gauge | `gauge_invariance` | 8.4 | `Exact` / `Identity` | M1 |
 | Executors | `policy_equivalence` | 9.1 | `Exact` | M1 |
-| Identities | `identities(fluid, states)` | the 8.1 list | `Identity` | not yet in the kit: `tests/eos.rs` checks them |
-| Part additivity | `part_additivity` | `ThermoModel::derivs`: total = ideal + residual | `Identity` | not yet in the kit |
+| Identities | `identities(fluid, states)` | the 8.1 list | `Identity` | M20.2; until then `tests/eos.rs` checks them |
+| Part additivity | `part_additivity` | `ThermoModel::derivs`: total = ideal + residual | `Identity` | M20.2 |
 | Capability | `capability_matrix` | 8.5 | `Flash` | M7 |
 | Threads | `thread_invariance` | 1..N threads and racing first use, bitwise | `Exact` | M9 |
 
@@ -743,7 +743,7 @@ definition of the subcommands; PLAN.md steps add them in the order of the last c
 | `rot` | every ROT-REGISTER.md row whose milestone is below `phasekit_verify::MILESTONE` has no GAP status and no Proof still marked "new" that is due (PLAN.md §2.1 defines ticking) | M0.4 |
 | `assertions` | every `#[test]` in `crates/` (lint probes aside) contains `assert!`, `assert_eq!` or `assert_ne!`, or is `#[should_panic]`; no `assert_eq!`/`assert_ne!` has identical sides; comments and string literals are not code (ROT-294; map 10 R3, map 07 I11) | M0.4a |
 | `complexity` | every function under `crates/` (`generated.rs` and the ban probes aside), parsed with `syn`: cognitive complexity as G. Ann Campbell's *Cognitive Complexity* (SonarSource, version 1.7, 2023) specifies it, Appendix B in Rust (S3776; over 15 fails), and control-flow nesting of `if`, `match`, `for`, `while` and `loop`, else-if chains flat and closures transparent (S134; over 3 fails); or exempted in `ci/complexity-exemptions.txt` with ceilings and a reason, an exemption under the bars, over its ceilings or naming no function failing. Length is G2's: clippy's `too_many_lines` at 100 lines of code | M7.9c |
-| `perf` | the instruction gate: `benches/instructions.rs` under gungraun (Valgrind's Callgrind), a static `x86_64-unknown-linux-musl` build with `--features phasekit-core/libm`, so the counts depend on neither the machine's maths library nor its loader, every benchmark's instruction count at most 5 % above `benches/baseline/instructions.csv`, every baselined benchmark run and every benchmark baselined; each run writes its counts as a proposed baseline to `<target>/instructions-baseline.csv` (`--update` commits them). `--targets <results.csv>` checks a criterion results file of the reference machine against ARCHITECTURE.md §7, a miss failing unless `ci/perf-exemptions.txt` names its re-plan issue (12) | M9.6 |
+| `perf` | the instruction gate: `benches/instructions.rs` under gungraun (Valgrind's Callgrind), a static `x86_64-unknown-linux-musl` build with `--features phasekit-core/libm`, so the counts depend on neither the machine's maths library nor its loader, every benchmark's instruction count at most 5 % above `benches/baseline/instructions.csv`, every baselined benchmark run and every benchmark baselined; each run writes its counts as a proposed baseline to `<target>/instructions-baseline.csv` (`--update` commits them). `--targets <results.csv>` checks a criterion results file of the reference machine against ARCHITECTURE.md §7, a miss failing unless `ci/perf-exemptions.txt` names the issue that logs it (12; user decision TG1) | M9.6 |
 | `mutants` | `cargo mutants --in-diff` over the Rust changes since the merge base with `origin/main` (untracked files included), in two passes: phasekit-xtask's mutants on its own tests, every other mutant on the workspace's (user decision CI5); no mutant missed unless `.cargo/mutants.toml` excludes it with a reason; a timeout counts as caught and is listed. `--shard k/n` runs one of n slices of both passes (user decision CI6). How mutants are built, run and timed, and why: `.cargo/mutants.toml` (ROT-294; user decisions TQ1, TQ2, TQ3, CI4) | M0.4a |
 | `fixtures` | committed fixtures hash to their `MANIFEST.sha256` lines and the manifest lists nothing else; every committed fixture is read by a `fixture!` in a test besides `tests/manifest.rs` (which lists them all for `committed_fixtures_match_manifest`) and every `fixture!` path exists (map 10 R15); committed total ≤ 16 MiB (3.6) | M1.4 |
 | `register` | `check_register` + the 7.2 cross-id checks (also a test) | M1.6 |
@@ -854,11 +854,11 @@ each bench recorded is in `benches/results/`, and CoolProp's numbers are in `ben
 more than 5 % against the baseline committed at M9 *(decision)*: `gates perf` (11.2) over `benches/instructions.rs`,
 the §7 workloads on the bench fluids, 16 states each; (2) allocation counts stay 0 (a test, from M5); (3) the
 §7 targets are checked on the reference machine at each milestone close (`gates perf --targets` on its results file; user
-decision RM2: the user runs it on the i7-8700K); a miss fails the milestone and is resolved by optimisation or a
-recorded re-plan with measurements (an issue, named in `ci/perf-exemptions.txt`), never by quietly editing the target. Wall-clock numbers from
-shared CI runners are informational (noise) *(inference)*. The `libm` cost rule (ARCHITECTURE.md D12) and the SIMD gate
-(≥ 2.5× α^r batch throughput on AVX2 over the M9 baseline, or stop and re-plan; ARCHITECTURE.md §7) use the same
-harness.
+decision RM2: the user runs it on the i7-8700K). The targets are desirable, not gates (user decision TG1): a miss is
+logged with its measurement in a `future-work` issue named in `ci/perf-exemptions.txt`, and a target changes only by a
+user decision, never by quietly editing it. Wall-clock numbers from shared CI runners are informational (noise)
+*(inference)*. The `libm` cost rule (ARCHITECTURE.md D12) and the SIMD target (≥ 2.5× α^r batch throughput on AVX2
+over the M9 baseline; ARCHITECTURE.md §7, user decisions SL3, TG1) use the same harness.
 
 ## 13. Platform verification (Linux, Windows, WASM)
 
