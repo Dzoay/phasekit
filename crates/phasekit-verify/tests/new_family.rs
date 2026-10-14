@@ -435,6 +435,75 @@ fn simd_dt_batches_take_the_batch_hooks() {
     policy_equivalence(fluid, &pt_req, ExecPolicy::Simd).unwrap();
 }
 
+/// The Maxwell curve with batch hooks that show a batch took them: `at_t_batch` reports p 1 Pa high, and `at_p_batch`
+/// answers every p with the saturation at 0.8 T_c, where the curve's `at_p` is `Unsupported`.
+#[derive(Debug)]
+struct ShiftedSatBatch(Maxwell);
+
+impl SaturationCurve for ShiftedSatBatch {
+    fn accuracy(&self) -> SatAccuracy {
+        self.0.accuracy()
+    }
+    fn t_range(&self) -> (f64, f64) {
+        self.0.t_range()
+    }
+    fn at_t(&self, t: f64) -> Result<SatPair, Error> {
+        self.0.at_t(t)
+    }
+    fn at_p(&self, p: f64) -> Result<SatPair, Error> {
+        self.0.at_p(p)
+    }
+    fn at_t_batch(&self, t: &[f64], out: &mut [Result<SatPair, Error>], _: ExecPolicy) -> Result<(), Error> {
+        for (t, out) in t.iter().zip(out) {
+            let high = |side: SatSide| SatSide { p: side.p + 1.0, ..side };
+            *out = self.0.at_t(*t).map(|sat| SatPair { bubble: high(sat.bubble), dew: high(sat.dew) });
+        }
+        Ok(())
+    }
+    fn at_p_batch(&self, p: &[f64], out: &mut [Result<SatPair, Error>], _: ExecPolicy) -> Result<(), Error> {
+        let t_c = self.t_range().1;
+        out.iter_mut().take(p.len()).for_each(|out| *out = self.0.at_t(0.8 * t_c));
+        Ok(())
+    }
+}
+
+/// PLAN.md M12.9: a QT or PQ batch of a Helmholtz fluid under `ExecPolicy::Simd` takes its saturations from the curve's
+/// batch hooks, and no other policy does; `policy_equivalence` reports the first cell that differs. With hooks that
+/// report p 1 Pa high and answer every p, a `Simd` QT batch's first p is 1 Pa above `Reference`'s, and a `Simd` PQ batch
+/// answers 0.8 T_c where `Reference`'s is `Unsupported` (the curve has no `at_p`), while `Parallel` batches are
+/// `Reference`'s. Through the Maxwell curve's default hooks every policy gives `Reference`'s bits.
+#[test]
+fn simd_sat_batches_take_the_curve_hooks() {
+    let (a, b) = (0.1355, 3.2e-5);
+    let crit = VanDerWaals { a, b }.critical();
+    let (hooked, plain) = (with_curve(ShiftedSatBatch(Maxwell { a, b })), with_curve(Maxwell { a, b }));
+    let (hooked, plain) = (hooked.get("vdW-curve").unwrap(), plain.get("vdW-curve").unwrap());
+    let (q, t) = ([0.0, 0.5, 1.0, 0.25], [0.7, 0.8, 0.9, 0.95].map(|x| x * crit.t));
+    let p = [1e5, 1e6, 2e6, 3e6];
+    let qt = BatchRequest::new(Pair::QT, Basis::Molar, &q, &t, &[Prop::P]);
+    let pq = BatchRequest::new(Pair::PQ, Basis::Molar, &p, &q, &[Prop::T]);
+    let lanes = policy_equivalence(hooked, &qt, ExecPolicy::Simd).unwrap_err();
+    assert_eq!((lanes.what, lanes.at, lanes.got - lanes.want), ("cell", 0, 1.0), "{lanes:?}");
+    let lanes = policy_equivalence(hooked, &pq, ExecPolicy::Simd).unwrap_err();
+    assert!(lanes.at == 0 && lanes.got == 0.8 * crit.t && lanes.want.is_nan(), "{lanes:?}");
+    let parallel = ExecPolicy::Parallel { chunk: NonZeroUsize::new(16).unwrap() };
+    for (fluid, exec) in [(hooked, parallel), (plain, parallel), (plain, ExecPolicy::Simd)] {
+        policy_equivalence(fluid, &qt, exec).unwrap();
+        policy_equivalence(fluid, &pq, exec).unwrap();
+    }
+}
+
+/// van der Waals (a = 0.1355, b = 3.2e-5) with the saturation curve `curve`, as "vdW-curve".
+fn with_curve(curve: impl SaturationCurve + 'static) -> Registry {
+    let model = VanDerWaals { a: 0.1355, b: 3.2e-5 };
+    let crit = model.critical();
+    let source = Source::new("vanderWaals-1873", None, DataTerms::Published);
+    let info = FluidInfo::new("vdW-curve", 0.039_948, source, ModelKey::from_content(b"vdw through a curve's hooks"));
+    let limits = Limits::new(50.0, 2000.0, 1e9).unwrap();
+    let package = PureFluid::builder(info.unwrap(), model, limits).critical(crit).saturation(curve);
+    Registry::empty().with_model(Arc::new(package.build())).unwrap()
+}
+
 /// van der Waals whose residual is NaN unless a rayon worker thread evaluates it, so a batch shows where it ran.
 #[cfg(not(target_family = "wasm"))]
 #[derive(Debug)]

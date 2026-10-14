@@ -23,7 +23,7 @@ use isobar::px;
 use isochore::{dp, dx};
 use isotherm::tx;
 use phase::{Branch, Region, Where, pt_branch, region};
-use quality::{QVar, pq, qt, qx};
+use quality::{QVar, SatBy, pq, qt, qx, sat_lanes};
 use search::choose;
 
 use crate::derivs::{Bundle, Derivs, Order};
@@ -126,13 +126,7 @@ impl FlashOptions {
 /// The flash of a [`PureFluid`]: dispatch on the pair of an already normalised input.
 pub(crate) fn flash(fluid: &PureFluid, input: NativeInput, opts: &FlashOptions) -> Result<State, Error> {
     let (x, y) = input.values();
-    // A quality fixes a two-phase state, which an imposed single phase is not: there its quality is undefined (D6).
-    let (vx, vy) = input.pair().vars();
-    if let Some(phase) = opts.phase_hint().filter(|h| *h != Phase::TwoPhase)
-        && (vx == Var::Q || vy == Var::Q)
-    {
-        return Err(Error::Undefined { prop: Prop::Q, phase });
-    }
+    quality_under_hint(input.pair(), opts)?;
     let state = match input.pair() {
         Pair::DT => dt(fluid, y, x, opts),
         Pair::PT => pt(fluid, x, y, opts),
@@ -155,6 +149,16 @@ pub(crate) fn flash(fluid: &PureFluid, input: NativeInput, opts: &FlashOptions) 
         Pair::DQ => qx(fluid, y, 1.0 / x, QVar::V, Pair::DQ, opts),
     }?;
     above_melting_line(fluid, state, opts)
+}
+
+/// A quality fixes a two-phase state, which an imposed single phase is not: under one, a pair with a quality is
+/// `Undefined` (D6).
+fn quality_under_hint(pair: Pair, opts: &FlashOptions) -> Result<(), Error> {
+    let (vx, vy) = pair.vars();
+    match opts.phase_hint().filter(|h| *h != Phase::TwoPhase) {
+        Some(phase) if vx == Var::Q || vy == Var::Q => Err(Error::Undefined { prop: Prop::Q, phase }),
+        _ => Ok(()),
+    }
 }
 
 /// D6 (user decision 6): whatever pair found it, a single-phase state below the model's melting line, T < T_melt(p), is
@@ -187,21 +191,39 @@ fn order_two(d: Derivs) -> Result<Bundle, Error> {
     d.bundle().ok_or(Error::InvalidState { reason: "the model returned a bundle below the requested order 2" })
 }
 
-/// Points [`dt_lanes`] evaluates together: whole groups of every level's lanes (32 on AVX-512), on the stack.
+/// Points [`dt_lanes`] and [`sat_lanes`] evaluate together: whole groups of every level's lanes (32 on AVX-512), on the
+/// stack.
 pub(crate) const GROUP: usize = 64;
+
+/// [`flash`] at every point `(x[i], y[i])` of a DT, QT or PQ batch, native and in pair order, into `out[i]`, bit for bit
+/// (PLAN.md M12.8, M12.9): [`dt_lanes`], or [`sat_lanes`] for QT and PQ. Under a single-phase hint every QT or PQ point
+/// is `flash`'s refusal. Any other pair has no lane path and leaves `out` as it is.
+pub(crate) fn lanes(
+    fluid: &PureFluid,
+    pair: Pair,
+    (x, y): (&[f64], &[f64]),
+    opts: &FlashOptions,
+    out: &mut [Result<State, Error>],
+) {
+    let by = match pair {
+        Pair::DT => return dt_lanes(fluid, y, x, opts, out),
+        Pair::QT => SatBy::T,
+        Pair::PQ => SatBy::P,
+        _ => return,
+    };
+    if let Err(e) = quality_under_hint(pair, opts) {
+        out.iter_mut().for_each(|o| *o = Err(e.clone()));
+        return;
+    }
+    sat_lanes(fluid, by, (x, y), opts, out);
+}
 
 /// The DT flash at every point `(t[i], rho[i])`, native and molar, into `out[i]`, each [`flash`]'s result at that
 /// point, bit for bit (PLAN.md M12.8): the points' total bundles in lanes, [`GROUP`] at a time
 /// (`HelmholtzModel::ideal_batch` and `residual_batch` under `ExecPolicy::Simd`), then each point's flash on its own
 /// bundle. The phase rule, the checks and a state inside the dome, whose phases' bundles are evaluated at their own
 /// densities, are each point's scalar path.
-pub(crate) fn dt_lanes(
-    fluid: &PureFluid,
-    t: &[f64],
-    rho: &[f64],
-    opts: &FlashOptions,
-    out: &mut [Result<State, Error>],
-) {
+fn dt_lanes(fluid: &PureFluid, t: &[f64], rho: &[f64], opts: &FlashOptions, out: &mut [Result<State, Error>]) {
     let eos = fluid.eos();
     for ((t, rho), out) in t.chunks(GROUP).zip(rho.chunks(GROUP)).zip(out.chunks_mut(GROUP)) {
         let (mut ideal, mut residual) = ([Derivs::zero(Order::Two); GROUP], [Derivs::zero(Order::Two); GROUP]);
@@ -473,23 +495,48 @@ fn within_domain(fluid: &PureFluid, state: State, opts: &FlashOptions) -> Result
 /// The two-phase state at quality `q` on the pure saturation `sat`, solved by `strategy` (a VLE's iterations are not
 /// counted here): both phases from the EOS at their densities ([`phase_bundle`]).
 fn two_phase(fluid: &PureFluid, sat: &SatPair, q: Quality, strategy: Strategy) -> Result<State, Error> {
+    let (t, rl, rv) = (sat.bubble.t, sat.bubble.rho, sat.dew.rho);
+    two_phase_from(fluid, sat, q, strategy, || phase_bundle(fluid, t, rl, q), || phase_bundle(fluid, t, rv, q))
+}
+
+/// [`two_phase`] on the bundles `liquid` and `vapour` give: [`phase_bundle`]'s, or ones evaluated in lanes
+/// ([`sat_lanes`]).
+fn two_phase_from(
+    fluid: &PureFluid,
+    sat: &SatPair,
+    q: Quality,
+    strategy: Strategy,
+    liquid: impl FnOnce() -> Result<Bundle, Error>,
+    vapour: impl FnOnce() -> Result<Bundle, Error>,
+) -> Result<State, Error> {
     let (r, m, key) = (fluid.eos().gas_constant(), fluid.info().molar_mass(), fluid.info().key());
     let path = SolvePath { strategy, iterations: 0 };
     let (t, rl, rv) = (sat.bubble.t, sat.bubble.rho, sat.dew.rho);
-    let liquid = State::single(key, t, rl, r, m, Phase::Liquid, &phase_bundle(fluid, t, rl, q)?, path)?;
-    let vapour = State::single(key, t, rv, r, m, Phase::Gas, &phase_bundle(fluid, t, rv, q)?, path)?;
+    let liquid = State::single(key, t, rl, r, m, Phase::Liquid, &liquid()?, path)?;
+    let vapour = State::single(key, t, rv, r, m, Phase::Gas, &vapour()?, path)?;
     State::split(liquid, vapour, q, t, sat.bubble.p, path)
 }
 
-/// A saturated phase's total bundle at (T, ρ) in a two-phase state at quality `q`: to order 2 at Q = 0 and 1, where the
-/// state reads that phase's c_p, c_v, w and partials (user decisions SQ1-SQ3); to order 1 strictly inside the dome,
-/// where it reads only ρ, h, s and u and refuses the rest, its second-order entries zero (user decision PF1).
+/// A saturated phase's total bundle at (T, ρ) in a two-phase state at quality `q`, at [`phase_order`]
+/// ([`phase_bundle_of`]).
 fn phase_bundle(fluid: &PureFluid, t: f64, rho: f64, q: Quality) -> Result<Bundle, Error> {
-    if q.get() == 0.0 || q.get() == 1.0 {
-        return total(fluid, t, rho);
+    let (eos, order) = (fluid.eos(), phase_order(q));
+    phase_bundle_of(eos.ideal(t, rho, order) + eos.residual(t, rho, order), order)
+}
+
+/// The order of a saturated phase's bundle in a two-phase state at quality `q`: 2 at Q = 0 and 1, where the state reads
+/// that phase's c_p, c_v, w and partials (user decisions SQ1-SQ3); 1 strictly inside the dome, where it reads only ρ,
+/// h, s and u and refuses the rest (user decision PF1).
+fn phase_order(q: Quality) -> Order {
+    if q.get() == 0.0 || q.get() == 1.0 { Order::Two } else { Order::One }
+}
+
+/// The bundle of a saturated phase's total `d` at `order` ([`phase_order`]): to order 2, or to order 1 with its
+/// second-order entries zero.
+fn phase_bundle_of(d: Derivs, order: Order) -> Result<Bundle, Error> {
+    if order == Order::Two {
+        return order_two(d);
     }
-    let eos = fluid.eos();
-    let d = eos.ideal(t, rho, Order::One) + eos.residual(t, rho, Order::One);
     let at = |i, j| d.get(i, j).ok_or(Error::InvalidState { reason: "the model returned a bundle below order 1" });
     Ok(Bundle { a00: at(0, 0)?, a10: at(1, 0)?, a01: at(0, 1)?, a20: 0.0, a11: 0.0, a02: 0.0 })
 }

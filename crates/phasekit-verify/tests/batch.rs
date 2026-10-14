@@ -9,7 +9,7 @@ use std::num::NonZeroUsize;
 use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
 use phasekit_core::{
     Basis, DataSet, Density, Derivs, DomainPolicy, Error, FlashOptions, Fluid, HelmholtzModel, Input, Order, Pair,
-    Phase, Pressure, Prop, Quality, Registry, Temperature, math,
+    Phase, Pressure, Prop, Quality, Registry, RootPolicy, Temperature, math,
 };
 use phasekit_verify::{SplitMix64, policy_equivalence};
 
@@ -117,6 +117,75 @@ fn dt_batch_policy_equivalence() {
         (fluids, dome) = (fluids + 1, dome + in_dome);
     }
     assert!(fluids >= 130 && dome >= 16 * fluids, "{fluids} fluids, {dome} in-dome points");
+}
+
+/// PLAN.md M12.9 (VERIFICATION.md §9.2, class `Exact`): QT and PQ batches of every embedded fluid under
+/// `ExecPolicy::Simd`, whose saturations the superancillary and whose phases' bundles the built-in EOS evaluate in
+/// lanes, are `Reference`'s, every cell and status bit for bit (`policy_equivalence`, K17). The points are
+/// [`sat_grid`]'s, at Q = 0, 1 and inside the dome side by side (bundles of order 2 and 1 in one group) and refusals,
+/// under the default options, `Extrapolate`, an imposed two-phase, an imposed gas (every point `Undefined`) and
+/// `Nearest`; prefixes of 0 to 17 points and the whole set, past one group of 64, take every remainder.
+#[test]
+fn sat_batch_policy_equivalence() {
+    let registry = Registry::embedded().unwrap();
+    let options = [
+        FlashOptions::new(),
+        FlashOptions::new().with_domain(DomainPolicy::Extrapolate),
+        FlashOptions::new().with_phase(Phase::TwoPhase),
+        FlashOptions::new().with_phase(Phase::Gas),
+        FlashOptions::new().with_roots(RootPolicy::Nearest(300.0)),
+    ];
+    let (mut fluids, mut answered) = (0, 0);
+    for name in registry.names() {
+        let fluid = registry.get(name).unwrap();
+        let ((q, t), (p, pq)) = sat_grid(registry, fluid, name);
+        for opts in options {
+            for n in (0..=17).chain([t.len()]) {
+                let qt = BatchRequest::new(Pair::QT, Basis::Molar, &q[..n], &t[..n], &OUTPUTS).with_flash(opts);
+                let equal = policy_equivalence(fluid, &qt, ExecPolicy::Simd);
+                assert!(equal.is_ok(), "{name} QT {opts:?} n = {n}: {equal:?}");
+                let pq = BatchRequest::new(Pair::PQ, Basis::Molar, &p[..n], &pq[..n], &OUTPUTS).with_flash(opts);
+                let equal = policy_equivalence(fluid, &pq, ExecPolicy::Simd);
+                assert!(equal.is_ok(), "{name} PQ {opts:?} n = {n}: {equal:?}");
+            }
+        }
+        let state = |pair, x: f64, y: f64| Input::new(pair, x, y, Basis::Molar).and_then(|input| fluid.state(input));
+        let both = |k: usize| state(Pair::QT, q[k], t[k]).is_ok() && state(Pair::PQ, p[k], pq[k]).is_ok();
+        (fluids, answered) = (fluids + 1, answered + (0..t.len()).filter(|k| both(*k)).count());
+    }
+    assert!(fluids >= 130 && answered >= 40 * fluids, "{fluids} fluids, {answered} points answered as QT and PQ");
+}
+
+/// A batch's two input columns, x and y.
+type Columns = (Vec<f64>, Vec<f64>);
+
+/// A fluid's QT points (Q, T) and PQ points (p, Q) on the `sat` grid (VERIFICATION.md §9.4, SplitMix64 seed 1): 72 T
+/// with Θ = 1 − T/T_c ~ logU[1e-7, 1 − T_low/T_c], T_low = max(T_min, T_triple), Q 0, 1 and U(0, 1) in turn, each PQ
+/// point at its QT state's p (NaN where QT refuses it). Then refusals and ends: T_low and T_c, 1 mK below T_low and above
+/// T_c, a NaN T, Q 1.5 and NaN; p at T_low's and 1 % above it (where p(T) dips, two roots), 1 % above p_c, 1e-3 of
+/// T_low's and NaN.
+fn sat_grid(registry: &Registry, fluid: &Fluid, name: &str) -> (Columns, Columns) {
+    let record = phasekit_core::internal::record(registry, name).unwrap();
+    let limits = &record.limits;
+    let t_low = limits.t_min().max(limits.t_triple().unwrap_or(limits.t_min()));
+    let crit = record.critical.unwrap();
+    let p_of = |q: f64, t: f64| Input::new(Pair::QT, q, t, Basis::Molar).and_then(|i| fluid.state(i)).map(|s| s.p());
+    let mut rng = SplitMix64::new(1);
+    let theta_max = 1.0 - t_low / crit.t;
+    let (mut q, mut t): (Vec<f64>, Vec<f64>) = (0..72)
+        .map(|k| match k % 3 {
+            2 => (rng.uniform(0.0, 1.0), crit.t * (1.0 - rng.log_uniform(1e-7, theta_max))),
+            side => (f64::from(side), crit.t * (1.0 - rng.log_uniform(1e-7, theta_max))),
+        })
+        .unzip();
+    let (mut p, mut pq): (Vec<f64>, Vec<f64>) =
+        q.iter().zip(&t).map(|(q, t)| (p_of(*q, *t).unwrap_or(f64::NAN), *q)).unzip();
+    q.extend([0.0, 1.0, 0.5, 0.5, 0.5, 1.5, f64::NAN]);
+    t.extend([t_low, crit.t, t_low - 1e-3, crit.t + 1e-3, f64::NAN, crit.t * 0.9, crit.t * 0.9]);
+    let p_low = p_of(0.0, t_low).unwrap_or(1.0);
+    p.extend([p_low, 1.01 * p_low, 1.01 * crit.p, 1e-3 * p_low, f64::NAN, p_low, p_low]);
+    pq.extend([0.0, 0.5, 1.0, 0.5, 0.5, 1.5, f64::NAN]);
+    ((q, t), (p, pq))
 }
 
 /// A fluid's DT points (ρ, T) on the `eos` and `flash` grids, and how many lie in the dome. The `eos` grid's 64 points
