@@ -1,8 +1,3 @@
-# ARCHITECTURE.md §7 targets missed with a re-plan issue (`cargo xtask gates perf --targets`, PLAN.md M9.6):
-# `<bench> <fluid|*> issue #N: <reason>`, bench as a results file names it. A line matching no miss fails the gate.
-alphar_order2/residual n-Propane issue #144: 0.32 µs on the laptop, 0.37 µs on the i7-8700K at M7 (target 0.3 µs, 18 terms)
-properties_at_t_rho/dt_h_cp Methane issue #144: 40 terms, 0.78 µs on the laptop
-properties_at_t_rho/dt_h_cp Water issue #144: 56 terms and two non-analytic, 1.21 µs on the laptop
-properties_at_t_rho/dt_h_cp n-Propane issue #144: 0.54 µs on the laptop
-pt_flash/pt_h Methane issue #143: an order-2 bundle per Newton step from Peng and Robinson's seed (3.00 µs on the i7-8700K at M10)
-pt_flash/pt_h Water issue #143: an order-2 bundle of 56 terms per Newton step from Peng and Robinson's seed (6.08 µs on the i7-8700K at M10)
+# ARCHITECTURE.md §7 targets missed, each logged in a `future-work` issue (`cargo xtask gates perf --targets`, PLAN.md
+# M9.6; user decision TG1): `<bench> <fluid|*> issue #N: <reason>`, bench as a results file names it. A line matching no
+# miss fails the gate.

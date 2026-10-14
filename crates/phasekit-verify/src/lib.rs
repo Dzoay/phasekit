@@ -2,6 +2,7 @@
 //! `tests/`. Zero dependencies beyond `phasekit-core`. The full design is docs/VERIFICATION.md (forthcoming).
 
 pub mod arbiters;
+pub mod backend;
 pub mod conformance;
 pub mod eos;
 pub mod fixture;

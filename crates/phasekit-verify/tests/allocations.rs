@@ -29,15 +29,15 @@ fn hot_get_allocates_nothing() {
     assert!(miss.count_total > 0, "the miss's error owns its name: {miss:?}");
 }
 
-/// PLAN.md M9.7 (ARCHITECTURE.md §6: per fluid, EOS ≤ 25 KiB and superancillary ≤ 25 KiB; recorded at M3 and M6,
-/// enforced from M9): the heap each fluid's compiled residual part and decoded superancillary keep, and that evaluating
+/// PLAN.md M9.7 (ARCHITECTURE.md §6: per fluid, EOS ≤ 25 KiB and superancillary ≤ 40 KiB; recorded at M3 and M6,
+/// checked from M9): the heap each fluid's compiled residual part and decoded superancillary keep, and that evaluating
 /// them allocates nothing.
 /// - EOS: every fluid within 25 KiB; Water's 56 terms keep 15 626 B on 64-bit targets, the most (M3.8 recorded
 ///   Methanol's 13 690 B as the most; the test asserted only the budget).
-/// - Superancillary: over budget for 97 of the 130 (median 27 472 B, PropyleneGlycol's 39 576 B), re-planned in issue
-///   #146. The three forward curves and their boundaries, what CoolProp stores, fit 25 KiB for all but two fluids,
-///   PropyleneGlycol and one more; the stored T(ln p) inverse adds about a quarter. Pinned below 40 KiB until the issue
-///   is decided. With 32-bit pointers (wasm32) each curve keeps 112 B less.
+/// - Superancillary: within 40 KiB (user decision MB1); over the 25 KiB goal for 97 of the 130 (median 27 472 B,
+///   PropyleneGlycol's 39 576 B), logged in issue #146. The three forward curves and their boundaries, what CoolProp
+///   stores, fit 25 KiB for all but two fluids, PropyleneGlycol and one more; the stored T(ln p) inverse, kept, adds
+///   about a quarter. With 32-bit pointers (wasm32) each curve keeps 112 B less.
 #[test]
 fn eos_and_superancillary_bytes_per_fluid() {
     let registry = Registry::embedded().unwrap();
@@ -98,11 +98,11 @@ fn status_kib(key: &str) -> u64 {
     line.trim().trim_end_matches("kB").trim().parse().unwrap()
 }
 
-/// PLAN.md M9.7 (ARCHITECTURE.md §6: all 136 loaded ≤ 8 MiB RSS *(inference)*): one `Registry::get` of every embedded
-/// fluid, in this test's own process (nextest), measured from /proc/self/status around the loads. The heap grows by 6.1
-/// MiB (`RssAnon`), within 8 MiB; RSS by 15.3 MiB, as loading reads every byte of each fluid's blob for its checksum
-/// and so maps 9.2 MiB of read-only blob pages (`RssFile`; the blobs total 9.0 MB). The RSS budget is re-planned in
-/// issue #146; pinned below 16 MiB until it is decided. CoolProp: 104.5 MiB for one state of every fluid (the C++
+/// PLAN.md M9.7 (ARCHITECTURE.md §6: all 136 loaded ≤ 16 MiB RSS, ≤ 8 MiB of it heap): one `Registry::get` of every
+/// embedded fluid, in this test's own process (nextest), measured from /proc/self/status around the loads. The heap grows
+/// by 6.1 MiB (`RssAnon`), within 8 MiB; RSS by 15.3 MiB, as loading reads every byte of each fluid's blob for its
+/// checksum and so maps 9.2 MiB of read-only blob pages (`RssFile`; the blobs total 9.0 MB). RSS is within 16 MiB (user
+/// decision MB1); the 8 MiB goal is logged in issue #146. CoolProp: 104.5 MiB for one state of every fluid (the C++
 /// baseline).
 #[cfg(target_os = "linux")]
 #[test]

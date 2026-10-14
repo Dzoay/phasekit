@@ -11,6 +11,7 @@ use phasekit_core::{
     Basis, DataSet, Density, DomainError, DomainPolicy, Error, FlashOptions, Fluid, Input, Pair, Phase, Pressure, Prop,
     Quality, Registry, SaturationCurve, State, Temperature, math,
 };
+use phasekit_verify::backend;
 use phasekit_verify::flash::FlashCheck;
 use phasekit_verify::{Fixture, fixture};
 
@@ -277,24 +278,34 @@ fn su_round_trips() {
 /// 1e-14 under it is that liquid. M8.11: CO₂'s and Nitrogen's melting lines rise from their triple points, so their
 /// compressed liquid at the lowest temperature is solid; theirs is on the melting line at its pressure, the bound
 /// there, and a DH 1e-10 under it is `BelowMeltingLine`. Nitrogen's state at pmax and 1.2 Tc is solid too (it melts
-/// at 283.8 K there), so its state at pmax is on the line.
+/// at 283.8 K there), so its state at pmax is on the line. On the `libm` backend, Water's HP round trip of its liquid
+/// at the lowest temperature is counted, not asserted (user decision LB1, issue #170).
 #[test]
 fn caloric_pairs_round_trip_on_the_domain_bounds() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
-    let (mut check, mut failures, mut compared) = (FlashCheck::default(), Failures::default(), 0);
+    let (mut check, mut failures, mut compared, mut known) = (FlashCheck::default(), Failures::default(), 0, 0);
     for name in ["Water", "CarbonDioxide", "Nitrogen", "R134a"] {
-        compared += on_the_domain_bounds(&mut check, &mut failures, &registry, name);
+        compared += on_the_domain_bounds(&mut check, (&mut failures, &mut known), &registry, name);
     }
     assert_eq!(check.report(20), None);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     assert_eq!((compared, check.compared), (4 * 5 * 4, 4 * 5 * 5));
+    assert_eq!(known, backend::known_cells(math::BACKEND, ON_THE_BOUNDS));
 }
+
+/// [`caloric_pairs_round_trip_on_the_domain_bounds`]'s name in [`backend::LIBM_KNOWN`].
+const ON_THE_BOUNDS: &str = "caloric_pairs_round_trip_on_the_domain_bounds";
 
 /// One fluid of [`caloric_pairs_round_trip_on_the_domain_bounds`]: the liquid and the gas at the lowest temperature,
 /// and its states at pmax, at Tmax and at both, through HS, SU, DH, DS and DU into `check` and HP, PS, PU and DP into
-/// `failures`; then the x colder than the domain ([`colder_than_the_domain`]). Returns the HP, PS, PU and DP round
-/// trips compared.
-fn on_the_domain_bounds(check: &mut FlashCheck, failures: &mut Failures, registry: &Registry, name: &str) -> usize {
+/// `failures` (or `known`, [`p_x_and_dp_round_trip`]); then the x colder than the domain ([`colder_than_the_domain`]).
+/// Returns the HP, PS, PU and DP round trips compared.
+fn on_the_domain_bounds(
+    check: &mut FlashCheck,
+    (failures, known): (&mut Failures, &mut usize),
+    registry: &Registry,
+    name: &str,
+) -> usize {
     let fluid = registry.get(name).unwrap();
     let record = phasekit_core::internal::record(registry, name).unwrap();
     let limits = record.limits;
@@ -319,21 +330,31 @@ fn on_the_domain_bounds(check: &mut FlashCheck, failures: &mut Failures, registr
         check.hs_round_trip(name, fluid, &truth);
         check.su_round_trip(name, fluid, &truth);
         check.dx_round_trip(name, fluid, &truth);
-        compared += p_x_and_dp_round_trip(failures, name, fluid, &truth);
+        compared += p_x_and_dp_round_trip((&mut *failures, &mut *known), name, fluid, &truth);
     }
     colder_than_the_domain(failures, name, fluid, (t_low, p_sat, compressed), t_liquid);
     compared
 }
 
 /// HP, PS, PU and DP of `truth` return its T within 1e-9 (M7.9: an input a few ulp over pmax, as a state at pmax reads
-/// its p back, is on it); returns the pairs compared.
-fn p_x_and_dp_round_trip(failures: &mut Failures, name: &str, fluid: &Fluid, truth: &State) -> usize {
+/// its p back, is on it); a miss the `libm` backend is known for counts in `known` (user decision LB1). Returns the
+/// pairs compared.
+fn p_x_and_dp_round_trip(
+    (failures, known): (&mut Failures, &mut usize),
+    name: &str,
+    fluid: &Fluid,
+    truth: &State,
+) -> usize {
     let m = Basis::Molar;
     let (p, rho) = (truth.p(), truth.rho(m));
     let pairs = [(Pair::HP, truth.h(m), p), (Pair::PS, p, truth.s(m)), (Pair::PU, p, truth.u(m)), (Pair::DP, rho, p)];
     for (pair, x, y) in pairs {
         let back = fluid.state(Input::new(pair, x, y, m).unwrap());
         let ok = back.as_ref().is_ok_and(|back| (back.t() / truth.t() - 1.0).abs() < 1e-9);
+        if !ok && backend::known(math::BACKEND, ON_THE_BOUNDS, name, &format!("{pair:?}")) {
+            *known += 1;
+            continue;
+        }
         failures.check(ok, || format!("{name} {pair:?} of {truth:?}: {back:?}"));
     }
     pairs.len()

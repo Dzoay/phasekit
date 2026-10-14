@@ -5,7 +5,7 @@
 //! with no baseline row. Every run writes the counts as a proposed baseline to `<target>/instructions-baseline.csv`,
 //! which `--update` writes over the committed one. `--targets <results.csv>` instead checks a criterion results file
 //! (`cargo xtask bench --record` on the reference machine) against ARCHITECTURE.md §7's targets, each miss failing
-//! unless `ci/perf-exemptions.txt` names it with its re-plan issue.
+//! unless `ci/perf-exemptions.txt` names it with the issue that logs it (user decision TG1).
 
 use super::Verdict;
 use crate::repo::Repo;
@@ -13,30 +13,36 @@ use crate::repo::Repo;
 /// The committed instruction baseline, relative to the repository root.
 pub const BASELINE: &str = "crates/phasekit-verify/benches/baseline/instructions.csv";
 
-/// The misses of ARCHITECTURE.md §7's targets that have a re-plan issue (PLAN.md M9.6).
+/// The misses of ARCHITECTURE.md §7's targets, each logged in an issue (PLAN.md M9.6; user decision TG1).
 const EXEMPTIONS: &str = "ci/perf-exemptions.txt";
 
 /// The allowed increase over the baseline, in percent: 5 *(decision: noise margin, VERIFICATION.md §12)*.
 const LIMIT_PERCENT: u128 = 5;
 
-/// A §7 target: a time in ns, or CoolProp's own for the same fluid on the same machine, the median of a workload of that
-/// machine's C++ baseline (`benches/baseline/coolprop-8.0.0-<machine>.csv`; user decision PF1).
+/// A §7 target: a time in ns, or a fraction of CoolProp's own for the same fluid on the same machine, the median of a
+/// workload of that machine's C++ baseline (`benches/baseline/coolprop-8.0.0-<machine>.csv`; user decisions PF1-PF3):
+/// 1 for "≤ CoolProp's", ½ for "≤ ½ of CoolProp's".
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Target {
     Ns(f64),
-    CoolProp(&'static str),
+    CoolProp(&'static str, f64),
 }
 
 /// ARCHITECTURE.md §7's per-core targets, as criterion bench ids of `benches/` (the `bench` column of a results file),
 /// the fluids they apply to (`None`: every fluid the bench records), the target, and the §7 row it comes from.
 /// `targets_match_the_architecture_table` keeps them equal to the table.
 pub const TARGETS: [(&str, Option<&str>, Target, &str); 7] = [
-    ("alphar_order2/residual", Some("n-Propane"), Target::Ns(300.0), "α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs"),
-    ("properties_at_t_rho/dt_h_cp", None, Target::Ns(500.0), "Properties at (T, ρ) | ≤ 0.5 µs"),
-    ("qt_superancillary/qt_h", None, Target::CoolProp("qt_h"), "QT / PQ + h via superancillary | ≤ CoolProp's"),
-    ("pq_superancillary/pq_h", None, Target::CoolProp("pq_h"), "QT / PQ + h via superancillary | ≤ CoolProp's"),
-    ("pt_flash/pt_h", None, Target::Ns(3_000.0), "PT / PH single phase | ≤ 3 µs / ≤ 15 µs"),
-    ("ph_flash/ph_t", None, Target::Ns(15_000.0), "PT / PH single phase | ≤ 3 µs / ≤ 15 µs"),
+    (
+        "alphar_order2/residual",
+        Some("n-Propane"),
+        Target::CoolProp("alphar2", 1.0),
+        "α^r bundle, order 2, 16-20 terms | ≤ CoolProp's",
+    ),
+    ("properties_at_t_rho/dt_h_cp", None, Target::CoolProp("dt_h_cp", 1.0), "Properties at (T, ρ) | ≤ CoolProp's"),
+    ("qt_superancillary/qt_h", None, Target::CoolProp("qt_h", 1.0), "QT / PQ + h via superancillary | ≤ CoolProp's"),
+    ("pq_superancillary/pq_h", None, Target::CoolProp("pq_h", 1.0), "QT / PQ + h via superancillary | ≤ CoolProp's"),
+    ("pt_flash/pt_h", None, Target::CoolProp("pt", 0.5), "PT single phase | ≤ ½ of CoolProp's"),
+    ("ph_flash/ph_t", None, Target::Ns(15_000.0), "PH single phase | ≤ 15 µs"),
     ("lookup_by_name/name", None, Target::Ns(50.0), "Hot lookup by name | ≤ 50 ns"),
 ];
 
@@ -191,8 +197,8 @@ fn coolprop_median(baseline: &str, workload: &str, fluid: &str) -> Option<f64> {
     baseline.lines().find(|l| l.starts_with(&prefix))?.split(',').nth(3)?.parse().ok()
 }
 
-/// One results row (`date,commit,step,bench,fluid,median,unit,...`) judged against its target, CoolProp's from the
-/// machine's C++ `baseline` where the target is relative, marking the exemption it uses.
+/// One results row (`date,commit,step,bench,fluid,median,unit,...`) judged against its target, a fraction of CoolProp's
+/// from the machine's C++ `baseline` where the target is relative, marking the exemption it uses.
 fn judge(line: &str, exempt: &mut [(&str, &str, bool)], baseline: &str) -> Judged {
     let cells: Vec<&str> = line.split(',').collect();
     let (Some(&bench), Some(&fluid), Some(median), Some(&unit)) =
@@ -206,8 +212,8 @@ fn judge(line: &str, exempt: &mut [(&str, &str, bool)], baseline: &str) -> Judge
     };
     let target = match target {
         Target::Ns(ns) => ns,
-        Target::CoolProp(workload) => match coolprop_median(baseline, workload, fluid) {
-            Some(ns) => ns,
+        Target::CoolProp(workload, fraction) => match coolprop_median(baseline, workload, fluid) {
+            Some(ns) => fraction * ns,
             None => {
                 return Judged::Failed(format!(
                     "{bench} {fluid}: the machine's C++ baseline has no `{workload}` row (cargo xtask baseline)"
@@ -252,7 +258,7 @@ pub fn check_targets(results: &str, exemptions: &str, baseline: &str) -> Verdict
         errors.push("no results row has a §7 target".into());
     }
     if errors.is_empty() {
-        Ok(format!("{met} medians meet ARCHITECTURE.md §7, {missed} misses re-planned"))
+        Ok(format!("{met} medians meet ARCHITECTURE.md §7, {missed} misses logged"))
     } else {
         Err(errors)
     }
@@ -316,11 +322,11 @@ mod tests {
         assert!(check("k::a.water,0\n", &counts).unwrap_err()[0].contains("not a `bench,instructions` row"));
     }
 
-    /// §7 targets on a results file: a median at or under its target passes, a miss fails unless exempted with an
-    /// issue, and an exemption that matches no miss fails. The α^r target applies to the 16-20-term fluid only: Water's
-    /// α^r row is not counted.
+    /// §7 targets on a results file: a median at or under its target passes, a miss fails unless exempted with the
+    /// issue that logs it (user decision TG1), and an exemption that matches no miss fails. The α^r target applies to the
+    /// 16-20-term fluid only: Water's α^r row is not counted. PT's is half of CoolProp's (user decision PF2).
     #[test]
-    fn medians_over_their_section_7_target_need_a_re_plan_issue() {
+    fn medians_over_their_section_7_target_need_an_issue() {
         let row = |bench: &str, fluid: &str, ns: f64| {
             format!("2026-10-13,abc,M9.6,{bench},{fluid},{ns},ns,cpu,os,rustc,gov\n")
         };
@@ -332,41 +338,45 @@ mod tests {
             row("dt_flash/single", "Water", 9_999.0),
         ]
         .concat();
+        let baseline = "alphar2,n-Propane,10000,499,1,2,g\npt,Water,2000,6000,1,2,g\npt,R134a,2000,4976,1,2,g\n";
         let exemptions = "# misses with an issue\npt_flash/pt_h Water issue #140: seven Newton steps\n";
         assert_eq!(
-            check_targets(&results, exemptions, ""),
-            Ok("2 medians meet ARCHITECTURE.md §7, 1 misses re-planned".into())
+            check_targets(&results, exemptions, baseline),
+            Ok("2 medians meet ARCHITECTURE.md §7, 1 misses logged".into())
         );
-        let unexempted = check_targets(&results, "", "").unwrap_err();
+        let unexempted = check_targets(&results, "", baseline).unwrap_err();
         assert!(
             unexempted.len() == 1 && unexempted[0].contains("pt_flash/pt_h Water: 7000.0 ns over"),
             "{unexempted:?}"
         );
-        let stale = check_targets(&results, &format!("{exemptions}qt_superancillary/qt_h * issue #9: gone\n"), "");
+        let stale =
+            check_targets(&results, &format!("{exemptions}qt_superancillary/qt_h * issue #9: gone\n"), baseline);
         assert!(stale.unwrap_err()[0].contains("matches no miss"));
         for malformed in ["pt_flash/pt_h Water slow", "pt_flash/pt_h Water issue #140", "pt_flash/pt_h Water slow: why"]
         {
-            assert!(check_targets(&results, &format!("{malformed}\n"), "").unwrap_err()[0].contains("not `<bench>"));
+            assert!(
+                check_targets(&results, &format!("{malformed}\n"), baseline).unwrap_err()[0].contains("not `<bench>")
+            );
         }
         // An exemption for another bench or another fluid does not cover a miss (and is stale itself).
         for other in ["ph_flash/ph_t Water issue #1: x", "pt_flash/pt_h Methane issue #1: x"] {
-            let errors = check_targets(&results, &format!("{other}\n"), "").unwrap_err();
+            let errors = check_targets(&results, &format!("{other}\n"), baseline).unwrap_err();
             assert!(errors.len() == 2 && errors[0].contains("not exempted"), "{other}: {errors:?}");
         }
         // Comment lines are not rows; a file whose only target rows are exempted misses passes.
         let only_a_miss = format!("# fixture: results\n{}", row("pt_flash/pt_h", "Water", 7_000.0));
         assert_eq!(
-            check_targets(&only_a_miss, exemptions, ""),
-            Ok("0 medians meet ARCHITECTURE.md §7, 1 misses re-planned".into())
+            check_targets(&only_a_miss, exemptions, baseline),
+            Ok("0 medians meet ARCHITECTURE.md §7, 1 misses logged".into())
         );
         // One met and one exempted: both counted; and a median in another unit than ns is refused.
         let one_each = format!("{}{}", row("pt_flash/pt_h", "Water", 7_000.0), row("pt_flash/pt_h", "R134a", 2_000.0));
         assert_eq!(
-            check_targets(&one_each, exemptions, ""),
-            Ok("1 medians meet ARCHITECTURE.md §7, 1 misses re-planned".into())
+            check_targets(&one_each, exemptions, baseline),
+            Ok("1 medians meet ARCHITECTURE.md §7, 1 misses logged".into())
         );
         let micro = row("pt_flash/pt_h", "R134a", 2.0).replace(",ns,", ",µs,");
-        assert!(check_targets(&micro, "", "").unwrap_err()[0].contains("unit µs, not ns"));
+        assert!(check_targets(&micro, "", baseline).unwrap_err()[0].contains("unit µs, not ns"));
         assert!(check_targets("", "", "").is_err());
     }
 
@@ -382,19 +392,45 @@ mod tests {
             [row("qt_superancillary/qt_h", "Water", 5_525.0), row("pq_superancillary/pq_h", "Water", 2_600.0)];
         assert_eq!(
             check_targets(&results.concat(), "", baseline),
-            Ok("2 medians meet ARCHITECTURE.md §7, 0 misses re-planned".into())
+            Ok("2 medians meet ARCHITECTURE.md §7, 0 misses logged".into())
         );
         let slower = row("qt_superancillary/qt_h", "R134a", 1_502.0);
         assert!(check_targets(&slower, "", baseline).unwrap_err()[0].contains("1502.0 ns over"));
         let exempted = "qt_superancillary/qt_h R134a issue #142: x\n";
         assert_eq!(
             check_targets(&slower, exempted, baseline),
-            Ok("0 medians meet ARCHITECTURE.md §7, 1 misses re-planned".into())
+            Ok("0 medians meet ARCHITECTURE.md §7, 1 misses logged".into())
         );
         let unrecorded = check_targets(&row("pq_superancillary/pq_h", "R134a", 900.0), "", baseline).unwrap_err();
         assert!(unrecorded[0].contains("no `pq_h` row"), "{unrecorded:?}");
         assert_eq!(coolprop_median(baseline, "qt", "Water"), Some(180.0));
         assert_eq!(coolprop_median(baseline, "qt_h", "Methane"), None);
+    }
+
+    /// User decisions PF2 and PF3: PT plus h is judged against half of CoolProp's update(PT) on the same machine, α^r
+    /// and properties at (T, ρ) against CoolProp's own; PH keeps its time.
+    #[test]
+    fn pt_alphar_and_properties_are_judged_against_coolprops() {
+        let row = |bench: &str, fluid: &str, ns: f64| format!("2026-10-14,abc,M10.9,{bench},{fluid},{ns},ns,cpu\n");
+        let baseline = "pt,Water,2000,6000,1,2,g\nalphar2,n-Propane,10000,499,1,2,g\ndt_h_cp,Water,10000,2926,1,2,g\n";
+        let met = [
+            row("pt_flash/pt_h", "Water", 3_000.0),
+            row("alphar_order2/residual", "n-Propane", 499.0),
+            row("properties_at_t_rho/dt_h_cp", "Water", 2_926.0),
+            row("ph_flash/ph_t", "Water", 15_000.0),
+        ];
+        assert_eq!(
+            check_targets(&met.concat(), "", baseline),
+            Ok("4 medians meet ARCHITECTURE.md §7, 0 misses logged".into())
+        );
+        for over in [
+            row("pt_flash/pt_h", "Water", 3_001.0),
+            row("alphar_order2/residual", "n-Propane", 500.0),
+            row("properties_at_t_rho/dt_h_cp", "Water", 2_927.0),
+            row("ph_flash/ph_t", "Water", 15_001.0),
+        ] {
+            assert!(check_targets(&over, "", baseline).unwrap_err()[0].contains(" ns over §7's "), "{over}");
+        }
     }
 
     /// Every target is the value ARCHITECTURE.md §7's table states on that row, so the table stays the one home.
@@ -405,9 +441,18 @@ mod tests {
             let (row, target) = label.split_once(" | ").unwrap();
             let line = architecture.lines().find(|l| l.starts_with(&format!("| {row} |"))).unwrap_or_default();
             assert!(line.contains(&format!("| {target}")), "{bench}: §7 has no row `{row}` with `{target}`: {line}");
-            let Target::Ns(ns) = target_kind else {
-                assert!(target.contains("CoolProp's"), "{bench}: a relative target that §7 does not state: {target}");
-                continue;
+            let ns = match target_kind {
+                Target::Ns(ns) => ns,
+                Target::CoolProp(_, fraction) => {
+                    let stated =
+                        [("≤ CoolProp's", 1.0), ("≤ ½ of CoolProp's", 0.5)].into_iter().find(|(t, _)| *t == target);
+                    assert_eq!(
+                        stated.map(|(_, f)| f),
+                        Some(fraction),
+                        "{bench}: §7 does not state {fraction} of CoolProp's"
+                    );
+                    continue;
+                }
             };
             let micro = |s: &str| s.trim_start_matches("≤ ").trim_end_matches(" µs").parse::<f64>().map(|v| v * 1e3);
             let stated: Vec<f64> = target

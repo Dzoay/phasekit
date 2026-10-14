@@ -67,7 +67,10 @@ Stop when any of these is true, rather than pushing on:
 - the fix would change a public type or trait in ARCHITECTURE.md §3, a decision D1-D17, or a user decision;
 - a gate could pass only by weakening it (a tolerance, a skipped test, a lint `allow`);
 - a new third-party dependency outside the tiers of [DEPENDENCIES.md](DEPENDENCIES.md) seems needed;
-- a performance target is missed by more than 2×, or a seam gate (zero-line core diff, `new_family.rs`) breaks.
+- a seam gate (zero-line core diff, `new_family.rs`) breaks.
+
+A missed performance target or memory budget (ARCHITECTURE.md §6, §7) does not stop a step: it is logged with its
+measurement in an issue labelled `future-work` and named in `ci/perf-exemptions.txt` (user decision TG1).
 
 Then: keep the branch, open an issue titled `Re-plan M<n>.<k>: <reason>` with the evidence (failing output,
 measurement, the conflicting doc line), and propose the change to this plan (a new step `M<n>.<k>a`, a reorder, or a
@@ -98,7 +101,7 @@ reorder or split steps need a reviewer's. Once a step has been merged, its ID ne
 | Mixtures, GERG, true-mixture blends | Composition stays out of the core contract; mixtures are a family crate (D4) | M13 |
 | IF97, ice Ih, solids | Gibbs families arrive through the seam proved at M5 (D10) | M14 |
 | INCOMP, humid air (real `HAPropsSI`) | Own `ThermoModel`s; humid air needs water, air and ice models (map 07 §9) | M17, M18 |
-| SIMD lanes | Investigated in a time-boxed spike after v0.1, shipped only if the measured gate passes (D9; Kernel's fatal flaw) | M12 |
+| SIMD lanes | Investigated in a time-boxed spike, shipped if it is faster than the scalar path (D9; Kernel's fatal flaw; user decision TG1) | M12, which may land before the `v0.1.0` tag as an opt-in feature (user decision RL4) |
 | Python | After v0.1, own namespace + `compat` (user decision 7) | M16 |
 | Plotting | After the mixtures milestone (user decision 13) | M19 |
 | Tier B shim (`AbstractState_*`), WIT component, network service facade | Deferred until a consumer asks (user decisions 9a, 8; BRIEF "connected": a server is an outer facade, never core) | On demand |
@@ -470,7 +473,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M | Crate | Entry trigger | Scope | Exit gate |
 |---|---|---|---|---|
 | M11 | `phasekit-cubic` | v0.1 released | vdW/SRK/PR via Δ1/Δ2, Soave/MC/Twu alpha, parameters from the canonical fluid records, borrowed HEOS ideal gas, cubic superancillary (map 06 U1-U5) | Zero-line core diff; `new_family` conformance; cubic-R register entry (below); DIV-0010 proof by the entropy identity (oracle PR propane 400 K, 1 bar: T(∂s/∂T)_p = 91.35 vs cp = 93.89 J/mol/K; map 12 §6.3); Z_c = 1/3 (SRK), 0.30740 (PR) (map 06 §8) |
-| M12 | core `simd` feature | v0.1 released; built before it in a worktree and merged after `v0.1.0` (user decision SL2) | A time-boxed SIMD spike (the user's follow-up asks to investigate SIMD), ten steps: [M12 SIMD lanes](#m12-simd-lanes) | ≥ 2.5× α^r batch throughput on AVX2 over the scalar path decides whether the feature ships (user decision SL3); otherwise the spike's measurements are recorded and the stack closed (D9) |
+| M12 | core `simd` feature | Built from 2026-10-13 in a worktree; merged when green, before the `v0.1.0` tag if it is ready first (user decision RL4) | A time-boxed SIMD spike (the user's follow-up asks to investigate SIMD), ten steps: [M12 SIMD lanes](#m12-simd-lanes) | ≥ 2.5× α^r batch throughput on AVX2 over the scalar path is the target (user decisions SL3, TG1); the feature ships if it is faster than the scalar path, otherwise the spike's measurements are recorded and the stack closed (D9) |
 | M13 | `phasekit-mix` | v0.1 + demand for mixtures | `Mixture: HelmholtzModel` at fixed z, own `ThermoModel` (VLE, stability, `from_split`), `MixtureModel` with AD composition derivatives, GERG-2008 datasets, compat `A[x]&B[y]`, true-mixture variants (`R410A.mix`) registered beside the pseudo-pure names (D4, user decision 4) | x = [1, 0] equals the pure fluid under any gauge (map 04 §8, map 15 §8); GERG teqp vectors (map 06 U7); Bell 2023 Table XIII; DIV-0013 resolved or kept; core diff zero expected |
 | M14 | `phasekit-iapws` | v0.1 + a water/steam or solid use case | IF97 regions 1-5 with backward equations, ice Ih (R10-06) and sublimation (R14-08) on `bundle_from_gibbs`, `from_split` for ice + vapour (map 07 §9) | **Zero-line core diff**; IAPWS tables first, oracle second; `gibbs_seam` conformance on real models |
 | M15 | `phasekit-pcsaft` | M11 done + demand | Hard chain, dispersion, association, polar terms on `Jet4` (map 06 U9-U11) | Zero-line core diff; teqp/FeOs cross-checks; oracle only where map 06 §8 says it is usable |
@@ -478,6 +481,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M17 | `phasekit-incomp` | v0.1 + demand | INCOMP fits as a `ThermoModel`, placeholders rejected at datagen, `Example*` fluids excluded, restricted data off by default (map 07 §9; D14) | Source tables; known-bad register (map 07 I1-I14) |
 | M18 | `phasekit-humidair` | M14 done (ice) | RP-1485 humid air on injected Water, Air and ice `Fluid`s (map 07 H3); HA strings in compat; the shim's real `HAPropsSI` replaces the stub; `pk_*` gains humid-air symbols (D11) | RP-1485 tables (map 10 §8.1, ~120 values); `HAPropsSI("H","T",300,"P",1e5,"R",0) = 27013.112479771713` (map 11 §8) |
 | M19 | plotting crate | M13 done (user decision 13) | Isolines and diagrams over saturation, `flash` and batch; a separate crate | Visual regression on documented diagrams *(inference)* |
+| M20 | core, compat, verify, CI | M12 landed (user decision PL1) | Four follow-ups: Cv, Cp, w, τ and δ as derivative variables; the conformance kit's `identities` and `part_additivity`; the intra-doc link check; the nightly report: [M20 Follow-ups](#m20-follow-ups) | Each step's checks; G1-G8 |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
@@ -501,11 +505,10 @@ cubic code.
 ### M12 SIMD lanes
 
 **Goal.** α^r, then properties at (T, ρ), QT and PQ, evaluated across states in lanes, bitwise equal to the scalar
-path, shipped as core's `simd` feature only if the gate passes (D9; ARCHITECTURE.md §7). **Entry.** Built from
-2026-10-13 on the i7-8700K in its own worktree; the steps stay stacked until M12.7 measures the gate, and merge in
-order only after `v0.1.0` is tagged (user decision SL2). If the gate fails, the stack is closed unmerged and a docs PR
-records the measurements and the re-plan (D9). **Prerequisites.** User decisions SL1 (`simd` enables `libm`) and SL3
-(the gate); the tools of G1-G8; fearless_simd 1.1's MSRV is the workspace's 1.89 (user decision MS1). M12 does not
+path, shipped as core's `simd` feature if it is faster than the scalar path (D9; ARCHITECTURE.md §7; user decision
+TG1). **Entry.** Built from 2026-10-13 on the i7-8700K in its own worktree; the steps merge in order when green, and
+may land before the `v0.1.0` tag (user decision RL4). **Prerequisites.** User decisions SL1 (`simd` enables `libm`)
+and SL3 (the target); the tools of G1-G8; fearless_simd 1.1's MSRV is the workspace's 1.89 (user decision MS1). M12 does not
 move `MILESTONE`: M11 stays the first open milestone.
 
 - **M12.1 The α^r batch and its scalar baseline.** `ExecPolicy` moves from L6 `batch` to a new L0 module `exec` (its
@@ -567,18 +570,48 @@ i7-8700K, the CI runners (x86-64, aarch64) and wasip2 with `simd128`; the lane `
 the `simd` build reproduces `fixtures/hash/libm.txt`; the K1/K2 paper rows pass at every level (VERIFICATION.md §9.2);
 ≥ 2.5× (SL3). **ROT rows.** None. **User decisions implemented.** SL1, SL2, SL3.
 
+### M20 Follow-ups
+
+**Goal.** The four follow-ups PLAN.md §6 had left unplanned (user decision PL1). **Entry.** After M12 lands; the steps
+are independent and may be reordered. M20 does not move `MILESTONE`.
+
+- **M20.1 Cv, Cp, w, τ and δ as derivative variables.** M10.3's strict grammar `d(X)/d(Y)|Z` and
+  `d(d(X)/d(Y)|Z)/d(W)|V` differentiates over the 12 first-order variables; Cv, Cp and w join them as X, Y, Z, W or V
+  through the order-3 bundle (`ThermoModel::derivs`, M7.10), and τ and δ through the published reducing state
+  (`FluidInfo::constants`, M10.2) (user decision OD1). There is no oracle: CoolProp's second derivatives refuse Cv, Cp
+  and w. *Red:* `derivative_variables_match_central_differences`: each new first derivative against central
+  differences of its property along the held variable on the `eos` grid (class `Fd`), and the τ and δ derivatives
+  against the T and ρ ones scaled by the reducing state (`Identity`), against a grammar that refuses the new names.
+- **M20.2 The conformance kit's `identities` and `part_additivity`.** `phasekit_verify::identities(fluid, states)`
+  asserts VERIFICATION.md §8.1's list in class `Identity`, moved into the kit from `tests/eos.rs`, which then calls it
+  per embedded fluid; `part_additivity` asserts that `ThermoModel::derivs`'s total is its ideal part plus its residual
+  part. VERIFICATION.md §10's two rows say M20.2. *Red:* `tests/new_family.rs` runs both on its van der Waals family,
+  against kit functions that report a mismatch.
+- **M20.3 The intra-doc link check.** `cargo doc --workspace --no-deps` with `-D rustdoc::broken_intra_doc_links` and
+  `-D rustdoc::private_intra_doc_links` in CI's linux job, and section 5.2 says it runs. *Red:* the command, failing on
+  a branch whose doc comment links a missing item; then fix what it reports on `main`. *Done when:* CI runs it and
+  `actionlint` is clean.
+- **M20.4 The nightly report.** The nightly `oracle` job's summary gains, per fluid and kind, the rows, the cells
+  asserted, the cells exempt per DIV id, the `nan` cells, the oracle-gap rows and the headroom (each column's largest
+  error over its class bound), plus the ignored tests and each fluid's arbiter status, so oracle-only fluids stay
+  visible. VERIFICATION.md §11.3's `nightly` row says what it lists. *Red:* an xtask unit test of the report over a
+  small fixture set, against a report that lists rows and failed calls only.
+
+**Exit gate.** G1-G8; each step's checks. **ROT rows.** None. **User decisions implemented.** PL1, OD1.
+
 ## 5. Cross-cutting tracks
 
 ### 5.1 Performance recording
 
 Each path is benched as it lands (criterion; gungraun from M9.6) against the targets of ARCHITECTURE.md §7;
 workloads, bench fluids, the harness and the result files are VERIFICATION.md §12. Non-blocking until M9; from M9.6
-`gates perf` enforces gungraun regressions on Linux CI and the reference machine holds the absolute targets.
+`gates perf` enforces gungraun regressions on Linux CI, and the reference machine's record is checked against the
+targets, a miss logged rather than blocking (user decision TG1).
 
 ### 5.2 Documentation
 
 - Rustdoc on every public item (`missing_docs`, enforced by G2); a `cargo doc --no-deps` check that denies broken intra-doc
-  links is planned, but no workflow runs it yet; the crate-level doctest of `phasekit-core` executes (the seed's does).
+  links is planned (M20.3), but no workflow runs it yet; the crate-level doctest of `phasekit-core` executes (the seed's does).
 - `docs/`: each fact stays in its one home (section 2.1); a step that changes one edits that home in the same PR (M9.5,
   for example, records the `libm` outcome in D12), and collapses its own step text (section 0.1 item 7). Rust code blocks in `docs/*.md` are either verbatim excerpts of the workspace or marked
   `<!-- excerpt: illustrative -->` (`gates doc-excerpts`, ROT-139); prefer a link to the file.
@@ -602,7 +635,7 @@ workloads, bench fluids, the harness and the result files are VERIFICATION.md §
 
 ### 5.4 v0.1 release checklist (M10.9)
 
-1. All M0-M10 exit gates green on `main`; the nightly sweep green for the last 3 nights.
+1. All M0-M10 exit gates green on `main`; the nightly sweep green on `main`.
 2. Register: every entry has its proof test; no `Investigate` entry hides a failing assertion.
 3. ROT-REGISTER.md: `gates rot` passes with `MILESTONE = 11`; no row is GAP.
 4. `cargo semver-checks` baseline recorded (first release: establishes it).
@@ -614,7 +647,8 @@ workloads, bench fluids, the harness and the result files are VERIFICATION.md §
    *(inference)*), the C library and header (`pk_*` and the separate shim build under the agreed file name), the npm
    package. Published under the `Dzoay` accounts (user decision P5): crates.io Trusted Publishing after the first manual
    release (R19), npm trusted publishing from the release workflow; no long-lived tokens in the repository.
-8. Tag `v0.1.0`; release notes list the user decisions in force and the known divergences.
+8. Tag `v0.1.0` when the user says, on the commit they name, with the CHANGELOG brought up to date first (user
+   decision RL4); release notes list the user decisions in force and the known divergences.
 
 ## 6. Resolved follow-ups and remaining user decisions
 
@@ -622,15 +656,12 @@ Every decision, and the steps it applies to, is in [DECISIONS.md](DECISIONS.md).
 still open; an item leaves it when a step or a decision takes it.
 
 **Open user decisions.** P4: the paywalled EOS papers (Ammonia, CO₂, R125, Air, Nitrogen, HFE143m). Until a paper
-arrives its fluid stays oracle-only, labelled provisional; nothing waits on it. The thread-scaling target's wording
-(issue #135): ARCHITECTURE.md §7's ≥ 0.9·N is above the laptop's own ceiling, and met on the aarch64 runner and on the
-i7-8700K (`results/M9-intel-core-i7-8700k.scaling.csv`). The §7 misses re-planned at M9.6 (issues
-#143 PT, #144 α^r and properties at (T, ρ); each named in `ci/perf-exemptions.txt`): optimise, or restate the
-target. #142's QT and PQ row is restated (user decision PF1), and #143's PH is met since #161. The i7-8700K's record
-after both (`results/M10-intel-core-i7-8700k.csv`, user decision RM2) passes `cargo xtask gates perf --targets`: 21
-medians meet §7, and its 6 misses are those the exemptions name.
-The memory budgets re-planned at M9.7 (issue #146): the superancillary's stored inverse (97 of 130 over 25 KiB) and
-15.3 MiB of RSS with all 136 loaded (6.1 MiB of it heap).
+arrives its fluid stays oracle-only, labelled provisional; nothing waits on it.
+
+**Logged future work** (user decision TG1). The goals relaxed for now, each in an issue labelled `future-work` with its
+measurement: #143, PT + h ≤ 3 µs (the target is PF2's); #144, α^r ≤ 0.3 µs and properties at (T, ρ) ≤ 0.5 µs (PF3);
+#146, the superancillary ≤ 25 KiB and all 136 loaded ≤ 8 MiB RSS (MB1); #170, the `libm` backend's known differences
+(LB1); #171, α^r ≤ 0.1 µs/state on AVX2 (M12.7).
 
 **Waiting for a paper.** Each item moves when a copy reaches `reference/papers/`.
 
@@ -642,14 +673,3 @@ The memory budgets re-planned at M9.7 (issue #146): the superancillary's stored 
 | Stored constants of map 13 R1's 15 candidates | each EOS paper | an `Investigate` entry once a paper value is in hand |
 | The order-3 identities of Thorade and Saadat 2013 (user decision OD5) | not open | M7.10 checks the identities VERIFICATION.md §8.1 lists |
 | The CoolProp rows of R1132(E) and VinylChloride | CC BY, but Springer refuses scripted downloads | re-check them against their papers |
-
-**Not yet planned.**
-
-- Cv, Cp, w, τ and δ as derivative variables (user decision OD1): no oracle (CoolProp's second derivatives refuse Cv,
-  Cp and w); τ and δ can read the published reducing state (`FluidInfo::constants`, M10.2). M10.3's strings
-  differentiate over the 12 first-order variables, so nothing waits on it.
-- The conformance kit's `identities` and `part_additivity` (VERIFICATION.md §10): `tests/eos.rs` checks the identities
-  per fluid, but an out-of-tree family has neither.
-- A `cargo doc --no-deps` check that denies broken intra-doc links (section 5.2): no workflow runs it.
-- The nightly report VERIFICATION.md once specified (per fluid and kind: cells asserted, cells exempt per DIV id, `nan`
-  cells, oracle-gap rows, headroom, each fluid's arbiter status): the job summary lists rows and failed calls only.
