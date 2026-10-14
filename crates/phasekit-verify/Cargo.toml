@@ -13,6 +13,10 @@ publish.workspace = true
 [dependencies]
 phasekit-core = { workspace = true, features = ["fluids-all"] }
 
+# The SIMD build of the benches (PLAN.md M12.4): core's `simd` feature, and the `alphar_batch/simd` case that times it.
+[features]
+simd = ["phasekit-core/simd"]
+
 # The embedded index (`phasekit_data::FLUIDS`) names every fluid the corpus decodes (PLAN.md M2.7).
 # allocation-counter (tier T3, user decision AC1, M2.9) counts heap allocations through its own global allocator,
 # so the workspace stays free of `unsafe` code.

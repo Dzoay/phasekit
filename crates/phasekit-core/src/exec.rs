@@ -10,6 +10,9 @@ use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 #[cfg(feature = "rayon")]
 use rayon::slice::{ParallelSlice, ParallelSliceMut};
 
+#[cfg(feature = "simd")]
+use fearless_simd::Level;
+
 use crate::error::Error;
 use crate::num::Lanes;
 
@@ -29,10 +32,11 @@ pub enum ExecPolicy {
         chunk: NonZeroUsize,
     },
     /// States side by side in lanes, on the calling thread (user decision SL5), where the batch has a lane kernel:
-    /// α^r through the built-in EOS's `HelmholtzModel::residual_batch`. Other batches run the scalar path. Two lanes
-    /// at the target's baseline, a measured win over the scalar path (PLAN.md M12.3). Each lane is its state's scalar
-    /// evaluation, and a short last group is padded with copies of one of its states (K17), so the bits are
-    /// `Reference`'s.
+    /// α^r through the built-in EOS's `HelmholtzModel::residual_batch`. Other batches run the scalar path. With the
+    /// `simd` feature the lanes run at the CPU's widest level, detected once per batch (8 on AVX-512, 4 on AVX2, 2
+    /// below; PLAN.md M12.4); without it, two lanes at the target's baseline, a measured win over the scalar path
+    /// (M12.3). Each lane is its state's scalar evaluation, and a short last group is padded with copies of one of its
+    /// states (K17), so the bits are `Reference`'s.
     Simd,
 }
 
@@ -70,6 +74,11 @@ pub(crate) fn run<K: LaneKernel>(
         return Ok(());
     }
     match exec {
+        // With the `simd` feature, the CPU's best level, detected once per batch (PLAN.md M12.4); without it, two lanes
+        // at the target's baseline, a measured win over the scalar path (M12.3).
+        #[cfg(feature = "simd")]
+        ExecPolicy::Simd => run_simd(Level::new(), kernel, x, y, out),
+        #[cfg(not(feature = "simd"))]
         ExecPolicy::Simd => run_lanes::<K, 2>(kernel, x, y, out),
         ExecPolicy::Reference | ExecPolicy::Parallel { .. } => {
             run_parallel(chunk_points(exec, x.len()), x, y, out, |x, y, out| run_scalar(kernel, x, y, out));
@@ -119,6 +128,7 @@ pub(crate) fn run_scalar<K: LaneKernel>(kernel: &K, x: &[f64], y: &[f64], out: &
 
 /// W points at a time through [`LaneKernel::lanes`]. A short last group is padded with copies of its first point
 /// (K17), so every lane holds a state of the batch, and the copies' results are dropped.
+#[inline(always)]
 pub(crate) fn run_lanes<K: LaneKernel, const W: usize>(kernel: &K, x: &[f64], y: &[f64], out: &mut [K::Out]) {
     for ((xs, ys), out) in x.chunks(W).zip(y.chunks(W)).zip(out.chunks_mut(W)) {
         let (Some(&x0), Some(&y0)) = (xs.first(), ys.first()) else { continue };
@@ -126,6 +136,48 @@ pub(crate) fn run_lanes<K: LaneKernel, const W: usize>(kernel: &K, x: &[f64], y:
         for (o, r) in out.iter_mut().zip(kernel.lanes(lanes(xs, x0), lanes(ys, y0))) {
             *o = r;
         }
+    }
+}
+
+/// [`run_lanes`] under `level`'s target features (fearless_simd's `vectorize`, as its `dispatch!` calls it), as wide as
+/// the level's vectors: 8 lanes on AVX-512, 4 on AVX2, 2 on SSE2, SSE4.2, NEON and WASM's simd128, and 2 without
+/// target features at a fallback level (PLAN.md M12.4). The kernel is `#[inline(always)]` down to the lane
+/// operations, so the level's instructions reach them; transcendentals still run per lane through `math`.
+#[cfg(feature = "simd")]
+pub(crate) fn run_simd<K: LaneKernel>(level: Level, kernel: &K, x: &[f64], y: &[f64], out: &mut [K::Out]) {
+    use fearless_simd::Simd;
+    match level {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        Level::Avx512(simd) => simd.vectorize(
+            #[inline(always)]
+            || run_lanes::<K, 8>(kernel, x, y, out),
+        ),
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        Level::Avx2(simd) => simd.vectorize(
+            #[inline(always)]
+            || run_lanes::<K, 4>(kernel, x, y, out),
+        ),
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        Level::Sse4_2(simd) => simd.vectorize(
+            #[inline(always)]
+            || run_lanes::<K, 2>(kernel, x, y, out),
+        ),
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        Level::Sse2(simd) => simd.vectorize(
+            #[inline(always)]
+            || run_lanes::<K, 2>(kernel, x, y, out),
+        ),
+        #[cfg(target_arch = "aarch64")]
+        Level::Neon(simd) => simd.vectorize(
+            #[inline(always)]
+            || run_lanes::<K, 2>(kernel, x, y, out),
+        ),
+        #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+        Level::WasmSimd128(simd) => simd.vectorize(
+            #[inline(always)]
+            || run_lanes::<K, 2>(kernel, x, y, out),
+        ),
+        _ => run_lanes::<K, 2>(kernel, x, y, out),
     }
 }
 
@@ -150,7 +202,7 @@ pub(crate) fn run_parallel<O: Send>(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// K6 (PLAN.md M9.1): `Parallel` chunks are a multiple of 16 points, rounded up from the policy's `chunk` and
@@ -165,6 +217,22 @@ mod tests {
         assert_eq!((chunk_points(parallel(64), 40), chunk_points(parallel(1), 5)), (40, 5));
         assert_eq!(chunk_points(ExecPolicy::Reference, 5), 5);
         assert_eq!(chunk_points(ExecPolicy::Simd, 5), 5);
+    }
+
+    /// Every dispatch level this CPU has, from [`Level::new`] down to the target's baseline (PLAN.md M12.4: CI forces
+    /// each level its runners have).
+    #[cfg(feature = "simd")]
+    pub(crate) fn levels() -> Vec<Level> {
+        let best = Level::new();
+        let mut levels = vec![best];
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        levels.extend(
+            [best.as_avx2().map(Level::Avx2), best.as_sse4_2().map(Level::Sse4_2), best.as_sse2().map(Level::Sse2)]
+                .into_iter()
+                .flatten(),
+        );
+        levels.dedup_by(|a, b| format!("{a:?}") == format!("{b:?}"));
+        levels
     }
 
     /// A kernel whose result names its point, and which fails the test if a lane holds a state from outside the
@@ -205,6 +273,59 @@ mod tests {
             assert_eq!(lanes_of::<2>(&kernel, n), want, "W = 2, n = {n}");
             assert_eq!(lanes_of::<4>(&kernel, n), want, "W = 4, n = {n}");
             assert_eq!(lanes_of::<8>(&kernel, n), want, "W = 8, n = {n}");
+        }
+    }
+
+    /// PLAN.md M12.4: at every dispatch level of this CPU (8 lanes on AVX-512, 4 on AVX2, 2 below), `run_simd` writes
+    /// every point's own result for every batch length up to 17, padding lanes with states of the batch.
+    #[cfg(feature = "simd")]
+    #[test]
+    fn every_level_writes_every_point() {
+        let batch: Vec<f64> = (1..=17).map(|i| f64::from(i) * 1.5).collect();
+        let neg: Vec<f64> = batch.iter().map(|x| -x).collect();
+        let kernel = Tagged { batch: &batch };
+        for level in levels() {
+            for n in 0..=batch.len() {
+                let mut out = vec![(0, 0); n];
+                run_simd(level, &kernel, &batch[..n], &neg[..n], &mut out);
+                let want: Vec<(u64, u64)> = (0..n).map(|i| kernel.point(batch[i], neg[i])).collect();
+                assert_eq!(out, want, "{level:?}, n = {n}");
+            }
+        }
+    }
+
+    /// A kernel whose result is the number of lanes it ran in.
+    #[cfg(feature = "simd")]
+    struct Width;
+
+    #[cfg(feature = "simd")]
+    impl LaneKernel for Width {
+        type Out = usize;
+        fn point(&self, _: f64, _: f64) -> usize {
+            1
+        }
+        fn lanes<const W: usize>(&self, _: Lanes<W>, _: Lanes<W>) -> [usize; W] {
+            [W; W]
+        }
+    }
+
+    /// PLAN.md M12.4: `run_simd` runs each level as wide as its vectors, 8 lanes on AVX-512, 4 on AVX2 and 2 below. The
+    /// widths change no bits (every lane is its state's scalar evaluation), so only this test can see them.
+    #[cfg(feature = "simd")]
+    #[test]
+    fn each_level_runs_its_own_width() {
+        for level in levels() {
+            let name = format!("{level:?}");
+            let want = if name.starts_with("Avx512") {
+                8
+            } else if name.starts_with("Avx2") {
+                4
+            } else {
+                2
+            };
+            let mut out = [0; 9];
+            run_simd(level, &Width, &[1.0; 9], &[1.0; 9], &mut out);
+            assert_eq!(out, [want; 9], "{name}");
         }
     }
 

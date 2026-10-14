@@ -516,16 +516,8 @@ move `MILESTONE`: M11 stays the first open milestone.
 | M12.1 | `HelmholtzModel::residual_batch`, `ExecPolicy` at L0, the α^r batch's scalar baseline |
 | M12.2 | `Lanes<W>` over `[f64; W]`; the residual on lanes, bitwise the scalar one lane by lane |
 | M12.3 | `LaneKernel` and `run_scalar`/`run_lanes`/`run_parallel` in L0 `exec`; `ExecPolicy::Simd`, `Lanes<2>` at the baseline (1.14-1.62× α^r on SSE2) |
+| M12.4 | the `simd` feature (fearless_simd 1.1): `run_simd` at 8, 4 or 2 lanes per level; n-Propane α^r 258 ns on AVX2 with per-lane `libm`, 1.21× std's scalar path |
 
-- **M12.4 The `simd` feature.** `simd = ["libm", "dep:fearless_simd"]` (fearless_simd 1.x, default features off but
-  `std`): `Level::new()` once per batch, `dispatch!` into `run_lanes` with W = 2 (SSE2, SSE4.2, NEON, simd128), 4
-  (AVX2) or 8 (AVX-512), the kernel path `#[inline(always)]` down to the lane operations; transcendentals still per
-  lane. `gates deps` and `features` learn the feature; DEPENDENCIES.md T1 lists it as present; CI runs the lane tests
-  with `--features simd` at every level each runner has (forced down from `Level::new()`), on aarch64, and on wasip2
-  with `+simd128`. If the inlining moves the scalar instruction counts, `gates perf --update` commits them with the
-  counts in the PR. *Red:* `policy_equivalence` at each forced level, against a dispatch stub that refuses the batch.
-  *Done when:* green on every level of the i7-8700K (SSE2, SSE4.2, AVX2) and of the CI runners, and the lanes' time
-  with per-lane `libm` is recorded (the ceiling user decision SL1 estimated).
 - **M12.5 Vector `exp`.** `Lanes::exp` ports the locked `libm` crate's `exp` operation for operation, its special
   cases as lane selects inside `Lanes`. *Red:* `lane_exp_is_libm_bitwise` (VERIFICATION.md §9.2) at every level: random
   inputs over α^r's argument range and over all of `f64`, and the edges ±0, |x| < 2⁻²⁸, the reduction boundaries at

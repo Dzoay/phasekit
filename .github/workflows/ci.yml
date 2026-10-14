@@ -58,6 +58,8 @@ jobs:
         run: cargo clippy -p phasekit-core -p phasekit-compat --no-default-features --all-targets -- -D warnings
       - name: clippy on the libm backend (PLAN.md M9.3)
         run: cargo clippy -p phasekit-core --features libm --all-targets -- -D warnings
+      - name: clippy on the simd feature (PLAN.md M12.4)
+        run: cargo clippy -p phasekit-core -p phasekit-verify --features phasekit-verify/simd --all-targets -- -D warnings
       - name: clippy on the Tier A shim's build (PLAN.md M10.6)
         run: cargo clippy -p phasekit-capi --features coolproplib-shim --all-targets -- -D warnings
 
@@ -113,6 +115,10 @@ jobs:
         run: |
           cargo nextest run -p phasekit-core --features libm --profile ci -E 'not test(std_vs_libm_ulp_report)'
           cargo nextest run -p phasekit-core --features libm --profile ci -E 'test(std_vs_libm_ulp_report)' --no-capture
+      - name: The lane tests on the simd feature, at every dispatch level of the runner (PLAN.md M12.4)
+        run: |
+          cargo nextest run -p phasekit-core --features simd --profile ci -E 'not test(std_vs_libm_ulp_report)'
+          cargo nextest run -p phasekit-verify --features simd --test batch --profile ci
       - name: G8 cargo xtask gates all --except mutants,perf (the mutants and perf jobs run those)
         run: cargo xtask gates all --except mutants,perf
       - name: Fluid data changes (job summary; PRs that change data; PLAN.md M2.9a)
@@ -302,6 +308,10 @@ jobs:
         run: cargo nextest run --workspace --exclude phasekit-xtask --profile ci
       - name: G3 cargo test --doc --workspace --exclude phasekit-xtask
         run: cargo test --doc --workspace --exclude phasekit-xtask
+      - name: The lane tests on the simd feature, at NEON (PLAN.md M12.4)
+        run: |
+          cargo nextest run -p phasekit-core --features simd --profile ci -E 'not test(std_vs_libm_ulp_report)'
+          cargo nextest run -p phasekit-verify --features simd --test batch --profile ci
       - name: Cross-target hash with std and libm maths (PLAN.md M9.4; VERIFICATION.md §9.4)
         run: |
           for features in "" "--features phasekit-core/libm"; do
@@ -347,6 +357,12 @@ jobs:
           name: hash-wasip2
           path: hash.txt
           if-no-files-found: error
+      - name: The lane tests on the simd feature, at simd128 (PLAN.md M12.4; last, as the flag rebuilds everything)
+        env:
+          RUSTFLAGS: -C target-feature=+simd128
+        run: |
+          cargo nextest run -p phasekit-core --features simd --target wasm32-wasip2 --profile ci -E 'not test(std_vs_libm_ulp_report)'
+          cargo nextest run -p phasekit-verify --features simd --test batch --target wasm32-wasip2 --profile ci
 
   hash-compare:
     name: hash-compare

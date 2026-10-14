@@ -156,6 +156,7 @@ impl<S: TauSide> GaussianBlock<S> {
     }
 
     /// `A_ij += φ·B^τ_i·B^δ_j` for every term, `i + j ≤ ORD`.
+    #[inline(always)]
     pub(crate) fn accumulate<R: Real, const ORD: usize>(&self, v: &Vars<R>, acc: &mut Derivs<R>) {
         let delta = v.delta_pow[1];
         for k in 0..self.n.len() {

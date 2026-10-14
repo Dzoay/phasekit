@@ -7,7 +7,8 @@
 //! which bounds the dispatch share. `alphar_batch` (PLAN.md M12.1) evaluates the same grid as one
 //! `HelmholtzModel::residual_batch` call under `ExecPolicy::Reference`, reported per state: `scalar` with std's maths,
 //! `scalar_libm` built with `--features phasekit-core/libm`; M12's SIMD gate is measured against `scalar` (user decision
-//! SL3). Recorded by `cargo xtask bench --record`.
+//! SL3). `simd` (PLAN.md M12.4), built with `--features simd`, times the same call under `ExecPolicy::Simd` with core's
+//! `simd` feature: the lanes at the CPU's widest level. Recorded by `cargo xtask bench --record`.
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
@@ -45,24 +46,27 @@ mod bench {
         g.finish();
     }
 
-    /// `states` as one `residual_batch` call per iteration, timed per state: criterion's median is then comparable
-    /// with `run`'s one state per iteration.
+    /// `states` as one `residual_batch` call per iteration under each policy it times, per state: criterion's median
+    /// is then comparable with `run`'s one state per iteration.
     fn run_batch(c: &mut Criterion, label: &str, model: &dyn HelmholtzModel, states: &[(f64, f64)]) {
         let (t, rho): (Vec<f64>, Vec<f64>) = states.iter().copied().unzip();
         let mut out = vec![Derivs::zero(Order::Two); states.len()];
         let per_state = u32::try_from(states.len()).unwrap_or(u32::MAX);
         let backend = if phasekit_core::math::BACKEND == "libm" { "scalar_libm" } else { "scalar" };
+        let simd = cfg!(feature = "simd").then_some((ExecPolicy::Simd, "simd"));
         let mut g = c.benchmark_group("alphar_batch");
-        g.bench_function(BenchmarkId::new(label, backend), |b| {
-            b.iter_custom(|iters| {
-                let start = Instant::now();
-                for _ in 0..iters {
-                    let batch = model.residual_batch(&t, &rho, Order::Two, &mut out, ExecPolicy::Reference);
-                    std::hint::black_box((batch.is_ok(), &mut out));
-                }
-                start.elapsed().checked_div(per_state).unwrap_or(Duration::ZERO)
+        for (exec, case) in [(ExecPolicy::Reference, backend)].into_iter().chain(simd) {
+            g.bench_function(BenchmarkId::new(label, case), |b| {
+                b.iter_custom(|iters| {
+                    let start = Instant::now();
+                    for _ in 0..iters {
+                        let batch = model.residual_batch(&t, &rho, Order::Two, &mut out, exec);
+                        std::hint::black_box((batch.is_ok(), &mut out));
+                    }
+                    start.elapsed().checked_div(per_state).unwrap_or(Duration::ZERO)
+                });
             });
-        });
+        }
         g.finish();
     }
 
