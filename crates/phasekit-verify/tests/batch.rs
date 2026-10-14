@@ -1,5 +1,6 @@
-//! Batch on real fluids (PLAN.md M5.8, M9.1; VERIFICATION.md §9.1; ARCHITECTURE.md §7): the batch driver is the scalar
-//! path cell by cell, bit for bit, into point-major buffers, and every executor and thread count gives the same bits.
+//! Batch on real fluids (PLAN.md M5.8, M9.1, M12; VERIFICATION.md §9.1, §9.2; ARCHITECTURE.md §7): the batch driver is
+//! the scalar path cell by cell, bit for bit, into point-major buffers, and every executor and thread count gives the
+//! same bits.
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
@@ -7,9 +8,10 @@ use std::num::NonZeroUsize;
 
 use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
 use phasekit_core::{
-    Basis, DataSet, Density, Derivs, Error, HelmholtzModel, Input, Order, Pair, Prop, Registry, Temperature,
+    Basis, DataSet, Density, Derivs, DomainPolicy, Error, FlashOptions, Fluid, HelmholtzModel, Input, Order, Pair,
+    Phase, Pressure, Prop, Quality, Registry, Temperature, math,
 };
-use phasekit_verify::SplitMix64;
+use phasekit_verify::{SplitMix64, policy_equivalence};
 
 /// Outputs that cover single-phase and two-phase answers and refusals (cp, w and Q are undefined somewhere).
 const OUTPUTS: [Prop; 8] =
@@ -88,13 +90,93 @@ fn out_is_point_major() {
     assert!(status[8] == Status::Ok && out[8] > 0.0 && out[8] < 1.0, "the third point is two-phase: {}", out[8]);
 }
 
+/// PLAN.md M12.8 (VERIFICATION.md §9.2, class `Exact`): DT batches of every embedded fluid under `ExecPolicy::Simd`,
+/// whose total bundles the built-in EOS evaluates in lanes, are `Reference`'s, every cell and status bit for bit
+/// (`policy_equivalence`, K17). The points are [`dt_grid`]'s, in-dome states and refusals included, under the default
+/// options, `Extrapolate` and an imposed gas; prefixes of 0 to 17 points and the whole set take every remainder of the
+/// lanes and of the driver's groups.
+#[test]
+fn dt_batch_policy_equivalence() {
+    let registry = Registry::embedded().unwrap();
+    let options = [
+        FlashOptions::new(),
+        FlashOptions::new().with_domain(DomainPolicy::Extrapolate),
+        FlashOptions::new().with_phase(Phase::Gas),
+    ];
+    let (mut fluids, mut dome) = (0, 0);
+    for name in registry.names() {
+        let fluid = registry.get(name).unwrap();
+        let (x, y, in_dome) = dt_grid(registry, fluid, name);
+        for opts in options {
+            for n in (0..=17).chain([x.len()]) {
+                let req = BatchRequest::new(Pair::DT, Basis::Molar, &x[..n], &y[..n], &OUTPUTS).with_flash(opts);
+                let equal = policy_equivalence(fluid, &req, ExecPolicy::Simd);
+                assert!(equal.is_ok(), "{name} {opts:?} n = {n}: {equal:?}");
+            }
+        }
+        (fluids, dome) = (fluids + 1, dome + in_dome);
+    }
+    assert!(fluids >= 130 && dome >= 16 * fluids, "{fluids} fluids, {dome} in-dome points");
+}
+
+/// A fluid's DT points (ρ, T) on the `eos` and `flash` grids, and how many lie in the dome. The `eos` grid's 64 points
+/// (VERIFICATION.md §9.4, SplitMix64 seed 1): T ~ U[T_low, T_max] and ρ ~ logU[1e-6·ρ_L, ρ_L], ρ_L the saturated liquid
+/// at T_low = max(T_min, T_triple) (3ρ_c where QT has none). The `flash` grid's truths read off as DT (§3.5): 6 × 6
+/// (p, T) at cell centres of T in [T_low, T_max] and ln p in [ln max(p_sat(T_low), 1 Pa), ln p_max], and 4 × 4 (T, Q)
+/// at cell centres of T in [T_low, T_c] and Q in (0, 1), inside the dome: a pseudo-pure fluid's from its QT densities at
+/// Q = 0 and 1 by the lever rule, as it has no QT inside the dome (§3.5's `dome` truths). A truth the flash refuses gives
+/// a NaN ρ. Then a negative ρ and a NaN T.
+fn dt_grid(registry: &Registry, fluid: &Fluid, name: &str) -> (Vec<f64>, Vec<f64>, usize) {
+    let record = phasekit_core::internal::record(registry, name).unwrap();
+    let limits = &record.limits;
+    let (t_low, t_max) = (limits.t_min().max(limits.t_triple().unwrap_or(limits.t_min())), limits.t_max());
+    let crit = record.critical.unwrap();
+    let qt = |q: f64, t: f64| Some(Input::qt(Quality::new(q).ok()?, Temperature::new(t).ok()?));
+    let state = |input: Option<Input>| input.and_then(|input| fluid.state(input).ok());
+    let liquid = state(qt(0.0, t_low));
+    let (rho_l, p_low) = liquid.map_or((3.0 * crit.rho, 1.0), |s| (s.rho(Basis::Molar), s.p().max(1.0)));
+    let mut rng = SplitMix64::new(1);
+    let (mut x, mut y): (Vec<f64>, Vec<f64>) =
+        (0..64).map(|_| (rng.log_uniform(1e-6 * rho_l, rho_l), rng.uniform(t_low, t_max))).unzip();
+    let centre = |k: u32, n: u32| (f64::from(k) + 0.5) / f64::from(n);
+    let mut truth = |input: Option<Input>, t: f64| {
+        let rho = state(input).map(|s| s.rho(Basis::Molar));
+        x.push(rho.unwrap_or(f64::NAN));
+        y.push(t);
+        rho.is_some()
+    };
+    for i in 0..6 {
+        let t = t_low + (t_max - t_low) * centre(i, 6);
+        for j in 0..6 {
+            let p = math::exp(math::ln(p_low) + (math::ln(limits.p_max()) - math::ln(p_low)) * centre(j, 6));
+            truth(Pressure::new(p).ok().zip(Temperature::new(t).ok()).map(|(p, t)| Input::pt(p, t)), t);
+        }
+    }
+    let mut in_dome = 0;
+    for i in 0..4 {
+        let t = t_low + (crit.t - t_low) * centre(i, 4);
+        let sides = state(qt(0.0, t)).zip(state(qt(1.0, t))).map(|(l, v)| (l.rho(Basis::Molar), v.rho(Basis::Molar)));
+        for j in 0..4 {
+            let q = centre(j, 4);
+            let lever = sides.map(|(l, v)| 1.0 / (q / v + (1.0 - q) / l));
+            let rho = state(qt(q, t)).map(|s| s.rho(Basis::Molar)).or(lever);
+            in_dome += usize::from(rho.is_some());
+            x.push(rho.unwrap_or(f64::NAN));
+            y.push(t);
+        }
+    }
+    x.extend([-1.0, rho_l]);
+    y.extend([t_low, f64::NAN]);
+    (x, y, in_dome)
+}
+
 /// Executors and threads (PLAN.md M9.1). Thread tests: wasm has no rayon (D17).
 #[cfg(not(target_family = "wasm"))]
 mod parallel {
     use std::num::NonZeroUsize;
 
+    use phasekit_core::Var;
     use phasekit_core::batch::ExecPolicy;
-    use phasekit_core::{Fluid, Var};
 
     use super::*;
 
@@ -189,12 +271,12 @@ mod parallel {
     }
 }
 
-/// PLAN.md M12.1 (VERIFICATION.md §9.1, class `Exact`): `HelmholtzModel::residual_batch` is `residual` at every point,
-/// every entry bit for bit, for every embedded fluid at every order, under `Reference` and `Parallel` (16-point chunks,
-/// a short last one included). The points span the fluid's T range and ρ up to `rho_max`, with ρ = 0, T_max and NaN
-/// inputs; unequal lengths are a `Shape` error.
+/// PLAN.md M12.1 and M12.8 (VERIFICATION.md §9.1, class `Exact`): `HelmholtzModel::residual_batch` is `residual` and
+/// `ideal_batch` is `ideal` at every point, every entry bit for bit, for every embedded fluid at every order, under
+/// `Reference` and `Parallel` (16-point chunks, a short last one included). The points span the fluid's T range and ρ up
+/// to `rho_max`, with ρ = 0, T_max and NaN inputs; unequal lengths are a `Shape` error.
 #[test]
-fn residual_batch_is_residual_per_point() {
+fn helmholtz_batches_are_per_point() {
     let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
     let parallel = ExecPolicy::Parallel { chunk: NonZeroUsize::new(16).unwrap() };
     let mut rng = SplitMix64::new(12);
@@ -213,8 +295,10 @@ fn residual_batch_is_residual_per_point() {
         t.extend([t_min, t_max, f64::NAN, t_max]);
         rho.extend([0.0, eos.rho_max(t_max), 1.0, f64::NAN]);
         for order in [Order::One, Order::Two, Order::Three, Order::Four] {
-            for exec in [ExecPolicy::Reference, parallel] {
-                assert_batch_is_per_point(name, eos, (&t, &rho), order, exec);
+            for (part, exec) in
+                [Part::Residual, Part::Ideal].into_iter().flat_map(|p| [(p, ExecPolicy::Reference), (p, parallel)])
+            {
+                assert_batch_is_per_point(name, eos, part, (&t, &rho), order, exec);
             }
         }
         let (mut short, mut out) =
@@ -222,20 +306,24 @@ fn residual_batch_is_residual_per_point() {
         for shape in [
             eos.residual_batch(&t, &rho, Order::Two, &mut short, ExecPolicy::Reference),
             eos.residual_batch(&t, &rho[1..], Order::Two, &mut out, parallel),
+            eos.ideal_batch(&t, &rho, Order::Two, &mut short, ExecPolicy::Simd),
+            eos.ideal_batch(&t[1..], &rho, Order::Two, &mut out, ExecPolicy::Reference),
         ] {
             assert!(matches!(shape, Err(Error::Shape { .. })), "{name}: {shape:?}");
         }
         assert!(eos.residual_batch(&[], &[], Order::Two, &mut [], parallel).is_ok(), "{name}: empty batch");
+        assert!(eos.ideal_batch(&[], &[], Order::Two, &mut [], ExecPolicy::Simd).is_ok(), "{name}: empty α⁰ batch");
         fluids += 1;
     }
     assert!(fluids >= 130, "{fluids} fluids");
 }
 
-/// PLAN.md M12.3 (VERIFICATION.md §9.2, class `Exact`): `residual_batch` under `ExecPolicy::Simd` is `residual` at
-/// every point, as under `Reference`, for every embedded fluid at every order. Batches of 0 to 17 points take every
-/// remainder of 2, 4 and 8 lanes, and the whole set adds ρ = 0, T_max and NaN inputs.
+/// PLAN.md M12.3 and M12.8 (VERIFICATION.md §9.2, class `Exact`): `residual_batch` and `ideal_batch` under
+/// `ExecPolicy::Simd` are `residual` and `ideal` at every point, as under `Reference`, for every embedded fluid at every
+/// order. Batches of 0 to 17 points take every remainder of 2, 4 and 8 lanes, and the whole set adds ρ = 0, T_max and
+/// NaN inputs.
 #[test]
-fn residual_batch_policy_equivalence() {
+fn helmholtz_batches_policy_equivalence() {
     let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
     let mut rng = SplitMix64::new(13);
     let mut fluids = 0;
@@ -252,9 +340,10 @@ fn residual_batch_policy_equivalence() {
             .unzip();
         t.extend([t_min, t_max, f64::NAN, t_max]);
         rho.extend([0.0, eos.rho_max(t_max), 1.0, f64::NAN]);
-        for order in [Order::One, Order::Two, Order::Three, Order::Four] {
+        let orders = [Order::One, Order::Two, Order::Three, Order::Four];
+        for (order, part) in orders.into_iter().flat_map(|o| [(o, Part::Residual), (o, Part::Ideal)]) {
             for n in (0..=17).chain([t.len()]) {
-                assert_batch_is_per_point(name, eos, (&t[..n], &rho[..n]), order, ExecPolicy::Simd);
+                assert_batch_is_per_point(name, eos, part, (&t[..n], &rho[..n]), order, ExecPolicy::Simd);
             }
         }
         fluids += 1;
@@ -262,17 +351,31 @@ fn residual_batch_policy_equivalence() {
     assert!(fluids >= 130, "{fluids} fluids");
 }
 
-/// One fluid, order and policy of [`residual_batch_is_residual_per_point`]: every entry of every point bit for bit,
+/// The part of α a Helmholtz batch hook evaluates.
+#[derive(Clone, Copy, Debug)]
+enum Part {
+    /// `residual_batch` against `residual`.
+    Residual,
+    /// `ideal_batch` against `ideal`.
+    Ideal,
+}
+
+/// One fluid, part, order and policy of [`helmholtz_batches_are_per_point`]: every entry of every point bit for bit,
 /// NaN canonical as in the cross-target hash (VERIFICATION.md §9.4), since Rust leaves NaN bit patterns unspecified.
 fn assert_batch_is_per_point(
     name: &str,
     eos: &dyn HelmholtzModel,
+    part: Part,
     (t, rho): (&[f64], &[f64]),
     order: Order,
     exec: ExecPolicy,
 ) {
     let mut out = vec![Derivs::zero(order); t.len()];
-    eos.residual_batch(t, rho, order, &mut out, exec).unwrap();
+    match part {
+        Part::Residual => eos.residual_batch(t, rho, order, &mut out, exec),
+        Part::Ideal => eos.ideal_batch(t, rho, order, &mut out, exec),
+    }
+    .unwrap();
     let bits = |d: &Derivs| {
         (0..=4)
             .flat_map(|n| (0..=n).map(move |i| (i, n - i)))
@@ -280,7 +383,10 @@ fn assert_batch_is_per_point(
             .collect::<Vec<_>>()
     };
     for (i, got) in out.iter().enumerate() {
-        let want = eos.residual(t[i], rho[i], order);
-        assert_eq!(bits(got), bits(&want), "{name} {order:?} {exec:?} point {i}: T {} ρ {}", t[i], rho[i]);
+        let want = match part {
+            Part::Residual => eos.residual(t[i], rho[i], order),
+            Part::Ideal => eos.ideal(t[i], rho[i], order),
+        };
+        assert_eq!(bits(got), bits(&want), "{name} {part:?} {order:?} {exec:?} point {i}: T {} ρ {}", t[i], rho[i]);
     }
 }

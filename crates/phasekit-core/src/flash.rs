@@ -26,8 +26,9 @@ use phase::{Branch, Region, Where, pt_branch, region};
 use quality::{QVar, pq, qt, qx};
 use search::choose;
 
-use crate::derivs::{Bundle, Order};
+use crate::derivs::{Bundle, Derivs, Order};
 use crate::error::{DomainError, Error};
+use crate::exec::ExecPolicy;
 use crate::fluid::PureFluid;
 use crate::input::{NativeInput, Pair, Var};
 use crate::model::ThermoModel;
@@ -178,8 +179,45 @@ fn above_melting_line(fluid: &PureFluid, state: State, opts: &FlashOptions) -> R
 /// Order-2 total bundle at (T, ρ): one ideal and one residual evaluation.
 fn total(fluid: &PureFluid, t: f64, rho: f64) -> Result<Bundle, Error> {
     let eos = fluid.eos();
-    let d = eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two);
+    order_two(eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two))
+}
+
+/// The order-2 bundle of a total `d`.
+fn order_two(d: Derivs) -> Result<Bundle, Error> {
     d.bundle().ok_or(Error::InvalidState { reason: "the model returned a bundle below the requested order 2" })
+}
+
+/// Points [`dt_lanes`] evaluates together: whole groups of every level's lanes (32 on AVX-512), on the stack.
+pub(crate) const GROUP: usize = 64;
+
+/// The DT flash at every point `(t[i], rho[i])`, native and molar, into `out[i]`, each [`flash`]'s result at that
+/// point, bit for bit (PLAN.md M12.8): the points' total bundles in lanes, [`GROUP`] at a time
+/// (`HelmholtzModel::ideal_batch` and `residual_batch` under `ExecPolicy::Simd`), then each point's flash on its own
+/// bundle. The phase rule, the checks and a state inside the dome, whose phases' bundles are evaluated at their own
+/// densities, are each point's scalar path.
+pub(crate) fn dt_lanes(
+    fluid: &PureFluid,
+    t: &[f64],
+    rho: &[f64],
+    opts: &FlashOptions,
+    out: &mut [Result<State, Error>],
+) {
+    let eos = fluid.eos();
+    for ((t, rho), out) in t.chunks(GROUP).zip(rho.chunks(GROUP)).zip(out.chunks_mut(GROUP)) {
+        let (mut ideal, mut residual) = ([Derivs::zero(Order::Two); GROUP], [Derivs::zero(Order::Two); GROUP]);
+        let (Some(ideal), Some(residual)) = (ideal.get_mut(..t.len()), residual.get_mut(..t.len())) else { continue };
+        let evaluated = eos.ideal_batch(t, rho, Order::Two, ideal, ExecPolicy::Simd).and(eos.residual_batch(
+            t,
+            rho,
+            Order::Two,
+            residual,
+            ExecPolicy::Simd,
+        ));
+        for ((t, rho), (bundles, out)) in t.iter().zip(rho).zip(ideal.iter().zip(residual.iter()).zip(out)) {
+            let b = || evaluated.clone().and_then(|()| order_two(*bundles.0 + *bundles.1));
+            *out = dt_from(fluid, *t, *rho, opts, b).and_then(|state| above_melting_line(fluid, state, opts));
+        }
+    }
 }
 
 /// DT: no iteration. Temperature check, bundle, phase rule, `State`, then the pressure check on the state's own p (in
@@ -187,13 +225,24 @@ fn total(fluid: &PureFluid, t: f64, rho: f64) -> Result<Bundle, Error> {
 /// domain (D6). A single-phase state the phase rule chose (no hint) must be mechanically stable: the acceptance gate
 /// (D6; map 03 §6, `agent-notes.md`: dp/dρ > 0 and cv > 0).
 fn dt(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Result<State, Error> {
+    dt_from(fluid, t, rho, opts, || total(fluid, t, rho))
+}
+
+/// [`dt`] on the total bundle at (T, ρ) that `bundle` gives: [`total`], or one evaluated in lanes ([`dt_lanes`]).
+fn dt_from(
+    fluid: &PureFluid,
+    t: f64,
+    rho: f64,
+    opts: &FlashOptions,
+    bundle: impl FnOnce() -> Result<Bundle, Error>,
+) -> Result<State, Error> {
     let enforce = opts.domain() == DomainPolicy::Enforce;
     let t_check = check_t(fluid, t);
     if enforce {
         t_check?;
     }
     let (r, m, key) = (fluid.eos().gas_constant(), fluid.info().molar_mass(), fluid.info().key());
-    let b = total(fluid, t, rho)?;
+    let b = bundle()?;
     let p = relations::pressure(r, t, rho, &b);
     let state = match region(fluid, t, rho, p, opts)? {
         Region::Single(phase) => {

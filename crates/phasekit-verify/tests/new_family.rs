@@ -371,6 +371,68 @@ fn batch_reports_every_cell_and_policies_agree() {
     assert!(out[3..6].iter().all(|v| v.is_nan()) && summary.failed_cells == 5);
     let parallel = ExecPolicy::Parallel { chunk: NonZeroUsize::new(2).unwrap() };
     policy_equivalence(fluid, &req, parallel).unwrap();
+    policy_equivalence(fluid, &req, ExecPolicy::Simd).unwrap(); // through the family's default batch hooks
+}
+
+/// van der Waals whose α⁰ batch hook adds 1 to A10, so h is R·T higher wherever a batch took the hook.
+#[derive(Debug)]
+struct ShiftedIdealBatch(VanDerWaals);
+
+impl HelmholtzModel for ShiftedIdealBatch {
+    fn gas_constant(&self) -> f64 {
+        R
+    }
+    fn residual(&self, t: f64, rho: f64, order: Order) -> Derivs {
+        self.0.residual(t, rho, order)
+    }
+    fn ideal(&self, t: f64, rho: f64, order: Order) -> Derivs {
+        self.0.ideal(t, rho, order)
+    }
+    fn ideal_batch(
+        &self,
+        t: &[f64],
+        rho: &[f64],
+        order: Order,
+        out: &mut [Derivs],
+        _: ExecPolicy,
+    ) -> Result<(), Error> {
+        for ((t, rho), out) in t.iter().zip(rho).zip(out) {
+            let ideal = self.0.ideal(*t, *rho, order);
+            *out = Derivs::from_fn(order, |i, j| ideal.get(i, j).unwrap() + if (i, j) == (1, 0) { 1.0 } else { 0.0 });
+        }
+        Ok(())
+    }
+    fn rho_max(&self, t: f64) -> f64 {
+        self.0.rho_max(t)
+    }
+}
+
+/// PLAN.md M12.8: a DT batch of a Helmholtz fluid under `ExecPolicy::Simd` evaluates its points' total bundles through
+/// the family's batch hooks, and no other batch does; `policy_equivalence` reports the first cell that differs. With an
+/// `ideal_batch` that adds 1 to A10, a `Simd` DT batch's first h is R·T above `Reference`'s with the same status, while
+/// a `Parallel` DT batch and a `Simd` PT batch, which has no lane path, are `Reference`'s.
+#[test]
+fn simd_dt_batches_take_the_batch_hooks() {
+    let model = ShiftedIdealBatch(VanDerWaals { a: 0.1355, b: 3.2e-5 });
+    let crit = model.0.critical();
+    let source = Source::new("vanderWaals-1873", None, DataTerms::Published);
+    let info = FluidInfo::new("vdW-hooks", 0.039_948, source, ModelKey::from_content(b"vdw through the batch hooks"));
+    let package = PureFluid::builder(info.unwrap(), model, Limits::new(50.0, 2000.0, 1e9).unwrap()).critical(crit);
+    let reg = Registry::empty().with_model(Arc::new(package.build())).unwrap();
+    let fluid = reg.get("vdW-hooks").unwrap();
+    let t = vec![2.0 * crit.t; 20];
+    let rho: Vec<f64> = (1..=20).map(|i| f64::from(i) * 50.0).collect();
+    let p: Vec<f64> = rho.iter().zip(&t).map(|(rho, t)| fluid.state(dt(*rho, *t)).unwrap().p()).collect();
+    let (dt_req, pt_req) = (
+        BatchRequest::new(Pair::DT, Basis::Molar, &rho, &t, &[Prop::Hmolar]),
+        BatchRequest::new(Pair::PT, Basis::Molar, &p, &t, &[Prop::Hmolar]),
+    );
+    let lanes = policy_equivalence(fluid, &dt_req, ExecPolicy::Simd).unwrap_err();
+    let shift = R * t[0];
+    assert_eq!((lanes.what, lanes.at), ("cell", 0), "{lanes:?}");
+    assert!((lanes.got - lanes.want - shift).abs() <= 1e-9 * shift, "h is R·T above: {lanes:?}");
+    policy_equivalence(fluid, &dt_req, ExecPolicy::Parallel { chunk: NonZeroUsize::new(16).unwrap() }).unwrap();
+    policy_equivalence(fluid, &pt_req, ExecPolicy::Simd).unwrap();
 }
 
 /// van der Waals whose residual is NaN unless a rayon worker thread evaluates it, so a batch shows where it ran.

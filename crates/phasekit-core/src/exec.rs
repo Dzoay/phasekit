@@ -32,11 +32,13 @@ pub enum ExecPolicy {
         chunk: NonZeroUsize,
     },
     /// States side by side in lanes, on the calling thread (user decision SL5), where the batch has a lane kernel:
-    /// α^r through the built-in EOS's `HelmholtzModel::residual_batch`. Other batches run the scalar path. With the
-    /// `simd` feature the lanes run at the CPU's widest level, detected once per batch, four vectors to a lane
-    /// operation (32 lanes on AVX-512, 16 on AVX2, 8 below; PLAN.md M12.4, M12.7); without it, two lanes at the target's
-    /// baseline, a measured win over the scalar path (M12.3). Each lane is its state's scalar evaluation, and a short last group is padded with copies of one of its
-    /// states (K17), so the bits are `Reference`'s.
+    /// α^r and α⁰ through the built-in EOS's `HelmholtzModel::residual_batch` and `ideal_batch`, and the total bundles
+    /// of a DT batch of a Helmholtz fluid through `batch::evaluate` (PLAN.md M12.8). Other batches, and the rest of a DT
+    /// point's flash, run the scalar path. With the `simd` feature the lanes run at the CPU's widest level, detected
+    /// once per batch, four vectors to a lane operation (32 lanes on AVX-512, 16 on AVX2, 8 below; PLAN.md M12.4,
+    /// M12.7); without it, two lanes at the target's baseline, a measured win over the scalar path (M12.3). Each lane is
+    /// its state's scalar evaluation, and a short last group is padded with copies of one of its states (K17), so the
+    /// bits are `Reference`'s.
     Simd,
 }
 

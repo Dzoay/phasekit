@@ -1,7 +1,7 @@
 //! The conformance kit every model family inherits (Extensible graft): a new family dev-depends on this
 //! crate and runs these checks unchanged. Identity-based, so they need no oracle.
 
-use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
+use phasekit_core::batch::{self, BatchRequest, BatchSummary, ExecPolicy, Status};
 use phasekit_core::{
     Basis, Error, FlashOptions, Fluid, Gauge, HelmholtzModel, Input, Order, Pair, Prop, RootPolicy, State, Var,
 };
@@ -110,22 +110,27 @@ pub fn gauged_pair(a: &State, b: &State, dh: f64, ds: f64) -> Result<(), Mismatc
     Ok(())
 }
 
-/// Every executor must reproduce `Reference` bitwise, values and statuses (K17).
+/// Every executor must reproduce `Reference` bitwise, values and statuses (K17), and so its summary.
 pub fn policy_equivalence(fluid: &Fluid, req: &BatchRequest<'_>, candidate: ExecPolicy) -> Result<(), Mismatch> {
     let shape = Mismatch { what: "batch shape", at: 0, got: f64::NAN, want: 0.0 };
     let cells = req.cells().ok_or(shape.clone())?;
-    let run = |exec| -> Result<(Vec<f64>, Vec<Status>), Error> {
+    let run = |exec| -> Result<(Vec<f64>, Vec<Status>, BatchSummary), Error> {
         let (mut out, mut status) = (vec![0.0; cells], vec![Status::Ok; cells]);
-        batch::evaluate(fluid, &req.with_exec(exec), &mut out, &mut status)?;
-        Ok((out, status))
+        let summary = batch::evaluate(fluid, &req.with_exec(exec), &mut out, &mut status)?;
+        Ok((out, status, summary))
     };
-    let (want, want_s) = run(ExecPolicy::Reference).map_err(|_| shape.clone())?;
-    let (got, got_s) = run(candidate).map_err(|_| shape)?;
+    let (want, want_s, want_summary) = run(ExecPolicy::Reference).map_err(|_| shape.clone())?;
+    let (got, got_s, got_summary) = run(candidate).map_err(|_| shape)?;
     let mut diffs = got.iter().zip(&want).zip(got_s.iter().zip(&want_s)).enumerate();
-    match diffs.find(|(_, ((g, w), (gs, ws)))| g.to_bits() != w.to_bits() || gs != ws) {
-        Some((at, ((&got, &want), _))) => Err(Mismatch { what: "cell", at, got, want }),
-        None => Ok(()),
+    if let Some((at, ((&got, &want), _))) = diffs.find(|(_, ((g, w), (gs, ws)))| g.to_bits() != w.to_bits() || gs != ws)
+    {
+        return Err(Mismatch { what: "cell", at, got, want });
     }
+    if got_summary != want_summary {
+        let count = |s: BatchSummary| s.failed_cells as f64;
+        return Err(Mismatch { what: "failed cells", at: 0, got: count(got_summary), want: count(want_summary) });
+    }
+    Ok(())
 }
 
 /// One cell of the capability matrix (VERIFICATION.md §8.5): a pair's inputs read off a truth state, flashed with the

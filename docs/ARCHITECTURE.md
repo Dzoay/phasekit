@@ -623,7 +623,7 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
 | Algorithm | Accelerated variant | Why / why not |
 |---|---|---|
 | α^r/α⁰ term sums (`accumulate::<R, ORD>`) | Lanes across states, bitwise equal to scalar | Same code on `Lanes<W>` (K8, K9) |
-| Relations (p, h, s, cp, w, partials from `Bundle`) | Lanes | Branch-free |
+| Relations (p, h, s, cp, w, partials from `Bundle`) | Lanes | Branch-free. At M12.8 they stay per point, on the bundle the lanes give: a few multiplications each (h and c_p took 15 ns of n-Propane's 589 ns DT point on the i7-8700K) |
 | Superancillary Clenshaw (3 curves per piece lookup) | Lanes | Shared breakpoints, dyadic index (map 03 §3, map 09) |
 | Ancillaries, σ(T), dilute and staged transport sums | Lanes | Pure functions of coefficients and state |
 | ρ(T, p) Newton for PT and DT | Lockstep lanes with masks and a scalar retry | K14; post-gate |
@@ -651,8 +651,22 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      ("how"); it sits at L0 with `ExecPolicy`, as its executors hold no physics, so L2's batch hook can take a policy
      (D1). The batch hooks and an `ExecPolicy` variant return with it. WASM `simd128` is a second build (K11, K15).
   3. `simd` enables `libm` (user decision SL1), so its lanes are bitwise equal to the `libm` scalar path. The vector
-     `exp`/`ln` are ports of the locked `libm` crate's, operation for operation (fearless_simd has none; dependencies
-     §4); any other transcendental a laned kernel needs is ported the same way or called per lane through `math`.
+     `exp`, `expm1` and `ln` are ports of the locked `libm` crate's, operation for operation (fearless_simd has none;
+     dependencies §4); any other transcendental a laned kernel needs is ported the same way or called per lane through
+     `math`. `expm1` was ported at M12.8 (user decision SL7): per lane it took about 89 ns of n-Propane's 129 ns of α⁰
+     in lanes on the i7-8700K (11.1 ns a call with `libm`; four Planck-Einstein terms, which 114 of the 136 fluids
+     have), and with the port α⁰ takes 83 ns. `powf` still runs per lane (48.7 ns a call): R134a's two α⁰ Power terms
+     take most of its 112 ns.
+  4. What runs in lanes (M12.8): α^r and α⁰ through `HelmholtzModel::residual_batch` and `ideal_batch`, and a DT batch
+     of `batch::evaluate` under `ExecPolicy::Simd` on a Helmholtz fluid, which the driver reaches through
+     `ThermoModel`'s `Any`, as the ECS transport does. Its points' total bundles are evaluated in lanes, 64 points at a
+     time, and each point's flash then runs on its own bundle, so the phase rule, the domain checks, a state inside the
+     dome and the outputs are each point's scalar path. On the i7-8700K (M12.8's record) a DT batch of h and c_p takes
+     n-Propane 394 ns per state under `Simd` on AVX2, 2.23× the `libm` scalar path's 878 ns and 1.65× std's 649 ns, and
+     Methane 558 ns (2.34× and 1.61×). The rest of a point runs on `libm` at scalar speed, so a fluid whose α⁰ or α^r
+     keeps terms per lane gains less: R134a 417 ns (1.59× over `libm`; two `powf` a state), n-Heptane 445 ns (1.28×; its
+     Aly-Lee terms are generalised Planck-Einstein ones, run lane by lane) and Water 1661 ns (1.58×, above std's
+     1349 ns; its α^r's non-analytic terms run lane by lane).
   - The target is ≥ 2.5× α^r batch throughput on AVX2 over the scalar path, on the reference machine; `simd` ships if
     it is faster than the scalar path (user decisions SL3, TG1).
 - **Dispatch.** `ExecPolicy` is a run-time value. Cargo features add executors but never change numerics (K13);

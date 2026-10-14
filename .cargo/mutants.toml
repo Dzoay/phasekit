@@ -37,17 +37,25 @@ exclude_globs = [
     "crates/phasekit-wasm/src/**",
     # The lanes' `exp` (PLAN.md M12.5) compiles only with core's `libm` feature, which the gate's run does not enable; the
     # lane tests CI runs with `--features simd` cover it. By hand, with `--features phasekit-core/libm` on phasekit-core's
-    # tests (M12.5's PR): 104 caught, 4 unviable, 5 equivalent. `plain` → false sends every group down the full path,
-    # with the same bits. Four move a boundary by one value, where both sides give libm's bits: k = 0 or ±1 at
-    # 0.5 ln 2; k = 1023 prescaled by 2¹⁰²³ then 2⁰; k = −1022 by 2⁻⁹⁶⁹ then 2⁻⁵³, one rounding either way; 1 + x just
-    # above 2⁻²⁸. `lane_exp_is_libm_bitwise` checks each of those inputs.
+    # tests, each job with its own target directory (M12.8's PR): 101 caught, 4 unviable, 5 equivalent. `plain` → false
+    # sends every group down the full path, with the same bits. Four move a boundary by one value, where both sides give
+    # libm's bits: k = 0 or ±1 at 0.5 ln 2; k = 1023 prescaled by 2¹⁰²³ then 2⁰; k = −1022 by 2⁻⁹⁶⁹ then 2⁻⁵³, one
+    # rounding either way; 1 + x just above 2⁻²⁸. `lane_exp_is_libm_bitwise` checks each of those inputs.
     "crates/phasekit-core/src/num/lanes/exp.rs",
-    # The lanes' `ln` (M12.6) likewise. By hand, the same way (M12.6's PR): 100 caught, 4 unviable, 5 equivalent. `plain` →
-    # false sends every group down the full path, with the same bits. `|` → `^` twice joins disjoint bits (2⁵²'s low
+    # The lanes' `ln` (M12.6) likewise. By hand, the same way (M12.8's PR): 100 caught, 4 unviable, 5 equivalent. `plain`
+    # → false sends every group down the full path, with the same bits. `|` → `^` twice joins disjoint bits (2⁵²'s low
     # bits are zero; the high and low words do not overlap). `<` → `<=` scales the smallest normal by 2⁵⁴ with k −54,
-    # which is exact and reduces to the same x and k. `/` → `%` makes NaN from (x − x) at a negative x either way, and
-    # NaN is compared canonically. `lane_ln_is_libm_bitwise` checks each of those inputs.
+    # which is exact and reduces to the same x and k. `/` → `%` makes NaN from (x − x) at a negative x either way, and NaN
+    # is compared canonically. `lane_ln_is_libm_bitwise` checks each of those inputs.
     "crates/phasekit-core/src/num/lanes/ln.rs",
+    # The lanes' `expm1` (M12.8) likewise. By hand, the same way (M12.8's PR): 185 caught, 4 unviable, 5 equivalent. Two
+    # move a boundary onto the one input it changes, where both sides give libm's bits: k = 0 or ±1 at 0.5 ln 2, and
+    # k = 1's two forms at a reduced x of exactly −0.25 (x = ln2_hi − 1/4 + ln2_lo). k ≤ 0 taking the far form changes
+    # nothing, as k = 0 then selects its own. And below 2⁻⁵⁴ libm's x itself is what k = 0's form gives (x²/2 is under
+    # half an ulp of x), so moving that case's bound by one value, or to |x| = 2⁻⁵⁴ alone, changes no bits.
+    # `lane_expm1_is_libm_bitwise` checks each of those inputs, and two x with k = 20 where libm's forms either side of 20
+    # differ in the last bit.
+    "crates/phasekit-core/src/num/lanes/expm1.rs",
 ]
 
 exclude_re = [

@@ -2,7 +2,7 @@
 
 use crate::derivs::{Derivs, Order};
 use crate::error::{Error, LoadError};
-use crate::num::math;
+use crate::num::{Lanes, Real, math};
 
 /// Ideal-gas term kinds. CoolProp's 10 JSON kinds normalise to these at datagen (map 02 §9); an unknown kind
 /// is a `LoadError`, never silently skipped (map 10 R8, map 09 R7).
@@ -122,16 +122,23 @@ impl IdealGas {
         Ok(Self { t_r, rho_r, terms: terms.into_boxed_slice() })
     }
 
-    /// α⁰ bundle at (T, ρ): `ln δ` plus a τ-jet; no mixed derivatives exist.
-    pub(crate) fn eval(&self, t: f64, rho: f64, order: Order) -> Derivs {
-        let tau = self.t_r / t;
-        let mut a = [0.0; 5]; // τ^k d^k/dτ^k of the τ-part, k = 0..4
+    /// α⁰ bundle at (T, ρ): `ln δ` plus a τ-jet; no mixed derivatives exist. Written once over [`IdealReal`]: on lanes,
+    /// lane `k` is, bit for bit, the `f64` bundle at state `k` (PLAN.md M12.8), as the formulas differ from their
+    /// `f64` forms only by commuting a product or a sum.
+    #[inline(always)]
+    pub(crate) fn eval<R: IdealReal>(&self, t: R, rho: R, order: Order) -> Derivs<R> {
+        let tau = R::from_f64(self.t_r) / t;
+        let mut a = [R::from_f64(0.0); 5]; // τ^k d^k/dτ^k of the τ-part, k = 0..4
         for term in self.terms.iter() {
-            let add: [f64; 5] = match *term {
-                IdealTerm::Lead { a1, a2 } => [a1 + a2 * tau, a2 * tau, 0.0, 0.0, 0.0],
-                IdealTerm::LogTau { a } => [a * math::ln(tau), a, -a, 2.0 * a, -6.0 * a],
+            let add: [R; 5] = match *term {
+                IdealTerm::Lead { a1, a2 } | IdealTerm::Offset { a1, a2, .. } => {
+                    [tau * a2 + a1, tau * a2, R::from_f64(0.0), R::from_f64(0.0), R::from_f64(0.0)]
+                }
+                IdealTerm::LogTau { a } => {
+                    [tau.ln() * a, R::from_f64(a), R::from_f64(-a), R::from_f64(2.0 * a), R::from_f64(-6.0 * a)]
+                }
                 IdealTerm::Power { n, t: e } => {
-                    let v = n * math::powf(tau, e);
+                    let v = tau.powf(e) * n;
                     [
                         v,
                         v * e,
@@ -142,37 +149,66 @@ impl IdealGas {
                 }
                 IdealTerm::PlanckEinstein { n, theta } => planck_einstein(n, theta, tau),
                 IdealTerm::PlanckEinsteinGeneralized { n, theta, c, d } => {
-                    planck_einstein_generalized(n, theta, c, d, tau)
+                    tau.lane_by_lane(|tau| planck_einstein_generalized(n, theta, c, d, tau))
                 }
                 IdealTerm::Cp0Power { c, t: e, tc, t0 } => cp0_power(c, e, tc, t0, tau),
-                IdealTerm::Offset { a1, a2, .. } => [a1 + a2 * tau, a2 * tau, 0.0, 0.0, 0.0],
             };
-            a.iter_mut().zip(add).for_each(|(x, y)| *x += y);
+            a.iter_mut().zip(add).for_each(|(x, y)| *x = *x + y);
         }
-        let ln_delta = math::ln(rho / self.rho_r);
+        let ln_delta = (rho / R::from_f64(self.rho_r)).ln();
         Derivs::from_fn(order, |i, j| match (i, j) {
             (0, 0) => a[0] + ln_delta,
             (i, 0) => a[i],
-            (0, j) => Derivs::IDEAL_DELTA.get(0, j).unwrap_or(0.0),
-            _ => 0.0,
+            (0, j) => R::from_f64(Derivs::IDEAL_DELTA.get(0, j).unwrap_or(0.0)),
+            _ => R::from_f64(0.0),
         })
+    }
+}
+
+/// What α⁰ is evaluated on: `f64`, and `Lanes<W>` across W states (PLAN.md M12.8). A generalised Planck-Einstein term
+/// branches on the sign of θτ, so lanes evaluate it lane by lane on `f64`, as the residual's non-analytic terms are.
+pub(crate) trait IdealReal: Real {
+    /// The five entries of a term `f` evaluates on `f64`, at every lane's τ.
+    fn lane_by_lane(self, f: impl Fn(f64) -> [f64; 5]) -> [Self; 5];
+}
+
+impl IdealReal for f64 {
+    #[inline(always)]
+    fn lane_by_lane(self, f: impl Fn(f64) -> [f64; 5]) -> [f64; 5] {
+        f(self)
+    }
+}
+
+impl<const W: usize> IdealReal for Lanes<W> {
+    #[inline(always)]
+    fn lane_by_lane(self, f: impl Fn(f64) -> [f64; 5]) -> [Self; 5] {
+        let mut out = [Lanes([0.0; W]); 5];
+        for (k, tau) in self.0.into_iter().enumerate() {
+            for (entry, v) in out.iter_mut().zip(f(tau)) {
+                if let Some(lane) = entry.0.get_mut(k) {
+                    *lane = v;
+                }
+            }
+        }
+        out
     }
 }
 
 /// `τ^k d^k/dτ^k` of `n·ln(1 − e^(−θτ))`, k = 0..4, in closed form. With `w = 1/expm1(θτ)`:
 /// f' = nθw, f'' = −nθ²w(1+w), f''' = nθ³w(1+w)(1+2w), f'''' = −nθ⁴w(1+w)(1+6w+6w²);
 /// f = n·ln(−expm1(−θτ)) stays accurate for small θτ (map 02 §9).
-fn planck_einstein(n: f64, theta: f64, tau: f64) -> [f64; 5] {
-    let x = theta * tau;
-    let w = 1.0 / math::expm1(x);
-    let w1 = w * (1.0 + w);
+#[inline(always)]
+fn planck_einstein<R: Real>(n: f64, theta: f64, tau: R) -> [R; 5] {
+    let x = tau * theta;
+    let w = R::from_f64(1.0) / x.expm1();
+    let w1 = w * (w + 1.0);
     let (x2, x3) = (x * x, x * x * x);
     [
-        n * math::ln(-math::expm1(-x)),
-        n * x * w,
-        -n * x2 * w1,
-        n * x3 * w1 * (1.0 + 2.0 * w),
-        -n * x3 * x * w1 * (1.0 + 6.0 * w + 6.0 * w * w),
+        (-(-x).expm1()).ln() * n,
+        x * n * w,
+        x2 * -n * w1,
+        x3 * n * w1 * (w * 2.0 + 1.0),
+        x3 * -n * x * w1 * (w * 6.0 + 1.0 + w * 6.0 * w),
     ]
 }
 
@@ -203,19 +239,28 @@ fn planck_einstein_generalized(n: f64, theta: f64, c: f64, d: f64, tau: f64) -> 
 /// `f = P − c t0^(t+1) τ/(tc(t+1)) + c t0^t/t` and `τ^k d^k P/dτ^k = (−t)_k P`; t = 0 and t = −1 are the logarithmic
 /// limits `c(1 − τ/τ₀ + ln(τ/τ₀))` and `(c/tc)(τ ln(τ₀/τ) + τ − τ₀)`. The fourth derivative of the t = −1 form is
 /// −2c/(τ³ tc), where CoolProp writes −3c (map 02 §6, ROT-060).
-fn cp0_power(c: f64, t: f64, tc: f64, t0: f64, tau: f64) -> [f64; 5] {
-    let tau0 = tc / t0;
+#[inline(always)]
+fn cp0_power<R: Real>(c: f64, t: f64, tc: f64, t0: f64, tau: R) -> [R; 5] {
+    let (tau0, real) = (tc / t0, R::from_f64);
     if t == 0.0 {
-        return [c * (1.0 - tau / tau0 + math::ln(tau / tau0)), c * (1.0 - tau / tau0), -c, 2.0 * c, -6.0 * c];
+        let ratio = tau / real(tau0);
+        return [
+            (real(1.0) - ratio + ratio.ln()) * c,
+            (real(1.0) - ratio) * c,
+            real(-c),
+            real(2.0 * c),
+            real(-6.0 * c),
+        ];
     }
     if t == -1.0 {
-        let k = c * tau / tc;
-        return [k * math::ln(tau0 / tau) + c / tc * (tau - tau0), k * math::ln(tau0 / tau), -k, k, -2.0 * k];
+        let k = tau * c / real(tc);
+        let ln = (real(tau0) / tau).ln();
+        return [k * ln + (tau - real(tau0)) * (c / tc), k * ln, -k, k, k * -2.0];
     }
-    let p = -c * math::powf(tc, t) * math::powf(tau, -t) / (t * (t + 1.0));
-    let linear = c * math::powf(t0, t + 1.0) * tau / (tc * (t + 1.0));
+    let p = tau.powf(-t) * (-c * math::powf(tc, t)) / real(t * (t + 1.0));
+    let linear = tau * (c * math::powf(t0, t + 1.0)) / real(tc * (t + 1.0));
     let falling = |k: usize| (0..k).fold(1.0, |acc, m| acc * (-t - m as f64));
-    [p - linear + c * math::powf(t0, t) / t, -t * p - linear, falling(2) * p, falling(3) * p, falling(4) * p]
+    [p - linear + c * math::powf(t0, t) / t, p * -t - linear, p * falling(2), p * falling(3), p * falling(4)]
 }
 
 #[cfg(test)]
@@ -289,6 +334,43 @@ mod tests {
                     let w = ad.get(k, 0).unwrap();
                     assert!((g - w).abs() <= 1e-12 * w.abs().max(1.0), "t = {t}, τ = {tau}, order {k}: {g} vs {w}");
                 }
+            }
+        }
+    }
+
+    /// PLAN.md M12.8: α⁰ as `eval` assembles it from one term of every kind, against `Jet4` AD of the sum as written,
+    /// every `A_ij` to order 4 (the oracle's α⁰ rows stop at order 3, VERIFICATION.md §3.5): `ln δ`, each kind's five
+    /// entries and their sum, at a liquid-like and a dilute state.
+    #[test]
+    fn eval_matches_ad_to_order_four() {
+        let (t_r, rho_r) = (370.0, 5000.0);
+        let terms = vec![
+            IdealTerm::Lead { a1: -4.97, a2: 4.29 },
+            IdealTerm::LogTau { a: 3.04 },
+            IdealTerm::Power { n: -0.33, t: -1.5 },
+            IdealTerm::PlanckEinstein { n: 1.3, theta: 2.7 },
+            IdealTerm::PlanckEinsteinGeneralized { n: 13.7266, theta: -0.63, c: 1.0, d: -1.0 },
+            IdealTerm::Cp0Power { c: 0.7, t: 1.5, tc: 400.0, t0: 298.15 },
+            IdealTerm::Offset { a1: 0.12, a2: -0.08, reference: OffsetReference::Nbp },
+        ];
+        let ideal = IdealGas::new(t_r, rho_r, terms).unwrap();
+        for (t, rho) in [(300.0, 1200.0), (620.0, 8.5)] {
+            let (tau, delta) = (t_r / t, rho / rho_r);
+            let x = Jet4::tau(tau);
+            let terms = [
+                Jet4::constant(-4.97) + x * 4.29,
+                x.ln() * 3.04,
+                x.powf(-1.5) * -0.33,
+                ((-(x * 2.7)).expm1() * -1.0).ln() * 1.3,
+                ((x * -0.63).exp() * -1.0 + 1.0).ln() * 13.7266,
+                cp0_integral(0.7, 1.5, 400.0, 298.15, x),
+                Jet4::constant(0.12) + x * -0.08,
+            ];
+            let ad = terms.into_iter().fold(Jet4::delta(delta).ln(), |sum, term| sum + term).derivs(tau, delta);
+            let got = ideal.eval(t, rho, Order::Four);
+            for (i, j) in (0..=4).flat_map(|n| (0..=n).map(move |i| (i, n - i))) {
+                let (g, w) = (got.get(i, j).unwrap(), ad.get(i, j).unwrap());
+                assert!((g - w).abs() <= 1e-13 * w.abs().max(1.0), "T {t}: A{i}{j} {g} vs {w}");
             }
         }
     }
