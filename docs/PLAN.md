@@ -514,13 +514,8 @@ move `MILESTONE`: M11 stays the first open milestone.
 | Step | Landed |
 |---|---|
 | M12.1 | `HelmholtzModel::residual_batch`, `ExecPolicy` at L0, the α^r batch's scalar baseline |
+| M12.2 | `Lanes<W>` over `[f64; W]`; the residual on lanes, bitwise the scalar one lane by lane |
 
-- **M12.2 `Lanes<W>`.** A crate-private `Lanes<W>` over `[f64; W]` implements the sealed `Real` lane by lane, every
-  operation `#[inline(always)]`, each transcendental per lane through `math` (ARCHITECTURE.md §7). The Power,
-  TauExp, Gaussian and GaoB blocks' `accumulate` run on it unchanged; NonAnalytic runs lane by lane at its place in
-  block order, so each lane's sums keep the scalar order. *Red:* `lanes_are_scalar_bitwise`: for every embedded
-  fluid, the residual on `Lanes<2>`, `Lanes<4>` and `Lanes<8>` equals the scalar residual lane by lane at every order
-  on the `eos` grid, the δ → 0 and τ = δ = 1 neighbourhoods and NaN inputs included.
 - **M12.3 The executors and the `ExecPolicy` variant.** M12.1's L0 `exec` gains the crate-private `LaneKernel`
   ("what") and `run_scalar`, `run_lanes::<W>` (chunks of W points, a remainder padded by duplicating a valid lane, K17)
   and `run_parallel` ("how"). `ExecPolicy` gains `Simd` (user decision SL5); `residual_batch` runs it. The

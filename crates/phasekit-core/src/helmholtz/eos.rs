@@ -6,6 +6,7 @@ use super::{
 };
 use crate::derivs::{Derivs, Order, Virials};
 use crate::error::{Error, LoadError};
+use crate::num::{Lanes, Real};
 
 /// Residual block kinds: a closed set compiled to SoA at decode, `match`ed once per block, never per term.
 /// Six separable kinds cover 99.8 % of default terms (map 02); NonAnalytic stays scalar.
@@ -22,6 +23,33 @@ pub(crate) enum ResidualBlock {
     GaoB(GaussianBlock<GaoBTau>),
     /// Non-analytic terms (Water, CarbonDioxide): not separable, evaluated on a jet of the bundle's order.
     NonAnalytic(NonAnalyticBlock),
+}
+
+/// What the residual is evaluated on: `f64`, and `Lanes<W>` across W states (PLAN.md M12.2). NonAnalytic blocks are not
+/// separable and run on their own jets of `f64`, so lanes evaluate them lane by lane at their place in block order:
+/// each lane then adds its terms in the scalar order.
+pub(crate) trait ResidualReal: Real {
+    /// Adds a NonAnalytic block's terms to `acc`.
+    fn non_analytic<const ORD: usize>(block: &NonAnalyticBlock, vars: &Vars<Self>, acc: &mut Derivs<Self>);
+}
+
+impl ResidualReal for f64 {
+    #[inline(always)]
+    fn non_analytic<const ORD: usize>(block: &NonAnalyticBlock, vars: &Vars<f64>, acc: &mut Derivs) {
+        block.accumulate::<ORD>(vars.tau, vars.delta_pow[1], acc);
+    }
+}
+
+impl<const W: usize> ResidualReal for Lanes<W> {
+    #[inline(always)]
+    fn non_analytic<const ORD: usize>(block: &NonAnalyticBlock, vars: &Vars<Self>, acc: &mut Derivs<Self>) {
+        for (k, (tau, delta)) in vars.tau.0.iter().zip(vars.delta_pow[1].0).enumerate() {
+            if let Some(mut lane) = acc.lane(k) {
+                block.accumulate::<ORD>(*tau, delta, &mut lane);
+                acc.set_lane(k, &lane);
+            }
+        }
+    }
 }
 
 /// The multiparameter EOS of one fluid: its own R, reducing state (private: never shared, map 06 C1),
@@ -52,18 +80,32 @@ impl MultiParameterEos {
         Ok(Self { r, t_r, rho_r, rho_max, blocks: blocks.into_boxed_slice(), ideal })
     }
 
-    fn eval<const ORD: usize>(&self, vars: &Vars<f64>, order: Order) -> Derivs {
+    fn eval<R: ResidualReal, const ORD: usize>(&self, vars: &Vars<R>, order: Order) -> Derivs<R> {
         let mut acc = Derivs::zero(order);
         for block in self.blocks.iter() {
             match block {
-                ResidualBlock::Power(b) => b.accumulate::<f64, ORD>(vars, &mut acc),
-                ResidualBlock::TauExp(b) => b.accumulate::<f64, ORD>(vars, &mut acc),
-                ResidualBlock::Gaussian(b) => b.accumulate::<f64, ORD>(vars, &mut acc),
-                ResidualBlock::GaoB(b) => b.accumulate::<f64, ORD>(vars, &mut acc),
-                ResidualBlock::NonAnalytic(b) => b.accumulate::<ORD>(vars.tau, vars.delta_pow[1], &mut acc),
+                ResidualBlock::Power(b) => b.accumulate::<R, ORD>(vars, &mut acc),
+                ResidualBlock::TauExp(b) => b.accumulate::<R, ORD>(vars, &mut acc),
+                ResidualBlock::Gaussian(b) => b.accumulate::<R, ORD>(vars, &mut acc),
+                ResidualBlock::GaoB(b) => b.accumulate::<R, ORD>(vars, &mut acc),
+                ResidualBlock::NonAnalytic(b) => R::non_analytic::<ORD>(b, vars, &mut acc),
             }
         }
         acc
+    }
+
+    /// The residual at W states side by side: lane `k` is, bit for bit, [`HelmholtzModel::residual`] at
+    /// `(t.0[k], rho.0[k])` (PLAN.md M12.2).
+    #[cfg_attr(not(all(test, feature = "embedded")), expect(dead_code, reason = "M12.3's executors call it"))]
+    pub(crate) fn residual_lanes<const W: usize>(&self, t: Lanes<W>, rho: Lanes<W>, order: Order) -> [Derivs; W] {
+        let vars = Vars::new(Lanes::from_f64(self.t_r) / t, rho / Lanes::from_f64(self.rho_r));
+        let acc = match order {
+            Order::One => self.eval::<Lanes<W>, 1>(&vars, order),
+            Order::Two => self.eval::<Lanes<W>, 2>(&vars, order),
+            Order::Three => self.eval::<Lanes<W>, 3>(&vars, order),
+            Order::Four => self.eval::<Lanes<W>, 4>(&vars, order),
+        };
+        acc.split()
     }
 }
 
@@ -75,10 +117,10 @@ impl HelmholtzModel for MultiParameterEos {
     fn residual(&self, t: f64, rho: f64, order: Order) -> Derivs {
         let vars = Vars::new(self.t_r / t, rho / self.rho_r);
         match order {
-            Order::One => self.eval::<1>(&vars, order),
-            Order::Two => self.eval::<2>(&vars, order),
-            Order::Three => self.eval::<3>(&vars, order),
-            Order::Four => self.eval::<4>(&vars, order),
+            Order::One => self.eval::<f64, 1>(&vars, order),
+            Order::Two => self.eval::<f64, 2>(&vars, order),
+            Order::Three => self.eval::<f64, 3>(&vars, order),
+            Order::Four => self.eval::<f64, 4>(&vars, order),
         }
     }
 
@@ -122,6 +164,118 @@ mod tests {
     use super::*;
     use crate::helmholtz::{IdealTerm, PowerTerm};
     use crate::num::math;
+
+    /// Every entry's bits, `None` above the bundle's order; NaN canonical, as Rust leaves NaN bit patterns unspecified
+    /// (an operand order LLVM commutes picks the other NaN's sign; VERIFICATION.md §9.4).
+    #[cfg(feature = "embedded")]
+    fn bits(d: &Derivs) -> Vec<Option<u64>> {
+        let canonical = |v: f64| if v.is_nan() { f64::NAN.to_bits() } else { v.to_bits() };
+        (0..=4).flat_map(|n| (0..=n).map(move |i| (i, n - i))).map(|(i, j)| d.get(i, j).map(canonical)).collect()
+    }
+
+    /// A SplitMix64 draw in `[a, b)`.
+    #[cfg(feature = "embedded")]
+    fn uniform(state: &mut u64, a: f64, b: f64) -> f64 {
+        *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = *state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        a + (b - a) * ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    /// `points` in chunks of W through `residual_lanes`, each lane against the scalar residual at every order.
+    #[cfg(feature = "embedded")]
+    fn assert_lanes_match<const W: usize>(name: &str, eos: &MultiParameterEos, points: &[(f64, f64)]) {
+        for chunk in points.as_chunks::<W>().0 {
+            let (t, rho): (Lanes<W>, Lanes<W>) =
+                (Lanes(core::array::from_fn(|k| chunk[k].0)), Lanes(core::array::from_fn(|k| chunk[k].1)));
+            for order in [Order::One, Order::Two, Order::Three, Order::Four] {
+                for (k, got) in eos.residual_lanes(t, rho, order).iter().enumerate() {
+                    let want = eos.residual(t.0[k], rho.0[k], order);
+                    assert_eq!(bits(got), bits(&want), "{name} W={W} {order:?} lane {k}: T {} ρ {}", t.0[k], rho.0[k]);
+                }
+            }
+        }
+    }
+
+    /// PLAN.md M12.2 (VERIFICATION.md §9.2, class `Exact`): on `Lanes<2>`, `Lanes<4>` and `Lanes<8>`, every embedded
+    /// fluid's residual is, lane by lane and bit for bit, its scalar residual at that lane's state, at every order.
+    /// The states span the fluid's T range and ρ up to `rho_max`, with the δ → 0 and τ = δ = 1 neighbourhoods (Water's
+    /// and CarbonDioxide's non-analytic terms are singular there) and NaN inputs.
+    #[cfg(feature = "embedded")]
+    #[test]
+    fn lanes_are_scalar_bitwise() {
+        let registry = crate::Registry::embedded().unwrap();
+        let mut state = 12;
+        let mut fluids = 0;
+        for name in registry.names() {
+            let record = registry.record(name).unwrap();
+            let eos = record.eos.compile().unwrap();
+            let (t_min, t_max) = (record.limits.t_min(), record.limits.t_max());
+            let mut points: Vec<(f64, f64)> =
+                (0..40).map(|_| (uniform(&mut state, t_min, t_max), uniform(&mut state, 0.0, eos.rho_max))).collect();
+            let (t_r, rho_r) = (eos.t_r, eos.rho_r);
+            points.extend([
+                (t_r, rho_r),
+                (t_r * (1.0 + 1e-9), rho_r * (1.0 - 1e-9)),
+                (t_max, 0.0),
+                (t_min, 1e-8 * rho_r),
+                (f64::NAN, rho_r),
+                (t_r, f64::NAN),
+                (t_min, eos.rho_max),
+                (t_max, eos.rho_max),
+            ]);
+            assert_lanes_match::<2>(name, &eos, &points);
+            assert_lanes_match::<4>(name, &eos, &points);
+            assert_lanes_match::<8>(name, &eos, &points);
+            fluids += 1;
+        }
+        assert!(fluids >= 130, "{fluids} fluids");
+    }
+
+    /// PLAN.md M12.2: every `Real` operation on `Lanes<4>` is, lane by lane, the `f64` operation, bit for bit, so a
+    /// formula written over `Real` cannot tell the two apart. Two lanes are outside some functions' domains (NaN).
+    #[test]
+    fn lane_operations_are_scalar_operations() {
+        let (x, y) = (Lanes([0.3, -1.7, 2.5e-9, 41.0]), Lanes([1.1, 0.75, -3.0, 0.0]));
+        type Unary = (fn(Lanes<4>) -> Lanes<4>, fn(f64) -> f64);
+        type Binary = (fn(Lanes<4>, Lanes<4>) -> Lanes<4>, fn(f64, f64) -> f64);
+        let unary: [Unary; 12] = [
+            (|a| a.exp(), |a: f64| Real::exp(a)),
+            (|a| a.expm1(), |a: f64| Real::expm1(a)),
+            (|a| a.ln(), |a: f64| Real::ln(a)),
+            (|a| a.ln_1p(), |a: f64| Real::ln_1p(a)),
+            (|a| a.powi(3), |a: f64| Real::powi(a, 3)),
+            (|a| a.powi(-2), |a: f64| Real::powi(a, -2)),
+            (|a| a.powf(0.37), |a: f64| Real::powf(a, 0.37)),
+            (|a| a.sqrt(), |a: f64| Real::sqrt(a)),
+            (|a| a.sinh(), |a: f64| Real::sinh(a)),
+            (|a| a.cosh(), |a: f64| Real::cosh(a)),
+            (|a| a.atan(), |a: f64| Real::atan(a)),
+            (|a| -a.abs(), |a: f64| -Real::abs(a)),
+        ];
+        for (n, (lanes, scalar)) in unary.iter().enumerate() {
+            for (k, got) in lanes(x).0.iter().enumerate() {
+                let want = scalar(x.0[k]);
+                assert!(got.to_bits() == want.to_bits() || got.is_nan() && want.is_nan(), "unary {n}, lane {k}");
+            }
+        }
+        let binary: [Binary; 7] = [
+            (|a, b| a + b, |a, b| a + b),
+            (|a, b| a - b, |a, b| a - b),
+            (|a, b| a * b, |a, b| a * b),
+            (|a, b| a / b, |a, b| a / b),
+            (|a, b| a + b.0[0], |a, b| a + b),
+            (|a, b| a * b.0[0], |a, b| a * b),
+            (|a, _| a + Lanes::from_f64(-2.5), |a, _| a + -2.5),
+        ];
+        for (n, (lanes, scalar)) in binary.iter().enumerate() {
+            let scalar_y = |k: usize| if n == 4 || n == 5 { y.0[0] } else { y.0[k] };
+            for (k, got) in lanes(x, y).0.iter().enumerate() {
+                assert_eq!(got.to_bits(), scalar(x.0[k], scalar_y(k)).to_bits(), "binary {n}, lane {k}");
+            }
+        }
+    }
 
     fn toy() -> MultiParameterEos {
         let terms = [
