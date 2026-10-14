@@ -6,6 +6,7 @@ use super::{
 };
 use crate::derivs::{Derivs, Order, Virials};
 use crate::error::{Error, LoadError};
+use crate::exec::{self, ExecPolicy, LaneKernel};
 use crate::num::{Lanes, Real};
 
 /// Residual block kinds: a closed set compiled to SoA at decode, `match`ed once per block, never per term.
@@ -96,7 +97,6 @@ impl MultiParameterEos {
 
     /// The residual at W states side by side: lane `k` is, bit for bit, [`HelmholtzModel::residual`] at
     /// `(t.0[k], rho.0[k])` (PLAN.md M12.2).
-    #[cfg_attr(not(all(test, feature = "embedded")), expect(dead_code, reason = "M12.3's executors call it"))]
     pub(crate) fn residual_lanes<const W: usize>(&self, t: Lanes<W>, rho: Lanes<W>, order: Order) -> [Derivs; W] {
         let vars = Vars::new(Lanes::from_f64(self.t_r) / t, rho / Lanes::from_f64(self.rho_r));
         let acc = match order {
@@ -109,9 +109,39 @@ impl MultiParameterEos {
     }
 }
 
+/// The residual at one order as a lane kernel (PLAN.md M12.3): (T, ρ) to its bundle.
+struct Residual<'a> {
+    eos: &'a MultiParameterEos,
+    order: Order,
+}
+
+impl LaneKernel for Residual<'_> {
+    type Out = Derivs;
+    #[inline(always)]
+    fn point(&self, t: f64, rho: f64) -> Derivs {
+        self.eos.residual(t, rho, self.order)
+    }
+    #[inline(always)]
+    fn lanes<const W: usize>(&self, t: Lanes<W>, rho: Lanes<W>) -> [Derivs; W] {
+        self.eos.residual_lanes(t, rho, self.order)
+    }
+}
+
 impl HelmholtzModel for MultiParameterEos {
     fn gas_constant(&self) -> f64 {
         self.r
+    }
+
+    /// The residual's lane kernel under `exec`: `ExecPolicy::Simd` evaluates states side by side (PLAN.md M12.3).
+    fn residual_batch(
+        &self,
+        t: &[f64],
+        rho: &[f64],
+        order: Order,
+        out: &mut [Derivs],
+        exec: ExecPolicy,
+    ) -> Result<(), Error> {
+        exec::run(exec, &Residual { eos: self, order }, t, rho, out)
     }
 
     fn residual(&self, t: f64, rho: f64, order: Order) -> Derivs {

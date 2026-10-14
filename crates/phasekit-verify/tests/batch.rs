@@ -143,8 +143,9 @@ mod parallel {
     }
 
     /// VERIFICATION.md §9.1, class `Exact` (ROT-135; K6, K17): every pair, 5 263 points each (about 10⁵ in all) of
-    /// R1234yf, through `Parallel` at chunks of 16, 64 and 1 024 points on rayon's global pool, every cell and status
-    /// bitwise the `Reference` path's: single-phase, two-phase, near-critical and refused cells alike.
+    /// R1234yf, through `Parallel` at chunks of 16, 64 and 1 024 points on rayon's global pool and through `Simd`
+    /// (flashes have no lane kernel: the scalar path, PLAN.md M12.3), every cell and status bitwise the `Reference`
+    /// path's: single-phase, two-phase, near-critical and refused cells alike.
     #[test]
     fn policy_equivalence_parallel_is_bitwise() {
         let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
@@ -153,8 +154,8 @@ mod parallel {
         for (pair, x, y) in pair_inputs(&registry, "R1234yf", POINTS_PER_PAIR, 7) {
             let req = BatchRequest::new(pair, Basis::Molar, &x, &y, &OUTPUTS);
             let reference = run(fluid, &req, ExecPolicy::Reference);
-            for chunk in [16, 64, 1024] {
-                assert!(run(fluid, &req, parallel(chunk)) == reference, "{pair:?} in chunks of {chunk}");
+            for exec in [parallel(16), parallel(64), parallel(1024), ExecPolicy::Simd] {
+                assert!(run(fluid, &req, exec) == reference, "{pair:?} under {exec:?}");
             }
             (points, refused) = (points + x.len(), refused + reference.1.iter().filter(|s| **s != Status::Ok).count());
         }
@@ -230,7 +231,39 @@ fn residual_batch_is_residual_per_point() {
     assert!(fluids >= 130, "{fluids} fluids");
 }
 
-/// One fluid, order and policy of [`residual_batch_is_residual_per_point`]: every entry of every point bit for bit.
+/// PLAN.md M12.3 (VERIFICATION.md §9.2, class `Exact`): `residual_batch` under `ExecPolicy::Simd` is `residual` at
+/// every point, as under `Reference`, for every embedded fluid at every order. Batches of 0 to 17 points take every
+/// remainder of 2, 4 and 8 lanes, and the whole set adds ρ = 0, T_max and NaN inputs.
+#[test]
+fn residual_batch_policy_equivalence() {
+    let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
+    let mut rng = SplitMix64::new(13);
+    let mut fluids = 0;
+    for name in registry.names() {
+        let record = phasekit_core::internal::record(&registry, name).unwrap();
+        let (fluid, (t_min, t_max)) =
+            (record.clone().compile().unwrap(), (record.limits.t_min(), record.limits.t_max()));
+        let eos = fluid.eos();
+        let (mut t, mut rho): (Vec<f64>, Vec<f64>) = (0..20)
+            .map(|_| {
+                let t = rng.uniform(t_min, t_max);
+                (t, rng.uniform(0.0, eos.rho_max(t)))
+            })
+            .unzip();
+        t.extend([t_min, t_max, f64::NAN, t_max]);
+        rho.extend([0.0, eos.rho_max(t_max), 1.0, f64::NAN]);
+        for order in [Order::One, Order::Two, Order::Three, Order::Four] {
+            for n in (0..=17).chain([t.len()]) {
+                assert_batch_is_per_point(name, eos, (&t[..n], &rho[..n]), order, ExecPolicy::Simd);
+            }
+        }
+        fluids += 1;
+    }
+    assert!(fluids >= 130, "{fluids} fluids");
+}
+
+/// One fluid, order and policy of [`residual_batch_is_residual_per_point`]: every entry of every point bit for bit,
+/// NaN canonical as in the cross-target hash (VERIFICATION.md §9.4), since Rust leaves NaN bit patterns unspecified.
 fn assert_batch_is_per_point(
     name: &str,
     eos: &dyn HelmholtzModel,
@@ -243,7 +276,7 @@ fn assert_batch_is_per_point(
     let bits = |d: &Derivs| {
         (0..=4)
             .flat_map(|n| (0..=n).map(move |i| (i, n - i)))
-            .map(|(i, j)| d.get(i, j).map(f64::to_bits))
+            .map(|(i, j)| d.get(i, j).map(|v| if v.is_nan() { f64::NAN.to_bits() } else { v.to_bits() }))
             .collect::<Vec<_>>()
     };
     for (i, got) in out.iter().enumerate() {

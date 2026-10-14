@@ -515,14 +515,8 @@ move `MILESTONE`: M11 stays the first open milestone.
 |---|---|
 | M12.1 | `HelmholtzModel::residual_batch`, `ExecPolicy` at L0, the α^r batch's scalar baseline |
 | M12.2 | `Lanes<W>` over `[f64; W]`; the residual on lanes, bitwise the scalar one lane by lane |
+| M12.3 | `LaneKernel` and `run_scalar`/`run_lanes`/`run_parallel` in L0 `exec`; `ExecPolicy::Simd`, `Lanes<2>` at the baseline (1.14-1.62× α^r on SSE2) |
 
-- **M12.3 The executors and the `ExecPolicy` variant.** M12.1's L0 `exec` gains the crate-private `LaneKernel`
-  ("what") and `run_scalar`, `run_lanes::<W>` (chunks of W points, a remainder padded by duplicating a valid lane, K17)
-  and `run_parallel` ("how"). `ExecPolicy` gains `Simd` (user decision SL5); `residual_batch` runs it. The
-  portable `Lanes<2>` at the build's baseline (SSE2, NEON, simd128) is ARCHITECTURE.md §7's step 1: measured against
-  the scalar path, it stays the executor without the `simd` feature only on a measured win; otherwise the variant runs
-  the scalar path there, with the same bits. *Red:* `policy_equivalence` over `residual_batch` with the new variant,
-  every embedded fluid and order, N mod W ≠ 0 included.
 - **M12.4 The `simd` feature.** `simd = ["libm", "dep:fearless_simd"]` (fearless_simd 1.x, default features off but
   `std`): `Level::new()` once per batch, `dispatch!` into `run_lanes` with W = 2 (SSE2, SSE4.2, NEON, simd128), 4
   (AVX2) or 8 (AVX-512), the kernel path `#[inline(always)]` down to the lane operations; transcendentals still per

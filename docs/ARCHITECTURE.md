@@ -632,7 +632,9 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
 - **v0.1.** `Reference` scalar path; `Parallel{chunk}` uses rayon with fixed chunks (sequential without the feature:
   same bits). Nothing else: no batch hook, no `Auto` (S-01).
 - **Post-0.1 (documented now, built only if the gate fires; R13 order).**
-  1. SoA auto-vectorisation variants in core, accepted only on a measured win (dependencies §3.5 step 3).
+  1. SoA auto-vectorisation variants in core, accepted only on a measured win (dependencies §3.5 step 3). Measured at
+     M12.3 on the i7-8700K: `ExecPolicy::Simd` on `Lanes<2>` at the x86-64 baseline (SSE2), transcendentals per lane,
+     takes α^r order 2 from 156-972 ns to 123-850 ns per state (1.14-1.62×), so it runs without the `simd` feature.
   2. A `simd` feature of `phasekit-core` with an optional `fearless_simd` dependency (0 dependencies, runtime dispatch,
      safe loads and stores; T1b). A core-local `Lanes<W>` newtype implements the sealed `Real` (gaining `Mask` and
      `select` only when a generic kernel needs a lane-dependent branch). The orphan rule forbids a foreign trait on a

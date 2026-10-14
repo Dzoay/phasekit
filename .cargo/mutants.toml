@@ -182,7 +182,7 @@ exclude_re = [
     # Equivalent (M9.1): a batch of one chunk skips rayon, `chunk < n`; with `<=` that one chunk goes to rayon, whose
     # parallel iterator runs a single piece inline on the calling thread, the same thread and bits.
     "batch\\.rs:[0-9]+:[0-9]+: replace < with <= in evaluate",
-    # Equivalent (M12.1), as in `evaluate`: with `<=` a batch of one chunk goes to rayon, which runs it inline on the
-    # calling thread, the same thread and bits.
-    "exec\\.rs:[0-9]+:[0-9]+: replace < with <= in points",
+    # Equivalent (M12.1, in `run_parallel` since M12.3), as in `evaluate`: with `<=` a batch of one chunk goes to rayon,
+    # which runs it inline on the calling thread, the same thread and bits.
+    "exec\\.rs:[0-9]+:[0-9]+: replace < with <= in run_parallel",
 ]
