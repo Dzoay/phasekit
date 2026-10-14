@@ -518,9 +518,8 @@ move `MILESTONE`: M11 stays the first open milestone.
 | M12.3 | `LaneKernel` and `run_scalar`/`run_lanes`/`run_parallel` in L0 `exec`; `ExecPolicy::Simd`, `Lanes<2>` at the baseline (1.14-1.62× α^r on SSE2) |
 | M12.4 | the `simd` feature (fearless_simd 1.1): `run_simd` at 8, 4 or 2 lanes per level; n-Propane α^r 258 ns on AVX2 with per-lane `libm`, 1.21× std's scalar path |
 | M12.5 | `Lanes::exp`, libm 0.2.16's `exp` ported to lanes with the `libm` backend, bitwise; n-Propane α^r 216 ns on AVX2, 1.44× std's scalar path |
+| M12.6 | `Lanes::ln`, libm 0.2.16's `log` ported to lanes with the `libm` backend, bitwise; n-Propane α^r 215 ns on AVX2 (one `ln` per state) |
 
-- **M12.6 Vector `ln`.** The same for `log`. *Red:* `lane_ln_is_libm_bitwise`: random inputs and the edges ±0,
-  negative inputs, subnormals, 1, the √2/2 reduction boundary, +∞ and NaN.
 - **M12.7 The gate.** Bench `alphar_batch/simd` on the i7-8700K (AVX2). It ships at ≥ 2.5× over M12.1's
   `alphar_batch/scalar` of the default build for n-Propane, the §7 row's 16-20-term fluid (user decision SL3); the
   other bench fluids are recorded. `gates perf --targets` gains the ≤ 0.1 µs/state row, and a miss names its re-plan

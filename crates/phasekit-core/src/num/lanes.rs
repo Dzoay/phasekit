@@ -9,6 +9,8 @@ use super::{Real, math, sealed};
 
 #[cfg(feature = "libm")]
 mod exp;
+#[cfg(feature = "libm")]
+mod ln;
 
 /// W states side by side; crate-private, like the executors that use it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -109,8 +111,12 @@ impl<const W: usize> Real for Lanes<W> {
     fn expm1(self) -> Self {
         self.map(math::expm1)
     }
+    /// The `libm` crate's `log` ported to lanes with the `libm` backend (PLAN.md M12.6); std's, per lane, without it.
     #[inline(always)]
     fn ln(self) -> Self {
+        #[cfg(feature = "libm")]
+        return ln::ln(self);
+        #[cfg(not(feature = "libm"))]
         self.map(math::ln)
     }
     #[inline(always)]
@@ -144,5 +150,31 @@ impl<const W: usize> Real for Lanes<W> {
     #[inline(always)]
     fn abs(self) -> Self {
         self.map(f64::abs)
+    }
+}
+
+/// What the lane tests share (PLAN.md M12.5, M12.6). `cfg(test)` stands alone, so cargo-mutants sees test code.
+#[cfg(test)]
+#[cfg(feature = "libm")]
+pub(crate) mod tests {
+    /// A SplitMix64 stream.
+    pub(crate) struct Rng(pub(crate) u64);
+
+    impl Rng {
+        pub(crate) fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            z ^ (z >> 31)
+        }
+        pub(crate) fn uniform(&mut self, a: f64, b: f64) -> f64 {
+            a + (b - a) * (self.next() >> 11) as f64 / (1u64 << 53) as f64
+        }
+    }
+
+    /// `v`'s bits, NaN canonical: Rust leaves NaN bit patterns unspecified (VERIFICATION.md §9.4).
+    pub(crate) fn canonical(v: f64) -> u64 {
+        if v.is_nan() { f64::NAN.to_bits() } else { v.to_bits() }
     }
 }
