@@ -517,11 +517,8 @@ move `MILESTONE`: M11 stays the first open milestone.
 | M12.2 | `Lanes<W>` over `[f64; W]`; the residual on lanes, bitwise the scalar one lane by lane |
 | M12.3 | `LaneKernel` and `run_scalar`/`run_lanes`/`run_parallel` in L0 `exec`; `ExecPolicy::Simd`, `Lanes<2>` at the baseline (1.14-1.62× α^r on SSE2) |
 | M12.4 | the `simd` feature (fearless_simd 1.1): `run_simd` at 8, 4 or 2 lanes per level; n-Propane α^r 258 ns on AVX2 with per-lane `libm`, 1.21× std's scalar path |
+| M12.5 | `Lanes::exp`, libm 0.2.16's `exp` ported to lanes with the `libm` backend, bitwise; n-Propane α^r 216 ns on AVX2, 1.44× std's scalar path |
 
-- **M12.5 Vector `exp`.** `Lanes::exp` ports the locked `libm` crate's `exp` operation for operation, its special
-  cases as lane selects inside `Lanes`. *Red:* `lane_exp_is_libm_bitwise` (VERIFICATION.md §9.2) at every level: random
-  inputs over α^r's argument range and over all of `f64`, and the edges ±0, |x| < 2⁻²⁸, the reduction boundaries at
-  0.5 ln 2 and 1.5 ln 2, 708.39…, 709.78…, −745.13…, subnormal results, NaN and ±∞.
 - **M12.6 Vector `ln`.** The same for `log`. *Red:* `lane_ln_is_libm_bitwise`: random inputs and the edges ±0,
   negative inputs, subnormals, 1, the √2/2 reduction boundary, +∞ and NaN.
 - **M12.7 The gate.** Bench `alphar_batch/simd` on the i7-8700K (AVX2). It ships at ≥ 2.5× over M12.1's

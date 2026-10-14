@@ -7,6 +7,9 @@ use core::ops::{Add, Div, Mul, Neg, Sub};
 
 use super::{Real, math, sealed};
 
+#[cfg(feature = "libm")]
+mod exp;
+
 /// W states side by side; crate-private, like the executors that use it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Lanes<const W: usize>(pub(crate) [f64; W]);
@@ -94,8 +97,12 @@ impl<const W: usize> Real for Lanes<W> {
     fn from_f64(x: f64) -> Self {
         Self([x; W])
     }
+    /// The `libm` crate's `exp` ported to lanes with the `libm` backend (PLAN.md M12.5); std's, per lane, without it.
     #[inline(always)]
     fn exp(self) -> Self {
+        #[cfg(feature = "libm")]
+        return exp::exp(self);
+        #[cfg(not(feature = "libm"))]
         self.map(math::exp)
     }
     #[inline(always)]

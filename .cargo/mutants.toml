@@ -35,6 +35,13 @@ exclude_globs = [
     # The browser package (PLAN.md M10.8): it compiles only for wasm32-unknown-unknown, never where the mutants job runs;
     # the wasm-browser job runs its tests under Node.
     "crates/phasekit-wasm/src/**",
+    # The lanes' `exp` (PLAN.md M12.5) compiles only with core's `libm` feature, which the gate's run does not enable; the
+    # lane tests CI runs with `--features simd` cover it. By hand, with `--features phasekit-core/libm` on phasekit-core's
+    # tests (M12.5's PR): 104 caught, 4 unviable, 5 equivalent. `plain` → false sends every group down the full path,
+    # with the same bits. Four move a boundary by one value, where both sides give libm's bits: k = 0 or ±1 at
+    # 0.5 ln 2; k = 1023 prescaled by 2¹⁰²³ then 2⁰; k = −1022 by 2⁻⁹⁶⁹ then 2⁻⁵³, one rounding either way; 1 + x just
+    # above 2⁻²⁸. `lane_exp_is_libm_bitwise` checks each of those inputs.
+    "crates/phasekit-core/src/num/lanes/exp.rs",
 ]
 
 exclude_re = [
