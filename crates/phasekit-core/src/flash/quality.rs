@@ -11,7 +11,7 @@ use crate::state::{Phase, SolvePath, State, Strategy};
 use crate::units::{Basis, Quality};
 
 use super::search::{Point, choose, nearest};
-use super::{DomainPolicy, FlashOptions, RootPolicy, T_ITER, T_TOL, total, two_phase, within_domain};
+use super::{DomainPolicy, FlashOptions, RootPolicy, T_ITER, T_TOL, phase_bundle, two_phase, within_domain};
 
 /// What a Q-pair fixes beside the quality: h, s or, for DQ, the molar volume v = 1/ρ.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -262,7 +262,7 @@ pub(super) fn split_sides(fluid: &PureFluid, sat: &SatPair, q: Quality, t: f64, 
     let (r, path) = (eos.gas_constant(), SolvePath { strategy: Strategy::Ancillary, iterations: 0 });
     let phase = |side: &SatSide, phase: Phase| {
         let (rho, _) = crate::density::at_t_p(eos, side.t, side.p, side.rho, phase == Phase::Liquid)?;
-        State::single(key, side.t, rho, r, m, phase, &total(fluid, side.t, rho)?, path)
+        State::single(key, side.t, rho, r, m, phase, &phase_bundle(fluid, side.t, rho, q)?, path)
     };
     State::split(phase(&sat.bubble, Phase::Liquid)?, phase(&sat.dew, Phase::Gas)?, q, t, p, path)
 }

@@ -114,3 +114,34 @@ fn q_pairs_check_the_domain_and_need_a_curve() {
     let defined = fluid(Some(Line(SatAccuracy::Definition)));
     assert_eq!(defined.state(q_t(0.5, 300.0)), Err(Error::InvalidInput { quantity: "Q", value: 0.5 }));
 }
+
+/// Issue #142 (user decision PF1): strictly inside the dome each phase carries an order-1 bundle, whose A00, A10 and
+/// A01 are the order-2 bundle's bit for bit and whose second-order entries are zero; at Q = 0 and 1 it is the order-2
+/// bundle. Water's and R134a's saturated liquid and vapour at 0.7 T_c; QT there is the lever rule over its Q = 0 and
+/// Q = 1 states, and refuses c_p.
+#[cfg(feature = "fluids-all")]
+#[test]
+fn inside_the_dome_the_phases_carry_order_one() {
+    for name in ["Water", "R134a"] {
+        let (record, fluid) = (record_of(name), embedded(name));
+        let pure = record.clone().compile().unwrap();
+        let t = 0.7 * record.critical.unwrap().t;
+        let sat = record.superancillary_curve().unwrap().at_t(t).unwrap();
+        for rho in [sat.bubble.rho, sat.dew.rho] {
+            let full = total(&pure, t, rho).unwrap();
+            let first = phase_bundle(&pure, t, rho, Quality::new(0.3).unwrap()).unwrap();
+            assert_eq!(first, Bundle { a20: 0.0, a11: 0.0, a02: 0.0, ..full }, "{name} at {rho} mol/m³");
+            for q in [0.0, 1.0] {
+                assert_eq!(phase_bundle(&pure, t, rho, Quality::new(q).unwrap()).unwrap(), full, "{name} at Q = {q}");
+            }
+        }
+        let [liquid, mid, vapour] = [0.0, 0.3, 1.0].map(|q| fluid.state(q_t(q, t)).unwrap());
+        let m = Basis::Molar;
+        for (x, lever) in
+            [(mid.h(m), 0.7 * liquid.h(m) + 0.3 * vapour.h(m)), (mid.s(m), 0.7 * liquid.s(m) + 0.3 * vapour.s(m))]
+        {
+            assert!((x - lever).abs() <= 1e-12 * lever.abs().max(1.0), "{name}: {x} against {lever}");
+        }
+        assert!(matches!(mid.cp(m), Err(Error::Undefined { .. })), "{name}: {:?}", mid.cp(m));
+    }
+}

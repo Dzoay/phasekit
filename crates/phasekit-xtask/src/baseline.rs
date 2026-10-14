@@ -12,8 +12,10 @@ use crate::repo::Repo;
 pub const DIR: &str = "crates/phasekit-verify/benches/baseline";
 /// `git -C reference/CoolProp status --porcelain --ignored`, recorded before the first build.
 pub const REFERENCE_STATUS: &str = "scripts/baseline/reference-status.txt";
-/// The 7 workloads of VERIFICATION.md §12, as the harness names them.
-pub const WORKLOADS: [&str; 7] = ["alphar2", "dt_h_cp", "qt", "pq", "pt", "ph", "propssi"];
+/// The 9 workloads of VERIFICATION.md §12, as the harness names them and in its order.
+pub const WORKLOADS: [&str; 9] = ["alphar2", "dt_h_cp", "qt", "pq", "qt_h", "pq_h", "pt", "ph", "propssi"];
+/// The workloads a `coolprop-baseline/v1` file, recorded before them, lacks: QT and PQ plus h (user decision PF1).
+const SINCE_V2: [&str; 2] = ["qt_h", "pq_h"];
 /// The bench fluids of VERIFICATION.md §12; n-Heptane is the 12-term fluid chosen at M1.15.
 pub const FLUIDS: [&str; 5] = ["Water", "Methane", "R134a", "n-Propane", "n-Heptane"];
 /// The thread counts of the scaling file: 1, 2, 4, the reference machine's 6 physical cores and its 12 hardware threads.
@@ -110,7 +112,9 @@ fn positive(s: &str) -> Option<f64> {
 
 /// Checks one timing file; returns its CPU model.
 pub fn check(name: &str, text: &str) -> Result<String, Vec<String>> {
-    let (cpu, mut errors) = check_header(name, text, &HEADER, "coolprop-baseline/v1");
+    let v2 = text.starts_with("# fixture: coolprop-baseline/v2\n");
+    let (cpu, mut errors) =
+        check_header(name, text, &HEADER, if v2 { "coolprop-baseline/v2" } else { "coolprop-baseline/v1" });
     let (layout, rule) =
         ("workload,fluid,states,median,min,max,grid", "needs states > 0, 0 < min <= median <= max and a seeded grid");
     let seen =
@@ -121,11 +125,16 @@ pub fn check(name: &str, text: &str) -> Result<String, Vec<String>> {
             );
             (timed && grid.contains("seed=1"), (workload, fluid))
         });
-    let want: Vec<(&str, &str)> = FLUIDS.iter().flat_map(|f| WORKLOADS.iter().map(move |w| (*w, *f))).collect();
+    let want: Vec<(&str, &str)> = FLUIDS.iter().flat_map(|f| workloads(v2).map(move |w| (w, *f))).collect();
     if seen != want {
         errors.push(format!("{name}: rows {seen:?}, want every workload of every fluid in order"));
     }
     if errors.is_empty() { Ok(cpu) } else { Err(errors) }
+}
+
+/// The workloads of a timing file: [`WORKLOADS`], without [`SINCE_V2`] in a `v1` file.
+fn workloads(v2: bool) -> impl Iterator<Item = &'static str> {
+    WORKLOADS.into_iter().filter(move |w| v2 || !SINCE_V2.contains(w))
 }
 
 /// Checks one memory file: the library row, `state` and `state_after_qt` for every bench fluid (heap > 0, the state
@@ -187,10 +196,12 @@ pub fn check_scaling(name: &str, text: &str) -> Result<String, Vec<String>> {
 }
 
 /// Every result file in `files` (name, text): at least one machine, each with `coolprop-8.0.0-<machine>.csv`,
-/// `.memory.csv` and `.scaling.csv`, all well formed and naming one CPU.
+/// `.memory.csv` and `.scaling.csv`, all well formed and naming one CPU. The instruction baseline beside them is
+/// `gates perf`'s, not a C++ result.
 pub fn check_all(files: &[(String, String)]) -> Result<Vec<String>, Vec<String>> {
     let file = |name: &str| name.rsplit('/').next().unwrap_or(name).to_string();
-    let csv: Vec<&(String, String)> = files.iter().filter(|(name, _)| name.ends_with(".csv")).collect();
+    let csv: Vec<&(String, String)> =
+        files.iter().filter(|(name, _)| name.ends_with(".csv") && name != crate::gates::perf::BASELINE).collect();
     // Every file present must find its trio below, so any file at all means at least one timing file.
     if csv.is_empty() {
         return Err(vec![format!("{DIR}: no coolprop-8.0.0-<machine>.csv (cargo xtask baseline)")]);
@@ -273,11 +284,26 @@ mod tests {
              # columns: workload,fluid,states,median_ns,min_ns,max_ns,grid\n",
         );
         for fluid in FLUIDS {
-            for workload in WORKLOADS {
+            for workload in workloads(false) {
                 text.push_str(&format!("{workload},{fluid},100,2.5,2,3,T=U[1;2] rho=U[3;4] seed=1\n"));
             }
         }
         text
+    }
+
+    /// A `v2` timing file has QT and PQ plus h after PQ for every fluid; a `v1` file has neither, and a `v2` file
+    /// without them is refused.
+    #[test]
+    fn a_v2_file_adds_qt_and_pq_plus_h() {
+        let v1 = baseline();
+        let v2 = v1.replace("coolprop-baseline/v1", "coolprop-baseline/v2");
+        let row = |w: &str, f: &str| format!("{w},{f},100,2.5,2,3,T=U[1;2] rho=U[3;4] seed=1\n");
+        let added = FLUIDS.iter().fold(v2.clone(), |text, f| {
+            let pq = row("pq", f);
+            text.replace(&pq, &(pq.clone() + &row("qt_h", f) + &row("pq_h", f)))
+        });
+        assert!(check("v1", &v1).is_ok() && check("v2", &added).is_ok(), "{:?}", check("v2", &added));
+        assert!(check("v2", &v2).is_err() && check("v1", &added.replace("/v2", "/v1")).is_err());
     }
 
     const CPU: &str = "# cpu: Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz\n# os: Linux 7.2\n";
@@ -371,9 +397,15 @@ mod tests {
         let mut stray = machine(&good_memory, &good_scaling);
         stray.push((format!("{DIR}/other.memory.csv"), good_memory.clone()));
         assert!(check_all(&stray).is_err(), "a misnamed memory file");
+        let mut beside = machine(&good_memory, &good_scaling);
+        beside.push((
+            crate::gates::perf::BASELINE.to_string(),
+            "instructions::kernel::lookup_by_name.name,1956\n".into(),
+        ));
+        assert!(check_all(&beside).is_ok(), "the instruction baseline is gates perf's");
     }
 
-    /// VERIFICATION.md §12: a result file names the pin and the CPU and holds the 7 workloads × 5 fluids, each timed
+    /// VERIFICATION.md §12: a result file names the pin and the CPU and holds its workloads × 5 fluids, each timed
     /// (0 < min ≤ median ≤ max) on a seeded grid; anything else is reported with the file.
     #[test]
     fn baseline_files_hold_every_workload_and_fluid() {

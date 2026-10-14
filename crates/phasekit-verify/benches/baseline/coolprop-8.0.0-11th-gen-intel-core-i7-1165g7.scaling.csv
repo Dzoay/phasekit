@@ -3,37 +3,37 @@
 # cpu: 11th Gen Intel(R) Core(TM) i7-1165G7 @ 2.80GHz
 # os: Linux 7.2.9-2-cachyos
 # governor: powersave
-# date: 2026-10-11
+# date: 2026-10-13
 # compiler: 16.2.1 20260810 (CMAKE_BUILD_TYPE=Release, no -march)
 # method: DT + h + c_p on the (T, rho) grid; 2000 states per thread, one AbstractState per thread and fluid, threads unpinned; median wall time over 5 passes
 # columns: mode,threads,states_per_thread,median_ns_per_state,speedup
-Water,1,2000,2690,1
-Water,2,2000,2899,1.856
-Water,4,2000,3138,3.429
-Water,6,2000,6207,2.6
-Water,12,2000,1.179e+04,2.737
-Methane,1,2000,1487,1
-Methane,2,2000,1574,1.89
-Methane,4,2000,1675,3.551
-Methane,6,2000,2807,3.179
-Methane,12,2000,6165,2.895
-R134a,1,2000,1082,1
-R134a,2,2000,1210,1.789
-R134a,4,2000,2001,2.162
-R134a,6,2000,2763,2.349
-R134a,12,2000,4634,2.801
-n-Propane,1,2000,1057,1
-n-Propane,2,2000,1102,1.919
-n-Propane,4,2000,1177,3.593
-n-Propane,6,2000,2383,2.663
-n-Propane,12,2000,4041,3.14
-n-Heptane,1,2000,760.6,1
-n-Heptane,2,2000,867.7,1.753
-n-Heptane,4,2000,1108,2.746
-n-Heptane,6,2000,2149,2.123
-n-Heptane,12,2000,3775,2.418
-mixed,1,2000,1498,1
-mixed,2,2000,1414,2.119
-mixed,4,2000,2550,2.35
-mixed,6,2000,3261,2.756
-mixed,12,2000,6148,2.923
+Water,1,2000,2927,1
+Water,2,2000,3471,1.687
+Water,4,2000,4838,2.421
+Water,6,2000,7772,2.26
+Water,12,2000,1.372e+04,2.56
+Methane,1,2000,1933,1
+Methane,2,2000,1521,2.542
+Methane,4,2000,2701,2.863
+Methane,6,2000,3680,3.151
+Methane,12,2000,7169,3.236
+R134a,1,2000,1421,1
+R134a,2,2000,1487,1.91
+R134a,4,2000,1926,2.95
+R134a,6,2000,3076,2.771
+R134a,12,2000,5991,2.845
+n-Propane,1,2000,1238,1
+n-Propane,2,2000,1309,1.892
+n-Propane,4,2000,1570,3.152
+n-Propane,6,2000,2755,2.695
+n-Propane,12,2000,4922,3.018
+n-Heptane,1,2000,1002,1
+n-Heptane,2,2000,971.3,2.063
+n-Heptane,4,2000,1305,3.071
+n-Heptane,6,2000,2495,2.409
+n-Heptane,12,2000,4287,2.804
+mixed,1,2000,1924,1
+mixed,2,2000,1801,2.136
+mixed,4,2000,3359,2.291
+mixed,6,2000,3857,2.992
+mixed,12,2000,7388,3.125

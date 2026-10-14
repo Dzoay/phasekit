@@ -14,7 +14,7 @@ mod fixtures;
 mod ignores;
 mod lints;
 mod mutants;
-mod perf;
+pub(crate) mod perf;
 mod register;
 mod rot;
 

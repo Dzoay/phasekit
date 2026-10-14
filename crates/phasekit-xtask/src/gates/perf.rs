@@ -19,17 +19,25 @@ const EXEMPTIONS: &str = "ci/perf-exemptions.txt";
 /// The allowed increase over the baseline, in percent: 5 *(decision: noise margin, VERIFICATION.md §12)*.
 const LIMIT_PERCENT: u128 = 5;
 
+/// A §7 target: a time in ns, or CoolProp's own for the same fluid on the same machine, the median of a workload of that
+/// machine's C++ baseline (`benches/baseline/coolprop-8.0.0-<machine>.csv`; user decision PF1).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Target {
+    Ns(f64),
+    CoolProp(&'static str),
+}
+
 /// ARCHITECTURE.md §7's per-core targets, as criterion bench ids of `benches/` (the `bench` column of a results file),
-/// the fluids they apply to (`None`: every fluid the bench records), the target in ns, and the §7 row it comes from.
+/// the fluids they apply to (`None`: every fluid the bench records), the target, and the §7 row it comes from.
 /// `targets_match_the_architecture_table` keeps them equal to the table.
-pub const TARGETS: [(&str, Option<&str>, f64, &str); 7] = [
-    ("alphar_order2/residual", Some("n-Propane"), 300.0, "α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs"),
-    ("properties_at_t_rho/dt_h_cp", None, 500.0, "Properties at (T, ρ) | ≤ 0.5 µs"),
-    ("qt_superancillary/flash", None, 100.0, "QT / PQ via superancillary | ≤ 0.1 µs"),
-    ("pq_superancillary/flash", None, 100.0, "QT / PQ via superancillary | ≤ 0.1 µs"),
-    ("pt_flash/pt_h", None, 3_000.0, "PT / PH single phase | ≤ 3 µs / ≤ 15 µs"),
-    ("ph_flash/ph_t", None, 15_000.0, "PT / PH single phase | ≤ 3 µs / ≤ 15 µs"),
-    ("lookup_by_name/name", None, 50.0, "Hot lookup by name | ≤ 50 ns"),
+pub const TARGETS: [(&str, Option<&str>, Target, &str); 7] = [
+    ("alphar_order2/residual", Some("n-Propane"), Target::Ns(300.0), "α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs"),
+    ("properties_at_t_rho/dt_h_cp", None, Target::Ns(500.0), "Properties at (T, ρ) | ≤ 0.5 µs"),
+    ("qt_superancillary/qt_h", None, Target::CoolProp("qt_h"), "QT / PQ + h via superancillary | ≤ CoolProp's"),
+    ("pq_superancillary/pq_h", None, Target::CoolProp("pq_h"), "QT / PQ + h via superancillary | ≤ CoolProp's"),
+    ("pt_flash/pt_h", None, Target::Ns(3_000.0), "PT / PH single phase | ≤ 3 µs / ≤ 15 µs"),
+    ("ph_flash/ph_t", None, Target::Ns(15_000.0), "PT / PH single phase | ≤ 3 µs / ≤ 15 µs"),
+    ("lookup_by_name/name", None, Target::Ns(50.0), "Hot lookup by name | ≤ 50 ns"),
 ];
 
 pub fn run(repo: &Repo, args: &[String]) -> Verdict {
@@ -39,7 +47,10 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
         [flag, results] if flag == "--targets" => {
             let results = repo.read(results).map_err(|e| vec![e])?;
             let exemptions = repo.read(EXEMPTIONS).map_err(|e| vec![e])?;
-            check_targets(&results, &exemptions)
+            // The C++ baseline of the machine the first row names; none recorded is an empty one.
+            let cpu = results.lines().find(|l| !l.starts_with('#')).and_then(|l| l.split(',').nth(7)).unwrap_or("");
+            let baseline = format!("{}/coolprop-8.0.0-{}.csv", crate::baseline::DIR, crate::bench::slug(cpu));
+            check_targets(&results, &exemptions, &repo.read(&baseline).unwrap_or_default())
         }
         _ => Err(vec!["usage: gates perf [--update | --targets <results.csv>]".into()]),
     }
@@ -174,8 +185,15 @@ fn exemption_lines(exemptions: &str) -> (Vec<(&str, &str, bool)>, Vec<String>) {
     (exempt, errors)
 }
 
-/// One results row (`date,commit,step,bench,fluid,median,unit,...`) judged, marking the exemption it uses.
-fn judge(line: &str, exempt: &mut [(&str, &str, bool)]) -> Judged {
+/// The median of `workload` for `fluid` in a C++ baseline file, ns.
+fn coolprop_median(baseline: &str, workload: &str, fluid: &str) -> Option<f64> {
+    let prefix = format!("{workload},{fluid},");
+    baseline.lines().find(|l| l.starts_with(&prefix))?.split(',').nth(3)?.parse().ok()
+}
+
+/// One results row (`date,commit,step,bench,fluid,median,unit,...`) judged against its target, CoolProp's from the
+/// machine's C++ `baseline` where the target is relative, marking the exemption it uses.
+fn judge(line: &str, exempt: &mut [(&str, &str, bool)], baseline: &str) -> Judged {
     let cells: Vec<&str> = line.split(',').collect();
     let (Some(&bench), Some(&fluid), Some(median), Some(&unit)) =
         (cells.get(3), cells.get(4), cells.get(5), cells.get(6))
@@ -185,6 +203,17 @@ fn judge(line: &str, exempt: &mut [(&str, &str, bool)]) -> Judged {
     let Some(&(_, _, target, label)) = TARGETS.iter().find(|(b, f, ..)| *b == bench && f.is_none_or(|f| f == fluid))
     else {
         return Judged::Untargeted;
+    };
+    let target = match target {
+        Target::Ns(ns) => ns,
+        Target::CoolProp(workload) => match coolprop_median(baseline, workload, fluid) {
+            Some(ns) => ns,
+            None => {
+                return Judged::Failed(format!(
+                    "{bench} {fluid}: the machine's C++ baseline has no `{workload}` row (cargo xtask baseline)"
+                ));
+            }
+        },
     };
     match median.parse::<f64>() {
         Err(_) => Judged::Failed(format!("{bench} {fluid}: median {median} is not a number")),
@@ -202,14 +231,15 @@ fn judge(line: &str, exempt: &mut [(&str, &str, bool)]) -> Judged {
     }
 }
 
-/// Checks a criterion results file (`date,commit,step,bench,fluid,median,unit,...`) against [`TARGETS`]: each matching
-/// row's median at or under its target, or exempted by an `exemptions` line `<bench> <fluid|*> issue #N: <reason>`. An
-/// exemption that matches no miss fails too, so the list cannot go stale.
-pub fn check_targets(results: &str, exemptions: &str) -> Verdict {
+/// Checks a criterion results file (`date,commit,step,bench,fluid,median,unit,...`) against [`TARGETS`], a relative one
+/// against the machine's C++ `baseline`: each matching row's median at or under its target, or exempted by an
+/// `exemptions` line `<bench> <fluid|*> issue #N: <reason>`. An exemption that matches no miss fails too, so the list
+/// cannot go stale.
+pub fn check_targets(results: &str, exemptions: &str, baseline: &str) -> Verdict {
     let (mut exempt, mut errors) = exemption_lines(exemptions);
     let (mut met, mut missed) = (0, 0);
     for line in results.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
-        match judge(line, &mut exempt) {
+        match judge(line, &mut exempt, baseline) {
             Judged::Untargeted => {}
             Judged::Met => met += 1,
             Judged::Exempted => missed += 1,
@@ -304,50 +334,81 @@ mod tests {
         .concat();
         let exemptions = "# misses with an issue\npt_flash/pt_h Water issue #140: seven Newton steps\n";
         assert_eq!(
-            check_targets(&results, exemptions),
+            check_targets(&results, exemptions, ""),
             Ok("2 medians meet ARCHITECTURE.md §7, 1 misses re-planned".into())
         );
-        let unexempted = check_targets(&results, "").unwrap_err();
+        let unexempted = check_targets(&results, "", "").unwrap_err();
         assert!(
             unexempted.len() == 1 && unexempted[0].contains("pt_flash/pt_h Water: 7000.0 ns over"),
             "{unexempted:?}"
         );
-        let stale = check_targets(&results, &format!("{exemptions}qt_superancillary/flash * issue #9: gone\n"));
+        let stale = check_targets(&results, &format!("{exemptions}qt_superancillary/qt_h * issue #9: gone\n"), "");
         assert!(stale.unwrap_err()[0].contains("matches no miss"));
         for malformed in ["pt_flash/pt_h Water slow", "pt_flash/pt_h Water issue #140", "pt_flash/pt_h Water slow: why"]
         {
-            assert!(check_targets(&results, &format!("{malformed}\n")).unwrap_err()[0].contains("not `<bench>"));
+            assert!(check_targets(&results, &format!("{malformed}\n"), "").unwrap_err()[0].contains("not `<bench>"));
         }
         // An exemption for another bench or another fluid does not cover a miss (and is stale itself).
         for other in ["ph_flash/ph_t Water issue #1: x", "pt_flash/pt_h Methane issue #1: x"] {
-            let errors = check_targets(&results, &format!("{other}\n")).unwrap_err();
+            let errors = check_targets(&results, &format!("{other}\n"), "").unwrap_err();
             assert!(errors.len() == 2 && errors[0].contains("not exempted"), "{other}: {errors:?}");
         }
         // Comment lines are not rows; a file whose only target rows are exempted misses passes.
         let only_a_miss = format!("# fixture: results\n{}", row("pt_flash/pt_h", "Water", 7_000.0));
         assert_eq!(
-            check_targets(&only_a_miss, exemptions),
+            check_targets(&only_a_miss, exemptions, ""),
             Ok("0 medians meet ARCHITECTURE.md §7, 1 misses re-planned".into())
         );
         // One met and one exempted: both counted; and a median in another unit than ns is refused.
         let one_each = format!("{}{}", row("pt_flash/pt_h", "Water", 7_000.0), row("pt_flash/pt_h", "R134a", 2_000.0));
         assert_eq!(
-            check_targets(&one_each, exemptions),
+            check_targets(&one_each, exemptions, ""),
             Ok("1 medians meet ARCHITECTURE.md §7, 1 misses re-planned".into())
         );
         let micro = row("pt_flash/pt_h", "R134a", 2.0).replace(",ns,", ",µs,");
-        assert!(check_targets(&micro, "").unwrap_err()[0].contains("unit µs, not ns"));
-        assert!(check_targets("", "").is_err());
+        assert!(check_targets(&micro, "", "").unwrap_err()[0].contains("unit µs, not ns"));
+        assert!(check_targets("", "", "").is_err());
+    }
+
+    /// User decision PF1: QT and PQ plus h are judged against CoolProp's own on the same machine, the median of the
+    /// C++ baseline's `qt_h` or `pq_h` row for that fluid; at or under it passes, over it needs an issue, and a baseline
+    /// without that row fails.
+    #[test]
+    fn qt_and_pq_plus_h_are_judged_against_coolprops() {
+        let row = |bench: &str, fluid: &str, ns: f64| format!("2026-10-13,abc,M9.6,{bench},{fluid},{ns},ns,cpu\n");
+        let baseline = "# fixture: coolprop-baseline/v2\nqt,Water,10000,180,1,2,g\nqt_h,Water,10000,5525,1,2,g\n\
+                        pq_h,Water,10000,5547,1,2,g\nqt_h,R134a,10000,1501,1,2,g\n";
+        let results =
+            [row("qt_superancillary/qt_h", "Water", 5_525.0), row("pq_superancillary/pq_h", "Water", 2_600.0)];
+        assert_eq!(
+            check_targets(&results.concat(), "", baseline),
+            Ok("2 medians meet ARCHITECTURE.md §7, 0 misses re-planned".into())
+        );
+        let slower = row("qt_superancillary/qt_h", "R134a", 1_502.0);
+        assert!(check_targets(&slower, "", baseline).unwrap_err()[0].contains("1502.0 ns over"));
+        let exempted = "qt_superancillary/qt_h R134a issue #142: x\n";
+        assert_eq!(
+            check_targets(&slower, exempted, baseline),
+            Ok("0 medians meet ARCHITECTURE.md §7, 1 misses re-planned".into())
+        );
+        let unrecorded = check_targets(&row("pq_superancillary/pq_h", "R134a", 900.0), "", baseline).unwrap_err();
+        assert!(unrecorded[0].contains("no `pq_h` row"), "{unrecorded:?}");
+        assert_eq!(coolprop_median(baseline, "qt", "Water"), Some(180.0));
+        assert_eq!(coolprop_median(baseline, "qt_h", "Methane"), None);
     }
 
     /// Every target is the value ARCHITECTURE.md §7's table states on that row, so the table stays the one home.
     #[test]
     fn targets_match_the_architecture_table() {
         let architecture = include_str!("../../../../docs/ARCHITECTURE.md");
-        for (bench, _, ns, label) in TARGETS {
+        for (bench, _, target_kind, label) in TARGETS {
             let (row, target) = label.split_once(" | ").unwrap();
             let line = architecture.lines().find(|l| l.starts_with(&format!("| {row} |"))).unwrap_or_default();
             assert!(line.contains(&format!("| {target}")), "{bench}: §7 has no row `{row}` with `{target}`: {line}");
+            let Target::Ns(ns) = target_kind else {
+                assert!(target.contains("CoolProp's"), "{bench}: a relative target that §7 does not state: {target}");
+                continue;
+            };
             let micro = |s: &str| s.trim_start_matches("≤ ").trim_end_matches(" µs").parse::<f64>().map(|v| v * 1e3);
             let stated: Vec<f64> = target
                 .split(" / ")

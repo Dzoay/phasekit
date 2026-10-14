@@ -2,19 +2,19 @@
 # coolprop: 8.0.0 git=ae81610e7d23efc57f9d051c8e70a4d66e87537f
 # cpu: 11th Gen Intel(R) Core(TM) i7-1165G7 @ 2.80GHz
 # os: Linux 7.2.9-2-cachyos
-# date: 2026-10-11
+# date: 2026-10-13
 # compiler: 16.2.1 20260810 (CMAKE_BUILD_TYPE=Release, no -march)
 # method: heap = glibc mallinfo2 (uordblks + hblkhd), rss = /proc/self/statm resident pages; per-state rows are the mean over 100 states of that fluid held at once, after construction and after one QT update at 0.7 Tc
 # columns: measure,fluid,heap_bytes,rss_bytes
-library_first_use,Water,33301344,57843712
-state,Water,564420,358318
-state_after_qt,Water,564447,359301
-state,Methane,503140,0
-state_after_qt,Methane,503140,0
-state,R134a,502199,0
-state_after_qt,R134a,502199,0
+library_first_use,Water,33301872,57860096
+state,Water,564411,357826
+state_after_qt,Water,564439,358522
+state,Methane,503134,0
+state_after_qt,Methane,503134,0
+state,R134a,502197,0
+state_after_qt,R134a,502197,0
 state,n-Propane,546449,0
 state_after_qt,n-Propane,546449,0
-state,n-Heptane,491062,0
-state_after_qt,n-Heptane,491062,0
-all_fluids_one_state_each,136,100295248,104509440
+state,n-Heptane,491055,0
+state_after_qt,n-Heptane,491055,0
+all_fluids_one_state_each,136,100294608,104448000

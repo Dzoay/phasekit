@@ -422,14 +422,27 @@ fn within_domain(fluid: &PureFluid, state: State, opts: &FlashOptions) -> Result
 }
 
 /// The two-phase state at quality `q` on the pure saturation `sat`, solved by `strategy` (a VLE's iterations are not
-/// counted here): both phases from the EOS at their densities.
+/// counted here): both phases from the EOS at their densities ([`phase_bundle`]).
 fn two_phase(fluid: &PureFluid, sat: &SatPair, q: Quality, strategy: Strategy) -> Result<State, Error> {
     let (r, m, key) = (fluid.eos().gas_constant(), fluid.info().molar_mass(), fluid.info().key());
     let path = SolvePath { strategy, iterations: 0 };
     let (t, rl, rv) = (sat.bubble.t, sat.bubble.rho, sat.dew.rho);
-    let liquid = State::single(key, t, rl, r, m, Phase::Liquid, &total(fluid, t, rl)?, path)?;
-    let vapour = State::single(key, t, rv, r, m, Phase::Gas, &total(fluid, t, rv)?, path)?;
+    let liquid = State::single(key, t, rl, r, m, Phase::Liquid, &phase_bundle(fluid, t, rl, q)?, path)?;
+    let vapour = State::single(key, t, rv, r, m, Phase::Gas, &phase_bundle(fluid, t, rv, q)?, path)?;
     State::split(liquid, vapour, q, t, sat.bubble.p, path)
+}
+
+/// A saturated phase's total bundle at (T, ρ) in a two-phase state at quality `q`: to order 2 at Q = 0 and 1, where the
+/// state reads that phase's c_p, c_v, w and partials (user decisions SQ1-SQ3); to order 1 strictly inside the dome,
+/// where it reads only ρ, h, s and u and refuses the rest, its second-order entries zero (user decision PF1).
+fn phase_bundle(fluid: &PureFluid, t: f64, rho: f64, q: Quality) -> Result<Bundle, Error> {
+    if q.get() == 0.0 || q.get() == 1.0 {
+        return total(fluid, t, rho);
+    }
+    let eos = fluid.eos();
+    let d = eos.ideal(t, rho, Order::One) + eos.residual(t, rho, Order::One);
+    let at = |i, j| d.get(i, j).ok_or(Error::InvalidState { reason: "the model returned a bundle below order 1" });
+    Ok(Bundle { a00: at(0, 0)?, a10: at(1, 0)?, a01: at(0, 1)?, a20: 0.0, a11: 0.0, a02: 0.0 })
 }
 
 /// The no-iteration path.

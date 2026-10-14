@@ -77,7 +77,10 @@ pub struct SolvePath {
     pub iterations: u16,
 }
 
-/// One phase point. It carries its own T: the bubble and dew points of a pseudo-pure fluid differ (E3).
+/// One phase point. It carries its own T: the bubble and dew points of a pseudo-pure fluid differ (E3). Its bundle is
+/// order 2, except a flash's two-phase state strictly inside the dome, whose phases carry order 1 (their second-order
+/// entries zero): there [`State::saturated_point`] and [`State::one_phase`] refuse, so nothing reads them (user decision
+/// PF1).
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Point {
     t: f64,
