@@ -23,6 +23,8 @@ pub(crate) use tau_exp::TauExpBlock;
 pub use terms::{DoubleExponentialTerm, GaoBTerm, GaussianTerm, Lemmon2005Term, NonAnalyticTerm};
 
 use crate::derivs::{Derivs, Order, Virials};
+use crate::error::Error;
+use crate::exec::ExecPolicy;
 
 /// The seam for Helmholtz-explicit model families: CoolProp multiparameter (built in), cubic, PC-SAFT,
 /// GERG and mixtures at fixed composition (later crates). Object-safe; one virtual call per evaluation,
@@ -35,6 +37,20 @@ pub trait HelmholtzModel: Send + Sync + fmt::Debug {
     /// Residual bundle α^r at (T in K, ρ in mol/m³), unchecked: metastable and unstable states are allowed.
     /// Requires T > 0 and ρ ≥ 0; must be finite at ρ = 0.
     fn residual(&self, t: f64, rho: f64, order: Order) -> Derivs;
+
+    /// [`residual`](Self::residual) at every point `(t[i], rho[i])` into `out[i]`, under `exec` (D9): the bits of
+    /// `residual` at that point whatever the policy. Unequal lengths are [`Error::Shape`]. The default runs
+    /// `residual` point by point (PLAN.md M12.1).
+    fn residual_batch(
+        &self,
+        t: &[f64],
+        rho: &[f64],
+        order: Order,
+        out: &mut [Derivs],
+        exec: ExecPolicy,
+    ) -> Result<(), Error> {
+        crate::exec::points(exec, t, rho, out, |t, rho| self.residual(t, rho, order))
+    }
 
     /// Ideal-gas bundle α⁰ at (T, ρ), evaluated in the model's own reducing variables. Its δ-part is always
     /// `ln δ`, so `residual + Derivs::IDEAL_DELTA` gives the mechanical derivatives without calling this.

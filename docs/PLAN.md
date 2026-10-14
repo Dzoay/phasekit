@@ -511,15 +511,10 @@ may land before the `v0.1.0` tag (user decision RL4). **Prerequisites.** User de
 and SL3 (the target); the tools of G1-G8; fearless_simd 1.1's MSRV is the workspace's 1.89 (user decision MS1). M12 does not
 move `MILESTONE`: M11 stays the first open milestone.
 
-- **M12.1 The α^r batch and its scalar baseline.** `ExecPolicy` moves from L6 `batch` to a new L0 module `exec` (its
-  executors hold no physics, ARCHITECTURE.md §7; the public path is unchanged, S-03), so that L2 can take a policy
-  without pointing up (D1). `HelmholtzModel::residual_batch(t, rho, order, out, exec)`, a defaulted trait method (a
-  minor semver change, D9), runs `residual` per point under `Reference` and `Parallel`; mismatched lengths are an
-  `Error`. Bench `alphar_batch/scalar`: the `alphar_order2` grid as one batch per bench
-  fluid (VERIFICATION.md §12). *Red:* `residual_batch_is_residual_per_point`, bitwise against per-point `residual`
-  for every embedded fluid at every order under both policies, against a stub returning `Error::Unsupported`. *Done
-  when:* green, and the i7-8700K's `results/M12-intel-core-i7-8700k.csv` holds `alphar_batch/scalar` for the bench
-  fluids from the default build (the gate's baseline) and from `--features libm`.
+| Step | Landed |
+|---|---|
+| M12.1 | `HelmholtzModel::residual_batch`, `ExecPolicy` at L0, the α^r batch's scalar baseline |
+
 - **M12.2 `Lanes<W>`.** A crate-private `Lanes<W>` over `[f64; W]` implements the sealed `Real` lane by lane, every
   operation `#[inline(always)]`, each transcendental per lane through `math` (ARCHITECTURE.md §7). The Power,
   TauExp, Gaussian and GaoB blocks' `accumulate` run on it unchanged; NonAnalytic runs lane by lane at its place in
