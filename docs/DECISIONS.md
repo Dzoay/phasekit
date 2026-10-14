@@ -495,3 +495,26 @@ both phases' bundles (D8: `Copy`, no interior mutability), so it pays that work 
 | # | Question | Decision | Notes |
 |---|---|---|---|
 | PF1 | Defer the phases' bundles (a lazy `State`), restate the target, or build cheaper bundles? | **Restate the row as QT / PQ + h, the property a caller reads, against CoolProp's update + hmolar on the same machine; and build the saturated phases at order 1 strictly inside the dome** | CoolProp's two-phase hmolar evaluates each phase's EOS, so both sides do the same work. The C++ baseline adds `qt_h` and `pq_h` (format v2), which `gates perf --targets` reads for the machine. Strictly inside the dome a state reads only ρ, h, s and u (SQ1-SQ3), so its phases' second order is not computed; at Q = 0 and 1 it is. *Rejected:* a lazy `State`, which breaks D8 and would evaluate again at every read. |
+
+## Starting M12 before v0.1 (2026-10-13)
+
+Asked when the user wanted the SIMD build started. M12's entry trigger is "v0.1 released", D9 rejected SIMD in v0.1,
+and only M10.9 (the release) was left. ARCHITECTURE.md §7 also stated the SIMD gate twice: "≥ 2.5×" in its list, and
+"≤ 0.1 µs/state and ≥ 2.5×" in its table. From n-Propane's 315.7 ns on the i7-8700K, the second needs about 3.2×.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| SL2 | When is M12 built? | **Now, landed after v0.1** | M12 is worked on the i7-8700K in its own worktree, its steps stacked. Its PRs merge to `main` only after `v0.1.0` is tagged, so the release carries no SIMD code and D9's rejection of SIMD in v0.1 stands. |
+| SL3 | Which gate decides whether `simd` ships? | **≥ 2.5× decides; ≤ 0.1 µs/state is a §7 target** | ≥ 2.5× α^r batch throughput over the scalar path, on AVX2 on the reference machine, is the ship-or-stop gate (D9). ≤ 0.1 µs/state is checked by `gates perf --targets` like the other §7 targets: a miss names its re-plan issue in `ci/perf-exemptions.txt`, as #142-#144 do. |
+
+## M12's exp probe and the policy's name (2026-10-13)
+
+Asked after M12.1. A throwaway 4-lane port of the `libm` crate's `exp` (scratch code, not committed) matched `libm::exp`
+bit for bit on 20,000,080 inputs, edge cases included, and took 3.80 ns per lane under AVX2 on the i7-8700K. Scalar
+`libm` took 8.1-8.7 ns and glibc 2.98 ns. For n-Propane's 19 transcendentals per state, that estimates the α^r lanes at
+about 2.0-2.3× over the scalar path, if everything else vectorises 3-4×: below SL3's 2.5×.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| SL4 | The probe estimates the gate below 2.5×: prototype it first, build the steps, or close the spike? | **Build the steps as planned** | M12.2-M12.6 are built as production steps, and M12.7 measures the gate, as PLAN.md M12 says. |
+| SL5 | The lanes `ExecPolicy` variant's name (M12.3) | **`ExecPolicy::Simd`** | It runs the scalar path where no lane kernel exists or the `simd` feature is off. |

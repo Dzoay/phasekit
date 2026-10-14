@@ -633,14 +633,20 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
   1. SoA auto-vectorisation variants in core, accepted only on a measured win (dependencies §3.5 step 3).
   2. A `simd` feature of `phasekit-core` with an optional `fearless_simd` dependency (0 dependencies, runtime dispatch,
      safe loads and stores; T1b). A core-local `Lanes<W>` newtype implements the sealed `Real` (gaining `Mask` and
-     `select` then). The orphan rule forbids a foreign trait on a foreign lane type (dependencies §2.4); a local
-     newtype in core avoids that *(inference)*, and the generic kernels run unchanged. A
-     crate-private `exec` module separates `LaneKernel` ("what") from `run_scalar`/`run_lanes<W>`/`run_parallel`
-     ("how"); the batch hooks and an `ExecPolicy` variant return with it. WASM `simd128` is a second build (K11, K15).
+     `select` only when a generic kernel needs a lane-dependent branch). The orphan rule forbids a foreign trait on a
+     foreign lane type (dependencies §2.4); a local newtype in core avoids that *(inference)*, and the generic kernels
+     run unchanged. fearless_simd's vector types need a `Simd` token that `Real::from_f64` cannot carry, so `Lanes<W>`
+     is a `[f64; W]` whose `#[inline(always)]` lane loops LLVM vectorises inside fearless_simd's `dispatch!`, which
+     supplies the safe runtime dispatch; the kernel path is `#[inline(always)]` down to the lane operations (checked in
+     fearless_simd 1.1.0's source and its `MANUAL_INLINING.md`, 2026-10-13). A crate-private `exec` module separates
+     `LaneKernel` ("what") from `run_scalar`/`run_lanes<W>`/`run_parallel` ("how"); it sits at L0 with `ExecPolicy`,
+     as its executors hold no physics, so L2's batch hook can take a policy (D1). The batch hooks and an `ExecPolicy`
+     variant return with it. WASM `simd128` is a second build (K11, K15).
   3. `simd` enables `libm` (user decision SL1), so its lanes are bitwise equal to the `libm` scalar path. The vector
      `exp`/`ln` are ports of the locked `libm` crate's, operation for operation (fearless_simd has none; dependencies
      §4); any other transcendental a laned kernel needs is ported the same way or called per lane through `math`.
-  - The gate is ≥ 2.5× α^r batch throughput on AVX2 over the M9 baseline, or stop and re-plan.
+  - The gate is ≥ 2.5× α^r batch throughput on AVX2 over the scalar path, on the reference machine, or stop and
+    re-plan (user decision SL3).
 - **Dispatch.** `ExecPolicy` is a run-time value. Cargo features add executors but never change numerics (K13);
   `simd` changes them only by enabling `libm` (D12, user decision SL1).
   Summation-order-changing variants (across-terms SIMD, FMA) exist only as a separate future `Fast` policy with its own
@@ -653,7 +659,7 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
 | Gate (1 x86-64 core) | Target | First recorded | CoolProp 8.0.0 reference |
 |---|---|---|---|
 | α^r bundle, order 2, 16-20 terms | ≤ 0.3 µs | M3 | n/a |
-| Same, AVX2 across states | ≤ 0.1 µs/state and ≥ 2.5×, or stop | M12 | n/a |
+| Same, AVX2 across states | ≤ 0.1 µs/state (it ships at ≥ 2.5×, user decision SL3) | M12 | n/a |
 | Properties at (T, ρ) | ≤ 0.5 µs | M5 | update(D,T)+h+cp 1.5-10.7 µs |
 | QT / PQ + h via superancillary | ≤ CoolProp's on the same machine (user decision PF1) | M6 | update(QT or PQ) + hmolar, the C++ baseline's `qt_h` / `pq_h` |
 | PT / PH single phase | ≤ 3 µs / ≤ 15 µs | M7 | 19-27 µs / 119-376 µs |

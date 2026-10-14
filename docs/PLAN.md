@@ -470,7 +470,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M | Crate | Entry trigger | Scope | Exit gate |
 |---|---|---|---|---|
 | M11 | `phasekit-cubic` | v0.1 released | vdW/SRK/PR via Δ1/Δ2, Soave/MC/Twu alpha, parameters from the canonical fluid records, borrowed HEOS ideal gas, cubic superancillary (map 06 U1-U5) | Zero-line core diff; `new_family` conformance; cubic-R register entry (below); DIV-0010 proof by the entropy identity (oracle PR propane 400 K, 1 bar: T(∂s/∂T)_p = 91.35 vs cp = 93.89 J/mol/K; map 12 §6.3); Z_c = 1/3 (SRK), 0.30740 (PR) (map 06 §8) |
-| M12 | core `simd` feature | v0.1 released: a time-boxed SIMD spike (the user's follow-up asks to investigate SIMD), about ten steps *(judgement)* | `fearless_simd` optional dependency, `simd` enabling `libm` (user decision SL1), core-local `Lanes<W>` implementing sealed `Real`, crate-private `exec`, batch hooks and an `ExecPolicy` variant; wasm `simd128` build; vector exp/ln ported from the locked `libm` crate's (D9, ARCHITECTURE.md §7) | ≥ 2.5× α^r batch throughput on AVX2 over the M9 baseline, then the feature ships; otherwise the spike's measurements are recorded and the branch closed (D9); `policy_equivalence` bitwise against `Reference` in the same build, on `libm`; the vector exp/ln bitwise equal to the `libm` crate's on random and edge inputs (VERIFICATION.md §9.2); arbiter rows pass on every dispatch level; the workspace MSRV is already 1.89 (user decision MS1) |
+| M12 | core `simd` feature | v0.1 released; built before it in a worktree and merged after `v0.1.0` (user decision SL2) | A time-boxed SIMD spike (the user's follow-up asks to investigate SIMD), ten steps: [M12 SIMD lanes](#m12-simd-lanes) | ≥ 2.5× α^r batch throughput on AVX2 over the scalar path decides whether the feature ships (user decision SL3); otherwise the spike's measurements are recorded and the stack closed (D9) |
 | M13 | `phasekit-mix` | v0.1 + demand for mixtures | `Mixture: HelmholtzModel` at fixed z, own `ThermoModel` (VLE, stability, `from_split`), `MixtureModel` with AD composition derivatives, GERG-2008 datasets, compat `A[x]&B[y]`, true-mixture variants (`R410A.mix`) registered beside the pseudo-pure names (D4, user decision 4) | x = [1, 0] equals the pure fluid under any gauge (map 04 §8, map 15 §8); GERG teqp vectors (map 06 U7); Bell 2023 Table XIII; DIV-0013 resolved or kept; core diff zero expected |
 | M14 | `phasekit-iapws` | v0.1 + a water/steam or solid use case | IF97 regions 1-5 with backward equations, ice Ih (R10-06) and sublimation (R14-08) on `bundle_from_gibbs`, `from_split` for ice + vapour (map 07 §9) | **Zero-line core diff**; IAPWS tables first, oracle second; `gibbs_seam` conformance on real models |
 | M15 | `phasekit-pcsaft` | M11 done + demand | Hard chain, dispersion, association, polar terms on `Jet4` (map 06 U9-U11) | Zero-line core diff; teqp/FeOs cross-checks; oracle only where map 06 §8 says it is usable |
@@ -497,6 +497,75 @@ cubic code.
 | Corrected | the ideal part uses the source model's R, so α⁰ equals its paper |
 | proof | (1) Corrected: cubic α⁰ equals the borrowed model's at the same (T, ρ) (`Exact`) and cp⁰(PR::X) equals cp⁰(HEOS::X) (`Term`); (2) the oracle's cubic cp⁰ differs by the R ratio (1.128e-6 = 8.314472/8.31446262 − 1 for 54 of 97 fluids, map 06 C6; 1.10e-5 for Water, map 15 §3.1); (3) Parity reproduces the oracle except the DIV-0010 columns |
 | scope note | part (3) holds only where the v8.0.0 cubic α⁰ snapshot matches the HEOS α⁰ apart from R; the drifted fluids (map 06 C5: cp⁰ > 0.1 % off for 11 of 116; map 15 X6 offsets) get a separate `SkipOracle` entry for α⁰-dependent cubic outputs |
+
+### M12 SIMD lanes
+
+**Goal.** α^r, then properties at (T, ρ), QT and PQ, evaluated across states in lanes, bitwise equal to the scalar
+path, shipped as core's `simd` feature only if the gate passes (D9; ARCHITECTURE.md §7). **Entry.** Built from
+2026-10-13 on the i7-8700K in its own worktree; the steps stay stacked until M12.7 measures the gate, and merge in
+order only after `v0.1.0` is tagged (user decision SL2). If the gate fails, the stack is closed unmerged and a docs PR
+records the measurements and the re-plan (D9). **Prerequisites.** User decisions SL1 (`simd` enables `libm`) and SL3
+(the gate); the tools of G1-G8; fearless_simd 1.1's MSRV is the workspace's 1.89 (user decision MS1). M12 does not
+move `MILESTONE`: M11 stays the first open milestone.
+
+- **M12.1 The α^r batch and its scalar baseline.** `ExecPolicy` moves from L6 `batch` to a new L0 module `exec` (its
+  executors hold no physics, ARCHITECTURE.md §7; the public path is unchanged, S-03), so that L2 can take a policy
+  without pointing up (D1). `HelmholtzModel::residual_batch(t, rho, order, out, exec)`, a defaulted trait method (a
+  minor semver change, D9), runs `residual` per point under `Reference` and `Parallel`; mismatched lengths are an
+  `Error`. Bench `alphar_batch/scalar`: the `alphar_order2` grid as one batch per bench
+  fluid (VERIFICATION.md §12). *Red:* `residual_batch_is_residual_per_point`, bitwise against per-point `residual`
+  for every embedded fluid at every order under both policies, against a stub returning `Error::Unsupported`. *Done
+  when:* green, and the i7-8700K's `results/M12-intel-core-i7-8700k.csv` holds `alphar_batch/scalar` for the bench
+  fluids from the default build (the gate's baseline) and from `--features libm`.
+- **M12.2 `Lanes<W>`.** A crate-private `Lanes<W>` over `[f64; W]` implements the sealed `Real` lane by lane, every
+  operation `#[inline(always)]`, each transcendental per lane through `math` (ARCHITECTURE.md §7). The Power,
+  TauExp, Gaussian and GaoB blocks' `accumulate` run on it unchanged; NonAnalytic runs lane by lane at its place in
+  block order, so each lane's sums keep the scalar order. *Red:* `lanes_are_scalar_bitwise`: for every embedded
+  fluid, the residual on `Lanes<2>`, `Lanes<4>` and `Lanes<8>` equals the scalar residual lane by lane at every order
+  on the `eos` grid, the δ → 0 and τ = δ = 1 neighbourhoods and NaN inputs included.
+- **M12.3 The executors and the `ExecPolicy` variant.** M12.1's L0 `exec` gains the crate-private `LaneKernel`
+  ("what") and `run_scalar`, `run_lanes::<W>` (chunks of W points, a remainder padded by duplicating a valid lane, K17)
+  and `run_parallel` ("how"). `ExecPolicy` gains `Simd` (user decision SL5); `residual_batch` runs it. The
+  portable `Lanes<2>` at the build's baseline (SSE2, NEON, simd128) is ARCHITECTURE.md §7's step 1: measured against
+  the scalar path, it stays the executor without the `simd` feature only on a measured win; otherwise the variant runs
+  the scalar path there, with the same bits. *Red:* `policy_equivalence` over `residual_batch` with the new variant,
+  every embedded fluid and order, N mod W ≠ 0 included.
+- **M12.4 The `simd` feature.** `simd = ["libm", "dep:fearless_simd"]` (fearless_simd 1.x, default features off but
+  `std`): `Level::new()` once per batch, `dispatch!` into `run_lanes` with W = 2 (SSE2, SSE4.2, NEON, simd128), 4
+  (AVX2) or 8 (AVX-512), the kernel path `#[inline(always)]` down to the lane operations; transcendentals still per
+  lane. `gates deps` and `features` learn the feature; DEPENDENCIES.md T1 lists it as present; CI runs the lane tests
+  with `--features simd` at every level each runner has (forced down from `Level::new()`), on aarch64, and on wasip2
+  with `+simd128`. If the inlining moves the scalar instruction counts, `gates perf --update` commits them with the
+  counts in the PR. *Red:* `policy_equivalence` at each forced level, against a dispatch stub that refuses the batch.
+  *Done when:* green on every level of the i7-8700K (SSE2, SSE4.2, AVX2) and of the CI runners, and the lanes' time
+  with per-lane `libm` is recorded (the ceiling user decision SL1 estimated).
+- **M12.5 Vector `exp`.** `Lanes::exp` ports the locked `libm` crate's `exp` operation for operation, its special
+  cases as lane selects inside `Lanes`. *Red:* `lane_exp_is_libm_bitwise` (VERIFICATION.md §9.2) at every level: random
+  inputs over α^r's argument range and over all of `f64`, and the edges ±0, |x| < 2⁻²⁸, the reduction boundaries at
+  0.5 ln 2 and 1.5 ln 2, 708.39…, 709.78…, −745.13…, subnormal results, NaN and ±∞.
+- **M12.6 Vector `ln`.** The same for `log`. *Red:* `lane_ln_is_libm_bitwise`: random inputs and the edges ±0,
+  negative inputs, subnormals, 1, the √2/2 reduction boundary, +∞ and NaN.
+- **M12.7 The gate.** Bench `alphar_batch/simd` on the i7-8700K (AVX2). It ships at ≥ 2.5× over M12.1's
+  `alphar_batch/scalar` of the default build for n-Propane, the §7 row's 16-20-term fluid (user decision SL3); the
+  other bench fluids are recorded. `gates perf --targets` gains the ≤ 0.1 µs/state row, and a miss names its re-plan
+  issue in `ci/perf-exemptions.txt` (SL3). *Red:* `targets_match_the_architecture_table` with the row added to
+  `TARGETS` first. *Done when:* the record and the targets check pass, or the gate fails and the stack closes (Entry).
+- **M12.8 Properties at (T, ρ) in lanes.** `Pair::DT` batches under the lanes variant: α⁰ and the relations from the
+  bundle in lanes. Points inside the dome (T < T_c, ρ between the saturated densities), and every point a lane kernel
+  refuses, take the scalar path in place. α⁰'s other transcendentals run per lane through `math` unless a measurement
+  justifies a port like M12.5's. *Red:* `policy_equivalence` over DT batches of every embedded fluid on the `eos` and
+  `flash` grids, in-dome points included. Bench `properties_at_t_rho_batch/{scalar,simd}`.
+- **M12.9 QT and PQ in lanes.** `Pair::QT` and `Pair::PQ` batches: the superancillary's Clenshaw sums (and T from p
+  for PQ) in lanes, then both phases' bundles through M12.8. *Red:* `policy_equivalence` over QT and PQ batches on
+  the `sat` grid. Benches `{qt,pq}_superancillary_batch/{scalar,simd}`.
+- **M12.10 WASM, and M12 closed.** `phasekit-wasm`'s `simd128` build enables `simd` (one compile-time level); its
+  size budget and Node tests on both builds. The i7-8700K's M12 record; ARCHITECTURE.md §7 and VERIFICATION.md §12
+  say what landed. Tag `m12` with the user's approval.
+
+**Exit gate.** G1-G8 with and without `--features simd`; `policy_equivalence` bitwise at every dispatch level of the
+i7-8700K, the CI runners (x86-64, aarch64) and wasip2 with `simd128`; the lane `exp`/`ln` bitwise equal to `libm`'s;
+the `simd` build reproduces `fixtures/hash/libm.txt`; the K1/K2 paper rows pass at every level (VERIFICATION.md §9.2);
+≥ 2.5× (SL3). **ROT rows.** None. **User decisions implemented.** SL1, SL2, SL3.
 
 ## 5. Cross-cutting tracks
 
