@@ -795,7 +795,9 @@ fn div_0029() {
         let conductivity = edited.transport.as_mut().unwrap().conductivity.as_mut().unwrap();
         let ecs = if let ConductivityModel::Ecs(ecs) = &mut conductivity.model { Some(ecs) } else { None };
         let ecs = ecs.unwrap();
-        assert_eq!(ecs.lennard_jones, LjSource::chung(record.eos.t_reducing, record.eos.rho_reducing), "{name}");
+        let estimate = LjSource::chung(record.eos.t_reducing, record.eos.rho_reducing).parameters();
+        let is_chungs = matches!(ecs.lennard_jones, LjSource::Chung(lj) if transport_rows::same_lj(lj, estimate));
+        assert!(is_chungs, "{name}: {:?}, not Chung's {estimate:?}", ecs.lennard_jones);
         ecs.lennard_jones = LjSource::Model(LennardJones { sigma, epsilon_over_k });
         let (fluid, references) = (registry.get(name).unwrap(), [registry.get(reference).unwrap().clone()]);
         let worst = [250.0, 300.0, 350.0, 400.0].into_iter().fold(0.0_f64, |worst, t| {

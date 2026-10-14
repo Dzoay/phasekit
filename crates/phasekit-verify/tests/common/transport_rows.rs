@@ -1,11 +1,12 @@
 //! The 318 active transport rows of CoolProp v8.0.0's tests (`CoolProp-Tests.cpp:44-301, 347-581`), one file per fluid
-//! and property, each with its independent second transcription (PLAN.md M8.3; VERIFICATION.md §4.2), and the phase a
-//! row's state takes inside the dome.
+//! and property, each with its independent second transcription (PLAN.md M8.3; VERIFICATION.md §4.2), the phase a
+//! row's state takes inside the dome, and the comparison of Lennard-Jones parameters across maths backends.
 
 #![allow(dead_code, reason = "each test binary that includes the rows uses its part of them")]
 
+use phasekit_core::internal::LennardJones;
 use phasekit_core::{Basis, Fluid, Phase, State};
-use phasekit_verify::fixture;
+use phasekit_verify::{ToleranceClass, fixture};
 
 /// The single phase a check value at a (T, ρ) inside the dome is evaluated at, on its side of ρ_c, metastable, as its
 /// paper evaluates the correlation (M8.10: transport refuses a two-phase state, ROT-010); `None` for any other state,
@@ -140,3 +141,12 @@ pub const ROWS: &[(Text, Text)] = &[
     (fixture!("paper/p-Xylene/CoolProp-Tests.eta.csv"), fixture!("paper/p-Xylene/CoolProp-Tests.eta.check.csv")),
     (fixture!("paper/p-Xylene/CoolProp-Tests.lambda.csv"), fixture!("paper/p-Xylene/CoolProp-Tests.lambda.check.csv")),
 ];
+
+/// Whether two sets of Lennard-Jones parameters agree within `Identity` (VERIFICATION.md §5). Datagen computes Chung's
+/// estimate with std's `powf`; a `libm` build recomputes it with the `libm` crate's, which can differ in the last bit
+/// (R245fa's σ does).
+pub fn same_lj(a: LennardJones, b: LennardJones) -> bool {
+    [(a.sigma, b.sigma), (a.epsilon_over_k, b.epsilon_over_k)]
+        .into_iter()
+        .all(|(x, y)| ToleranceClass::Identity.bound(y.abs()).is_some_and(|bound| (x - y).abs() <= bound))
+}

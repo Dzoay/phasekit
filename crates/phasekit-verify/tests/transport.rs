@@ -667,7 +667,7 @@ fn ecs_lj_parameters_come_from_the_ecs_record() {
         assert_eq!(Some(model.lennard_jones), transport.viscosity.as_ref().map(|v| v.lennard_jones), "{name}");
         if let LjSource::Chung(lj) = model.lennard_jones {
             let estimate = LjSource::chung(record.eos.t_reducing, record.eos.rho_reducing).parameters();
-            assert_eq!(lj, estimate, "{name}");
+            assert!(transport_rows::same_lj(lj, estimate), "{name}: {lj:?}, not Chung's {estimate:?}");
             chung.push(*name);
         }
     }
