@@ -5,9 +5,11 @@ use core::fmt::Debug;
 use core::ops::{Add, Div, Mul, Neg, Sub};
 
 mod jet;
+mod lanes;
 
 pub(crate) use jet::Jet2;
 pub use jet::Jet4;
+pub(crate) use lanes::Lanes;
 
 mod sealed {
     /// Only the core implements `Real`, so methods can be added later without a breaking change (S-02).

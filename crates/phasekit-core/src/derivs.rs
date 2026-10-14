@@ -2,7 +2,7 @@
 
 use core::ops::Add;
 
-use crate::num::Real;
+use crate::num::{Lanes, Real};
 
 /// Highest derivative order requested (CoolProp's `Want` mask, map 02 §9). Order 3 is needed for second
 /// partial derivatives and the fundamental derivative (map 01, map 02); order 4 for critical points.
@@ -91,6 +91,31 @@ impl<R: Real> Derivs<R> {
                 self.a[k] = self.a[k] + e * bdj;
             }
         }
+    }
+}
+
+impl<const W: usize> Derivs<Lanes<W>> {
+    /// Lane `k` as a bundle of its own, or `None` past the last lane.
+    pub(crate) fn lane(&self, k: usize) -> Option<Derivs> {
+        let mut a = [0.0; SLOTS];
+        for (slot, lanes) in a.iter_mut().zip(&self.a) {
+            *slot = *lanes.0.get(k)?;
+        }
+        Some(Derivs { a, order: self.order })
+    }
+
+    /// Writes `d` into lane `k`; past the last lane it does nothing.
+    pub(crate) fn set_lane(&mut self, k: usize, d: &Derivs) {
+        for (lanes, v) in self.a.iter_mut().zip(d.a) {
+            if let Some(slot) = lanes.0.get_mut(k) {
+                *slot = v;
+            }
+        }
+    }
+
+    /// One bundle per lane.
+    pub(crate) fn split(&self) -> [Derivs; W] {
+        core::array::from_fn(|k| self.lane(k).unwrap_or(Derivs::zero(self.order)))
     }
 }
 
