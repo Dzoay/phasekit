@@ -37,6 +37,7 @@ pub enum Kind {
     Term,
     Eos,
     Cubic,
+    CubicSat,
     Crit,
     Sat,
     Flash,

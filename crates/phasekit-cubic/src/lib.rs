@@ -9,11 +9,13 @@ mod alpha;
 mod kind;
 mod model;
 mod residual;
+mod superancillary;
 
 pub use alpha::Alpha;
 pub use kind::{Kind, Omegas};
 pub use model::{CubicModel, fluid, with_cubics};
 pub use residual::Residual;
+pub use superancillary::CubicSaturation;
 
 /// The molar gas constant of every cubic model, J/(mol·K): CODATA 2018's, exact since the 2019 SI redefinition, and
 /// CoolProp 8.0.0's `R_U_CODATA` (user decision CB1). It scales a cubic's α^r and the ideal gas it borrows alike, in

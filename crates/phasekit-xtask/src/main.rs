@@ -30,6 +30,7 @@ mod fluid;
 mod gates;
 mod oracle;
 mod repo;
+mod transcriptions;
 
 use std::process::ExitCode;
 

@@ -120,3 +120,48 @@ fn corrected_srk_parts_from_the_oracle_by_div_0047() {
     }
     assert!((1e-11..1e-8).contains(&srk) && pr < 1e-12, "SRK {srk:e}, PR {pr:e}");
 }
+
+/// PLAN.md M11.5, ROT-219: phasekit-cubic's superancillary (`Parity`) against v8.0.0's `saturation_ancillary` at
+/// T ∈ {0.3, 0.5, 0.7, 0.9, 0.99}·T_c of each library fluid's SRK and PR, the same expansions at the same T̃: ρ′ within
+/// 1e-13 (worst 1.1e-14), p and ρ″ within 2e-12, which grow exponentially as T falls, so that the last bits of a(T) and
+/// T̃ reach them (worst 1.05e-12, SRK R40 at 0.3 T_c and 0.7 Pa); where v8.0.0 refuses (T below the curve's range, 8 rows) phasekit refuses too. DIV-0048's
+/// fluids are exempt: their T_c, p_c and ω, and so their T̃, differ.
+#[test]
+fn cubic_superancillary_matches_the_oracle() {
+    use phasekit_core::{PureFluid, SaturationCurve};
+    let (path, text) = fixture!("coolprop-8.0.0/all/cubic_sat.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let parity = Registry::from_embedded(DataSet::Parity).unwrap();
+    let registry = with_cubics(&parity, &[Kind::Srk, Kind::Pr], DataSet::Parity).unwrap();
+    let (mut asserted, mut exempt, mut refused) = (0, 0, 0);
+    for i in 0..table.rows().len() {
+        let text = |k: usize| match table.rows()[i].cells.get(k) {
+            Some(Cell::Text(t)) => *t,
+            _ => "",
+        };
+        let (name, kind, t) = (text(0), text(1), table.value(i, "T").unwrap());
+        let fluid = registry.get(&format!("{kind}::{name}")).unwrap();
+        let package = (fluid.model() as &dyn core::any::Any).downcast_ref::<PureFluid>().unwrap();
+        let curve: &dyn SaturationCurve = package.saturation().unwrap().unwrap();
+        let ours = curve.at_t(t);
+        if exempt_at(DIVERGENCES, name, FixtureKind::CubicSat, "p", t).is_some() {
+            exempt += 1;
+            continue;
+        }
+        if table.printed(i, "status") != Some("ok") {
+            assert!(ours.is_err(), "{kind}::{name} at {t} K: v8.0.0 refuses, phasekit gives {ours:?}");
+            refused += 1;
+            continue;
+        }
+        let sat = ours.unwrap();
+        for (column, got, bound) in
+            [("p", sat.bubble.p, 2e-12), ("rhoL", sat.bubble.rho, 1e-13), ("rhoV", sat.dew.rho, 2e-12)]
+        {
+            let want = table.value(i, column).unwrap();
+            assert!((got / want - 1.0).abs() <= bound, "{kind}::{name} at {t} K: {column} {got} against {want}");
+        }
+        asserted += 1;
+    }
+    assert_eq!((asserted + refused + exempt, exempt), (116 * 2 * 5, 21 * 2 * 5), "{refused} refused");
+    assert!(refused > 0);
+}

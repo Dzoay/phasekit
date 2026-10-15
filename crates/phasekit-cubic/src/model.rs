@@ -9,7 +9,7 @@ use phasekit_core::{
     HelmholtzModel, ModelKey, Order, Prop, PureFluid, Reducing, Registry, SatAccuracy, Source, Virials,
 };
 
-use crate::{Alpha, Kind, R_CODATA, Residual};
+use crate::{Alpha, CubicSaturation, Kind, R_CODATA, Residual};
 
 /// A cubic's `HelmholtzModel`: α^r from [`Residual`] and α⁰ the source fluid's own, unchanged; one R, CoolProp's
 /// `R_CODATA`, scales both (user decision CB1, DIV-0046).
@@ -83,7 +83,8 @@ impl Kind {
 /// and ω from its acentric factor, the canonical record (ROT-216); α `alpha`, or else Soave's from ω (van der Waals:
 /// α = 1); `data` chooses the Ω constants (DIV-0047). The fluid is named `PR::<name>` (see [`Kind::prefix`]) with the
 /// source's aliases prefixed, takes its molar mass, limits and acentric factor, and its critical point is the cubic's
-/// own (T_c, p_c, ρ_c = p_c/(Z_c R T_c); `CriticalOrigin::Model`, ROT-217). A source without a Helmholtz model, a
+/// own (T_c, p_c, ρ_c = p_c/(Z_c R T_c); `CriticalOrigin::Model`, ROT-217); SRK and PR fluids take Bell and Deiters'
+/// superancillary as their saturation curve ([`CubicSaturation`]). A source without a Helmholtz model, a
 /// published critical point or an acentric factor is `NoModel`.
 pub fn fluid(source: &Fluid, kind: Kind, alpha: Option<Alpha>, data: DataSet) -> Result<Fluid, Error> {
     Ok(Fluid::new(Arc::new(pure(source, kind, alpha, data)?)))
@@ -121,8 +122,13 @@ fn pure(source: &Fluid, kind: Kind, alpha: Option<Alpha>, data: DataSet) -> Resu
     .with_aliases(&aliases)
     .with_published_critical(CriticalPoint { origin: CriticalOrigin::Published, ..critical })
     .with_constants(Constants::new(Some(reducing), Some(omega), None));
-    let model = CubicModel { residual: Residual::new(kind, data, alpha, t_c, p_c), source: source.clone() };
-    Ok(PureFluid::builder(info, model, *limits).critical(critical).build())
+    let residual = Residual::new(kind, data, alpha, t_c, p_c);
+    let model = CubicModel { residual, source: source.clone() };
+    let builder = PureFluid::builder(info, model, *limits).critical(critical);
+    Ok(match CubicSaturation::new(residual) {
+        Some(curve) => builder.saturation(curve).build(),
+        None => builder.build(),
+    })
 }
 
 /// `registry` with the cubic `kinds` of each of its pure fluids that [`fluid`] can build, under `data`'s constants.
