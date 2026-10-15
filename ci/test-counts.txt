@@ -7,7 +7,7 @@ x86_64-unknown-linux-gnu phasekit-core::lib 245
 x86_64-unknown-linux-gnu phasekit-verify::lib 60
 x86_64-unknown-linux-gnu phasekit-verify::gibbs_seam 3
 x86_64-unknown-linux-gnu phasekit-verify::lazy_load 13
-x86_64-unknown-linux-gnu phasekit-verify::new_family 13
+x86_64-unknown-linux-gnu phasekit-verify::new_family 14
 x86_64-unknown-linux-gnu phasekit-verify::register 12
 x86_64-unknown-linux-gnu phasekit-xtask::main 148
 x86_64-unknown-linux-gnu phasekit-core::doc 2
@@ -15,7 +15,7 @@ wasm32-wasip2 phasekit-core::lib 246
 wasm32-wasip2 phasekit-verify::lib 60
 wasm32-wasip2 phasekit-verify::gibbs_seam 3
 wasm32-wasip2 phasekit-verify::lazy_load 9
-wasm32-wasip2 phasekit-verify::new_family 10
+wasm32-wasip2 phasekit-verify::new_family 11
 wasm32-wasip2 phasekit-verify::register 12
 wasm32-wasip2 phasekit-core::doc 2
 x86_64-unknown-linux-gnu phasekit-verify::fixtures 4
@@ -93,5 +93,5 @@ wasm32-wasip2 phasekit-cubic::fluid 4
 wasm32-wasip2 phasekit-verify::cubic 3
 x86_64-unknown-linux-gnu phasekit-cubic::saturation 4
 wasm32-wasip2 phasekit-cubic::saturation 4
-x86_64-unknown-linux-gnu phasekit-verify::cubic_family 6
-wasm32-wasip2 phasekit-verify::cubic_family 6
+x86_64-unknown-linux-gnu phasekit-verify::cubic_family 8
+wasm32-wasip2 phasekit-verify::cubic_family 8
