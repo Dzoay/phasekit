@@ -494,7 +494,7 @@ are reached.
    citation; ARCHITECTURE.md §8 step 4); datagen checks the v8.0.0 value against the JSON bit for bit, and the hash gate
    then classifies the superancillary (7.3). Algorithm (`fix: Code`): a code fix; Parity cannot express it, so the
    entry is `SkipOracle` with an `exempt` predicate, unless the fix is a documented choice by `DataSet` inside a family
-   crate, which stays `UsePaper`.
+   crate, which stays `UsePaper` (DIV-0047: phasekit-cubic's Ω constants).
 6. **Proofs** (6.3) and `check_register` pass; ROT-REGISTER.md gets a row if the defect is systemic.
 
 Never widen a class, hand-edit a fixture, drop failing rows from the generator, or `#[ignore]` without the DIV id.

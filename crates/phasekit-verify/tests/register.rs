@@ -526,6 +526,18 @@ fn div_0046(facts: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0046"]
 }
 
+/// DIV-0047 (PLAN.md M11.2): at n-Propane's exact SRK critical point v8.0.0's Z is 1/3 (1 + 2.08e-9) and its
+/// (∂p/∂ρ)_T/RT 1.46e-9, where both conditions hold exactly with the stated Ω; PR's misses by about 1e-13.
+fn div_0047(facts: &Fixture<'_>) -> Vec<&'static str> {
+    let ok = |name: &str| ok_fact(facts, name);
+    let rt = 8.314_462_618_153_24 * 369.89;
+    assert!(cites(ok("div0047_z_srk_n-propane") * 3.0 - 1.0, "2.08e-9"));
+    assert!(cites(ok("div0047_dpdrho_srk_n-propane") / rt, "1.46e-9"));
+    let pr = ok("div0047_z_pr_n-propane") / 0.307_401_308_698_703_86 - 1.0;
+    assert!(cites(pr, "-1.2e-13") && (ok("div0047_dpdrho_pr_n-propane") / rt).abs() < 1e-12, "{pr:e}");
+    vec!["DIV-0047"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -548,6 +560,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0036,
         div_0037_to_0045,
         div_0046,
+        div_0047,
     ]
     .iter()
     .flat_map(|group| group(&facts))

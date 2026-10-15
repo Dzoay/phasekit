@@ -224,6 +224,14 @@ FACTS = {
             for name, key, prefix in (("gas_constant", "gas_constant", ""), ("cp0molar_heos", "CP0MOLAR", ""),
                                       ("cp0molar_pr", "CP0MOLAR", "PR::"))
         ],
+        # DIV-0047: at the exact critical point (T_c, p_c/(Z_c R T_c)) of n-Propane's SRK and PR, with v8.0.0's own
+        # T_c, p_c and R_U_CODATA, Z should be Z_c and dp/drho zero.
+        *[
+            (f"div0047_{name}_{kind.lower()}_n-propane", "PropsSI",
+             (key, "T", 369.89, "Dmolar", 4251200.0 / (z_c * 8.31446261815324 * 369.89), f"{kind}::n-Propane"))
+            for kind, z_c in (("SRK", 1.0 / 3.0), ("PR", 0.30740130869870386))
+            for name, key in (("z", "Z"), ("dpdrho", "d(P)/d(Dmolar)|T"))
+        ],
     ],
 }
 

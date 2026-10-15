@@ -16,9 +16,10 @@ categories.workspace = true
 [dependencies]
 phasekit-core.workspace = true
 
-# M11.1 builds the crate before any code uses the core (its residual arrives at M11.2, which drops this).
-[package.metadata.cargo-shear]
-ignored = ["phasekit-core"]
+# The conformance kit (phasekit-verify) and num-dual, the AD oracle of the cubic's jets (dependencies T3).
+[dev-dependencies]
+num-dual = { version = "0.15", default-features = false }
+phasekit-verify.workspace = true
 
 [lints]
 workspace = true

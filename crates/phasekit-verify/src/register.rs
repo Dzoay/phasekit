@@ -1130,6 +1130,25 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[11],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0047",
+        fluids: &["*"],
+        part: Part::Algorithm,
+        arbiter: Some("BellDeiters-IECR-2021 the exact Omega_a and Omega_b of SRK and PR"),
+        policy: Policy::UsePaper,
+        fix: Fix::Code("phasekit_cubic"),
+        evidence: "map 06 §3.1, PLAN.md M11.2: v8.0.0's GeneralizedCubic.cpp:769-794 states SRK's exact \
+                   1/(9(2^(1/3) - 1)) and (2^(1/3) - 1)/3 and PR's exact values, but its SRK literals 0.42748023335403414 \
+                   and 0.08664034999649577 differ from them by -4.36e-10 and +3.64e-10, and PR's Omega_b \
+                   0.07779607390388456 by -5.0e-14; at n-Propane's exact SRK critical point its Z is 1/3 (1 + 2.08e-9) \
+                   and its dp/drho/RT 1.46e-9 instead of 0; phasekit-cubic's Corrected uses the exact values, its \
+                   Parity v8.0.0's (2026-10-15)",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[11],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an

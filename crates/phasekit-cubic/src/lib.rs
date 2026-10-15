@@ -5,6 +5,14 @@
 //! Its milestone holds phasekit-core unchanged (`cargo xtask gates core-frozen`): everything here is built on the
 //! public API.
 
+mod alpha;
+mod kind;
+mod residual;
+
+pub use alpha::Alpha;
+pub use kind::{Kind, Omegas};
+pub use residual::Residual;
+
 /// The molar gas constant of every cubic model, J/(mol·K): CODATA 2018's, exact since the 2019 SI redefinition, and
 /// CoolProp 8.0.0's `R_U_CODATA` (user decision CB1). It scales a cubic's α^r and the ideal gas it borrows alike, in
 /// both datasets, so a cubic fluid's c_p⁰ is its source's times `R_CODATA`/R_source (DIV-0046).
