@@ -131,6 +131,10 @@ exclude_re = [
     # being compared) or 1e-2 (where its conditioning starts being measured) bit for bit in no file; rows on either
     # side of both are tested.
     "phasekit-verify/src/saturation\\.rs:[0-9]+:[0-9]+: replace < with <= in SaturationCheck::(seeded_vle|vle_row)",
+    # Equivalent in practice (M11.7): the entropy identity's T(∂s/∂T)_p lands on its bound, 1e-7 of c_p, bit for bit at
+    # no state a family flashes; states either side of it are tested (the cubics within it, DIV-0010's ideal part
+    # outside it).
+    "conformance\\.rs:[0-9]+:[0-9]+: replace <= with < in entropy_identity",
     # Equivalent: the ancillaries section's flags are two disjoint bits (exponential, τ_r), so `|` and `^` give one byte.
     "blob\\.rs:[0-9]+:[0-9]+: replace \\| with \\^ in ancillaries",
     # Equivalent in practice: the density Newton refuses a slope (∂p/∂ln ρ)_T ≤ 0; one exactly 0 from double arithmetic

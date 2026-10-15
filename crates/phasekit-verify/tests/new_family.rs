@@ -15,7 +15,7 @@ use phasekit_core::{
     ReferenceState, Registry, SatAccuracy, SatPair, SatSide, SaturationCurve, Source, Strategy, Temperature,
     ThermoModel, Virials, math,
 };
-use phasekit_verify::{fd_first_order, gauge_invariance, policy_equivalence};
+use phasekit_verify::{entropy_identity, fd_first_order, gauge_invariance, policy_equivalence};
 
 const R: f64 = 8.314_462_618;
 
@@ -622,4 +622,23 @@ fn reference_states_work_for_any_family() {
     let gauged = reg.with_reference("VDW-ARGON", at_zero).unwrap();
     assert!(props_si_in(&gauged, "Hmolar", "T", t, "Dmolar", rho, "vdw").unwrap().abs() < 1e-9);
     assert!(props_si_in(&reg, "Hmolar", "T", t, "Dmolar", rho, "vdw").unwrap().abs() > 1.0);
+}
+
+/// ROT-212 (PLAN.md M11.7): the kit's `entropy_identity`, T (∂s/∂T)_p = c_p from flashed entropies, holds for this
+/// out-of-tree family and for the embedded fluids of the core subset, single-phase gas, liquid and supercritical.
+#[test]
+fn entropy_identity_holds_for_every_family() {
+    let (model, crit) = vdw();
+    let reg = Registry::embedded().unwrap().with_model(model).unwrap();
+    let pt = |p: f64, t: f64| Input::new(Pair::PT, p, t, Basis::Molar).unwrap();
+    let vdw = reg.get("vdw").unwrap();
+    let result = entropy_identity(vdw, &[pt(0.1 * crit.p, 1.2 * crit.t), pt(3.0 * crit.p, 1.5 * crit.t)]);
+    assert!(result.is_ok(), "vdW: {result:?}");
+    for name in ["Water", "n-Propane", "CarbonDioxide", "Nitrogen", "R134a"] {
+        let fluid = reg.get(name).unwrap();
+        let c = fluid.model().critical_point().unwrap();
+        let states = [pt(0.05 * c.p, 1.05 * c.t), pt(2.0 * c.p, 1.2 * c.t), pt(2.0 * c.p, 0.8 * c.t)];
+        let result = entropy_identity(fluid, &states);
+        assert!(result.is_ok(), "{name}: {result:?}");
+    }
 }

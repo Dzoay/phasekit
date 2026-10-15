@@ -12,7 +12,9 @@ use phasekit_core::{
     Registry, Var,
 };
 use phasekit_cubic::{Kind, R_CODATA, with_cubics};
-use phasekit_verify::conformance::{Outcome, capability_matrix, fd_first_order, gauge_invariance, policy_equivalence};
+use phasekit_verify::conformance::{
+    Outcome, capability_matrix, entropy_identity, fd_first_order, gauge_invariance, policy_equivalence,
+};
 
 const KINDS: [Kind; 3] = [Kind::Vdw, Kind::Srk, Kind::Pr];
 const SOURCES: [&str; 3] = ["n-Propane", "Water", "CarbonDioxide"];
@@ -191,4 +193,62 @@ fn r_scales_and_does_not_shift() {
         }
         assert!((shifts[2] - shifts[0]).abs() > 1e-9 * shifts[0].abs().max(1.0), "{name}: {shifts:?}");
     }
+}
+
+/// ROT-212, DIV-0010's replacing check: T (∂s/∂T)_p = c_p on every cubic fluid, supercritical, dense and dilute, with
+/// the derivative from flashed entropies, not from the bundle.
+#[test]
+fn cubic_entropy_identity() {
+    let registry = registry(DataSet::Corrected);
+    for (name, fluid) in cubics(&registry) {
+        let c = fluid.model().critical_point().unwrap();
+        let inputs = [
+            molar(Pair::PT, 0.1 * c.p, 1.1 * c.t),
+            molar(Pair::PT, 2.0 * c.p, 1.3 * c.t),
+            molar(Pair::PT, 1e4, 0.9 * c.t),
+        ];
+        let result = entropy_identity(fluid, &inputs);
+        assert!(result.is_ok(), "{name}: {result:?}");
+    }
+}
+
+/// An ideal part as v8.0.0's cubics evaluate theirs (map 06 C1): its T-derivatives scaled by the ratio of two reducing
+/// temperatures, here 1.05, while its value is not.
+#[derive(Debug)]
+struct ChainRuleDropped(Fluid);
+
+impl HelmholtzModel for ChainRuleDropped {
+    fn gas_constant(&self) -> f64 {
+        self.0.model().helmholtz().unwrap().gas_constant()
+    }
+    fn residual(&self, t: f64, rho: f64, order: Order) -> phasekit_core::Derivs {
+        self.0.model().helmholtz().unwrap().residual(t, rho, order)
+    }
+    fn ideal(&self, t: f64, rho: f64, order: Order) -> phasekit_core::Derivs {
+        let right = self.0.model().helmholtz().unwrap().ideal(t, rho, order);
+        phasekit_core::Derivs::from_fn(order, |i, j| {
+            right.get(i, j).unwrap() * if i > 0 { phasekit_core::math::powi(1.05, i as i32) } else { 1.0 }
+        })
+    }
+    fn rho_max(&self, t: f64) -> f64 {
+        self.0.model().helmholtz().unwrap().rho_max(t)
+    }
+}
+
+/// The identity catches v8.0.0's defect: the PR n-Propane fluid with its ideal part's chain rule dropped fails it at
+/// 400 K and 1 bar, where the fluid itself passes.
+#[test]
+fn entropy_identity_catches_a_dropped_chain_rule() {
+    let registry = registry(DataSet::Corrected);
+    let propane = registry.get("PR::n-Propane").unwrap();
+    let state = [molar(Pair::PT, 1e5, 400.0)];
+    assert_eq!(entropy_identity(propane, &state), Ok(()));
+    let info = propane.info().clone();
+    let limits = *propane.model().limits().unwrap();
+    let critical = propane.model().critical_point().unwrap();
+    let broken = phasekit_core::PureFluid::builder(info, ChainRuleDropped(propane.clone()), limits).critical(critical);
+    let broken = Fluid::new(std::sync::Arc::new(broken.build()));
+    let mismatch = entropy_identity(&broken, &state).unwrap_err();
+    assert_eq!(mismatch.what, "T(ds/dT)p");
+    assert!((mismatch.got / mismatch.want - 1.0).abs() > 1e-3, "{mismatch:?}");
 }
