@@ -65,7 +65,8 @@ pub fn entropy_identity(fluid: &Fluid, inputs: &[Input]) -> Result<(), Mismatch>
         };
         let got = t * (s(t + h)? - s(t - h)?) / (2.0 * h);
         let want = state.cp(Basis::Molar).map_err(|_| failed(at))?;
-        if (got - want).abs().is_nan() || (got - want).abs() > 1e-7 * want.abs() {
+        let within = (got - want).abs() <= 1e-7 * want.abs(); // false for NaN
+        if !within {
             return Err(Mismatch { what: "T(ds/dT)p", at, got, want });
         }
     }
