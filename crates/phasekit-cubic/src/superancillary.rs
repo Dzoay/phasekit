@@ -142,45 +142,62 @@ impl SaturationCurve for CubicSaturation {
     }
 }
 
-/// A root of `f` between `lo` and `hi`, whose values bracket it, by the Illinois method (regula falsi halving the
-/// stale end's value) to adjacent doubles, bisecting when a step stalls; at most 200 evaluations.
-fn bracketed_root(
-    f: impl Fn(f64) -> Result<f64, Error>,
-    (mut a, mut fa): (f64, f64),
-    (mut b, mut fb): (f64, f64),
-) -> Result<f64, Error> {
-    if fa == 0.0 {
-        return Ok(a);
-    }
-    if fb == 0.0 {
-        return Ok(b);
-    }
-    let mut side = 0;
+/// A root of `f` between two points whose values bracket it, by the Illinois method (regula falsi halving the stale
+/// end's value) to adjacent doubles, bisecting when a step leaves the bracket; at most 200 evaluations.
+fn bracketed_root(f: impl Fn(f64) -> Result<f64, Error>, lo: (f64, f64), hi: (f64, f64)) -> Result<f64, Error> {
+    let mut bracket = Bracket { a: lo, b: hi, side: 0 };
     for _ in 0..200 {
-        let mut c = (a * fb - b * fa) / (fb - fa);
-        if !(a.min(b) < c && c < a.max(b)) {
-            c = 0.5 * (a + b);
+        if let Some(root) = bracket.root() {
+            return Ok(root);
         }
-        if c == a || c == b {
-            return Ok(if fa.abs() <= fb.abs() { a } else { b });
-        }
-        let fc = f(c)?;
-        if fc == 0.0 {
-            return Ok(c);
-        }
-        if (fc > 0.0) == (fb > 0.0) {
-            (b, fb) = (c, fc);
-            if side == -1 {
-                fa *= 0.5;
-            }
-            side = -1;
-        } else {
-            (a, fa) = (c, fc);
-            if side == 1 {
-                fb *= 0.5;
-            }
-            side = 1;
-        }
+        let c = bracket.trial();
+        bracket.update(c, f(c)?);
     }
     Err(Error::NoConvergence { strategy: Strategy::Superancillary, iterations: 200 })
+}
+
+/// [`bracketed_root`]'s state: the ends with their values, and which end moved last (−1 b, 1 a, 0 neither).
+struct Bracket {
+    a: (f64, f64),
+    b: (f64, f64),
+    side: i8,
+}
+
+impl Bracket {
+    /// The root, once an end's value is zero or the ends are adjacent doubles (the end with the smaller value).
+    fn root(&self) -> Option<f64> {
+        let ((a, fa), (b, fb)) = (self.a, self.b);
+        let c = self.trial();
+        match () {
+            () if fa == 0.0 => Some(a),
+            () if fb == 0.0 => Some(b),
+            () if c == a || c == b => Some(if fa.abs() <= fb.abs() { a } else { b }),
+            () => None,
+        }
+    }
+
+    /// The false-position point, or the midpoint where that leaves the open bracket.
+    fn trial(&self) -> f64 {
+        let ((a, fa), (b, fb)) = (self.a, self.b);
+        let c = (a * fb - b * fa) / (fb - fa);
+        if a.min(b) < c && c < a.max(b) { c } else { 0.5 * (a + b) }
+    }
+
+    /// Replaces the end whose value has `fc`'s sign by (c, fc), halving the other end's value when the same end moved
+    /// twice running (Illinois).
+    fn update(&mut self, c: f64, fc: f64) {
+        if (fc > 0.0) == (self.b.1 > 0.0) {
+            self.b = (c, fc);
+            if self.side == -1 {
+                self.a.1 *= 0.5;
+            }
+            self.side = -1;
+        } else {
+            self.a = (c, fc);
+            if self.side == 1 {
+                self.b.1 *= 0.5;
+            }
+            self.side = 1;
+        }
+    }
 }
