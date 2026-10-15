@@ -102,6 +102,7 @@ pub(super) fn exp<const W: usize>(x: Lanes<W>) -> Lanes<W> {
 mod tests {
     use super::*;
     use crate::exec::{LaneKernel, run_lanes};
+    use crate::num::lanes::tests::Rng;
     use crate::num::{Real, math};
 
     /// `exp` as a lane kernel: `math::exp` (the `libm` crate's) at a point, `Lanes::exp` across lanes.
@@ -114,22 +115,6 @@ mod tests {
         }
         fn lanes<const W: usize>(&self, x: Lanes<W>, _: Lanes<W>) -> [u64; W] {
             x.exp().0.map(f64::to_bits)
-        }
-    }
-
-    /// A SplitMix64 stream.
-    struct Rng(u64);
-
-    impl Rng {
-        fn next(&mut self) -> u64 {
-            self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-            let mut z = self.0;
-            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-            z ^ (z >> 31)
-        }
-        fn uniform(&mut self, a: f64, b: f64) -> f64 {
-            a + (b - a) * (self.next() >> 11) as f64 / (1u64 << 53) as f64
         }
     }
 

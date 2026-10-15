@@ -42,6 +42,12 @@ exclude_globs = [
     # 0.5 ln 2; k = 1023 prescaled by 2¹⁰²³ then 2⁰; k = −1022 by 2⁻⁹⁶⁹ then 2⁻⁵³, one rounding either way; 1 + x just
     # above 2⁻²⁸. `lane_exp_is_libm_bitwise` checks each of those inputs.
     "crates/phasekit-core/src/num/lanes/exp.rs",
+    # The lanes' `ln` (M12.6) likewise. By hand, the same way (M12.6's PR): 100 caught, 4 unviable, 5 equivalent. `plain` →
+    # false sends every group down the full path, with the same bits. `|` → `^` twice joins disjoint bits (2⁵²'s low
+    # bits are zero; the high and low words do not overlap). `<` → `<=` scales the smallest normal by 2⁵⁴ with k −54,
+    # which is exact and reduces to the same x and k. `/` → `%` makes NaN from (x − x) at a negative x either way, and
+    # NaN is compared canonically. `lane_ln_is_libm_bitwise` checks each of those inputs.
+    "crates/phasekit-core/src/num/lanes/ln.rs",
 ]
 
 exclude_re = [
