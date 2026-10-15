@@ -519,14 +519,8 @@ oracle: no v8.0.0 fluid carries their coefficients (map 06 §4). M11 closes by s
 | M11.2 | `Kind::{Vdw, Srk, Pr}`: Δ₁, Δ₂ and Ω_a, Ω_b by `DataSet`, `Corrected` the exact closed forms and `Parity` v8.0.0's literals, whose SRK values are 4e-10 off their own stated forms (DIV-0047); `Residual`, α^r in one kernel over `Real` on `Jet4` to order 4 (ROT-218), with a and b, ρ_max = 1/b and the exact virials; Z_c = 3/8, 1/3 and 0.307401308698704 with ∂p/∂ρ = ∂²p/∂ρ² = 0 (ROT-217); `Alpha::One` |
 | M11.3 | `Alpha::{One, Soave(m), MathiasCopeman([c₁, c₂, c₃]), Twu([L, M, N])}` over `Real`, α(T_c) = 1 and four θ-derivatives against AD; `Kind::soave_m`, SRK's and PR's m(ω) as v8.0.0 writes them; Mathias-Copeman's three terms at every T, as v8.0.0 (map 06 §10 Q6 stays open); the residual and its virials' da/dT with each alpha |
 | M11.4 | `CubicModel` (R_CODATA; α^r from `Residual`; α⁰ the source's, unchanged); `fluid(&source, kind, alpha, data)` from the source's published critical point and ω, its limits and molar mass, the cubic's own critical point (`CriticalOrigin::Model`); `with_cubics` registers `VDW::`, `SRK::` and `PR::` for every pure fluid, aliases prefixed, blends left out; oracle kind `cubic` (1856 rows: SRK and PR for v8.0.0's 116 cubic fluids), within 1e-12 on `Parity` for 83 fluids; DIV-0048 (21 fluids whose library T_c, p_c or ω drifted, ROT-216) and DIV-0049 (12 whose library α⁰ drifted) `SkipOracle`; DIV-0046's parts 1 and 2 |
+| M11.5 | `CubicSaturation`: Bell and Deiters' (2021) SRK and PR superancillary, transcribed from v8.0.0's `cubicsuperancillary.h` (checked number for number by xtask's `cubic_superancillary_is_coolprops`), `Exact` over T̃ ∈ [0.1, 1]·T̃_c, `at_p` by an Illinois solve in ln p; every SRK and PR fluid carries it, vdW keeps the core's VLE; its saturations are the cubic's phase equilibria (p to 1e-12 ρRT, Δg/RT to 1e-12, 1e-10 within 1e-3 of T_c; ROT-219); oracle kind `cubic_sat` (1160 rows) within 1e-13 in ρ′, 2e-12 in p and ρ″ |
 
-- **M11.5 The cubic superancillary.** Bell and Deiters' (2021) Chebyshev expansions of p̃, ρ̃′ and ρ̃″ in T̃ = RTb/a(T)
-  for SRK and PR (map 06 U4), transcribed from v8.0.0's `cubicsuperancillary.h` with their citation under decision 3a's
-  notice, as the family's own `SaturationCurve` (`Exact`) over T̃ in [0.1, 1]·T̃_c: `at_t` by Clenshaw, `at_p` by a
-  bracketed root in T (K14), the batch hooks defaulted. vdW has none; core's VLE serves it, as `tests/new_family.rs`
-  shows. *Red:* `superancillary_matches_vle` (ROT-219): equal p to 1e-13 and g′ = g″ to Δg/RT ≤ 1e-12 against core's
-  VLE across the range; v8.0.0's `saturation_ancillary` values (oracle kind `cubic_sat`); refusals outside the range;
-  against a curve whose `at_t` is `Unsupported`.
 - **M11.6 Conformance.** The kit on PR, SRK and vdW fluids in both datasets: `capability_matrix` (19 pairs; ROT-009:
   SRK and PR Water at 300 K and 1 atm is liquid), `gauge_invariance`, `policy_equivalence` under `Reference`,
   `Parallel` and `Simd`, `fd_first_order` (ROT-213, ROT-214). ROT-220 is designed out: no cubic is solved for ρ; its

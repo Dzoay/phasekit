@@ -4,7 +4,8 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::{
-    Basis, Constant, CriticalOrigin, DataSet, Derivs, FlashOptions, Fluid, Input, Order, Pair, Phase, Prop, Registry,
+    Basis, Constant, CriticalOrigin, DataSet, Derivs, FlashOptions, Fluid, Input, Order, Pair, Phase, Prop, PureFluid,
+    Registry,
 };
 use phasekit_cubic::{Kind, R_CODATA, fluid, with_cubics};
 
@@ -97,6 +98,10 @@ fn with_cubics_names_every_pure_fluid() {
     let pure = embedded().names().filter(|n| !["Air", "R404A", "R407C", "R410A", "R507A", "SES36"].contains(n)).count();
     let cubic = registry.names().filter(|n| n.contains("::")).count();
     assert_eq!(cubic, 3 * pure, "{cubic} cubic names for {pure} pure fluids");
+    for name in registry.names().filter(|n| n.starts_with("SRK::") || n.starts_with("PR::")) {
+        let package = (registry.get(name).unwrap().model() as &dyn core::any::Any).downcast_ref::<PureFluid>().unwrap();
+        assert!(package.saturation().unwrap().is_some(), "{name} has no superancillary");
+    }
 }
 
 /// The core's flash on a cubic fluid: PR n-Propane at 300 K and 1 bar is a gas near the ideal one, and SRK and PR Water

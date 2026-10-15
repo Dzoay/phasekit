@@ -29,7 +29,7 @@ FLUIDS_DIR = ROOT / "reference" / "CoolProp" / "dev" / "fluids"
 FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
 MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
 KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transport", "sigma", "melt", "refstate", "cubic",
-         "props", "codes"]
+         "cubic_sat", "props", "codes"]
 SCRUBBED_PREFIXES = ("COOLPROP_", "PXFLASH_")
 FLUID_COUNT = 136
 
@@ -903,6 +903,44 @@ def cubic(CP, lock, config, files, args):
     return {"all/cubic.csv": text + "".join(lines)}
 
 
+# The `cubic_sat` kind (PLAN.md M11.5; map 06 U4): v8.0.0's cubic superancillary (Bell and Deiters 2021) through
+# `saturation_ancillary`, p, rho' and rho'' of SRK and PR at T in {0.3, 0.5, 0.7, 0.9, 0.99} T_c (the library's T_c),
+# for every fluid of the tier its cubic library knows; a T below the curve's range is an `err` row.
+CUBIC_SAT_COLUMNS = ["fluid", "kind", "T", "status", "p", "rhoL", "rhoV"]
+CUBIC_SAT_UNITS = ["-", "-", "K", "-", "Pa", "mol/m3", "mol/m3"]
+CUBIC_SAT_TOL = ["label", "label", "in", "label", "prop", "prop", "prop"]
+
+
+def cubic_sat(CP, lock, config, files, args):
+    """The `cubic_sat` kind: all/cubic_sat.csv over the tier's fluids that v8.0.0's cubic library has."""
+    lines, floats, count = [], [], 0
+    for name in tier_fluids(args, files):
+        try:
+            CP.AbstractState("PR", name)
+        except Exception:  # not in the cubic library
+            continue
+        assert_fluid(CP, files, name)
+        count += 1
+        for kind, _ in CUBIC_KINDS:
+            tc = CP.AbstractState(kind, name).T_critical()
+            for t in (0.3 * tc, 0.5 * tc, 0.7 * tc, 0.9 * tc, 0.99 * tc):
+                try:
+                    state = CP.AbstractState(kind, name)
+                    values = [state.saturation_ancillary(CP.iP, 0, CP.iT, t),
+                              state.saturation_ancillary(CP.iDmolar, 0, CP.iT, t),
+                              state.saturation_ancillary(CP.iDmolar, 1, CP.iT, t)]
+                    status = "ok"
+                except Exception as exception:  # below the superancillary's range
+                    values, status = [math.nan] * 3, f"err:{error_class(exception)}"
+                floats.extend([t, *values])
+                lines.append(",".join([name, kind, cell(t), status, *map(cell, values)]) + "\n")
+    fluids = f"{count} fluids, fluids_sha256={lock['fluids_sha256']}"
+    grid = "T in {0.3,0.5,0.7,0.9,0.99}*Tc, Tc the cubic library's"
+    text = header("cubic_sat", lock, config, fluids, CUBIC_SAT_COLUMNS, CUBIC_SAT_TOL, floats, units=CUBIC_SAT_UNITS,
+                  grid=grid)
+    return {"all/cubic_sat.csv": text + "".join(lines)}
+
+
 # The `sat` kind (section 3.5). Since M5.2 it holds the `sa` rows: p, rho' and rho'' straight from
 # `CP.SuperAncillary(json).eval_sat` (map 03 section 8); since M5.2a a QT row at Q = 0 at each `sa` temperature; since
 # M6.8 a PQ row at Q = 1 at each of their pressures, and the core files: QT and PQ at both Q, no `sa` rows. A PQ row's
@@ -1672,7 +1710,7 @@ def codes(CP, lock, config, files, args):
 
 
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "cubic": cubic,
-              "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
+              "cubic_sat": cubic_sat, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
               "props": props, "codes": codes}
 
 

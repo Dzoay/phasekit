@@ -1182,8 +1182,9 @@ pub static DIVERGENCES: &[Divergence] = &[
                    fluid's T_c, p_c and omega, and for these 21 they differ from the canonical record phasekit-cubic \
                    takes (PR Neon 44.4918 K, 2.68 MPa, omega -0.0384 against 44.4 K, 2.6616 MPa, -0.0355; D5 619.15 K, \
                    1.16 MPa, 0.658 against 618.3 K, 1.0777 MPa, 0.631), so every cubic output differs, alpha^r by up \
-                   to 2.2 relative (SRK MD4M); the other 95 of the 116 match to 5e-13 (2026-10-15)",
-        exempt: Some(Exempt { kinds: &[Kind::Cubic], columns: &CUBIC_COLUMNS, rows: Rows::All }),
+                   to 2.2 relative (SRK MD4M), and so does their superancillary saturation; the other 95 of the 116 \
+                   match to 5e-13 (2026-10-15)",
+        exempt: Some(Exempt { kinds: &[Kind::Cubic, Kind::CubicSat], columns: &CUBIC_COLUMNS, rows: Rows::All }),
         tolerance: None,
         table_tolerances: &[],
         proof: &[11],
@@ -1236,8 +1237,8 @@ pub static DIVERGENCES: &[Divergence] = &[
     },
 ];
 
-/// The output columns of the `cubic` kind (PLAN.md M11.4).
-const CUBIC_COLUMNS: [&str; 15] = [
+/// The output columns of the `cubic` and `cubic_sat` kinds (PLAN.md M11.4, M11.5).
+const CUBIC_COLUMNS: [&str; 17] = [
     "alphar",
     "A10",
     "A01",
@@ -1253,6 +1254,8 @@ const CUBIC_COLUMNS: [&str; 15] = [
     "cpmolar",
     "speed_sound",
     "cp0molar",
+    "rhoL",
+    "rhoV",
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an

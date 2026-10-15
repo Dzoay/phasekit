@@ -29,6 +29,15 @@ precedence = "override"
 SPDX-FileCopyrightText = "2012-2018 Ian H. Bell and other CoolProp developers"
 SPDX-License-Identifier = "MIT"
 
+# Bell and Deiters' (2021) cubic superancillary coefficients, transcribed number for number from CoolProp 8.0.0's
+# include/CoolProp/superancillary/cubicsuperancillary.h (ported there from teqp, MIT): CoolProp's MIT licence and
+# copyright line (PLAN.md M11.5; user decision 3a).
+[[annotations]]
+path = "crates/phasekit-cubic/src/superancillary/tables.rs"
+precedence = "override"
+SPDX-FileCopyrightText = "2012-2018 Ian H. Bell and other CoolProp developers"
+SPDX-License-Identifier = "MIT"
+
 # Check values transcribed from papers: the transcription is the project's; the cells are numerical facts, each file
 # citing its source in its header (VERIFICATION.md §3.7).
 [[annotations]]

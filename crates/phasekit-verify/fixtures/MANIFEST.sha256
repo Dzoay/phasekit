@@ -1,6 +1,7 @@
 # MANIFEST.sha256 (docs/VERIFICATION.md section 3.4): "<sha256> <bytes> <rows> <path>" for every committed fixture.
 43d0f8aceecae649245379b538a2d4bc6885285d43e282aea1d32436684a264d 24924 136 coolprop-8.0.0/all/crit.csv
 57f9bf01761565c4ddebe8b7ff86bbc8b089d1c69360b5dcdfb45334a183a8f7 623464 1856 coolprop-8.0.0/all/cubic.csv
+a48f5ef92255d3f3ce31e30cc0f145c424096597b95a5e28ea1a946ad7dd731d 97061 1160 coolprop-8.0.0/all/cubic_sat.csv
 8cc1b17ed5e375323650208b1529a9954c309901f7e79e3931119d3c9e013677 1018931 1088 coolprop-8.0.0/all/eos.csv
 5c968b2e5e688129eb39c11bb816d8712829184264795337c63d016ad3dd3781 19574 96 coolprop-8.0.0/all/flash.csv
 b2415639452f0db03d45bae770f2039259540cf852615130e826ccf3c42d449a 10022 156 coolprop-8.0.0/all/melt.csv

@@ -22,6 +22,16 @@ impl Residual {
         Self { kind, omegas: kind.omegas(data), alpha, t_c, p_c }
     }
 
+    /// The kind.
+    pub const fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    /// The critical temperature that scales a, K.
+    pub const fn t_c(&self) -> f64 {
+        self.t_c
+    }
+
     /// The co-volume b = Ω_b R T_c/p_c, m³/mol.
     pub fn b(&self) -> f64 {
         self.omegas.b * R_CODATA * self.t_c / self.p_c
