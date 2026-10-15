@@ -1,0 +1,24 @@
+[package]
+name = "phasekit-cubic"
+description = "Cubic equations of state (van der Waals, Soave-Redlich-Kwong, Peng-Robinson) as a phasekit model family"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# A family crate (docs/DEPENDENCIES.md, the family row): phasekit-core's public API and nothing else, so that its
+# milestone holds the core unchanged (D3; PLAN.md M11, `cargo xtask gates core-frozen`). Not published yet: that is
+# the user's call (AGENTS.md).
+[dependencies]
+phasekit-core.workspace = true
+
+# M11.1 builds the crate before any code uses the core (its residual arrives at M11.2, which drops this).
+[package.metadata.cargo-shear]
+ignored = ["phasekit-core"]
+
+[lints]
+workspace = true

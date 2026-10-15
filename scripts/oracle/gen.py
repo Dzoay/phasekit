@@ -217,6 +217,13 @@ FACTS = {
         ("div0044_gas_constant_propyleneglycol", "Props1SI", ("PropyleneGlycol", "gas_constant")),
         ("div0045_eta_propylene_q1_t104.87", "PropsSI", ("viscosity", "Q", 1, "T", 104.86761486209713, "Propylene")),
         ("div0045_lambda_r14_q1_t215.07", "PropsSI", ("conductivity", "Q", 1, "T", 215.06807556754023, "R14")),
+        ("div0046_gas_constant_pr_water", "Props1SI", ("PR::Water", "gas_constant")),
+        *[
+            (f"div0046_{name}_{fluid.lower()}_t{t}", "PropsSI", (key, "T", t, "P", 1e4, prefix + fluid))
+            for fluid, t in (("n-Propane", 300), ("Water", 400), ("CycloPropane", 300))
+            for name, key, prefix in (("gas_constant", "gas_constant", ""), ("cp0molar_heos", "CP0MOLAR", ""),
+                                      ("cp0molar_pr", "CP0MOLAR", "PR::"))
+        ],
     ],
 }
 

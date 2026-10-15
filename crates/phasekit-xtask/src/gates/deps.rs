@@ -1,13 +1,14 @@
 //! `gates deps`: the zero-dependency guard (dependencies §3.4 item 1; ROT-156). `phasekit-core` depends on
 //! `phasekit-data` only and `phasekit-data` on nothing; core's optional features (`rayon`, PLAN.md M9.1; `libm`,
 //! M9.3) each add their own crate and nothing else, and `simd` (M12.4) adds `fearless_simd` and the `libm` it enables.
+//! A family crate depends on `phasekit-core` alone (`phasekit-cubic`, PLAN.md M11.1; dependencies, the family row).
 
 use super::{Verdict, no_args};
 use crate::repo::Repo;
 
 /// Each guarded crate, the features it is built with, and exactly the crates its normal and build dependency tree
 /// names at depth 1 then (itself included).
-const GUARDED: [(&str, &str, &[&str]); 7] = [
+const GUARDED: [(&str, &str, &[&str]); 8] = [
     ("phasekit-core", "", &["phasekit-core", "phasekit-data"]),
     ("phasekit-core", "rayon", &["phasekit-core", "phasekit-data", "rayon"]),
     ("phasekit-core", "libm", &["phasekit-core", "phasekit-data", "libm"]),
@@ -15,6 +16,7 @@ const GUARDED: [(&str, &str, &[&str]); 7] = [
     ("phasekit-core", "simd", &["phasekit-core", "phasekit-data", "libm", "fearless_simd"]),
     ("phasekit-core", "rayon,simd", &["phasekit-core", "phasekit-data", "rayon", "libm", "fearless_simd"]),
     ("phasekit-data", "", &["phasekit-data"]),
+    ("phasekit-cubic", "", &["phasekit-cubic", "phasekit-core"]),
 ];
 
 pub fn run(repo: &Repo, args: &[String]) -> Verdict {
@@ -110,6 +112,18 @@ mod tests {
         assert!(
             check("phasekit-core", "rayon,libm", &with_libm).unwrap_err()[0].contains("no longer depends on rayon")
         );
+    }
+
+    /// PLAN.md M11.1 (dependencies, the family-crate row): `phasekit-cubic` depends on `phasekit-core` alone; a
+    /// third-party crate or another workspace crate fails the guard by name.
+    #[test]
+    fn the_cubic_family_depends_on_core_alone() {
+        let tree = "phasekit-cubic v0.0.0 (/w/crates/phasekit-cubic)\nphasekit-core v0.0.0 (/w/crates/phasekit-core)\n";
+        assert_eq!(check("phasekit-cubic", "", tree), Ok(vec!["phasekit-core".to_string()]));
+        let errors = check("phasekit-cubic", "", &format!("{tree}libm v0.2.16\n")).unwrap_err();
+        assert!(errors.len() == 1 && errors[0].contains("libm v0.2.16"), "{errors:?}");
+        let compat = format!("{tree}phasekit-compat v0.0.0 (/w/crates/phasekit-compat)\n");
+        assert!(check("phasekit-cubic", "", &compat).unwrap_err()[0].contains("phasekit-compat"));
     }
 
     /// PLAN.md M12.4 (dependencies T1): `--features simd` adds exactly `fearless_simd` and the `libm` it enables (user

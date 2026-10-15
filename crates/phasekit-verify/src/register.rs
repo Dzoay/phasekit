@@ -1111,6 +1111,25 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[10],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0046",
+        fluids: &["*"],
+        part: Part::GasConstant,
+        arbiter: None,
+        policy: Policy::KeepOracle,
+        fix: Fix::None,
+        evidence: "user decision CB1 (2026-10-15, replacing decision 10), map 06 C6, map 15 §2.1 and §3.1: a cubic \
+                   fluid's one R is v8.0.0's R_U_CODATA, 8.31446261815324, in both datasets, for its alpha^r and its \
+                   borrowed HEOS alpha0, so its ideal-gas c_p0 is the source's times R_CODATA/R_source, kept as the \
+                   oracle has it; the source papers' rows hold at that ratio: -1.128e-6 for n-Propane and the other \
+                   57 cubic fluids with R 8.314472, +1.10e-5 for Water (IAPWS-95), +1.96e-5 for CycloPropane and \
+                   Propyne (R 8.3143) (2026-10-15)",
+        exempt: None,
+        tolerance: Some(Tolerance::Relative(2e-5)),
+        table_tolerances: &[],
+        proof: &[11],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an

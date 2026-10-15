@@ -513,16 +513,10 @@ conditions fix Ω_a, Ω_b and Z_c; exact virials), the identities of VERIFICATIO
 SRK at c = 0 where map 06 §8 says it can, never entropy (DIV-0010) or QT beyond 1e-6. Mathias-Copeman and Twu have no
 oracle: no v8.0.0 fluid carries their coefficients (map 06 §4). M11 closes by setting `MILESTONE` to 12.
 
-- **M11.1 The start: `m11-start`, `gates core-frozen`, the crate, the register.** Tag `m11-start` on `main` once this
-  plan has merged (VERIFICATION.md §10). `cargo xtask gates core-frozen [--since <tag>]` fails, naming each file, if
-  anything under `crates/phasekit-core/` differs from the tag (`git diff --quiet`); `gates all` runs it against the tag
-  `ci/core-frozen.txt` names, and CI's linux job fetches that tag. A new crate `crates/phasekit-cubic`, depending on
-  `phasekit-core` alone (default features off, E7), not published (publishing is the user's call), holding
-  `R_CODATA` = 8.31446261815324 (CB1); DEPENDENCIES.md gains a family-crate row (core's public API, no third-party
-  dependency) and `gates deps` its tree. The register gains DIV-0046 (above), due at M11. *Red:* `core_frozen`'s tests:
-  a diff under `crates/phasekit-core/` fails by file, a missing tag fails closed, a diff elsewhere passes; and
-  `gates deps` refusing a third-party dependency of `phasekit-cubic`. *Done when:* `gates core-frozen` passes since
-  `m11-start` and `ci/test-counts.txt` lists the crate.
+| Step | Landed |
+|---|---|
+| M11.1 | `m11-start` on the plan's merge commit; `gates core-frozen` against the tag `ci/core-frozen.txt` names (CI's linux job has it through `fetch-depth: 0`); `crates/phasekit-cubic` on `phasekit-core` alone (DEPENDENCIES.md T1f, `gates deps`) with `R_CODATA`; DIV-0046 and its oracle facts (`facts/register.csv`) |
+
 - **M11.2 The generalised cubic residual.** `Kind::{Vdw, Srk, Pr}` with Δ₁ and Δ₂ (0 and 0; 1 and 0; 1 ± √2) and
   Ω_a, Ω_b in closed form (27/64 and 1/8; 1/(9(2^(1/3) − 1)) and (2^(1/3) − 1)/3; PR's from its Z_c cubic, map 06
   §3.1). α^r(T, ρ) for given a and b in one kernel over `Real`, `f64` and `Jet4`, to order 4 (ROT-218); Δ₁ = Δ₂ (vdW)
