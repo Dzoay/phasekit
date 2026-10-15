@@ -93,3 +93,5 @@ wasm32-wasip2 phasekit-cubic::fluid 4
 wasm32-wasip2 phasekit-verify::cubic 3
 x86_64-unknown-linux-gnu phasekit-cubic::saturation 4
 wasm32-wasip2 phasekit-cubic::saturation 4
+x86_64-unknown-linux-gnu phasekit-verify::cubic_family 6
+wasm32-wasip2 phasekit-verify::cubic_family 6
