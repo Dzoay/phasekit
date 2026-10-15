@@ -46,6 +46,17 @@ impl Kind {
         }
     }
 
+    /// Soave's m(ω), the slope of √α in 1 − √θ: SRK's 0.480 + 1.574ω − 0.176ω² (Soave 1972) and PR's
+    /// 0.37464 + 1.54226ω − 0.26992ω² (Peng and Robinson 1976), as v8.0.0 writes them (map 06 §3.1); van der Waals has
+    /// none.
+    pub fn soave_m(self, omega: f64) -> Option<f64> {
+        match self {
+            Kind::Vdw => None,
+            Kind::Srk => Some(0.480 + 1.574 * omega - 0.176 * omega * omega),
+            Kind::Pr => Some(0.37464 + 1.54226 * omega - 0.26992 * omega * omega),
+        }
+    }
+
     /// Ω_a and Ω_b. `Corrected`: the values the critical conditions give exactly, 27/64 and 1/8,
     /// 1/(9(2^(1/3) − 1)) and (2^(1/3) − 1)/3, and PR's. `Parity`: CoolProp 8.0.0's literals, whose comments state the
     /// same exact forms but whose digits differ: SRK's Ω_a by −4.36e-10 and Ω_b by +3.64e-10, PR's Ω_b by −5.0e-14

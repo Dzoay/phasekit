@@ -517,13 +517,8 @@ oracle: no v8.0.0 fluid carries their coefficients (map 06 §4). M11 closes by s
 |---|---|
 | M11.1 | `m11-start` on the plan's merge commit; `gates core-frozen` against the tag `ci/core-frozen.txt` names (CI's linux job has it through `fetch-depth: 0`); `crates/phasekit-cubic` on `phasekit-core` alone (DEPENDENCIES.md T1f, `gates deps`) with `R_CODATA`; DIV-0046 and its oracle facts (`facts/register.csv`) |
 | M11.2 | `Kind::{Vdw, Srk, Pr}`: Δ₁, Δ₂ and Ω_a, Ω_b by `DataSet`, `Corrected` the exact closed forms and `Parity` v8.0.0's literals, whose SRK values are 4e-10 off their own stated forms (DIV-0047); `Residual`, α^r in one kernel over `Real` on `Jet4` to order 4 (ROT-218), with a and b, ρ_max = 1/b and the exact virials; Z_c = 3/8, 1/3 and 0.307401308698704 with ∂p/∂ρ = ∂²p/∂ρ² = 0 (ROT-217); `Alpha::One` |
+| M11.3 | `Alpha::{One, Soave(m), MathiasCopeman([c₁, c₂, c₃]), Twu([L, M, N])}` over `Real`, α(T_c) = 1 and four θ-derivatives against AD; `Kind::soave_m`, SRK's and PR's m(ω) as v8.0.0 writes them; Mathias-Copeman's three terms at every T, as v8.0.0 (map 06 §10 Q6 stays open); the residual and its virials' da/dT with each alpha |
 
-- **M11.3 The alpha functions.** `Alpha::{One, Soave(m), MathiasCopeman([c₁, c₂, c₃]), Twu([L, M, N])}` (map 06
-  §3.1), each α(T) and its T-derivatives to order 4 in one kernel; Soave's m(ω) for SRK (0.480 + 1.574ω − 0.176ω²) and
-  PR (0.37464 + 1.54226ω − 0.26992ω²); vdW takes `One` unless given another. Mathias-Copeman applies all three terms at
-  every T, as v8.0.0 does; map 06 §10 Q6 (the paper's c₁-only form above T_c) stays open until Mathias and Copeman 1983
-  reaches `reference/papers`. *Red:* `alpha_derivatives_match_ad` for each form at T below and above T_c, α(T_c) = 1,
-  and the Soave polynomials' values, against an `Alpha` that returns 1 everywhere.
 - **M11.4 The cubic fluid.** `CubicModel: HelmholtzModel` with `gas_constant()` = R_CODATA (CB1); a and b from the
   source fluid's published critical point and acentric factor (`FluidInfo::published_critical`,
   `Constants::acentric`), the canonical record (ROT-216); `ideal` is the source's `helmholtz()?.ideal(t, rho, order)`,
