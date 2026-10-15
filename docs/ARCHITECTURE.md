@@ -657,8 +657,8 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      in lanes on the i7-8700K (11.1 ns a call with `libm`; four Planck-Einstein terms, which 114 of the 136 fluids
      have), and with the port α⁰ takes 83 ns. `powf` still runs per lane (48.7 ns a call): R134a's two α⁰ Power terms
      take most of its 112 ns.
-  4. What runs in lanes (M12.8, M12.9): α^r and α⁰ through `HelmholtzModel::residual_batch` and `ideal_batch`, and a DT batch
-     of `batch::evaluate` under `ExecPolicy::Simd` on a Helmholtz fluid, which the driver reaches through
+  4. What runs in lanes (M12.8, M12.9): α^r and α⁰ through `HelmholtzModel::residual_batch` and `ideal_batch`, and a
+     DT batch of `batch::evaluate` under `ExecPolicy::Simd` on a Helmholtz fluid, which the driver reaches through
      `ThermoModel`'s `Any`, as the ECS transport does. Its points' total bundles are evaluated in lanes, 64 points at a
      time, and each point's flash then runs on its own bundle, so the phase rule, the domain checks, a state inside the
      dome and the outputs are each point's scalar path. On the i7-8700K (M12.8's record) a DT batch of h and c_p takes
