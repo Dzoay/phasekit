@@ -86,7 +86,7 @@ Each crate's dependencies are its `Cargo.toml`; their tiers, [DEPENDENCIES.md](D
 | `phasekit-data` | Generated per-fluid LE blobs, index with declared references, `DATASET` id, CoolProp MIT notice. No logic | `all` (default), `core`, `fluid-<name>` (generated; each enables its ECS reference fluids) | Yes (`#![no_std]`) |
 | `phasekit-compat` | `props_si_in(&Registry, ..)`, CoolProp names and keys, `FillPolicy`, legacy policies | `fluids-all` (default), `fluids-core`, `embedded` (forwarded) | No |
 | `phasekit-capi` (M10) | `extern "C"` facade: `pk_*` symbols, registry handles, string keys, status codes, thread-local error; the Tier A CoolPropLib.h shim (v8.0.0 codes, process-wide errstring; D11) | forwards `fluids-*`; `coolproplib-shim` | No |
-| `phasekit-wasm` (M10) | wasm-bindgen browser package, baseline and `+simd128` builds | none | No |
+| `phasekit-wasm` (M10) | wasm-bindgen browser package, baseline and `+simd128` builds | `simd` (the `simd128` build's: core's `simd`, M12.10) | No |
 | `phasekit-py` (after 0.1) | pyo3 abi3 wheels: import name `phasekit`, plus `phasekit.compat` for migration (D11) | forwards `fluids-*`; `numpy` | No |
 | `phasekit-verify` | Verification kit + conformance corpus + fixtures + benches; reusable by any family crate | none | No |
 | `phasekit-xtask` | `datagen`, `oracle`, `gates` | none | No |
@@ -645,7 +645,7 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      operations (checked in fearless_simd 1.1.0's source and its `MANUAL_INLINING.md`, 2026-10-13). `exec::run_simd`
      matches `Level` itself instead of calling `dispatch!`, whose generic token cannot choose a const W. W is four
      vectors to a lane operation (user decision SL6): 32 lanes on AVX-512, 16 on AVX2, 8 below, and the last partial
-     group runs one vector wide. On the i7-8700K, n-Propane's α^r took 213, 120, 109 and 125 ns per state at one, two,
+     group runs one vector wide (on WASM's `simd128` it is padded, item 5). On the i7-8700K, n-Propane's α^r took 213, 120, 109 and 125 ns per state at one, two,
      four and eight AVX2 vectors, and 356, 252, 184 and 192 ns at SSE4.2 (M12.7; AVX-512 follows the rule unmeasured). A
      crate-private `exec` module separates `LaneKernel` ("what") from `run_scalar`/`run_lanes<W>`/`run_parallel`
      ("how"); it sits at L0 with `ExecPolicy`, as its executors hold no physics, so L2's batch hook can take a policy
@@ -674,6 +674,14 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      n-Propane 574 ns per state under `Simd` on AVX2, 2.59× the `libm` scalar path's 1488 ns and 1.76× std's 1011 ns,
      and Methane 737 ns (2.85× and 1.91×); PQ + h n-Propane 742 ns (2.37× and 1.64×). As in DT, R134a (1.75× over
      `libm`), n-Heptane (1.42×) and Water (1.58×, 3044 ns against std's 2425) gain less.
+  5. The browser package (M12.10, user decision SL8). WASM has no run-time detection, so `simd128` is a second build
+     (K11, K15), with `phasekit-wasm`'s `simd` feature, which enables core's: a feature rather than a
+     `cfg(target_feature = "simd128")` dependency, which cargo-about's notices cannot see. Its batch runs
+     `ExecPolicy::Simd` on both builds. `simd128` runs 8 lanes with a short last group padded, not run one vector wide:
+     under Node that module is 1 325 154 B against 1 402 513 B with the remainder, and faster. Under Node 26 on the
+     i7-8700K, n-Propane's DT + h + c_p, QT + h and PQ + h batches take 749, 1268 and 1485 ns per state on the
+     `simd128` build, 1.50×, 1.45× and 1.45× M12.9's (which ran the scalar path); the baseline build's two lanes gain
+     4-5 %. Each build has its own size budget, its size + 10 % (`crates/phasekit-wasm/size-budget.txt`).
   - The target is ≥ 2.5× α^r batch throughput on AVX2 over the scalar path, on the reference machine; `simd` ships if
     it is faster than the scalar path (user decisions SL3, TG1).
 - **Dispatch.** `ExecPolicy` is a run-time value. Cargo features add executors but never change numerics (K13);
@@ -886,7 +894,7 @@ VTPR/UNIFAC, mixture transport (map 05 U14), an expression DSL (map 05 U11).
 | low-level `alphar`, `dalphar_dtau`; `Bvirial` | `fluid.model().helmholtz()?.residual(t, rho, order)`; `zero_density(t)` | Reducing-invariant A_ij; CoolProp's τ/δ-scaled forms are `Prop::Alphar` and the like, A_ij/(τ^i δ^j) at the published reducing state (`FluidInfo::constants`) |
 | CoolPropLib.h | `phasekit-capi`: `pk_*`, plus the Tier A shim (`coolproplib-shim`) at v0.1 | `pk_*`: pinned string keys, generational `u64` handles, lengths on every buffer, `catch_unwind`, thread-local error, FP guard (map 11 F1-F5, F16). Shim: CoolProp's names and signatures, v8.0.0 integer codes, process-wide `errstring` (D11) |
 | `HAPropsSI` | Tier A shim stub until the humid-air milestone | Returns `_HUGE` and sets a documented "not available" `errstring`; the symbol exists so hosts that bind every symbol at load time still load (D11) |
-| Emscripten JS build | `phasekit-wasm` (wasm-bindgen, baseline + `simd128`; `fluids-core` + `withPack`) | First browser build of any CoolProp port (P12) |
+| Emscripten JS build | `phasekit-wasm` (wasm-bindgen, baseline + `simd128` with lanes; `fluids-core` + `withPack`) | First browser build of any CoolProp port (P12) |
 | Python `CoolProp` | `phasekit-py` after 0.1 (pyo3 0.29 abi3, R16) | Import name `phasekit`; `phasekit.compat.PropsSI(...)` for migration; never the `CoolProp` name, so both install side by side (D11) |
 | CoolPropPlot | deferred until after M13 (mixtures) | §1; a separate crate over saturation, `flash` and batch |
 

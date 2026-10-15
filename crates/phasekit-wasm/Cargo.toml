@@ -23,5 +23,11 @@ wasm-bindgen = "0.2.129"
 phasekit-verify.workspace = true
 wasm-bindgen-test = "0.3.79"
 
+# The simd128 build's (`--features simd` with `-C target-feature=+simd128`): its batch runs core's lanes, 8 to a group
+# (PLAN.md M12.10, user decision SL8). A feature rather than a `target_feature` cfg, so that cargo-about's notices and
+# cargo tree see the crates it adds.
+[features]
+simd = ["phasekit-core/simd"]
+
 [lints]
 workspace = true

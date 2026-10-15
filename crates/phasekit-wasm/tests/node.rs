@@ -127,6 +127,41 @@ fn batch_round_trips_float64array() {
     assert!(status[0] == 0 && status[4] == 2 && status[5] == 2, "{status:?}");
 }
 
+/// M12.10 (user decision SL8): the batch runs `ExecPolicy::Simd`, eight lanes to a group on the simd128 build (with
+/// the package's `simd` feature) and two on the baseline, and its cells are compat's `batch_si`'s on the `Reference` path, bit for
+/// bit. n-Propane's and Water's DT, QT and PQ batches of 75 points: whole groups and a short last one, single-phase,
+/// two-phase and saturated points side by side, and points that fail (above T_c, NaN, p ≤ 0).
+#[wasm_bindgen_test]
+fn the_batch_in_lanes_is_the_reference_paths() {
+    let registry = Registry::new().unwrap();
+    let native = phasekit_core::Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+    let n = 75;
+    let q: Vec<f64> = (0..n).map(|i| [0.0, 1.0, f64::from(i) / 75.0][i as usize % 3]).collect();
+    for (name, t_low, t_c, p_c) in [("n-Propane", 90.0, 369.89, 4.2512e6), ("Water", 275.0, 647.096, 2.2064e7)] {
+        let t = |i: i32| t_low + (t_c - t_low) * f64::from(i) / 72.0;
+        let mut ts: Vec<f64> = (0..n).map(t).collect();
+        ts[n as usize - 1] = f64::NAN;
+        let ds: Vec<f64> = core::iter::successors(Some(0.5), |d| Some(d * 1.1)).take(ts.len()).collect();
+        let ps: Vec<f64> = (0..n).map(|i| p_c * 1.2 * f64::from(i - 1) / 72.0).collect();
+        let fluid = registry.fluid(name).unwrap();
+        for (outputs, (n1, v1), (n2, v2)) in [
+            (["Hmass", "Cpmass", "Q"], ("T", &ts), ("Dmass", &ds)),
+            (["Hmass", "Dmass", "P"], ("T", &ts), ("Q", &q)),
+            (["Hmass", "Dmass", "T"], ("P", &ps), ("Q", &q)),
+        ] {
+            let batch = fluid.evaluate(outputs.map(String::from).to_vec(), n1, v1, n2, v2).unwrap();
+            let (mut want, mut cells) = (vec![0.0; 3 * ts.len()], vec![Status::Ok; 3 * ts.len()]);
+            let reference = native.get(name).unwrap();
+            phasekit_compat::batch_si(reference, &outputs, (n1, v1), (n2, v2), &mut want, &mut cells).unwrap();
+            let bits = |values: &[f64]| values.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+            assert_eq!(bits(&batch.values()), bits(&want), "{name} {n1}{n2}");
+            let codes: Vec<u8> = cells.into_iter().map(phasekit_compat::status_code).collect();
+            assert_eq!(batch.status(), codes, "{name} {n1}{n2}");
+            assert!(codes.contains(&0) && codes.iter().any(|c| *c > 1), "{name} {n1}{n2}: {codes:?}");
+        }
+    }
+}
+
 /// Map 11 §5g: a fluid handle made and freed 10⁵ times through the JS bindings leaks nothing: wasm memory stops
 /// growing after the first 10³ *(inference)*.
 #[wasm_bindgen_test]

@@ -7,14 +7,16 @@
 //! - Errors are JS `Error`s. JS's garbage collector never frees wasm memory, so `Registry` and `Fluid`, the handle
 //!   objects, are freed with `free()`; the `State` and `Batch` a call returns are values, freed the same way.
 //!
-//! Only the browser target has JavaScript; elsewhere the crate is empty.
+//! Two builds: the baseline, and `simd128` (`-C target-feature=+simd128`) with this crate's `simd` feature, which enables
+//! core's, so the batch runs 8 states to a lane group (PLAN.md M12.10). Only the browser target has JavaScript;
+//! elsewhere the crate is empty.
 
 #![cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 
 use core::fmt::Display;
 
 use phasekit_compat as compat;
-use phasekit_core::batch::Status;
+use phasekit_core::batch::{ExecPolicy, Status};
 use phasekit_core::{DataSet, FlashOptions, Pack};
 use wasm_bindgen::prelude::*;
 
@@ -97,7 +99,8 @@ impl Fluid {
 
     /// The batch (map 11 F23): N points of the pair two input keys name, at `values1[i]` and `values2[i]`; output `k`
     /// of point `i`, of the output key `outputs[k]`, is `values[i * M + k]`, with its cell code at `status[i * M + k]`.
-    /// A failed cell is NaN with its code; a bad key or a length mismatch refuses the whole call.
+    /// A failed cell is NaN with its code; a bad key or a length mismatch refuses the whole call. The points run side by
+    /// side in lanes (`ExecPolicy::Simd`), 8 to a group on the simd128 build, with the scalar path's bits (M12.10).
     pub fn evaluate(
         &self,
         outputs: Vec<String>,
@@ -109,7 +112,9 @@ impl Fluid {
         let keys: Vec<&str> = outputs.iter().map(String::as_str).collect();
         let cells = values1.len().checked_mul(keys.len()).ok_or_else(|| js("the batch has too many cells"))?;
         let (mut values, mut cell) = (vec![0.0; cells], vec![Status::Ok; cells]);
-        compat::batch_si(&self.inner, &keys, (name1, values1), (name2, values2), &mut values, &mut cell).map_err(js)?;
+        let (input1, input2) = ((name1, values1), (name2, values2));
+        compat::batch_si_with(&self.inner, ExecPolicy::Simd, &keys, input1, input2, &mut values, &mut cell)
+            .map_err(js)?;
         Ok(Batch { values, status: cell.into_iter().map(compat::status_code).collect(), outputs: keys.len() })
     }
 }
