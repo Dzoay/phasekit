@@ -80,7 +80,7 @@ jobs:
       - name: The baseline and simd128 modules
         run: |
           cargo build --release --locked -p phasekit-wasm --target wasm32-unknown-unknown
-          RUSTFLAGS="-C target-feature=+simd128" cargo build --release --locked -p phasekit-wasm \
+          RUSTFLAGS="-C target-feature=+simd128" cargo build --release --locked -p phasekit-wasm --features simd \
             --target wasm32-unknown-unknown --target-dir target/simd
       - name: The package
         run: scripts/release/npm-package.sh "${GITHUB_REF_NAME#v}"

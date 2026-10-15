@@ -10,7 +10,7 @@
 
 use core::fmt;
 
-use phasekit_core::batch::{self, BatchRequest, BatchSummary, Status};
+use phasekit_core::batch::{self, BatchRequest, BatchSummary, ExecPolicy, Status};
 use phasekit_core::{Basis, Error, FlashOptions, Fluid, Input, Pair, Prop, Registry, State};
 
 mod keys;
@@ -253,6 +253,20 @@ pub fn props_si_vec_in(
 pub fn batch_si(
     fluid: &Fluid,
     outputs: &[&str],
+    input1: (&str, &[f64]),
+    input2: (&str, &[f64]),
+    out: &mut [f64],
+    status: &mut [Status],
+) -> Result<BatchSummary, CompatError> {
+    batch_si_with(fluid, ExecPolicy::Reference, outputs, input1, input2, out, status)
+}
+
+/// [`batch_si`] under the executor `exec`; every policy gives the same cells, bit for bit (K17). The browser package
+/// runs `ExecPolicy::Simd` (user decision SL8).
+pub fn batch_si_with(
+    fluid: &Fluid,
+    exec: ExecPolicy,
+    outputs: &[&str],
     (name1, values1): (&str, &[f64]),
     (name2, values2): (&str, &[f64]),
     out: &mut [f64],
@@ -266,7 +280,7 @@ pub fn batch_si(
     let props = outputs.iter().map(property).collect::<Result<Vec<_>, _>>()?;
     let (pair, swapped, basis) = pair_of(name1, name2)?;
     let (x, y) = if swapped { (values2, values1) } else { (values1, values2) };
-    Ok(batch::evaluate(fluid, &BatchRequest::new(pair, basis, x, y, &props), out, status)?)
+    Ok(batch::evaluate(fluid, &BatchRequest::new(pair, basis, x, y, &props).with_exec(exec), out, status)?)
 }
 
 /// Point `i` of a vector operand, a length-1 one at every point.
@@ -638,6 +652,35 @@ mod tests {
             format!("{}", CompatError::NotAProperty("Phase".into())),
             "`Phase` is not a property; a batch's outputs are"
         );
+    }
+
+    /// K17, M12.10: `batch_si_with` under every policy writes `batch_si`'s cells and statuses bit for bit, and refuses
+    /// what it refuses: n-Propane's DT, QT and PQ over 21 points, single-phase, two-phase and failing ones.
+    #[test]
+    fn batch_si_with_every_policy_is_batch_si() {
+        let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+        let propane = registry.get("n-Propane").unwrap();
+        let t: Vec<f64> = (0..21).map(|i| 150.0 + 12.0 * f64::from(i)).collect();
+        let d: Vec<f64> = core::iter::successors(Some(0.5), |d| Some(d * 1.4)).take(21).collect();
+        let q: Vec<f64> = (0..21).map(|i| f64::from(i % 4) / 3.0).collect();
+        let p: Vec<f64> = (0..21).map(|i| 2.5e5 * f64::from(i - 1)).collect();
+        let parallel = ExecPolicy::Parallel { chunk: core::num::NonZeroUsize::MIN };
+        let (t, d, q, p) = (&t[..], &d[..], &q[..], &p[..]);
+        for (input1, input2) in [(("T", t), ("Dmass", d)), (("T", t), ("Q", q)), (("P", p), ("Q", q))] {
+            let outputs = ["Hmass", "Cpmass", "P", "T"];
+            let (mut want, mut cells) = (vec![0.0; 84], vec![Status::Ok; 84]);
+            let summary = batch_si(propane, &outputs, input1, input2, &mut want, &mut cells).unwrap();
+            assert!(summary.failed_cells > 0 && summary.failed_cells < 84, "{input1:?}: {summary:?}");
+            for exec in [ExecPolicy::Reference, parallel, ExecPolicy::Simd] {
+                let (mut out, mut status) = (vec![0.0; 84], vec![Status::Ok; 84]);
+                let got = batch_si_with(propane, exec, &outputs, input1, input2, &mut out, &mut status).unwrap();
+                let bits = |values: &[f64]| values.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+                assert_eq!((bits(&out), status, got), (bits(&want), cells.clone(), summary), "{exec:?} {input1:?}");
+            }
+        }
+        let (mut out, mut status) = ([7.0; 4], [Status::Ok; 4]);
+        let refused = batch_si_with(propane, ExecPolicy::Simd, &["X"], ("T", t), ("Q", q), &mut out, &mut status);
+        assert_eq!((refused, out), (Err(CompatError::UnknownOutput("X".into())), [7.0; 4]));
     }
 
     /// Every key of the grammar reaches its kernel name, CoolProp's spellings and one-letter aliases (map 01 §4a): an

@@ -522,15 +522,12 @@ move `MILESTONE`: M11 stays the first open milestone.
 | M12.7 | the gate: four vectors to a lane operation (16 lanes on AVX2, user decision SL6); n-Propane α^r 109.2 ns, 2.87× over M12.1: the ≥ 2.5× gate passes (SL3); ≤ 0.1 µs/state missed, issue #171 |
 | M12.8 | DT batches under `ExecPolicy::Simd`: α⁰ (`HelmholtzModel::ideal_batch`) and α^r in lanes, then each point's flash on its own bundle; `Lanes::expm1`, libm 0.2.16's ported bitwise (user decision SL7); n-Propane DT + h + c_p 394 ns per state on AVX2, 2.23× the `libm` scalar path and 1.65× std's |
 | M12.9 | QT and PQ batches under `ExecPolicy::Simd`: `SaturationCurve::at_t_batch` and `at_p_batch`, the superancillary's Clenshaw sums in lanes (PQ's T from p by TOMS 748 per point, K14), then both phases' bundles in lanes at order 1 or 2; n-Propane QT + h 574 ns per state on AVX2, 2.59× the `libm` scalar path and 1.76× std's (PQ + h 742 ns, 2.37× and 1.64×) |
-
-- **M12.10 WASM, and M12 closed.** `phasekit-wasm`'s `simd128` build enables `simd` (one compile-time level); its
-  size budget and Node tests on both builds. The i7-8700K's M12 record; ARCHITECTURE.md §7 and VERIFICATION.md §12
-  say what landed. Tag `m12` with the user's approval.
+| M12.10 | the browser package's `simd128` build enables core's `simd` (`phasekit-wasm`'s `simd` feature), 8 lanes with a padded last group (user decision SL8); its batch runs `ExecPolicy::Simd` on both builds (`phasekit_compat::batch_si_with`); a size budget per build, 1 307 788 and 1 458 107 B; n-Propane under Node 26, DT + h + c_p 749 ns, QT + h 1268 ns and PQ + h 1485 ns per state on `simd128`, 1.50×, 1.45× and 1.45× M12.9's |
 
 **Exit gate.** G1-G8 with and without `--features simd`; `policy_equivalence` bitwise at every dispatch level of the
 i7-8700K, the CI runners (x86-64, aarch64) and wasip2 with `simd128`; the lane `exp`, `expm1` and `ln` bitwise equal to
 `libm`'s; the `simd` build reproduces `fixtures/hash/libm.txt`; the K1/K2 paper rows pass at every level
-(VERIFICATION.md §9.2); ≥ 2.5× (SL3). **ROT rows.** None. **User decisions implemented.** SL1, SL2, SL3, SL6, SL7.
+(VERIFICATION.md §9.2); ≥ 2.5× (SL3). **ROT rows.** None. **User decisions implemented.** SL1, SL2, SL3, SL6, SL7, SL8.
 
 ### M20 Follow-ups
 

@@ -749,7 +749,7 @@ definition of the subcommands; PLAN.md steps add them in the order of the last c
 | `fixtures` | committed fixtures hash to their `MANIFEST.sha256` lines and the manifest lists nothing else; every committed fixture is read by a `fixture!` in a test besides `tests/manifest.rs` (which lists them all for `committed_fixtures_match_manifest`) and every `fixture!` path exists (map 10 R15); committed total ≤ 16 MiB (3.6) | M1.4 |
 | `register` | `check_register` + the 7.2 cross-id checks (also a test) | M1.6 |
 | `datagen` | `cargo xtask datagen` regenerates blobs, index and features; `git diff --exit-code` on the outputs | M2.5 |
-| `features` | `cargo tree -f '{p} [{f}]'`: `phasekit-compat --no-default-features --features fluids-core` resolves to the three workspace crates and enables `phasekit-data/core` and the fluids its list names only (E7, M5.9); from M10.8 also `-p phasekit-wasm --target wasm32-unknown-unknown`, and the `.wasm` size within `crates/phasekit-wasm/size-budget.txt` | M5.9, M10.8 |
+| `features` | `cargo tree -f '{p} [{f}]'`: `phasekit-compat --no-default-features --features fluids-core` resolves to the three workspace crates and enables `phasekit-data/core` and the fluids its list names only (E7, M5.9); from M10.8 also `-p phasekit-wasm --target wasm32-unknown-unknown`, and the `.wasm` size within `crates/phasekit-wasm/size-budget.txt`; from M12.10 the `simd128` build's tree (`+simd128`, the package's `simd` feature) enables core's `simd` and `libm`, and only that one (user decision SL8), and each build's `.wasm` is within its own budget | M5.9, M10.8, M12.10 |
 | `perf` | gungraun instruction counts of the tracked benches within 5 % of the baseline committed at M9.6 (Linux) | M9.6 |
 | `abi` | the committed header is the pinned cbindgen CLI's output, and it compiles as C99 with `-pedantic-errors` (GCC/Clang; MSVC's `/W4 /WX`, C11 mode, is `c_smoke` on the Windows runner); exported symbols: the `pk_*` library exports no CoolProp name, the `coolproplib-shim` build exactly the Tier A names (map 11 §8, D11) | M10.4 |
 | `core-frozen` | section 10 | M11, M14 |
@@ -816,7 +816,10 @@ This section is the one definition of the bench harness, the C++ baseline and th
   M12.4). M12's SIMD gate compares `simd` with `scalar` (user decision SL3). Workload (2), DT + h + c_p, on its grid as
   one `batch::evaluate` call: `properties_at_t_rho_batch/{scalar,scalar_libm,simd}`, the same builds (M12.8).
   Workloads (3) and (4) plus h on their saturation grid as one call each:
-  `{qt,pq}_superancillary_batch/{scalar,scalar_libm,simd}`, the same builds (M12.9).
+  `{qt,pq}_superancillary_batch/{scalar,scalar_libm,simd}`, the same builds (M12.9). The browser package's batch
+  (M12.10) is timed by hand under Node, not by a bench: n-Propane's workloads (2), (3) and (4) plus h, 4096 points of
+  a grid of their own as one `Fluid.evaluate` call, the median of 25 calls, on the release baseline and `simd128`
+  modules (ARCHITECTURE.md §7 item 5).
 - **C++ baseline (M1.15):** CoolProp v8.0.0 built Release, no `-march`, like the wheels (kernel-performance §2.9), from
   a throwaway clone of `reference/CoolProp` in a scratch directory, because CoolProp's configure writes generated
   headers and data into its own source tree (`CMakeLists.txt:557-559`, `dev/generate_headers.py`). The harness
@@ -875,7 +878,7 @@ over the M9 baseline; ARCHITECTURE.md §7, user decisions SL3, TG1) use the same
 | x86_64 Linux | everything; the only fixture-generation platform (K18) | nightly sweeps, gungraun, cross-target hash reference |
 | Windows MSVC | full G3 (nextest and doctests), corpus included | MSVC CRT transcendentals differ in ulps from glibc *(inference)*, covered by the classes; fixtures checked out without CRLF conversion (3.3). M10: C smoke program; the shim's cross-thread `errstring` handoff (#3211: thread B reads thread A's error, map 11 §8); FP guard for hosts that unmask FP exceptions (map 12 R18): `pk_*` exports mask traps inside and restore the caller's control word and sticky flags; the shim reproduces v8.0.0's three cases (traps masked inside, an already-masked environment unchanged, flags cleared; map 11 F17, user decision 9b) |
 | wasm32-wasip2 | full corpus under wasmtime | no filesystem (embedded fixtures), no threads, rayon off; no-panic tests matter most, as a panic aborts the instance (E12); no WIT component in v0.1 (user decision 8) |
-| wasm32-unknown-unknown | builds (baseline, `+simd128`) from M0 | M10: `phasekit-wasm` builds, `features` and size gates, and a JS smoke test ported from CoolProp's `test_wasm.mjs` (Water normal boiling point in [373.124, 373.125] K, dH/dT at constant P = c_p within `Identity`, dp/dT along saturation > 0; map 11 §8) via wasm-bindgen-test under Node. Browser and wasip2 share wasm codegen, so wasip2 results stand for the browser's numerics *(inference)* |
+| wasm32-unknown-unknown | builds (baseline, `+simd128`) from M0 | M10: `phasekit-wasm` builds, `features` and size gates, and a JS smoke test ported from CoolProp's `test_wasm.mjs` (Water normal boiling point in [373.124, 373.125] K, dH/dT at constant P = c_p within `Identity`, dp/dT along saturation > 0; map 11 §8) via wasm-bindgen-test under Node. M12.10: the batch runs in lanes on both builds, with the package's `simd` feature on the `simd128` one, and `the_batch_in_lanes_is_the_reference_paths` checks its cells against the `Reference` path bit for bit. Browser and wasip2 share wasm codegen, so wasip2 results stand for the browser's numerics *(inference)* |
 | aarch64 | G3 (nextest and doctests) | Rust never contracts to FMA (K12), so CoolProp's arm64 tolerance failures (map 12 R17) do not apply; one of the four `libm` hash targets |
 | C ABI (M10) | `abi` gate; C smoke on Linux and Windows | `catch_unwind` at every export (a panicking-stub test); the `HAPropsSI` stub returns +inf and sets the documented `errstring` (D11); shim codes match the `codes` fixture; Tier B absent |
 

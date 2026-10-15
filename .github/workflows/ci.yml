@@ -397,6 +397,10 @@ jobs:
           RUSTFLAGS: -C target-feature=+simd128
       - name: clippy on the browser package (it compiles only for this target)
         run: cargo clippy -p phasekit-wasm --target wasm32-unknown-unknown --all-targets -- -D warnings
+      - name: clippy on its simd128 build, whose simd feature enables core's (PLAN.md M12.10)
+        run: cargo clippy -p phasekit-wasm -p phasekit-core --features simd --target wasm32-unknown-unknown -- -D warnings
+        env:
+          RUSTFLAGS: -C target-feature=+simd128
       - name: Tool cache
         id: tools
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -415,4 +419,4 @@ jobs:
         run: |
           node --version
           cargo test -p phasekit-wasm --target wasm32-unknown-unknown
-          RUSTFLAGS="-C target-feature=+simd128" cargo test -p phasekit-wasm --target wasm32-unknown-unknown
+          RUSTFLAGS="-C target-feature=+simd128" cargo test -p phasekit-wasm --features simd --target wasm32-unknown-unknown
