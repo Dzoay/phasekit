@@ -508,6 +508,24 @@ fn div_0037_to_0045(facts: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0037", "DIV-0038", "DIV-0039", "DIV-0040", "DIV-0041", "DIV-0042", "DIV-0043", "DIV-0044", "DIV-0045"]
 }
 
+/// DIV-0046 (user decision CB1, PLAN.md M11.1): v8.0.0's cubics use R_U_CODATA, and a PR fluid's c_p⁰ is its HEOS
+/// source's times R_CODATA/R_source: n-Propane (R = 8.314472) −1.128e-6, Water (IAPWS-95) +1.10e-5, CycloPropane
+/// (R = 8.3143) +1.96e-5.
+fn div_0046(facts: &Fixture<'_>) -> Vec<&'static str> {
+    let ok = |name: &str| ok_fact(facts, name);
+    let r = ok("div0046_gas_constant_pr_water");
+    assert_eq!(r, 8.314_462_618_153_24);
+    for (fluid, t, ratio) in
+        [("n-propane", 300, "-1.128e-6"), ("water", 400, "1.10e-5"), ("cyclopropane", 300, "1.96e-5")]
+    {
+        let (heos, pr) =
+            (ok(&format!("div0046_cp0molar_heos_{fluid}_t{t}")), ok(&format!("div0046_cp0molar_pr_{fluid}_t{t}")));
+        let source = ok(&format!("div0046_gas_constant_{fluid}_t{t}"));
+        assert!(cites(pr / heos - 1.0, ratio) && cites(r / source - 1.0, ratio), "{fluid}: {pr} / {heos}, R {source}");
+    }
+    vec!["DIV-0046"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -529,6 +547,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0035,
         div_0036,
         div_0037_to_0045,
+        div_0046,
     ]
     .iter()
     .flat_map(|group| group(&facts))

@@ -716,7 +716,7 @@ compat, partials).
 
 **Zero-line core diff gates (M11 cubic; M14 IAPWS ice + IF97).** The milestone starts by tagging `m11-start` (or
 `m14-start`); `cargo xtask gates core-frozen --since m11-start` fails if any file under `crates/phasekit-core/` differs
-from the tag (zero lines, `git diff --quiet`). A failure means the seam was insufficient: stop, record why in the
+from the tag (zero lines: `git diff --name-only` and untracked files). A failure means the seam was insufficient: stop, record why in the
 decision log, land the seam change as its own core PR, re-tag and restart the family series (Extensible graft, D3).
 
 Family arbiters are papers. CoolProp 8.0.0 cubic and PC-SAFT values are not arbiters (map 10 U14: no provenance;
@@ -752,7 +752,7 @@ definition of the subcommands; PLAN.md steps add them in the order of the last c
 | `features` | `cargo tree -f '{p} [{f}]'`: `phasekit-compat --no-default-features --features fluids-core` resolves to the three workspace crates and enables `phasekit-data/core` and the fluids its list names only (E7, M5.9); from M10.8 also `-p phasekit-wasm --target wasm32-unknown-unknown`, and the `.wasm` size within `crates/phasekit-wasm/size-budget.txt`; from M12.10 the `simd128` build's tree (`+simd128`, the package's `simd` feature) enables core's `simd` and `libm`, and only that one (user decision SL8), and each build's `.wasm` is within its own budget | M5.9, M10.8, M12.10 |
 | `perf` | gungraun instruction counts of the tracked benches within 5 % of the baseline committed at M9.6 (Linux) | M9.6 |
 | `abi` | the committed header is the pinned cbindgen CLI's output, and it compiles as C99 with `-pedantic-errors` (GCC/Clang; MSVC's `/W4 /WX`, C11 mode, is `c_smoke` on the Windows runner); exported symbols: the `pk_*` library exports no CoolProp name, the `coolproplib-shim` build exactly the Tier A names (map 11 §8, D11) | M10.4 |
-| `core-frozen` | section 10 | M11, M14 |
+| `core-frozen` | section 10: nothing under `crates/phasekit-core/` differs from the tag `ci/core-frozen.txt` names (or `--since <tag>`'s), committed or not; between family milestones the file names none | M11, M14 |
 
 Also per PR: `cargo deny check` (bans incl. `bincode`, `serde_cbor`, and `once_cell` and `lazy_static` as direct
 dependencies; licence allow-list; dependencies §3.4), `reuse lint`, `cargo shear`, and G3 on the MSRV, the workspace `rust-version`

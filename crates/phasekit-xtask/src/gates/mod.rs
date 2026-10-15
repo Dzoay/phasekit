@@ -5,6 +5,7 @@
 mod abi;
 mod assertions;
 mod complexity;
+mod core_frozen;
 mod counts;
 mod datagen;
 mod deps;
@@ -29,7 +30,7 @@ type Verdict = Result<String, Vec<String>>;
 type Gate = fn(&Repo, &[String]) -> Verdict;
 
 /// The gates in force, in the order `gates all` runs them (VERIFICATION.md §11.2).
-const GATES: [(&str, Gate); 15] = [
+const GATES: [(&str, Gate); 16] = [
     ("deps", deps::run),
     ("lints", lints::run),
     ("counts", counts::run),
@@ -43,6 +44,7 @@ const GATES: [(&str, Gate); 15] = [
     ("abi", abi::run),
     ("assertions", assertions::run),
     ("complexity", complexity::run),
+    ("core-frozen", core_frozen::run),
     ("perf", perf::run),
     ("mutants", mutants::run),
 ];
@@ -91,7 +93,7 @@ fn usage() -> ExitCode {
     let names: Vec<&str> = GATES.iter().map(|(name, _)| *name).collect();
     eprintln!(
         "usage: cargo xtask gates <all [--except <gate>[,<gate>…]]|{}> (counts also takes --update, mutants --shard \
-         <k>/<n>, perf --update or --targets <results.csv>)",
+         <k>/<n>, perf --update or --targets <results.csv>, core-frozen --since <tag>)",
         names.join("|")
     );
     ExitCode::FAILURE

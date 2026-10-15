@@ -491,6 +491,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "phasekit-cubic"
+version = "0.1.0"
+dependencies = [
+ "phasekit-core",
+]
+
+[[package]]
 name = "phasekit-data"
 version = "0.1.0"
 
