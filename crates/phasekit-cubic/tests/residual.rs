@@ -3,7 +3,10 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use num_dual::{DualNum, HyperDual};
+mod common;
+
+use common::ad::{D4, ad_mismatch};
+use num_dual::DualNum;
 use phasekit_core::{DataSet, Derivs, HelmholtzModel, Order, Real, Virials, math};
 use phasekit_cubic::{Alpha, Kind, R_CODATA, Residual};
 use phasekit_verify::conformance::fd_first_order;
@@ -83,29 +86,6 @@ fn parity_keeps_coolprops_literals() {
     assert!(dp.abs() > 1e-11 && dp.abs() < 1e-8, "{dp:e}");
 }
 
-/// A nested hyper-dual with four ε directions, as in `phasekit-verify`'s `tests/terms.rs`.
-type D4 = HyperDual<HyperDual<f64>>;
-
-fn var(x: f64, seeds: [bool; 4]) -> D4 {
-    let one = |seeded: bool| if seeded { 1.0 } else { 0.0 };
-    let constant = |v: f64| HyperDual::new(v, 0.0, 0.0, 0.0);
-    let inner = HyperDual::new(x, one(seeds[2]), one(seeds[3]), 0.0);
-    HyperDual::new(inner, constant(one(seeds[0])), constant(one(seeds[1])), constant(0.0))
-}
-
-fn part(f: &D4, n: usize) -> f64 {
-    let outer = match n {
-        0 => &f.re,
-        1 => &f.eps1,
-        _ => &f.eps1eps2,
-    };
-    match n {
-        0..=2 => outer.re,
-        3 => outer.eps1,
-        _ => outer.eps1eps2,
-    }
-}
-
 /// The paper formula on num-dual: α^r(τ, δ) = −ln(1 − η) − (Ω_a/Ω_b) τ φ(η), η = Ω_b δ (α = 1).
 fn alphar_ad(kind: Kind, tau: &D4, delta: &D4) -> D4 {
     let o = kind.omegas(DataSet::Corrected);
@@ -118,31 +98,19 @@ fn alphar_ad(kind: Kind, tau: &D4, delta: &D4) -> D4 {
 }
 
 /// ROT-218, AD oracle num-dual 0.15: every A_ij to order 4 of each kind's α^r from `Jet4` against num-dual's
-/// derivatives of the formula, at 36 states from the dilute gas to the liquid, both sides of T_c, class `Term`-like
-/// (relative 1e-12 of the largest of |A_ij| and 1).
+/// derivatives of the formula, at 36 states from the dilute gas to the liquid, both sides of T_c, within 1e-12 of the
+/// largest of |A_ij| and 1.
 #[test]
 fn cubic_jets_match_ad() {
     for kind in KINDS {
         let r = residual(kind);
-        for t in [0.5 * T_C, 0.8 * T_C, T_C, 1.2 * T_C, 2.0 * T_C, 4.0 * T_C] {
-            for frac in [1e-6, 1e-3, 0.1, 0.5, 0.8, 0.95] {
-                let rho = frac * r.rho_max();
-                let d = r.derivs(t, rho, Order::Four);
-                let (tau, delta) = (T_C / t, rho * R_CODATA * T_C / P_C);
-                for n in 0..=4 {
-                    for i in 0..=n {
-                        let j = n - i;
-                        let seeds = |lo: usize, hi: usize| [0, 1, 2, 3].map(|k| (lo..hi).contains(&k));
-                        let f = alphar_ad(kind, &var(tau, seeds(0, i)), &var(delta, seeds(i, i + j)));
-                        let want = part(&f, n) * math::powi(tau, i as i32) * math::powi(delta, j as i32);
-                        let got = d.get(i, j).unwrap();
-                        assert!(
-                            (got - want).abs() <= 1e-12 * want.abs().max(1.0),
-                            "{kind:?} T {t} rho {rho}: A{i}{j} {got} against {want}"
-                        );
-                    }
-                }
-            }
+        let temperatures = [0.5, 0.8, 1.0, 1.2, 2.0, 4.0].map(|x| x * T_C);
+        let states = temperatures.into_iter().flat_map(|t| [1e-6, 1e-3, 0.1, 0.5, 0.8, 0.95].map(|f| (t, f)));
+        for (t, frac) in states {
+            let rho = frac * r.rho_max();
+            let (tau, delta) = (T_C / t, rho * R_CODATA * T_C / P_C);
+            let mismatch = ad_mismatch(&r.derivs(t, rho, Order::Four), tau, delta, |t, d| alphar_ad(kind, t, d));
+            assert_eq!(mismatch, None, "{kind:?} T {t} rho {rho}");
         }
     }
 }
@@ -184,7 +152,8 @@ fn residual_matches_finite_differences() {
         let model = Model(residual(kind));
         for (t, frac) in [(0.7 * T_C, 0.6), (T_C, 0.3), (1.5 * T_C, 0.05), (3.0 * T_C, 0.7)] {
             let rho = frac * model.0.rho_max();
-            fd_first_order(&model, t, rho, 1e-6, 1e-7).unwrap_or_else(|e| panic!("{kind:?} {t} {rho}: {e:?}"));
+            let result = fd_first_order(&model, t, rho, 1e-6, 1e-7);
+            assert!(result.is_ok(), "{kind:?} {t} {rho}: {result:?}");
         }
     }
 }
