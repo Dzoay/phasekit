@@ -15,7 +15,9 @@ fn embedded() -> &'static Registry {
 }
 
 /// ROT-216: a cubic's T_c, p_c, ω and M are its source's published values, not a copied snapshot; its critical point
-/// is the cubic's own (T_c, p_c, ρ_c = p_c/(Z_c R T_c), `CriticalOrigin::Model`); b = Ω_b R T_c/p_c bounds its density.
+/// is the cubic's own (T_c, p_c, ρ_c = p_c/(Z_c R T_c), `CriticalOrigin::Model`), its published one those inputs; b =
+/// Ω_b R T_c/p_c bounds its density, its virials are the residual's (B between −10 b and b at T_c), and it cites its
+/// kind's paper.
 #[test]
 fn inputs_come_from_the_canonical_fluid() {
     for name in ["n-Propane", "Water", "R134a", "CycloPropane"] {
@@ -33,8 +35,19 @@ fn inputs_come_from_the_canonical_fluid() {
             }
             assert_eq!(constant(&cubic, Constant::GasConstant), R_CODATA);
             let b = kind.omegas(DataSet::Corrected).b * R_CODATA * published.t / published.p;
-            let rho_max = cubic.model().helmholtz().unwrap().rho_max(published.t);
-            assert!((rho_max * b - (1.0 - 1e-6)).abs() <= 4.0 * f64::EPSILON, "{kind:?} {name}");
+            let eos = cubic.model().helmholtz().unwrap();
+            assert!((eos.rho_max(published.t) * b - (1.0 - 1e-6)).abs() <= 4.0 * f64::EPSILON, "{kind:?} {name}");
+            let virials = eos.zero_density(published.t).unwrap();
+            assert!(virials.b < b && virials.b > -10.0 * b, "{kind:?} {name}: B {} against b {b}", virials.b);
+            let own = cubic.info().published_critical().unwrap();
+            assert_eq!((own.t, own.p, own.origin), (published.t, published.p, CriticalOrigin::Published));
+            let (bibkey, doi) = match kind {
+                Kind::Vdw => ("vanderWaals-1873", None),
+                Kind::Srk => ("Soave-CES-1972", Some("10.1016/0009-2509(72)80096-4")),
+                _ => ("PengRobinson-IECF-1976", Some("10.1021/i160057a011")),
+            };
+            let source = cubic.info().source();
+            assert_eq!((&*source.bibkey, source.doi.as_deref()), (bibkey, doi), "{kind:?}");
         }
     }
 }
