@@ -494,7 +494,9 @@ dependencies = [
 name = "phasekit-cubic"
 version = "0.1.0"
 dependencies = [
+ "num-dual",
  "phasekit-core",
+ "phasekit-verify",
 ]
 
 [[package]]

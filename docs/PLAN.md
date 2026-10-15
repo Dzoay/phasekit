@@ -516,14 +516,8 @@ oracle: no v8.0.0 fluid carries their coefficients (map 06 §4). M11 closes by s
 | Step | Landed |
 |---|---|
 | M11.1 | `m11-start` on the plan's merge commit; `gates core-frozen` against the tag `ci/core-frozen.txt` names (CI's linux job has it through `fetch-depth: 0`); `crates/phasekit-cubic` on `phasekit-core` alone (DEPENDENCIES.md T1f, `gates deps`) with `R_CODATA`; DIV-0046 and its oracle facts (`facts/register.csv`) |
+| M11.2 | `Kind::{Vdw, Srk, Pr}`: Δ₁, Δ₂ and Ω_a, Ω_b by `DataSet`, `Corrected` the exact closed forms and `Parity` v8.0.0's literals, whose SRK values are 4e-10 off their own stated forms (DIV-0047); `Residual`, α^r in one kernel over `Real` on `Jet4` to order 4 (ROT-218), with a and b, ρ_max = 1/b and the exact virials; Z_c = 3/8, 1/3 and 0.307401308698704 with ∂p/∂ρ = ∂²p/∂ρ² = 0 (ROT-217); `Alpha::One` |
 
-- **M11.2 The generalised cubic residual.** `Kind::{Vdw, Srk, Pr}` with Δ₁ and Δ₂ (0 and 0; 1 and 0; 1 ± √2) and
-  Ω_a, Ω_b in closed form (27/64 and 1/8; 1/(9(2^(1/3) − 1)) and (2^(1/3) − 1)/3; PR's from its Z_c cubic, map 06
-  §3.1). α^r(T, ρ) for given a and b in one kernel over `Real`, `f64` and `Jet4`, to order 4 (ROT-218); Δ₁ = Δ₂ (vdW)
-  takes its limit form. `rho_max(T)` below 1/b; `zero_density` gives the exact virials (B = b − a/RT). *Red:*
-  `critical_point_has_zero_dp_drho` (ROT-217): at each kind's closed-form critical point ∂p/∂ρ = ∂²p/∂ρ² = 0 and Z_c
-  = 3/8, 1/3 and 0.30740 (map 06 §8) in class `Identity`; `cubic_jets_match_ad` against num-dual; `fd_first_order`;
-  the exact virials; against a residual that returns `Derivs::zero`.
 - **M11.3 The alpha functions.** `Alpha::{One, Soave(m), MathiasCopeman([c₁, c₂, c₃]), Twu([L, M, N])}` (map 06
   §3.1), each α(T) and its T-derivatives to order 4 in one kernel; Soave's m(ω) for SRK (0.480 + 1.574ω − 0.176ω²) and
   PR (0.37464 + 1.54226ω − 0.26992ω²); vdW takes `One` unless given another. Mathias-Copeman applies all three terms at
