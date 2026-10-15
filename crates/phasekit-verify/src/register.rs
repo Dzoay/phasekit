@@ -1149,6 +1149,110 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[11],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0048",
+        fluids: &[
+            "Ammonia",
+            "Cyclopentane",
+            "D5",
+            "DiethylEther",
+            "HeavyWater",
+            "Helium",
+            "HydrogenChloride",
+            "MD2M",
+            "MD3M",
+            "MD4M",
+            "Methanol",
+            "Neon",
+            "OrthoHydrogen",
+            "R1233zd(E)",
+            "R1234yf",
+            "R1234ze(E)",
+            "R1234ze(Z)",
+            "R236EA",
+            "n-Hexane",
+            "n-Octane",
+            "n-Pentane",
+        ],
+        part: Part::Reducing,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_cubic"),
+        evidence: "map 06 C5, map 09 R12, ROT-216, PLAN.md M11.4: v8.0.0's cubic library is a 2016 snapshot of each \
+                   fluid's T_c, p_c and omega, and for these 21 they differ from the canonical record phasekit-cubic \
+                   takes (PR Neon 44.4918 K, 2.68 MPa, omega -0.0384 against 44.4 K, 2.6616 MPa, -0.0355; D5 619.15 K, \
+                   1.16 MPa, 0.658 against 618.3 K, 1.0777 MPa, 0.631), so every cubic output differs, alpha^r by up \
+                   to 2.2 relative (SRK MD4M); the other 95 of the 116 match to 5e-13 (2026-10-15)",
+        exempt: Some(Exempt { kinds: &[Kind::Cubic], columns: &CUBIC_COLUMNS, rows: Rows::All }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[11],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0049",
+        fluids: &[
+            "IsoButane",
+            "MDM",
+            "MM",
+            "Methane",
+            "Nitrogen",
+            "ParaHydrogen",
+            "R11",
+            "R13",
+            "R134a",
+            "R152A",
+            "R40",
+            "SulfurDioxide",
+        ],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_cubic"),
+        evidence: "map 06 C5, map 15 X6 and §3.1, PLAN.md M11.4: v8.0.0's cubics evaluate a stored copy of the HEOS \
+                   alpha0 at the library's T_c and rho_c, where phasekit-cubic borrows the HEOS fluid's own alpha0; for \
+                   these 12 the copy or its reducing state differs, so the alpha0-dependent outputs differ (up to 6.8 RT \
+                   in h, R40, whose PR h at 500 K and 1e4 Pa is 2.38e4 J/mol below HEOS's; R134a's cp0 by -5.19e-5, \
+                   T_c 374.21 against T_r 374.18; Methane, ParaHydrogen and Nitrogen by 2e-12 to 2e-10) while p and \
+                   alpha^r match to 5e-13 (2026-10-15)",
+        exempt: Some(Exempt {
+            kinds: &[Kind::Cubic],
+            columns: &[
+                "hmolar",
+                "umolar",
+                "gibbsmolar",
+                "helmholtzmolar",
+                "cvmolar",
+                "cpmolar",
+                "speed_sound",
+                "cp0molar",
+            ],
+            rows: Rows::All,
+        }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[11],
+        status: DivStatus::Open,
+    },
+];
+
+/// The output columns of the `cubic` kind (PLAN.md M11.4).
+const CUBIC_COLUMNS: [&str; 15] = [
+    "alphar",
+    "A10",
+    "A01",
+    "A20",
+    "A11",
+    "A02",
+    "p",
+    "hmolar",
+    "umolar",
+    "gibbsmolar",
+    "helmholtzmolar",
+    "cvmolar",
+    "cpmolar",
+    "speed_sound",
+    "cp0molar",
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an

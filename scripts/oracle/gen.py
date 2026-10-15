@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FLUIDS_DIR = ROOT / "reference" / "CoolProp" / "dev" / "fluids"
 FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
 MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
-KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transport", "sigma", "melt", "refstate",
+KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transport", "sigma", "melt", "refstate", "cubic",
          "props", "codes"]
 SCRUBBED_PREFIXES = ("COOLPROP_", "PXFLASH_")
 FLUID_COUNT = 136
@@ -231,6 +231,19 @@ FACTS = {
              (key, "T", 369.89, "Dmolar", 4251200.0 / (z_c * 8.31446261815324 * 369.89), f"{kind}::n-Propane"))
             for kind, z_c in (("SRK", 1.0 / 3.0), ("PR", 0.30740130869870386))
             for name, key in (("z", "Z"), ("dpdrho", "d(P)/d(Dmolar)|T"))
+        ],
+        # DIV-0048: v8.0.0's cubic library's T_c, p_c and omega for Neon and D5; DIV-0049: its alpha0 for R40 and R134a
+        # against the HEOS fluid's at one gas state.
+        *[
+            (f"div0048_{key.lower()}_pr_{fluid.lower()}", "Props1SI", (f"PR::{fluid}", key))
+            for fluid in ("Neon", "D5")
+            for key in ("Tcrit", "pcrit", "acentric")
+        ],
+        *[
+            (f"div0049_{name}_{prefix.strip(':').lower() or 'heos'}_{fluid.lower()}_t500", "PropsSI",
+             (key, "T", 500.0, "P", 1e4, prefix + fluid))
+            for fluid, name, key in (("R40", "hmolar", "Hmolar"), ("R134a", "cp0molar", "CP0MOLAR"))
+            for prefix in ("PR::", "")
         ],
     ],
 }
@@ -830,6 +843,64 @@ def eos(CP, lock, config, files, args):
                       grid=grid)
         out[f"eos/{name}.csv"] = text + "".join(lines)
     return out
+
+
+# The `cubic` kind (PLAN.md M11.4; map 06 section 8): CoolProp 8.0.0's SRK and PR, at c = 0, for every fluid of the tier
+# its cubic library knows, at 8 supercritical states of each cubic: T in {1.05, 1.5} T_c and rho in {0.05, 0.5, 1, 1.8}
+# rho_c, with T_c and p_c the library's and rho_c = p_c/(Z_c R T_c) the cubic's exact critical density. The outputs the
+# oracle can give at c = 0 (map 06 section 8): alpha^r and its A_ij to order 2, p, h, u, g, a, c_v, c_p, w and c_p0;
+# never entropy (DIV-0010).
+CUBIC_KINDS = (("SRK", 1.0 / 3.0), ("PR", 0.30740130869870386))
+CUBIC_OUTPUTS = [
+    ("alphar", "-", lambda s: s.alphar()),
+    ("A10", "-", lambda s: s.tau() * s.dalphar_dTau()),
+    ("A01", "-", lambda s: s.delta() * s.dalphar_dDelta()),
+    ("A20", "-", lambda s: s.tau() ** 2 * s.d2alphar_dTau2()),
+    ("A11", "-", lambda s: s.tau() * s.delta() * s.d2alphar_dDelta_dTau()),
+    ("A02", "-", lambda s: s.delta() ** 2 * s.d2alphar_dDelta2()),
+    ("p", "Pa", lambda s: s.p()),
+    ("hmolar", "J/mol", lambda s: s.hmolar()),
+    ("umolar", "J/mol", lambda s: s.umolar()),
+    ("gibbsmolar", "J/mol", lambda s: s.gibbsmolar()),
+    ("helmholtzmolar", "J/mol", lambda s: s.helmholtzmolar()),
+    ("cvmolar", "J/mol/K", lambda s: s.cvmolar()),
+    ("cpmolar", "J/mol/K", lambda s: s.cpmolar()),
+    ("speed_sound", "m/s", lambda s: s.speed_sound()),
+    ("cp0molar", "J/mol/K", lambda s: s.cp0molar()),
+]
+CUBIC_COLUMNS = ["fluid", "kind", "T", "rhomolar", "status", *(name for name, _, _ in CUBIC_OUTPUTS)]
+CUBIC_UNITS = ["-", "-", "K", "mol/m3", "-", *(unit for _, unit, _ in CUBIC_OUTPUTS)]
+CUBIC_TOL = ["label", "label", "in", "in", "label", *["prop"] * len(CUBIC_OUTPUTS)]
+
+
+def cubic(CP, lock, config, files, args):
+    """The `cubic` kind: all/cubic.csv over the tier's fluids that v8.0.0's cubic library has (116 with --tier all)."""
+    lines, floats, count = [], [], 0
+    for name in tier_fluids(args, files):
+        try:
+            CP.AbstractState("PR", name)
+        except Exception:  # not in the cubic library (map 06 C5: 14 HEOS fluids and the 6 blends)
+            continue
+        assert_fluid(CP, files, name)
+        count += 1
+        for kind, z_c in CUBIC_KINDS:
+            probe = CP.AbstractState(kind, name)
+            tc, pc = probe.T_critical(), probe.p_critical()
+            rhoc = pc / (z_c * 8.31446261815324 * tc)
+            for t in (1.05 * tc, 1.5 * tc):
+                for rho in (0.05 * rhoc, 0.5 * rhoc, rhoc, 1.8 * rhoc):
+                    try:
+                        state = CP.AbstractState(kind, name)
+                        state.update(CP.DmolarT_INPUTS, rho, t)
+                        values, status = [get(state) for _, _, get in CUBIC_OUTPUTS], "ok"
+                    except Exception as exception:  # every oracle failure becomes a status, never a crash
+                        values, status = [math.nan] * len(CUBIC_OUTPUTS), f"err:{error_class(exception)}"
+                    floats.extend([t, rho, *values])
+                    lines.append(",".join([name, kind, cell(t), cell(rho), status, *map(cell, values)]) + "\n")
+    fluids = f"{count} fluids, fluids_sha256={lock['fluids_sha256']}"
+    grid = "T in {1.05,1.5}*Tc; rho in {0.05,0.5,1,1.8}*pc/(Zc*R*Tc); Tc, pc the cubic library's"
+    text = header("cubic", lock, config, fluids, CUBIC_COLUMNS, CUBIC_TOL, floats, units=CUBIC_UNITS, grid=grid)
+    return {"all/cubic.csv": text + "".join(lines)}
 
 
 # The `sat` kind (section 3.5). Since M5.2 it holds the `sa` rows: p, rho' and rho'' straight from
@@ -1600,8 +1671,8 @@ def codes(CP, lock, config, files, args):
     return {"codes/coolprop.csv": wheel, "codes/pair-names.csv": pair_names}
 
 
-GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "sat": sat,
-              "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
+GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "cubic": cubic,
+              "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
               "props": props, "codes": codes}
 
 
