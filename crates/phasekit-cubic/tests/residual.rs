@@ -174,6 +174,21 @@ fn virials_are_exact() {
             let ht = 1e-4 * t;
             let db_dt = (r.virials(t + ht).b - r.virials(t - ht).b) / (2.0 * ht);
             assert!((db_dt / v.db_dt - 1.0).abs() <= 1e-7, "{kind:?} {t}: dB/dT {db_dt} against {}", v.db_dt);
+            let dc_dt = (r.virials(t + ht).c - r.virials(t - ht).c) / (2.0 * ht);
+            let scale = v.c.abs() / t;
+            assert!((dc_dt - v.dc_dt).abs() <= 1e-7 * scale, "{kind:?} {t}: dC/dT {dc_dt} against {}", v.dc_dt);
         }
+    }
+}
+
+/// The pole of α^r: b = Ω_b R T_c/p_c, `rho_max` = 1/b, and A01 = ρ ∂α^r/∂ρ grows without bound as ρ reaches it.
+#[test]
+fn the_pole_is_at_one_over_b() {
+    for kind in KINDS {
+        let r = residual(kind);
+        let b = kind.omegas(DataSet::Corrected).b * R_CODATA * T_C / P_C;
+        assert!((r.b() / b - 1.0).abs() <= 4.0 * f64::EPSILON && r.rho_max() * r.b() == 1.0, "{kind:?}");
+        let a01 = |x: f64| r.derivs(T_C, x * r.rho_max(), Order::One).get(0, 1).unwrap();
+        assert!(a01(1.0 - 1e-9) > 1e8 && a01(0.5) < 10.0, "{kind:?}: {} {}", a01(1.0 - 1e-9), a01(0.5));
     }
 }
