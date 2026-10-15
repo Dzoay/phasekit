@@ -16,5 +16,9 @@ categories.workspace = true
 [dependencies]
 phasekit-core.workspace = true
 
+# M11.1 builds the crate before any code uses the core (its residual arrives at M11.2, which drops this).
+[package.metadata.cargo-shear]
+ignored = ["phasekit-core"]
+
 [lints]
 workspace = true
