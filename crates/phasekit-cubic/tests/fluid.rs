@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::{
-    Basis, Constant, CriticalOrigin, DataSet, FlashOptions, Fluid, Input, Order, Pair, Phase, Prop, Registry,
+    Basis, Constant, CriticalOrigin, DataSet, Derivs, FlashOptions, Fluid, Input, Order, Pair, Phase, Prop, Registry,
 };
 use phasekit_cubic::{Kind, R_CODATA, fluid, with_cubics};
 
@@ -39,6 +39,11 @@ fn inputs_come_from_the_canonical_fluid() {
     }
 }
 
+/// Every A_ij of a bundle to order 4, as bits.
+fn bits(d: &Derivs) -> Vec<Option<u64>> {
+    (0..=4).flat_map(|n| (0..=n).map(move |i| d.get(i, n - i).map(f64::to_bits))).collect()
+}
+
 /// DIV-0046's proof, part 1 (user decision CB1): for every cubic fluid of the embedded set the ideal part is the
 /// source's `Derivs` bit for bit at the same (T, ρ), so its c_p⁰ is the source's times R_CODATA/R_source.
 #[test]
@@ -53,12 +58,7 @@ fn ideal_part_equals_heos() {
         let t_at = |x: f64| limits.t_min() + x * (limits.t_max() - limits.t_min());
         for (t, rho) in [(t_at(0.95), 10.0), (t_at(0.5), 1.0), (t_at(0.3), 1000.0)] {
             let (want, got) = (heos.ideal(t, rho, Order::Four), eos.ideal(t, rho, Order::Four));
-            for i in 0..=4 {
-                for j in 0..=4 - i {
-                    let bits = |d: &phasekit_core::Derivs| d.get(i, j).map(f64::to_bits);
-                    assert_eq!(bits(&got), bits(&want), "{name} A{i}{j} at {t} K");
-                }
-            }
+            assert_eq!(bits(&got), bits(&want), "{name} at {t} K");
             let input = Input::new(Pair::DT, rho.min(1.0), t, Basis::Molar).unwrap();
             let cp0 = |f: &Fluid| f.prop(&f.state(input).unwrap(), Prop::Cp0molar).unwrap();
             let ratio = R_CODATA / heos.gas_constant();
