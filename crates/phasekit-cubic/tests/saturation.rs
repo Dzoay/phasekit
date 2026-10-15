@@ -75,7 +75,8 @@ fn at_p_inverts_at_t() {
     }
 }
 
-/// Outside its range the curve refuses with the bound (the core never asks it there, D6); van der Waals has none.
+/// Outside its range the curve refuses with the bound (the core never asks it there, D6), and on its pressure bounds it
+/// answers with the range's ends; van der Waals has none.
 #[test]
 fn the_curve_refuses_outside_its_range() {
     let (what, r) = cubics().remove(0);
@@ -86,6 +87,9 @@ fn the_curve_refuses_outside_its_range() {
     let (p_lo, p_hi) = (curve.at_t(lo).unwrap().bubble.p, curve.at_t(hi).unwrap().bubble.p);
     assert!(matches!(curve.at_p(0.5 * p_lo), Err(Error::Domain(DomainError::BelowMinPressure { .. }))), "{what}");
     assert!(matches!(curve.at_p(2.0 * p_hi), Err(Error::Domain(DomainError::AboveMaxPressure { .. }))), "{what}");
+    for (p, t) in [(p_lo, lo), (p_hi, hi)] {
+        assert_eq!(curve.at_p(p).map(|s| (s.bubble.t, s.dew.p)).ok(), Some((t, p)), "{what}");
+    }
     assert!(curve.at_t(f64::NAN).is_err() && curve.at_p(f64::NAN).is_err());
     let vdw = Residual::new(Kind::Vdw, DataSet::Corrected, Alpha::One, 369.89, 4.2512e6);
     assert_eq!(CubicSaturation::new(vdw), None);

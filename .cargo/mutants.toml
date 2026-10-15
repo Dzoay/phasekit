@@ -206,6 +206,12 @@ exclude_re = [
     # Equivalent (M12.1, in `run_parallel` since M12.3), as in `evaluate`: with `<=` a batch of one chunk goes to rayon,
     # which runs it inline on the calling thread, the same thread and bits.
     "exec\\.rs:[0-9]+:[0-9]+: replace < with <= in run_parallel",
+    # Equivalent (M11.5): the cubic superancillary's bisection for T(T̃) stops once its ends are adjacent doubles, where
+    # the midpoint is one of them and further halvings move neither end. Its Illinois solve sorts a value of exactly 0
+    # to either end alike: no end holds 0 at an update (an end at 0 is the root before the next step), and a step whose
+    # value is 0 is the root at the next check whichever end it replaced.
+    "superancillary\\.rs:[0-9]+:[0-9]+: replace \\|\\| with && in CubicSaturation::t_at",
+    "superancillary\\.rs:[0-9]+:[0-9]+: replace > with >= in Bracket::update",
     # `run_simd` and `run_wide` (M12.4, M12.7) compile only with core's `simd` feature, which the gate's run does not
     # enable, so none of their mutants can fail a test there. With the feature, on phasekit-core's tests (M12.7's PR): 9 of
     # 12 caught, `run_wide`'s and every x86 arm but AVX-512's among them (`each_level_runs_its_own_width`,

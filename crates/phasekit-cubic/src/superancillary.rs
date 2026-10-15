@@ -32,24 +32,16 @@ impl Piece {
     }
 }
 
-/// The value of an expansion at T̃, its piece found as CoolProp's `SuperAncillary::get_index` finds it, or `None`
-/// outside the expansion.
+/// The value of an expansion at T̃ from the last piece that starts at or below it, or `None` outside the expansion. The
+/// pieces meet end to end, so that is the piece CoolProp's `SuperAncillary::get_index` finds, a bound going to the
+/// piece above it.
 fn expansion(pieces: &[Piece], t_tilde: f64) -> Option<f64> {
     let (first, last) = (pieces.first()?, pieces.last()?);
     if !(first.xmin..=last.xmax).contains(&t_tilde) {
         return None;
     }
-    let (mut lo, mut hi) = (0, pieces.len() - 1);
-    while hi - lo > 1 {
-        let mid = lo + (hi - lo) / 2;
-        if pieces.get(mid).is_some_and(|p| t_tilde >= p.xmin) {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    let i = if pieces.get(lo).is_some_and(|p| t_tilde < p.xmax) { lo } else { hi };
-    pieces.get(i).map(|p| p.eval(t_tilde))
+    let above = pieces.partition_point(|p| p.xmin <= t_tilde);
+    pieces.get(above.checked_sub(1)?).map(|p| p.eval(t_tilde))
 }
 
 /// A cubic's saturation from the superancillary: `Exact`, over the T whose T̃ the expansions cover, [0.1, 1]·T̃_c.
@@ -58,6 +50,8 @@ pub struct CubicSaturation {
     residual: Residual,
     tables: [&'static [Piece]; 3],
     t_range: (f64, f64),
+    /// The saturation pressures at the range's ends, which bound `at_p`.
+    p_range: (f64, f64),
 }
 
 impl CubicSaturation {
@@ -69,8 +63,10 @@ impl CubicSaturation {
             Kind::Vdw => return None,
         };
         let (lo, hi) = (tables[1].first()?.xmin, tables[1].last()?.xmax);
-        let curve = Self { residual, tables, t_range: (0.0, 0.0) };
-        Some(Self { t_range: (curve.t_at(lo)?, curve.t_at(hi)?), ..curve })
+        let curve = Self { residual, tables, t_range: (0.0, 0.0), p_range: (0.0, 0.0) };
+        let curve = Self { t_range: (curve.t_at(lo)?, curve.t_at(hi)?), ..curve };
+        let p = |t: f64| curve.at_t(t).ok().map(|s| s.bubble.p);
+        Some(Self { p_range: (p(curve.t_range.0)?, p(curve.t_range.1)?), ..curve })
     }
 
     /// T̃ = RTb/a(T).
@@ -126,26 +122,24 @@ impl SaturationCurve for CubicSaturation {
     /// The T where p_sat(T) = p, by a bracketed solve in ln p over the range (K14), then [`Self::at_t`] there with p
     /// reported as given.
     fn at_p(&self, p: f64) -> Result<SatPair, Error> {
-        let (t_lo, t_hi) = self.t_range;
-        let ln_p = |t: f64| self.at_t(t).map(|s| phasekit_core::math::ln(s.bubble.p));
-        let (f_lo, f_hi) = (ln_p(t_lo)?, ln_p(t_hi)?);
+        let (p_min, p_max) = self.p_range;
+        if p.is_nan() || p < p_min {
+            return Err(Error::Domain(DomainError::BelowMinPressure { p, p_min }));
+        }
+        if p > p_max {
+            return Err(Error::Domain(DomainError::AboveMaxPressure { p, p_max }));
+        }
         let target = phasekit_core::math::ln(p);
-        if target.is_nan() || target < f_lo {
-            return Err(Error::Domain(DomainError::BelowMinPressure { p, p_min: phasekit_core::math::exp(f_lo) }));
-        }
-        if target > f_hi {
-            return Err(Error::Domain(DomainError::AboveMaxPressure { p, p_max: phasekit_core::math::exp(f_hi) }));
-        }
-        let t = bracketed_root(|t| ln_p(t).map(|f| f - target), (t_lo, f_lo - target), (t_hi, f_hi - target))?;
+        let t = bracketed_root(|t| self.at_t(t).map(|s| phasekit_core::math::ln(s.bubble.p) - target), self.t_range)?;
         let sat = self.at_t(t)?;
         Ok(SatPair { bubble: SatSide { p, ..sat.bubble }, dew: SatSide { p, ..sat.dew } })
     }
 }
 
 /// A root of `f` between two points whose values bracket it, by the Illinois method (regula falsi halving the stale
-/// end's value) to adjacent doubles, bisecting when a step leaves the bracket; at most 200 evaluations.
-fn bracketed_root(f: impl Fn(f64) -> Result<f64, Error>, lo: (f64, f64), hi: (f64, f64)) -> Result<f64, Error> {
-    let mut bracket = Bracket { a: lo, b: hi, side: 0 };
+/// end's value) to adjacent doubles, bisecting when a step leaves the bracket; at most 200 steps.
+fn bracketed_root(mut f: impl FnMut(f64) -> Result<f64, Error>, (lo, hi): (f64, f64)) -> Result<f64, Error> {
+    let mut bracket = Bracket { a: (lo, f(lo)?), b: (hi, f(hi)?), side: 0 };
     for _ in 0..200 {
         if let Some(root) = bracket.root() {
             return Ok(root);
@@ -201,3 +195,6 @@ impl Bracket {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
