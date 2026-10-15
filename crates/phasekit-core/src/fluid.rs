@@ -362,7 +362,7 @@ impl Fluid {
     }
 
     /// The one normalisation: capability check, basis to molar, this handle's gauge to native (S-04).
-    fn native(&self, input: Input) -> Result<NativeInput, Error> {
+    pub(crate) fn native(&self, input: Input) -> Result<NativeInput, Error> {
         let pair = input.pair();
         if !self.model.capabilities().contains(pair) {
             return Err(Error::Unsupported { pair });

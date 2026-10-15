@@ -664,11 +664,12 @@ SES36's departures are listed with their reason (its ancillaries and EOS disagre
 ### 9.2 SIMD lanes (M12, only if the gate fires)
 
 Lanes across states vs scalar: bitwise, remainder lanes padded by duplicating a valid lane (K9, K17, kernel-performance
-§4). `simd` enables `libm` (user decision SL1), so the scalar path they match is the `libm` one. The vector `exp`/`ln`
-match the locked `libm` crate's bitwise on random inputs and on the edges: subnormal results, the overflow thresholds
-near ±709.78, NaN and ±∞ (kernel-performance §3.3); a difference is a porting bug. CI forces every dispatch level
-(scalar, AVX2, AVX-512 where present, NEON, the `simd128` build). Accelerated kernels must also pass the K1/K2 paper
-rows (map 13 §7). Across-terms or FMA variants exist only as a separate `Fast` policy with its own class (section 5).
+§4). `simd` enables `libm` (user decision SL1), so the scalar path they match is the `libm` one. The vector `exp`,
+`expm1` and `ln` match the locked `libm` crate's bitwise on random inputs and on the edges: subnormal results, the
+overflow thresholds near ±709.78, NaN and ±∞ (kernel-performance §3.3); a difference is a porting bug. CI forces every
+dispatch level (scalar, AVX2, AVX-512 where present, NEON, the `simd128` build). Accelerated kernels must also pass the
+K1/K2 paper rows (map 13 §7). Across-terms or FMA variants exist only as a separate `Fast` policy with its own class
+(section 5).
 
 ### 9.3 Same model, two derivative mechanisms (L1)
 
@@ -812,7 +813,8 @@ This section is the one definition of the bench harness, the C++ baseline and th
 - **Batch workloads (M12, phasekit only):** workload (1) on the same grid as one `residual_batch` call, reported per
   state: `alphar_batch/scalar` (std), `alphar_batch/scalar_libm` (built with `--features phasekit-core/libm`), and
   `alphar_batch/simd` under `ExecPolicy::Simd` (built with `phasekit-verify`'s `--features simd`, which enables core's;
-  M12.4). M12's SIMD gate compares `simd` with `scalar` (user decision SL3).
+  M12.4). M12's SIMD gate compares `simd` with `scalar` (user decision SL3). Workload (2), DT + h + c_p, on its grid as
+  one `batch::evaluate` call: `properties_at_t_rho_batch/{scalar,scalar_libm,simd}`, the same builds (M12.8).
 - **C++ baseline (M1.15):** CoolProp v8.0.0 built Release, no `-march`, like the wheels (kernel-performance §2.9), from
   a throwaway clone of `reference/CoolProp` in a scratch directory, because CoolProp's configure writes generated
   headers and data into its own source tree (`CMakeLists.txt:557-559`, `dev/generate_headers.py`). The harness

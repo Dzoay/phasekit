@@ -10,6 +10,8 @@ use super::{Real, math, sealed};
 #[cfg(feature = "libm")]
 mod exp;
 #[cfg(feature = "libm")]
+mod expm1;
+#[cfg(feature = "libm")]
 mod ln;
 
 /// W states side by side; crate-private, like the executors that use it.
@@ -107,8 +109,12 @@ impl<const W: usize> Real for Lanes<W> {
         #[cfg(not(feature = "libm"))]
         self.map(math::exp)
     }
+    /// The `libm` crate's `expm1` ported to lanes with the `libm` backend (PLAN.md M12.8); std's, per lane, without it.
     #[inline(always)]
     fn expm1(self) -> Self {
+        #[cfg(feature = "libm")]
+        return expm1::expm1(self);
+        #[cfg(not(feature = "libm"))]
         self.map(math::expm1)
     }
     /// The `libm` crate's `log` ported to lanes with the `libm` backend (PLAN.md M12.6); std's, per lane, without it.
@@ -153,7 +159,7 @@ impl<const W: usize> Real for Lanes<W> {
     }
 }
 
-/// What the lane tests share (PLAN.md M12.5, M12.6). `cfg(test)` stands alone, so cargo-mutants sees test code.
+/// What the lane tests share (PLAN.md M12.5, M12.6, M12.8). `cfg(test)` stands alone, so cargo-mutants sees test code.
 #[cfg(test)]
 #[cfg(feature = "libm")]
 pub(crate) mod tests {

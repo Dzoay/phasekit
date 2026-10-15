@@ -10,29 +10,29 @@
 use super::Lanes;
 
 // libm's constants by the words its comments give (its decimals carry more digits than an f64 holds).
-const LN2HI: f64 = f64::from_bits(0x3fe6_2e42_fee0_0000);
-const LN2LO: f64 = f64::from_bits(0x3dea_39ef_3579_3c76);
-const INVLN2: f64 = f64::from_bits(0x3ff7_1547_652b_82fe);
+pub(super) const LN2HI: f64 = f64::from_bits(0x3fe6_2e42_fee0_0000);
+pub(super) const LN2LO: f64 = f64::from_bits(0x3dea_39ef_3579_3c76);
+pub(super) const INVLN2: f64 = f64::from_bits(0x3ff7_1547_652b_82fe);
 const P1: f64 = f64::from_bits(0x3fc5_5555_5555_553e);
 const P2: f64 = f64::from_bits(0xbf66_c16c_16be_bd93);
 const P3: f64 = f64::from_bits(0x3f11_566a_af25_de2c);
 const P4: f64 = f64::from_bits(0xbebb_bd41_c5d2_6bf1);
 const P5: f64 = f64::from_bits(0x3e66_3769_72be_a4d0);
 /// libm's overflow threshold, 709.782712893383973096.
-const OVERFLOW: f64 = f64::from_bits(0x4086_2e42_fefa_39ef);
+pub(super) const OVERFLOW: f64 = f64::from_bits(0x4086_2e42_fefa_39ef);
 /// libm's underflow-to-zero threshold, −745.13321910194110842.
 const UNDERFLOW: f64 = f64::from_bits(0xc087_4910_d52d_3051);
 
 /// |x|'s bits. libm compares the high word of |x| with `h`; on all 64 bits that is `> h·2³² + 2³² − 1` for its `>`
 /// and `>= h·2³²` for its `>=`.
 #[inline(always)]
-fn abs_bits(x: f64) -> u64 {
+pub(super) fn abs_bits(x: f64) -> u64 {
     x.to_bits() & 0x7fff_ffff_ffff_ffff
 }
 
 /// 2ⁿ for n in [−1022, 1023].
 #[inline(always)]
-fn pow2(n: i64) -> f64 {
+pub(super) fn pow2(n: i64) -> f64 {
     f64::from_bits((n.wrapping_add(1023) as u64).wrapping_shl(52))
 }
 

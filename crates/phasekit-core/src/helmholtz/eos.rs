@@ -109,6 +109,31 @@ impl MultiParameterEos {
         };
         acc.split()
     }
+
+    /// The ideal part at W states side by side: lane `k` is, bit for bit, [`HelmholtzModel::ideal`] at
+    /// `(t.0[k], rho.0[k])` (PLAN.md M12.8).
+    #[inline(always)]
+    pub(crate) fn ideal_lanes<const W: usize>(&self, t: Lanes<W>, rho: Lanes<W>, order: Order) -> [Derivs; W] {
+        self.ideal.eval(t, rho, order).split()
+    }
+}
+
+/// The ideal part at one order as a lane kernel (PLAN.md M12.8): (T, ρ) to its bundle.
+struct Ideal<'a> {
+    eos: &'a MultiParameterEos,
+    order: Order,
+}
+
+impl LaneKernel for Ideal<'_> {
+    type Out = Derivs;
+    #[inline(always)]
+    fn point(&self, t: f64, rho: f64) -> Derivs {
+        self.eos.ideal(t, rho, self.order)
+    }
+    #[inline(always)]
+    fn lanes<const W: usize>(&self, t: Lanes<W>, rho: Lanes<W>) -> [Derivs; W] {
+        self.eos.ideal_lanes(t, rho, self.order)
+    }
 }
 
 /// The residual at one order as a lane kernel (PLAN.md M12.3): (T, ρ) to its bundle.
@@ -158,6 +183,18 @@ impl HelmholtzModel for MultiParameterEos {
 
     fn ideal(&self, t: f64, rho: f64, order: Order) -> Derivs {
         self.ideal.eval(t, rho, order)
+    }
+
+    /// The ideal part's lane kernel under `exec`: `ExecPolicy::Simd` evaluates states side by side (PLAN.md M12.8).
+    fn ideal_batch(
+        &self,
+        t: &[f64],
+        rho: &[f64],
+        order: Order,
+        out: &mut [Derivs],
+        exec: ExecPolicy,
+    ) -> Result<(), Error> {
+        exec::run(exec, &Ideal { eos: self, order }, t, rho, out)
     }
 
     fn rho_max(&self, _t: f64) -> f64 {
@@ -215,7 +252,8 @@ mod tests {
         a + (b - a) * ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64
     }
 
-    /// `points` in chunks of W through `residual_lanes`, each lane against the scalar residual at every order.
+    /// `points` in chunks of W through `residual_lanes` and `ideal_lanes`, each lane against the scalar residual and
+    /// ideal part at every order.
     #[cfg(feature = "embedded")]
     fn assert_lanes_match<const W: usize>(name: &str, eos: &MultiParameterEos, points: &[(f64, f64)]) {
         for chunk in points.as_chunks::<W>().0 {
@@ -226,14 +264,24 @@ mod tests {
                     let want = eos.residual(t.0[k], rho.0[k], order);
                     assert_eq!(bits(got), bits(&want), "{name} W={W} {order:?} lane {k}: T {} ρ {}", t.0[k], rho.0[k]);
                 }
+                for (k, got) in eos.ideal_lanes(t, rho, order).iter().enumerate() {
+                    let want = eos.ideal(t.0[k], rho.0[k], order);
+                    assert_eq!(
+                        bits(got),
+                        bits(&want),
+                        "{name} W={W} {order:?} α⁰ lane {k}: T {} ρ {}",
+                        t.0[k],
+                        rho.0[k]
+                    );
+                }
             }
         }
     }
 
-    /// PLAN.md M12.2 (VERIFICATION.md §9.2, class `Exact`): on `Lanes<2>`, `Lanes<4>` and `Lanes<8>`, every embedded
-    /// fluid's residual is, lane by lane and bit for bit, its scalar residual at that lane's state, at every order.
-    /// The states span the fluid's T range and ρ up to `rho_max`, with the δ → 0 and τ = δ = 1 neighbourhoods (Water's
-    /// and CarbonDioxide's non-analytic terms are singular there) and NaN inputs.
+    /// PLAN.md M12.2 and M12.8 (VERIFICATION.md §9.2, class `Exact`): on `Lanes<2>`, `Lanes<4>` and `Lanes<8>`, every
+    /// embedded fluid's residual and ideal part are, lane by lane and bit for bit, its scalar ones at that lane's state,
+    /// at every order. The states span the fluid's T range and ρ up to `rho_max`, with the δ → 0 and τ = δ = 1
+    /// neighbourhoods (Water's and CarbonDioxide's non-analytic terms are singular there) and NaN inputs.
     #[cfg(feature = "embedded")]
     #[test]
     fn lanes_are_scalar_bitwise() {
@@ -265,10 +313,11 @@ mod tests {
         assert!(fluids >= 130, "{fluids} fluids");
     }
 
-    /// PLAN.md M12.4 (VERIFICATION.md §9.2, class `Exact`): `policy_equivalence` at every dispatch level of this CPU,
-    /// forced down from `Level::new()`: the residual's lane kernel through `run_simd` is, for every embedded fluid at
-    /// every order, the scalar residual at each point, bit for bit (NaN canonical). Batches of 0 to 17 points take
-    /// every remainder of 2, 4 and 8 lanes; the whole set adds τ = δ = 1, ρ = 0, `rho_max` and NaN inputs.
+    /// PLAN.md M12.4 and M12.8 (VERIFICATION.md §9.2, class `Exact`): `policy_equivalence` at every dispatch level of
+    /// this CPU, forced down from `Level::new()`: the residual's and the ideal part's lane kernels through `run_simd` are,
+    /// for every embedded fluid at every order, the scalar ones at each point, bit for bit (NaN canonical). Batches of 0
+    /// to 17 points take every remainder of 2, 4 and 8 lanes; the whole set adds τ = δ = 1, ρ = 0, `rho_max` and NaN
+    /// inputs.
     #[cfg(all(feature = "embedded", feature = "simd"))]
     #[test]
     fn policy_equivalence_at_every_level() {
@@ -294,7 +343,7 @@ mod tests {
     }
 
     /// One fluid, level and order of [`policy_equivalence_at_every_level`]: every prefix of 0 to 17 points and the
-    /// whole set through `run_simd`, each point bit for bit the scalar residual.
+    /// whole set through `run_simd`, each point bit for bit the scalar residual and ideal part.
     #[cfg(all(feature = "embedded", feature = "simd"))]
     fn assert_level_matches(
         name: &str,
@@ -303,13 +352,15 @@ mod tests {
         (t, rho): (&[f64], &[f64]),
         order: Order,
     ) {
-        let kernel = Residual { eos, order };
+        let (residual, ideal) = (Residual { eos, order }, Ideal { eos, order });
         for n in (0..=17).chain([t.len()]) {
-            let mut out = vec![Derivs::zero(order); n];
-            exec::run_simd(level, &kernel, &t[..n], &rho[..n], &mut out);
-            for (i, got) in out.iter().enumerate() {
-                let want = eos.residual(t[i], rho[i], order);
-                assert_eq!(bits(got), bits(&want), "{name} {order:?} {level:?} n = {n} point {i}");
+            let (mut got_r, mut got_i) = (vec![Derivs::zero(order); n], vec![Derivs::zero(order); n]);
+            exec::run_simd(level, &residual, &t[..n], &rho[..n], &mut got_r);
+            exec::run_simd(level, &ideal, &t[..n], &rho[..n], &mut got_i);
+            for (i, (got_r, got_i)) in got_r.iter().zip(&got_i).enumerate() {
+                let (want_r, want_i) = (eos.residual(t[i], rho[i], order), eos.ideal(t[i], rho[i], order));
+                assert_eq!(bits(got_r), bits(&want_r), "{name} {order:?} {level:?} n = {n} point {i}");
+                assert_eq!(bits(got_i), bits(&want_i), "{name} {order:?} {level:?} n = {n} point {i}: α⁰");
             }
         }
     }

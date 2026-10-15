@@ -56,6 +56,20 @@ pub trait HelmholtzModel: Send + Sync + fmt::Debug {
     /// `ln δ`, so `residual + Derivs::IDEAL_DELTA` gives the mechanical derivatives without calling this.
     fn ideal(&self, t: f64, rho: f64, order: Order) -> Derivs;
 
+    /// [`ideal`](Self::ideal) at every point `(t[i], rho[i])` into `out[i]`, under `exec` (D9): the bits of `ideal` at
+    /// that point whatever the policy. Unequal lengths are [`Error::Shape`]. The default runs `ideal` point by point
+    /// (PLAN.md M12.8).
+    fn ideal_batch(
+        &self,
+        t: &[f64],
+        rho: &[f64],
+        order: Order,
+        out: &mut [Derivs],
+        exec: ExecPolicy,
+    ) -> Result<(), Error> {
+        crate::exec::points(exec, t, rho, out, |t, rho| self.ideal(t, rho, order))
+    }
+
     /// Upper molar-density bound for root bracketing at `t`: covolume, packing limit or a datagen bound.
     /// Comes from the model, never from invented metadata (map 06 C10).
     fn rho_max(&self, t: f64) -> f64;

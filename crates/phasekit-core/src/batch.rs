@@ -1,7 +1,10 @@
 //! L6 batch: one driver for every facade (map 11 U4). Caller-owned buffers, one status per cell, no
 //! allocation on success, fixed chunks. "What" is the model's flash; "how" is [`ExecPolicy`] (D9). Every
-//! point goes through `Fluid::flash`, so batch and scalar results are the same code path.
+//! point goes through `Fluid::flash`, so batch and scalar results are the same code path; under `ExecPolicy::Simd` a DT
+//! batch of a Helmholtz fluid evaluates its points' total bundles in lanes first (PLAN.md M12.8).
 #![deny(clippy::indexing_slicing)] // E12: no panicking index on the batch path
+
+use core::any::Any;
 
 #[cfg(feature = "rayon")]
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
@@ -11,8 +14,8 @@ use rayon::slice::{ParallelSlice, ParallelSliceMut};
 use crate::error::Error;
 pub use crate::exec::ExecPolicy;
 use crate::exec::chunk_points;
-use crate::flash::FlashOptions;
-use crate::fluid::Fluid;
+use crate::flash::{self, FlashOptions, GROUP};
+use crate::fluid::{Fluid, PureFluid};
 use crate::input::{Input, Pair};
 use crate::prop::Prop;
 use crate::state::State;
@@ -137,7 +140,8 @@ pub fn evaluate(
     Ok(BatchSummary { points: n, failed_cells: failed })
 }
 
-/// One chunk, point by point. Returns the failed-cell count.
+/// One chunk, point by point, or, under `ExecPolicy::Simd`, a DT chunk of a Helmholtz fluid through [`run_dt_lanes`].
+/// Returns the failed-cell count.
 fn run_chunk(
     fluid: &Fluid,
     req: &BatchRequest<'_>,
@@ -146,21 +150,85 @@ fn run_chunk(
     out: &mut [f64],
     status: &mut [Status],
 ) -> usize {
+    let model: &dyn Any = fluid.model();
+    if let Some(pure) = model.downcast_ref::<PureFluid>()
+        && req.exec == ExecPolicy::Simd
+        && req.pair == Pair::DT
+    {
+        return run_dt_lanes(fluid, pure, req, (xs, ys), out, status);
+    }
     let m = req.outputs.len();
     let mut failed = 0;
     let rows = out.chunks_exact_mut(m).zip(status.chunks_exact_mut(m));
     for ((x, y), (out, status)) in xs.iter().zip(ys).zip(rows) {
         // The single gate (validation, basis, gauge), then the model: exactly the scalar path.
         let state = Input::new(req.pair, *x, *y, req.basis).and_then(|input| fluid.flash(input, &req.flash));
-        let ok = if state.as_ref().is_ok_and(State::is_extrapolated) { Status::Extrapolated } else { Status::Ok };
-        for ((o, s), prop) in out.iter_mut().zip(status.iter_mut()).zip(req.outputs) {
-            let value = state.as_ref().map_err(Clone::clone).and_then(|st| fluid.prop(st, *prop));
-            (*o, *s) = match value {
-                Ok(v) => (v, ok),
-                Err(e) => (f64::NAN, Status::from(&e)),
-            };
-            failed += usize::from(!matches!(*s, Status::Ok | Status::Extrapolated));
+        failed += write_row(fluid, req, &state, out, status);
+    }
+    failed
+}
+
+/// A DT chunk of `pure`, `fluid`'s model, [`GROUP`] points at a time: each point through the single gate as
+/// `Fluid::flash` takes it (validation, basis), then [`flash::dt_lanes`] on the group, whose results are the model's
+/// flash at each point, stamped with the handle's gauge as `Fluid::flash` stamps them. A point the gate refuses keeps
+/// its refusal; its lane holds a copy of the group's first point the gate passes (K17). Returns the failed-cell count.
+fn run_dt_lanes(
+    fluid: &Fluid,
+    pure: &PureFluid,
+    req: &BatchRequest<'_>,
+    (xs, ys): (&[f64], &[f64]),
+    out: &mut [f64],
+    status: &mut [Status],
+) -> usize {
+    let m = req.outputs.len();
+    let mut failed = 0;
+    let groups =
+        xs.chunks(GROUP).zip(ys.chunks(GROUP)).zip(out.chunks_mut(GROUP * m).zip(status.chunks_mut(GROUP * m)));
+    for ((xs, ys), (out, status)) in groups {
+        // (T, ρ) of each point the gate passes, native and molar: DT's x is ρ and its y is T.
+        let points: [Result<(f64, f64), Error>; GROUP] = core::array::from_fn(|k| {
+            let (x, y) = xs.get(k).zip(ys.get(k)).ok_or(Error::Shape { expected: GROUP, found: k })?;
+            let native = fluid.native(Input::new(req.pair, *x, *y, req.basis)?)?;
+            let (rho, t) = native.values();
+            Ok((t, rho))
+        });
+        let mut states: [Result<State, Error>; GROUP] =
+            core::array::from_fn(|_| Err(Error::Shape { expected: 0, found: 0 }));
+        let first = points.iter().find_map(|p| p.as_ref().ok().copied());
+        if let (Some(first), Some(states)) = (first, states.get_mut(..xs.len())) {
+            let lane = |k: usize| points.get(k).and_then(|p| p.as_ref().ok().copied()).unwrap_or(first);
+            let (t, rho): ([f64; GROUP], [f64; GROUP]) =
+                (core::array::from_fn(|k| lane(k).0), core::array::from_fn(|k| lane(k).1));
+            if let (Some(t), Some(rho)) = (t.get(..xs.len()), rho.get(..xs.len())) {
+                flash::dt_lanes(pure, t, rho, &req.flash, states);
+            }
         }
+        let rows = out.chunks_exact_mut(m).zip(status.chunks_exact_mut(m));
+        for ((point, state), (out, status)) in points.into_iter().zip(states).zip(rows) {
+            let state = point.and(state).map(|state| state.with_gauge(fluid.gauge()));
+            failed += write_row(fluid, req, &state, out, status);
+        }
+    }
+    failed
+}
+
+/// One point's row of cells from its flash: each output and its status. Returns the failed-cell count.
+fn write_row(
+    fluid: &Fluid,
+    req: &BatchRequest<'_>,
+    state: &Result<State, Error>,
+    out: &mut [f64],
+    status: &mut [Status],
+) -> usize {
+    let mut failed = 0;
+    let ok = if state.as_ref().is_ok_and(State::is_extrapolated) { Status::Extrapolated } else { Status::Ok };
+    for ((o, s), prop) in out.iter_mut().zip(status.iter_mut()).zip(req.outputs) {
+        let value = state.as_ref().map_err(Clone::clone).and_then(|st| fluid.prop(st, *prop));
+        (*o, *s) = match value {
+            Ok(v) => (v, ok),
+            Err(e) => (f64::NAN, Status::from(&e)),
+        };
+        failed += usize::from(!matches!(*s, Status::Ok | Status::Extrapolated));
     }
     failed
 }

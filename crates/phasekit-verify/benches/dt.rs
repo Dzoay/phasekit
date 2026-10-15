@@ -3,14 +3,20 @@
 //! T_max)], ρ ~ U[0.1, 2]·ρ_c (published critical point). Target ≤ 0.5 µs (ARCHITECTURE.md §7); CoolProp 1.5-10.7 µs
 //! through Python, its C++ 0.76-3.2 µs. `dt_flash`: the flash alone on that grid (`single`), and inside the dome
 //! (`dome`) on the baseline's saturation grid, T ~ U[T_t + 0.05 (T_c − T_t), 0.98 T_c] and Q ~ U[0, 1], ρ from the
-//! superancillary's ρ′ and ρ″ by the lever rule: the phase rule, the curve and two bundles. Recorded by `cargo xtask
-//! bench --record`.
+//! superancillary's ρ′ and ρ″ by the lever rule: the phase rule, the curve and two bundles. `properties_at_t_rho_batch`
+//! (PLAN.md M12.8) evaluates `properties_at_t_rho`'s grid as one `batch::evaluate` call of DT with h and c_p, reported
+//! per state: `scalar` under `ExecPolicy::Reference` (`scalar_libm` built with `--features phasekit-core/libm`), and
+//! `simd`, built with `--features simd`, under `ExecPolicy::Simd`, the total bundles in lanes at the CPU's widest level.
+//! Recorded by `cargo xtask bench --record`.
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
+    use std::time::{Duration, Instant};
+
     use criterion::{BenchmarkId, Criterion, criterion_group};
+    use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
     use phasekit_core::internal::FluidRecord;
-    use phasekit_core::{Basis, DataSet, Density, Fluid, Input, Registry, Temperature};
+    use phasekit_core::{Basis, DataSet, Density, Fluid, Input, Pair, Prop, Registry, Temperature};
     use phasekit_verify::SplitMix64;
 
     /// The bench fluids (VERIFICATION.md §12).
@@ -60,6 +66,32 @@ mod bench {
         g.finish();
     }
 
+    /// `states` as one DT batch of h and c_p per iteration under each policy it times, per state: criterion's median is
+    /// then comparable with `run`'s one state per iteration.
+    fn run_batch(c: &mut Criterion, name: &str, fluid: &Fluid, states: &[Input]) {
+        let (rho, t): (Vec<f64>, Vec<f64>) = states.iter().map(|input| input.values()).unzip();
+        let outputs = [Prop::Hmolar, Prop::Cpmolar];
+        let (mut out, mut status) = (vec![0.0; 2 * states.len()], vec![Status::Ok; 2 * states.len()]);
+        let per_state = u32::try_from(states.len()).unwrap_or(u32::MAX);
+        let backend = if phasekit_core::math::BACKEND == "libm" { "scalar_libm" } else { "scalar" };
+        let simd = cfg!(feature = "simd").then_some((ExecPolicy::Simd, "simd"));
+        let mut g = c.benchmark_group("properties_at_t_rho_batch");
+        for (exec, case) in [(ExecPolicy::Reference, backend)].into_iter().chain(simd) {
+            let req = BatchRequest::new(Pair::DT, Basis::Molar, &rho, &t, &outputs).with_exec(exec);
+            g.bench_function(BenchmarkId::new(name, case), |b| {
+                b.iter_custom(|iters| {
+                    let start = Instant::now();
+                    for _ in 0..iters {
+                        let batch = batch::evaluate(fluid, &req, &mut out, &mut status);
+                        std::hint::black_box((batch.is_ok(), &mut out));
+                    }
+                    start.elapsed().checked_div(per_state).unwrap_or(Duration::ZERO)
+                });
+            });
+        }
+        g.finish();
+    }
+
     fn properties_at_t_rho(c: &mut Criterion) {
         let Ok(registry) = Registry::embedded() else { return };
         for name in FLUIDS {
@@ -69,6 +101,7 @@ mod bench {
             let Some(states) = single(&record) else { return };
             let h_cp = |input| fluid.state(input).map(|s| (s.h(Basis::Molar), s.cp(Basis::Molar)));
             run(c, ("properties_at_t_rho", name, "dt_h_cp"), &states, h_cp);
+            run_batch(c, name, fluid, &states);
         }
     }
 
