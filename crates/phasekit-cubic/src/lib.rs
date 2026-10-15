@@ -7,10 +7,12 @@
 
 mod alpha;
 mod kind;
+mod model;
 mod residual;
 
 pub use alpha::Alpha;
 pub use kind::{Kind, Omegas};
+pub use model::{CubicModel, fluid, with_cubics};
 pub use residual::Residual;
 
 /// The molar gas constant of every cubic model, J/(mol·K): CODATA 2018's, exact since the 2019 SI redefinition, and

@@ -538,6 +538,19 @@ fn div_0047(facts: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0047"]
 }
 
+/// DIV-0048 and DIV-0049 (PLAN.md M11.4): v8.0.0's cubic library's T_c, p_c and ω for Neon and D5, and its α⁰ for R40
+/// (h 2.38e4 J/mol below HEOS's) and R134a (c_p⁰ −5.19e-5) at 500 K and 1e4 Pa.
+fn div_0048_to_0049(facts: &Fixture<'_>) -> Vec<&'static str> {
+    let ok = |name: &str| ok_fact(facts, name);
+    assert!(cites(ok("div0048_tcrit_pr_neon"), "44.4918") && cites(ok("div0048_pcrit_pr_neon") / 1e6, "2.68"));
+    assert!(cites(ok("div0048_acentric_pr_neon"), "-0.0384"));
+    assert!(cites(ok("div0048_tcrit_pr_d5"), "619.15") && cites(ok("div0048_pcrit_pr_d5") / 1e6, "1.16"));
+    assert!(cites(ok("div0048_acentric_pr_d5"), "0.658"));
+    assert!(cites(ok("div0049_hmolar_pr_r40_t500") - ok("div0049_hmolar_heos_r40_t500"), "-2.38e4"));
+    assert!(cites(ok("div0049_cp0molar_pr_r134a_t500") / ok("div0049_cp0molar_heos_r134a_t500") - 1.0, "-5.19e-5"));
+    vec!["DIV-0048", "DIV-0049"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -561,6 +574,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0037_to_0045,
         div_0046,
         div_0047,
+        div_0048_to_0049,
     ]
     .iter()
     .flat_map(|group| group(&facts))

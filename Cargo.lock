@@ -514,6 +514,7 @@ dependencies = [
  "phasekit-capi",
  "phasekit-compat",
  "phasekit-core",
+ "phasekit-cubic",
  "phasekit-data",
  "rayon",
 ]

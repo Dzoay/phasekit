@@ -36,6 +36,7 @@ pub enum Kind {
     Checkpoints,
     Term,
     Eos,
+    Cubic,
     Crit,
     Sat,
     Flash,

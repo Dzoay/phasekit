@@ -95,6 +95,7 @@ jobs:
           cargo xtask oracle --kind term --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind eos --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind eos --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
+          cargo xtask oracle --kind cubic --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind sat --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind sat --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind flash --out "$FIXTURES/coolprop-8.0.0" --write-manifest
@@ -134,6 +135,8 @@ jobs:
             cargo xtask oracle --kind eos --out "$FIXTURES/coolprop-8.0.0" --check
             cargo xtask oracle --kind eos --tier all --out "$FIXTURES/coolprop-8.0.0" --check
             echo "pass $pass: eos/*.csv and all/eos.csv identical"
+            cargo xtask oracle --kind cubic --tier all --out "$FIXTURES/coolprop-8.0.0" --check
+            echo "pass $pass: all/cubic.csv identical"
             cargo xtask oracle --kind sat --out "$FIXTURES/coolprop-8.0.0" --check
             cargo xtask oracle --kind sat --tier all --out "$FIXTURES/coolprop-8.0.0" --check
             echo "pass $pass: sat/*.csv and all/sat.csv identical"
