@@ -30,6 +30,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0007", div_0007),
     ("DIV-0008", div_0008),
     ("DIV-0009", div_0009),
+    ("DIV-0010", div_0010),
     ("DIV-0011", div_0011),
     ("DIV-0012", div_0012),
     ("DIV-0014", div_0014),
@@ -64,6 +65,10 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0043", div_0043),
     ("DIV-0044", div_0044),
     ("DIV-0045", div_0045),
+    ("DIV-0046", div_0046),
+    ("DIV-0047", div_0047),
+    ("DIV-0048", div_0048),
+    ("DIV-0049", div_0049),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1124,4 +1129,108 @@ fn div_0045() {
     let lambda = props("conductivity", ("QT", 1.0, 215.068_075_567_540_23), "R14").unwrap();
     let off = lambda / fact("div0045_lambda_r14_q1_t215.07") - 1.0;
     assert!((off.abs() - 0.23).abs() < 0.01, "{off}");
+}
+
+/// The PR or SRK `kind` of `fluid` from a registry of `data` with the cubics added.
+fn cubic(kind: phasekit_cubic::Kind, fluid: &str, data: DataSet) -> phasekit_core::Fluid {
+    let registry = Registry::from_embedded(data).unwrap();
+    let cubics = phasekit_cubic::with_cubics(&registry, &[kind], data).unwrap();
+    cubics.get(&format!("{}::{fluid}", kind.prefix())).unwrap().clone()
+}
+
+/// A molar (p, T) input.
+fn pt(p: f64, t: f64) -> Input {
+    Input::new(phasekit_core::Pair::PT, p, t, Basis::Molar).unwrap()
+}
+
+/// DIV-0010 (`SkipOracle`, PLAN.md M11.7; map 06 C1, map 12 §6.3): the replacing check, the kit's `entropy_identity`,
+/// holds for phasekit's PR and SRK n-Propane at 400 K and 1 bar, T (∂s/∂T)_p = c_p within 1e-7; v8.0.0's own facts there
+/// still break it: 400 (s(400.01) − s(399.99))/0.02 = 91.35 J/(mol K) against c_p = 93.89.
+fn div_0010() {
+    for kind in [phasekit_cubic::Kind::Pr, phasekit_cubic::Kind::Srk] {
+        let fluid = cubic(kind, "n-Propane", DataSet::Corrected);
+        assert_eq!(phasekit_verify::entropy_identity(&fluid, &[pt(1e5, 400.0)]), Ok(()), "{kind:?}");
+    }
+    let oracle = 400.0 * (fact("div0010_smolar_t400.01") - fact("div0010_smolar_t399.99")) / 0.02;
+    let cp = fact("div0010_cpmolar_t400");
+    assert!((oracle - 91.35).abs() < 0.005 && (cp - 93.89).abs() < 0.005, "{oracle} against {cp}");
+}
+
+/// DIV-0046 (`KeepOracle`, user decision CB1): (1) a cubic's ideal part is its source's `Derivs` bit for bit and its
+/// c_p⁰ the source's times R_CODATA/R_source, with one R in both datasets; (2) phasekit's PR c_p⁰ is the oracle's for
+/// n-Propane, Water and CycloPropane at the facts' states within 1e-14; (3) the source's own c_p⁰ (its paper's α⁰)
+/// differs from the cubic's by the measured ratio, within the entry's bound and only there.
+fn div_0046() {
+    let bound = registered_bound("DIV-0046");
+    for (name, t, key) in [
+        ("n-Propane", 300.0, "n-propane_t300"),
+        ("Water", 400.0, "water_t400"),
+        ("CycloPropane", 300.0, "cyclopropane_t300"),
+    ] {
+        let (pr, parity) = (
+            cubic(phasekit_cubic::Kind::Pr, name, DataSet::Corrected),
+            cubic(phasekit_cubic::Kind::Pr, name, DataSet::Parity),
+        );
+        let source = Registry::embedded().unwrap().get(name).unwrap();
+        let gas_constant = |f: &phasekit_core::Fluid| f.model().helmholtz().unwrap().gas_constant();
+        assert_eq!((gas_constant(&pr), gas_constant(&parity)), (phasekit_cubic::R_CODATA, phasekit_cubic::R_CODATA));
+        let cp0 = |f: &phasekit_core::Fluid| f.prop(&f.state(pt(1e4, t)).unwrap(), Prop::Cp0molar).unwrap();
+        let ratio = phasekit_cubic::R_CODATA / gas_constant(source);
+        assert!((cp0(&pr) / cp0(source) / ratio - 1.0).abs() <= 4.0 * f64::EPSILON, "{name}");
+        let oracle = fact(&format!("div0046_cp0molar_pr_{key}"));
+        assert!((cp0(&parity) / oracle - 1.0).abs() <= 1e-14, "{name}: {} against {oracle}", cp0(&parity));
+        let paper = (cp0(&pr) / cp0(source) - 1.0).abs();
+        assert!(paper <= bound && paper > 1e-7, "{name}: {paper:e} against {bound:e}");
+    }
+}
+
+/// DIV-0047 (`UsePaper`, PLAN.md M11.2): (1) `Corrected`'s SRK meets the exact critical conditions at n-Propane's
+/// critical point, Z = 1/3 and (∂p/∂ρ)_T = 0 within 1e-14; (2) the oracle misses them: Z = 1/3 (1 + 2.08e-9),
+/// (∂p/∂ρ)_T/RT = 1.46e-9; (3) `Parity`'s SRK, with v8.0.0's literals, gives the oracle's Z within 1e-14.
+fn div_0047() {
+    let z_at = |data: DataSet, kind: phasekit_cubic::Kind| {
+        let fluid = cubic(kind, "n-Propane", data);
+        let eos = fluid.model().helmholtz().unwrap();
+        let rho = 4_251_200.0 / (kind.z_c() * phasekit_cubic::R_CODATA * 369.89);
+        let d = eos.residual(369.89, rho, Order::Two);
+        (1.0 + d.get(0, 1).unwrap(), 1.0 + 2.0 * d.get(0, 1).unwrap() + d.get(0, 2).unwrap())
+    };
+    let (z, dp) = z_at(DataSet::Corrected, phasekit_cubic::Kind::Srk);
+    assert!((z * 3.0 - 1.0).abs() <= 1e-14 && dp.abs() <= 1e-14, "{z} {dp:e}");
+    let oracle = fact("div0047_z_srk_n-propane");
+    assert!((oracle * 3.0 - 1.0 - 2.08e-9).abs() < 5e-12, "{oracle}");
+    let (parity, _) = z_at(DataSet::Parity, phasekit_cubic::Kind::Srk);
+    assert!((parity / oracle - 1.0).abs() <= 1e-14, "{parity} against {oracle}");
+}
+
+/// DIV-0048 (`SkipOracle`, PLAN.md M11.4; ROT-216): the replacing check, phasekit's PR Neon and D5 take T_c, p_c and ω
+/// from their records; v8.0.0's library still holds its drifted copies (Neon 44.4918 K, D5 619.15 K).
+fn div_0048() {
+    for (name, tc_library) in [("Neon", 44.4918), ("D5", 619.15)] {
+        let pr = cubic(phasekit_cubic::Kind::Pr, name, DataSet::Corrected);
+        let record = Registry::embedded().unwrap().get(name).unwrap().info().published_critical().unwrap();
+        assert_eq!(pr.model().critical_point().unwrap().t, record.t, "{name}");
+        let oracle = fact(&format!("div0048_tcrit_pr_{}", name.to_lowercase()));
+        assert!((oracle - tc_library).abs() < 1e-9 && (oracle - record.t).abs() > 0.05, "{name}: {oracle}");
+    }
+}
+
+/// DIV-0049 (`SkipOracle`, PLAN.md M11.4; map 15 X6): the replacing check, phasekit's PR R40 and R134a take their HEOS
+/// fluid's α⁰, so their c_p⁰ is the source's times the R ratio; v8.0.0's still differs: R40's h 2.38e4 J/mol below its
+/// HEOS fluid's, R134a's c_p⁰ by −5.19e-5 (at 500 K, above R134a's 455 K T_max, so evaluated under `Extrapolate`).
+fn div_0049() {
+    for (name, t) in [("R40", 500.0), ("R134a", 500.0)] {
+        let (pr, source) = (
+            cubic(phasekit_cubic::Kind::Pr, name, DataSet::Corrected),
+            Registry::embedded().unwrap().get(name).unwrap(),
+        );
+        let extrapolate = FlashOptions::new().with_domain(phasekit_core::DomainPolicy::Extrapolate);
+        let cp0 =
+            |f: &phasekit_core::Fluid| f.prop(&f.flash(pt(1e4, t), &extrapolate).unwrap(), Prop::Cp0molar).unwrap();
+        let ratio = phasekit_cubic::R_CODATA / source.model().helmholtz().unwrap().gas_constant();
+        assert!((cp0(&pr) / cp0(source) / ratio - 1.0).abs() <= 4.0 * f64::EPSILON, "{name}");
+    }
+    let h_offset = fact("div0049_hmolar_pr_r40_t500") - fact("div0049_hmolar_heos_r40_t500");
+    let cp0_offset = fact("div0049_cp0molar_pr_r134a_t500") / fact("div0049_cp0molar_heos_r134a_t500") - 1.0;
+    assert!((h_offset + 2.38e4).abs() < 50.0 && (cp0_offset + 5.19e-5).abs() < 5e-8, "{h_offset} {cp0_offset:e}");
 }

@@ -708,6 +708,7 @@ so it needs no oracle (`crates/phasekit-verify/src/conformance.rs`).
 | Executors | `policy_equivalence` | 9.1 | `Exact` | M1 |
 | Identities | `identities(fluid, states)` | the 8.1 list | `Identity` | M20.2; until then `tests/eos.rs` checks them |
 | Part additivity | `part_additivity` | `ThermoModel::derivs`: total = ideal + residual | `Identity` | M20.2 |
+| Entropy | `entropy_identity(fluid, inputs)` | T (∂s/∂T)_p = c_p, the derivative from entropies flashed along the isobar, not from the bundle (catches an α⁰ chain rule dropped, DIV-0010) | 1e-7 relative | M11.7 |
 | Capability | `capability_matrix` | 8.5 | `Flash` | M7 |
 | Threads | `thread_invariance` | 1..N threads and racing first use, bitwise | `Exact` | M9 |
 

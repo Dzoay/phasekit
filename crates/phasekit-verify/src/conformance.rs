@@ -46,6 +46,32 @@ pub fn fd_first_order<M: HelmholtzModel + ?Sized>(
     Ok(())
 }
 
+/// ROT-212 (PLAN.md M11.7): T (∂s/∂T)_p = c_p at each single-phase state `inputs` flash to, with (∂s/∂T)_p by central
+/// differences of the entropy flashed along the isobar (step 1e-5 T), within 1e-7 of c_p. The derivative comes from the
+/// states, not from the bundle's relations, so an ideal part whose T-derivatives lack its reducing state's chain rule
+/// fails it by percent, as v8.0.0's cubics do (map 06 C1, DIV-0010: 91.35 against 93.89 J/(mol K) for PR n-Propane at
+/// 400 K and 1 bar). Two-phase states are skipped; a failed flash is a mismatch.
+pub fn entropy_identity(fluid: &Fluid, inputs: &[Input]) -> Result<(), Mismatch> {
+    let failed = |at: usize| Mismatch { what: "flash", at, got: f64::NAN, want: 0.0 };
+    for (at, &input) in inputs.iter().enumerate() {
+        let state = fluid.state(input).map_err(|_| failed(at))?;
+        if state.quality().is_some() {
+            continue;
+        }
+        let (t, p, h) = (state.t(), state.p(), 1e-5 * state.t());
+        let s = |t: f64| {
+            let input = Input::new(Pair::PT, p, t, Basis::Molar).map_err(|_| failed(at))?;
+            fluid.state(input).map(|s| s.s(Basis::Molar)).map_err(|_| failed(at))
+        };
+        let got = t * (s(t + h)? - s(t - h)?) / (2.0 * h);
+        let want = state.cp(Basis::Molar).map_err(|_| failed(at))?;
+        if (got - want).abs().is_nan() || (got - want).abs() > 1e-7 * want.abs() {
+            return Err(Mismatch { what: "T(ds/dT)p", at, got, want });
+        }
+    }
+    Ok(())
+}
+
 /// Map 15 §8 at every input: the handle in `gauge` and the handle as given flash the same state, except that h and u
 /// move by exactly Δh, s by Δs and g and a by Δh − TΔs (the difference of the two gauges); see [`gauged_pair`].
 pub fn gauge_invariance(fluid: &Fluid, gauge: Gauge, inputs: &[Input]) -> Result<(), Mismatch> {

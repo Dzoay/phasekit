@@ -522,13 +522,8 @@ oracle: no v8.0.0 fluid carries their coefficients (map 06 §4). M11 closes by s
 | M11.4 | `CubicModel` (R_CODATA; α^r from `Residual`; α⁰ the source's, unchanged); `fluid(&source, kind, alpha, data)` from the source's published critical point and ω, its limits and molar mass, the cubic's own critical point (`CriticalOrigin::Model`); `with_cubics` registers `VDW::`, `SRK::` and `PR::` for every pure fluid, aliases prefixed, blends left out; oracle kind `cubic` (1856 rows: SRK and PR for v8.0.0's 116 cubic fluids), within 1e-12 on `Parity` for 83 fluids; DIV-0048 (21 fluids whose library T_c, p_c or ω drifted, ROT-216) and DIV-0049 (12 whose library α⁰ drifted) `SkipOracle`; DIV-0046's parts 1 and 2 |
 | M11.5 | `CubicSaturation`: Bell and Deiters' (2021) SRK and PR superancillary, transcribed from v8.0.0's `cubicsuperancillary.h` (checked number for number by xtask's `cubic_superancillary_is_coolprops`), `Exact` over T̃ ∈ [0.1, 1]·T̃_c, `at_p` by an Illinois solve in ln p; every SRK and PR fluid carries it; vdW has none, so the core's VLE serves its DT in the dome and its quality pairs are `Unsupported`; its saturations are the cubic's phase equilibria (p to 1e-12 ρRT, Δg/RT to 1e-12, 1e-10 within 1e-3 of T_c; ROT-219); oracle kind `cubic_sat` (1160 rows) within 1e-13 in ρ′, 2e-12 in p and ρ″ |
 | M11.6 | `tests/cubic_family.rs`: the conformance kit on vdW, SRK and PR fluids of n-Propane, Water and CO₂ in both datasets: the 19 × 2 capability matrix (vdW's quality pairs `Unsupported`, as the core declares them only with a saturation curve), gauge invariance, `Reference`/`Parallel`/`Simd` bitwise on DT, PT, QT and PQ batches, `fd_first_order` (ROT-213, ROT-214); PT at a subcritical isotherm's spinodal double roots finite, at the critical point a typed refusal (ROT-220); R_CODATA/R_source scales c_p⁰ and is no reference shift (ROT-107) |
+| M11.7 | the kit's `entropy_identity(fluid, inputs)`: T (∂s/∂T)_p = c_p with the derivative from flashed entropies, within 1e-7; it holds on every cubic fluid, the out-of-tree vdW family and five embedded fluids, and fails a PR n-Propane whose ideal T-derivatives lack a chain rule (ROT-212); `tests/divergences.rs` proves DIV-0010 (phasekit's PR and SRK n-Propane meet the identity at 400 K and 1 bar, v8.0.0's facts give 91.35 against 93.89 J/(mol K)) and DIV-0046 to DIV-0049, so all are due at M11's close |
 
-- **M11.7 DIV-0010 and the entropy identity.** `div_0010` in `tests/divergences.rs` (phasekit-verify dev-depends on
-  phasekit-cubic): phasekit's PR n-Propane at 400 K and 1 bar has T(∂s/∂T)_p = c_p in class `Identity`, while the
-  oracle's facts still give 91.35 and 93.89 J/(mol·K) (map 12 §6.3); DIV-0010's `exempt` names the entropy outputs
-  and the S-input pairs of cubic fluids. The identity joins the kit as `entropy_identity(fluid, states)` and runs on
-  every family in `tests/new_family.rs` and on the embedded fluids (ROT-212); M20.2's `identities` absorbs it. *Red:*
-  `div_0010` and `entropy_identity` against a cubic whose ideal part drops the T_c/T_r chain rule, as v8.0.0 does.
 - **M11.8 M11 closed.** `MILESTONE` = 12, which makes every M11 proof and ROT row due: ROT-107 and ROT-213 to ROT-220
   ticked; ROT-221 (volume translation) stays deferred. `gates core-frozen` passes since `m11-start` (the zero-line core
   diff), and `ci/core-frozen.txt` then names no tag. ARCHITECTURE.md's crate table and §11, VERIFICATION.md §10 and the
@@ -578,7 +573,7 @@ are independent and may be reordered. M20 does not move `MILESTONE`.
   differences of its property along the held variable on the `eos` grid (class `Fd`), and the τ and δ derivatives
   against the T and ρ ones scaled by the reducing state (`Identity`), against a grammar that refuses the new names.
 - **M20.2 The conformance kit's `identities` and `part_additivity`.** `phasekit_verify::identities(fluid, states)`
-  asserts VERIFICATION.md §8.1's list in class `Identity`, moved into the kit from `tests/eos.rs`, which then calls it
+  asserts VERIFICATION.md §8.1's list in class `Identity` (M11.7's `entropy_identity` beside it), moved into the kit from `tests/eos.rs`, which then calls it
   per embedded fluid; `part_additivity` asserts that `ThermoModel::derivs`'s total is its ideal part plus its residual
   part. VERIFICATION.md §10's two rows say M20.2. *Red:* `tests/new_family.rs` runs both on its van der Waals family,
   against kit functions that report a mismatch.
