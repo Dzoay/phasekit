@@ -33,9 +33,9 @@ pub enum ExecPolicy {
     },
     /// States side by side in lanes, on the calling thread (user decision SL5), where the batch has a lane kernel:
     /// α^r through the built-in EOS's `HelmholtzModel::residual_batch`. Other batches run the scalar path. With the
-    /// `simd` feature the lanes run at the CPU's widest level, detected once per batch (8 on AVX-512, 4 on AVX2, 2
-    /// below; PLAN.md M12.4); without it, two lanes at the target's baseline, a measured win over the scalar path
-    /// (M12.3). Each lane is its state's scalar evaluation, and a short last group is padded with copies of one of its
+    /// `simd` feature the lanes run at the CPU's widest level, detected once per batch, four vectors to a lane
+    /// operation (32 lanes on AVX-512, 16 on AVX2, 8 below; PLAN.md M12.4, M12.7); without it, two lanes at the target's
+    /// baseline, a measured win over the scalar path (M12.3). Each lane is its state's scalar evaluation, and a short last group is padded with copies of one of its
     /// states (K17), so the bits are `Reference`'s.
     Simd,
 }
@@ -139,10 +139,12 @@ pub(crate) fn run_lanes<K: LaneKernel, const W: usize>(kernel: &K, x: &[f64], y:
     }
 }
 
-/// [`run_lanes`] under `level`'s target features (fearless_simd's `vectorize`, as its `dispatch!` calls it), as wide as
-/// the level's vectors: 8 lanes on AVX-512, 4 on AVX2, 2 on SSE2, SSE4.2, NEON and WASM's simd128, and 2 without
-/// target features at a fallback level (PLAN.md M12.4). The kernel is `#[inline(always)]` down to the lane
-/// operations, so the level's instructions reach them; transcendentals still run per lane through `math`.
+/// [`run_wide`] under `level`'s target features (fearless_simd's `vectorize`, as its `dispatch!` calls it), four vectors
+/// to a lane operation: 32 lanes on AVX-512, 16 on AVX2, 8 on SSE2, SSE4.2, NEON and WASM's simd128 (measured on the
+/// i7-8700K at M12.7: independent multiply-add chains fill the pipelines that one vector's latency leaves idle; eight
+/// vectors run out of registers). A fallback level runs 2 lanes without target features. The kernel is
+/// `#[inline(always)]` down to the lane operations, so the level's instructions reach them; transcendentals other than
+/// `exp` and `ln` still run per lane through `math`.
 #[cfg(feature = "simd")]
 pub(crate) fn run_simd<K: LaneKernel>(level: Level, kernel: &K, x: &[f64], y: &[f64], out: &mut [K::Out]) {
     use fearless_simd::Simd;
@@ -150,35 +152,51 @@ pub(crate) fn run_simd<K: LaneKernel>(level: Level, kernel: &K, x: &[f64], y: &[
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         Level::Avx512(simd) => simd.vectorize(
             #[inline(always)]
-            || run_lanes::<K, 8>(kernel, x, y, out),
+            || run_wide::<K, 32, 8>(kernel, x, y, out),
         ),
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         Level::Avx2(simd) => simd.vectorize(
             #[inline(always)]
-            || run_lanes::<K, 4>(kernel, x, y, out),
+            || run_wide::<K, 16, 4>(kernel, x, y, out),
         ),
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         Level::Sse4_2(simd) => simd.vectorize(
             #[inline(always)]
-            || run_lanes::<K, 2>(kernel, x, y, out),
+            || run_wide::<K, 8, 2>(kernel, x, y, out),
         ),
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         Level::Sse2(simd) => simd.vectorize(
             #[inline(always)]
-            || run_lanes::<K, 2>(kernel, x, y, out),
+            || run_wide::<K, 8, 2>(kernel, x, y, out),
         ),
         #[cfg(target_arch = "aarch64")]
         Level::Neon(simd) => simd.vectorize(
             #[inline(always)]
-            || run_lanes::<K, 2>(kernel, x, y, out),
+            || run_wide::<K, 8, 2>(kernel, x, y, out),
         ),
         #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
         Level::WasmSimd128(simd) => simd.vectorize(
             #[inline(always)]
-            || run_lanes::<K, 2>(kernel, x, y, out),
+            || run_wide::<K, 8, 2>(kernel, x, y, out),
         ),
         _ => run_lanes::<K, 2>(kernel, x, y, out),
     }
+}
+
+/// [`run_lanes`] at `W` lanes over the batch's whole groups of `W`, then at `V`, one vector, over the rest, so a short
+/// batch does not evaluate `W` lanes for a few states (PLAN.md M12.7). Every lane is its state's scalar evaluation,
+/// whatever its width.
+#[cfg(feature = "simd")]
+#[inline(always)]
+fn run_wide<K: LaneKernel, const W: usize, const V: usize>(kernel: &K, x: &[f64], y: &[f64], out: &mut [K::Out]) {
+    let whole = x.len() - x.len() % W;
+    let (Some((xw, xr)), Some((yw, yr)), Some((ow, or))) =
+        (x.split_at_checked(whole), y.split_at_checked(whole), out.split_at_mut_checked(whole))
+    else {
+        return;
+    };
+    run_lanes::<K, W>(kernel, xw, yw, ow);
+    run_lanes::<K, V>(kernel, xr, yr, or);
 }
 
 /// `run` on the batch in `chunk`-point pieces (`chunk` > 0): on rayon's current pool when the `rayon` feature is on and
@@ -276,12 +294,12 @@ pub(crate) mod tests {
         }
     }
 
-    /// PLAN.md M12.4: at every dispatch level of this CPU (8 lanes on AVX-512, 4 on AVX2, 2 below), `run_simd` writes
-    /// every point's own result for every batch length up to 17, padding lanes with states of the batch.
+    /// PLAN.md M12.4, M12.7: at every dispatch level of this CPU, `run_simd` writes every point's own result for every
+    /// batch length up to 40 (whole groups of 16 on AVX2 and the rest 4 wide), padding lanes with states of the batch.
     #[cfg(feature = "simd")]
     #[test]
     fn every_level_writes_every_point() {
-        let batch: Vec<f64> = (1..=17).map(|i| f64::from(i) * 1.5).collect();
+        let batch: Vec<f64> = (1..=40).map(|i| f64::from(i) * 1.5).collect();
         let neg: Vec<f64> = batch.iter().map(|x| -x).collect();
         let kernel = Tagged { batch: &batch };
         for level in levels() {
@@ -309,23 +327,25 @@ pub(crate) mod tests {
         }
     }
 
-    /// PLAN.md M12.4: `run_simd` runs each level as wide as its vectors, 8 lanes on AVX-512, 4 on AVX2 and 2 below. The
-    /// widths change no bits (every lane is its state's scalar evaluation), so only this test can see them.
+    /// PLAN.md M12.4, M12.7: `run_simd` runs each level four vectors to a lane operation (32 lanes on AVX-512, 16 on
+    /// AVX2, 8 below) over the batch's whole groups, and one vector wide (8, 4, 2) over the rest. The widths change no
+    /// bits (every lane is its state's scalar evaluation), so only this test can see them.
     #[cfg(feature = "simd")]
     #[test]
     fn each_level_runs_its_own_width() {
         for level in levels() {
             let name = format!("{level:?}");
-            let want = if name.starts_with("Avx512") {
-                8
-            } else if name.starts_with("Avx2") {
-                4
-            } else {
-                2
+            let (wide, vector) = match name.split('(').next() {
+                Some("Avx512") => (32, 8),
+                Some("Avx2") => (16, 4),
+                Some("Fallback") => (2, 2),
+                _ => (8, 2),
             };
-            let mut out = [0; 9];
-            run_simd(level, &Width, &[1.0; 9], &[1.0; 9], &mut out);
-            assert_eq!(out, [want; 9], "{name}");
+            let mut out = [0; 43];
+            run_simd(level, &Width, &[1.0; 43], &[1.0; 43], &mut out);
+            let whole = 43 - 43 % wide;
+            let want: Vec<usize> = (0..43).map(|i| if i < whole { wide } else { vector }).collect();
+            assert_eq!(out.to_vec(), want, "{name}");
         }
     }
 

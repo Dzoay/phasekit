@@ -519,12 +519,8 @@ move `MILESTONE`: M11 stays the first open milestone.
 | M12.4 | the `simd` feature (fearless_simd 1.1): `run_simd` at 8, 4 or 2 lanes per level; n-Propane α^r 258 ns on AVX2 with per-lane `libm`, 1.21× std's scalar path |
 | M12.5 | `Lanes::exp`, libm 0.2.16's `exp` ported to lanes with the `libm` backend, bitwise; n-Propane α^r 216 ns on AVX2, 1.44× std's scalar path |
 | M12.6 | `Lanes::ln`, libm 0.2.16's `log` ported to lanes with the `libm` backend, bitwise; n-Propane α^r 215 ns on AVX2 (one `ln` per state) |
+| M12.7 | the gate: four vectors to a lane operation (16 lanes on AVX2, user decision SL6); n-Propane α^r 109.2 ns, 2.87× over M12.1: the ≥ 2.5× gate passes (SL3); ≤ 0.1 µs/state missed, issue #171 |
 
-- **M12.7 The gate.** Bench `alphar_batch/simd` on the i7-8700K (AVX2). It ships at ≥ 2.5× over M12.1's
-  `alphar_batch/scalar` of the default build for n-Propane, the §7 row's 16-20-term fluid (user decision SL3); the
-  other bench fluids are recorded. `gates perf --targets` gains the ≤ 0.1 µs/state row, and a miss names its re-plan
-  issue in `ci/perf-exemptions.txt` (SL3). *Red:* `targets_match_the_architecture_table` with the row added to
-  `TARGETS` first. *Done when:* the record and the targets check pass, or the gate fails and the stack closes (Entry).
 - **M12.8 Properties at (T, ρ) in lanes.** `Pair::DT` batches under the lanes variant: α⁰ and the relations from the
   bundle in lanes. Points inside the dome (T < T_c, ρ between the saturated densities), and every point a lane kernel
   refuses, take the scalar path in place. α⁰'s other transcendentals run per lane through `math` unless a measurement
@@ -540,7 +536,7 @@ move `MILESTONE`: M11 stays the first open milestone.
 **Exit gate.** G1-G8 with and without `--features simd`; `policy_equivalence` bitwise at every dispatch level of the
 i7-8700K, the CI runners (x86-64, aarch64) and wasip2 with `simd128`; the lane `exp`/`ln` bitwise equal to `libm`'s;
 the `simd` build reproduces `fixtures/hash/libm.txt`; the K1/K2 paper rows pass at every level (VERIFICATION.md §9.2);
-≥ 2.5× (SL3). **ROT rows.** None. **User decisions implemented.** SL1, SL2, SL3.
+≥ 2.5× (SL3). **ROT rows.** None. **User decisions implemented.** SL1, SL2, SL3, SL6.
 
 ### M20 Follow-ups
 

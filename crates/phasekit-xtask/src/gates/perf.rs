@@ -31,13 +31,14 @@ pub enum Target {
 /// ARCHITECTURE.md §7's per-core targets, as criterion bench ids of `benches/` (the `bench` column of a results file),
 /// the fluids they apply to (`None`: every fluid the bench records), the target, and the §7 row it comes from.
 /// `targets_match_the_architecture_table` keeps them equal to the table.
-pub const TARGETS: [(&str, Option<&str>, Target, &str); 7] = [
+pub const TARGETS: [(&str, Option<&str>, Target, &str); 8] = [
     (
         "alphar_order2/residual",
         Some("n-Propane"),
         Target::CoolProp("alphar2", 1.0),
         "α^r bundle, order 2, 16-20 terms | ≤ CoolProp's",
     ),
+    ("alphar_batch/simd", Some("n-Propane"), Target::Ns(100.0), "Same, AVX2 across states | ≤ 0.1 µs/state"),
     ("properties_at_t_rho/dt_h_cp", None, Target::CoolProp("dt_h_cp", 1.0), "Properties at (T, ρ) | ≤ CoolProp's"),
     ("qt_superancillary/qt_h", None, Target::CoolProp("qt_h", 1.0), "QT / PQ + h via superancillary | ≤ CoolProp's"),
     ("pq_superancillary/pq_h", None, Target::CoolProp("pq_h", 1.0), "QT / PQ + h via superancillary | ≤ CoolProp's"),
@@ -454,7 +455,14 @@ mod tests {
                     continue;
                 }
             };
-            let micro = |s: &str| s.trim_start_matches("≤ ").trim_end_matches(" µs").parse::<f64>().map(|v| v * 1e3);
+            // A per-state target (the batch rows) is per state in the results file too.
+            let micro = |s: &str| {
+                s.trim_start_matches("≤ ")
+                    .trim_end_matches("/state")
+                    .trim_end_matches(" µs")
+                    .parse::<f64>()
+                    .map(|v| v * 1e3)
+            };
             let stated: Vec<f64> = target
                 .split(" / ")
                 .filter_map(|t| {
