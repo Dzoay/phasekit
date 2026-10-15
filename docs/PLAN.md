@@ -49,7 +49,7 @@ baseline). The sketch is never edited.
 | Level | Done means |
 |---|---|
 | Step | The named failing tests existed and were red first (evidence in the PR). They are now green. G1-G8 (section 2.4) pass locally and in CI. No new `#[ignore]` outside the grammar of section 2.1. `missing_docs` is clean. The step's ROT rows are ticked. The commit carries the step ID in its `Plan-Step:` footer. |
-| Milestone | Every step is done. Every exit-gate item passes with the stated numbers: items marked *(nightly)* on the first green nightly run that includes them (Linux x86-64 only); all other items per PR on Linux x86-64, Windows MSVC and wasm32-wasip2 (D15), except items checked by `phasekit-xtask` (datagen, `gates`), which is a Linux tool (section 2.5). The closing step sets `phasekit_verify::MILESTONE` to n + 1, which arms two fail-closed checks: every divergence proof due by Mn exists (`tests/divergences.rs`, VERIFICATION.md §6.3) and every ROT row of Mn is ticked (`cargo xtask gates rot`). Benches for paths that landed are recorded (section 5.1). CI is green on `main` (a milestone cannot close while CI is owed). A tag `m<n>` is set on the merge commit. |
+| Milestone | Every step is done. Every exit-gate item passes with the stated numbers: items marked *(nightly)* on the first green nightly run that includes them (Linux x86-64 only); all other items per PR on Linux x86-64, Windows MSVC and wasm32-wasip2 (D15), except items checked by `phasekit-xtask` (datagen, `gates`), which is a Linux tool (section 2.5). The closing step sets `phasekit_verify::MILESTONE` to the first milestone still open (n + 1, unless a later one closed first, as M12 did before M11), which arms two fail-closed checks: every divergence proof due by Mn exists (`tests/divergences.rs`, VERIFICATION.md §6.3) and every ROT row of Mn is ticked (`cargo xtask gates rot`). Benches for paths that landed are recorded (section 5.1). CI is green on `main` (a milestone cannot close while CI is owed). A tag `m<n>` is set on the merge commit. |
 | v0.1 | M10 is done and the release checklist (section 5.4) is complete. |
 
 ### 0.3 When CoolProp and the literature disagree
@@ -512,7 +512,8 @@ The user's word, before `v0.1.0`, on the i7-8700K (user decision CB2); the steps
 alone. **Arbiters.** No cubic paper is in `reference/papers`, so the arbiters are analytic (each kind's critical-point
 conditions fix Ω_a, Ω_b and Z_c; exact virials), the identities of VERIFICATION.md §8 and AD; the oracle checks PR and
 SRK at c = 0 where map 06 §8 says it can, never entropy (DIV-0010) or QT beyond 1e-6. Mathias-Copeman and Twu have no
-oracle: no v8.0.0 fluid carries their coefficients (map 06 §4). M11 closes by setting `MILESTONE` to 12.
+oracle: no v8.0.0 fluid carries their coefficients (map 06 §4). M11 closes by setting `MILESTONE` to 13: M12 closed
+first without moving it, so M13 is then the first open milestone.
 
 | Step | Landed |
 |---|---|
@@ -523,11 +524,7 @@ oracle: no v8.0.0 fluid carries their coefficients (map 06 §4). M11 closes by s
 | M11.5 | `CubicSaturation`: Bell and Deiters' (2021) SRK and PR superancillary, transcribed from v8.0.0's `cubicsuperancillary.h` (checked number for number by xtask's `cubic_superancillary_is_coolprops`), `Exact` over T̃ ∈ [0.1, 1]·T̃_c, `at_p` by an Illinois solve in ln p; every SRK and PR fluid carries it; vdW has none, so the core's VLE serves its DT in the dome and its quality pairs are `Unsupported`; its saturations are the cubic's phase equilibria (p to 1e-12 ρRT, Δg/RT to 1e-12, 1e-10 within 1e-3 of T_c; ROT-219); oracle kind `cubic_sat` (1160 rows) within 1e-13 in ρ′, 2e-12 in p and ρ″ |
 | M11.6 | `tests/cubic_family.rs`: the conformance kit on vdW, SRK and PR fluids of n-Propane, Water and CO₂ in both datasets: the 19 × 2 capability matrix (vdW's quality pairs `Unsupported`, as the core declares them only with a saturation curve), gauge invariance, `Reference`/`Parallel`/`Simd` bitwise on DT, PT, QT and PQ batches, `fd_first_order` (ROT-213, ROT-214); PT at a subcritical isotherm's spinodal double roots finite, at the critical point a typed refusal (ROT-220); R_CODATA/R_source scales c_p⁰ and is no reference shift (ROT-107) |
 | M11.7 | the kit's `entropy_identity(fluid, inputs)`: T (∂s/∂T)_p = c_p with the derivative from flashed entropies, within 1e-7; it holds on every cubic fluid, the out-of-tree vdW family and five embedded fluids, and fails a PR n-Propane whose ideal T-derivatives lack a chain rule (ROT-212); `tests/divergences.rs` proves DIV-0010 (phasekit's PR and SRK n-Propane meet the identity at 400 K and 1 bar, v8.0.0's facts give 91.35 against 93.89 J/(mol K)) and DIV-0046 to DIV-0049, so all are due at M11's close |
-
-- **M11.8 M11 closed.** `MILESTONE` = 12, which makes every M11 proof and ROT row due: ROT-107 and ROT-213 to ROT-220
-  ticked; ROT-221 (volume translation) stays deferred. `gates core-frozen` passes since `m11-start` (the zero-line core
-  diff), and `ci/core-frozen.txt` then names no tag. ARCHITECTURE.md's crate table and §11, VERIFICATION.md §10 and the
-  README say what landed. Tag `m11` with the user's approval.
+| M11.8 | M11 closed: `MILESTONE` = 13 (M12 closed first), every M11 proof due and present (DIV-0010, DIV-0046 to DIV-0049) and every M11 ROT row ticked (ROT-221, volume translation, moves to post-0.1); `crates/phasekit-core/` unchanged since `m11-start`, and `ci/core-frozen.txt` names no tag; ARCHITECTURE.md's crate table and §11, VERIFICATION.md §10 and the README name the crate |
 
 **Exit gate.** G1-G8; `gates core-frozen` since `m11-start`; the conformance kit on every cubic kind; DIV-0010's and
 DIV-0046's proofs; Z_c = 3/8 (vdW), 1/3 (SRK) and 0.30740 (PR). **ROT rows.** ROT-107, ROT-212 (its identity),

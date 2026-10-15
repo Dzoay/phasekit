@@ -86,6 +86,7 @@ Each crate's dependencies are its `Cargo.toml`; their tiers, [DEPENDENCIES.md](D
 | `phasekit-data` | Generated per-fluid LE blobs, index with declared references, `DATASET` id, CoolProp MIT notice. No logic | `all` (default), `core`, `fluid-<name>` (generated; each enables its ECS reference fluids) | Yes (`#![no_std]`) |
 | `phasekit-compat` | `props_si_in(&Registry, ..)`, CoolProp names and keys, `FillPolicy`, legacy policies | `fluids-all` (default), `fluids-core`, `embedded` (forwarded) | No |
 | `phasekit-capi` (M10) | `extern "C"` facade: `pk_*` symbols, registry handles, string keys, status codes, thread-local error; the Tier A CoolPropLib.h shim (v8.0.0 codes, process-wide errstring; D11) | forwards `fluids-*`; `coolproplib-shim` | No |
+| `phasekit-cubic` (M11) | vdW, SRK and PR cubics on a borrowed HEOS ideal gas (one R, user decision CB1): `fluid`, `with_cubics` (`VDW::`, `SRK::`, `PR::` names), Soave, Mathias-Copeman and Twu alphas, Bell and Deiters' SRK and PR superancillary; on `phasekit-core`'s public API alone | none | No |
 | `phasekit-wasm` (M10) | wasm-bindgen browser package, baseline and `+simd128` builds | `simd` (the `simd128` build's: core's `simd`, M12.10) | No |
 | `phasekit-py` (after 0.1) | pyo3 abi3 wheels: import name `phasekit`, plus `phasekit.compat` for migration (D11) | forwards `fluids-*`; `numpy` | No |
 | `phasekit-verify` | Verification kit + conformance corpus + fixtures + benches; reusable by any family crate | none | No |
@@ -862,7 +863,7 @@ divergence register (its policies, statuses and three-part proofs), §6, with th
 
 | Extension | Seam that exists now | Core edits | Proof |
 |---|---|---|---|
-| New Helmholtz family (cubic, PC-SAFT, user EOS) | `HelmholtzModel` + `PureFluid::builder` + `Registry::with_model` | 0 | `tests/new_family.rs` (vdW out of tree: registry, flash, derivative outputs, exact virials, gauge, batch, compat, 16 threads); M11 zero-line diff |
+| New Helmholtz family (cubic, PC-SAFT, user EOS) | `HelmholtzModel` + `PureFluid::builder` + `Registry::with_model` | 0 | `tests/new_family.rs` (vdW out of tree: registry, flash, derivative outputs, exact virials, gauge, batch, compat, 16 threads); `phasekit-cubic` in tree, built with a zero-line core diff (M11, `gates core-frozen`) and checked by `tests/cubic_family.rs` |
 | Family's own saturation method | `SaturationCurve` returning `SatPair` with `SatAccuracy` | 0 | trait is open; flash phase rule consumes it |
 | Family borrowing another model (canonical ideal gas, map 15 X6) | a `Fluid` passed at construction; `fluid.model().helmholtz()?.ideal(t, rho, order)` in (T, ρ). One R, CoolProp's 8.31446261815324, in both datasets (user decision CB1, replacing 10; map 15 X11, §10 Q2): the borrowed α⁰ is the source's dimensionless function, so its c_p⁰ is the source's times R_CODATA/R_source; register entry DIV-0046 (`KeepOracle`) at M11 | 0 | reducing-invariant `Derivs` (map 06 C1) |
 | Gibbs solid, IF97 regions, ice Ih, Bollengier | `ThermoModel` + `bundle_from_gibbs` + `State::from_total` + `Phase::Solid` | 0 | `tests/gibbs_seam.rs` (registry, reference state, batch, compat, partial derivatives); M14 zero-line diff |

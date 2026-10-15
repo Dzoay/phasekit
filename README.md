@@ -56,7 +56,7 @@ follow afterwards ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)).
 docs/        design, plan and evidence (above)
 scripts/     fetch-coolprop.sh, check-toolchain.sh, the oracle generator (oracle/), the C++ baseline (baseline/) and
              the release artefacts (release/)
-crates/      the Cargo workspace: phasekit-core, -data, -compat, -capi, -wasm, -verify, -xtask; later -py
+crates/      the Cargo workspace: phasekit-core, -data, -compat, -cubic, -capi, -wasm, -verify, -xtask; later -py
 reference/   gitignored: the pinned CoolProp checkout and local papers
 ```
 
