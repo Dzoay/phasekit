@@ -472,7 +472,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 
 | M | Crate | Entry trigger | Scope | Exit gate |
 |---|---|---|---|---|
-| M11 | `phasekit-cubic` | v0.1 released | vdW/SRK/PR via Δ1/Δ2, Soave/MC/Twu alpha, parameters from the canonical fluid records, borrowed HEOS ideal gas, cubic superancillary (map 06 U1-U5) | Zero-line core diff; `new_family` conformance; cubic-R register entry (below); DIV-0010 proof by the entropy identity (oracle PR propane 400 K, 1 bar: T(∂s/∂T)_p = 91.35 vs cp = 93.89 J/mol/K; map 12 §6.3); Z_c = 1/3 (SRK), 0.30740 (PR) (map 06 §8) |
+| M11 | `phasekit-cubic` | The user's word, before `v0.1.0` (user decision CB2) | vdW/SRK/PR via Δ1/Δ2, Soave/MC/Twu alpha, parameters from the canonical fluid records, borrowed HEOS ideal gas, cubic superancillary (map 06 U1-U5), eight steps: [M11 Cubic family](#m11-cubic-family) | Zero-line core diff; `new_family` conformance; cubic-R register entry (below); DIV-0010 proof by the entropy identity (oracle PR propane 400 K, 1 bar: T(∂s/∂T)_p = 91.35 vs cp = 93.89 J/mol/K; map 12 §6.3); Z_c = 1/3 (SRK), 0.30740 (PR) (map 06 §8) |
 | M12 | core `simd` feature | Built from 2026-10-13 in a worktree; merged when green, before the `v0.1.0` tag if it is ready first (user decision RL4) | A time-boxed SIMD spike (the user's follow-up asks to investigate SIMD), ten steps: [M12 SIMD lanes](#m12-simd-lanes) | ≥ 2.5× α^r batch throughput on AVX2 over the scalar path is the target (user decisions SL3, TG1); the feature ships if it is faster than the scalar path, otherwise the spike's measurements are recorded and the stack closed (D9) |
 | M13 | `phasekit-mix` | v0.1 + demand for mixtures | `Mixture: HelmholtzModel` at fixed z, own `ThermoModel` (VLE, stability, `from_split`), `MixtureModel` with AD composition derivatives, GERG-2008 datasets, compat `A[x]&B[y]`, true-mixture variants (`R410A.mix`) registered beside the pseudo-pure names (D4, user decision 4) | x = [1, 0] equals the pure fluid under any gauge (map 04 §8, map 15 §8); GERG teqp vectors (map 06 U7); Bell 2023 Table XIII; DIV-0013 resolved or kept; core diff zero expected |
 | M14 | `phasekit-iapws` | v0.1 + a water/steam or solid use case | IF97 regions 1-5 with backward equations, ice Ih (R10-06) and sublimation (R14-08) on `bundle_from_gibbs`, `from_split` for ice + vapour (map 07 §9) | **Zero-line core diff**; IAPWS tables first, oracle second; `gibbs_seam` conformance on real models |
@@ -488,19 +488,93 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | — | Materials | First phase-coexistence need (ice + water) | `Substance` + min-Gibbs selector in a new crate (D10; materials R1) | Zero-line core diff |
 | — | Near-critical VLE in extended precision | A use needs the VLE itself at multiprecision accuracy near Tc (idea recorded at the user's request, 2026-10-09) | Near Tc the double-precision VLE carries its rounding amplified as Θ^−1.5 (user decision NC1, measured at M6.4). Double-double (or similar) arithmetic in the near-critical solve, as fastchebpure computes its multiprecision values. A scope change: the core is std-only until M9 and has performance targets | The dense fastchebpure rows within `SatMp`'s far-field 1e-11 closer to Tc than today; no cost to the double-precision path (the M9 benches) |
 
-**M11 cubic-R register entry** (user decision 10; ARCHITECTURE.md §10, §11). Added in the first M11 step, before any
-cubic code.
+**M11 cubic-R register entry** (user decision CB1, which replaced decision 10; ARCHITECTURE.md §10, §11). Added in
+M11.1, before any cubic code.
 
 | Field | Value |
 |---|---|
-| id | next free DIV id |
-| fluids / part | every cubic fluid that borrows a HEOS ideal gas / `Part::GasConstant` |
-| policy, fix | `UsePaper`, `fix: Code` (`phasekit-cubic` selects the R of the ideal part by `DataSet` when it builds the model; no `corrections.csv` row, so `gates register` accepts the entry without a data patch, VERIFICATION.md §7.2) |
-| arbiter | the borrowed HEOS model's own α⁰ (its EOS paper's ideal-gas equation; IAPWS-95 for Water) |
-| Parity | the ideal part is evaluated with the cubic's own R, CODATA 2018 8.31446261815324 as in v8.0.0 (map 06 C6, map 15 §2.1) |
-| Corrected | the ideal part uses the source model's R, so α⁰ equals its paper |
-| proof | (1) Corrected: cubic α⁰ equals the borrowed model's at the same (T, ρ) (`Exact`) and cp⁰(PR::X) equals cp⁰(HEOS::X) (`Term`); (2) the oracle's cubic cp⁰ differs by the R ratio (1.128e-6 = 8.314472/8.31446262 − 1 for 54 of 97 fluids, map 06 C6; 1.10e-5 for Water, map 15 §3.1); (3) Parity reproduces the oracle except the DIV-0010 columns |
-| scope note | part (3) holds only where the v8.0.0 cubic α⁰ snapshot matches the HEOS α⁰ apart from R; the drifted fluids (map 06 C5: cp⁰ > 0.1 % off for 11 of 116; map 15 X6 offsets) get a separate `SkipOracle` entry for α⁰-dependent cubic outputs |
+| id | DIV-0046, the next free id |
+| fluids / part | every cubic fluid, each of which borrows a HEOS ideal gas / `Part::GasConstant` |
+| policy, fix | `KeepOracle`, `fix: None`: a cubic model's one R is CoolProp's `R_U_CODATA` = 8.31446261815324 in both datasets, for its α^r and for the borrowed α⁰, as v8.0.0 does (map 06 C6, map 15 §2.1) |
+| arbiter | the borrowed HEOS model's own α⁰ (its EOS paper's ideal-gas equation; IAPWS-95 for Water), with that model's R |
+| measured | a cubic fluid's c_p⁰ is its source's times R_CODATA/R_source: −1.128e-6 for the 58 of v8.0.0's 116 cubic fluids with R = 8.314472, +1.10e-5 for Water, +1.96e-5 for CycloPropane and Propyne (R = 8.3143) |
+| proof | (1) the cubic's ideal-part `Derivs` equal the borrowed model's at the same (T, ρ) bit for bit (`Exact`), and its c_p⁰ equals the source's times R_CODATA/R_source (`Term`), for every cubic fluid; (2) phasekit's PR and SRK c_p⁰ equal the oracle's (`Term`) outside the scope note; (3) the source's literature rows hold for the cubic's ideal part at the measured R ratio, and only there |
+| scope note | part (2) holds only where v8.0.0's cubic α⁰ snapshot matches the HEOS α⁰ and its T_c and ρ_c are the HEOS reducing state; the drifted fluids (map 06 C5: c_p⁰ > 0.1 % off for 11 of 116; map 15 X6, §3.1) get a separate `SkipOracle` entry for α⁰-dependent cubic outputs (M11.4) |
+
+### M11 Cubic family
+
+**Goal.** The van der Waals, Soave-Redlich-Kwong and Peng-Robinson equations of state as a family crate,
+`phasekit-cubic`, on core's public seams with a zero-line core diff (D3; ARCHITECTURE.md §11; VERIFICATION.md §10).
+Each cubic fluid takes its T_c, p_c and ω from a canonical HEOS fluid and borrows that fluid's ideal gas. **Entry.**
+The user's word, before `v0.1.0`, on the i7-8700K (user decision CB2); the steps merge in order when green.
+**Prerequisites.** User decision CB1 (one R); M12 landed, so `m11-start` is taken on a core that M11 then leaves
+alone. **Arbiters.** No cubic paper is in `reference/papers`, so the arbiters are analytic (each kind's critical-point
+conditions fix Ω_a, Ω_b and Z_c; exact virials), the identities of VERIFICATION.md §8 and AD; the oracle checks PR and
+SRK at c = 0 where map 06 §8 says it can, never entropy (DIV-0010) or QT beyond 1e-6. Mathias-Copeman and Twu have no
+oracle: no v8.0.0 fluid carries their coefficients (map 06 §4). M11 closes by setting `MILESTONE` to 12.
+
+- **M11.1 The start: `m11-start`, `gates core-frozen`, the crate, the register.** Tag `m11-start` on `main` once this
+  plan has merged (VERIFICATION.md §10). `cargo xtask gates core-frozen [--since <tag>]` fails, naming each file, if
+  anything under `crates/phasekit-core/` differs from the tag (`git diff --quiet`); `gates all` runs it against the tag
+  `ci/core-frozen.txt` names, and CI's linux job fetches that tag. A new crate `crates/phasekit-cubic`, depending on
+  `phasekit-core` alone (default features off, E7), not published (publishing is the user's call), holding
+  `R_CODATA` = 8.31446261815324 (CB1); DEPENDENCIES.md gains a family-crate row (core's public API, no third-party
+  dependency) and `gates deps` its tree. The register gains DIV-0046 (above), due at M11. *Red:* `core_frozen`'s tests:
+  a diff under `crates/phasekit-core/` fails by file, a missing tag fails closed, a diff elsewhere passes; and
+  `gates deps` refusing a third-party dependency of `phasekit-cubic`. *Done when:* `gates core-frozen` passes since
+  `m11-start` and `ci/test-counts.txt` lists the crate.
+- **M11.2 The generalised cubic residual.** `Kind::{Vdw, Srk, Pr}` with Δ₁ and Δ₂ (0 and 0; 1 and 0; 1 ± √2) and
+  Ω_a, Ω_b in closed form (27/64 and 1/8; 1/(9(2^(1/3) − 1)) and (2^(1/3) − 1)/3; PR's from its Z_c cubic, map 06
+  §3.1). α^r(T, ρ) for given a and b in one kernel over `Real`, `f64` and `Jet4`, to order 4 (ROT-218); Δ₁ = Δ₂ (vdW)
+  takes its limit form. `rho_max(T)` below 1/b; `zero_density` gives the exact virials (B = b − a/RT). *Red:*
+  `critical_point_has_zero_dp_drho` (ROT-217): at each kind's closed-form critical point ∂p/∂ρ = ∂²p/∂ρ² = 0 and Z_c
+  = 3/8, 1/3 and 0.30740 (map 06 §8) in class `Identity`; `cubic_jets_match_ad` against num-dual; `fd_first_order`;
+  the exact virials; against a residual that returns `Derivs::zero`.
+- **M11.3 The alpha functions.** `Alpha::{One, Soave(m), MathiasCopeman([c₁, c₂, c₃]), Twu([L, M, N])}` (map 06
+  §3.1), each α(T) and its T-derivatives to order 4 in one kernel; Soave's m(ω) for SRK (0.480 + 1.574ω − 0.176ω²) and
+  PR (0.37464 + 1.54226ω − 0.26992ω²); vdW takes `One` unless given another. Mathias-Copeman applies all three terms at
+  every T, as v8.0.0 does; map 06 §10 Q6 (the paper's c₁-only form above T_c) stays open until Mathias and Copeman 1983
+  reaches `reference/papers`. *Red:* `alpha_derivatives_match_ad` for each form at T below and above T_c, α(T_c) = 1,
+  and the Soave polynomials' values, against an `Alpha` that returns 1 everywhere.
+- **M11.4 The cubic fluid.** `CubicModel: HelmholtzModel` with `gas_constant()` = R_CODATA (CB1); a and b from the
+  source fluid's published critical point and acentric factor (`FluidInfo::published_critical`,
+  `Constants::acentric`), the canonical record (ROT-216); `ideal` is the source's `helmholtz()?.ideal(t, rho, order)`,
+  unchanged (reducing-invariant `Derivs`, ROT-212, ROT-213). `phasekit_cubic::fluid(&source, kind, alpha)` packages a
+  `PureFluid` with its closed-form critical point (`CriticalOrigin::Model`), the source's limits, molar mass and ω
+  (core's PT seed reads it); `with_cubics(&registry, kinds)` registers `PR::X`, `SRK::X` and `VDW::X` for every pure
+  fluid with a published critical point and ω, the source's aliases prefixed, so compat's `_in` functions take
+  CoolProp's strings (`PR::Propane`). A new oracle kind `cubic` (`scripts/oracle/gen.py`, regenerated in the pinned
+  image): PR and SRK for v8.0.0's 116 cubic fluids on the `eos` grid, α^r and its derivatives, p, h, u, g, a, c_p, c_v
+  and w (no entropy, DIV-0010). DIV-0046's proof, and a `SkipOracle` entry for the scope note's fluids, each named with
+  its measured offset. *Red:* `ideal_part_equals_heos` and `inputs_come_from_the_canonical_fluid` (ROT-216), and
+  `cubic_matches_the_oracle` per fluid and output, against a `fluid` that refuses with `Error::Unsupported`.
+- **M11.5 The cubic superancillary.** Bell and Deiters' (2021) Chebyshev expansions of p̃, ρ̃′ and ρ̃″ in T̃ = RTb/a(T)
+  for SRK and PR (map 06 U4), transcribed from v8.0.0's `cubicsuperancillary.h` with their citation under decision 3a's
+  notice, as the family's own `SaturationCurve` (`Exact`) over T̃ in [0.1, 1]·T̃_c: `at_t` by Clenshaw, `at_p` by a
+  bracketed root in T (K14), the batch hooks defaulted. vdW has none; core's VLE serves it, as `tests/new_family.rs`
+  shows. *Red:* `superancillary_matches_vle` (ROT-219): equal p to 1e-13 and g′ = g″ to Δg/RT ≤ 1e-12 against core's
+  VLE across the range; v8.0.0's `saturation_ancillary` values (oracle kind `cubic_sat`); refusals outside the range;
+  against a curve whose `at_t` is `Unsupported`.
+- **M11.6 Conformance.** The kit on PR, SRK and vdW fluids in both datasets: `capability_matrix` (19 pairs; ROT-009:
+  SRK and PR Water at 300 K and 1 atm is liquid), `gauge_invariance`, `policy_equivalence` under `Reference`,
+  `Parallel` and `Simd`, `fd_first_order` (ROT-213, ROT-214). ROT-220 is designed out: no cubic is solved for ρ; its
+  proof becomes `pt_near_a_double_root_is_finite`, core's PT flash where the cubic in Z has a double root. ROT-107:
+  `r_scales_and_does_not_shift`, CB1's R ratio scales c_p⁰ and is not a reference-state shift. *Red:* each check on a
+  cubic fluid registered through `with_cubics`, against a registry without them.
+- **M11.7 DIV-0010 and the entropy identity.** `div_0010` in `tests/divergences.rs` (phasekit-verify dev-depends on
+  phasekit-cubic): phasekit's PR n-Propane at 400 K and 1 bar has T(∂s/∂T)_p = c_p in class `Identity`, while the
+  oracle's facts still give 91.35 and 93.89 J/(mol·K) (map 12 §6.3); DIV-0010's `exempt` names the entropy outputs
+  and the S-input pairs of cubic fluids. The identity joins the kit as `entropy_identity(fluid, states)` and runs on
+  every family in `tests/new_family.rs` and on the embedded fluids (ROT-212); M20.2's `identities` absorbs it. *Red:*
+  `div_0010` and `entropy_identity` against a cubic whose ideal part drops the T_c/T_r chain rule, as v8.0.0 does.
+- **M11.8 M11 closed.** `MILESTONE` = 12, which makes every M11 proof and ROT row due: ROT-107 and ROT-213 to ROT-220
+  ticked; ROT-221 (volume translation) stays deferred. `gates core-frozen` passes since `m11-start` (the zero-line core
+  diff), and `ci/core-frozen.txt` then names no tag. ARCHITECTURE.md's crate table and §11, VERIFICATION.md §10 and the
+  README say what landed. Tag `m11` with the user's approval.
+
+**Exit gate.** G1-G8; `gates core-frozen` since `m11-start`; the conformance kit on every cubic kind; DIV-0010's and
+DIV-0046's proofs; Z_c = 3/8 (vdW), 1/3 (SRK) and 0.30740 (PR). **ROT rows.** ROT-107, ROT-212 (its identity),
+ROT-213 to ROT-220; ROT-003, ROT-009, ROT-034 (their M11 proofs). **User decisions implemented.** CB1, CB2.
 
 ### M12 SIMD lanes
 
