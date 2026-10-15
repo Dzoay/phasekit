@@ -5,7 +5,8 @@ use core::{fmt, iter};
 
 use crate::data::{Ancillary, PseudoPure, SaFreshness, Superancillary};
 use crate::error::{DomainError, Error, Roots};
-use crate::num::math;
+use crate::exec::{self, ExecPolicy, LaneKernel};
+use crate::num::{Lanes, Real, math};
 use crate::roots::{Stop, Tol, toms748};
 use crate::state::Strategy;
 
@@ -71,6 +72,17 @@ pub trait SaturationCurve: Send + Sync + fmt::Debug {
     fn at_t(&self, t: f64) -> Result<SatPair, Error>;
     /// Saturation at pressure `p`.
     fn at_p(&self, p: f64) -> Result<SatPair, Error>;
+    /// Saturation at each temperature `t[i]` into `out[i]` under `exec`, each [`at_t`](Self::at_t)'s result bit for bit
+    /// (PLAN.md M12.9). The default evaluates point by point; the superancillary's Clenshaw sums run in lanes under
+    /// `ExecPolicy::Simd`. Unequal lengths are [`Error::Shape`].
+    fn at_t_batch(&self, t: &[f64], out: &mut [Result<SatPair, Error>], exec: ExecPolicy) -> Result<(), Error> {
+        exec::points(exec, t, t, out, |t, _| self.at_t(t))
+    }
+    /// Saturation at each pressure `p[i]` into `out[i]` under `exec`, each [`at_p`](Self::at_p)'s result bit for bit, as
+    /// [`at_t_batch`](Self::at_t_batch).
+    fn at_p_batch(&self, p: &[f64], out: &mut [Result<SatPair, Error>], exec: ExecPolicy) -> Result<(), Error> {
+        exec::points(exec, p, p, out, |p, _| self.at_p(p))
+    }
 }
 
 /// Σ_k c_k T_k(x) for x in [−1, 1] by Clenshaw's recurrence, b_k = 2x·b_(k+1) − b_(k+2) + c_k from the top and f = c_0 +
@@ -87,6 +99,26 @@ pub fn clenshaw(coef: &[f64], x: f64) -> f64 {
     }
     c0 + x * b1 - b2
 }
+
+/// [`clenshaw`] on W lanes, each with its own 13 coefficients (a superancillary's piece): the same operations in the
+/// same order, so lane k is `clenshaw(coef[k], x[k])` bit for bit (PLAN.md M12.9).
+#[inline(always)]
+fn clenshaw_lanes<const W: usize>(coef: [&[f64; 13]; W], x: Lanes<W>) -> Lanes<W> {
+    let c = |j: usize| Lanes(coef.map(|c| c.get(j).copied().unwrap_or(0.0)));
+    let (two_x, mut b1, mut b2) = (x * 2.0, c(12), Lanes([0.0; W]));
+    for j in (1..12).rev() {
+        let b = two_x * b1 - b2 + c(j);
+        b2 = b1;
+        b1 = b;
+    }
+    c(0) + x * b1 - b2
+}
+
+/// The coefficients a lane outside a superancillary's pieces runs on; its result is dropped.
+const NO_PIECE: [f64; 13] = [0.0; 13];
+
+/// The coefficients of a curve the data gives no row for at a piece: its value there is NaN.
+const NAN_PIECE: [f64; 13] = [f64::NAN; 13];
 
 /// The Chebyshev coefficients of the x-derivative of Σ_k c_k T_k(x): d_(k−1) = d_(k+1) + 2k·c_k from the top, d_0
 /// halved (Mason & Handscomb eq. 2.52, as CoolProp cites it; map 03 §3.3). One coefficient fewer than `coef`, every one
@@ -134,17 +166,29 @@ pub(crate) struct SuperancillaryCurve {
     accuracy: SatAccuracy,
     p: f64,
     rho: f64,
+    /// The ends of p(T)'s monotonic segments, T_min, p's extrema and T_max, each with its unscaled p.
+    p_ends: Vec<(f64, f64)>,
+    /// The lowest and highest unscaled p over [`Self::p_ends`].
+    p_range: (f64, f64),
 }
 
 impl SuperancillaryCurve {
-    /// The curve of `data` for a record whose EOS relates to it as `freshness` says.
+    /// The curve of `data` for a record whose EOS relates to it as `freshness` says, with p at the ends of p(T)'s
+    /// segments, which every `at_p` reads.
     pub(crate) fn new(data: Superancillary, freshness: SaFreshness) -> SuperancillaryCurve {
         let (accuracy, p, rho) = match freshness {
             SaFreshness::Fresh => (SatAccuracy::Exact, 1.0, 1.0),
             SaFreshness::Rescaled { p, rho } => (SatAccuracy::Exact, p, rho),
             SaFreshness::Stale => (SatAccuracy::Guess, 1.0, 1.0),
         };
-        SuperancillaryCurve { data, accuracy, p, rho }
+        let range = (f64::INFINITY, f64::NEG_INFINITY);
+        let mut curve = SuperancillaryCurve { data, accuracy, p, rho, p_ends: Vec::new(), p_range: range };
+        let (t_min, t_max) = curve.t_range();
+        let ends = iter::once(t_min).chain(curve.data.extrema[2].iter().copied()).chain(iter::once(t_max));
+        let p_ends: Vec<(f64, f64)> = ends.map(|t| (t, curve.raw(2, t))).collect();
+        curve.p_range = p_ends.iter().fold(range, |(lo, hi), (_, v)| (lo.min(*v), hi.max(*v)));
+        curve.p_ends = p_ends;
+        curve
     }
 }
 
@@ -170,21 +214,8 @@ impl SaturationCurve for SuperancillaryCurve {
 
     /// ρ′, ρ″ and p at T from one piece lookup (the three curves share their pieces); refused outside the fit.
     fn at_t(&self, t: f64) -> Result<SatPair, Error> {
-        let (t_min, t_max) = self.t_range();
-        if t < t_min {
-            return Err(DomainError::BelowMinTemperature { t, t_min }.into());
-        }
-        if t > t_max {
-            return Err(DomainError::AboveMaxTemperature { t, t_max }.into());
-        }
-        let i = piece(&self.data.breaks, t).ok_or(Error::InvalidInput { quantity: "T", value: t })?;
-        let (a, b) = (self.data.breaks.get(i).copied(), self.data.breaks.get(i + 1).copied());
-        let x = scaled(t, a.unwrap_or(t_min), b.unwrap_or(t_max));
-        let [rho_l, rho_v, p] =
-            self.data.curves.each_ref().map(|curve| curve.get(i).map_or(f64::NAN, |c| clenshaw(c, x)));
-        let p = p * self.p;
-        let side = |rho: f64| SatSide { t, p, rho: rho * self.rho };
-        Ok(SatPair { bubble: side(rho_l), dew: side(rho_v) })
+        let (rows, x) = self.fit(t).ok_or_else(|| self.refusal(t))?;
+        Ok(self.pair_at(t, rows.map(|c| clenshaw(c, x))))
     }
 
     /// The saturation at p (PLAN.md M6.8; map 03 §3.3). p(T) is monotonic between the extrema datagen found
@@ -194,23 +225,55 @@ impl SaturationCurve for SuperancillaryCurve {
     /// answer, reporting the given p; several are `Ambiguous`, for the flash's `RootPolicy`. Refused above the curve's
     /// highest pressure, below its lowest, and for NaN.
     fn at_p(&self, p: f64) -> Result<SatPair, Error> {
+        let t = self.t_at_p(p, |raw| self.inverse_t(raw))?;
+        Ok(self.at_t(t)?.at_pressure(p))
+    }
+
+    /// The Clenshaw sums in lanes under `ExecPolicy::Simd` (PLAN.md M12.9).
+    fn at_t_batch(&self, t: &[f64], out: &mut [Result<SatPair, Error>], exec: ExecPolicy) -> Result<(), Error> {
+        exec::run(exec, &AtT(self), t, t, out)
+    }
+
+    /// The inverse's and the saturation's Clenshaw sums in lanes under `ExecPolicy::Simd`, each root by itself (K14;
+    /// PLAN.md M12.9).
+    fn at_p_batch(&self, p: &[f64], out: &mut [Result<SatPair, Error>], exec: ExecPolicy) -> Result<(), Error> {
+        exec::run(exec, &AtP(self), p, p, out)
+    }
+}
+
+impl SuperancillaryCurve {
+    /// The saturation at T from the three curves' unscaled values there, ρ′, ρ″ and p, scaled as the record says.
+    #[inline(always)]
+    fn pair_at(&self, t: f64, [rho_l, rho_v, p]: [f64; 3]) -> SatPair {
+        let p = p * self.p;
+        let side = |rho: f64| SatSide { t, p, rho: rho * self.rho };
+        SatPair { bubble: side(rho_l), dew: side(rho_v) }
+    }
+
+    /// The saturation temperature at p ([`SaturationCurve::at_p`]); `inverse` gives the stored inverse's T at an
+    /// unscaled pressure ([`Self::inverse_t`]), which brackets the root on the last segment.
+    fn t_at_p(&self, p: f64, inverse: impl Fn(f64) -> Option<f64>) -> Result<f64, Error> {
         if p.is_nan() {
             return Err(Error::InvalidInput { quantity: "p", value: p });
         }
         let raw = p / self.p;
-        let (t_min, t_max) = self.t_range();
-        let ends = || iter::once(t_min).chain(self.data.extrema[2].iter().copied()).chain(iter::once(t_max));
-        let range = (f64::INFINITY, f64::NEG_INFINITY);
-        let (lowest, highest) = ends().map(|t| self.raw(2, t)).fold(range, |(lo, hi), v| (lo.min(v), hi.max(v)));
+        let (lowest, highest) = self.p_range;
         if raw > highest {
             return Err(DomainError::AboveMaxPressure { p, p_max: highest * self.p }.into());
         }
         if raw < lowest {
             return Err(DomainError::BelowMinPressure { p, p_min: lowest * self.p }.into());
         }
+        let t_max = self.t_range().1;
         let (mut roots, mut found) = ([f64::NAN; 4], 0);
-        for (a, b) in ends().zip(ends().skip(1)) {
-            let Some(t) = self.segment_root(raw, (a, b), t_max)? else { continue };
+        for pair in self.p_ends.windows(2) {
+            let &[(a, pa), (b, pb)] = pair else { continue };
+            let last = b == t_max;
+            let Some(t) =
+                segment_root(|t| self.raw(2, t), raw, [(a, pa), (b, pb)], || last.then(|| inverse(raw)).flatten())?
+            else {
+                continue;
+            };
             // A p at an extremum is found at the end of both segments.
             let seen = found > 0 && roots.get(found - 1) == Some(&t);
             if !seen && let Some(slot) = roots.get_mut(found) {
@@ -218,42 +281,143 @@ impl SaturationCurve for SuperancillaryCurve {
             }
         }
         match roots.get(..found) {
-            Some(&[t]) => {
-                let sat = self.at_t(t)?;
-                Ok(sat.at_pressure(p))
-            }
+            Some(&[t]) => Ok(t),
             other => Err(Error::Ambiguous { roots: Roots::new(other.unwrap_or_default()) }),
         }
     }
-}
 
-impl SuperancillaryCurve {
-    /// The T on the segment `(a, b)` of p(T) between its extrema where the unscaled pressure is `raw` ([`Self::at_p`]):
-    /// `None` where the segment's pressures do not reach `raw`; TOMS 748 on the forward p(T) over the segment or, on
-    /// the last (it ends at `t_max`), within the inverse's bracket ([`Self::inverse_bracket`]); a bracket that misses
-    /// its root is `NoConvergence`.
-    fn segment_root(&self, raw: f64, (a, b): (f64, f64), t_max: f64) -> Result<Option<f64>, Error> {
-        let (pa, pb) = (self.raw(2, a), self.raw(2, b));
-        if !(pa.min(pb) <= raw && raw <= pa.max(pb)) {
-            return Ok(None);
-        }
-        let (lo, hi) = if b == t_max { self.inverse_bracket(raw, (a, b)) } else { (a, b) };
-        let root = toms748(|t| self.raw(2, t) - raw, lo, hi, Tol::Absolute(0.0), 100);
-        if root.stop != Stop::Converged {
-            return Err(Error::NoConvergence { strategy: Strategy::Superancillary, iterations: root.iterations });
-        }
-        Ok(Some(root.x))
+    /// The stored inverse's T at the unscaled pressure `raw`, where it has a piece at ln p.
+    fn inverse_t(&self, raw: f64) -> Option<f64> {
+        let (row, x) = self.inverse_fit(math::ln(raw))?;
+        Some(clenshaw(row, x))
     }
 
-    /// The bracket of T at the unscaled pressure `raw` on the segment `(a, b)`: 1e-9 around the inverse's T where it
-    /// has a piece at ln p, else the segment.
-    fn inverse_bracket(&self, raw: f64, (a, b): (f64, f64)) -> (f64, f64) {
+    /// The inverse's piece at ln p, its coefficients and ln p mapped to the piece's [−1, 1]; `None` outside its pieces.
+    #[inline(always)]
+    fn inverse_fit(&self, ln_p: f64) -> Option<(&[f64; 13], f64)> {
         let breaks = &self.data.ln_p_breaks;
-        let ln_p = math::ln(raw);
-        let Some(i) = piece(breaks, ln_p) else { return (a, b) };
-        let (lo, hi) = (breaks.get(i).copied().unwrap_or(ln_p), breaks.get(i + 1).copied().unwrap_or(ln_p));
-        let t = self.data.t_of_ln_p.get(i).map_or(f64::NAN, |c| clenshaw(c, scaled(ln_p, lo, hi)));
-        ((t * (1.0 - 1e-9)).max(a), (t * (1.0 + 1e-9)).min(b))
+        let i = piece(breaks, ln_p)?;
+        Some((self.data.t_of_ln_p.get(i)?, scaled(ln_p, *breaks.get(i)?, *breaks.get(i + 1)?)))
+    }
+
+    /// The fit's piece at T, the three curves' coefficients (NaN for a curve the data gives no row) and T mapped to the
+    /// piece's [−1, 1]; `None` outside the fitted range and for NaN, where [`SaturationCurve::at_t`] refuses T
+    /// ([`Self::refusal`]).
+    #[inline(always)]
+    fn fit(&self, t: f64) -> Option<([&[f64; 13]; 3], f64)> {
+        let breaks = &self.data.breaks;
+        let i = piece(breaks, t)?;
+        let rows = self.data.curves.each_ref().map(|curve| curve.get(i).unwrap_or(&NAN_PIECE));
+        Some((rows, scaled(t, *breaks.get(i)?, *breaks.get(i + 1)?)))
+    }
+
+    /// Why [`SaturationCurve::at_t`] refuses a T that [`Self::fit`] has no piece for: below or above the fitted range,
+    /// else an invalid T (NaN).
+    fn refusal(&self, t: f64) -> Error {
+        let (t_min, t_max) = self.t_range();
+        if t < t_min {
+            DomainError::BelowMinTemperature { t, t_min }.into()
+        } else if t > t_max {
+            DomainError::AboveMaxTemperature { t, t_max }.into()
+        } else {
+            Error::InvalidInput { quantity: "T", value: t }
+        }
+    }
+
+    /// [`SaturationCurve::at_t`] at W temperatures (PLAN.md M12.9): the three curves' Clenshaw sums in lanes, each lane on
+    /// its own piece; a lane outside the fit is `at_t`'s refusal ([`Self::refusal`]). Lane k is `at_t(t[k])` bit for bit.
+    #[inline(always)]
+    fn at_t_lanes<const W: usize>(&self, t: Lanes<W>) -> [Result<SatPair, Error>; W] {
+        let fits = t.0.map(|t| self.fit(t));
+        let x = Lanes(fits.map(|fit| fit.map_or(0.0, |(_, x)| x)));
+        let sum = |k: usize| {
+            let rows = fits.map(|fit| fit.and_then(|(rows, _)| rows.get(k).copied()).unwrap_or(&NO_PIECE));
+            clenshaw_lanes(rows, x)
+        };
+        let (rho_l, rho_v, p) = (sum(0), sum(1), sum(2));
+        core::array::from_fn(|k| {
+            let lane = |v: Lanes<W>| v.0.get(k).copied().unwrap_or(f64::NAN);
+            match fits.get(k) {
+                Some(Some(_)) => Ok(self.pair_at(lane(t), [lane(rho_l), lane(rho_v), lane(p)])),
+                _ => Err(self.refusal(lane(t))),
+            }
+        })
+    }
+
+    /// [`SaturationCurve::at_p`] at W pressures (PLAN.md M12.9): the stored inverse's T, ln p included, and the
+    /// saturation at each root in lanes, each root found by TOMS 748 on its own as `at_p` finds it (K14). Lane k is
+    /// `at_p(p[k])` bit for bit.
+    #[inline(always)]
+    fn at_p_lanes<const W: usize>(&self, p: Lanes<W>) -> [Result<SatPair, Error>; W] {
+        let ln_p = (p / Lanes::from_f64(self.p)).ln();
+        let fits = ln_p.0.map(|ln_p| self.inverse_fit(ln_p));
+        let x = Lanes(fits.map(|fit| fit.map_or(0.0, |(_, x)| x)));
+        let inverse = clenshaw_lanes(fits.map(|fit| fit.map_or(&NO_PIECE, |(row, _)| row)), x);
+        let roots: [Result<f64, Error>; W] = core::array::from_fn(|k| {
+            let seed = fits.get(k).copied().flatten().and(inverse.0.get(k).copied());
+            self.t_at_p(p.0.get(k).copied().unwrap_or(f64::NAN), |_| seed)
+        });
+        let t_min = self.t_range().0;
+        let sat = self.at_t_lanes(Lanes(roots.each_ref().map(|t| t.as_ref().copied().unwrap_or(t_min))));
+        let mut lanes = roots.into_iter().zip(sat).zip(p.0);
+        core::array::from_fn(|_| match lanes.next() {
+            Some(((t, sat), p)) => t.and(sat).map(|sat| sat.at_pressure(p)),
+            None => Err(Error::Shape { expected: W, found: 0 }),
+        })
+    }
+}
+
+/// The root on one segment of p(T) between its extrema, `ends` (T and the unscaled p at each), where the unscaled
+/// pressure `raw(T)` is `raw` ([`SaturationCurve::at_p`]): `None` where the segment's pressures do not reach it; TOMS
+/// 748 on the forward p(T) over the segment or, where `inverse` gives the stored inverse's T (on the last segment),
+/// within 1e-9 of it; a bracket that misses its root is `NoConvergence`.
+fn segment_root(
+    p_of: impl Fn(f64) -> f64,
+    raw: f64,
+    [(a, pa), (b, pb)]: [(f64, f64); 2],
+    inverse: impl FnOnce() -> Option<f64>,
+) -> Result<Option<f64>, Error> {
+    if !(pa.min(pb) <= raw && raw <= pa.max(pb)) {
+        return Ok(None);
+    }
+    let (lo, hi) = match inverse() {
+        Some(t) => ((t * (1.0 - 1e-9)).max(a), (t * (1.0 + 1e-9)).min(b)),
+        None => (a, b),
+    };
+    let root = toms748(|t| p_of(t) - raw, lo, hi, Tol::Absolute(0.0), 100);
+    if root.stop != Stop::Converged {
+        return Err(Error::NoConvergence { strategy: Strategy::Superancillary, iterations: root.iterations });
+    }
+    Ok(Some(root.x))
+}
+
+/// [`SuperancillaryCurve::at_t`] as a lane kernel (PLAN.md M12.9): T to the saturation.
+struct AtT<'a>(&'a SuperancillaryCurve);
+
+impl LaneKernel for AtT<'_> {
+    type Out = Result<SatPair, Error>;
+    #[inline(always)]
+    fn point(&self, t: f64, _: f64) -> Self::Out {
+        self.0.at_t(t)
+    }
+    #[inline(always)]
+    fn lanes<const W: usize>(&self, t: Lanes<W>, _: Lanes<W>) -> [Self::Out; W] {
+        self.0.at_t_lanes(t)
+    }
+}
+
+/// [`SuperancillaryCurve::at_p`] as a lane kernel (PLAN.md M12.9): p to the saturation.
+struct AtP<'a>(&'a SuperancillaryCurve);
+
+impl LaneKernel for AtP<'_> {
+    type Out = Result<SatPair, Error>;
+    #[inline(always)]
+    fn point(&self, p: f64, _: f64) -> Self::Out {
+        self.0.at_p(p)
+    }
+    #[inline(always)]
+    fn lanes<const W: usize>(&self, p: Lanes<W>, _: Lanes<W>) -> [Self::Out; W] {
+        self.0.at_p_lanes(p)
     }
 }
 
@@ -416,6 +580,28 @@ mod tests {
         }
     }
 
+    /// A T with no piece is refused by the bound it is beyond, else as an invalid T: at the range's ends `fit` has a
+    /// piece, so `refusal` there is only for data without one; NaN has none. Inside, `fit`'s rows and x are `at_t`'s.
+    #[test]
+    fn refusals_name_the_bound_and_fit_is_at_ts_piece() {
+        let curve = SuperancillaryCurve::new(synthetic(), SaFreshness::Fresh);
+        let below = |t| Error::from(DomainError::BelowMinTemperature { t, t_min: 200.0 });
+        let above = |t| Error::from(DomainError::AboveMaxTemperature { t, t_max: 400.0 });
+        let invalid = |t| Error::InvalidInput { quantity: "T", value: t };
+        assert_eq!((curve.refusal(199.9), curve.refusal(400.1)), (below(199.9), above(400.1)));
+        assert_eq!((curve.refusal(200.0), curve.refusal(400.0)), (invalid(200.0), invalid(400.0)));
+        assert!(matches!(curve.refusal(f64::NAN), Error::InvalidInput { quantity: "T", .. }));
+        assert!(curve.fit(199.9).is_none() && curve.fit(400.1).is_none() && curve.fit(f64::NAN).is_none());
+        for t in [200.0, 250.0, 300.0, 350.0, 400.0] {
+            let (rows, x) = curve.fit(t).unwrap();
+            assert_eq!(Ok(curve.pair_at(t, rows.map(|c| clenshaw(c, x)))), curve.at_t(t), "{t}");
+        }
+        let mut short = synthetic();
+        short.curves[1].pop();
+        let short = SuperancillaryCurve::new(short, SaFreshness::Fresh);
+        assert!(short.at_t(350.0).is_ok_and(|sat| sat.dew.rho.is_nan() && !sat.bubble.rho.is_nan()));
+    }
+
     /// Map 03 §6 (D6): the curve answers inside its fitted range only, under any policy: below the triple point, above
     /// the critical point and for NaN it refuses with a typed error, where CoolProp extrapolates. Inside, one lookup
     /// gives all three curves; a rescaled curve applies its factors exactly and stays `Exact`; a stale one is a `Guess`.
@@ -525,15 +711,7 @@ mod tests {
     /// one; the range is the lowest and the highest p.
     #[test]
     fn pq_where_p_dips_has_two_roots() {
-        let mut dip = synthetic();
-        let line = |a: f64, b: f64, slope: f64, offset: f64| {
-            let mut c = [0.0; 13];
-            (c[0], c[1]) = (offset + slope * (a + b) / 2.0, slope * (b - a) / 2.0);
-            c
-        };
-        dip.curves[2] = vec![line(200.0, 300.0, -10.0, 5000.0), line(300.0, 400.0, 10.0, -1000.0)];
-        (dip.extrema[2], dip.ln_p_breaks) = (vec![300.0], vec![9.0, 9.5]);
-        let dip = SuperancillaryCurve::new(dip, SaFreshness::Fresh);
+        let dip = SuperancillaryCurve::new(dip(), SaFreshness::Fresh);
         let roots = |p: f64| match dip.at_p(p) {
             Err(Error::Ambiguous { roots }) => roots.as_slice().to_vec(),
             other => panic!("{other:?}"),
@@ -542,5 +720,101 @@ mod tests {
         assert_eq!(dip.at_p(2000.0).map(|sat| (sat.bubble.t, sat.dew.rho)), Ok((300.0, 30.0)));
         assert_eq!(dip.at_p(1999.0), Err(DomainError::BelowMinPressure { p: 1999.0, p_min: 2000.0 }.into()));
         assert_eq!(dip.at_p(3000.5), Err(DomainError::AboveMaxPressure { p: 3000.5, p_max: 3000.0 }.into()));
+    }
+
+    /// [`synthetic`] with p falling from 3000 to 2000 Pa over [200, 300] K and rising back over [300, 400] K, its
+    /// extremum at 300 K, and an inverse over ln p from 9 to 9.5, above every p of the curve.
+    fn dip() -> Superancillary {
+        let mut dip = synthetic();
+        let line = |a: f64, b: f64, slope: f64, offset: f64| {
+            let mut c = [0.0; 13];
+            (c[0], c[1]) = (offset + slope * (a + b) / 2.0, slope * (b - a) / 2.0);
+            c
+        };
+        dip.curves[2] = vec![line(200.0, 300.0, -10.0, 5000.0), line(300.0, 400.0, 10.0, -1000.0)];
+        (dip.extrema[2], dip.ln_p_breaks) = (vec![300.0], vec![9.0, 9.5]);
+        dip
+    }
+
+    /// A saturation's bits, NaN canonical, or its refusal as printed (a NaN it carries is not equal to itself).
+    fn bits(sat: &Result<SatPair, Error>) -> Result<[u64; 6], String> {
+        let bits = |v: f64| if v.is_nan() { f64::NAN.to_bits() } else { v.to_bits() };
+        let sides = |s: &SatPair| [s.bubble.t, s.bubble.p, s.bubble.rho, s.dew.t, s.dew.p, s.dew.rho].map(bits);
+        sat.as_ref().map(sides).map_err(|e| format!("{e:?}"))
+    }
+
+    /// `kernel` over `x` in lanes of 2, 4 and 8 and, with the `simd` feature, at every dispatch level of this CPU, and
+    /// `batch` under every policy, against `point` at each x.
+    fn assert_lanes(
+        what: &str,
+        kernel: &impl LaneKernel<Out = Result<SatPair, Error>>,
+        batch: impl Fn(&[f64], &mut [Result<SatPair, Error>], ExecPolicy) -> Result<(), Error>,
+        point: impl Fn(f64) -> Result<SatPair, Error>,
+        x: &[f64],
+    ) {
+        let check = |got: &[Result<SatPair, Error>], how: &str| {
+            for (x, got) in x.iter().zip(got) {
+                assert_eq!(bits(got), bits(&point(*x)), "{what} {how} at {x}");
+            }
+        };
+        let unset = || vec![Err(Error::Shape { expected: 0, found: 0 }); x.len()];
+        let mut out = unset();
+        crate::exec::run_lanes::<_, 2>(kernel, x, x, &mut out);
+        check(&out, "2 lanes");
+        crate::exec::run_lanes::<_, 4>(kernel, x, x, &mut out);
+        check(&out, "4 lanes");
+        crate::exec::run_lanes::<_, 8>(kernel, x, x, &mut out);
+        check(&out, "8 lanes");
+        #[cfg(feature = "simd")]
+        for level in crate::exec::tests::levels() {
+            let mut out = unset();
+            crate::exec::run_simd(level, kernel, x, x, &mut out);
+            check(&out, &format!("{level:?}"));
+        }
+        let parallel = ExecPolicy::Parallel { chunk: core::num::NonZeroUsize::MIN };
+        for exec in [ExecPolicy::Reference, ExecPolicy::Simd, parallel] {
+            let mut out = unset();
+            batch(x, &mut out, exec).unwrap();
+            check(&out, &format!("{exec:?}"));
+        }
+        assert!(matches!(batch(x, &mut [], ExecPolicy::Simd), Err(Error::Shape { .. }) | Ok(())));
+    }
+
+    /// PLAN.md M12.9 (VERIFICATION.md §9.2, class `Exact`): the superancillary's `at_t` and `at_p` in lanes are `at_t` and
+    /// `at_p` at every point bit for bit, refusals included, through the lane kernels on 2, 4 and 8 lanes and at every
+    /// dispatch level, and through `at_t_batch` and `at_p_batch` under every policy. The curves are the synthetic ones,
+    /// fresh, rescaled, split at an extremum and dipping (two roots, `Ambiguous`); T and p sweep past both ends of the
+    /// fit, through its piece boundaries, the inverse's pieces and either side of its bracket, ±∞ and NaN.
+    #[test]
+    fn superancillary_lanes_are_per_point() {
+        let mut split = synthetic();
+        split.extrema[2] = vec![220.0];
+        let rescaled = SaFreshness::Rescaled { p: 1.5, rho: 0.5 };
+        let curves = [
+            (synthetic(), SaFreshness::Fresh),
+            (synthetic(), rescaled),
+            (split, SaFreshness::Fresh),
+            (dip(), rescaled),
+        ]
+        .map(|(data, freshness)| SuperancillaryCurve::new(data, freshness));
+        let edges = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 0.0, -1.0];
+        let t = (0..=55).map(|k| 190.0 + 4.0 * f64::from(k)).chain([200.0, 300.0, 400.0, 199.999, 400.001]);
+        let t: Vec<f64> = t.chain(edges).collect();
+        let near = [5e-10, -5e-10, 2e-9, -2e-9].map(|e| 3000.0 * (1.0 + e));
+        let p = (0..=75).map(|k| 1000.0 + 80.0 * f64::from(k)).chain([2000.0, 2200.0, 3000.0, 4000.0, 4000.5, 1999.0]);
+        let p: Vec<f64> = p.chain(near).chain(near.map(|p| 1.5 * p)).chain(edges).collect();
+        for (k, curve) in curves.iter().enumerate() {
+            let what = format!("curve {k}");
+            assert_lanes(&what, &AtT(curve), |t, out, exec| curve.at_t_batch(t, out, exec), |t| curve.at_t(t), &t);
+            assert_lanes(&what, &AtP(curve), |p, out, exec| curve.at_p_batch(p, out, exec), |p| curve.at_p(p), &p);
+        }
+        // The sweeps hold answers and refusals of every kind: two roots on the dipping curve, and a bracket that misses.
+        let count = |curve: &SuperancillaryCurve, refused: fn(&Result<SatPair, Error>) -> bool| {
+            p.iter().filter(|p| refused(&curve.at_p(**p))).count()
+        };
+        let [fresh, .., dip] = &curves;
+        assert!(count(dip, |r| matches!(r, Err(Error::Ambiguous { .. }))) > 5);
+        assert!(count(fresh, |r| matches!(r, Err(Error::NoConvergence { .. }))) >= 2);
+        assert!(count(fresh, Result::is_ok) > 5 && t.iter().filter(|t| fresh.at_t(**t).is_ok()).count() > 40);
     }
 }

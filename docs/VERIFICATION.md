@@ -815,6 +815,8 @@ This section is the one definition of the bench harness, the C++ baseline and th
   `alphar_batch/simd` under `ExecPolicy::Simd` (built with `phasekit-verify`'s `--features simd`, which enables core's;
   M12.4). M12's SIMD gate compares `simd` with `scalar` (user decision SL3). Workload (2), DT + h + c_p, on its grid as
   one `batch::evaluate` call: `properties_at_t_rho_batch/{scalar,scalar_libm,simd}`, the same builds (M12.8).
+  Workloads (3) and (4) plus h on their saturation grid as one call each:
+  `{qt,pq}_superancillary_batch/{scalar,scalar_libm,simd}`, the same builds (M12.9).
 - **C++ baseline (M1.15):** CoolProp v8.0.0 built Release, no `-march`, like the wheels (kernel-performance §2.9), from
   a throwaway clone of `reference/CoolProp` in a scratch directory, because CoolProp's configure writes generated
   headers and data into its own source tree (`CMakeLists.txt:557-559`, `dev/generate_headers.py`). The harness

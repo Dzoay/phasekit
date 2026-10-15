@@ -1,13 +1,20 @@
 //! `qt_superancillary` and `pq_superancillary` (PLAN.md M6.11; VERIFICATION.md §12): the QT and PQ flashes on the
 //! superancillary plus h, the property a caller reads (user decision PF1), on the C++ baseline's saturation grid,
 //! SplitMix64 seed 1, T ~ U[T_t + 0.05 (T_c − T_t), 0.98 T_c] and Q ~ U[0, 1], PQ at the superancillary's p of each T.
-//! Target: ARCHITECTURE.md §7. Recorded by `cargo xtask bench --record`.
+//! Target: ARCHITECTURE.md §7. `qt_superancillary_batch` and `pq_superancillary_batch` (PLAN.md M12.9) evaluate that
+//! grid as one `batch::evaluate` call of QT or PQ with h, reported per state: `scalar` under `ExecPolicy::Reference`
+//! (`scalar_libm` built with `--features phasekit-core/libm`), and `simd`, built with `--features simd`, under
+//! `ExecPolicy::Simd`, the curve's Clenshaw sums and both phases' bundles in lanes at the CPU's widest level. Recorded by
+//! `cargo xtask bench --record`.
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
+    use std::time::{Duration, Instant};
+
     use criterion::{BenchmarkId, Criterion, criterion_group};
+    use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
     use phasekit_core::internal::FluidRecord;
-    use phasekit_core::{Basis, DataSet, Fluid, Input, Pressure, Quality, Registry, Temperature};
+    use phasekit_core::{Basis, DataSet, Fluid, Input, Pressure, Prop, Quality, Registry, Temperature};
     use phasekit_verify::SplitMix64;
 
     /// The bench fluids (VERIFICATION.md §12).
@@ -47,6 +54,33 @@ mod bench {
         g.finish();
     }
 
+    /// `states` as one batch of h per iteration under each policy it times, per state, in `group`: criterion's median is
+    /// then comparable with `run`'s one state per iteration.
+    fn run_batch(c: &mut Criterion, (group, name): (&str, &str), fluid: &Fluid, states: &[Input]) {
+        let Some(pair) = states.first().map(Input::pair) else { return };
+        let (x, y): (Vec<f64>, Vec<f64>) = states.iter().map(|input| input.values()).unzip();
+        let outputs = [Prop::Hmolar];
+        let (mut out, mut status) = (vec![0.0; states.len()], vec![Status::Ok; states.len()]);
+        let per_state = u32::try_from(states.len()).unwrap_or(u32::MAX);
+        let backend = if phasekit_core::math::BACKEND == "libm" { "scalar_libm" } else { "scalar" };
+        let simd = cfg!(feature = "simd").then_some((ExecPolicy::Simd, "simd"));
+        let mut g = c.benchmark_group(group);
+        for (exec, case) in [(ExecPolicy::Reference, backend)].into_iter().chain(simd) {
+            let req = BatchRequest::new(pair, Basis::Molar, &x, &y, &outputs).with_exec(exec);
+            g.bench_function(BenchmarkId::new(name, case), |b| {
+                b.iter_custom(|iters| {
+                    let start = Instant::now();
+                    for _ in 0..iters {
+                        let batch = batch::evaluate(fluid, &req, &mut out, &mut status);
+                        std::hint::black_box((batch.is_ok(), &mut out));
+                    }
+                    start.elapsed().checked_div(per_state).unwrap_or(Duration::ZERO)
+                });
+            });
+        }
+        g.finish();
+    }
+
     fn saturation(c: &mut Criterion) {
         let Ok(registry) = Registry::embedded() else { return };
         for name in FLUIDS {
@@ -57,6 +91,8 @@ mod bench {
             let flash_h = |input| Fluid::state(fluid, input).map(|state| state.h(Basis::Molar));
             run(c, ("qt_superancillary", name, "qt_h"), &qt, flash_h);
             run(c, ("pq_superancillary", name, "pq_h"), &pq, flash_h);
+            run_batch(c, ("qt_superancillary_batch", name), fluid, &qt);
+            run_batch(c, ("pq_superancillary_batch", name), fluid, &pq);
         }
     }
 

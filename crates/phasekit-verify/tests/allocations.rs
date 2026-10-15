@@ -34,10 +34,11 @@ fn hot_get_allocates_nothing() {
 /// them allocates nothing.
 /// - EOS: every fluid within 25 KiB; Water's 56 terms keep 15 626 B on 64-bit targets, the most (M3.8 recorded
 ///   Methanol's 13 690 B as the most; the test asserted only the budget).
-/// - Superancillary: within 40 KiB (user decision MB1); over the 25 KiB goal for 97 of the 130 (median 27 472 B,
-///   PropyleneGlycol's 39 576 B), logged in issue #146. The three forward curves and their boundaries, what CoolProp
+/// - Superancillary: within 40 KiB (user decision MB1); over the 25 KiB goal for 97 of the 130 (median 27 544 B,
+///   PropyleneGlycol's 39 664 B), logged in issue #146. The three forward curves and their boundaries, what CoolProp
 ///   stores, fit 25 KiB for all but two fluids, PropyleneGlycol and one more; the stored T(ln p) inverse, kept, adds
-///   about a quarter. With 32-bit pointers (wasm32) each curve keeps 112 B less.
+///   about a quarter, and p(T)'s segment ends, kept for PQ (M12.9), 72 B for the median. With 32-bit pointers (wasm32)
+///   each curve keeps 120 B less.
 #[test]
 fn eos_and_superancillary_bytes_per_fluid() {
     let registry = Registry::embedded().unwrap();
@@ -71,8 +72,8 @@ fn eos_and_superancillary_bytes_per_fluid() {
     sizes.sort_unstable();
     let (largest, median) = (sizes[sizes.len() - 1], sizes[sizes.len() / 2].0);
     let over = sizes.iter().filter(|(bytes, _)| *bytes > 25 * 1024).count();
-    let pointers = if cfg!(target_pointer_width = "64") { 0 } else { 112 };
-    let want = (130, 27_472 - pointers, (39_576 - pointers, "PropyleneGlycol"), 97);
+    let pointers = if cfg!(target_pointer_width = "64") { 0 } else { 120 };
+    let want = (130, 27_544 - pointers, (39_664 - pointers, "PropyleneGlycol"), 97);
     assert_eq!((sizes.len(), median, largest, over), want);
     assert!(largest.0 <= 40 * 1024);
     assert!(forward_over.len() == 2 && forward_over.contains(&"PropyleneGlycol"), "{forward_over:?}");

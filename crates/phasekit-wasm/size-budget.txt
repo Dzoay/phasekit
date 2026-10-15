@@ -1,4 +1,6 @@
 # The browser package's release .wasm (wasm32-unknown-unknown, before wasm-bindgen), baseline and simd128, in bytes:
 # its first green size, 1076570 (PLAN.md M10.8), + 10 % (`cargo xtask gates features`). Raise it only with a reason
 # written here.
-1184227
+# M12.9 (user decision SL8): the QT and PQ lanes `ExecPolicy::Simd` reaches on every build took the baseline to
+# 1188898 bytes; the budget is that + 10 %.
+1307788

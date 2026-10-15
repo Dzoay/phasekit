@@ -1,7 +1,9 @@
 //! The pairs with a quality: QT and PQ on the saturation curve ([`qt`], [`pq`]), and the Q-pairs QS, HQ and DQ, every
 //! root in T along it ([`qx`]).
 
+use crate::derivs::{Bundle, Derivs, Order};
 use crate::error::Error;
+use crate::exec::ExecPolicy;
 use crate::fluid::PureFluid;
 use crate::input::Pair;
 use crate::model::ThermoModel;
@@ -11,7 +13,10 @@ use crate::state::{Phase, SolvePath, State, Strategy};
 use crate::units::{Basis, Quality};
 
 use super::search::{Point, choose, nearest};
-use super::{DomainPolicy, FlashOptions, RootPolicy, T_ITER, T_TOL, phase_bundle, two_phase, within_domain};
+use super::{
+    DomainPolicy, FlashOptions, GROUP, RootPolicy, T_ITER, T_TOL, above_melting_line, phase_bundle, phase_bundle_of,
+    phase_order, two_phase, two_phase_from, within_domain,
+};
 
 /// What a Q-pair fixes beside the quality: h, s or, for DQ, the molar volume v = 1/ρ.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -307,11 +312,142 @@ pub(super) fn pq(fluid: &PureFluid, p: f64, q: f64, opts: &FlashOptions) -> Resu
 /// The saturation of `curve` at p; where p has several saturation temperatures (a curve whose p dips), the one
 /// `RootPolicy::Nearest` names, else `Ambiguous`.
 pub(super) fn curve_at_p(curve: &dyn SaturationCurve, p: f64, opts: &FlashOptions) -> Result<SatPair, Error> {
-    match (curve.at_p(p), opts.roots()) {
+    nearest_at_p(curve, p, curve.at_p(p), opts)
+}
+
+/// `sat`, the saturation of `curve` at p, with several saturation temperatures resolved as [`curve_at_p`] does.
+fn nearest_at_p(
+    curve: &dyn SaturationCurve,
+    p: f64,
+    sat: Result<SatPair, Error>,
+    opts: &FlashOptions,
+) -> Result<SatPair, Error> {
+    match (sat, opts.roots()) {
         (Err(Error::Ambiguous { roots }), RootPolicy::Nearest(x)) => {
             let sat = curve.at_t(nearest(x, roots.as_slice()).ok_or(Error::Ambiguous { roots })?)?;
             Ok(sat.at_pressure(p))
         }
         (sat, _) => sat,
+    }
+}
+
+/// What a QT or PQ batch fixes beside the quality ([`sat_lanes`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SatBy {
+    /// T: QT, the native point (Q, T).
+    T,
+    /// p: PQ, the native point (p, Q).
+    P,
+}
+
+/// QT or PQ at every native point `(x[i], y[i])` into `out[i]`, each [`qt`]'s or [`pq`]'s result, checked against the
+/// melting line as `flash` checks it, bit for bit (PLAN.md M12.9). On an `Exact` curve, [`GROUP`] points at a time:
+/// their saturations through the curve's batch hook (`at_t_batch`, `at_p_batch`) and both phases' bundles through the
+/// EOS's ([`phase_bundles`]), under `ExecPolicy::Simd`, then each point's state as `two_phase` builds it. A curve that
+/// only seeds the VLE or defines saturation (pseudo-pure fluids), or none, runs each point's scalar path.
+pub(super) fn sat_lanes(
+    fluid: &PureFluid,
+    by: SatBy,
+    (x, y): (&[f64], &[f64]),
+    opts: &FlashOptions,
+    out: &mut [Result<State, Error>],
+) {
+    let checked = |state: Result<State, Error>| state.and_then(|state| above_melting_line(fluid, state, opts));
+    let Some(curve) = fluid.saturation().ok().flatten().filter(|curve| curve.accuracy() == SatAccuracy::Exact) else {
+        for ((x, y), out) in x.iter().zip(y).zip(out) {
+            *out = checked(if by == SatBy::T { qt(fluid, *x, *y, opts) } else { pq(fluid, *x, *y, opts) });
+        }
+        return;
+    };
+    for ((x, y), out) in x.chunks(GROUP).zip(y.chunks(GROUP)).zip(out.chunks_mut(GROUP)) {
+        let points = sat_points(curve, by, (x, y), opts);
+        let bundles = phase_bundles(fluid, &points);
+        for ((point, [liquid, vapour]), out) in points.into_iter().zip(bundles).zip(out) {
+            let state = point
+                .and_then(|(sat, q)| two_phase_from(fluid, &sat, q, Strategy::Superancillary, || liquid, || vapour));
+            *out = checked(state.and_then(|state| within_domain(fluid, state, opts)));
+        }
+    }
+}
+
+/// The quality and the saturation of each of up to [`GROUP`] native points, as [`qt`] and [`pq`] take them: the curve's
+/// batch hook under `ExecPolicy::Simd`, and at p the root `RootPolicy::Nearest` names ([`curve_at_p`]).
+fn sat_points(
+    curve: &dyn SaturationCurve,
+    by: SatBy,
+    (x, y): (&[f64], &[f64]),
+    opts: &FlashOptions,
+) -> [Result<(SatPair, Quality), Error>; GROUP] {
+    let unset = || Err(Error::Shape { expected: GROUP, found: x.len() });
+    let mut sats: [Result<SatPair, Error>; GROUP] = core::array::from_fn(|_| unset());
+    let (q, at) = if by == SatBy::T { (x, y) } else { (y, x) };
+    let called = match sats.get_mut(..at.len()) {
+        Some(sats) if by == SatBy::T => curve.at_t_batch(at, sats, ExecPolicy::Simd),
+        Some(sats) => curve.at_p_batch(at, sats, ExecPolicy::Simd),
+        None => unset().map(|_: SatPair| ()),
+    };
+    let mut sats = sats.into_iter().zip(at);
+    core::array::from_fn(|k| {
+        let quality = Quality::new(q.get(k).copied().unwrap_or(f64::NAN))?;
+        let (sat, at) = sats.next().ok_or(Error::Shape { expected: GROUP, found: k })?;
+        called.clone()?;
+        let sat = if by == SatBy::T { sat } else { nearest_at_p(curve, *at, sat, opts) };
+        Ok((sat?, quality))
+    })
+}
+
+/// Both phases' bundles at each point's saturation, liquid then vapour, each [`phase_bundle`]'s bit for bit: the EOS's
+/// batch hooks under `ExecPolicy::Simd`, at each order ([`phase_order`]) and for each phase over that order's points.
+fn phase_bundles(
+    fluid: &PureFluid,
+    points: &[Result<(SatPair, Quality), Error>; GROUP],
+) -> [[Result<Bundle, Error>; 2]; GROUP] {
+    let unset = || Err(Error::Shape { expected: GROUP, found: 0 });
+    let mut bundles = core::array::from_fn(|_| [unset(), unset()]);
+    let mut parts = ([Derivs::zero(Order::Two); GROUP], [Derivs::zero(Order::Two); GROUP]);
+    for order in [Order::One, Order::Two] {
+        for vapour in [false, true] {
+            bundles_at(fluid, (order, vapour), points, &mut parts, &mut bundles);
+        }
+    }
+    bundles
+}
+
+/// One phase's bundles (the vapour's if `vapour`) at the points of `points` whose order is `order`, into `bundles`;
+/// `parts` holds their ideal and residual parts on the way.
+fn bundles_at(
+    fluid: &PureFluid,
+    (order, vapour): (Order, bool),
+    points: &[Result<(SatPair, Quality), Error>; GROUP],
+    (ideal, residual): &mut ([Derivs; GROUP], [Derivs; GROUP]),
+    bundles: &mut [[Result<Bundle, Error>; 2]; GROUP],
+) {
+    // The points at `order`, packed: each one's index, T and this phase's density.
+    let (mut at, mut n) = ([(0, 0.0, 0.0); GROUP], 0);
+    for (i, point) in points.iter().enumerate() {
+        let Ok((sat, q)) = point else { continue };
+        let rho = if vapour { sat.dew.rho } else { sat.bubble.rho };
+        if let Some(slot) = at.get_mut(n).filter(|_| phase_order(*q) == order) {
+            (*slot, n) = ((i, sat.bubble.t, rho), n + 1);
+        }
+    }
+    let (t, rho) = (at.map(|(_, t, _)| t), at.map(|(_, _, rho)| rho));
+    let (Some(t), Some(rho), Some(ideal), Some(residual)) =
+        (t.get(..n), rho.get(..n), ideal.get_mut(..n), residual.get_mut(..n))
+    else {
+        return;
+    };
+    let eos = fluid.eos();
+    let called = eos.ideal_batch(t, rho, order, ideal, ExecPolicy::Simd).and(eos.residual_batch(
+        t,
+        rho,
+        order,
+        residual,
+        ExecPolicy::Simd,
+    ));
+    for ((i, ..), (ideal, residual)) in at.iter().zip(ideal.iter().zip(residual.iter())) {
+        if let Some(slot) = bundles.get_mut(*i).and_then(|b| b.get_mut(usize::from(vapour))) {
+            *slot = called.clone().and_then(|()| phase_bundle_of(*ideal + *residual, order));
+        }
     }
 }

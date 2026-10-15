@@ -521,10 +521,8 @@ move `MILESTONE`: M11 stays the first open milestone.
 | M12.6 | `Lanes::ln`, libm 0.2.16's `log` ported to lanes with the `libm` backend, bitwise; n-Propane α^r 215 ns on AVX2 (one `ln` per state) |
 | M12.7 | the gate: four vectors to a lane operation (16 lanes on AVX2, user decision SL6); n-Propane α^r 109.2 ns, 2.87× over M12.1: the ≥ 2.5× gate passes (SL3); ≤ 0.1 µs/state missed, issue #171 |
 | M12.8 | DT batches under `ExecPolicy::Simd`: α⁰ (`HelmholtzModel::ideal_batch`) and α^r in lanes, then each point's flash on its own bundle; `Lanes::expm1`, libm 0.2.16's ported bitwise (user decision SL7); n-Propane DT + h + c_p 394 ns per state on AVX2, 2.23× the `libm` scalar path and 1.65× std's |
+| M12.9 | QT and PQ batches under `ExecPolicy::Simd`: `SaturationCurve::at_t_batch` and `at_p_batch`, the superancillary's Clenshaw sums in lanes (PQ's T from p by TOMS 748 per point, K14), then both phases' bundles in lanes at order 1 or 2; n-Propane QT + h 574 ns per state on AVX2, 2.59× the `libm` scalar path and 1.76× std's (PQ + h 742 ns, 2.37× and 1.64×) |
 
-- **M12.9 QT and PQ in lanes.** `Pair::QT` and `Pair::PQ` batches: the superancillary's Clenshaw sums (and T from p
-  for PQ) in lanes, then both phases' bundles through M12.8. *Red:* `policy_equivalence` over QT and PQ batches on
-  the `sat` grid. Benches `{qt,pq}_superancillary_batch/{scalar,simd}`.
 - **M12.10 WASM, and M12 closed.** `phasekit-wasm`'s `simd128` build enables `simd` (one compile-time level); its
   size budget and Node tests on both builds. The i7-8700K's M12 record; ARCHITECTURE.md §7 and VERIFICATION.md §12
   say what landed. Tag `m12` with the user's approval.
