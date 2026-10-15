@@ -85,3 +85,5 @@ x86_64-unknown-linux-gnu phasekit-cubic::lib 1
 wasm32-wasip2 phasekit-cubic::lib 1
 x86_64-unknown-linux-gnu phasekit-cubic::residual 6
 wasm32-wasip2 phasekit-cubic::residual 6
+x86_64-unknown-linux-gnu phasekit-cubic::alpha 3
+wasm32-wasip2 phasekit-cubic::alpha 3
