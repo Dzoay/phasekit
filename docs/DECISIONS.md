@@ -15,7 +15,7 @@ here with its date.
 | 5 | Helium R (`DIV-0005`) | **Keep CoolProp's R = 8.3144598** | Corrected = Parity for helium. The register records the NIST IR 8474 inconsistency (Table 1 R vs Table 3); the Table 3 fixture tolerance is 5e-7. Entry moves from `Investigate` to a documented, accepted divergence. |
 | 4 | Pseudo-pure blends (Air, R404A, R407C, R410A, R507A, SES36) | **CoolProp's ancillary-defined rules now; true-mixture variant offered later, default unchanged** | v0.1 specifies QT (Q ∈ {0, 1}), PQ (T linear in Q) and the in-dome DT rule from oracle fixtures, typed `SatAccuracy::Definition`. At the mixture milestone a true-mixture model (e.g. `R410A.mix`) is registered alongside; the pseudo-pure names keep their behaviour. |
 | 6 | Below the triple point | **Refuse by default; opt-in `DomainPolicy::Extrapolate` per call** | Extrapolate permits EOS evaluation of metastable single-phase states (e.g. supercooled water), flagged as extrapolated in the `State`. Superancillary / ancillary fits are never evaluated outside their fitted range under any policy. |
-| 10 | Cubic borrowing a HEOS ideal gas: which R | **Split by dataset** | `Parity`: the cubic's R (CoolProp 8.0.0 behaviour). `Corrected`: the source model's R, so the ideal-gas part equals its paper. Needs a register entry when the cubic family lands (M11). |
+| 10 | Cubic borrowing a HEOS ideal gas: which R | **Split by dataset** (replaced by CB1, 2026-10-15) | `Parity`: the cubic's R (CoolProp 8.0.0 behaviour). `Corrected`: the source model's R, so the ideal-gas part equals its paper. Needs a register entry when the cubic family lands (M11). |
 | 12 | `libm` by default | **Decide at M9 on evidence** | Opt-in feature until M9. Default on only if the cross-target hash proves bit-identity *and* the measured speed cost is under a threshold that PLAN.md sets. |
 | 9a | C ABI scope at v0.1 | **New `cp_*` ABI + Tier A `CoolPropLib.h` shim** | Tier A (map 11 U11): `PropsSI`, `Props1SI`, `PhaseSI`, `HAPropsSI`, `get_global_param_string`, `get_fluid_param_string`, `get_param_index`, `get_input_pair_index`, `set_config_*`. Tier B (`AbstractState_*`) deferred. Follow-up for PLAN.md: humid air is not in the v0.1 scope, so `HAPropsSI` either returns a documented "not available" error until the humid-air milestone or moves to that milestone. |
 | 9b | Shim fidelity | **Match v8.0.0 exactly** | v8.0.0 integer parameter codes and the process-wide, last-writer-wins `errstring` (cross-thread readable for Excel/COM and Mathcad pools, map 11 F5 / #3211). Quirks live only in the shim; `cp_*` keeps per-thread errors and string keys. |
@@ -571,3 +571,16 @@ SL6's 8 lanes with a one-vector remainder 1 402 513 B, 1.25×, 1.62× and 1.45×
 | # | Question | Decision | Notes |
 |---|---|---|---|
 | SL8 | The browser `.wasm`'s budget, and the lane width of its `simd128` build | **Eight lanes with the last group padded; a budget per build, its measured size + 10 %** | The `simd128` build enables `simd` and runs 8 lanes, a short last group padded as K17 pads it, with no one-vector remainder: on wasm a deviation from SL6, smaller and faster. The budgets: baseline 1 307 788 B (M12.9's 1 188 898 + 10 %), `simd128` 1 458 107 B (1 325 552 + 10 %). The browser package's batch runs `ExecPolicy::Simd` on both builds, with the same bits. *Rejected:* 2 or 4 lanes (smaller, slower); no `simd` in the browser. |
+
+## The cubic family's gas constant, and M11's start (2026-10-15)
+
+Asked when M12 landed. Decision 10 split the R of a cubic's borrowed ideal-gas part by dataset: `Parity` the cubic's
+own R, as CoolProp 8.0.0 does; `Corrected` the source model's R, so that α⁰ equals its paper. CoolProp's cubics use
+`R_U_CODATA` = 8.31446261815324 J/(mol·K) for everything, the borrowed α⁰ included (map 06 C6, map 15 §2.1). The
+borrowed models' own R values differ from it by up to 1.96e-5 (CycloPropane and Propyne, R = 8.3143), 1.10e-5 for
+Water (IAPWS-95), and 1.128e-6 for the 58 cubic fluids with R = 8.314472.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| CB1 | Which R does the cubic family use? | **CoolProp's: 8.31446261815324 (CODATA 2018, exact since the 2019 SI redefinition), everywhere and in both datasets** | Replaces decision 10. A cubic model's one `gas_constant()` is this R under `Parity` and `Corrected`; its α^r and the borrowed HEOS α⁰ are both scaled by it. The borrowed α⁰ is the source model's dimensionless function, unchanged, so a cubic fluid's ideal-gas c_p⁰, h⁰ and s⁰ are its source model's times R_CODATA/R_source. The register records that as an accepted divergence from the source papers, with the oracle kept (`KeepOracle`, like DIV-0005). |
+| CB2 | When is M11 built? | **Now, on the i7-8700K, before `v0.1.0`** | The user's word, replacing PLAN.md §4's trigger "v0.1 released". M11's steps are planned first, then built and merged in order when green, as M12's were (RL4). |

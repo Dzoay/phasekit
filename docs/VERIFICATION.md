@@ -494,7 +494,7 @@ are reached.
    citation; ARCHITECTURE.md §8 step 4); datagen checks the v8.0.0 value against the JSON bit for bit, and the hash gate
    then classifies the superancillary (7.3). Algorithm (`fix: Code`): a code fix; Parity cannot express it, so the
    entry is `SkipOracle` with an `exempt` predicate, unless the fix is a documented choice by `DataSet` inside a family
-   crate (the M11 cubic-R entry), which stays `UsePaper`.
+   crate, which stays `UsePaper`.
 6. **Proofs** (6.3) and `check_register` pass; ROT-REGISTER.md gets a row if the defect is systemic.
 
 Never widen a class, hand-edit a fixture, drop failing rows from the generator, or `#[ignore]` without the DIV id.
@@ -527,7 +527,7 @@ the default (Corrected); DIV proofs use both.
   `phasekit_core::internal`) refuses duplicate ids, unknown ids, and patches citing an entry that is not `UsePaper` or
   has no arbiter (sketch). Added here: every id cited anywhere (`corrections.csv`, `#[ignore]` reasons) exists; every
   `UsePaper` entry with `fix: Data` is cited by at least one patch, and no patch cites an entry whose `fix` is not
-  `Data`; a `fix: Code(path)` names a module that exists (the M11 cubic-R entry is `UsePaper` with `fix: Code`).
+  `Data`; a `fix: Code(path)` names a module that exists (DIV-0010's `phasekit_cubic`).
 - **Parity diff = patches** (M2): for all 136 fluids the field-by-field difference of the Parity and Corrected records
   is exactly the shipped edits, and `ModelKey` is equal if and only if no patch applies.
 - Datagen fails unless each `corrections.csv` row's "v8.0.0 value" equals the JSON value bitwise.
