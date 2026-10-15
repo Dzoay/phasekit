@@ -81,6 +81,7 @@ impl MultiParameterEos {
         Ok(Self { r, t_r, rho_r, rho_max, blocks: blocks.into_boxed_slice(), ideal })
     }
 
+    #[inline(always)]
     fn eval<R: ResidualReal, const ORD: usize>(&self, vars: &Vars<R>, order: Order) -> Derivs<R> {
         let mut acc = Derivs::zero(order);
         for block in self.blocks.iter() {
@@ -97,6 +98,7 @@ impl MultiParameterEos {
 
     /// The residual at W states side by side: lane `k` is, bit for bit, [`HelmholtzModel::residual`] at
     /// `(t.0[k], rho.0[k])` (PLAN.md M12.2).
+    #[inline(always)]
     pub(crate) fn residual_lanes<const W: usize>(&self, t: Lanes<W>, rho: Lanes<W>, order: Order) -> [Derivs; W] {
         let vars = Vars::new(Lanes::from_f64(self.t_r) / t, rho / Lanes::from_f64(self.rho_r));
         let acc = match order {
@@ -261,6 +263,55 @@ mod tests {
             fluids += 1;
         }
         assert!(fluids >= 130, "{fluids} fluids");
+    }
+
+    /// PLAN.md M12.4 (VERIFICATION.md §9.2, class `Exact`): `policy_equivalence` at every dispatch level of this CPU,
+    /// forced down from `Level::new()`: the residual's lane kernel through `run_simd` is, for every embedded fluid at
+    /// every order, the scalar residual at each point, bit for bit (NaN canonical). Batches of 0 to 17 points take
+    /// every remainder of 2, 4 and 8 lanes; the whole set adds τ = δ = 1, ρ = 0, `rho_max` and NaN inputs.
+    #[cfg(all(feature = "embedded", feature = "simd"))]
+    #[test]
+    fn policy_equivalence_at_every_level() {
+        let registry = crate::Registry::embedded().unwrap();
+        let (mut state, mut fluids) = (14, 0);
+        let levels = crate::exec::tests::levels();
+        for name in registry.names() {
+            let record = registry.record(name).unwrap();
+            let eos = record.eos.compile().unwrap();
+            let (t_min, t_max) = (record.limits.t_min(), record.limits.t_max());
+            let (mut t, mut rho): (Vec<f64>, Vec<f64>) =
+                (0..20).map(|_| (uniform(&mut state, t_min, t_max), uniform(&mut state, 0.0, eos.rho_max))).unzip();
+            t.extend([eos.t_r, t_max, t_min, f64::NAN, t_max]);
+            rho.extend([eos.rho_r, 0.0, eos.rho_max, 1.0, f64::NAN]);
+            for order in [Order::One, Order::Two, Order::Three, Order::Four] {
+                for level in &levels {
+                    assert_level_matches(name, &eos, *level, (&t, &rho), order);
+                }
+            }
+            fluids += 1;
+        }
+        assert!(fluids >= 130 && !levels.is_empty(), "{fluids} fluids, levels {levels:?}");
+    }
+
+    /// One fluid, level and order of [`policy_equivalence_at_every_level`]: every prefix of 0 to 17 points and the
+    /// whole set through `run_simd`, each point bit for bit the scalar residual.
+    #[cfg(all(feature = "embedded", feature = "simd"))]
+    fn assert_level_matches(
+        name: &str,
+        eos: &MultiParameterEos,
+        level: fearless_simd::Level,
+        (t, rho): (&[f64], &[f64]),
+        order: Order,
+    ) {
+        let kernel = Residual { eos, order };
+        for n in (0..=17).chain([t.len()]) {
+            let mut out = vec![Derivs::zero(order); n];
+            exec::run_simd(level, &kernel, &t[..n], &rho[..n], &mut out);
+            for (i, got) in out.iter().enumerate() {
+                let want = eos.residual(t[i], rho[i], order);
+                assert_eq!(bits(got), bits(&want), "{name} {order:?} {level:?} n = {n} point {i}");
+            }
+        }
     }
 
     /// PLAN.md M12.2: every `Real` operation on `Lanes<4>` is, lane by lane, the `f64` operation, bit for bit, so a

@@ -1,6 +1,7 @@
 //! `gates features`: the fluid set is forwarded, never implied (E7; VERIFICATION.md §11.2). `phasekit-compat` built
 //! with `--no-default-features --features fluids-core` resolves to the three workspace crates, compat and core with
-//! `embedded` and `fluids-core` only, and `phasekit-data` with `core` and exactly the fluids its `core` list names.
+//! `embedded` and `fluids-core` only (no `rayon`, `libm` or `simd`, PLAN.md M12.4), and `phasekit-data` with `core` and
+//! exactly the fluids its `core` list names.
 //! The browser package's build resolves the same (beside wasm-bindgen's own crates), and its release `.wasm`, baseline
 //! and `simd128`, stays within `crates/phasekit-wasm/size-budget.txt` (PLAN.md M10.8).
 
@@ -205,6 +206,26 @@ mod tests {
                 .starts_with("cargo tree does not list phasekit-data")
         );
         assert_eq!(check("", &core, "phasekit-compat").unwrap_err().len(), 3, "an empty tree fails closed");
+    }
+
+    /// PLAN.md M12.4: core's `simd` feature, or `fearless_simd` itself, in a fluids-core build fails the gate by name.
+    #[test]
+    fn the_simd_feature_stays_out_of_the_fluids_core_build() {
+        let core = core_list(DATA).unwrap();
+        let simd = tree("core,fluid-nitrogen,fluid-water").replacen(
+            "(/w/crates/phasekit-core) [embedded,fluids-core]",
+            "(/w/crates/phasekit-core) [embedded,fluids-core,libm,simd]",
+            1,
+        );
+        assert_eq!(
+            check(&simd, &core, "phasekit-compat").unwrap_err(),
+            ["phasekit-core enables libm, simd beyond the fluids-core set (E7)"]
+        );
+        let dependency = format!("{}fearless_simd v1.1.0 [std]\n", tree("core,fluid-nitrogen,fluid-water"));
+        assert_eq!(
+            check(&dependency, &core, "phasekit-compat").unwrap_err(),
+            ["the fluids-core build of phasekit-compat pulls in fearless_simd v1.1.0 [std]"]
+        );
     }
 
     /// PLAN.md M10.8: the browser package's build embeds the same set; wasm-bindgen's crates and a repeated crate's

@@ -59,6 +59,7 @@ impl TauExpBlock {
     }
 
     /// `A_ij += φ·B^τ_i(y)·B^δ_j(x)` for every term, `y = aτ^m`, `x = cδ^l`, `i + j ≤ ORD`.
+    #[inline(always)]
     pub(crate) fn accumulate<R: Real, const ORD: usize>(&self, v: &Vars<R>, acc: &mut Derivs<R>) {
         for k in 0..self.n.len() {
             let y = if self.a[k] == 0.0 { R::from_f64(0.0) } else { (v.ln_tau * self.m[k]).exp() * self.a[k] };

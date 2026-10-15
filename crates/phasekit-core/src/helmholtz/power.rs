@@ -28,6 +28,7 @@ pub(crate) struct Vars<R> {
 
 impl<R: Real> Vars<R> {
     /// Precomputes the per-state table.
+    #[inline(always)]
     pub(crate) fn new(tau: R, delta: R) -> Self {
         let mut delta_pow = [R::from_f64(1.0); MAX_POW + 1];
         for k in 1..=MAX_POW {
@@ -183,6 +184,7 @@ impl PowerBlock {
 
     /// Hot path for one state: one `exp` per term, then `A_ij += φ·B^τ_i·B^δ_j` for `i + j ≤ ORD`.
     /// Generic over `R`, so `Jet4` (and lanes, if the SIMD gate fires) run this same code.
+    #[inline(always)]
     pub(crate) fn accumulate<R: Real, const ORD: usize>(&self, v: &Vars<R>, acc: &mut Derivs<R>) {
         for k in 0..self.n.len() {
             let (phi, bd) = self.term::<R, ORD>(k, v);

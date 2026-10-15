@@ -72,6 +72,7 @@ impl<R: Real> Derivs<R> {
     }
 
     /// `A_ij += φ · bt[i] · bd[j]` for `i + j ≤ ORD`: the outer product of separable τ- and δ-factors.
+    #[inline(always)]
     pub(crate) fn add_outer<const ORD: usize>(&mut self, phi: R, bt: &[f64; 5], bd: &[R; 5]) {
         for (i, &bti) in bt.iter().enumerate().take(ORD + 1) {
             let e = phi * bti;
@@ -83,6 +84,7 @@ impl<R: Real> Derivs<R> {
     }
     /// `A_ij += φ · bt[i] · bd[j]` for `i + j ≤ ORD`, with state-dependent τ-factors (terms with an exponential
     /// on the τ-side too).
+    #[inline(always)]
     pub(crate) fn add_separable<const ORD: usize>(&mut self, phi: R, bt: &[R; 5], bd: &[R; 5]) {
         for (i, &bti) in bt.iter().enumerate().take(ORD + 1) {
             let e = phi * bti;

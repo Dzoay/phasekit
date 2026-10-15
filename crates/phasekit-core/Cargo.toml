@@ -25,11 +25,15 @@ rayon = ["dep:rayon"]
 # `math` on the `libm` crate instead of the platform's maths library (M9.3): the one feature that changes numerics,
 # for bit-identical results across targets. Opt-in: M9.5 measured it 1.44x std's time (ARCHITECTURE.md D12).
 libm = ["dep:libm"]
+# `ExecPolicy::Simd` runs its lanes at the CPU's widest level, detected at run time (fearless_simd; PLAN.md M12.4), and
+# enables `libm`, so the lanes are the scalar path's bits on every target (user decision SL1).
+simd = ["libm", "dep:fearless_simd"]
 
 [dependencies]
 phasekit-data = { workspace = true, optional = true }
 libm = { version = "0.2.16", optional = true }
 rayon = { version = "1.12", optional = true }
+fearless_simd = { version = "1.1", optional = true, default-features = false, features = ["std"] }
 
 # T3 dev-only (docs/DEPENDENCIES.md; dependencies §2.12): invariants over any input (PLAN.md M1.14); never in a public API.
 [dev-dependencies]

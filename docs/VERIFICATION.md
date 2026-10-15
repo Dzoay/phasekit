@@ -810,8 +810,9 @@ This section is the one definition of the bench harness, the C++ baseline and th
   and (4) PQ through the superancillary, alone and plus h (`qt_h`, `pq_h`, the §7 row; user decision PF1); (5) PT and
   (6) PH single phase; (7) a by-name `PropsSI` call (name lookup).
 - **Batch workloads (M12, phasekit only):** workload (1) on the same grid as one `residual_batch` call, reported per
-  state: `alphar_batch/scalar` (std), `alphar_batch/scalar_libm` (built with `--features phasekit-core/libm`). M12's
-  SIMD gate compares its lanes with `scalar` (user decision SL3).
+  state: `alphar_batch/scalar` (std), `alphar_batch/scalar_libm` (built with `--features phasekit-core/libm`), and
+  `alphar_batch/simd` under `ExecPolicy::Simd` (built with `phasekit-verify`'s `--features simd`, which enables core's;
+  M12.4). M12's SIMD gate compares `simd` with `scalar` (user decision SL3).
 - **C++ baseline (M1.15):** CoolProp v8.0.0 built Release, no `-march`, like the wheels (kernel-performance §2.9), from
   a throwaway clone of `reference/CoolProp` in a scratch directory, because CoolProp's configure writes generated
   headers and data into its own source tree (`CMakeLists.txt:557-559`, `dev/generate_headers.py`). The harness

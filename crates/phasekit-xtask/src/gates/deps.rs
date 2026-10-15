@@ -1,17 +1,19 @@
 //! `gates deps`: the zero-dependency guard (dependencies §3.4 item 1; ROT-156). `phasekit-core` depends on
 //! `phasekit-data` only and `phasekit-data` on nothing; core's optional features (`rayon`, PLAN.md M9.1; `libm`,
-//! M9.3) each add their own crate and nothing else.
+//! M9.3) each add their own crate and nothing else, and `simd` (M12.4) adds `fearless_simd` and the `libm` it enables.
 
 use super::{Verdict, no_args};
 use crate::repo::Repo;
 
 /// Each guarded crate, the features it is built with, and exactly the crates its normal and build dependency tree
 /// names at depth 1 then (itself included).
-const GUARDED: [(&str, &str, &[&str]); 5] = [
+const GUARDED: [(&str, &str, &[&str]); 7] = [
     ("phasekit-core", "", &["phasekit-core", "phasekit-data"]),
     ("phasekit-core", "rayon", &["phasekit-core", "phasekit-data", "rayon"]),
     ("phasekit-core", "libm", &["phasekit-core", "phasekit-data", "libm"]),
     ("phasekit-core", "rayon,libm", &["phasekit-core", "phasekit-data", "rayon", "libm"]),
+    ("phasekit-core", "simd", &["phasekit-core", "phasekit-data", "libm", "fearless_simd"]),
+    ("phasekit-core", "rayon,simd", &["phasekit-core", "phasekit-data", "rayon", "libm", "fearless_simd"]),
     ("phasekit-data", "", &["phasekit-data"]),
 ];
 
@@ -94,7 +96,7 @@ mod tests {
         let errors = check("phasekit-core", "rayon", TREE).unwrap_err();
         assert!(errors.len() == 1 && errors[0].contains("no longer depends on rayon"), "{errors:?}");
         assert!(check("phasekit-core", "", &with_rayon).is_err());
-        assert!(check("phasekit-core", "simd", TREE).is_err());
+        assert!(check("phasekit-core", "rayon,libm,simd", TREE).is_err());
     }
 
     /// PLAN.md M9.3: `--features libm` adds exactly `libm`, and `--features rayon,libm` exactly the two.
@@ -108,5 +110,24 @@ mod tests {
         assert!(
             check("phasekit-core", "rayon,libm", &with_libm).unwrap_err()[0].contains("no longer depends on rayon")
         );
+    }
+
+    /// PLAN.md M12.4 (dependencies T1): `--features simd` adds exactly `fearless_simd` and the `libm` it enables (user
+    /// decision SL1), and `--features rayon,simd` `rayon` too; the default and `libm` builds have no `fearless_simd`.
+    #[test]
+    fn the_simd_feature_adds_fearless_simd_and_libm() {
+        let with_simd = format!("{TREE}fearless_simd v1.1.0\nlibm v0.2.16\n");
+        assert_eq!(
+            check("phasekit-core", "simd", &with_simd),
+            Ok(vec!["phasekit-data".into(), "fearless_simd".into(), "libm".into()])
+        );
+        assert_eq!(
+            check("phasekit-core", "rayon,simd", &format!("{with_simd}rayon v1.12.0\n")).map(|d| d.len()),
+            Ok(4)
+        );
+        let errors = check("phasekit-core", "simd", &format!("{TREE}fearless_simd v1.1.0\n")).unwrap_err();
+        assert!(errors.len() == 1 && errors[0].contains("no longer depends on libm"), "{errors:?}");
+        assert!(check("phasekit-core", "", &with_simd).is_err());
+        assert!(check("phasekit-core", "libm", &with_simd).unwrap_err()[0].contains("fearless_simd v1.1.0"));
     }
 }
