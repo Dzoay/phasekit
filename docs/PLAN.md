@@ -586,27 +586,10 @@ scripted downloads (section 6). teqp 0.23.2 (NIST public domain) is `OtherImplem
 traces. Its conversion of Lemmon's ξ/ζ pairs halves γ_T, so a generator converts them to β/γ before teqp sees them. The
 oracle checks the multi-fluid model outside the known-bad states of map 04 §8. M13 closes by setting `MILESTONE` to 14.
 
-- **M13.1 The mixture seams in core (MX2).** One core PR, before `m13-start`.
-  - (a) *Phase molar masses.* Each phase point of a `State` carries its molar mass. `State::from_split` accepts phases
-    of different molar mass (same model key and R). A split's mass-basis values divide by (1 − q)M′ + qM″, and
-    `Prop::Qmass` is qM″/((1 − q)M′ + qM″). `one_phase` reports a saturated side with its own M. A mass quality input
-    (compat's `Qmass` key) reaches the model with its basis on `NativeInput`; `PureFluid` treats both bases alike.
-  - (b) *A public density solve.* `phasekit_core::density` gives the density at (T, p) on any `HelmholtzModel`: every
-    root of the isotherm as `Roots` under `RootPolicy`, a branch from a seed, and the acceptance gate (`reproduces`).
-  - (c) *A resolver layer.* `Registry::with_resolver(Arc<dyn Resolver>)` and `Registry::resolve(name) -> Result<Fluid,
-    Error>`. A name no layer holds goes to each resolver layer in turn, which may build a `ThermoModel` from the name
-    and the registry (its components). A resolver layer keeps a small bounded cache of what it built, so a repeated
-    compat string builds once; there is no global state.
-  - `Constants::reducing` becomes a contract: the state at which `HelmholtzModel::residual`'s τ and δ are defined.
-    The multi-fluid model evaluates each component through it.
-  - ARCHITECTURE.md §3.6, §3.8, D4 and §11 say what landed.
+| Step | Landed |
+|---|---|
+| M13.1 | Core's mixture seams (MX2): each phase point keeps its molar mass, so `State::from_split` takes phases of different M (one R) and weighs them by mass (`State::mass_quality`, `Prop::Qmass`, mass-basis values), a pure fluid's split bit for bit as before; `Input::with_quality_basis`, `NativeInput::quality_basis` and `BatchRequest::with_quality_basis`, compat's `Qmass` key a mass quality; the public `density` module (`solve` on a `Branch`, `roots`, `select` under a `RootPolicy`, the acceptance gate `reproduces`); `Registry::with_resolver` and `resolve` with the `Resolver` trait (a family caches what it builds); `HelmholtzModel::reducing`; `tests/mixture_seam.rs` |
 
-  *Red:* `tests/mixture_seam.rs` in phasekit-verify, a two-component toy family like `gibbs_seam.rs`'s. A split whose
-  phases differ in M reports the mass quality and the mass h of the lever rule on mass. A `Qmass` input reaches the toy
-  as mass. The public density solve finds vdW's three roots. `toy[0.5]&toy2[0.5]` resolves through a resolver layer,
-  twice from one build. Each runs first against today's refusal ("the phases of a split must share R and M"), the
-  missing API and the unknown-name error. *Done when:* `new_family.rs` and `gibbs_seam.rs` pass unchanged and every
-  pure-fluid fixture is bit-identical.
 - **M13.2 The start: `m13-start`, the crate, the mixture data.**
   - Tag `m13-start` on M13.1's merge commit; `ci/core-frozen.txt` names it.
   - A new crate `crates/phasekit-mix`, on `phasekit-core` alone (T1f, default features off). It is not published:

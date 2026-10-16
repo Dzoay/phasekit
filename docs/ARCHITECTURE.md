@@ -186,17 +186,19 @@ strings, batch, C and WASM.
 One 19-line `pairs!` table generates the `#[non_exhaustive] Pair` enum, `Pair::ALL: &'static [Pair]`, `Pair::vars`
 (from each quantity type's `VAR`) and the typed constructors (`Input::dt(Density, Temperature)`). `Input::new(pair, x,
 y, basis)` is the one raw gate for batch, string, C and JS callers. `Fluid` turns an `Input` into a `NativeInput`
-(validated, molar, native gauge) exactly once per call; models never re-validate, convert or see a gauge. The six
-19-arm tables, the private `Molar` trait, `InputKind` and the typed → raw → typed round trip are gone (S-04).
-`Capabilities` is a private 64-wide bitset (E11).
+(validated, molar, native gauge) exactly once per call; models never re-validate, convert or see a gauge. A quality
+keeps its basis (`Input::with_quality_basis`, CoolProp's `Qmass`): only the model knows its phases' molar masses
+(M13.1). The six 19-arm tables, the private `Molar` trait, `InputKind` and the typed → raw → typed round trip are gone
+(S-04). `Capabilities` is a private 64-wide bitset (E11).
 
 ### 3.6 State and the states-of-matter seam (D5, D10)
 
 - `Body` is one phase point or two (`q`, liquid, vapour); every point carries its own T, ρ and bundle, because a
   pseudo-pure fluid's bubble and dew points differ (E3).
 - `from_split` is public (E2): any family builds two coexisting phases (IF97 across the dome, a mixture split, ice +
-  vapour). It refuses foreign or two-phase inputs, phases with different R or M, and non-finite T or p. The core flash
-  uses the same path.
+  vapour). It refuses foreign or two-phase inputs, phases with different R, and non-finite T or p. Each phase point
+  keeps its own molar mass, so a mixture's split weighs its phases by mass in its mass-basis values and its mass quality
+  (M13.1). The core flash uses the same path.
 - `from_total` validation (S-10, E17): T, ρ, R, M finite and > 0; the first-order entries finite; no NaN. A divergent
   second-order entry (cv at the non-analytic critical point of Water or CO₂) is kept: p, h and s survive, and cv, cp,
   w and partial derivatives report `Undefined { prop, phase }`.
@@ -233,6 +235,7 @@ outputs divide A_ij by τ^i δ^j at the published reducing state, at one phase.
 | `with_model(model)` | NEW registry with one more provided model |
 | `with_reference(name, reference)` | NEW registry in which that fluid (all its aliases) reports in a reference state (E10) |
 | `get(name)` | Name, alias or CAS, ASCII case-insensitive; returns a reference |
+| `with_resolver(resolver)` / `resolve(name)` | NEW registry that also asks a family's `Resolver` for names no layer holds (a mixture's `A[x]&B[y]`); `resolve` returns an owned handle, a held name's as `get` gives it (M13.1) |
 | `canonical_name` / `preload` / `loaded` / `empty` | Resolution without loading; warm-up; memory introspection |
 
 `Pack::new(Arc<[u8]>) -> Result<Pack, LoadError>` implements `DataSource` (M2 format); JS calls it as
@@ -320,9 +323,11 @@ new crate with zero core edits, proved by `tests/new_family.rs` and gated at M11
 trimmed composition), so pure fluids pay nothing.
 - `phasekit-mix` brings `Mixture: HelmholtzModel` at fixed z, reusing single-phase flashes, relations and `State`. Its
   own `ThermoModel` package does VLE and stability and returns two-phase splits through `State::from_split` (each
-  phase point carries its own T and ρ, and from M13.1 its own molar mass; q is molar). Composition stays out of the
-  core contract; M13.1 adds the three seams a mixture needs (user decision MX2, PLAN.md M13). A `MixtureModel` trait
-  there gives composition derivatives by one mole-number AD path.
+  phase point carries its own T, ρ and molar mass; q is molar, and a mass quality reaches the model as one). Composition
+  stays out of the core contract; M13.1 added the seams a mixture needs (user decision MX2): phase molar masses, the
+  public `density` solve and acceptance gate, a registry `Resolver` for composed names, and `HelmholtzModel::reducing`
+  to evaluate a component at the mixture's τ and δ. A `MixtureModel` trait there gives composition derivatives by one
+  mole-number AD path.
 - `HelmholtzModel::ideal` is per model, so Lean's `IdealGas::weighted` core edit is unnecessary.
 - A mixture handle's gauge is the mole-fraction-weighted component gauge. It is exact because composition is fixed,
   unlike Extensible's per-call `Gauge::mix`.
@@ -871,7 +876,7 @@ divergence register (its policies, statuses and three-part proofs), §6, with th
 | Two-phase states from a family (IF97 QT/PQ, mixture splits, sublimation) | `State::from_split` | 0 | `gibbs_seam.rs` ice + vapour through registry, batch and compat |
 | Order ≥ 3 and part-wise outputs for any family | `ThermoModel::derivs` (default via `helmholtz()`) | 0 | Cp0 on vdW; `NoModel` on the solid |
 | Reference states for any family | `Fluid::with_reference`, `Registry::with_reference`, `ReferenceState::Custom { at: Input, .. }` | 0 | gauge tests on vdW and the solid; strings reach the gauged handle |
-| Mixtures, GERG | `HelmholtzModel` at fixed z + own `ThermoModel` package (`phasekit-mix`) using `from_split`; `MixtureModel` trait there; true-mixture variants of the pseudo-pure blends registered alongside them (D4) | M13.1's three seams (user decision MX2): phase molar masses in a split, a public density solve, a registry resolver layer for composed names; then 0 from `m13-start`; compat passes `A[x]&B[y]` to the registry | x = [1, 0] invariant (map 04, map 15) |
+| Mixtures, GERG | `HelmholtzModel` at fixed z + own `ThermoModel` package (`phasekit-mix`) using `from_split`; `MixtureModel` trait there; true-mixture variants of the pseudo-pure blends registered alongside them (D4) | M13.1's seams (user decision MX2): phase molar masses in a split, the public `density` solve, `Registry::with_resolver`, `HelmholtzModel::reducing`; then 0 from `m13-start`; compat passes `A[x]&B[y]` to the registry | x = [1, 0] invariant (map 04, map 15) |
 | INCOMP correlations, humid air | `ThermoModel` (own flash); HA takes water/air/ice `Fluid`s at construction (map 07 H3) | 0; HA string API lives in compat | after M14; the shim's `HAPropsSI` stub becomes real (D11) |
 | Phase coexistence (ice + water, sublimation) | `ThermoModel::flash(PT)` + `from_split` + `State` g = h − Ts | 0 expected: `Substance` + min-Gibbs selector in a new crate when triggered | materials R1 trigger |
 | New transport form | closed enum in `transport` (validated data, like term kinds) | 1 module, by design | a family with exotic transport wraps its `PureFluid` in its own `ThermoModel` |

@@ -82,6 +82,18 @@ impl Input {
         self.pair
     }
 
+    /// The same input with its quality on `basis`: a mass quality (CoolProp's `Qmass`) reaches the model as one, since
+    /// only the model knows its phases' molar masses (PLAN.md M13.1). No effect on a pair without Q.
+    pub const fn with_quality_basis(mut self, basis: Basis) -> Input {
+        let (x, y) = self.pair.vars();
+        if matches!(x, Var::Q) {
+            self.x.1 = basis;
+        } else if matches!(y, Var::Q) {
+            self.y.1 = basis;
+        }
+        self
+    }
+
     /// The two values as given, in pair order.
     pub const fn values(&self) -> (f64, f64) {
         (self.x.0, self.y.0)
@@ -92,7 +104,12 @@ impl Input {
         let (vx, vy) = self.pair.vars();
         let x = gauge.to_native(vx, vx.to_molar(self.x.0, self.x.1, m));
         let y = gauge.to_native(vy, vy.to_molar(self.y.0, self.y.1, m));
-        NativeInput { pair: self.pair, x, y }
+        let quality_basis = match (vx, vy) {
+            (Var::Q, _) => self.x.1,
+            (_, Var::Q) => self.y.1,
+            _ => Basis::Molar,
+        };
+        NativeInput { pair: self.pair, x, y, quality_basis }
     }
 }
 
@@ -104,6 +121,7 @@ pub struct NativeInput {
     pair: Pair,
     x: f64,
     y: f64,
+    quality_basis: Basis,
 }
 
 impl NativeInput {
@@ -114,6 +132,11 @@ impl NativeInput {
     /// `(x, y)` in pair order, molar SI.
     pub const fn values(&self) -> (f64, f64) {
         (self.x, self.y)
+    }
+    /// The basis of the quality, for a pair with Q: molar unless the caller gave a mass quality. A pure fluid's phases
+    /// share one molar mass, so both are the same number; a mixture's differ.
+    pub const fn quality_basis(&self) -> Basis {
+        self.quality_basis
     }
 }
 
@@ -247,5 +270,21 @@ mod tests {
         let typed = Input::dt(Density::mass(996.5).unwrap(), Temperature::new(300.0).unwrap());
         assert_eq!(Input::new(Pair::DT, 996.5, 300.0, Basis::Mass).unwrap(), typed);
         assert_eq!(Pair::from_vars(Var::T, Var::D), Some((Pair::DT, true)));
+    }
+
+    /// M13.1: a mass quality (CoolProp's `Qmass`) reaches the model with its basis, as given: only the model knows its
+    /// phases' molar masses. A quality is molar unless the caller says so, and a pair without Q is unchanged.
+    #[test]
+    fn a_mass_quality_reaches_the_model_as_one() {
+        let qt = Input::qt(Quality::new(0.3).unwrap(), Temperature::new(300.0).unwrap());
+        let mass = qt.with_quality_basis(Basis::Mass).to_native(0.04, Gauge::NATIVE);
+        assert_eq!((mass.values(), mass.quality_basis()), ((0.3, 300.0), Basis::Mass));
+        assert_eq!(qt.to_native(0.04, Gauge::NATIVE).quality_basis(), Basis::Molar);
+        let pq = Input::new(Pair::PQ, 1e5, 0.5, Basis::Mass).unwrap();
+        assert_eq!(pq.to_native(0.04, Gauge::NATIVE).quality_basis(), Basis::Molar, "Hmass's basis is not Q's");
+        assert_eq!(pq.with_quality_basis(Basis::Mass).to_native(0.04, Gauge::NATIVE).quality_basis(), Basis::Mass);
+        let dt = Input::new(Pair::DT, 10.0, 300.0, Basis::Molar).unwrap();
+        assert_eq!(dt.with_quality_basis(Basis::Mass), dt);
+        assert_eq!(dt.with_quality_basis(Basis::Mass).to_native(0.04, Gauge::NATIVE).quality_basis(), Basis::Molar);
     }
 }

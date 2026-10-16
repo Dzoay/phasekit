@@ -137,7 +137,8 @@ const OUTPUTS: [(&str, Output); 109] = {
 pub const OUTPUT_COUNT: usize = 85;
 
 /// CoolProp's input keys: the outputs it flags "IO" that an input pair takes (Tau and Delta take none), and the aliases
-/// of those; Qmass is Q for a pure or pseudo-pure fluid, whose phases share one molar mass. `None`: basis-free.
+/// of those; Qmass reaches the model as a mass quality (`Input::with_quality_basis`), the same number as Q for a pure or
+/// pseudo-pure fluid, whose phases share one molar mass. `None`: basis-free.
 const INPUTS: [(&str, Var, Option<Basis>); 16] = [
     ("T", Var::T, None),
     ("P", Var::P, None),

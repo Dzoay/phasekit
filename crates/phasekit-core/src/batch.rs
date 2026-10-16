@@ -69,13 +69,15 @@ pub struct BatchRequest<'a> {
     outputs: &'a [Prop],
     flash: FlashOptions,
     exec: ExecPolicy,
+    quality_basis: Basis,
 }
 
 impl<'a> BatchRequest<'a> {
     /// `x[i]`, `y[i]` are point `i` in pair order; `basis` applies to D, H, S and U. Default options and
     /// the `Reference` executor.
     pub fn new(pair: Pair, basis: Basis, x: &'a [f64], y: &'a [f64], outputs: &'a [Prop]) -> Self {
-        Self { pair, basis, x, y, outputs, flash: FlashOptions::new(), exec: ExecPolicy::Reference }
+        let (flash, exec, quality_basis) = (FlashOptions::new(), ExecPolicy::Reference, Basis::Molar);
+        Self { pair, basis, x, y, outputs, flash, exec, quality_basis }
     }
     /// Flash options for every point.
     pub const fn with_flash(mut self, flash: FlashOptions) -> Self {
@@ -86,6 +88,17 @@ impl<'a> BatchRequest<'a> {
     pub const fn with_exec(mut self, exec: ExecPolicy) -> Self {
         self.exec = exec;
         self
+    }
+    /// The basis of the quality, for a pair with Q (`Input::with_quality_basis`): a mass quality reaches the model as
+    /// one.
+    pub const fn with_quality_basis(mut self, basis: Basis) -> Self {
+        self.quality_basis = basis;
+        self
+    }
+
+    /// Point `(x, y)` as an input: the raw gate, then the quality's basis.
+    fn input(&self, x: f64, y: f64) -> Result<Input, Error> {
+        Ok(Input::new(self.pair, x, y, self.basis)?.with_quality_basis(self.quality_basis))
     }
     /// Number of points.
     pub const fn points(&self) -> usize {
@@ -163,7 +176,7 @@ fn run_chunk(
     let rows = out.chunks_exact_mut(m).zip(status.chunks_exact_mut(m));
     for ((x, y), (out, status)) in xs.iter().zip(ys).zip(rows) {
         // The single gate (validation, basis, gauge), then the model: exactly the scalar path.
-        let state = Input::new(req.pair, *x, *y, req.basis).and_then(|input| fluid.flash(input, &req.flash));
+        let state = req.input(*x, *y).and_then(|input| fluid.flash(input, &req.flash));
         failed += write_row(fluid, req, &state, out, status);
     }
     failed
@@ -190,7 +203,7 @@ fn run_lanes(
         // Each point the gate passes, native, molar and in pair order.
         let points: [Result<(f64, f64), Error>; GROUP] = core::array::from_fn(|k| {
             let (x, y) = xs.get(k).zip(ys.get(k)).ok_or(Error::Shape { expected: GROUP, found: k })?;
-            Ok(fluid.native(Input::new(req.pair, *x, *y, req.basis)?)?.values())
+            Ok(fluid.native(req.input(*x, *y)?)?.values())
         });
         let mut states: [Result<State, Error>; GROUP] =
             core::array::from_fn(|_| Err(Error::Shape { expected: 0, found: 0 }));

@@ -139,10 +139,20 @@ enum Layer {
     Model(Arc<ModelLayer>),
 }
 
+/// Builds models for names no layer holds: a mixture's composed name (`A[x]&B[y]`), a family's parameterised names
+/// (PLAN.md M13.1). Registered with [`Registry::with_resolver`] and consulted by [`Registry::resolve`], newest first.
+pub trait Resolver: Send + Sync + core::fmt::Debug {
+    /// The model `name` denotes, built over `registry` (whose fluids it may borrow); `None` when `name` is not one this
+    /// resolver reads, so the next resolver is asked.
+    fn resolve(&self, name: &str, registry: &Registry) -> Option<Result<Arc<dyn ThermoModel>, Error>>;
+}
+
 /// Name → fluid. Cheap to clone (one `Arc`); share it by reference or clone. Never mutated.
 #[derive(Clone, Debug)]
 pub struct Registry {
     layers: Arc<[Layer]>,
+    /// Consulted by [`Registry::resolve`] for names no layer holds, the newest last.
+    resolvers: Arc<[Arc<dyn Resolver>]>,
 }
 
 #[cfg(feature = "embedded")]
@@ -189,7 +199,7 @@ impl DataSource for Embedded {
 impl Registry {
     /// A registry with no fluids.
     pub fn empty() -> Registry {
-        Registry { layers: Arc::new([]) }
+        Registry { layers: Arc::new([]), resolvers: Arc::new([]) }
     }
 
     /// The process-wide embedded registry. Built on first call from the static index; decodes nothing.
@@ -342,6 +352,24 @@ impl Registry {
         Err(self.missing(name).into())
     }
 
+    /// A NEW registry whose [`resolve`](Self::resolve) also asks `resolver` for names no layer holds.
+    pub fn with_resolver(&self, resolver: Arc<dyn Resolver>) -> Registry {
+        let resolvers = self.resolvers.iter().cloned().chain(core::iter::once(resolver)).collect();
+        Registry { layers: Arc::clone(&self.layers), resolvers }
+    }
+
+    /// The fluid answering to `name`: a held name's as [`get`](Self::get) returns it, otherwise the model the newest
+    /// resolver that reads `name` builds, at its native gauge. An owned handle (one `Arc`), since a resolved fluid
+    /// belongs to no layer; a name no layer holds and no resolver reads is [`get`](Self::get)'s error.
+    pub fn resolve(&self, name: &str) -> Result<Fluid, Error> {
+        let held = self.get(name);
+        if held.is_ok() {
+            return held.cloned();
+        }
+        let built = self.resolvers.iter().rev().find_map(|resolver| resolver.resolve(name, self));
+        built.map_or_else(|| held.cloned(), |model| model.map(Fluid::new))
+    }
+
     /// The canonical name for `name`, without loading anything.
     pub fn canonical_name(&self, name: &str) -> Option<&str> {
         self.layers.iter().rev().find_map(|layer| match layer {
@@ -398,7 +426,8 @@ impl Registry {
     }
 
     fn push(&self, layer: Layer) -> Registry {
-        Registry { layers: self.layers.iter().cloned().chain(core::iter::once(layer)).collect() }
+        let layers = self.layers.iter().cloned().chain(core::iter::once(layer)).collect();
+        Registry { layers, resolvers: Arc::clone(&self.resolvers) }
     }
 
     /// A strong handle to the fluid called `name` in an existing layer.
@@ -657,5 +686,43 @@ mod tests {
         for spelling in ["water", "WATER", "Water", "wAtEr", "H2O", "h2o", "r718"] {
             assert_eq!(reg.canonical_name(spelling), Some("Water"), "{spelling}");
         }
+    }
+
+    /// A resolver for `<prefix><name>`: the named fluid's model, rebuilt from its record, or, when it refuses, an error
+    /// naming its prefix.
+    #[derive(Debug)]
+    struct Twins {
+        prefix: &'static str,
+        refuses: bool,
+    }
+
+    impl Resolver for Twins {
+        fn resolve(&self, name: &str, registry: &Registry) -> Option<Result<Arc<dyn ThermoModel>, Error>> {
+            let base = name.strip_prefix(self.prefix)?;
+            if self.refuses {
+                return Some(Err(LoadError::UnknownName(self.prefix.into()).into()));
+            }
+            Some(registry.record(base).and_then(FluidRecord::compile).map(|f| Arc::new(f) as Arc<dyn ThermoModel>))
+        }
+    }
+
+    /// M13.1: `resolve` serves a held name as `get` does, and a name no layer holds through the newest resolver that
+    /// reads it (built over the registry, at the native gauge); `get` never consults a resolver, and a name nothing reads
+    /// is `get`'s error.
+    #[test]
+    fn a_resolver_serves_names_no_layer_holds() {
+        let base = Registry::embedded().unwrap();
+        let twins = |prefix, refuses| Arc::new(Twins { prefix, refuses });
+        let registry = base
+            .with_resolver(twins("twin:", true))
+            .with_resolver(twins("twin:", false))
+            .with_resolver(twins("x:", true));
+        let twin = registry.resolve("twin:Water");
+        assert!(twin.as_ref().is_ok_and(|f| f.info().name() == "Water"), "the newest reader answers: {twin:?}");
+        assert_eq!(registry.resolve("x:Water").err(), Some(LoadError::UnknownName("x:".into()).into()));
+        assert_eq!(registry.resolve("h2o").map(|f| f.info().key()), registry.get("water").map(|f| f.info().key()));
+        assert_eq!(registry.resolve("nonsense").err(), registry.get("nonsense").err());
+        assert!(registry.get("twin:Water").is_err() && base.resolve("twin:Water").is_err());
+        assert_eq!(registry.resolve("twin:nonsense").err(), Some(LoadError::UnknownName("nonsense".into()).into()));
     }
 }

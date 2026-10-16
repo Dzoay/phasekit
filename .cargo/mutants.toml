@@ -66,6 +66,9 @@ exclude_re = [
     "density\\.rs:[0-9]+:[0-9]+: replace < with <= in bracketed",
     "density\\.rs:[0-9]+:[0-9]+: replace > with >= in bracketed",
     "density\\.rs:[0-9]+:[0-9]+: replace > with >= in liquid_above",
+    # The public `roots` (PLAN.md M13.1) keeps two roots when they lie more than SAME_ROOT apart in ln ρ: `>=` differs
+    # only at exactly that distance, between two converged Newton solves, which no state reaches.
+    "density\\.rs:[0-9]+:[0-9]+: replace > with >= in roots",
     # Equivalent mutants of T+X (PLAN.md M7.5). A cell is cut at a turn where its ends' slopes have opposite signs,
     # `a·b < 0`: `a/b < 0` is the same test, and `<= 0` differs only where a slope is exactly 0 at a node, where the cut
     # falls on that node and the pieces hold the same roots. A piece is searched where an end's residual is exactly 0 or

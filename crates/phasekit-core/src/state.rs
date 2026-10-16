@@ -77,14 +77,15 @@ pub struct SolvePath {
     pub iterations: u16,
 }
 
-/// One phase point. It carries its own T: the bubble and dew points of a pseudo-pure fluid differ (E3). Its bundle is
-/// order 2, except a flash's two-phase state strictly inside the dome, whose phases carry order 1 (their second-order
-/// entries zero): there [`State::saturated_point`] and [`State::one_phase`] refuse, so nothing reads them (user decision
-/// PF1).
+/// One phase point. It carries its own T, since the bubble and dew points of a pseudo-pure fluid differ (E3), and its own
+/// molar mass, since a mixture's phases differ in composition (PLAN.md M13.1). Its bundle is order 2, except a flash's
+/// two-phase state strictly inside the dome, whose phases carry order 1 (their second-order entries zero): there
+/// [`State::saturated_point`] and [`State::one_phase`] refuse, so nothing reads them (user decision PF1).
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Point {
     t: f64,
     rho: f64,
+    m: f64,
     b: Bundle,
 }
 
@@ -128,9 +129,10 @@ impl State {
 
     /// Two coexisting phases at molar fraction `q` of `vapour` (E2): a family's QT/PQ flash, IF97 across
     /// the dome, a mixture split, ice + vapour. `liquid` is the denser phase (a solid, for sublimation).
-    /// Each phase keeps its own T and ρ; `t` and `p` are the state's reported values (equal to the phases'
+    /// Each phase keeps its own T, ρ and molar mass; `t` and `p` are the state's reported values (equal to the phases'
     /// for a pure fluid; the pseudo-pure rule decides them otherwise, D4). Both phases must come from the
-    /// same model. The split is extrapolated if either phase is.
+    /// same model and share its R; a mixture's phases differ in molar mass, and the split's mass-basis values and mass
+    /// quality weigh them by it (PLAN.md M13.1). The split is extrapolated if either phase is.
     pub fn from_split(liquid: State, vapour: State, q: Quality, t: f64, p: f64) -> Result<State, Error> {
         Self::split(liquid, vapour, q, t, p, EXTERNAL)
     }
@@ -162,7 +164,7 @@ impl State {
             return bad("NaN in the second-order bundle");
         }
         let p = relations::pressure(r, t, rho, b);
-        let body = Body::Single(Point { t, rho, b: *b });
+        let body = Body::Single(Point { t, rho, m: molar_mass, b: *b });
         Ok(State { t, p, phase, body, r, molar_mass, gauge: Gauge::NATIVE, path, key, extrapolated: false })
     }
 
@@ -180,15 +182,18 @@ impl State {
         if liquid.key != vapour.key {
             return Err(Error::ForeignState);
         }
-        if liquid.r != vapour.r || liquid.molar_mass != vapour.molar_mass {
-            return Err(Error::InvalidState { reason: "the phases of a split must share R and M" });
+        if liquid.r != vapour.r {
+            return Err(Error::InvalidState { reason: "the phases of a split must share R" });
         }
         if !(t.is_finite() && t > 0.0 && p.is_finite() && p > 0.0) {
             return Err(Error::InvalidState { reason: "T and p of a split must be finite and > 0" });
         }
-        let body = Body::TwoPhase { q: q.get(), liquid: l, vapour: v };
+        let q = q.get();
+        // The mass per mole of the whole. Phases of one molar mass (a pure fluid's) keep it, bit for bit.
+        let molar_mass = if l.m == v.m { l.m } else { (1.0 - q) * l.m + q * v.m };
+        let body = Body::TwoPhase { q, liquid: l, vapour: v };
         let extrapolated = liquid.extrapolated || vapour.extrapolated;
-        Ok(State { t, p, phase: Phase::TwoPhase, body, path, extrapolated, ..liquid })
+        Ok(State { t, p, phase: Phase::TwoPhase, body, molar_mass, path, extrapolated, ..liquid })
     }
 
     /// The same state with the path of the solve that found it.
@@ -245,6 +250,16 @@ impl State {
     /// Vapour quality; `None` for single-phase states (no −1 sentinel).
     pub fn quality(&self) -> Option<f64> {
         match self.body {
+            Body::TwoPhase { q, .. } => Some(q),
+            Body::Single(_) => None,
+        }
+    }
+
+    /// Vapour quality on a mass basis: the vapour's share of the mass, qM″/((1 − q)M′ + qM″), the molar quality where
+    /// the phases share one molar mass (a pure fluid's); `None` for single-phase states.
+    pub fn mass_quality(&self) -> Option<f64> {
+        match self.body {
+            Body::TwoPhase { q, liquid, vapour } if liquid.m != vapour.m => Some(q * vapour.m / self.molar_mass),
             Body::TwoPhase { q, .. } => Some(q),
             Body::Single(_) => None,
         }
@@ -411,6 +426,7 @@ impl State {
     pub(crate) fn one_phase(&self) -> Option<State> {
         let side = |pt: Point, phase| {
             let p = relations::pressure(self.r, pt.t, pt.rho, &pt.b);
+            // A split's M at q = 0 and 1 is that side's exactly ((1 − q)M′ + qM″ there), so `..*self` carries it.
             State { t: pt.t, p, phase, body: Body::Single(pt), ..*self }
         };
         match self.body {
@@ -627,5 +643,49 @@ mod tests {
         );
         let other = State::from_total(ModelKey::from_content(b"other"), 300.0, 40.0, R, 0.04, Phase::Gas, &b).unwrap();
         assert_eq!(State::from_split(liquid, other, q, 300.0, 1e5), Err(Error::ForeignState));
+    }
+
+    /// M13.1: a mixture's phases differ in molar mass. A split weighs them by mass: its mass quality is qM″/((1 − q)M′ +
+    /// qM″), its mass-basis values divide by that M, and each saturated side keeps its own M. It still refuses phases
+    /// of different R.
+    #[test]
+    fn a_split_weighs_phases_of_different_molar_mass_by_mass() {
+        let b = Bundle { a00: 0.0, a10: 1.5, a01: 1.0, a20: -1.5, a11: 0.0, a02: -1.0 };
+        let (m_l, m_v, q) = (0.05, 0.03, 0.25);
+        let liquid = State::from_total(KEY, 300.0, 4_000.0, R, m_l, Phase::Liquid, &b).unwrap();
+        let gas = State::from_total(KEY, 300.0, 40.0, R, m_v, Phase::Gas, &b).unwrap();
+        let split = |q| State::from_split(liquid, gas, Quality::new(q).unwrap(), 300.0, gas.p());
+        let Ok(mixed) = split(q) else { panic!("{:?}", split(q)) };
+        let m = (1.0 - q) * m_l + q * m_v;
+        let close = |a: f64, b: f64| ((a - b) / b).abs() < 1e-15;
+        assert!(mixed.mass_quality().is_some_and(|x| close(x, q * m_v / m)), "{:?}", mixed.mass_quality());
+        assert!(close(mixed.h(Basis::Mass), mixed.h(Basis::Molar) / m));
+        assert!(close(mixed.s(Basis::Mass), mixed.s(Basis::Molar) / m));
+        assert!(close(mixed.rho(Basis::Mass), m / ((1.0 - q) / 4_000.0 + q / 40.0)));
+        let (bubble, dew) = (split(0.0).unwrap(), split(1.0).unwrap());
+        assert_eq!((bubble.one_phase(), dew.one_phase()), (Some(liquid), Some(gas)));
+        assert_eq!(bubble.cp(Basis::Mass), liquid.cp(Basis::Mass));
+        assert_eq!(dew.speed_of_sound(), gas.speed_of_sound());
+        assert_eq!((bubble.mass_quality(), dew.mass_quality()), (Some(0.0), Some(1.0)));
+        let other_r = State::from_total(KEY, 300.0, 40.0, 2.0 * R, m_v, Phase::Gas, &b).unwrap();
+        let refused = State::from_split(liquid, other_r, Quality::new(q).unwrap(), 300.0, gas.p());
+        assert_eq!(refused, Err(Error::InvalidState { reason: "the phases of a split must share R" }));
+    }
+
+    /// M13.1: phases of one molar mass (a pure fluid's) keep every bit: M is not recomputed from the lever rule, and the
+    /// mass quality is the molar one.
+    #[test]
+    fn a_split_of_one_molar_mass_keeps_its_bits() {
+        let b = Bundle { a00: 0.0, a10: 1.5, a01: 1.0, a20: -1.5, a11: 0.0, a02: -1.0 };
+        let m = 0.044_097;
+        let liquid = State::from_total(KEY, 300.0, 4_000.0, R, m, Phase::Liquid, &b).unwrap();
+        let gas = State::from_total(KEY, 300.0, 40.0, R, m, Phase::Gas, &b).unwrap();
+        for q in [0.1, 0.3, 0.7, 0.9] {
+            let split = State::from_split(liquid, gas, Quality::new(q).unwrap(), 300.0, gas.p()).unwrap();
+            assert_eq!(split.mass_quality(), Some(q));
+            let h = ((1.0 - q) * relations::enthalpy(R, 300.0, &b) + q * relations::enthalpy(R, 300.0, &b) + 0.0)
+                * (1.0 / m);
+            assert_eq!(split.h(Basis::Mass).to_bits(), h.to_bits(), "{q}");
+        }
     }
 }

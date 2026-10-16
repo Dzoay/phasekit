@@ -16,7 +16,7 @@ mod isochore;
 mod isotherm;
 mod phase;
 mod quality;
-mod search;
+pub(crate) mod search;
 
 use isentrope::sx;
 use isobar::px;

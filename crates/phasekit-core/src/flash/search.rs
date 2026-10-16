@@ -147,7 +147,7 @@ impl Descent {
 
 /// The root `policy` takes among `roots`, ascending by `key`, one rule for every pair: the only one; of several, under
 /// `Nearest(x)` the first whose key is [`nearest`]'s, else `Ambiguous` with every key. `None` without roots.
-pub(super) fn choose<T: Copy>(roots: &[T], key: impl Fn(&T) -> f64, policy: RootPolicy) -> Result<Option<T>, Error> {
+pub(crate) fn choose<T: Copy>(roots: &[T], key: impl Fn(&T) -> f64, policy: RootPolicy) -> Result<Option<T>, Error> {
     let keys: Vec<f64> = roots.iter().map(&key).collect();
     let ambiguous = || Error::Ambiguous { roots: Roots::new(&keys) };
     match (roots, policy) {
