@@ -7,9 +7,9 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: { baseURL: process.env.PW_BASE_URL ?? "http://localhost:4173/", trace: "retain-on-failure" },
-  // A missing screenshot baseline fails on CI, its actual image in test-results to commit as the baseline; locally
-  // the screenshot tests are skipped (tests/e2e/diagrams.spec.ts).
-  updateSnapshots: "none",
+  // A missing screenshot baseline is written, and CI's site job then fails until it is committed (ci.yml); locally the
+  // screenshot tests are skipped (tests/e2e/diagrams.spec.ts), so nothing is written here.
+  updateSnapshots: "missing",
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: process.env.PW_BASE_URL
     ? undefined
