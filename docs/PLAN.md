@@ -469,7 +469,7 @@ conformance kit (VERIFICATION.md §10) and, where marked, a **zero-line core dif
 v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
       ├─ M13 mixtures ────── M19 diagram geometry
       ├─ M14 IAPWS, ice ──── M18 humid air
-      ├─ M21 site: M21.1-M21.4 now, M21.5 after M13, M21.6 after M19
+      ├─ M21 site: M21.1, M21.7, M21.2-M21.4 now, M21.5 after M13, M21.6 after M19
       └─ M12 SIMD spike, M16 Python, M17 INCOMP; on demand: Tier B shim, WIT, network service, materials
 ```
 
@@ -485,7 +485,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M18 | `phasekit-humidair` | M14 done (ice) | RP-1485 humid air on injected Water, Air and ice `Fluid`s (map 07 H3); HA strings in compat; the shim's real `HAPropsSI` replaces the stub; `pk_*` gains humid-air symbols (D11) | RP-1485 tables (map 10 §8.1, ~120 values); `HAPropsSI("H","T",300,"P",1e5,"R",0) = 27013.112479771713` (map 11 §8) |
 | M19 | a diagram-geometry crate (T1f), named at its plan | M13 done (user decision 13) | Geometry, not drawing (user decision WS4): saturation domes, isolines of T, p, h, s, ρ and quality on the p–h, T–s, p–T, T–ρ and h–s planes, split at the dome and at failed cells, sampled more densely where a line bends, with labels and ranges; M13's phase envelopes; over saturation, `flash` and batch; the browser package serves it to the site (M21.6) | Every vertex reproduces its line's value within `Flash`; a line's dome crossings are the saturation states at its value (`Exact` against `QT` or `PQ`); M21.2's checks pass on its geometry; the site's screenshots re-approved at M21.6 |
 | M20 | core, compat, verify, CI | M12 landed (user decision PL1) | Four follow-ups: Cv, Cp, w, τ and δ as derivative variables; the conformance kit's `identities` and `part_additivity`; the intra-doc link check; the nightly report: [M20 Follow-ups](#m20-follow-ups) | Each step's checks; G1-G8 |
-| M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19; six steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
+| M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19, mutation testing of the site's code; seven steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
@@ -874,7 +874,7 @@ are independent and may be reordered. M20 does not move `MILESTONE`.
 this repository as its GitHub Pages site, `https://dzoay.github.io/phasekit/` (user decisions WS1-WS3). The site is a
 consumer of the browser package: every number it shows comes from `phasekit-wasm` at the commit it was built from, and
 what the page needs that the package lacks is added to the package in a step, with its tests. **Entry.** The user's
-word, 2026-10-16, beside M13 (WS3): M21.1-M21.4 now, M21.5 after M13, M21.6 after M19. **Prerequisites.** User
+word, 2026-10-16, beside M13 (WS3): M21.1, then M21.7 (WS5), then M21.2-M21.4; M21.5 after M13, M21.6 after M19. **Prerequisites.** User
 decisions WS1-WS4; DEPENDENCIES.md's tier T5; Pages on, its source GitHub Actions, the `github-pages` environment
 deploying from `main` only (done 2026-10-16). **Arbiters.** The page adds no numerics, so its oracle is the browser package: a value on
 the page equals the package's at the same inputs (`Exact`), and the library's own tests check the package. Unit
@@ -936,9 +936,23 @@ contrast ratio. M21 does not move `MILESTONE`.
   the browser package, and `site/src/sample/` is deleted. *Red:* M21.2's checks on M19's geometry, run first against
   the package without its export. *Done when:* G1-G9; the screenshots re-approved in the PR.
 
+- **M21.7 Mutation testing for the site (user decision WS5).** Worked next, before M21.2, so the diagrams' code is
+  gated from its first PR.
+  - The calculator's view (its state, the URL's load and write, the input text, a new input variable, the units, the
+    presets) moves from `Calculator.svelte` into `site/src/lib/calculator.svelte.ts`, which the component binds to.
+    Vitest tests it, its reactive wiring included (`$effect.root`, `flushSync`).
+  - StrykerJS 10 with the Vitest runner (T5): `scripts/site/mutants.sh` mutates the site's TypeScript and Svelte
+    files changed against `origin/main`, in incremental mode. A surviving mutant fails G9, as G8's `gates mutants`
+    does for Rust, unless the Stryker config excludes it with its reason. G9's row in section 2.4 says so.
+  - The weekly workflow gains a full Stryker run over `site/src`, its report an artifact.
+
+  *Red:* the calculator module's tests, written first against its stub, cover each case of
+  `tests/e2e/interaction.spec.ts`; Stryker over `src/lib` and `src/engine` as they stand, its survivors listed in the
+  PR, each killed by a test or excluded with its reason. *Done when:* G1-G9; the weekly run green on its first run.
+
 **Exit gate.** G1-G9 at every step; the page deployed from `main` at each merge; every value on the page equals the
 package's (`Exact`); M21.1's budget and SL8's wasm budgets hold; `reuse lint` and `actionlint` clean. **ROT rows.**
-None. **User decisions implemented.** WS1, WS2, WS3, WS4.
+None. **User decisions implemented.** WS1, WS2, WS3, WS4, WS5.
 
 ## 5. Cross-cutting tracks
 
