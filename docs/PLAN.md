@@ -592,35 +592,8 @@ oracle checks the multi-fluid model outside the known-bad states of map 04 §8. 
 | M13.1 | Core's mixture seams (MX2): each phase point keeps its molar mass, so `State::from_split` takes phases of different M (one R) and weighs them by mass (`State::mass_quality`, `Prop::Qmass`, mass-basis values), a pure fluid's split bit for bit as before; `Input::with_quality_basis`, `NativeInput::quality_basis` and `BatchRequest::with_quality_basis`, compat's `Qmass` key a mass quality; the public `density` module (`solve` on a `Branch`, `roots`, `select` under a `RootPolicy`, the acceptance gate `reproduces`); `Registry::with_resolver` and `resolve` with the `Resolver` trait (a family caches what it builds); `HelmholtzModel::reducing`; `tests/mixture_seam.rs` |
 | M13.2 | `m13-start` on M13.1's merge commit, named in `ci/core-frozen.txt`; `crates/phasekit-mix` on `phasekit-core` alone (T1f, `gates deps`), PR scope `mix`; `data/mixtures.lock` (v8.0.0's three mixture JSON files and ASHRAE 34's list); datagen's mixture step writes `src/generated.rs` (`gates datagen` compares it): 888 pairs keyed by their sorted CAS pair, β inverted where the file lists the larger CAS first, Lemmon's six ξ/ζ pairs kept as such; 28 departure functions by kind (16, 9, 3); 147 predefined mixtures (seven exact repeats dropped), ASHRAE 34's mass fractions kept for 124 of them, matched by name or library fluid; every fluid's CAS number. Its tests pin ROT-199 (the mass fractions give v8.0.0's mole fractions for the 120 the library can weigh, 80 to 1e-12, at most 8e-6 off, R405A) and ROT-200 (27 blends lack a pair, 4 name the unknown R1132a) |
 | M13.3 | `MultiFluid::new(registry, names, data_set)`: GERG's reducing functions over the components' own reducing states (`HelmholtzModel::reducing`), Lemmon's ξ/ζ converted, cube roots as v8.0.0's `pow(v, 1/3)`; the three departure kinds in one kernel over `Real` on `Jet4` to order 4, against num-dual; each component at the mixture's τ and δ; departures only where F ≠ 0 (ROT-195); DIV-0013 `UsePaper` (γ_T 0.993309 under `Corrected`, phasekit-mix's corrections table; ROT-207) and DIV-0050 (Bell 2022 Table XI's pre-publication R1234yf, 1.48e-8, `KeepOracle` at 2e-8); Bell 2023 Table XIII and Bell 2022 Table XI double-entered (`paper/mixtures/`); oracle kind `mix_alphar` (all 840 buildable pairs at two states, A_ij to order 3; the 48 pairs naming fluids outside v8.0.0's library refused by both) and `oracle.lock`'s `mixtures_sha256` |
+| M13.4 | `Mixture` and `mixture(registry, components, data_set)`: zero fractions trimmed (ROT-192), a one-component composition the pure fluid itself, bit for bit under any gauge (ROT-099, ROT-208), compositions validated, never normalised (ROT-193); R = R_CODATA (MX3); α⁰ with its δ-part ln δ exactly and each component's τ-part by z_i R_i/R in its own variables (ROT-062, ROT-103); limits the components' intersection (ROT-197); exact virials; hinted DT and PT through the public density solve; Tkaczuk 2020 Table 8 (through Σ x_i R_i, DIV-0051) and Lemmon and Jacobsen 2004 Table 6 (DIV-0054, measured 3e-6, 1e-5 near the critical point) double-entered; oracle kind `mix_eos` (10626 cells within `Prop` or carried `Term`); DIV-0052 (v8.0.0's s weights each ln δ_i by R_i/R, so it is not its p's) and DIV-0053 (24 fluids whose critical T is not their reducing T, α⁰ at the critical state in a v8.0.0 mixture; Table 6 sides with phasekit) `SkipOracle`; the committed fixtures' budget 24 MiB (user decision MX8) |
 
-- **M13.4 The mixture at fixed composition.**
-  - `Mixture` holds a `MultiFluid` and a composition z. z is validated: finite, each fraction in [0, 1], summing to 1
-    within a stated tolerance, else a typed refusal (ROT-193). Zero fractions are trimmed (ROT-192), and a composition
-    that trims to one component is that pure `Fluid` itself.
-  - `Mixture: HelmholtzModel`:
-    - R = R_CODATA (MX3); α^r from M13.3.
-    - α⁰ = Σ z_i (R_i/R)[α⁰_oi(T, ρ) + ln z_i]. Each component's ideal part is in its own variables and carries its
-      native gauge, so the mixture's gauge is the z-weighted one (D4; ROT-062, ROT-103).
-    - Exact virials: the components' at T_r,i/τ plus the departures' δ-series.
-    - `rho_max`, and its own `Limits`: the components' intersection, not their mole-fraction averages (ROT-197).
-    - `FluidInfo` with M_z and the reducing state (T_r(z), ρ_r(z)); a `ModelKey` from components, pairs and z.
-  - Its `ThermoModel` flashes DT and PT with a phase hint, single-phase, through M13.1's density solve. Until M13.8 it
-    returns `Unsupported` otherwise.
-  - Register entries:
-    - The 15 fluids whose critical and reducing states differ: v8.0.0 evaluates their α⁰ at τ_i = T_c,i τ/T_r (map 15
-      X12), so their α⁰-derived mixture outputs are `SkipOracle`.
-    - A composition with a unit fraction differs from v8.0.0 by its R ratio, since v8.0.0 keeps R_CODATA at x = [1, 0]
-      (MX3).
-    - Tkaczuk's Table 8 is checked at Σx_iR_i (`KeepOracle`, MX3).
-  - Oracle kind `mix_eos`: single-phase (T, ρ) states of the binaries, a ternary and the `.mix` blends, with p, h, s,
-    u, c_v, c_p, w, Z and the α⁰ and α^r parts.
-
-  *Red:* `unit_fraction_is_the_pure_fluid` (bitwise, under any gauge; ROT-099, ROT-208);
-  `near_unit_fraction_approaches_the_pure_fluid` (up to MX3's R ratio); `trace_mixture_equals_pure` over the 15
-  fluids (ROT-062); `composition_is_validated` (ROT-193: (0.3, 0.3), (−0.1, 1.1), NaN);
-  `zero_components_equal_the_trimmed_mixture` (ROT-192); `limits_are_the_components_intersection` (ROT-197); Lemmon
-  and Jacobsen's Table 6 and Tkaczuk's Table 8, each class set by its transcription's self-consistency (VERIFICATION.md
-  §4.3); `mix_eos` within `Prop`. They run first against a `Mixture` that refuses every composition.
 - **M13.5 GERG-2008.**
   - The 21 components get GERG's own pure equations (12- or 24-term power and exponential sums) and ideal gas
     (Planck–Einstein in sinh and cosh, n₁ and n₂ fixed so that h = s = 0 for the ideal gas at 298.15 K and 101 325 Pa),

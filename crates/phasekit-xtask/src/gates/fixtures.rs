@@ -1,6 +1,6 @@
 //! `gates fixtures` (VERIFICATION.md §3.4, §3.6; map 10 R15; ROT-134): every committed fixture has its MANIFEST.sha256
 //! line and matches it, the manifest lists nothing else, every committed fixture is read by a test (beyond the list in
-//! tests/manifest.rs), every `fixture!` path exists, and the committed fixtures stay within 16 MiB.
+//! tests/manifest.rs), every `fixture!` path exists, and the committed fixtures stay within 24 MiB.
 
 use super::{Verdict, no_args};
 use crate::repo::Repo;
@@ -11,7 +11,7 @@ const LISTING: &str = "crates/phasekit-verify/tests/manifest.rs";
 /// Committed files under fixtures/ that are not fixtures.
 const NOT_FIXTURES: [&str; 3] = ["oracle.lock", "MANIFEST.sha256", "mp/fastchebpure.lock"];
 /// The committed budget (VERIFICATION.md §3.6).
-const BUDGET: usize = 16 * 1024 * 1024;
+const BUDGET: usize = 24 * 1024 * 1024;
 
 pub fn run(repo: &Repo, args: &[String]) -> Verdict {
     no_args(args)?;
@@ -41,7 +41,7 @@ fn check(manifest: &str, files: &[(String, String)], sources: &[(String, String)
     let total: usize = files.iter().map(|(_, text)| text.len()).sum();
     if over_budget(total) {
         errors
-            .push(format!("the committed fixtures take {total} bytes, over the 16 MiB budget (VERIFICATION.md §3.6)"));
+            .push(format!("the committed fixtures take {total} bytes, over the 24 MiB budget (VERIFICATION.md §3.6)"));
     }
     if !errors.is_empty() {
         return Err(errors);
@@ -175,12 +175,12 @@ mod tests {
         let dangling = format!(r#"{READER} fixture!("coolprop-8.0.0/eos/Water.csv");"#);
         let errors = check(&manifest, &files(&[]), &sources(&dangling)).unwrap_err();
         assert!(errors.iter().any(|e| e.contains("Water.csv") && e.contains("does not exist")), "{errors:?}");
-        // The 16 MiB budget counts every committed byte.
+        // The 24 MiB budget counts every committed byte.
         let big = "x".repeat(BUDGET);
         let errors = check(&manifest, &files(&[("hash/big.txt", &big)]), &sources(READER)).unwrap_err();
-        assert!(errors.iter().any(|e| e.contains("16 MiB")), "{errors:?}");
+        assert!(errors.iter().any(|e| e.contains("24 MiB")), "{errors:?}");
         assert!(check("# manifest\n", &files(&[])[..2], &sources(READER)).is_err(), "no fixtures is a failure");
-        // VERIFICATION.md §3.6: 16 MiB in total, the limit itself allowed.
-        assert!(!over_budget(16_777_216) && over_budget(16_777_217));
+        // VERIFICATION.md §3.6: 24 MiB in total (user decision MX8), the limit itself allowed.
+        assert!(!over_budget(25_165_824) && over_budget(25_165_825));
     }
 }

@@ -71,6 +71,10 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0048", div_0048),
     ("DIV-0049", div_0049),
     ("DIV-0050", div_0050),
+    ("DIV-0051", div_0051),
+    ("DIV-0052", div_0052),
+    ("DIV-0053", div_0053),
+    ("DIV-0054", div_0054),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1303,4 +1307,121 @@ fn div_0050() {
     let row = (0..newer.rows().len()).find(|&r| newer.printed(r, "fluids") == Some("NEWR1234YF")).unwrap();
     let alphar = bell_row(&newer, row, DataSet::Corrected).1;
     newer.check_bound(row, "alphar", alphar, half_unit(&newer, row, "alphar").max(1e-13 * alphar.abs())).unwrap();
+}
+
+/// DIV-0051 (`KeepOracle`, PLAN.md M13.4; user decision MX3): Tkaczuk et al. 2020 Table 8 prints p with Σ x_i R_i.
+/// (1) phasekit's p, with R_CODATA, is the table's times R_CODATA/Σ x_i R_i, within 1e-12 (the same α^r); (2) the
+/// oracle's p (v8.0.0, R_CODATA) is phasekit's within `Prop`: +3.4e-7 and −2.68e-6 from the table, as measured.
+fn div_0051() {
+    let (path, text) = fixture!("paper/mixtures/Tkaczuk-JPCRD-2020.8.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
+    for (row, label) in [(0, "he_ne"), (1, "he_ar"), (2, "ne_ar")] {
+        let names: Vec<&str> = table.printed(row, "fluids").unwrap().split('&').collect();
+        let fluid = phasekit_mix::mixture(&registry, &[(names[0], 0.5), (names[1], 0.5)], DataSet::Corrected).unwrap();
+        let input = Input::new(phasekit_core::Pair::DT, 10_000.0, 200.0, Basis::Molar).unwrap();
+        let p = fluid.flash(input, &FlashOptions::new().with_phase(Phase::Gas)).unwrap().p();
+        let r: f64 =
+            names.iter().map(|n| 0.5 * registry.get(n).unwrap().model().helmholtz().unwrap().gas_constant()).sum();
+        let printed = table.value(row, "p").unwrap();
+        assert!((p / printed - phasekit_mix::R_CODATA / r).abs() <= 1e-12, "{label}: {p} against {printed}");
+        let oracle = fact(&format!("div0051_p_{label}"));
+        assert!((oracle - p).abs() <= ToleranceClass::Prop.bound(oracle).unwrap(), "{label}: {oracle} against {p}");
+    }
+}
+
+/// DIV-0052 (`SkipOracle`, PLAN.md M13.4): (1) phasekit's mixture entropy is its pressure's, (∂s/∂ρ)_T =
+/// −(∂p/∂T)_ρ/ρ² by central differences (class `Fd`), for Methane/Ethane; (2) the oracle's α⁰ there is Σ x_i (R_i/R)
+/// [α⁰_i + ln x_i] of phasekit's own components within 1e-12, each ln δ_i weighted by R_i/R, and so differs from
+/// phasekit's by (1 − Σ x_i R_i/R) ln ρ, within 1e-12.
+fn div_0052() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let x = [0.4, 0.6];
+    let fluid = phasekit_mix::mixture(&registry, &[("Methane", x[0]), ("Ethane", x[1])], DataSet::Parity).unwrap();
+    let options = FlashOptions::new().with_phase(Phase::Gas);
+    let at = |t: f64, rho: f64| {
+        fluid.flash(Input::new(phasekit_core::Pair::DT, rho, t, Basis::Molar).unwrap(), &options).unwrap()
+    };
+    let (t, rho) = (300.0, 3_000.0);
+    let (h_t, h_rho) = (1e-5 * t, 1e-5 * rho);
+    let ds_drho = (at(t, rho + h_rho).s(Basis::Molar) - at(t, rho - h_rho).s(Basis::Molar)) / (2.0 * h_rho);
+    let dp_dt = (at(t + h_t, rho).p() - at(t - h_t, rho).p()) / (2.0 * h_t);
+    assert!((ds_drho / (-dp_dt / (rho * rho)) - 1.0).abs() <= 1e-7, "{ds_drho} against {}", -dp_dt / (rho * rho));
+    let (path, text) = fixture!("coolprop-8.0.0/all/mix_eos.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let canonical = |label: &str| -> Vec<String> {
+        label.split('&').map(|n| registry.canonical_name(n).map(String::from).unwrap_or_default()).collect()
+    };
+    let row = (0..table.rows().len())
+        .find(|&r| canonical(table.printed(r, "mixture").unwrap()) == ["Methane", "Ethane"])
+        .unwrap();
+    let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rhomolar").unwrap());
+    let oracle = table.value(row, "alpha0").unwrap();
+    let (mut weighted, mut r_bar) = (0.0, 0.0);
+    for (name, xi) in ["Methane", "Ethane"].iter().zip(x) {
+        let eos = registry.get(name).unwrap().model().helmholtz().unwrap();
+        let r = eos.gas_constant() / phasekit_mix::R_CODATA;
+        weighted += xi * r * (eos.ideal(t, rho, Order::One).get(0, 0).unwrap() + phasekit_core::math::ln(xi));
+        r_bar += xi * r;
+    }
+    assert!((oracle - weighted).abs() <= 1e-12 * oracle.abs(), "{oracle} against {weighted}");
+    let ours = fluid.model().helmholtz().unwrap().ideal(t, rho, Order::One).get(0, 0).unwrap();
+    let predicted = (1.0 - r_bar) * phasekit_core::math::ln(rho);
+    assert!(((ours - oracle) - predicted).abs() <= 1e-12 * oracle.abs(), "{} against {predicted}", ours - oracle);
+}
+
+/// DIV-0053 (`SkipOracle`, PLAN.md M13.4; ROT-062, ROT-103): R134a's critical T is not its reducing one, and v8.0.0
+/// evaluates its α⁰ at the critical one in a mixture. Lemmon and Jacobsen 2004 Table 6 (REFPROP) arbitrates: (1)
+/// phasekit's R32/R134a c_v at its 300 K, 15 mol/dm³ row is within 1e-6 of the table; (2) the oracle's is 3.1e-5 below.
+fn div_0053() {
+    let (path, text) = fixture!("paper/mixtures/Lemmon-JPCRD-2004.6.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let row = (0..table.rows().len())
+        .find(|&r| table.printed(r, "mixture") == Some("R32&R134a") && table.printed(r, "rho") == Some("15."))
+        .unwrap();
+    let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
+    let fluid = phasekit_mix::mixture(&registry, &[("R32", 0.5), ("R134a", 0.5)], DataSet::Corrected).unwrap();
+    let input = Input::new(phasekit_core::Pair::DT, 15_000.0, 300.0, Basis::Molar).unwrap();
+    let cv = fluid.flash(input, &FlashOptions::new().with_phase(Phase::Liquid)).unwrap().cv(Basis::Molar).unwrap();
+    let printed = table.value(row, "cv").unwrap();
+    assert!((cv / printed - 1.0).abs() <= 1e-6, "{cv} against {printed}");
+    let oracle = fact("div0053_cvmolar_r32_r134a_t300_rho15000");
+    assert!((oracle / printed - 1.0 + 3.1e-5).abs() < 0.2e-5, "the oracle {oracle} against the table {printed}");
+}
+
+/// DIV-0054 (`KeepOracle`, PLAN.md M13.4): Lemmon and Jacobsen 2004 Table 6 against phasekit's model, whose R is
+/// R_CODATA where the table's is the components': away from the critical point the worst cell is between 1e-6 and the
+/// registered 3e-6; at the six near-critical rows p, c_v and w within the table bound of 1e-5, beyond 3e-6.
+fn div_0054() {
+    let (path, text) = fixture!("paper/mixtures/Lemmon-JPCRD-2004.6.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
+    let (mut away, mut near) = (0.0_f64, 0.0_f64);
+    for row in 0..table.rows().len() {
+        let names: Vec<&str> = table.printed(row, "mixture").unwrap().split('&').collect();
+        let x: Vec<f64> =
+            table.printed(row, "x").unwrap().split('/').map(|v| v.parse::<f64>().unwrap() / 100.0).collect();
+        let parts: Vec<(&str, f64)> = names.iter().copied().zip(x).collect();
+        let fluid = phasekit_mix::mixture(&registry, &parts, DataSet::Corrected).unwrap();
+        let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rho").unwrap() * 1e3);
+        let s = fluid
+            .flash(
+                Input::new(phasekit_core::Pair::DT, rho, t, Basis::Molar).unwrap(),
+                &FlashOptions::new().with_phase(Phase::Gas),
+            )
+            .unwrap();
+        let near_critical = table.printed(row, "note").is_some_and(|n| !n.is_empty());
+        let mut cells =
+            vec![("p", s.p() / 1e6), ("cv", s.cv(Basis::Molar).unwrap()), ("w", s.speed_of_sound().unwrap())];
+        if !near_critical {
+            cells.push(("cp", s.cp(Basis::Molar).unwrap()));
+        }
+        for (column, got) in cells {
+            let off = (got / table.value(row, column).unwrap() - 1.0).abs();
+            if near_critical { near = near.max(off) } else { away = away.max(off) }
+        }
+    }
+    let entry = DIVERGENCES.iter().find(|d| d.id == "DIV-0054").unwrap();
+    assert_eq!(entry.tolerance, Some(phasekit_verify::Tolerance::Relative(3e-6)));
+    assert!((1e-6..=3e-6).contains(&away) && (3e-6..=1e-5).contains(&near), "{away:e} {near:e}");
 }

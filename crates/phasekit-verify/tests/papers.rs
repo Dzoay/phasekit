@@ -99,6 +99,8 @@ const PAPERS: &[(Text, Text)] = &[
     (fixture!("paper/HeavyWater/IAPWS-R4-84-2007.B4.csv"), fixture!("paper/HeavyWater/IAPWS-R4-84-2007.B4.check.csv")),
     (fixture!("paper/mixtures/Bell-JPCRD-2022.XI.csv"), fixture!("paper/mixtures/Bell-JPCRD-2022.XI.check.csv")),
     (fixture!("paper/mixtures/Bell-JPCRD-2023.XIII.csv"), fixture!("paper/mixtures/Bell-JPCRD-2023.XIII.check.csv")),
+    (fixture!("paper/mixtures/Lemmon-JPCRD-2004.6.csv"), fixture!("paper/mixtures/Lemmon-JPCRD-2004.6.check.csv")),
+    (fixture!("paper/mixtures/Tkaczuk-JPCRD-2020.8.csv"), fixture!("paper/mixtures/Tkaczuk-JPCRD-2020.8.check.csv")),
 ];
 
 const REUSE: &str = include_str!("../../../REUSE.toml");

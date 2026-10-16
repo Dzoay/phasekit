@@ -557,6 +557,19 @@ fn div_0050(_: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0050"]
 }
 
+/// DIV-0051: the oracle's p at Tkaczuk et al. 2020 Table 8's three states, against the table: +3.4e-7 and −2.68e-6.
+/// DIV-0052 and DIV-0054 cite no oracle fact (the `mix_eos` kind and a printed table; `tests/mixture.rs` and their
+/// proofs check them). DIV-0053: the oracle's R32/R134a c_v at Lemmon and Jacobsen 2004 Table 6's 300 K, 15 mol/dm³
+/// row, 71.03576 printed, is 3.1e-5 below it.
+fn div_0051_to_0054(facts: &Fixture<'_>) -> Vec<&'static str> {
+    let ok = |name: &str| ok_fact(facts, name);
+    assert!(cites(ok("div0051_p_he_ne") / 18_430_775.292_600_896 - 1.0, "3.4e-7"));
+    assert!(cites(ok("div0051_p_he_ar") / 17_128_034.388_362_616 - 1.0, "-2.68e-6"));
+    assert!(cites(ok("div0051_p_ne_ar") / 15_905_875.375_781_253 - 1.0, "-2.68e-6"));
+    assert!(cites(ok("div0053_cvmolar_r32_r134a_t300_rho15000") / 71.035_76 - 1.0, "-3.1e-5"));
+    vec!["DIV-0051", "DIV-0052", "DIV-0053", "DIV-0054"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -582,6 +595,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0047,
         div_0048_to_0049,
         div_0050,
+        div_0051_to_0054,
     ]
     .iter()
     .flat_map(|group| group(&facts))

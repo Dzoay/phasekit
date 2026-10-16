@@ -927,7 +927,7 @@ Each CoolProp problem found, the mechanism here that designs it out and the test
 | Std libm differs across targets | `libm` feature + M9 cross-target hash; default only on evidence (D12); tolerance classes otherwise |
 | Literature itself wrong (Helium IR 8474; 4 post-v8 transport papers, map 12 R11) | Self-consistency first; `Investigate`, or `KeepOracle` once the user accepts the oracle value (DIV-0005) |
 | One large kernel crate compiles slowly | Modules depend downwards; splitting is mechanical when a second consumer appears |
-| Fixture volume (~3.5 GB full set) | Committed core subset and all-fluid tier within the 16 MiB budget (`gates fixtures`); the full set regenerated nightly |
+| Fixture volume (~3.5 GB full set) | Committed core subset and all-fluid tier within the 24 MiB budget (`gates fixtures`, user decision MX8); the full set regenerated nightly |
 | The shim's unprefixed CoolProp exports clash with a real CoolProp in one process | The shim is a separate build; the default `pk_*` library exports no CoolProp names (D11) *(inference)* |
 
 The user's answers to these questions, and every later decision: [DECISIONS.md](DECISIONS.md). What is still open:

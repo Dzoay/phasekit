@@ -38,9 +38,14 @@ fn one<R: Real>(kind: Kind, gaussian: bool, term: &Term, tau: R, delta: R) -> R 
     power * exponent.exp()
 }
 
+/// α^r_ij's jet at (τ, δ): its unscaled derivatives ∂^(i+j)α^r_ij/∂τ^i∂δ^j to order 4, finite at δ = 0 (the virials).
+pub(crate) fn jet(f: &DepartureData, tau: f64, delta: f64) -> Jet4 {
+    alpha(f, Jet4::tau(tau), Jet4::delta(delta))
+}
+
 /// α^r_ij's scaled derivatives A_ij = τ^i δ^j ∂^(i+j)α^r_ij/∂τ^i∂δ^j at (τ, δ), to `order`.
 pub(crate) fn derivs(f: &DepartureData, tau: f64, delta: f64, order: Order) -> Derivs {
-    let jet = alpha(f, Jet4::tau(tau), Jet4::delta(delta)).derivs(tau, delta);
+    let jet = jet(f, tau, delta).derivs(tau, delta);
     Derivs::from_fn(order, |i, j| jet.get(i, j).unwrap_or(f64::NAN))
 }
 

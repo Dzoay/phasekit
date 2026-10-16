@@ -8,7 +8,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use phasekit_core::{DataSet, Derivs, Error, Fluid, LoadError, Order, Registry};
+use phasekit_core::{DataSet, Derivs, Error, Fluid, LoadError, Order, Registry, Virials};
 
 use crate::corrections;
 use crate::data::{DepartureData, PairData};
@@ -130,17 +130,52 @@ impl MultiFluid {
         if x.len() != self.components.len() {
             return Err(Error::InvalidInput { quantity: "number of mole fractions", value: x.len() as f64 });
         }
+        Ok(self.residual_at(x, t, rho, order))
+    }
+
+    /// [`residual`](Self::residual) for an `x` of the components' number, which the caller guarantees.
+    pub(crate) fn residual_at(&self, x: &[f64], t: f64, rho: f64, order: Order) -> Derivs {
         let (t_r, rho_r) = self.reducing_state(x);
         let (tau, delta) = (t_r / t, rho / rho_r);
         let mut parts = Vec::with_capacity(self.components.len() + self.departures.len());
         for (c, xi) in self.components.iter().zip(x) {
-            let model = c.fluid.model().helmholtz().ok_or_else(|| unknown(c.fluid.info().name()))?;
-            parts.push((*xi, model.residual(c.t_r / tau, delta * c.rho_r, order)));
+            // `component` admitted only fluids with a Helmholtz model.
+            let part = c.fluid.model().helmholtz().map(|model| model.residual(c.t_r / tau, delta * c.rho_r, order));
+            parts.push((*xi, part.unwrap_or_else(|| Derivs::from_fn(order, |_, _| f64::NAN))));
         }
         for d in self.departures.iter() {
             parts.push((x[d.i] * x[d.j] * d.f, departure::derivs(d.function, tau, delta, order)));
         }
-        Ok(Derivs::from_fn(order, |i, j| parts.iter().map(|(w, part)| w * part.get(i, j).unwrap_or(f64::NAN)).sum()))
+        Derivs::from_fn(order, |i, j| parts.iter().map(|(w, part)| w * part.get(i, j).unwrap_or(f64::NAN)).sum())
+    }
+
+    /// The exact virial coefficients at T and mole fractions `x` (E4): B = α^r_δ(τ, 0)/ρ_r and C = α^r_δδ(τ, 0)/ρ_r²,
+    /// each component's from its own `zero_density` at T_r,i T/T_r (where its τ is the mixture's), each departure's from
+    /// its jet at δ = 0; `None` when a component has no closed form.
+    pub(crate) fn virials(&self, x: &[f64], t: f64) -> Option<Virials> {
+        let (t_r, rho_r) = self.reducing_state(x);
+        let tau = t_r / t;
+        let (mut b, mut c, mut db, mut dc) = (0.0, 0.0, 0.0, 0.0);
+        for (component, xi) in self.components.iter().zip(x) {
+            let v = component.fluid.model().helmholtz()?.zero_density(component.t_r / tau)?;
+            let (rho, scale) = (component.rho_r, component.t_r / t_r);
+            (b, c) = (b + xi * rho * v.b, c + xi * rho * rho * v.c);
+            (db, dc) = (db + xi * rho * v.db_dt * scale, dc + xi * rho * rho * v.dc_dt * scale);
+        }
+        let dtau_dt = -t_r / (t * t);
+        for d in self.departures.iter() {
+            let (w, jet) = (x[d.i] * x[d.j] * d.f, departure::jet(d.function, tau, 0.0));
+            let at = |i, j| jet.derivative(i, j).unwrap_or(f64::NAN);
+            (b, c) = (b + w * at(0, 1), c + w * at(0, 2));
+            (db, dc) = (db + w * at(1, 1) * dtau_dt, dc + w * at(1, 2) * dtau_dt);
+        }
+        let (r1, r2) = (1.0 / rho_r, 1.0 / (rho_r * rho_r));
+        Some(Virials { b: b * r1, c: c * r2, db_dt: db * r1, dc_dt: dc * r2 })
+    }
+
+    /// The components' fluids, in order.
+    pub fn fluids(&self) -> impl Iterator<Item = &Fluid> {
+        self.components.iter().map(|c| &c.fluid)
     }
 }
 

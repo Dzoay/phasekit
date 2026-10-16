@@ -606,6 +606,17 @@ Tkaczuk et al. (2020) print their Table 8 pressures with Σx_i R_i. GERG-2008 is
 | MX6 | GERG-2008's registry prefix | **`GERG2008::`** | `GERG2008::Methane[0.9]&Ethane[0.1]`, and `GERG2008::Methane` for a GERG pure fluid; teqp's spelling (`GERG2008resid`). Components resolve through the registry's usual names and aliases. *Rejected:* `GERG-2008::`. |
 | MX7 | Where GERG-2008's coefficients come from | **NIST's AGA8 code (`usnistgov/AGA8`, public domain), pinned at commit 3bdb9ab8** | Transcribed into `phasekit-mix`, credited in NOTICE, and checked number for number by an xtask test against a gitignored fetched copy; cross-checked against the GERG TM15 monograph (the 18 GERG-2004 components) and teqp 0.23.2. *Rejected:* teqp's `GERG.hpp`. |
 
+## Mixtures: the fixture budget (2026-10-16)
+
+Asked at M13.4, whose mixture fixtures took the committed set to 17.17 MB, over `gates fixtures`' 16 MiB (16.78 MB;
+M13.3 was at 16.60 MB). M13.5's GERG-2008 fixtures (AGA8's check state and binary set, teqp's vectors, GERG TM15's
+tables) add about 1.5 MB, and M13.6-M13.12's kinds (fugacity columns, `mix_flash`, `mix_sat`) perhaps 2 MB more. PLAN.md
+§0.4 counts a looser gate as a re-plan.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| MX8 | The committed fixtures' budget | **24 MiB** | VERIFICATION.md §3.6 and `gates fixtures`; about 3 MB of headroom after M13's close (about 21 MB). *Rejected:* 16 MiB with shrunken grids (fewer states per pair, or a 400-row core `eos` grid: weaker coverage, with more cuts to come); a separate 8 MiB mixture budget beside the 16 MiB one. |
+
 ## The site (2026-10-16)
 
 Asked while M13 was being planned: "I would like to have you build a webpage that visualises phasekits capabilities
