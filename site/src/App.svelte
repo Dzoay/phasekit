@@ -15,6 +15,14 @@
     {#await import("./pages/Diagrams.svelte") then page}
       <page.default />
     {/await}
+  {:else if route.page === "sweeps"}
+    {#await import("./pages/Sweeps.svelte") then page}
+      <page.default />
+    {/await}
+  {:else if route.page === "benchmark"}
+    {#await import("./pages/Benchmark.svelte") then page}
+      <page.default />
+    {/await}
   {:else if route.page === "licences"}
     <Licences />
   {:else}

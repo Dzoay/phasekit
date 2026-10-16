@@ -27,6 +27,14 @@
   --iso-1: light-dark(#2a78d6, #3987e5);
   --iso-2: light-dark(#eb6834, #d95926);
   --iso-3: light-dark(#169a6b, #199e70);
+  /* The sweeps' sequential ramp (PLAN.md M21.3): one hue, the lines in the order of their held values, the lightest
+     in the light theme and the darkest in the dark one still 3:1 on the surface; direct labels name each line. */
+  --seq-1: light-dark(#4a8fe0, #3a73c4);
+  --seq-2: light-dark(#3477cc, #4f8ad8);
+  --seq-3: light-dark(#2662b0, #6aa0e6);
+  --seq-4: light-dark(#1d4f93, #8ab6ef);
+  --seq-5: light-dark(#163d75, #abcbf5);
+  --seq-6: light-dark(#0f2b57, #cfe2fb);
   /* The phase regions' tints (PLAN.md M21.9): pale in light, deep in dark, so the names on them keep 4.5:1 and the
      lines, each on a halo of the surface, keep their own contrast. Liquid-like cool, gas-like warm; the names carry
      the identity, so no tint is the only cue. */

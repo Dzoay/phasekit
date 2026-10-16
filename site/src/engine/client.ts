@@ -1,15 +1,19 @@
-// The page's side of the engine: one worker, started on first use, and a promise per request.
-import type { Body, Engine, Response, Values } from "./protocol";
+// The page's side of the engine: a worker, started on first use, and a promise per request. The page has one worker on
+// the build its browser runs best; the benchmark one more for each build (PLAN.md M21.3).
+import type { Body, Build, Engine, Response, Values } from "./protocol";
+import { simdSupported } from "./simd";
 
 /** A refusal: the package's message, or the worker's if it could not load. */
 export class EngineError extends Error {}
 
 class WorkerEngine implements Engine {
-  #worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+  #worker: Worker;
   #next = 1;
   #pending = new Map<number, (response: Response) => void>();
 
-  constructor() {
+  /** `build`, or "" for the best this browser runs. */
+  constructor(build: Build | "") {
+    this.#worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module", name: build });
     this.#worker.onmessage = (event: MessageEvent<Response>) => {
       const done = this.#pending.get(event.data.id);
       this.#pending.delete(event.data.id);
@@ -31,9 +35,19 @@ class WorkerEngine implements Engine {
   }
 }
 
-let engine: WorkerEngine | undefined;
+const engines = new Map<Build | "", WorkerEngine>();
 
-export function getEngine(): Engine {
-  engine ??= new WorkerEngine();
+/** The engine on `build`, or on the best build this browser runs; one worker for each, started on first use. */
+export function getEngine(build: Build | "" = ""): Engine {
+  let engine = engines.get(build);
+  if (!engine) {
+    engine = new WorkerEngine(build);
+    engines.set(build, engine);
+  }
   return engine;
+}
+
+/** The builds this browser runs: the baseline everywhere, simd128 where it validates WebAssembly SIMD. */
+export function builds(): Build[] {
+  return simdSupported() ? ["baseline", "simd128"] : ["baseline"];
 }

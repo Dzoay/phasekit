@@ -5,6 +5,8 @@
   const PAGES = [
     { id: "calculator", label: "Calculator" },
     { id: "diagrams", label: "Diagrams" },
+    { id: "sweeps", label: "Sweeps" },
+    { id: "benchmark", label: "Benchmark" },
   ];
 </script>
 
