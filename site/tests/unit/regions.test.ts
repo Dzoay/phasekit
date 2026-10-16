@@ -194,6 +194,52 @@ describe("the phase regions", { timeout: 60_000 }, () => {
     });
   });
 
+  test("each outline walks its region's edge, a step between corners at most a tenth of the range", async () => {
+    // In T and ln p, each over its whole span. (Where a fluid's melting line crosses T_c, as Nitrogen's does, an edge
+    // cuts across the states the package refuses there, in one longer step.)
+    for (const fluid of ["Water", "n-Propane"]) {
+      const { batch, phaseAt, l } = await engine(fluid);
+      const sampled = await sampleRegions(l, batch, phaseAt);
+      const low = ranges(l).T[0];
+      const floor = Math.min(...sampled.regions.flatMap((g) => g.outline.map((c) => c.P)));
+      const u = (c: Corner): Point => [(c.T - low) / (l.Tmax - low), Math.log(c.P / floor) / Math.log(l.pmax / floor)];
+      for (const region of sampled.regions) {
+        const steps = region.outline.map((c, i) => {
+          const [a, b] = [u(region.outline.at(i - 1) as Corner), u(c)];
+          return Math.hypot(a[0] - b[0], a[1] - b[1]);
+        });
+        expect(Math.max(...steps), `${fluid} ${region.phase}`).toBeLessThan(0.1);
+      }
+    }
+  });
+
+  test("the cold edge halves only the isobars the package refused at the lowest T", async () => {
+    const { batch, phaseAt, l } = await engine("Water");
+    const low = ranges(l).T[0];
+    const asked: { values1: number[]; values2: number[]; refused: number[] }[] = [];
+    await sampleRegions(
+      l,
+      async (outputs, name1, values1, name2, values2) => {
+        const answer = await batch(outputs, name1, values1, name2, values2);
+        if (name1 === "T" && name2 === "P") {
+          const refused = [...values2].filter((_, i) =>
+            outputs.some((_, k) => (answer.status[i * outputs.length + k] as number) > 1),
+          );
+          asked.push({ values1: [...values1], values2: [...values2], refused });
+        }
+        return answer;
+      },
+      phaseAt,
+    );
+    // Water's isotherm at its triple point reaches ice above about 0.6 GPa: those isobars, and only they, are halved.
+    const first = asked.findIndex((a) => a.values2.length === COLD_ROWS && a.values1.every((t) => t === low));
+    const refused = (asked[first] as { refused: number[] }).refused;
+    expect(refused.length).toBeGreaterThan(0);
+    expect(refused.length).toBeLessThan(COLD_ROWS);
+    expect(asked[first + 1]?.values2).toEqual(refused);
+    expect(asked[first + 1]?.values1.every((t) => t > low)).toBe(true);
+  });
+
   test("the cold edge follows the melting line, by bisection on each isobar", async () => {
     const { batch, phaseAt, l } = await engine("n-Propane");
     const sampled = await sampleRegions(l, batch, phaseAt);
