@@ -84,6 +84,9 @@ exclude_re = [
     # A multi-fluid model has two or more components (PLAN.md M13.3: `MultiFluid::new` refuses fewer), so `is_empty` is
     # always false; clippy's `len_without_is_empty` asks for it beside `len`.
     "multifluid\\.rs:[0-9]+:[0-9]+: replace MultiFluid::is_empty -> bool with false",
+    # Equivalent (PLAN.md M13.6): a MultiFluid has two components or more, so composition's n * 2 Taylor variables are
+    # n + 2 or more: T and V keep their indices n and n + 1, and the extra ones are never seeded or read.
+    "composition\\.rs:77:25: replace \\+ with \\* in <impl MixtureModel for MultiFluid>::composition",
     # Equivalent mutants of T+X (PLAN.md M7.5). A cell is cut at a turn where its ends' slopes have opposite signs,
     # `a·b < 0`: `a/b < 0` is the same test, and `<= 0` differs only where a slope is exactly 0 at a node, where the cut
     # falls on that node and the pieces hold the same roots. A piece is searched where an end's residual is exactly 0 or

@@ -1055,6 +1055,11 @@ MIX_EOS_OUTPUTS = [
     ("alpha0", "-", lambda s: s.alpha0()),
     ("A0_10", "-", lambda s: s.tau() * s.dalpha0_dTau()),
     ("A0_20", "-", lambda s: s.tau() ** 2 * s.d2alpha0_dTau2()),
+    # The first two components' (every pair's; M13.13 reads the predefined blends): M13.6.
+    ("fugacity_coefficient_1", "-", lambda s: s.fugacity_coefficient(0)),
+    ("fugacity_coefficient_2", "-", lambda s: s.fugacity_coefficient(1)),
+    ("chemical_potential_1", "J/mol", lambda s: s.chemical_potential(0)),
+    ("chemical_potential_2", "J/mol", lambda s: s.chemical_potential(1)),
 ]
 MIX_EOS_STATES = ((0.8, 0.5), (1.25, 2.0))
 MIX_EOS_COLUMNS = ["mixture", "z1", "T", "rhomolar", "status", *(name for name, _, _ in MIX_EOS_OUTPUTS)]

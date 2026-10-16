@@ -5,6 +5,7 @@
 //! Its milestone holds phasekit-core unchanged from `m13-start` (`cargo xtask gates core-frozen`), after M13.1 added
 //! the seams a mixture needs (user decision MX2).
 
+mod composition;
 mod corrections;
 // The predefined mixtures are read from PLAN.md M13.13; until then only the tests read them.
 #[cfg_attr(not(test), expect(dead_code, reason = "the predefined mixtures are built from PLAN.md M13.13"))]
@@ -17,7 +18,9 @@ mod gerg;
 mod mixture;
 mod multifluid;
 mod reducing;
+mod taylor;
 
+pub use composition::{Composition, MixtureModel, Var};
 pub use gerg::{PREFIX as GERG_PREFIX, R_GERG, with_gerg2008};
 pub use mixture::{Mixture, R_CODATA, gerg2008, mixture};
 pub use multifluid::MultiFluid;

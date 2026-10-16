@@ -20,19 +20,19 @@ use crate::reducing::ReducingFunctions;
 
 /// One component: its fluid and the state its residual reduces by.
 #[derive(Clone, Debug)]
-struct Component {
-    fluid: Fluid,
-    t_r: f64,
-    rho_r: f64,
+pub(crate) struct Component {
+    pub(crate) fluid: Fluid,
+    pub(crate) t_r: f64,
+    pub(crate) rho_r: f64,
 }
 
 /// A pair with a departure function: its components, F and the function.
 #[derive(Clone, Copy, Debug)]
-struct Departure {
-    i: usize,
-    j: usize,
-    f: f64,
-    function: &'static DepartureData,
+pub(crate) struct Departure {
+    pub(crate) i: usize,
+    pub(crate) j: usize,
+    pub(crate) f: f64,
+    pub(crate) function: &'static DepartureData,
 }
 
 /// Which multi-fluid model: CoolProp 8.0.0's library over the registry's fluids, or GERG-2008 over its own.
@@ -46,9 +46,9 @@ enum Family {
 /// of every pair and the departure functions of those with F ≠ 0. Immutable; share it through an `Arc`.
 #[derive(Clone, Debug)]
 pub struct MultiFluid {
-    components: Arc<[Component]>,
-    reducing: ReducingFunctions,
-    departures: Arc<[Departure]>,
+    pub(crate) components: Arc<[Component]>,
+    pub(crate) reducing: ReducingFunctions,
+    pub(crate) departures: Arc<[Departure]>,
     family: Family,
 }
 

@@ -1331,10 +1331,12 @@ fn div_0051() {
     }
 }
 
-/// DIV-0052 (`SkipOracle`, PLAN.md M13.4): (1) phasekit's mixture entropy is its pressure's, (∂s/∂ρ)_T =
+/// DIV-0052 (`SkipOracle`, PLAN.md M13.4, M13.6): (1) phasekit's mixture entropy is its pressure's, (∂s/∂ρ)_T =
 /// −(∂p/∂T)_ρ/ρ² by central differences (class `Fd`), for Methane/Ethane; (2) the oracle's α⁰ there is Σ x_i (R_i/R)
 /// [α⁰_i + ln x_i] of phasekit's own components within 1e-12, each ln δ_i weighted by R_i/R, and so differs from
-/// phasekit's by (1 − Σ x_i R_i/R) ln ρ, within 1e-12.
+/// phasekit's by (1 − Σ x_i R_i/R) ln ρ, within 1e-12; (3) the oracle's chemical potentials are not its own Gibbs
+/// energy: for EBENZENE/PXYLENE Σ x_i μ_i is more than 0.04 J/mol from its h − Ts (phasekit's meet theirs,
+/// `tests/composition.rs`).
 fn div_0052() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();
     let x = [0.4, 0.6];
@@ -1369,6 +1371,12 @@ fn div_0052() {
     let ours = fluid.model().helmholtz().unwrap().ideal(t, rho, Order::One).get(0, 0).unwrap();
     let predicted = (1.0 - r_bar) * phasekit_core::math::ln(rho);
     assert!(((ours - oracle) - predicted).abs() <= 1e-12 * oracle.abs(), "{} against {predicted}", ours - oracle);
+    let row = (0..table.rows().len()).find(|&r| table.printed(r, "mixture") == Some("EBENZENE&PXYLENE")).unwrap();
+    let value = |column: &str| table.value(row, column).unwrap();
+    let (z1, t) = (value("z1"), value("T"));
+    let sum = z1 * value("chemical_potential_1") + (1.0 - z1) * value("chemical_potential_2");
+    let g = value("hmolar") - t * value("smolar");
+    assert!((sum - g).abs() > 0.04, "{sum} against {g}");
 }
 
 /// DIV-0053 (`SkipOracle`, PLAN.md M13.4; ROT-062, ROT-103): R134a's critical T is not its reducing one, and v8.0.0
