@@ -99,7 +99,7 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
   };
 
   // The package's batch, its handle freed once its arrays are copied out.
-  const batch = (r: Extract<Request, { op: "batch" }>): BatchValue => {
+  const batch = (r: Omit<Extract<Request, { op: "batch" }>, "id" | "op">): BatchValue => {
     const b = fluid(r.fluid).evaluate(r.outputs, r.name1, r.values1, r.name2, r.values2);
     try {
       return { values: b.values, status: b.status, outputs: b.outputs };
@@ -113,7 +113,7 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
   const bench = (r: Extract<Request, { op: "bench" }>): BenchValue => {
     const f = fluid(r.fluid);
     const timing = measure(() => f.evaluate(r.outputs, r.name1, r.values1, r.name2, r.values2).free());
-    return { timing, batch: batch({ ...r, op: "batch" }) };
+    return { timing, batch: batch(r) };
   };
 
   return (request) => {

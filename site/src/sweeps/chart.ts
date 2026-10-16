@@ -91,6 +91,7 @@ export function buildChart(sweep: Sweep, y: string, o: ChartOptions): Chart {
     )
     .range([plot.bottom, plot.top]);
   const at = (p: { x: number; y: number }): Point => [xs(fromSI(p.x, ux)), ys(fromSI(p.y, uy))];
+  // Stryker disable next-line ArrayDeclaration: a stray entry that is no box overlaps nothing.
   const placed: Box[] = [];
   const labels: Label[] = [];
   const lines = sweep.lines.map((line, i) => {
@@ -132,6 +133,7 @@ export function nearest(sweep: Sweep, x: number): number {
   let best = -1;
   let gap = Infinity;
   const count = Math.max(0, ...sweep.lines.map((l) => l.points.length));
+  // Stryker disable next-line EqualityOperator: past the last sample no line has a point.
   for (let i = 0; i < count; i++) {
     const p = sweep.lines.map((l) => l.points[i]).find((q) => q);
     if (p && distance(p.x) < gap) [best, gap] = [i, distance(p.x)];

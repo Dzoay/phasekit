@@ -37,6 +37,7 @@ export function benchGrid(pair: Pair, l: Limits, n: number): Grid {
           : ["P", logGrid(r.P[0], l.pc * below, side), "Q", linGrid(0, 1, side)];
   const values1 = new Float64Array(n);
   const values2 = new Float64Array(n);
+  // Stryker disable next-line EqualityOperator: a typed array ignores a write past its end.
   for (let i = 0; i < n; i++) {
     values1[i] = a[i % side] as number;
     values2[i] = b[Math.floor(i / side)] as number;

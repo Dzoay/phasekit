@@ -123,7 +123,9 @@ describe("the benchmark's comparison", () => {
         first: null,
       });
       expect(a.batch.outputs).toBe(BENCH_OUTPUTS.length);
+      // Each run is the batch: milliseconds, so a few runs fill the 20 ms budget, not the million an empty one would.
       expect(a.timing.runs).toBeGreaterThan(0);
+      expect(a.timing.runs).toBeLessThan(1000);
       expect(b.timing.us).toBeGreaterThan(0);
       expect((byStatus(a.batch.status).get(0) ?? 0) > 0, pair).toBe(true);
     }

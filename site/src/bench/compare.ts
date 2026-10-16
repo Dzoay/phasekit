@@ -22,6 +22,7 @@ export function compareBuilds(a: BatchValue, b: BatchValue): Comparison {
   const [x, y] = [bits(a.values), bits(b.values)];
   let differing = 0;
   let first: Difference | null = null;
+  // Stryker disable next-line EqualityOperator: past the last cell both answers have nothing, and nothing differs.
   for (let i = 0; i < cells; i++) {
     if (x[i] !== y[i] || a.status[i] !== b.status[i]) {
       differing += 1;

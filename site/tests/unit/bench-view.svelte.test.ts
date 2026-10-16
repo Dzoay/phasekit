@@ -4,24 +4,32 @@
 import { flushSync } from "svelte";
 import { describe, expect, test, vi } from "vitest";
 import { BENCH_OUTPUTS } from "../../src/bench/grids";
+import { LIMIT_KEYS } from "../../src/sample/ranges";
 import { BenchView, SIZES } from "../../src/bench/view.svelte";
 import type { BatchValue, Body, Build, Engine, Values } from "../../src/engine/protocol";
 
 // n-Propane's limits, in LIMIT_KEYS' order.
 const PROPANE = [369.89, 4.2512e6, 220.4781, 85.525, 1.7203e-4, 85.525, 650, 1e9];
 
-function fake(answer: (body: Extract<Body, { op: "bench" }>) => BatchValue, us = 2000, delay = 0) {
+function fake(
+  answer: (body: Extract<Body, { op: "bench" }>) => BatchValue,
+  us = 2000,
+  delay: number | ((body: Body) => number) = 0,
+  constants: (number | null)[] = PROPANE,
+) {
   const asked: Body[] = [];
   const engine: Engine = {
     call<B extends Body>(body: B): Promise<Values[B["op"]]> {
       asked.push(body);
-      const value: Promise<unknown> =
+      // The answer is made when it is due, so a refusal waits unmade rather than unhandled.
+      const value = (): Promise<unknown> =>
         body.op === "constants"
           ? body.fluid === "Nonsense"
             ? Promise.reject(new Error("unknown fluid Nonsense"))
-            : Promise.resolve(PROPANE)
+            : Promise.resolve(constants)
           : Promise.resolve({ timing: { us, runs: 3 }, batch: answer(body as Extract<Body, { op: "bench" }>) });
-      return (delay ? new Promise((r) => setTimeout(r, delay)).then(() => value) : value) as Promise<Values[B["op"]]>;
+      const wait = typeof delay === "number" ? delay : delay(body);
+      return (wait ? new Promise((r) => setTimeout(r, wait)).then(value) : value()) as Promise<Values[B["op"]]>;
     },
   };
   return { engine, asked };
@@ -49,6 +57,7 @@ describe("the benchmark view", () => {
     flushSync();
     expect([view.fluid, view.pair, view.n]).toEqual(["n-Propane", "DT", 10_000]);
     expect(SIZES).toEqual([1000, 10_000, 100_000]);
+    expect([new BenchView([]).running, new BenchView([]).run]).toEqual([false, null]);
     stop();
   });
 
@@ -62,6 +71,8 @@ describe("the benchmark view", () => {
     view.n = 1000;
     const running = view.start();
     expect(view.running).toBe(true);
+    expect(view.run).toEqual({ key: "n-Propane/DT/1000", results: [], comparison: null, refusal: null });
+    expect(base.asked[0]).toEqual({ op: "constants", fluid: "n-Propane", keys: [...LIMIT_KEYS] });
     await running;
     expect(view.running).toBe(false);
     const run = view.run;
@@ -112,7 +123,20 @@ describe("the benchmark view", () => {
     const one = new BenchView([{ build: "baseline", engine: plain.engine }]);
     one.n = 1000;
     await one.start();
-    expect([one.run?.results.length, one.run?.comparison]).toEqual([1, null]);
+    expect([one.run?.results.length, one.run?.comparison, one.run?.refusal]).toEqual([1, null, null]);
+    const blank = new BenchView([
+      {
+        build: "baseline",
+        engine: fake(
+          (b) => cells(b),
+          1,
+          0,
+          PROPANE.map(() => null),
+        ).engine,
+      },
+    ]);
+    await blank.start();
+    expect(blank.run?.refusal).toBe("n-Propane names no critical or triple point to place its states by");
   });
 
   test("shows a refusal, and drops a run's results when another starts", async () => {
@@ -146,5 +170,36 @@ describe("the benchmark view", () => {
     const b = dropped.start();
     await Promise.allSettled([a, b]);
     expect(dropped.run?.key).toBe("Water/DT/10000");
+  });
+});
+
+describe("a run started while another is in flight", () => {
+  // The first run's calls answer after 10 ms, the second's after 60: the first, set aside, finishes first.
+  const timed = (fast: (b: Body) => boolean) => (b: Body) => (fast(b) ? 10 : 60);
+
+  test("keeps the second's settings, results and running flag when the first finishes", async () => {
+    const isDT = (b: Body) => b.op !== "bench" || b.name2 === "Dmass";
+    const view = new BenchView([{ build: "baseline", engine: fake((b) => cells(b), 1000, timed(isDT)).engine }]);
+    view.n = 1000;
+    const first = view.start();
+    view.pair = "PQ";
+    const second = view.start();
+    await first;
+    expect([view.running, view.run?.key, view.run?.results]).toEqual([true, "n-Propane/PQ/1000", []]);
+    await second;
+    expect([view.running, view.run?.key, view.run?.results.length]).toEqual([false, "n-Propane/PQ/1000", 1]);
+  });
+
+  test("keeps the second's settings when the first is refused", async () => {
+    const refused = (b: Body) => "fluid" in b && b.fluid === "Nonsense";
+    const view = new BenchView([{ build: "baseline", engine: fake((b) => cells(b), 1000, timed(refused)).engine }]);
+    view.n = 1000;
+    view.fluid = "Nonsense";
+    const first = view.start();
+    view.fluid = "n-Propane";
+    const second = view.start();
+    await first;
+    expect([view.running, view.run?.key, view.run?.refusal]).toEqual([true, "n-Propane/DT/1000", null]);
+    await second;
   });
 });

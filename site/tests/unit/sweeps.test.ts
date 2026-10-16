@@ -57,7 +57,7 @@ describe("a sweep", { timeout: 60_000 }, () => {
     const many = [...at, 1000, 1100, 1200];
     const sweep = await sampleSweep("isotherms", "viscosity", many, l, batch, 80);
     expect(sweep.x).toBe("P");
-    expect(sweep.lines.map((s) => s.value)).toEqual(many.slice(0, MAX_LINES));
+    expect(sweep.lines.map((s) => [s.held, s.value])).toEqual(many.slice(0, MAX_LINES).map((t) => ["T", t]));
     expect(
       sweep.lines.every((s) => s.points.every((p) => p === null || (p.inputs[2] === "P" && p.x === p.inputs[3]))),
     ).toBe(true);
@@ -68,12 +68,14 @@ describe("a sweep", { timeout: 60_000 }, () => {
     const { batch, l } = await engine("R134a");
     expect(defaultValues("saturation", l)).toEqual([]);
     const sweep = await sampleSweep("saturation", "speed_of_sound", [], l, batch, 60);
+    expect(sweep.x).toBe("T");
     expect(sweep.lines.map((s) => [s.held, s.value])).toEqual([
       ["Q", 0],
       ["Q", 1],
     ]);
     expect(await exact(sweep, "speed_of_sound", "R134a", 7)).toBeGreaterThan(10);
     const latent = await sampleSweep("saturation", LATENT, [], l, batch, 60);
+    expect(latent.x).toBe("T");
     expect(latent.lines.map((s) => [s.held, s.points.length])).toEqual([[null, 60]]);
     for (const p of (latent.lines[0]?.points ?? []).filter((_, i) => i % 9 === 0)) {
       if (!p) throw new Error("no saturated state");
@@ -108,7 +110,12 @@ describe("a sweep", { timeout: 60_000 }, () => {
       false,
       false,
     ]);
-    const latent = await sampleSweep("saturation", LATENT, [], l, failing, 10);
+    // The latent heat needs both phases' h: a gap where the vapour's alone failed.
+    const vapourFails: Batch = async (outputs, name1, values1, name2, values2) =>
+      values2[0] === 1
+        ? failing(outputs, name1, values1, name2, values2)
+        : batch(outputs, name1, values1, name2, values2);
+    const latent = await sampleSweep("saturation", LATENT, [], l, vapourFails, 10);
     expect(latent.lines[0]?.points[3]).toBeNull();
     expect(latent.lines[0]?.points[2]).not.toBeNull();
   });

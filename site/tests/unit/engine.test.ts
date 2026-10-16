@@ -228,7 +228,8 @@ describe("measure", () => {
     expect(calls).toBe(BUDGET_MS + 1);
   });
 
-  test("stops at its cap when the clock does not move", () => {
+  // A million runs: quick, but under Stryker's instrumentation of the handler, on a busy machine, more than 5 s.
+  test("stops at its cap when the clock does not move", { timeout: 60_000 }, () => {
     const timing = measure(
       () => {},
       () => 0,

@@ -86,10 +86,8 @@ export class SweepView {
   /** The held values as typed, in the shown units, separated by commas or spaces; nothing typed means the defaults. */
   setValues(text: string): void {
     const unit = heldUnit(this.mode, this.system);
-    const values = text
-      .split(/[\s,;]+/)
-      .filter((t) => t !== "")
-      .map((t) => toSI(Number(t), unit));
+    // Stryker disable next-line Regex: an empty piece between separators reads as 0, which parseAt drops.
+    const values = text.split(/[\s,;]+/).map((t) => toSI(Number(t), unit));
     this.at = parseAt(values.join(","));
   }
 
