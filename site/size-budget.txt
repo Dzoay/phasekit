@@ -2,4 +2,6 @@
 # modules' (user decision SL8). The .wasm modules have their own budgets (crates/phasekit-wasm/size-budget.txt) and the
 # font is not code. Raise it only with a reason written here.
 # M21.1: 33218 bytes built with a commit's hash, the calculator, themes and engine worker.
-js+css-gzip 36540
+# M21.2: the diagrams page and d3's scale, selection and zoom modules (loaded with the page on its first visit, so
+# the calculator's first load keeps its size): 66406 bytes, + 10 %.
+js+css-gzip 73047

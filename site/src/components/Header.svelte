@@ -2,7 +2,10 @@
   import { route } from "../lib/route.svelte";
   import ThemeControls from "./ThemeControls.svelte";
 
-  const PAGES = [{ id: "calculator", label: "Calculator" }];
+  const PAGES = [
+    { id: "calculator", label: "Calculator" },
+    { id: "diagrams", label: "Diagrams" },
+  ];
 </script>
 
 <header>

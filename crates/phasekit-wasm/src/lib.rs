@@ -1,7 +1,8 @@
 //! `phasekit-wasm`: the browser package (PLAN.md M10.8; D11; E6, E7; map 11 U12, F23). wasm-bindgen over
 //! `phasekit-compat`, with the five core fluids embedded (E7) and more from packs a page fetches (`withPack`, E6).
 //!
-//! - [`Registry`]: `new Registry()`, `withPack(bytes)`, `withReference(fluid, state)`, `PropsSI(...)`, `fluid(name)`.
+//! - [`Registry`]: `new Registry()`, `withPack(bytes)`, `withReference(fluid, state)`, `PropsSI(...)`, `Props1SI(output,
+//!   fluid)`, `fluid(name)`.
 //! - [`Fluid`]: `flash(name1, value1, name2, value2)`, the typed flash, and `evaluate(outputs, name1, values1, name2,
 //!   values2)`, the one batch: point-major `Float64Array` values (N × M) and a `Uint8Array` of cell codes.
 //! - [`output_keys`]: `outputKeys()`, CoolProp's 85 output keys, which `PropsSI` and `State.get` take.
@@ -76,6 +77,13 @@ impl Registry {
         fluid: &str,
     ) -> Result<f64, JsError> {
         compat::props_si_in(&self.inner, output, name1, value1, name2, value2, fluid).map_err(js)
+    }
+
+    /// CoolProp's `Props1SI(output, fluid)`: a state-independent output (T_critical, p_triple, …); a state-dependent one
+    /// is refused. The site reads a fluid's limits with it (PLAN.md M21.2).
+    #[wasm_bindgen(js_name = Props1SI)]
+    pub fn props1_si(&self, output: &str, fluid: &str) -> Result<f64, JsError> {
+        compat::props1_si_in(&self.inner, output, fluid).map_err(js)
     }
 
     /// The fluid a fluid string names (a name, alias or CAS number). A handle object: free it with `free()`.

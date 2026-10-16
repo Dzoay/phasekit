@@ -46,6 +46,14 @@ export function outputErrors(registry, keys) {
     state.free();
     return errors;
 }
+export function props1Error(registry, key) {
+    try {
+        registry.Props1SI(key, "Water");
+        return "no error";
+    } catch (e) {
+        return e.message;
+    }
+}
 export function errorMessage(registry) {
     try {
         registry.PropsSI("X", "T", 300, "P", 1e5, "Water");
@@ -65,6 +73,8 @@ extern "C" {
     fn batch_status(fluid: &JsValue) -> Vec<u8>;
     #[wasm_bindgen(js_name = outputErrors)]
     fn output_errors(registry: &JsValue, keys: Vec<String>) -> Vec<String>;
+    #[wasm_bindgen(js_name = props1Error)]
+    fn props1_error(registry: &JsValue, key: &str) -> String;
     #[wasm_bindgen(js_name = errorMessage)]
     fn error_message(registry: &JsValue) -> String;
 }
@@ -201,4 +211,21 @@ fn output_keys_are_coolprops_85() {
     let registry = JsValue::from(Registry::new().unwrap());
     let unknown: Vec<String> = output_errors(&registry, keys).into_iter().filter(|e| e.contains("unknown")).collect();
     assert!(unknown.is_empty(), "{unknown:?}");
+}
+
+/// M21.2: `Props1SI` answers a state-independent output as compat does, bit for bit, and refuses one that depends on
+/// the state, so the site can read a fluid's limits before it has a state.
+#[wasm_bindgen_test]
+fn props1si_answers_constants_as_compat_does() {
+    let registry = Registry::new().unwrap();
+    let native = phasekit_core::Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+    for key in ["T_critical", "p_critical", "rhomass_critical", "T_triple", "p_triple", "T_min", "T_max", "P_max"] {
+        for fluid in ["Water", "n-Propane", "R134a"] {
+            let want = phasekit_compat::props1_si_in(&native, key, fluid).unwrap();
+            assert_eq!(registry.props1_si(key, fluid).map(f64::to_bits).ok(), Some(want.to_bits()), "{key} {fluid}");
+        }
+    }
+    let refusal = props1_error(&JsValue::from(registry), "T");
+    assert_eq!(refusal, phasekit_compat::props1_si_in(&native, "T", "Water").unwrap_err().to_string());
+    assert!(refusal.contains("depends on the state"), "{refusal}");
 }
