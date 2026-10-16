@@ -1,5 +1,5 @@
 // How a diagram is drawn (PLAN.md M21.2): its families' styles and labels, its scales and the readout's inputs, the
-// drawing model the canvas and the SVG export share, and the CSV of its vertices.
+// drawing model the canvas and the SVG export share, with the phase regions (M21.9), and the CSV of its vertices.
 import { scaleLinear } from "d3-scale";
 import { describe, expect, test } from "vitest";
 import {
@@ -10,13 +10,16 @@ import {
   renderSvg,
   toCsv,
   pathOf,
+  placeInside,
   type Box,
   type Model,
+  type Point,
 } from "../../src/diagram/model";
 import { padded, baseScales, readoutAt, readoutInputs, shownAt } from "../../src/diagram/scales";
-import { lineLabel, styleOf } from "../../src/diagram/style";
+import { CRITICAL_LINE, lineLabel, styleOf } from "../../src/diagram/style";
 import { DIAGRAMS, diagram, type Diagram } from "../../src/sample/diagrams";
 import type { DiagramData, Vertex } from "../../src/sample/lines";
+import type { Corner, Regions } from "../../src/sample/regions";
 
 const ph = diagram("ph") as Diagram;
 const v = (x: number, y: number): Vertex => ({ x, y, inputs: ["T", 300, "P", y] });
@@ -366,6 +369,9 @@ describe("the dome and the files", () => {
   test("writes an SVG exactly", () => {
     const tiny: Model = {
       plot: { left: 10, top: 5, right: 90, bottom: 45 },
+      fills: [],
+      halo: null,
+      regionLabels: [],
       strokes: [
         {
           points: [
@@ -416,5 +422,157 @@ describe("snapped points", () => {
     expect(shownAt(ts, ["Smass", 1500, "T", 298.15], "engineering")).toEqual([1.5, 25]);
     const hs = diagram("hs") as Diagram;
     expect(shownAt(hs, ["Hmass", 2e6, "Smass", 6000], "si")).toEqual([6000, 2e6]);
+  });
+});
+
+describe("the phase regions in the model (PLAN.md M21.9)", () => {
+  const plot = { left: 0, top: 0, right: 400, bottom: 300 };
+  const flat = { ...ph, x: { key: "Hmass", log: false }, y: { key: "Smass", log: false } } as Diagram;
+  const c = (x: number, y: number, T = 600, P = 5e6): Corner => ({ T, P, Hmass: x, Smass: y, Dmass: 1 });
+  const rect = (x0: number, x1: number): Corner[] => [c(x0, 0), c(x1, 0), c(x1, 300), c(x0, 300)];
+  const sampled: Regions = {
+    regions: [
+      { phase: "liquid", outline: rect(0, 200) },
+      { phase: "supercritical_gas", outline: rect(200, 400) },
+      { phase: "solid", outline: rect(0, 10) },
+    ],
+    isotherm: [[c(200, 0), c(200, 300)]],
+    isobar: [[c(0, 150), c(400, 150)]],
+    critical: c(200, 150),
+    Tc: 647.096,
+    pc: 2.2064e7,
+  };
+  const empty: DiagramData = { dome: { liquid: [], vapour: [], critical: null }, lines: [], x: [0, 1], y: [0, 1] };
+  const model = (regions: Regions | null) =>
+    buildModel(flat, empty, {
+      x: scaleLinear().domain([0, 400]).range([0, 400]),
+      y: scaleLinear().domain([0, 300]).range([0, 300]),
+      plot,
+      system: "si",
+      hidden: new Set(),
+      colour: colours,
+      regions,
+    });
+
+  test("tints each region it has a style for, haloes the lines, and draws the critical isotherm and isobar", () => {
+    const m = model(sampled);
+    expect(m.fills).toEqual([
+      { points: rect(0, 200).map((k) => [k.Hmass, k.Smass]), colour: "rgb(--phase-liquid)", phase: "liquid" },
+      {
+        points: rect(200, 400).map((k) => [k.Hmass, k.Smass]),
+        colour: "rgb(--phase-supercritical-gas)",
+        phase: "supercritical_gas",
+      },
+    ]);
+    expect(m.halo).toBe("rgb(--surface)");
+    const critical = { colour: "rgb(--fg)", dash: CRITICAL_LINE.dash, width: CRITICAL_LINE.width };
+    expect(m.strokes.slice(1)).toEqual([
+      {
+        points: [
+          [200, 0],
+          [200, 300],
+        ],
+        ...critical,
+      },
+      {
+        points: [
+          [0, 150],
+          [400, 150],
+        ],
+        ...critical,
+      },
+    ]);
+    expect(m.labels.map((l) => l.text)).toEqual([`Tc = 647.096 K`, `pc = ${lineLabel("P", 2.2064e7, "si")}`]);
+    // The search's 24 × 15 grid has its points at x = 8.33 + 16.67 i and y = 10 + 20 j; in a 200 px wide region the
+    // deepest are 91.67 px from its sides, the first of them at y = 110.
+    expect(m.regionLabels).toEqual([
+      { x: 91.66666666666667, y: 110, text: "Liquid", phase: "liquid" },
+      { x: 291.6666666666667, y: 110, text: "Supercritical gas", phase: "supercritical_gas" },
+    ]);
+  });
+
+  test("names the critical lines at their last point in the plot, else their first", () => {
+    const m = model({ ...sampled, isotherm: [[c(200, 10), c(200, 100), c(200, 200), c(200, 400)]], isobar: [] });
+    expect(m.labels).toEqual([{ x: 204, y: 196, text: "Tc = 647.096 K", anchor: "start" }]);
+  });
+
+  test("draws nothing of them without a region it can tint", () => {
+    for (const regions of [null, { ...sampled, regions: sampled.regions.slice(2) }, { ...sampled, regions: [] }]) {
+      const m = model(regions);
+      expect([m.fills, m.halo, m.regionLabels, m.strokes.length]).toEqual([[], null, [], 1]);
+    }
+    // Without lines, the critical isotherm and isobar draw nothing, but are still named where the package has them.
+    const bare = model({ ...sampled, isotherm: [], isobar: [] });
+    expect([bare.fills.length, bare.strokes.length, bare.labels]).toEqual([2, 1, []]);
+  });
+
+  test("names a region where its box fits inside it, clear of the labels placed", () => {
+    const square: Point[] = [
+      [100, 100],
+      [300, 100],
+      [300, 200],
+      [100, 200],
+    ];
+    // "ab" is 13 px wide and 10 high. The grid's points 50 px deep in the square lie on y = 150, from x = 158.33 to
+    // 241.67; the first of them wins, and the next where a label sits on the first.
+    expect(placeInside("ab", square, plot, [])).toEqual([158.33333333333334, 150]);
+    const placed: Box[] = [{ x0: 130, x1: 160, y0: 130, y1: 150 }];
+    expect(placeInside("ab", square, plot, placed)).toEqual([175, 150]);
+    expect(placed).toEqual([
+      { x0: 130, x1: 160, y0: 130, y1: 150 },
+      { x0: 168.5, x1: 181.5, y0: 145, y1: 155 },
+    ]);
+    // A box wider than the square never fits, though its centre would.
+    expect(placeInside("x".repeat(40), square, plot, [])).toBeNull();
+    // Nor one taller than a sliver.
+    const sliver: Point[] = [
+      [0, 140],
+      [400, 140],
+      [400, 148],
+      [0, 148],
+    ];
+    expect(placeInside("ab", sliver, plot, [])).toBeNull();
+  });
+
+  test("writes them into the SVG under the lines, the names over them", () => {
+    const tiny: Model = {
+      plot: { left: 10, top: 5, right: 90, bottom: 45 },
+      fills: [
+        {
+          points: [
+            [10, 5],
+            [90, 5],
+            [90, 45],
+          ],
+          colour: "#eef",
+          phase: "gas",
+        },
+      ],
+      halo: "#fff",
+      strokes: [
+        {
+          points: [
+            [10, 45],
+            [90, 5],
+          ],
+          colour: "red",
+          dash: [2, 3],
+          width: 1.5,
+        },
+      ],
+      dots: [],
+      labels: [],
+      regionLabels: [{ x: 50.04, y: 20, text: "Gas & co", phase: "gas" }],
+      xTicks: [],
+      yTicks: [],
+      titles: { x: "x", y: "y" },
+    };
+    const svg = renderSvg(tiny, { width: 100, height: 60, background: "#fff", ink: "#000", muted: "#777", font: "F" });
+    expect(svg.split("\n")[4]).toBe(
+      '<g clip-path="url(#plot)"><path d="M10,5L90,5L90,45Z" fill="#eef"/>' +
+        '<path d="M10,45L90,5" fill="none" stroke="#fff" stroke-width="3.5" stroke-dasharray="2 3"/>' +
+        '<path d="M10,45L90,5" fill="none" stroke="red" stroke-width="1.5" stroke-dasharray="2 3"/>' +
+        '<text x="50" y="20" text-anchor="middle" dominant-baseline="central" font-weight="600" fill="#000">Gas &amp; co</text></g>',
+    );
   });
 });

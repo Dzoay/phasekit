@@ -45,3 +45,22 @@ export function lineLabel(held: Key, value: number, system: System): string {
   const unit = unitOfKey(held, system);
   return `${formatNumber(fromSI(value, unit))} ${unit.label}`;
 }
+
+export interface PhaseStyle {
+  name: string;
+  /** A colour token of app.css: the region's tint. */
+  colour: string;
+}
+
+/** The phase regions' names and tints (PLAN.md M21.9), by the package's name of each phase, in the legend's order. */
+export const PHASES: Readonly<Record<string, PhaseStyle>> = {
+  liquid: { name: "Liquid", colour: "--phase-liquid" },
+  twophase: { name: "Liquid + vapour", colour: "--phase-twophase" },
+  gas: { name: "Gas", colour: "--phase-gas" },
+  supercritical_liquid: { name: "Supercritical liquid", colour: "--phase-supercritical-liquid" },
+  supercritical: { name: "Supercritical", colour: "--phase-supercritical" },
+  supercritical_gas: { name: "Supercritical gas", colour: "--phase-supercritical-gas" },
+};
+
+/** How the critical isotherm and isobar are drawn over the regions. */
+export const CRITICAL_LINE = { colour: "--fg", dash: [10, 3, 2, 3], width: 1.25 } as const;

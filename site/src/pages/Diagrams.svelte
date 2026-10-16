@@ -1,6 +1,6 @@
 <script lang="ts">
   // The diagrams (PLAN.md M21.2): a fluid's saturation dome and isolines on one of five planes, the state under the
-  // cursor, zoom and pan, and the diagram as CSV, SVG or PNG. Its view and wiring are src/diagram/view.svelte.ts and
+  // cursor, zoom and pan, the phase regions (M21.9), and the diagram as CSV, SVG or PNG. Its view and wiring are src/diagram/view.svelte.ts and
   // its drawing model src/diagram/model.ts; this component binds to them, paints the model's lines on a canvas and its
   // axes, labels and crosshair in SVG (user decision WS2).
   import { select } from "d3-selection";
@@ -9,7 +9,7 @@
   import { buildModel, renderSvg, toCsv } from "../diagram/model";
   import { GRID_LEVELS, describeGrid, gridValues, snap, step } from "../diagram/grid";
   import { baseScales, readoutAt, shownAt } from "../diagram/scales";
-  import { styleOf, unitOfKey } from "../diagram/style";
+  import { CRITICAL_LINE, PHASES, styleOf, unitOfKey } from "../diagram/style";
   import { DiagramView, READOUT_KEYS } from "../diagram/view.svelte";
   import { getEngine } from "../engine/client";
   import { FLUIDS } from "../lib/fluids";
@@ -71,7 +71,8 @@
     void theme;
     if (!view.data || !zoomed) return null;
     const hidden = new Set(view.hidden);
-    return buildModel(view.diagram, view.data, { ...zoomed, system: view.system, hidden, colour });
+    const regions = view.regions ? view.phases : null;
+    return buildModel(view.diagram, view.data, { ...zoomed, system: view.system, hidden, colour, regions });
   });
 
   // The snap grid in the shown units, over what the plot shows now (PLAN.md M21.8).
@@ -107,6 +108,14 @@
     context.rect(left, top, right - left, bottom - top);
     context.clip();
     [context.lineJoin, context.lineCap] = ["round", "round"];
+    // The phase regions' tints under everything.
+    for (const fill of model.fills) {
+      context.beginPath();
+      fill.points.forEach(([x, y], i) => (i === 0 ? context.moveTo(x, y) : context.lineTo(x, y)));
+      context.closePath();
+      context.fillStyle = fill.colour;
+      context.fill();
+    }
     // The snap grid under the lines, where it is not so fine as to fill the plot.
     if (view.snap && grids.x.length + grids.y.length <= 300) {
       [context.lineWidth, context.strokeStyle] = [1, colour("--border")];
@@ -123,12 +132,16 @@
       }
       context.stroke();
     }
-    for (const stroke of model.strokes) {
-      context.beginPath();
-      context.setLineDash([...stroke.dash]);
-      [context.lineWidth, context.strokeStyle] = [stroke.width, stroke.colour];
-      stroke.points.forEach(([x, y], i) => (i === 0 ? context.moveTo(x, y) : context.lineTo(x, y)));
-      context.stroke();
+    // Over the tints, each line on a halo of the surface, all the halos first so that none cuts a line.
+    const passes = model.halo === null ? [null] : [model.halo, null];
+    for (const halo of passes) {
+      for (const stroke of model.strokes) {
+        context.beginPath();
+        context.setLineDash([...stroke.dash]);
+        [context.lineWidth, context.strokeStyle] = halo ? [stroke.width + 2, halo] : [stroke.width, stroke.colour];
+        stroke.points.forEach(([x, y], i) => (i === 0 ? context.moveTo(x, y) : context.lineTo(x, y)));
+        context.stroke();
+      }
     }
     context.setLineDash([]);
     const surface = colour("--surface");
@@ -312,6 +325,7 @@
     bind:this={box}
     data-testid="plot"
     data-state={view.busy ? "loading" : view.refusal ? "refused" : "ready"}
+    data-regions={view.regions ? (view.phases ? "ready" : "loading") : "off"}
   >
     {#if view.refusal}
       <div class="refusal" role="alert">
@@ -361,6 +375,17 @@
             <g clip-path="url(#plot-clip)">
               {#each model.labels as l, i (i)}
                 <text class="label" x={l.x} y={l.y} text-anchor={l.anchor}>{l.text}</text>
+              {/each}
+              {#each model.regionLabels as l (l.phase)}
+                <text
+                  class="region-label"
+                  data-testid="region-label"
+                  data-phase={l.phase}
+                  x={l.x}
+                  y={l.y}
+                  text-anchor="middle"
+                  dominant-baseline="central">{l.text}</text
+                >
               {/each}
               {#if crosshair}
                 <line
@@ -419,6 +444,35 @@
           </li>
         {/each}
       </ul>
+    </section>
+
+    <section class="card phases">
+      <h2>Phases</h2>
+      <label class="check">
+        <input type="checkbox" checked={view.regions} onchange={() => view.toggleRegions()} />
+        Tint the phase regions
+      </label>
+      {#if view.regions}
+        <ul>
+          {#each Object.values(PHASES) as s (s.name)}
+            <li><span class="swatch" style:background="var({s.colour})" aria-hidden="true"></span>{s.name}</li>
+          {/each}
+          <li>
+            <svg width="28" height="10" aria-hidden="true">
+              <line
+                x1="0"
+                x2="28"
+                y1="5"
+                y2="5"
+                stroke="var({CRITICAL_LINE.colour})"
+                stroke-width={CRITICAL_LINE.width}
+                stroke-dasharray={CRITICAL_LINE.dash.join(" ")}
+              />
+            </svg>
+            Critical isotherm and isobar
+          </li>
+        </ul>
+      {/if}
     </section>
 
     <section class="card grid">
@@ -624,6 +678,17 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* A region's name over its tint, on a halo of the surface where a line runs under it. */
+  .region-label {
+    fill: var(--fg);
+    font-size: 12px;
+    font-weight: 600;
+    paint-order: stroke;
+    stroke: var(--surface);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+  }
+
   .title {
     fill: var(--fg);
     font-size: 12.5px;
@@ -656,6 +721,7 @@
     vertical-align: middle;
   }
 
+  .phases .check,
   .grid .check,
   .grid .density {
     display: flex;
@@ -717,6 +783,7 @@
     font-weight: 650;
   }
 
+  .phases ul,
   .legend ul {
     list-style: none;
     margin: 0;
@@ -726,11 +793,19 @@
     font-size: 13.5px;
   }
 
+  .phases li,
   .legend li,
   .legend label {
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  .phases .swatch {
+    width: 28px;
+    height: 14px;
+    border-radius: 4px;
+    border: 1px solid var(--border-strong);
   }
 
   .swatch-dome {

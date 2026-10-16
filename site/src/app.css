@@ -27,6 +27,15 @@
   --iso-1: light-dark(#2a78d6, #3987e5);
   --iso-2: light-dark(#eb6834, #d95926);
   --iso-3: light-dark(#169a6b, #199e70);
+  /* The phase regions' tints (PLAN.md M21.9): pale in light, deep in dark, so the names on them keep 4.5:1 and the
+     lines, each on a halo of the surface, keep their own contrast. Liquid-like cool, gas-like warm; the names carry
+     the identity, so no tint is the only cue. */
+  --phase-liquid: light-dark(#d9e8fb, #172538);
+  --phase-twophase: light-dark(#e6e9ee, #22262d);
+  --phase-gas: light-dark(#f8ead0, #31270f);
+  --phase-supercritical-liquid: light-dark(#d3efe9, #132d2a);
+  --phase-supercritical: light-dark(#e6def7, #261f3b);
+  --phase-supercritical-gas: light-dark(#f7dde4, #351c25);
   --shadow:
     0 1px 2px light-dark(rgb(16 24 40 / 6%), rgb(0 0 0 / 40%)),
     0 4px 16px light-dark(rgb(16 24 40 / 5%), rgb(0 0 0 / 25%));

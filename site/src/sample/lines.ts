@@ -60,7 +60,8 @@ export interface Row {
   inputs: Vertex["inputs"];
 }
 
-async function rows(
+/** The batch's answer as rows, one a point: its outputs' cells, which of them are values, and its inputs. */
+export async function rows(
   batch: Batch,
   outputs: string[],
   name1: string,

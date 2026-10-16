@@ -1,12 +1,14 @@
 // The diagrams page's view (PLAN.md M21.2): a fluid, a diagram, the units and the families turned off, in the URL
-// (`fluid=Water&d=ph&units=engineering&hide=T,Q`); the diagram's geometry, sampled once per fluid and diagram; and the
-// readout, the package's state at the cursor. The component binds to it; tests/unit/view.svelte.test.ts drives it.
+// (`fluid=Water&d=ph&units=engineering&hide=T,Q`); the diagram's geometry, sampled once per fluid and diagram; the
+// phase regions while they are shown (`regions=1`, M21.9), sampled once per fluid; and the readout, the package's
+// state at the cursor. The component binds to it; tests/unit/view.svelte.test.ts drives it.
 import { untrack } from "svelte";
 import type { Engine, StateValue } from "../engine/protocol";
 import type { System } from "../lib/units";
 import { diagram, type Diagram, type DiagramId, type Key } from "../sample/diagrams";
 import { sampleDiagram, type Batch, type DiagramData } from "../sample/lines";
-import { LIMIT_KEYS, limits } from "../sample/ranges";
+import { LIMIT_KEYS, limits, type Limits } from "../sample/ranges";
+import { sampleRegions, type PhaseAt, type Regions } from "../sample/regions";
 import { GRID_LEVELS } from "./grid";
 
 /** What the readout shows of the state under the cursor, beside its phase. */
@@ -42,6 +44,9 @@ export class DiagramView {
   grid = $state<number>(DEFAULT.grid);
   /** A pinned readout stays where it was clicked; only the arrow keys' steps move it. */
   pinned = $state(false);
+  /** Whether the plot is tinted by phase (PLAN.md M21.9), and the fluid's regions once they are sampled. */
+  regions = $state(false);
+  phases = $state.raw<Regions | null>(null);
 
   // The geometry and the readout are replaced whole, never changed in place: raw state, which proxies neither its
   // thousands of vertices nor the cache's copies, so a cached diagram is the same object again.
@@ -54,7 +59,9 @@ export class DiagramView {
 
   readonly #engine: Engine;
   readonly #cache = new Map<string, DiagramData>();
+  readonly #regionCache = new Map<string, Regions>();
   #sequence = 0;
+  #regionSequence = 0;
   #pointer = 0;
   #flying = false;
   #latest: [Key, number, Key, number] | null = null;
@@ -70,6 +77,7 @@ export class DiagramView {
     this.system = params.get("units") === "engineering" ? "engineering" : "si";
     this.snap = params.get("snap") === "1";
     this.grid = gridLevel(params.get("grid"));
+    this.regions = params.get("regions") === "1";
     this.hidden = String(params.get("hide"))
       .split(",")
       .filter((k): k is Key => FAMILIES.includes(k as Key));
@@ -81,6 +89,7 @@ export class DiagramView {
     if (this.hidden.length > 0) params.set("hide", this.hidden.join(","));
     if (this.snap) params.set("snap", "1");
     if (this.grid !== DEFAULT.grid) params.set("grid", String(this.grid));
+    if (this.regions) params.set("regions", "1");
     return params;
   }
 
@@ -106,6 +115,10 @@ export class DiagramView {
 
   toggleSnap(): void {
     this.snap = !this.snap;
+  }
+
+  toggleRegions(): void {
+    this.regions = !this.regions;
   }
 
   setGrid(level: number): void {
@@ -171,6 +184,7 @@ export class DiagramView {
       });
       $effect(() => write(this.params()));
       $effect(() => this.#sample(this.fluid, this.id));
+      $effect(() => this.#sampleRegions(this.fluid, this.regions));
     });
   }
 
@@ -187,13 +201,8 @@ export class DiagramView {
     untrack(() => (this.busy = true));
     const batch: Batch = (outputs, name1, values1, name2, values2) =>
       this.#engine.call({ op: "batch", fluid, outputs, name1, values1, name2, values2 });
-    this.#engine
-      .call({ op: "constants", fluid, keys: [...LIMIT_KEYS] })
-      .then((values) => {
-        const l = limits(values);
-        if (!l) throw new Error(`${fluid} names no critical or triple point to draw a dome from`);
-        return sampleDiagram(diagram(id) as Diagram, l, batch);
-      })
+    this.#limits(fluid)
+      .then((l) => sampleDiagram(diagram(id) as Diagram, l, batch))
       .then(
         (data) => {
           this.#cache.set(key, data);
@@ -202,6 +211,43 @@ export class DiagramView {
         (e: unknown) => {
           if (mine === this.#sequence) [this.data, this.refusal, this.busy] = [null, message(e), false];
         },
+      );
+  }
+
+  #limits(fluid: string): Promise<Limits> {
+    return this.#engine.call({ op: "constants", fluid, keys: [...LIMIT_KEYS] }).then((values) => {
+      const l = limits(values);
+      if (!l) throw new Error(`${fluid} names no critical or triple point to draw a dome from`);
+      return l;
+    });
+  }
+
+  // The fluid's phase regions while they are shown: from the cache, or sampled; a late answer is dropped, and a
+  // refused sampling shows none.
+  #sampleRegions(fluid: string, shown: boolean): void {
+    // Stryker disable next-line UpdateOperator: as the pointer's.
+    const mine = ++this.#regionSequence;
+    const cached = this.#regionCache.get(fluid);
+    if (!shown || cached) {
+      this.phases = shown ? (cached as Regions) : null;
+      return;
+    }
+    untrack(() => (this.phases = null));
+    const batch: Batch = (outputs, name1, values1, name2, values2) =>
+      this.#engine.call({ op: "batch", fluid, outputs, name1, values1, name2, values2 });
+    const phaseAt: PhaseAt = (name1, value1, name2, value2) =>
+      this.#engine.call({ op: "state", fluid, name1, value1, name2, value2, outputs: [] }).then(
+        (s) => s.phase,
+        () => null,
+      );
+    this.#limits(fluid)
+      .then((l) => sampleRegions(l, batch, phaseAt))
+      .then(
+        (regions) => {
+          this.#regionCache.set(fluid, regions);
+          if (mine === this.#regionSequence) this.phases = regions;
+        },
+        () => undefined,
       );
   }
 }

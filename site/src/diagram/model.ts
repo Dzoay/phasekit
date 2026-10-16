@@ -1,13 +1,16 @@
 // What a diagram draws (PLAN.md M21.2), as one model the canvas paints and the SVG export writes: the dome, each shown
 // line in its family's style, the critical point, a label at each line's last point in the plot, the ticks and the
-// axis titles. And the CSV of its vertices.
+// axis titles; with the phase regions (M21.9), each region's tint under them, a halo of the surface under each line,
+// the critical isotherm and isobar, and a label inside each region. And the CSV of its vertices.
 import { formatNumber, superscript } from "../lib/format";
 import { output, type Output } from "../lib/outputs";
 import { fromSI, type System } from "../lib/units";
 import type { Diagram, Key } from "../sample/diagrams";
 import type { DiagramData, Vertex } from "../sample/lines";
+import type { AxisKey, Corner, Regions } from "../sample/regions";
+import { clip, deepest, inside, thin } from "./geometry";
 import type { Plot, Scale } from "./scales";
-import { lineLabel, styleOf, unitOfKey } from "./style";
+import { CRITICAL_LINE, PHASES, lineLabel, styleOf, unitOfKey } from "./style";
 
 export type Point = [number, number];
 
@@ -18,11 +21,30 @@ export interface Stroke {
   width: number;
 }
 
+/** A phase region's tint. */
+export interface Fill {
+  points: Point[];
+  colour: string;
+  phase: string;
+}
+
+/** A phase region's name, centred on its point. */
+export interface RegionLabel {
+  x: number;
+  y: number;
+  text: string;
+  phase: string;
+}
+
 export interface Model {
   plot: Plot;
+  fills: Fill[];
+  /** The colour of a halo under each line, which keeps it clear of the tints; null without regions. */
+  halo: string | null;
   strokes: Stroke[];
   dots: { x: number; y: number; r: number; colour: string }[];
   labels: Label[];
+  regionLabels: RegionLabel[];
   xTicks: { at: number; text: string }[];
   yTicks: { at: number; text: string }[];
   titles: { x: string; y: string };
@@ -84,6 +106,8 @@ export interface Options {
   hidden: ReadonlySet<Key>;
   /** A colour token resolved in the current theme. */
   colour: (token: string) => string;
+  /** The fluid's phase regions, when they are shown. */
+  regions?: Regions | null;
 }
 
 /** A decade tick: plain from a thousandth to a thousand, a power of ten past that. */
@@ -112,11 +136,41 @@ function ticks(
   return kept;
 }
 
+/** A label for a region's name at the deepest point of the polygon's part in the plot where its box lies inside that
+ *  part and overlaps no label already placed. */
+export function placeInside(text: string, polygon: readonly Point[], plot: Plot, placed: Box[]): Point | null {
+  const [w, h] = [(text.length * CHAR) / 2, HEIGHT / 2];
+  // The search runs on every zoom and pan: on the outline's part in the plot, thinned to a vertex every 2 px or more,
+  // and only at points as deep as the box is half high, as the box holds that disc about its centre.
+  const shown = thin(clip(polygon, plot), 2);
+  for (const [x, y] of deepest(shown, plot, 24, 15, h)) {
+    const box = { x0: x - w, x1: x + w, y0: y - h, y1: y + h };
+    const corners: Point[] = [
+      [box.x0, box.y0],
+      [box.x1, box.y0],
+      [box.x0, box.y1],
+      [box.x1, box.y1],
+    ];
+    if (corners.every((c) => inside(c, shown)) && !placed.some((b) => overlaps(box, b))) {
+      placed.push(box);
+      return [x, y];
+    }
+  }
+  return null;
+}
+
 export function buildModel(d: Diagram, data: DiagramData, o: Options): Model {
   const [ux, uy] = [unitOfKey(d.x.key, o.system), unitOfKey(d.y.key, o.system)];
   const px = (v: Vertex): Point => [o.x(fromSI(v.x, ux)), o.y(fromSI(v.y, uy))];
   const inside = ([x, y]: Point) => o.plot.left <= x && x <= o.plot.right && o.plot.top <= y && y <= o.plot.bottom;
   const ink = o.colour("--fg");
+  const at = (c: Corner): Point => [o.x(fromSI(c[d.x.key as AxisKey], ux)), o.y(fromSI(c[d.y.key as AxisKey], uy))];
+  const fills = o.regions
+    ? o.regions.regions.flatMap((r) => {
+        const style = PHASES[r.phase];
+        return style ? [{ points: r.outline.map(at), colour: o.colour(style.colour), phase: r.phase }] : [];
+      })
+    : [];
   const { liquid, vapour, critical } = data.dome;
   const strokes: Stroke[] = [
     {
@@ -129,6 +183,22 @@ export function buildModel(d: Diagram, data: DiagramData, o: Options): Model {
   const labels: Label[] = [];
   // Stryker disable next-line ArrayDeclaration: a stray entry that is no box overlaps nothing.
   const placed: Box[] = [];
+  const near = (points: Point[]): Point[] => {
+    const shown = points.filter(inside);
+    return [shown.at(-1), shown[0]].filter((e): e is Point => e !== undefined);
+  };
+  const regions = o.regions;
+  if (regions && fills.length > 0) {
+    for (const [runs, symbol, held, value] of [
+      [regions.isotherm, "Tc", "T", regions.Tc],
+      [regions.isobar, "pc", "P", regions.pc],
+    ] as const) {
+      const points = runs.map((r) => r.map(at));
+      for (const p of points) strokes.push({ points: p, ...CRITICAL_LINE, colour: o.colour(CRITICAL_LINE.colour) });
+      const label = place(`${symbol} = ${lineLabel(held, value, o.system)}`, near(points.flat()), o.plot, placed);
+      if (label) labels.push(label);
+    }
+  }
   for (const line of data.lines) {
     if (o.hidden.has(line.held)) continue;
     const style = styleOf(line.held);
@@ -143,13 +213,22 @@ export function buildModel(d: Diagram, data: DiagramData, o: Options): Model {
     const label = place(lineLabel(line.held, line.value, o.system), ends, o.plot, placed);
     if (label) labels.push(label);
   }
+  const regionLabels: RegionLabel[] = [];
+  for (const fill of fills) {
+    const text = (PHASES[fill.phase] as { name: string }).name;
+    const point = placeInside(text, fill.points, o.plot, placed);
+    if (point) regionLabels.push({ x: point[0], y: point[1], text, phase: fill.phase });
+  }
   const dot = critical && px(critical);
   const symbol = (k: Key) => (output(k) as Output).symbol;
   return {
     plot: o.plot,
+    fills,
+    halo: fills.length > 0 ? o.colour("--surface") : null,
     strokes,
     dots: dot ? [{ x: dot[0], y: dot[1], r: 4, colour: ink }] : [],
     labels,
+    regionLabels,
     xTicks: ticks(o.x, d.x.log, o.plot.left, o.plot.right, (text) => text.length * CHAR + 12),
     yTicks: ticks(o.y, d.y.log, o.plot.top, o.plot.bottom, () => 18),
     titles: { x: `${symbol(d.x.key)} / ${ux.label}`, y: `${symbol(d.y.key)} / ${uy.label}` },
@@ -178,11 +257,16 @@ export interface SvgOptions {
 export function renderSvg(m: Model, o: SvgOptions): string {
   const { left, top, right, bottom } = m.plot;
   const box = `x="${left}" y="${top}" width="${right - left}" height="${bottom - top}"`;
-  const paths = m.strokes.map(
-    (s) =>
-      `<path d="${pathOf(s.points)}" fill="none" stroke="${s.colour}" stroke-width="${s.width}"${
-        s.dash.length > 0 ? ` stroke-dasharray="${s.dash.join(" ")}"` : ""
-      }/>`,
+  const stroke = (s: Stroke, colour: string, width: number) =>
+    `<path d="${pathOf(s.points)}" fill="none" stroke="${colour}" stroke-width="${width}"${
+      s.dash.length > 0 ? ` stroke-dasharray="${s.dash.join(" ")}"` : ""
+    }/>`;
+  const fills = m.fills.map((f) => `<path d="${pathOf(f.points)}Z" fill="${f.colour}"/>`);
+  const halos = m.halo === null ? [] : m.strokes.map((s) => stroke(s, m.halo as string, s.width + 2));
+  const paths = m.strokes.map((s) => stroke(s, s.colour, s.width));
+  const names = m.regionLabels.map(
+    (l) =>
+      `<text x="${round(l.x)}" y="${round(l.y)}" text-anchor="middle" dominant-baseline="central" font-weight="600" fill="${o.ink}">${escape(l.text)}</text>`,
   );
   const dots = m.dots.map((d) => `<circle cx="${round(d.x)}" cy="${round(d.y)}" r="${d.r}" fill="${d.colour}"/>`);
   const labels = m.labels.map(
@@ -201,7 +285,7 @@ export function renderSvg(m: Model, o: SvgOptions): string {
     `<defs><clipPath id="plot"><rect ${box}/></clipPath></defs>`,
     `<rect width="${o.width}" height="${o.height}" fill="${o.background}"/>`,
     `<rect ${box} fill="none" stroke="${o.muted}"/>`,
-    `<g clip-path="url(#plot)">${[...paths, ...dots, ...labels].join("")}</g>`,
+    `<g clip-path="url(#plot)">${[...fills, ...halos, ...paths, ...dots, ...labels, ...names].join("")}</g>`,
     ...xTicks,
     ...yTicks,
     `<text x="${(left + right) / 2}" y="${o.height - 8}" text-anchor="middle" fill="${o.ink}">${escape(m.titles.x)}</text>`,

@@ -9,18 +9,20 @@ import { createHandler } from "../../src/engine/handler";
 import type { Body, Engine, Request, Values } from "../../src/engine/protocol";
 import { loadPk } from "../pk";
 
-async function realEngine(): Promise<{ engine: Engine; calls: string[] }> {
+async function realEngine(): Promise<{ engine: Engine; calls: string[]; bodies: Body[] }> {
   const handle = createHandler(await loadPk("simd"), "simd128");
   const calls: string[] = [];
+  const bodies: Body[] = [];
   let id = 0;
   const engine: Engine = {
     call<B extends Body>(body: B): Promise<Values[B["op"]]> {
       calls.push(body.op);
+      bodies.push(body);
       const r = handle({ ...body, id: ++id } as Request);
       return r.ok ? Promise.resolve(r.value as Values[B["op"]]) : Promise.reject(new Error(r.error));
     },
   };
-  return { engine, calls };
+  return { engine, calls, bodies };
 }
 
 async function setup(query: string) {
@@ -317,6 +319,115 @@ describe("picking a state", { timeout: 30_000 }, () => {
     expect(view.calculatorLink()).toBe("#/calculator?fluid=Water&a=Hmass%3A400000&b=P%3A1000000");
     view.setSystem("engineering");
     expect(view.calculatorLink()).toBe("#/calculator?fluid=Water&a=Hmass%3A400000&b=P%3A1000000&units=engineering");
+    stop();
+  });
+});
+
+describe("the phase regions (PLAN.md M21.9)", { timeout: 30_000 }, () => {
+  const PHASES = ["gas", "liquid", "supercritical", "supercritical_gas", "supercritical_liquid", "twophase"];
+  const shown = (view: DiagramView) =>
+    vi.waitFor(
+      () => {
+        flushSync();
+        expect(view.phases).not.toBeNull();
+      },
+      { timeout: 20_000 },
+    );
+
+  test("are in the URL, sampled once per fluid, and let go when turned off", async () => {
+    const { view, writes, calls, stop } = await setup("fluid=Water&d=ph&regions=1");
+    expect(view.regions).toBe(true);
+    await shown(view);
+    const water = view.phases;
+    expect(water?.regions.map((r) => r.phase).sort()).toEqual(PHASES);
+    expect(calls.filter((c) => c === "state").length).toBe(6);
+    view.toggleRegions();
+    flushSync();
+    expect([view.regions, view.phases]).toEqual([false, null]);
+    expect(last(writes)).toBe("fluid=Water&d=ph");
+    const before = calls.length;
+    view.toggleRegions();
+    flushSync();
+    expect(view.phases).toBe(water);
+    expect(last(writes)).toBe("fluid=Water&d=ph&regions=1");
+    view.choose("ts");
+    await settle(view);
+    expect(view.phases).toBe(water);
+    expect(calls.slice(before).filter((c) => c === "state")).toEqual([]);
+    view.load(new URLSearchParams("regions=yes"));
+    expect(view.regions).toBe(false);
+    stop();
+  });
+
+  test("a new fluid's replace the old ones at once, and the old fluid's late answer is dropped", async () => {
+    const { engine } = await realEngine();
+    // Water's answers come late: each after a timer, so n-Propane's finish first. Its sampling ends with its sixth
+    // phase, from a state request.
+    let [late, phases] = [0, 0];
+    const slow: Engine = {
+      call<B extends Body>(body: B): Promise<Values[B["op"]]> {
+        const answer = engine.call(body);
+        if (!("fluid" in body) || body.fluid !== "Water") return answer;
+        late += 1;
+        return new Promise((resolve, reject) =>
+          setTimeout(() => {
+            late -= 1;
+            if (body.op === "state") phases += 1;
+            answer.then(resolve, reject);
+          }, 5),
+        );
+      },
+    };
+    const route = $state({ params: new URLSearchParams("fluid=n-Propane&d=pt&regions=1") });
+    const view = new DiagramView(slow);
+    const stop = view.connect(route, () => undefined);
+    await shown(view);
+    const propane = view.phases;
+    route.params = new URLSearchParams("fluid=Water&d=pt&regions=1");
+    flushSync();
+    expect(view.phases).toBeNull();
+    route.params = new URLSearchParams("fluid=n-Propane&d=pt&regions=1");
+    flushSync();
+    expect(view.phases).toBe(propane);
+    await vi.waitFor(() => expect([phases, late]).toEqual([6, 0]), { timeout: 20_000 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(view.phases).toBe(propane);
+    // Water's were sampled, and kept: a view of Water shows them at once.
+    route.params = new URLSearchParams("fluid=Water&d=pt&regions=1");
+    flushSync();
+    expect(Math.abs((view.phases?.critical?.T ?? 0) / 647.096 - 1)).toBeLessThan(1e-9);
+    stop();
+  });
+
+  test("ask the package for each region's phase alone, and leave out a region whose phase it refuses", async () => {
+    const { engine, bodies } = await realEngine();
+    // The package refuses every state given by a quality: the liquid + vapour region's.
+    const picky: Engine = {
+      call<B extends Body>(body: B): Promise<Values[B["op"]]> {
+        return body.op === "state" && body.name2 === "Q" ? Promise.reject(new Error("no")) : engine.call(body);
+      },
+    };
+    const route = $state({ params: new URLSearchParams("fluid=Water&d=ph&regions=1") });
+    const view = new DiagramView(picky);
+    const stop = view.connect(route, () => undefined);
+    await shown(view);
+    expect(view.phases?.regions.map((r) => r.phase)).toEqual([
+      "supercritical",
+      "supercritical_gas",
+      "supercritical_liquid",
+      "liquid",
+      "gas",
+    ]);
+    const asked = bodies.flatMap((b) => (b.op === "state" ? [b.outputs] : []));
+    expect(asked).toEqual([[], [], [], [], []]);
+    stop();
+  });
+
+  test("a fluid the package refuses has none", async () => {
+    const { view, stop } = await setup("fluid=Nonsense&d=ph&regions=1");
+    expect(view.refusal).not.toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(view.phases).toBeNull();
     stop();
   });
 });
