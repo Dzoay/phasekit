@@ -197,9 +197,10 @@ fn pressures_match_tkaczuk_2020_table_8() {
 }
 
 /// Lemmon and Jacobsen 2004 Table 6 (REFPROP, 22 rows: six binaries at 50/50, two ternaries at 33/33/34): p, c_v,
-/// c_p and w at each (T, ρ, x). It used the components' R; phasekit's model uses R_CODATA (user decision MX3), so each
-/// cell holds within DIV-0054's measured 3e-6 away from the critical point, and the six rows near it within the table's
-/// 1e-5 in p, c_v and w; c_p, which diverges there, is not asserted on them. The fugacities are M13.6's.
+/// c_p, w and the first component's fugacity f₁ = x₁ φ₁ p (M13.6) at each (T, ρ, x). It used the components' R;
+/// phasekit's model uses R_CODATA (user decision MX3), so each cell holds within DIV-0054's measured 3e-6 away from the
+/// critical point, and the six rows near it within the table's 1e-5 in p, c_v, w and f₁; c_p, which diverges there, is
+/// not asserted on them.
 #[test]
 fn properties_match_lemmon_2004_table_6() {
     let (path, text) = fixture!("paper/mixtures/Lemmon-JPCRD-2004.6.csv");
@@ -222,11 +223,14 @@ fn properties_match_lemmon_2004_table_6() {
             .flash(Input::new(Pair::DT, rho, t, Basis::Molar).unwrap(), &FlashOptions::new().with_phase(Phase::Gas))
             .unwrap();
         let near_critical = table.printed(row, "note").is_some_and(|n| !n.is_empty());
+        let mix = (fluid.model() as &dyn std::any::Any).downcast_ref::<phasekit_mix::Mixture>().unwrap();
+        let ln_phi = mix.composition_at(t, rho, Order::One).unwrap().ln_phi(0);
         let cells = [
             ("p", s.p() / 1e6),
             ("cv", s.cv(Basis::Molar).unwrap()),
             ("cp", s.cp(Basis::Molar).unwrap()),
             ("w", s.speed_of_sound().unwrap()),
+            ("f1", mix.composition()[0] * phasekit_core::math::exp(ln_phi) * s.p() / 1e6),
         ];
         for (column, got) in cells.into_iter().filter(|(c, _)| !(near_critical && *c == "cp")) {
             let want = table.value(row, column).unwrap();

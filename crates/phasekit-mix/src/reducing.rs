@@ -11,6 +11,7 @@
 use phasekit_core::math;
 
 use crate::data::Reducing as Parameters;
+use crate::taylor::Taylor;
 
 /// One pair's terms, i < j in component order (the pair's CAS order may be the other way round: then β is inverted).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -67,6 +68,25 @@ impl ReducingFunctions {
     /// ρ_r(x) = 1/v_r(x), mol/m³.
     pub(crate) fn rho_r(&self, x: &[f64]) -> f64 {
         1.0 / self.reduce(x, &self.v, |p| p.v)
+    }
+
+    /// T_r and v_r = 1/ρ_r on Taylor numbers of the mole fractions (PLAN.md M13.6), the same sums; a pair of two absent
+    /// components contributes nothing.
+    pub(crate) fn reduce_taylor(&self, x: &[Taylor]) -> [Taylor; 2] {
+        [(&self.t, (|p: &Pair| p.t) as fn(&Pair) -> [f64; 2]), (&self.v, |p: &Pair| p.v)].map(|(y, of)| {
+            let mut sum = Taylor::constant(x[0].vars(), x[0].order(), 0.0);
+            for (xi, yi) in x.iter().zip(y.iter()) {
+                sum.add_scaled(*yi, &(xi * xi));
+            }
+            for p in self.pairs.iter() {
+                let ([beta, c], xi, xj) = (of(p), &x[p.i], &x[p.j]);
+                let denominator = &xi.scale(beta * beta) + xj;
+                if denominator.value() != 0.0 {
+                    sum.add_scaled(c, &(&(xi * xj) * &(xi + xj)).divide(&denominator));
+                }
+            }
+            sum
+        })
     }
 
     fn reduce(&self, x: &[f64], y: &[f64], of: impl Fn(&Pair) -> [f64; 2]) -> f64 {

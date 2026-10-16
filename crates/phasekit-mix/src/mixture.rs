@@ -17,11 +17,12 @@ use std::sync::Arc;
 
 use phasekit_core::density::{self, Branch};
 use phasekit_core::{
-    Capabilities, DataSet, DataTerms, Derivs, DomainPolicy, Error, FlashOptions, Fluid, FluidInfo, HelmholtzModel,
-    Limits, ModelKey, NativeInput, Order, Pair, Phase, Reducing, Registry, Source, State, ThermoModel, Virials, math,
+    Capabilities, Constant, DataSet, DataTerms, Derivs, DomainPolicy, Error, FlashOptions, Fluid, FluidInfo,
+    HelmholtzModel, Limits, ModelKey, NativeInput, Order, Pair, Phase, Prop, Reducing, Registry, Source, State,
+    ThermoModel, Virials, math,
 };
 
-use crate::{MultiFluid, gerg};
+use crate::{Composition, MixtureModel, MultiFluid, Var, gerg};
 
 /// The molar gas constant of every mixture of two or more components, J/(mol·K): CODATA 2018's, CoolProp 8.0.0's
 /// `R_U_CODATA` (user decision MX3).
@@ -88,6 +89,33 @@ impl Mixture {
     /// The multi-fluid model.
     pub fn model(&self) -> &MultiFluid {
         &self.fluid
+    }
+
+    /// The residual's composition derivatives at (T, ρ) and this mixture's composition, to `order` (PLAN.md M13.6).
+    pub fn composition_at(&self, t: f64, rho: f64, order: Order) -> Result<Composition, Error> {
+        self.fluid.composition(t, rho, &self.z, order)
+    }
+
+    /// The chemical potentials μ_i = RT(∂Ψ/∂n_i + ∂Ψ⁰/∂n_i) at (T, ρ), J/mol, in this mixture's gauge (its components'
+    /// z-weighted). With α⁰ = ln ρ + Σ z_i w_i (c_i + ln z_i), w_i = R_i/R and c_i = α⁰_oi(T, ρ) − ln ρ the component's
+    /// own, Ψ⁰ = n α⁰ gives ∂Ψ⁰/∂n_i = ln ρ + 1 + w_i (c_i + ln z_i + 1) − Σ_j z_j w_j.
+    pub fn chemical_potentials(&self, t: f64, rho: f64) -> Result<Vec<f64>, Error> {
+        let residual = self.composition_at(t, rho, Order::One)?;
+        let ln_rho = math::ln(rho);
+        let weighted: f64 = self.z.iter().zip(self.r_ratio.iter()).map(|(z, w)| z * w).sum();
+        let rt = self.fluid.gas_constant() * t;
+        self.fluid
+            .fluids()
+            .zip(self.z.iter().zip(self.r_ratio.iter()))
+            .enumerate()
+            .map(|(i, (f, (z, w)))| {
+                let eos =
+                    f.model().helmholtz().ok_or(Error::NoModel { prop: Prop::Constant(Constant::GasConstant) })?;
+                let c = eos.ideal(t, rho, Order::One).get(0, 0).unwrap_or(f64::NAN) - ln_rho;
+                let ideal = ln_rho + 1.0 + w * (c + math::ln(*z) + 1.0) - weighted;
+                Ok(rt * (residual.psi(&[Var::N(i)]) + ideal))
+            })
+            .collect()
     }
 
     /// The state at (T, ρ) as `phase`, under `opts`'s domain policy: outside the limits refused, or extrapolated and so

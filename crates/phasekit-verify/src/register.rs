@@ -1307,8 +1307,14 @@ pub static DIVERGENCES: &[Divergence] = &[
         evidence: "map 15 X12: v8.0.0's mixture alpha0 is sum x_i (R_i/R)[alpha0_i + ln x_i], each ln delta_i weighted \
                    by R_i/R, so its s is not its p's (Maxwell) at R_i != R; phasekit keeps the ideal delta-part ln delta \
                    exactly (core's contract) and weights the components' tau-parts: s and alpha0 differ by \
-                   R(1 - sum x_i R_i/R) ln rho, 2.4e-5 in alpha0 for Methane&Ethane (M13.4)",
-        exempt: Some(Exempt { kinds: &[Kind::MixEos], columns: &["smolar", "alpha0"], rows: Rows::All }),
+                   R(1 - sum x_i R_i/R) ln rho, 2.4e-5 in alpha0 for Methane&Ethane (M13.4). Its chemical potentials \
+                   carry that alpha0 too and are not its own g: sum x_i mu_i is 0.045 J/mol from h - Ts for \
+                   EBENZENE&PXYLENE, and they differ from phasekit's by up to 3% of RT (M13.6)",
+        exempt: Some(Exempt {
+            kinds: &[Kind::MixEos],
+            columns: &["smolar", "alpha0", "chemical_potential_1", "chemical_potential_2"],
+            rows: Rows::All,
+        }),
         tolerance: None,
         table_tolerances: &[],
         proof: &[13],
