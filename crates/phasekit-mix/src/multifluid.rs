@@ -230,7 +230,7 @@ impl MultiFluid {
         }
         let dtau_dt = -t_r / (t * t);
         for d in self.departures.iter() {
-            let (w, jet) = (x[d.i] * x[d.j] * d.f, departure::jet(d.function, tau, 0.0));
+            let (w, jet) = (x[d.i] * x[d.j] * d.f, departure::jet(d.function, tau, 0.0, 3));
             let at = |i, j| jet.derivative(i, j).unwrap_or(f64::NAN);
             (b, c) = (b + w * at(0, 1), c + w * at(0, 2));
             (db, dc) = (db + w * at(1, 1) * dtau_dt, dc + w * at(1, 2) * dtau_dt);

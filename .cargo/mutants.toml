@@ -87,6 +87,30 @@ exclude_re = [
     # Equivalent (PLAN.md M13.6): a MultiFluid has two components or more, so composition's n * 2 Taylor variables are
     # n + 2 or more: T and V keep their indices n and n + 1, and the extra ones are never seeded or read.
     "composition\\.rs:77:25: replace \\+ with \\* in <impl MixtureModel for MultiFluid>::composition",
+    # Equivalent (PLAN.md M13.7): the critical search's null vector back-substitutes row r from column r + 1 on, where y_r is
+    # still 0, so starting at column r adds a_rr · 0; a tie for the largest pivot picks another as large; an end of a grid
+    # edge that is not finite leads to no crossing either way (the regula falsi's NaN reaches `conditions`, which
+    # refuses it); a crossing paired with itself has one sign; and a cubic form divided by its orientation's ±1 is
+    # multiplied by it.
+    "critical\\.rs:110:29: replace \\+ with \\* in Conditions::null_vector",
+    "critical\\.rs:[0-9]+:[0-9]+: replace > with >= in largest",
+    "critical\\.rs:[0-9]+:[0-9]+: replace && with \\|\\| in Search<'_>::limit_between",
+    "critical\\.rs:[0-9]+:[0-9]+: replace \\+ with \\* in Search<'_>::roots",
+    "critical\\.rs:[0-9]+:[0-9]+: replace \\* with / in Search<'_>::roots",
+    # Equivalent (PLAN.md M13.7): `<=` for `<` differs only at a tie, a point exactly 1e-8 from a kept one, a bracket
+    # exactly 1e-3 wide, a Newton step exactly 0.1 long (where 0.1/step is 1). The grid's edge cache keys an edge by its
+    # nodes for reuse alone: read as (i, j), the node (i − 1, j) keys no other cell's edge, so its edges miss the cache
+    # and recompute the same crossings.
+    "critical\\.rs:[0-9]+:[0-9]+: replace < with <= in fresh",
+    "critical\\.rs:[0-9]+:[0-9]+: replace < with <= in regula_falsi",
+    "critical\\.rs:[0-9]+:[0-9]+: replace > with >= in newton_step",
+    "critical\\.rs:370:41: replace - with / in critical_points",
+    # Equivalent (PLAN.md M13.7): the departure kernel's fast paths give the general path's bits (`truncation_keeps_the_
+    # lower_orders`, `the_value_is_the_jet_s`), so taking the general path instead changes nothing.
+    "departure\\.rs:63:62: replace == with != in Series::compose",
+    "departure\\.rs:95:28: replace \\|\\| with && in Series::product",
+    # Equivalent (PLAN.md M13.7): no critical point the search keeps has p exactly 0.
+    "mixture\\.rs:[0-9]+:[0-9]+: replace > with >= in <impl ThermoModel for Mixture>::critical_point",
     # Equivalent mutants of T+X (PLAN.md M7.5). A cell is cut at a turn where its ends' slopes have opposite signs,
     # `a·b < 0`: `a/b < 0` is the same test, and `<= 0` differs only where a slope is exactly 0 at a node, where the cut
     # falls on that node and the pieces hold the same roots. A piece is searched where an end's residual is exactly 0 or

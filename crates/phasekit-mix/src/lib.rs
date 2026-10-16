@@ -7,6 +7,7 @@
 
 mod composition;
 mod corrections;
+mod critical;
 // The predefined mixtures are read from PLAN.md M13.13; until then only the tests read them.
 #[cfg_attr(not(test), expect(dead_code, reason = "the predefined mixtures are built from PLAN.md M13.13"))]
 mod data;
@@ -21,6 +22,7 @@ mod reducing;
 mod taylor;
 
 pub use composition::{Composition, MixtureModel, Var};
+pub use critical::{CriticalState, Criticality};
 pub use gerg::{PREFIX as GERG_PREFIX, R_GERG, with_gerg2008};
 pub use mixture::{Mixture, R_CODATA, gerg2008, mixture};
 pub use multifluid::MultiFluid;
@@ -38,6 +40,12 @@ pub mod internal {
     /// h = s = 0 at 298.15 K and 101.325 kPa, in AGA8's order: AGA8 prints them to ten digits.
     pub fn gerg_2008_n1_n2() -> Vec<[f64; 2]> {
         crate::gerg::aga8_n1_n2()
+    }
+
+    /// `mixture`'s critical points with every R_i/R taken as 1: v8.0.0's L* = δ_ij/x_i + n ∂²(n α^r)/∂n_i ∂n_j and
+    /// its M*, whose ideal part is unweighted where its α⁰ weights each ln x_i (DIV-0052, PLAN.md M13.7).
+    pub fn critical_points_with_unit_weights(mixture: &crate::Mixture) -> Vec<crate::CriticalState> {
+        mixture.critical_points_weighted(&vec![1.0; mixture.composition().len()])
     }
 }
 

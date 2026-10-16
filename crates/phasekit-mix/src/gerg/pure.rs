@@ -140,7 +140,7 @@ impl phasekit_core::HelmholtzModel for Pure {
 
     /// α^r = Σ a_k(τ) δ^k near δ = 0, from the residual's jet there: B = α^r_δ/ρ_c, C = α^r_δδ/ρ_c².
     fn zero_density(&self, t: f64) -> Option<Virials> {
-        let jet = departure::jet(&self.residual, self.t_c / t, 0.0);
+        let jet = departure::jet(&self.residual, self.t_c / t, 0.0, 3);
         let at = |i, j| jet.derivative(i, j).unwrap_or(f64::NAN);
         let dtau_dt = -self.t_c / (t * t);
         let (r1, r2) = (1.0 / self.rho_c, 1.0 / (self.rho_c * self.rho_c));

@@ -115,7 +115,7 @@ impl MixtureModel for MultiFluid {
                 c.fluid.model().helmholtz().ok_or(Error::NoModel {
                     prop: phasekit_core::Prop::Constant(phasekit_core::Constant::GasConstant),
                 })?;
-            let d = model.residual(c.t_r / tau0, delta0 * c.rho_r, Order::Three);
+            let d = model.residual(c.t_r / tau0, delta0 * c.rho_r, order);
             let jet = |a: usize, b: usize| {
                 d.get(a, b).unwrap_or(f64::NAN)
                     / (phasekit_core::math::powi(tau0, a as i32) * phasekit_core::math::powi(delta0, b as i32))
@@ -123,7 +123,7 @@ impl MixtureModel for MultiFluid {
             alpha = &alpha + &(xi * &compose(&jet));
         }
         for d in self.departures.iter() {
-            let jet = departure::jet(d.function, tau0, delta0);
+            let jet = departure::jet(d.function, tau0, delta0, k);
             let part = compose(&|a, b| jet.derivative(a, b).unwrap_or(f64::NAN));
             alpha = &alpha + &(&(&fractions[d.i] * &fractions[d.j]) * &part.scale(d.f));
         }

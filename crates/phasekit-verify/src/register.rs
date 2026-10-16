@@ -92,6 +92,8 @@ pub enum Rows {
     },
     /// The `flash` kind's PT rows (input pair `PT`).
     PtInputs,
+    /// Rows at exactly these temperatures (K), as the fixture prints them.
+    At(&'static [f64]),
 }
 
 /// What a row is known by when the register is asked about it: its temperature, the input label of a `sat` row or the
@@ -1309,14 +1311,18 @@ pub static DIVERGENCES: &[Divergence] = &[
                    exactly (core's contract) and weights the components' tau-parts: s and alpha0 differ by \
                    R(1 - sum x_i R_i/R) ln rho, 2.4e-5 in alpha0 for Methane&Ethane (M13.4). Its chemical potentials \
                    carry that alpha0 too and are not its own g: sum x_i mu_i is 0.045 J/mol from h - Ts for \
-                   EBENZENE&PXYLENE, and they differ from phasekit's by up to 3% of RT (M13.6)",
+                   EBENZENE&PXYLENE, and they differ from phasekit's by up to 3% of RT (M13.6). Its \
+                   all_critical_points do not use that alpha0: their L* = delta_ij/x_i + n d2(n alphar)/dn_i dn_j \
+                   weights no ideal term (MixtureDerivatives.cpp:95-102), so phasekit's critical points, with its own \
+                   ideal part, sit up to 1.8e-6 in T, 1.9e-6 in rho and 1.0e-5 in p from the oracle's, and with unit \
+                   weights within 3e-14 (M13.7)",
         exempt: Some(Exempt {
             kinds: &[Kind::MixEos],
             columns: &["smolar", "alpha0", "chemical_potential_1", "chemical_potential_2"],
             rows: Rows::All,
         }),
         tolerance: None,
-        table_tolerances: &[],
+        table_tolerances: &[("coolprop-8.0.0/all/mix_crit.csv", Tolerance::Relative(2e-5))],
         proof: &[13],
         status: DivStatus::Open,
     },
@@ -1379,6 +1385,31 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[13],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0056",
+        fluids: &["CarbonDioxide&Methane", "R32&R125"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_mix::critical"),
+        evidence: "map 04 #14: v8.0.0's all_critical_points solve det L* = det M* = 0, M* being L* with its last row \
+                   replaced by det L*'s gradient in n (MixtureDerivatives.h:279-297), so wherever L*'s first N - 1 \
+                   rows are singular among themselves det M* vanishes with them. Three of mix_crit's points are such: \
+                   CO2/Methane at z1 0.5, 231.16 K and 0.75, 266.36 K, R32/R125 at 0.75, 192.0 K, L*'s first row \
+                   under 1e-13 of its largest entry (4.6e-14 at most, with std or libm maths). There Q's null vector \
+                   is the first component's direction and Heidemann and Khalil's cubic form along it, d3(A/RT)/dn_1^3, \
+                   is 1.69, 1.50 and 375.9: not a critical point. phasekit's null vector comes from complete pivoting \
+                   (M13.7)",
+        exempt: Some(Exempt {
+            kinds: &[Kind::MixCrit],
+            columns: &["*"],
+            rows: Rows::At(&[231.16226049800005, 266.35988731419326, 191.99480056410795]),
+        }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The output columns of the `cubic` and `cubic_sat` kinds (PLAN.md M11.4, M11.5).
@@ -1403,7 +1434,7 @@ const CUBIC_COLUMNS: [&str; 17] = [
 ];
 
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an
-/// exemption of every row or of a temperature band (the others need more than T to decide).
+/// exemption of every row, of a temperature band or of listed temperatures (the others need more than T to decide).
 pub fn exempt_at(register: &[Divergence], fluid: &str, kind: Kind, column: &str, t: f64) -> Option<&'static str> {
     exempt_row(register, fluid, kind, column, RowKey { t, input: None, two_phase: false })
 }
@@ -1432,6 +1463,7 @@ pub fn exempt_row(
             Rows::GivenP => input == Some("p"),
             Rows::TwoPhaseTBand { lo, hi } => two_phase && lo <= t && t <= hi,
             Rows::PtInputs => input == Some("PT"),
+            Rows::At(list) => list.contains(&t),
             _ => false,
         };
         (d.fluids.contains(&fluid) || d.fluids == ["*"])

@@ -30,7 +30,7 @@ MIXTURES_DIR = ROOT / "reference" / "CoolProp" / "dev" / "mixtures"
 FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
 MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
 KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transport", "sigma", "melt", "refstate", "cubic",
-         "cubic_sat", "mix_alphar", "mix_eos", "props", "codes"]
+         "cubic_sat", "mix_alphar", "mix_eos", "mix_crit", "props", "codes"]
 SCRUBBED_PREFIXES = ("COOLPROP_", "PXFLASH_")
 FLUID_COUNT = 136
 
@@ -1091,6 +1091,44 @@ def mix_eos_rows(CP, label, z1, fluids, fractions, floats, lines):
         lines.append(",".join([label, cell(z1), cell(t), cell(rho), status, *map(cell, values)]) + "\n")
 
 
+# Binaries whose critical points the oracle finds (map 04 #14: C1/C2's T_critical() throws, so the kind calls
+# all_critical_points), at three compositions each.
+MIX_CRIT_PAIRS = ["Methane&Ethane", "Methane&n-Propane", "Methane&n-Butane", "Ethane&n-Propane", "Nitrogen&Methane",
+                  "CarbonDioxide&Methane", "R32&R125", "R32&R134a", "R125&R134a", "R134a&R1234yf"]
+MIX_CRIT_Z1 = (0.25, 0.5, 0.75)
+MIX_CRIT_COLUMNS = ["mixture", "z1", "index", "status", "T", "rhomolar", "p", "stable"]
+MIX_CRIT_UNITS = ["-", "-", "-", "-", "K", "mol/m3", "Pa", "-"]
+MIX_CRIT_TOL = ["label", "in", "in", "label", "flash", "flash", "flash", "label"]
+
+
+def mix_crit(CP, lock, config, files, args):
+    """The `mix_crit` kind (PLAN.md M13.7): all/mix_crit.csv, every critical point all_critical_points reports for
+    MIX_CRIT_PAIRS at each MIX_CRIT_Z1, one row each with its `stable` flag; an `err` row where it throws."""
+    lines, floats = [], []
+    for label in MIX_CRIT_PAIRS:
+        for z1 in MIX_CRIT_Z1:
+            try:
+                state = CP.AbstractState("HEOS", label)
+                state.set_mole_fractions([z1, 1.0 - z1])
+                points = sorted(state.all_critical_points(), key=lambda c: c.rhomolar)
+                status = "ok"
+            except Exception as exception:  # noqa: BLE001 - the oracle's refusal is a row
+                points, status = [], f"err:{error_class(exception)}"
+            if not points:
+                floats.extend([z1, 0.0, math.nan, math.nan, math.nan])
+                lines.append(",".join([label, cell(z1), cell(0.0), status, "nan", "nan", "nan", "none"]) + "\n")
+            for index, c in enumerate(points):
+                floats.extend([z1, float(index), c.T, c.rhomolar, c.p])
+                row = [label, cell(z1), cell(float(index)), status, cell(c.T), cell(c.rhomolar), cell(c.p),
+                       "stable" if c.stable else "unstable"]
+                lines.append(",".join(row) + "\n")
+    fluids = f"{len(MIX_CRIT_PAIRS)} pairs, fluids_sha256={lock['fluids_sha256']}, mixtures_sha256={lock['mixtures_sha256']}"
+    grid = "z1 in {0.25,0.5,0.75}; every point all_critical_points returns, by density"
+    text = header("mix_crit", lock, config, fluids, MIX_CRIT_COLUMNS, MIX_CRIT_TOL, floats, units=MIX_CRIT_UNITS,
+                  grid=grid)
+    return {"all/mix_crit.csv": text + "".join(lines)}
+
+
 def mix_eos(CP, lock, config, files, args):
     """The `mix_eos` kind: all/mix_eos.csv over the library's pairs and predefined mixtures (any --tier)."""
     pairs, predefined = mixture_library(lock)
@@ -1881,7 +1919,7 @@ def codes(CP, lock, config, files, args):
 
 
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "cubic": cubic,
-              "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "mix_eos": mix_eos, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
+              "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "mix_eos": mix_eos, "mix_crit": mix_crit, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
               "props": props, "codes": codes}
 
 
