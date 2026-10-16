@@ -2,7 +2,7 @@
 // the package's, and every refusal is the package's message. It holds one registry and the fluid handles it has
 // opened; each state is freed once its outputs are read.
 import type { Pk } from "./pk";
-import type { BatchValue, Build, Request, Response, StateValue, TimeValue, Timing } from "./protocol";
+import type { BatchValue, BenchValue, Build, Request, Response, StateValue, TimeValue, Timing } from "./protocol";
 
 // The handle types; wasm-bindgen's private constructors rule out `InstanceType`.
 type Registry = Pk["Registry"]["prototype"];
@@ -108,6 +108,14 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
     }
   };
 
+  // The benchmark (PLAN.md M21.3): the batch timed as the page calls it, a handle made and freed each run, then its
+  // answer once more.
+  const bench = (r: Extract<Request, { op: "bench" }>): BenchValue => {
+    const f = fluid(r.fluid);
+    const timing = measure(() => f.evaluate(r.outputs, r.name1, r.values1, r.name2, r.values2).free());
+    return { timing, batch: batch({ ...r, op: "batch" }) };
+  };
+
   return (request) => {
     const { id, op } = request;
     try {
@@ -132,6 +140,8 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
           return { id, ok: true, op: "constants", value: constants(request) };
         case "batch":
           return { id, ok: true, op: "batch", value: batch(request) };
+        case "bench":
+          return { id, ok: true, op: "bench", value: bench(request) };
       }
     } catch (e) {
       return { id, ok: false, op, error: message(e) };
