@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Check that the tools the standard gates need are installed (docs/PLAN.md M0.1, gates G1-G8 in §2.4).
+# Check that the tools the standard gates need are installed (docs/PLAN.md M0.1, gates G1-G9 in §2.4).
 # Read-only and offline: it only asks each tool for its version. Exits 1 if a required tool is missing.
 set -euo pipefail
 
@@ -92,6 +92,9 @@ check_tool cbindgen "$INSTALL_CMD" cbindgen --version
 # The browser package's tests (PLAN.md M10.8): wasm-bindgen-cli at the locked wasm-bindgen version, and Node.
 check_tool wasm-bindgen-test-runner "$INSTALL_CMD" wasm-bindgen --version
 check_tool node "https://nodejs.org (an LTS release)" node --version
+# G9, the site (PLAN.md M21.1): npm, and cargo-about for the modules' notices (its Chromium: npx playwright install).
+check_tool npm "it comes with Node" npm --version
+check_tool cargo-about "cargo install --locked --root ~/.local --features cli cargo-about@0.9.2" cargo about --version
 check_tool cargo-mutants "$INSTALL_CMD" cargo mutants --version
 check_tool cargo-nextest "$INSTALL_CMD" cargo nextest --version
 check_tool uv "https://docs.astral.sh/uv/" uv --version

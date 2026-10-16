@@ -18,7 +18,7 @@ jobs:
           TITLE: ${{ github.event.pull_request.title }}
         run: |
           types='feat|fix|perf|refactor|test|docs|build|ci|chore|revert'
-          scopes='core|data|compat|cubic|verify|xtask|capi|wasm|py|plan|deps|repo'
+          scopes='core|data|compat|cubic|verify|xtask|capi|wasm|py|site|plan|deps|repo'
           re="^(${types})(\((${scopes})\))?!?: [^ ].*[^.]$"
           if [[ ! "$TITLE" =~ $re ]]; then
             echo "::error::PR title is not a Conventional Commit (see CONTRIBUTING.md): $TITLE"

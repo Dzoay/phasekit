@@ -28,7 +28,7 @@ Every step in section 3 is one focused change, roughly one PR. Execute it like t
    M<n>.<k>")`). Never use `todo!`: it is denied (D12, S-06). The test must compile and fail on its assertion.
 4. **See it fail** for the stated reason. Paste the failing assertion into the PR description ("red evidence").
 5. **Implement** the smallest change that turns it green, in the modules and types ARCHITECTURE.md §2-§3 name.
-6. **Run the gates**: G1-G8 (section 2.4) plus the step's own checks. In the same PR: raise the minimums in
+6. **Run the gates**: G1-G9 (section 2.4) plus the step's own checks. In the same PR: raise the minimums in
    `ci/test-counts.txt` (`cargo xtask gates counts --update`), update the divergence register, and tick the step's
    ROT rows (section 2.1).
 7. **Collapse the step** in the same PR: its text in section 3 becomes one ledger row, its ID and what landed (user
@@ -48,7 +48,7 @@ baseline). The sketch is never edited.
 
 | Level | Done means |
 |---|---|
-| Step | The named failing tests existed and were red first (evidence in the PR). They are now green. G1-G8 (section 2.4) pass locally and in CI. No new `#[ignore]` outside the grammar of section 2.1. `missing_docs` is clean. The step's ROT rows are ticked. The commit carries the step ID in its `Plan-Step:` footer. |
+| Step | The named failing tests existed and were red first (evidence in the PR). They are now green. G1-G9 (section 2.4) pass locally and in CI. No new `#[ignore]` outside the grammar of section 2.1. `missing_docs` is clean. The step's ROT rows are ticked. The commit carries the step ID in its `Plan-Step:` footer. |
 | Milestone | Every step is done. Every exit-gate item passes with the stated numbers: items marked *(nightly)* on the first green nightly run that includes them (Linux x86-64 only); all other items per PR on Linux x86-64, Windows MSVC and wasm32-wasip2 (D15), except items checked by `phasekit-xtask` (datagen, `gates`), which is a Linux tool (section 2.5). The closing step sets `phasekit_verify::MILESTONE` to the first milestone still open (n + 1, unless a later one closed first, as M12 did before M11), which arms two fail-closed checks: every divergence proof due by Mn exists (`tests/divergences.rs`, VERIFICATION.md §6.3) and every ROT row of Mn is ticked (`cargo xtask gates rot`). Benches for paths that landed are recorded (section 5.1). CI is green on `main` (a milestone cannot close while CI is owed). A tag `m<n>` is set on the merge commit. |
 | v0.1 | M10 is done and the release checklist (section 5.4) is complete. |
 
@@ -129,7 +129,7 @@ that changes a fact changes its home.
 | The user's decisions | [DECISIONS.md](DECISIONS.md), each by its id |
 | The design: decisions D1-D17, seams, invariants, performance targets | ARCHITECTURE.md (§4, §2-§3, §7) |
 | Types, signatures, what is built | the code in `crates/` (rustdoc) |
-| Steps, exit gates, G1-G8, what is still open | this plan (§3, §2.4, §6) |
+| Steps, exit gates, G1-G9, what is still open | this plan (§3, §2.4, §6) |
 | What a finished step did and measured | its PR description (the squash commit's body) and the test that pins it |
 | Where the work is | git: `git tag`, the `Plan-Step:` trailers, `phasekit_verify::MILESTONE` |
 | Fixtures, kinds, tolerance classes, xtask gate rules, benches | VERIFICATION.md (its §5 classes locked to `phasekit_verify::tolerance` by a test) |
@@ -207,7 +207,7 @@ Where things live, and the section that defines each. VERIFICATION.md uses the s
 
 ### 2.4 Standard gates
 
-This table is the one definition of G1-G8.
+This table is the one definition of G1-G9.
 
 | Gate | Command | Where it runs | From |
 |---|---|---|---|
@@ -219,6 +219,7 @@ This table is the one definition of G1-G8.
 | G6 | `cargo check --workspace --all-targets --target x86_64-pc-windows-msvc` | local (check only: no MSVC linker); CI windows runs G3 | M0.2 |
 | G7 | `cargo clippy -p phasekit-core --no-default-features --all-targets -- -D warnings` (+ `-p phasekit-compat` from M5.9) | local; CI linux | M0.2 |
 | G8 | `cargo xtask gates all`; each subcommand, its rule and the milestone it starts at: VERIFICATION.md §11.2 | local; CI linux (needs `reference/CoolProp`, fetched and cached by the job) | M0.4 |
+| G9 | `scripts/site/check.sh`: the site's build (`scripts/site/build.sh`), `prettier --check`, `svelte-check`, Vitest, the page's budget (`site/size-budget.txt`) and Playwright on Chromium | local (Node, npm, cargo-about and wasm-bindgen-cli; `npx playwright install chromium` once); CI site, on every PR | M21.1 |
 
 CI also runs what no local gate does (VERIFICATION.md §11.3): the aarch64 tests, G3 on the MSRV, the nightly oracle
 sweep, the weekly latest-dependency and full mutants runs, and from M9 the gungraun benches. `cargo deny check`,
@@ -468,7 +469,7 @@ conformance kit (VERIFICATION.md §10) and, where marked, a **zero-line core dif
 v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
       ├─ M13 mixtures ────── M19 diagram geometry
       ├─ M14 IAPWS, ice ──── M18 humid air
-      ├─ M21 site: M21.1-M21.4 now, M21.5 after M13, M21.6 after M19
+      ├─ M21 site: M21.1, M21.7, M21.2-M21.4 now, M21.5 after M13, M21.6 after M19
       └─ M12 SIMD spike, M16 Python, M17 INCOMP; on demand: Tier B shim, WIT, network service, materials
 ```
 
@@ -484,7 +485,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M18 | `phasekit-humidair` | M14 done (ice) | RP-1485 humid air on injected Water, Air and ice `Fluid`s (map 07 H3); HA strings in compat; the shim's real `HAPropsSI` replaces the stub; `pk_*` gains humid-air symbols (D11) | RP-1485 tables (map 10 §8.1, ~120 values); `HAPropsSI("H","T",300,"P",1e5,"R",0) = 27013.112479771713` (map 11 §8) |
 | M19 | a diagram-geometry crate (T1f), named at its plan | M13 done (user decision 13) | Geometry, not drawing (user decision WS4): saturation domes, isolines of T, p, h, s, ρ and quality on the p–h, T–s, p–T, T–ρ and h–s planes, split at the dome and at failed cells, sampled more densely where a line bends, with labels and ranges; M13's phase envelopes; over saturation, `flash` and batch; the browser package serves it to the site (M21.6) | Every vertex reproduces its line's value within `Flash`; a line's dome crossings are the saturation states at its value (`Exact` against `QT` or `PQ`); M21.2's checks pass on its geometry; the site's screenshots re-approved at M21.6 |
 | M20 | core, compat, verify, CI | M12 landed (user decision PL1) | Four follow-ups: Cv, Cp, w, τ and δ as derivative variables; the conformance kit's `identities` and `part_additivity`; the intra-doc link check; the nightly report: [M20 Follow-ups](#m20-follow-ups) | Each step's checks; G1-G8 |
-| M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19; six steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
+| M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19, mutation testing of the site's code; seven steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
@@ -856,46 +857,17 @@ are independent and may be reordered. M20 does not move `MILESTONE`.
 this repository as its GitHub Pages site, `https://dzoay.github.io/phasekit/` (user decisions WS1-WS3). The site is a
 consumer of the browser package: every number it shows comes from `phasekit-wasm` at the commit it was built from, and
 what the page needs that the package lacks is added to the package in a step, with its tests. **Entry.** The user's
-word, 2026-10-16, beside M13 (WS3): M21.1-M21.4 now, M21.5 after M13, M21.6 after M19. **Prerequisites.** User
+word, 2026-10-16, beside M13 (WS3): M21.1, then M21.7 (WS5), then M21.2-M21.4; M21.5 after M13, M21.6 after M19. **Prerequisites.** User
 decisions WS1-WS4; DEPENDENCIES.md's tier T5; Pages on, its source GitHub Actions, the `github-pages` environment
 deploying from `main` only (done 2026-10-16). **Arbiters.** The page adds no numerics, so its oracle is the browser package: a value on
 the page equals the package's at the same inputs (`Exact`), and the library's own tests check the package. Unit
 conversions follow the SI brochure's definitions (0 °C = 273.15 K, 1 bar = 10⁵ Pa), theme contrast WCAG 2.2's
 contrast ratio. M21 does not move `MILESTONE`.
 
-- **M21.1 The skeleton, the themes, the deploy and the calculator.**
-  - `site/`, outside the Cargo workspace: `package.json` (`"private": true`, Node LTS in `engines`) and
-    `package-lock.json`; Svelte 5, Vite and TypeScript (WS2); a relative `base`, so the build serves from
-    `/phasekit/`; hash routes, with the view's state in the URL.
-  - The engine: a module Web Worker that loads the `simd128` build where `WebAssembly.validate` accepts a SIMD probe,
-    else the baseline, and makes every package call; the footer names the build and the commit.
-  - Themes: tokens as CSS custom properties on `:root`; light, dark and the system's (`prefers-color-scheme`), and
-    accent themes; the choice kept in `localStorage` behind `try`, so the page works without it; a font served with
-    the page (OFL-1.1), so screenshots do not depend on the machine's fonts.
-  - The calculator: one of the five embedded fluids, two input keys with values in chosen units, every output the
-    package gives and the phase; a refusal shown in the package's words.
-  - `scripts/site/build.sh`: the commit's two release wasm modules through wasm-bindgen (`--target web --weak-refs`)
-    into the site's gitignored `src/pk/`, then `npm ci` and `vite build` into `site/dist`. Its wasm-bindgen calls
-    are `scripts/release/npm-package.sh`'s (one script both call), so the page runs what the npm package ships.
-  - G9 in section 2.4: `scripts/site/check.sh` runs `prettier --check`, `svelte-check`, Vitest, the build and its
-    budget (the page's JS and CSS, gzipped, its measured size + 10 %, as SL8) and Playwright on Chromium; locally, and
-    in CI's `site` job, which takes the two modules from the `wasm-browser` job. It runs on every PR, so a change to
-    the browser package that breaks the page fails its own PR; the maintainer adds it to the required checks. Every
-    "G1-G8" that means all the gates (AGENTS.md, CONTRIBUTING.md, sections 0 and 2.1, VERIFICATION.md §11.1) becomes
-    G1-G9.
-  - `pages.yml`: on the `ci` workflow's success on `main` (and by hand), the page built from that run's commit and
-    modules, deployed with `upload-pages-artifact` and `deploy-pages`; actions pinned by commit; `actionlint` clean.
-  - Licences: the page serves LICENSE-MIT, LICENSE-APACHE, the modules' cargo-about notices and the licences of the
-    npm packages it bundles, which `scripts/site/notices.mjs` collects from the lockfile's production tree, failing
-    on a licence outside `deny.toml`'s allow-list; `reuse lint` covers `site/`.
-  - The `site` PR-title scope (`pr-title.yml`, CONTRIBUTING.md); VERIFICATION.md §11.3's rows for `ci: site` and
-    `pages`; README.md links the page.
+| Step | Landed |
+|---|---|
+| M21.1 | `site/`: Svelte 5, Vite and TypeScript (T5); the calculator over the five embedded fluids, its view in the URL; themes (light, dark, the system's; four accents), WCAG 2.2 AA contrast checked; the engine worker on the `simd128` build where validated; the browser package's `outputKeys()`; `scripts/release/wasm-modules.sh`, which the npm package and the site share; G9 and CI's `site` job; `pages.yml`; the licences page; the page's budget, 33 218 B + 10 % |
 
-  *Red:* Vitest: the unit conversions match the SI definitions and round-trip; every theme's text and background
-  token pairs reach a contrast ratio of 4.5 (WCAG 2.2 AA); the worker answers `PropsSI("T", "P", 101325, "Q", 0,
-  "Water")` with the package's value bit for bit under Node. Playwright: the calculator at that state shows the same
-  T; the chosen theme survives a reload, and the page renders with storage blocked. Each runs first against an empty
-  `site/`. *Done when:* G1-G9 pass and the first deploy from `main` serves the calculator; its URL is in the PR.
 - **M21.2 The diagrams.** p–h (log p), T–s, p–T, T–ρ and h–s for any loaded fluid.
   - The saturation dome from QT batches between T_triple (or T_min) and T_c, the grid closing in on T_c; the critical
     and triple points.
@@ -947,9 +919,23 @@ contrast ratio. M21 does not move `MILESTONE`.
   the browser package, and `site/src/sample/` is deleted. *Red:* M21.2's checks on M19's geometry, run first against
   the package without its export. *Done when:* G1-G9; the screenshots re-approved in the PR.
 
+- **M21.7 Mutation testing for the site (user decision WS5).** Worked next, before M21.2, so the diagrams' code is
+  gated from its first PR.
+  - The calculator's view (its state, the URL's load and write, the input text, a new input variable, the units, the
+    presets) moves from `Calculator.svelte` into `site/src/lib/calculator.svelte.ts`, which the component binds to.
+    Vitest tests it, its reactive wiring included (`$effect.root`, `flushSync`).
+  - StrykerJS 10 with the Vitest runner (T5): `scripts/site/mutants.sh` mutates the site's TypeScript and Svelte
+    files changed against `origin/main`, in incremental mode. A surviving mutant fails G9, as G8's `gates mutants`
+    does for Rust, unless the Stryker config excludes it with its reason. G9's row in section 2.4 says so.
+  - The weekly workflow gains a full Stryker run over `site/src`, its report an artifact.
+
+  *Red:* the calculator module's tests, written first against its stub, cover each case of
+  `tests/e2e/interaction.spec.ts`; Stryker over `src/lib` and `src/engine` as they stand, its survivors listed in the
+  PR, each killed by a test or excluded with its reason. *Done when:* G1-G9; the weekly run green on its first run.
+
 **Exit gate.** G1-G9 at every step; the page deployed from `main` at each merge; every value on the page equals the
 package's (`Exact`); M21.1's budget and SL8's wasm budgets hold; `reuse lint` and `actionlint` clean. **ROT rows.**
-None. **User decisions implemented.** WS1, WS2, WS3, WS4.
+None. **User decisions implemented.** WS1, WS2, WS3, WS4, WS5.
 
 ## 5. Cross-cutting tracks
 

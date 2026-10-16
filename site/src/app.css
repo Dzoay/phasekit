@@ -1,0 +1,138 @@
+/* The site's tokens and base styles (PLAN.md M21.1; user decision WS2). Each colour is one token, written once as
+   light-dark(light, dark); `color-scheme` picks the side: the system's by default, or the viewer's choice through
+   <html data-theme>. An accent is a block of accent tokens under [data-accent], so a swatch shows its own accent
+   whatever the page's is; teal is the default. tests/unit/contrast.test.ts reads the tokens from this file. */
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./assets/fonts/InterVariable.woff2") format("woff2");
+}
+
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#f5f6f8, #0d0f13);
+  --surface: light-dark(#ffffff, #15181e);
+  --surface-2: light-dark(#eef1f5, #1c2028);
+  --border: light-dark(#dde2e9, #262b34);
+  --border-strong: light-dark(#7d8796, #6b7585);
+  --fg: light-dark(#11141a, #e8ebf1);
+  --fg-muted: light-dark(#545e6d, #9ba5b5);
+  --danger: light-dark(#b42318, #ff8f80);
+  --shadow:
+    0 1px 2px light-dark(rgb(16 24 40 / 6%), rgb(0 0 0 / 40%)),
+    0 4px 16px light-dark(rgb(16 24 40 / 5%), rgb(0 0 0 / 25%));
+  --radius: 14px;
+  --radius-sm: 9px;
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+:root,
+[data-accent="teal"] {
+  --accent: light-dark(#0f766e, #2dd4bf);
+  --on-accent: light-dark(#ffffff, #042f2e);
+}
+
+[data-accent="indigo"] {
+  --accent: light-dark(#4f46e5, #a5b4fc);
+  --on-accent: light-dark(#ffffff, #1e1b4b);
+}
+
+[data-accent="amber"] {
+  --accent: light-dark(#b45309, #fbbf24);
+  --on-accent: light-dark(#ffffff, #2b1b03);
+}
+
+[data-accent="rose"] {
+  --accent: light-dark(#be123c, #fda4af);
+  --on-accent: light-dark(#ffffff, #3f0a17);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  font-feature-settings: "cv11", "ss03";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 0.18em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.muted {
+  color: var(--fg-muted);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
