@@ -41,6 +41,23 @@ test("reads the state under the cursor as the package does", async ({ page }) =>
   await expect(page.getByTestId("readout")).toContainText("Move over the plot");
 });
 
+test("leads the side panel with the readout, which keeps its height as the cursor comes and goes", async ({ page }) => {
+  await ready(page, "./#/diagrams?fluid=Water&d=ph");
+  await expect(page.locator("aside.side > section").first()).toHaveAttribute("data-testid", "readout");
+  const lines = page.locator("section.legend");
+  const at = async () => (await lines.boundingBox())?.y;
+  const before = await at();
+  const box = await page.getByTestId("plot").locator("svg").first().boundingBox();
+  if (!box) throw new Error("no plot");
+  await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.55);
+  await expect(page.getByTestId("readout-T")).toHaveAttribute("data-value", /\d/);
+  expect(await at()).toBe(before);
+  await page.mouse.move(box.x + 2, box.y + 2);
+  await expect(page.getByTestId("readout")).toContainText("Move over the plot");
+  await expect(page.getByTestId("readout-T")).not.toHaveAttribute("data-value");
+  expect(await at()).toBe(before);
+});
+
 test("toggles families, switches diagrams and fluids, all in the URL", async ({ page }) => {
   await ready(page, "./#/diagrams?fluid=Water&d=ph");
   const labels = page.getByTestId("plot").locator("text.label");

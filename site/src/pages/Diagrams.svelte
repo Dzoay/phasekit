@@ -266,6 +266,10 @@
     sheet.toBlob((blob) => blob && download(fileName("png"), blob), "image/png");
   }
 
+  // The readout's state, and the calculator at it.
+  const reading = $derived(view.readout?.state ?? null);
+  const link = $derived(reading ? view.calculatorLink() : null);
+
   const shown = (key: string, value: number | null | undefined) => {
     if (typeof value !== "number" || Number.isNaN(value)) return "—";
     const unit = unitOfKey(key as never, view.system);
@@ -416,6 +420,37 @@
   </div>
 
   <aside class="side">
+    <!-- The readout leads the panel. Its table stays, dashes until there is a state, so the cards below never move. -->
+    <section class="card readout" data-testid="readout" data-inputs={JSON.stringify(view.readout?.inputs ?? null)}>
+      <h2>
+        Under the cursor
+        {#if view.pinned}<span class="pin" data-testid="pinned">pinned</span>{/if}
+      </h2>
+      {#if reading}
+        <p class="status">Phase <strong data-testid="readout-phase">{reading.phase}</strong></p>
+      {:else if view.readout?.refusal}
+        <p class="status">The package refused this point: <code>{view.readout.refusal}</code></p>
+      {:else}
+        <p class="status">Move over the plot.</p>
+      {/if}
+      <table>
+        <tbody>
+          {#each READOUT_KEYS as key, i (key)}
+            {@const v = reading?.values[i]}
+            <tr>
+              <th scope="row">{output(key)?.label}</th>
+              <td class="num" data-testid="readout-{key}" data-value={reading ? String(v) : undefined}
+                >{shown(key, v)}</td
+              >
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+      <a class="open" class:hidden={!link} href={link ?? undefined} data-testid="open-calculator"
+        >Open in calculator →</a
+      >
+    </section>
+
     <section class="card legend">
       <h2>Lines</h2>
       <ul>
@@ -500,35 +535,6 @@
           {describeGrid(zoomed.y.domain() as [number, number], d.y.log, view.grid)}
           {d.y.log ? "" : unitOfKey(d.y.key, view.system).label}
         </p>
-      {/if}
-    </section>
-
-    <section class="card readout" data-testid="readout" data-inputs={JSON.stringify(view.readout?.inputs ?? null)}>
-      <h2>
-        Under the cursor
-        {#if view.pinned}<span class="pin" data-testid="pinned">pinned</span>{/if}
-      </h2>
-      {#if view.readout?.state}
-        <p class="phase">Phase <strong data-testid="readout-phase">{view.readout.state.phase}</strong></p>
-        <table>
-          <tbody>
-            {#each READOUT_KEYS as key, i (key)}
-              {@const v = view.readout.state.values[i]}
-              <tr>
-                <th scope="row">{output(key)?.label}</th>
-                <td class="num" data-testid="readout-{key}" data-value={String(v)}>{shown(key, v)}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-        {@const link = view.calculatorLink()}
-        {#if link}
-          <a class="open" href={link} data-testid="open-calculator">Open in calculator →</a>
-        {/if}
-      {:else if view.readout?.refusal}
-        <p class="muted">The package refused this point: <code>{view.readout.refusal}</code></p>
-      {:else}
-        <p class="muted">Move over the plot.</p>
       {/if}
     </section>
 
@@ -748,6 +754,10 @@
     font-weight: 550;
   }
 
+  .open.hidden {
+    visibility: hidden;
+  }
+
   .loading {
     position: absolute;
     inset: 0;
@@ -830,13 +840,16 @@
     padding: 3px 0;
   }
 
-  .phase {
+  .status {
     margin: 0 0 8px;
     font-size: 13px;
+    line-height: 20px;
     color: var(--fg-muted);
   }
 
-  .phase strong {
+  /* The monospace value keeps to the line's 20 px, which a state's arrival must not grow. */
+  .status strong {
+    line-height: 1;
     font-family: var(--mono);
     color: var(--fg);
   }
