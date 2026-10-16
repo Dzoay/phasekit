@@ -28,6 +28,9 @@ exclude_globs = [
     # Process glue (runs cargo, git and rustc; reads and writes files): G8 itself exercises it, unit tests cannot.
     "crates/phasekit-xtask/src/repo.rs",
     "crates/phasekit-xtask/src/main.rs",
+    # Datagen's output (PLAN.md M13.2): the mixture library's tables, literals only. `gates datagen` holds every byte to a
+    # fresh generation from the pinned JSON, so a mutated literal fails it, not a test.
+    "crates/phasekit-mix/src/generated.rs",
     # The FP guard off Linux (PLAN.md M10.7): Windows x64's MXCSR and every other target's no-op. They do not compile
     # where the mutants job runs; the Windows runner runs their tests (`pk_exports_restore_the_callers_fp_environment`).
     "crates/phasekit-capi/src/fp/windows.rs",
@@ -69,6 +72,9 @@ exclude_re = [
     # The public `roots` (PLAN.md M13.1) keeps two roots when they lie more than SAME_ROOT apart in ln ρ: `>=` differs
     # only at exactly that distance, between two converged Newton solves, which no state reaches.
     "density\\.rs:[0-9]+:[0-9]+: replace > with >= in roots",
+    # Datagen's predefined mixtures (PLAN.md M13.2) refuse fractions summing more than 1e-10 from 1: `>=` differs only
+    # at exactly that distance, which no entry of the library is.
+    "datagen/mixtures\\.rs:[0-9]+:[0-9]+: replace > with >= in predefined_mixtures",
     # Equivalent mutants of T+X (PLAN.md M7.5). A cell is cut at a turn where its ends' slopes have opposite signs,
     # `a·b < 0`: `a/b < 0` is the same test, and `<= 0` differs only where a slope is exactly 0 at a node, where the cut
     # falls on that node and the pieces hold the same roots. A piece is searched where an end's residual is exactly 0 or

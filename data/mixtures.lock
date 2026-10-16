@@ -1,0 +1,7 @@
+# data/mixtures.lock (PLAN.md M13.2): the sha256 of the reference/CoolProp/dev/mixtures files the mixture step reads, at
+# the pinned v8.0.0 commit ae81610e, one "<file> <sha256>" line per file, sorted. `cargo xtask datagen` checks them before
+# it parses.
+ASHRAE_predefined_2026.tsv 7ef538418771587e64c769d004caacec17e82355757409f73e1b7ef09e54e5df
+mixture_binary_pairs.json 9670c9440cd83cd68bb4ace3c655dfb52293ba727ed75bd1f82810d93239be57
+mixture_departure_functions.json af00484c631a84e04f92cf8baf8f3468ce75dfc401e85d5c8108345c21090f35
+predefined_mixtures.json 8a5418915122a74684ae20e5c72645f7674b5b2d964de6637ca21e111c99b68e

@@ -9,7 +9,7 @@ x86_64-unknown-linux-gnu phasekit-verify::gibbs_seam 3
 x86_64-unknown-linux-gnu phasekit-verify::lazy_load 13
 x86_64-unknown-linux-gnu phasekit-verify::new_family 14
 x86_64-unknown-linux-gnu phasekit-verify::register 12
-x86_64-unknown-linux-gnu phasekit-xtask::main 148
+x86_64-unknown-linux-gnu phasekit-xtask::main 160
 x86_64-unknown-linux-gnu phasekit-core::doc 2
 wasm32-wasip2 phasekit-core::lib 251
 wasm32-wasip2 phasekit-verify::lib 60
@@ -97,3 +97,5 @@ x86_64-unknown-linux-gnu phasekit-verify::cubic_family 8
 wasm32-wasip2 phasekit-verify::cubic_family 8
 x86_64-unknown-linux-gnu phasekit-verify::mixture_seam 5
 wasm32-wasip2 phasekit-verify::mixture_seam 5
+x86_64-unknown-linux-gnu phasekit-mix::lib 3
+wasm32-wasip2 phasekit-mix::lib 3
