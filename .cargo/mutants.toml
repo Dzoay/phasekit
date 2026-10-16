@@ -105,6 +105,33 @@ exclude_re = [
     "critical\\.rs:[0-9]+:[0-9]+: replace < with <= in regula_falsi",
     "critical\\.rs:[0-9]+:[0-9]+: replace > with >= in newton_step",
     "critical\\.rs:370:41: replace - with / in critical_points",
+    # Equivalent (PLAN.md M13.8): `<=` for `<` (or `>=` for `>`) differs only at a tie, which no solve meets: two roots of
+    # equal Gibbs energy, Rachford–Rice's g exactly 0 (returned before) or a Newton step exactly on its bracket's end, a
+    # distance exactly −1e-10, a trial exactly 1e-10 from the feed, a substitution changing exactly 1e-10, a trial's W
+    # exactly 0, the split's K exactly at its trivial or step gate or its β exactly 0, 1 or 1/2, GDEM's λ exactly 0 (its
+    # step then 0), a trial phase as dense as the feed, a split's lighter phase exactly at ρ_c, a slope exactly 0 on a
+    # branch. GDEM every fifth step is a schedule, its other schedules converging to the same split in more steps. In the
+    # back substitution x_r is still 0 when its own row is summed, so summing from r adds a_rr · 0.
+    "equilibrium\\.rs:149:43: replace < with <= in stable_root",
+    "equilibrium\\.rs:126:31: replace > with >= in rising",
+    "equilibrium\\.rs:200:14: replace > with >= in rachford_rice_steps",
+    "equilibrium\\.rs:206:30: replace > with >= in rachford_rice_steps",
+    "equilibrium\\.rs:206:45: replace < with <= in rachford_rice_steps",
+    "equilibrium\\.rs:276:33: replace < with <= in most_unstable",
+    "equilibrium\\.rs:296:87: replace < with <= in Tpd<'_>::trivial",
+    "equilibrium\\.rs:326:23: replace < with <= in Tpd<'_>::substitute",
+    "equilibrium\\.rs:360:48: replace > with >= in Tpd<'_>::line_search",
+    "equilibrium\\.rs:419:45: replace < with <= in collapsed",
+    "equilibrium\\.rs:403:40: replace < with <= in split",
+    "equilibrium\\.rs:404:68: replace > with >= in split",
+    "equilibrium\\.rs:404:79: replace < with <= in split",
+    "equilibrium\\.rs:408:26: replace % with \\+ in split",
+    "equilibrium\\.rs:408:26: replace % with / in split",
+    "equilibrium\\.rs:434:15: replace > with >= in accelerate",
+    "equilibrium\\.rs:447:29: replace < with <= in newton",
+    "equilibrium\\.rs:507:25: replace \\+ with \\* in solve",
+    "mixture\\.rs:187:76: replace < with <= in Mixture::equilibrium",
+    "mixture\\.rs:217:85: replace > with >= in Mixture::pt",
     # Equivalent (PLAN.md M13.7): the departure kernel's fast paths give the general path's bits (`truncation_keeps_the_
     # lower_orders`, `the_value_is_the_jet_s`), so taking the general path instead changes nothing.
     "departure\\.rs:63:62: replace == with != in Series::compose",

@@ -94,6 +94,8 @@ pub enum Rows {
     PtInputs,
     /// Rows at exactly these temperatures (K), as the fixture prints them.
     At(&'static [f64]),
+    /// Rows at exactly these (T (K), p (Pa)), as the fixture prints them.
+    AtTP(&'static [(f64, f64)]),
 }
 
 /// What a row is known by when the register is asked about it: its temperature, the input label of a `sat` row or the
@@ -106,6 +108,8 @@ pub struct RowKey<'a> {
     pub input: Option<&'a str>,
     /// Whether the row's state is two-phase.
     pub two_phase: bool,
+    /// The row's pressure (Pa), where the kind has one as an input.
+    pub p: Option<f64>,
 }
 
 /// The oracle cells a `SkipOracle` entry does not assert on Parity; the tests count them.
@@ -1410,6 +1414,77 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[13],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0057",
+        fluids: &["Methane&n-Butane", "CarbonDioxide&Methane"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_mix::equilibrium"),
+        evidence: "map 04 #1 (upstream #3283, b17661f6 after v8.0.0): v8.0.0's PT flash keeps a density root on a loop of \
+                   the isotherm past the spinodal, mechanically stable there and of lower Gibbs energy. In mix_flash \
+                   Methane/n-Butane at z1 0.5, 224.46 K, 6.193 MPa gives rho 5676.4 (g -13126 J/mol) and \
+                   CO2/Methane at 0.25, 181.29 K, 2.998 MPa rho 10628.3 (g -653017 J/mol): each reproduces p, but \
+                   dp/drho <= 0 at 131 and 119 of 200 points between 0 and it, so no gas branch reaches it. The \
+                   liquid roots, 14510.0 and 20944.5, rise from the model's largest density; phasekit's root \
+                   selection keeps only roots their branch reaches (M13.8)",
+        exempt: Some(Exempt {
+            kinds: &[Kind::MixFlash],
+            columns: &["*"],
+            rows: Rows::AtTP(&[(224.4592111795012, 6192796.478490418), (181.29223062932058, 2997846.370061397)]),
+        }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0058",
+        fluids: &["R134a&R1234yf"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_mix::equilibrium"),
+        evidence: "map 04 #12: near R134a/R1234yf's azeotrope v8.0.0's PT flash mislabels or misses splits. At z1 \
+                   0.25, 257.34 K, 181.5 kPa its split is phasekit's named the other way round: its Q 0.4675 is \
+                   1 - beta, and its liquid, of fraction 0.25125, is the vapour of 91 mol/m3 at (T, p). At \
+                   0.25, 312.48 K, 1.0367 MPa and 0.5, 313.32 K, 1.0715 MPa the state lies between its own bubble \
+                   and dew pressures (QT), yet its PT flash returns one phase: at 313.32 K the split's compositions \
+                   differ by 3.4e-5, under its gate's 1e-4 spread (VLERoutines.cpp:3058-3078). phasekit's splits there \
+                   meet the fugacity gate and lower the Gibbs energy (M13.8)",
+        exempt: Some(Exempt {
+            kinds: &[Kind::MixFlash],
+            columns: &["*"],
+            rows: Rows::AtTP(&[
+                (257.33746508417954, 181489.1007832882),
+                (312.48120760221803, 1036661.7684276211),
+                (313.3162166699622, 1071511.3060092411),
+            ]),
+        }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0059",
+        fluids: &["*"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::KeepOracle,
+        fix: Fix::None,
+        evidence: "map 04 #12: v8.0.0's split ends on its second-order stage's 1e-9 and a 1e-5 gate on ln f \
+                   (VLERoutines.cpp:2848-2851, :3058-3078); phasekit's ends on 1e-12 in ln f. Over mix_flash's splits \
+                   its beta and bulk density sit up to 5.9e-8 and 5.2e-8 from phasekit's (R32/R125 at z1 0.75, \
+                   300.6 K, where y1 - x1 is 0.016 and beta carries the compositions' error 60-fold), its x1 and y1 \
+                   up to 8.2e-9 and 7.6e-10. There its phases leave ln f unequal by 5.5e-11, phasekit's by \
+                   1.8e-14. Its single-phase densities are phasekit's within 1.8e-15 (M13.8)",
+        exempt: None,
+        tolerance: Some(Tolerance::Relative(1e-7)),
+        table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The output columns of the `cubic` and `cubic_sat` kinds (PLAN.md M11.4, M11.5).
@@ -1436,13 +1511,13 @@ const CUBIC_COLUMNS: [&str; 17] = [
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an
 /// exemption of every row, of a temperature band or of listed temperatures (the others need more than T to decide).
 pub fn exempt_at(register: &[Divergence], fluid: &str, kind: Kind, column: &str, t: f64) -> Option<&'static str> {
-    exempt_row(register, fluid, kind, column, RowKey { t, input: None, two_phase: false })
+    exempt_row(register, fluid, kind, column, RowKey { t, input: None, two_phase: false, p: None })
 }
 
 /// [`exempt_at`] for a row known by more than its T ([`RowKey`]): [`Rows::TwoPhase`] exempts the two-phase rows,
 /// [`Rows::OnePhase`] the others, [`Rows::Saturated`] the `props` kind's QT rows at Q = 0 and 1, [`Rows::Dome`] both,
 /// [`Rows::GivenP`] the rows given p, [`Rows::TwoPhaseTBand`] the two-phase rows of a temperature band and
-/// [`Rows::PtInputs`] the PT rows.
+/// [`Rows::PtInputs`] the PT rows and [`Rows::AtTP`] the rows at listed (T, p).
 pub fn exempt_row(
     register: &[Divergence],
     fluid: &str,
@@ -1450,7 +1525,7 @@ pub fn exempt_row(
     column: &str,
     row: RowKey<'_>,
 ) -> Option<&'static str> {
-    let RowKey { t, input, two_phase } = row;
+    let RowKey { t, input, two_phase, p } = row;
     let applies = |d: &&Divergence| {
         let Some(e) = &d.exempt else { return false };
         let rows = match e.rows {
@@ -1464,6 +1539,7 @@ pub fn exempt_row(
             Rows::TwoPhaseTBand { lo, hi } => two_phase && lo <= t && t <= hi,
             Rows::PtInputs => input == Some("PT"),
             Rows::At(list) => list.contains(&t),
+            Rows::AtTP(list) => p.is_some_and(|p| list.contains(&(t, p))),
             _ => false,
         };
         (d.fluids.contains(&fluid) || d.fluids == ["*"])
@@ -1591,11 +1667,19 @@ mod tests {
         assert_eq!((at("A", Kind::Checkpoints, "rhoV", 1.5), at("B", Kind::Checkpoints, "p", 1.5)), (None, None));
         assert_eq!(at("B", Kind::Sat, "p", 9.0), Some("DIV-0102"));
         assert_eq!(at("B", Kind::Props, "p", 9.0), None, "two-phase rows need more than T");
-        let props = |two_phase| exempt_row(&register, "B", Kind::Props, "p", RowKey { t: 9.0, input: None, two_phase });
+        let props = |two_phase| {
+            exempt_row(&register, "B", Kind::Props, "p", RowKey { t: 9.0, input: None, two_phase, p: None })
+        };
         assert_eq!([props(true), props(false)], [Some("DIV-0103"), None]);
         // DIV-0037 and DIV-0043: a single-phase or saturated row's Q; a pseudo-pure fluid's saturated g (QT at 0 or 1).
         let row = |fluid, column, input, two_phase| {
-            exempt_row(DIVERGENCES, fluid, Kind::Props, column, RowKey { t: 300.0, input: Some(input), two_phase })
+            exempt_row(
+                DIVERGENCES,
+                fluid,
+                Kind::Props,
+                column,
+                RowKey { t: 300.0, input: Some(input), two_phase, p: None },
+            )
         };
         assert_eq!([row("Water", "Q", "DT", false), row("Water", "Q", "DT", true)], [Some("DIV-0037"), None]);
         let g = |input, two_phase| row("R410A", "Gmolar", input, two_phase);
@@ -1610,7 +1694,7 @@ mod tests {
         );
         // DIV-0018: the oracle's PQ cells but p, its input; not its QT or `sa` rows, nor a row whose input is unknown.
         let sat = |column, input| {
-            exempt_row(DIVERGENCES, "Water", Kind::Sat, column, RowKey { t: 400.0, input, two_phase: false })
+            exempt_row(DIVERGENCES, "Water", Kind::Sat, column, RowKey { t: 400.0, input, two_phase: false, p: None })
         };
         assert_eq!(
             [sat("T", Some("p")), sat("sV", Some("p")), sat("p", Some("p")), sat("T", Some("T")), sat("T", None)],
@@ -1619,7 +1703,7 @@ mod tests {
         assert_eq!(exempt_at(DIVERGENCES, "Water", Kind::Sat, "rhoL", 400.0), None);
         // DIV-0019: SES36's two-phase flash rows from 200 K to 220 K, their p only.
         let ses36 = |column, t, two_phase| {
-            exempt_row(DIVERGENCES, "SES36", Kind::Flash, column, RowKey { t, input: None, two_phase })
+            exempt_row(DIVERGENCES, "SES36", Kind::Flash, column, RowKey { t, input: None, two_phase, p: None })
         };
         assert_eq!(
             [ses36("p", 206.0, true), ses36("p", 220.0, true), ses36("p", 206.0, false), ses36("h", 206.0, true)],
@@ -1628,7 +1712,7 @@ mod tests {
         assert_eq!((ses36("p", 199.9, true), ses36("p", 220.1, true)), (None, None));
         // DIV-0020: p, h, s and u of every fluid's PT rows, not of its DT rows, nor ρ.
         let flash = |column, input| {
-            exempt_row(DIVERGENCES, "Water", Kind::Flash, column, RowKey { t: 300.0, input, two_phase: false })
+            exempt_row(DIVERGENCES, "Water", Kind::Flash, column, RowKey { t: 300.0, input, two_phase: false, p: None })
         };
         assert_eq!(
             [flash("p", Some("PT")), flash("u", Some("PT")), flash("rho", Some("PT")), flash("p", Some("DT"))],

@@ -30,7 +30,7 @@ MIXTURES_DIR = ROOT / "reference" / "CoolProp" / "dev" / "mixtures"
 FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
 MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
 KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transport", "sigma", "melt", "refstate", "cubic",
-         "cubic_sat", "mix_alphar", "mix_eos", "mix_crit", "props", "codes"]
+         "cubic_sat", "mix_alphar", "mix_eos", "mix_crit", "mix_flash", "props", "codes"]
 SCRUBBED_PREFIXES = ("COOLPROP_", "PXFLASH_")
 FLUID_COUNT = 136
 
@@ -1129,6 +1129,56 @@ def mix_crit(CP, lock, config, files, args):
     return {"all/mix_crit.csv": text + "".join(lines)}
 
 
+# The `mix_flash` kind (PLAN.md M13.8): CoolProp 8.0.0's PT flash of MIX_CRIT_PAIRS at each MIX_CRIT_Z1, at T = 0.7
+# and 0.85 of the mixture's reducing temperature and three pressures from the oracle's own bubble and dew points
+# there: 1.1 p_bub (a liquid), sqrt(p_bub p_dew) (a split) and 0.9 p_dew (a gas). Columns: Q (-1 for one phase),
+# the bulk molar density and, for a split, the first component's liquid and vapour fractions.
+MIX_FLASH_T = (0.7, 0.85)
+MIX_FLASH_COLUMNS = ["mixture", "z1", "T", "p", "status", "Q", "rhomolar", "x1", "y1"]
+MIX_FLASH_UNITS = ["-", "-", "K", "Pa", "-", "-", "mol/m3", "-", "-"]
+MIX_FLASH_TOL = ["label", "in", "in", "in", "label", "flash", "flash", "flash", "flash"]
+
+
+def mix_flash(CP, lock, config, files, args):
+    """The `mix_flash` kind: all/mix_flash.csv, one row per PT state (an `err` row where the oracle throws; no row
+    where it has no bubble or dew point at T, as above a mixture's cricondentherm)."""
+    lines, floats = [], []
+    for label in MIX_CRIT_PAIRS:
+        for z1 in MIX_CRIT_Z1:
+            for ratio in MIX_FLASH_T:
+                state = CP.AbstractState("HEOS", label)
+                state.set_mole_fractions([z1, 1.0 - z1])
+                t = ratio * state.T_reducing()
+                try:
+                    state.update(CP.QT_INPUTS, 0.0, t)
+                    p_bub = state.p()
+                    state.update(CP.QT_INPUTS, 1.0, t)
+                    p_dew = state.p()
+                except Exception:  # noqa: BLE001 - no saturation at this T: no rows
+                    continue
+                for p in (1.1 * p_bub, math.sqrt(p_bub * p_dew), 0.9 * p_dew):
+                    values = [math.nan] * 4
+                    try:
+                        flash = CP.AbstractState("HEOS", label)
+                        flash.set_mole_fractions([z1, 1.0 - z1])
+                        flash.update(CP.PT_INPUTS, p, t)
+                        q = flash.Q()
+                        two_phase = 0.0 < q < 1.0
+                        x1 = flash.mole_fractions_liquid()[0] if two_phase else math.nan
+                        y1 = flash.mole_fractions_vapor()[0] if two_phase else math.nan
+                        values = [q if two_phase else -1.0, flash.rhomolar(), x1, y1]
+                        status = "ok"
+                    except Exception as exception:  # noqa: BLE001 - the oracle's refusal is a row
+                        status = f"err:{error_class(exception)}"
+                    floats.extend([z1, t, p, *values])
+                    lines.append(",".join([label, cell(z1), cell(t), cell(p), status, *map(cell, values)]) + "\n")
+    fluids = f"{len(MIX_CRIT_PAIRS)} pairs, fluids_sha256={lock['fluids_sha256']}, mixtures_sha256={lock['mixtures_sha256']}"
+    grid = "z1 in {0.25,0.5,0.75}; T in {0.7,0.85} T_r; p in {1.1 p_bub, sqrt(p_bub p_dew), 0.9 p_dew}"
+    text = header("mix_flash", lock, config, fluids, MIX_FLASH_COLUMNS, MIX_FLASH_TOL, floats, units=MIX_FLASH_UNITS,
+                  grid=grid)
+    return {"all/mix_flash.csv": text + "".join(lines)}
+
+
 def mix_eos(CP, lock, config, files, args):
     """The `mix_eos` kind: all/mix_eos.csv over the library's pairs and predefined mixtures (any --tier)."""
     pairs, predefined = mixture_library(lock)
@@ -1919,7 +1969,7 @@ def codes(CP, lock, config, files, args):
 
 
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "cubic": cubic,
-              "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "mix_eos": mix_eos, "mix_crit": mix_crit, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
+              "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "mix_eos": mix_eos, "mix_crit": mix_crit, "mix_flash": mix_flash, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
               "props": props, "codes": codes}
 
 

@@ -10,8 +10,10 @@
 //!   z-weighted gauge.
 //! - Its limits are the components' intersection (ROT-197).
 //!
-//! Until the stability test (M13.8) a flash needs a phase hint: DT is then the state at (T, ρ), PT the density on the
-//! hinted branch through core's public density solve (M13.1). Any other input is `Unsupported`.
+//! A PT flash without a phase hint runs the tangent-plane stability test on the feed's stable root and splits where it
+//! fails (M13.8): a stable feed is labelled from the critical point, a split is two phases of their own compositions,
+//! and a liquid-liquid split is refused (MX4). With a hint, DT is the state at (T, ρ) and PT the density on the hinted
+//! branch through core's public density solve (M13.1). Any other input is `Unsupported`.
 
 use std::sync::{Arc, OnceLock};
 
@@ -23,6 +25,7 @@ use phasekit_core::{
 };
 
 use crate::critical::{CriticalState, Criticality, critical_points};
+use crate::equilibrium::{self, Stability};
 use crate::{Composition, MixtureModel, MultiFluid, Var, gerg};
 
 /// The molar gas constant of every mixture of two or more components, J/(mol·K): CODATA 2018's, CoolProp 8.0.0's
@@ -143,15 +146,131 @@ impl Mixture {
     /// The state at (T, ρ) as `phase`, under `opts`'s domain policy: outside the limits refused, or extrapolated and so
     /// flagged.
     fn state(&self, t: f64, rho: f64, phase: Phase, opts: &FlashOptions) -> Result<State, Error> {
+        self.state_of(&self.z, self.info.molar_mass(), t, rho, phase, opts)
+    }
+
+    /// The state of a phase of mole fractions `x` and molar mass `molar_mass` at (T, ρ), under this mixture's key, so
+    /// that two of them make a split.
+    fn state_of(
+        &self,
+        x: &[f64],
+        molar_mass: f64,
+        t: f64,
+        rho: f64,
+        phase: Phase,
+        opts: &FlashOptions,
+    ) -> Result<State, Error> {
         let inside = self.limits.check_t(t).is_ok();
         if !inside && opts.domain() == DomainPolicy::Enforce {
             self.limits.check_t(t)?;
         }
-        let total = (self.ideal(t, rho, Order::Two) + self.residual(t, rho, Order::Two)).bundle();
-        let total = total.ok_or(Error::InvalidInput { quantity: "density", value: rho })?;
+        let derivs = self.ideal_at(x, t, rho, Order::Two) + self.fluid.residual_at(x, t, rho, Order::Two);
+        let total = derivs.bundle().ok_or(Error::InvalidInput { quantity: "density", value: rho })?;
         let r = self.fluid.gas_constant();
-        let state = State::from_total(self.info.key(), t, rho, r, self.info.molar_mass(), phase, &total)?;
+        let state = State::from_total(self.info.key(), t, rho, r, molar_mass, phase, &total)?;
         Ok(if inside { state } else { state.mark_extrapolated() })
+    }
+
+    /// The molar mass of mole fractions `x`, kg/mol.
+    fn molar_mass_of(&self, x: &[f64]) -> f64 {
+        self.fluid.fluids().zip(x).map(|(f, x)| x * f.info().molar_mass()).sum()
+    }
+
+    /// The equilibrium at (T, p) (PLAN.md M13.8): the tangent-plane test of the feed on its stable root, then the split
+    /// from the unstable trial phase (Wilson's K if that collapses).
+    pub fn equilibrium(&self, t: f64, p: f64) -> Result<Equilibrium, Error> {
+        let feed = equilibrium::at_t_p(self, t, p, &self.z, Order::One)?;
+        let Stability::Unstable(w) = equilibrium::stability(self, t, p, &self.z, &feed)? else {
+            return Ok(Equilibrium::Single { rho: feed.rho });
+        };
+        // The trial phase is the incipient one: the vapour where it is the lighter.
+        let lighter = equilibrium::at_t_p(self, t, p, &w, Order::One)?.rho < feed.rho;
+        let from_trial: Vec<f64> =
+            w.iter().zip(self.z.iter()).map(|(w, z)| if lighter { math::ln(w / z) } else { math::ln(z / w) }).collect();
+        for ln_k in [from_trial, equilibrium::wilson(self, t, p)] {
+            if let Some(s) = equilibrium::split(self, t, p, &self.z, ln_k)? {
+                return Ok(Equilibrium::Split {
+                    beta: s.beta,
+                    x: s.x,
+                    y: s.y,
+                    rho_liquid: s.liquid.rho,
+                    rho_vapour: s.vapour.rho,
+                });
+            }
+        }
+        Err(Error::NoConvergence { strategy: phasekit_core::Strategy::Vle, iterations: 0 })
+    }
+
+    /// A single phase's label (ROT-009): at or above the critical temperature as a pure fluid's (supercritical above
+    /// the critical pressure, else a supercritical gas); below it liquid where ρ > ρ_c(z) (a supercritical liquid above
+    /// p_c), gas otherwise. v8.0.0 compares ρ with ρ_r(z). Without a critical point, ρ_r(z) decides.
+    fn label(&self, t: f64, rho: f64, p: f64) -> Phase {
+        label(self.critical_point().as_ref(), self.fluid.reducing_state(&self.z).1, (t, rho, p))
+    }
+
+    /// The PT flash without a hint: the stable single phase, labelled, or the split's two phases; a split whose two
+    /// phases are both denser than the critical point is liquid-liquid, refused as `Unsupported` (MX4).
+    fn pt(&self, t: f64, p: f64, opts: &FlashOptions) -> Result<State, Error> {
+        match self.equilibrium(t, p)? {
+            Equilibrium::Single { rho } => self.state(t, rho, self.label(t, rho, p), opts),
+            Equilibrium::Split { beta, x, y, rho_liquid, rho_vapour } => {
+                if self.critical_point().is_some_and(|c| rho_liquid.min(rho_vapour) > c.rho) {
+                    return Err(Error::Unsupported { pair: Pair::PT });
+                }
+                let liquid = self.state_of(&x, self.molar_mass_of(&x), t, rho_liquid, Phase::Liquid, opts)?;
+                let vapour = self.state_of(&y, self.molar_mass_of(&y), t, rho_vapour, Phase::Gas, opts)?;
+                State::from_split(liquid, vapour, phasekit_core::Quality::new(beta)?, t, p)
+            }
+        }
+    }
+}
+
+/// A mixture's phase equilibrium at (T, p) ([`Mixture::equilibrium`]).
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum Equilibrium {
+    /// One phase, stable, on its stable root.
+    Single {
+        /// Molar density, mol/m³.
+        rho: f64,
+    },
+    /// Two phases at equal fugacities.
+    Split {
+        /// The vapour's molar fraction of the whole, in (0, 1).
+        beta: f64,
+        /// The liquid's mole fractions.
+        x: Vec<f64>,
+        /// The vapour's mole fractions.
+        y: Vec<f64>,
+        /// The liquid's molar density, mol/m³.
+        rho_liquid: f64,
+        /// The vapour's molar density, mol/m³.
+        rho_vapour: f64,
+    },
+}
+
+/// [`Mixture`]'s label of a single phase at (T, ρ, p) (ROT-009), from its critical point `critical` and, without one, its
+/// reducing density `rho_r`.
+fn label(critical: Option<&CriticalPoint>, rho_r: f64, (t, rho, p): (f64, f64, f64)) -> Phase {
+    match critical {
+        Some(c) if t == c.t && rho == c.rho => Phase::CriticalPoint,
+        Some(c) if t >= c.t => {
+            if p > c.p {
+                Phase::Supercritical
+            } else {
+                Phase::SupercriticalGas
+            }
+        }
+        Some(c) if rho > c.rho => {
+            if p > c.p {
+                Phase::SupercriticalLiquid
+            } else {
+                Phase::Liquid
+            }
+        }
+        Some(_) => Phase::Gas,
+        None if rho > rho_r => Phase::Liquid,
+        None => Phase::Gas,
     }
 }
 
@@ -174,11 +293,32 @@ impl HelmholtzModel for Mixture {
     }
 
     fn ideal(&self, t: f64, rho: f64, order: Order) -> Derivs {
+        self.ideal_at(&self.z, t, rho, order)
+    }
+
+    /// The molar volume's lower bound at T, the components' z-weighted: 1/Σ z_i/ρ_max,i(T).
+    fn rho_max(&self, t: f64) -> f64 {
+        self.rho_max_at(&self.z, t)
+    }
+
+    fn zero_density(&self, t: f64) -> Option<Virials> {
+        self.fluid.virials(&self.z, t)
+    }
+
+    fn reducing(&self) -> Option<Reducing> {
+        let (t, rho) = self.fluid.reducing_state(&self.z);
+        Some(Reducing { t, rho, p: None })
+    }
+}
+
+impl Mixture {
+    /// α⁰ at mole fractions `x` of this mixture's components (a phase's; [`HelmholtzModel::ideal`] at z).
+    pub(crate) fn ideal_at(&self, x: &[f64], t: f64, rho: f64, order: Order) -> Derivs {
         let ln_rho = math::ln(rho);
         let parts: Vec<(f64, f64, Derivs)> = self
             .fluid
             .fluids()
-            .zip(self.z.iter().zip(self.r_ratio.iter()))
+            .zip(x.iter().zip(self.r_ratio.iter()))
             .map(|(f, (z, r))| {
                 let d = f.model().helmholtz().map(|m| m.ideal(t, rho, order));
                 (*z * r, math::ln(*z), d.unwrap_or_else(|| Derivs::from_fn(order, |_, _| f64::NAN)))
@@ -196,24 +336,15 @@ impl HelmholtzModel for Mixture {
         })
     }
 
-    /// The molar volume's lower bound at T, the components' z-weighted: 1/Σ z_i/ρ_max,i(T).
-    fn rho_max(&self, t: f64) -> f64 {
+    /// The molar volume's lower bound at T for mole fractions `x`, the components' x-weighted: 1/Σ x_i/ρ_max,i(T).
+    pub(crate) fn rho_max_at(&self, x: &[f64], t: f64) -> f64 {
         let volume: f64 = self
             .fluid
             .fluids()
-            .zip(self.z.iter())
-            .map(|(f, z)| z / f.model().helmholtz().map_or(f64::NAN, |m| m.rho_max(t)))
+            .zip(x.iter())
+            .map(|(f, x)| x / f.model().helmholtz().map_or(f64::NAN, |m| m.rho_max(t)))
             .sum();
         1.0 / volume
-    }
-
-    fn zero_density(&self, t: f64) -> Option<Virials> {
-        self.fluid.virials(&self.z, t)
-    }
-
-    fn reducing(&self) -> Option<Reducing> {
-        let (t, rho) = self.fluid.reducing_state(&self.z);
-        Some(Reducing { t, rho, p: None })
     }
 }
 
@@ -228,7 +359,12 @@ impl ThermoModel for Mixture {
 
     fn flash(&self, input: NativeInput, opts: &FlashOptions) -> Result<State, Error> {
         let (pair, (x, y)) = (input.pair(), input.values());
-        let Some(phase) = opts.phase_hint() else { return Err(Error::Unsupported { pair }) };
+        let Some(phase) = opts.phase_hint() else {
+            return match pair {
+                Pair::PT => self.pt(y, x, opts),
+                _ => Err(Error::Unsupported { pair }),
+            };
+        };
         match pair {
             Pair::DT => self.state(y, x, phase, opts),
             Pair::PT => {
@@ -295,4 +431,30 @@ fn trimmed<'a>(components: &[(&'a str, f64)]) -> Result<(Vec<&'a str>, Vec<f64>)
     let z: Vec<f64> = components.iter().map(|(_, x)| *x).collect();
     validated(&z)?;
     Ok(components.iter().filter(|(_, x)| *x != 0.0).map(|&(n, x)| (n, x)).unzip())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ROT-009's labels: at the critical point itself `CriticalPoint`; at or above T_c supercritical above p_c and a
+    /// supercritical gas at or below it; below T_c a supercritical liquid above p_c and a liquid at or below it where ρ >
+    /// ρ_c, a gas where ρ ≤ ρ_c; without a critical point liquid where ρ > ρ_r, else gas.
+    #[test]
+    fn single_phases_are_labelled_from_the_critical_point() {
+        let c = CriticalPoint { t: 250.0, p: 5e6, rho: 9000.0, origin: CriticalOrigin::Model };
+        let at = |t: f64, rho: f64, p: f64| label(Some(&c), 1.0, (t, rho, p));
+        assert_eq!(at(250.0, 9000.0, 5e6), Phase::CriticalPoint);
+        assert_eq!(
+            (at(250.0, 9000.1, 5e6), at(250.0, 8999.9, 5e6 + 1.0)),
+            (Phase::SupercriticalGas, Phase::Supercritical)
+        );
+        assert_eq!((at(260.0, 100.0, 5e6), at(260.0, 100.0, 6e6)), (Phase::SupercriticalGas, Phase::Supercritical));
+        assert_eq!((at(240.0, 9000.1, 5e6), at(240.0, 9000.1, 5e6 + 1.0)), (Phase::Liquid, Phase::SupercriticalLiquid));
+        assert_eq!((at(240.0, 9000.0, 6e6), at(240.0, 100.0, 1e5)), (Phase::Gas, Phase::Gas));
+        assert_eq!(
+            (label(None, 7000.0, (240.0, 7000.1, 1e5)), label(None, 7000.0, (240.0, 7000.0, 1e5))),
+            (Phase::Liquid, Phase::Gas)
+        );
+    }
 }

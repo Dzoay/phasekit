@@ -12,6 +12,7 @@ mod critical;
 #[cfg_attr(not(test), expect(dead_code, reason = "the predefined mixtures are built from PLAN.md M13.13"))]
 mod data;
 mod departure;
+mod equilibrium;
 #[cfg_attr(not(test), expect(dead_code, reason = "the predefined mixtures are built from PLAN.md M13.13"))]
 #[rustfmt::skip] // datagen's output, one table row a line (`gates datagen` compares it byte for byte)
 mod generated;
@@ -24,7 +25,7 @@ mod taylor;
 pub use composition::{Composition, MixtureModel, Var};
 pub use critical::{CriticalState, Criticality};
 pub use gerg::{PREFIX as GERG_PREFIX, R_GERG, with_gerg2008};
-pub use mixture::{Mixture, R_CODATA, gerg2008, mixture};
+pub use mixture::{Equilibrium, Mixture, R_CODATA, gerg2008, mixture};
 pub use multifluid::MultiFluid;
 
 /// What `cargo xtask` and the verification kit read of the crate's data; not a stable API.
@@ -46,6 +47,12 @@ pub mod internal {
     /// its M*, whose ideal part is unweighted where its α⁰ weights each ln x_i (DIV-0052, PLAN.md M13.7).
     pub fn critical_points_with_unit_weights(mixture: &crate::Mixture) -> Vec<crate::CriticalState> {
         mixture.critical_points_weighted(&vec![1.0; mixture.composition().len()])
+    }
+
+    /// The stable density root of `model` at (T, p) as the PT flash selects it: of the roots on the two branches, those
+    /// their branch reaches with the pressure rising, the one of least Gibbs energy (PLAN.md M13.8).
+    pub fn stable_root(model: &dyn phasekit_core::HelmholtzModel, t: f64, p: f64) -> Result<f64, phasekit_core::Error> {
+        crate::equilibrium::stable_root(model, t, p)
     }
 }
 
