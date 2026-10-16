@@ -42,6 +42,8 @@ export class DiagramView {
   readonly #cache = new Map<string, DiagramData>();
   #sequence = 0;
   #pointer = 0;
+  #flying = false;
+  #latest: [Key, number, Key, number] | null = null;
 
   constructor(engine: Engine) {
     this.#engine = engine;
@@ -76,26 +78,37 @@ export class DiagramView {
     this.id = id;
   }
 
-  /** The state at a pixel's inputs, from the engine; a later point's answer replaces an earlier one's. */
+  /** The state at a pixel's inputs, from the engine. One flash is in flight at a time: points that come meanwhile
+   *  wait in one place, the latest replacing the rest, and only an answer for the latest point is shown. */
   point(inputs: [Key, number, Key, number]): void {
-    // Stryker disable next-line UpdateOperator: any counter that numbers each point apart works; down as up.
-    const mine = ++this.#pointer;
+    this.#pointer += 1;
+    this.#latest = inputs;
+    if (!this.#flying) this.#flash();
+  }
+
+  /** The cursor has left the plot: no readout, none that arrives late, and no waiting point. */
+  leave(): void {
+    this.#pointer += 1;
+    this.#latest = null;
+    this.readout = null;
+  }
+
+  #flash(): void {
+    const inputs = this.#latest;
+    if (!inputs) return;
+    [this.#latest, this.#flying] = [null, true];
+    const mine = this.#pointer;
+    const done = (readout: Readout) => {
+      this.#flying = false;
+      if (mine === this.#pointer) this.readout = readout;
+      this.#flash();
+    };
     const [name1, value1, name2, value2] = inputs;
     const request = { op: "state" as const, fluid: this.fluid, name1, value1, name2, value2 };
     this.#engine.call({ ...request, outputs: [...READOUT_KEYS] }).then(
-      (state) => {
-        if (mine === this.#pointer) this.readout = { inputs, state, refusal: null };
-      },
-      (e: unknown) => {
-        if (mine === this.#pointer) this.readout = { inputs, state: null, refusal: message(e) };
-      },
+      (state) => done({ inputs, state, refusal: null }),
+      (e: unknown) => done({ inputs, state: null, refusal: message(e) }),
     );
-  }
-
-  /** The cursor has left the plot: no readout, and none that arrives late. */
-  leave(): void {
-    this.#pointer += 1;
-    this.readout = null;
   }
 
   /** The wiring: the route loads the view, the view writes the URL, and a fluid and diagram load their geometry.
