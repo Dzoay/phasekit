@@ -318,7 +318,6 @@
       {/each}
     </div>
   </fieldset>
-  <div class="fluid-data"><FluidOrigin fluid={view.fluid} /></div>
 </div>
 
 <div class="layout">
@@ -547,6 +546,9 @@
   </aside>
 </div>
 
+<!-- Below the page's content, so its lines never move the plot (PLAN.md M21.4). -->
+<div class="fluid-data"><FluidOrigin fluid={view.fluid} /></div>
+
 <span class="probe" bind:this={probe} aria-hidden="true"></span>
 
 <style>
@@ -567,7 +569,8 @@
   }
 
   .controls {
-    --picker-padding: 5px 10px;
+    --picker-padding: 6px 10px;
+    --picker-height: 35px;
     display: flex;
     flex-wrap: wrap;
     gap: 16px 24px;
@@ -577,7 +580,7 @@
   }
 
   .fluid-data {
-    flex-basis: 100%;
+    margin-top: 16px;
   }
 
   .field {

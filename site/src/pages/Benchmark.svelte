@@ -59,7 +59,6 @@
   <button type="button" class="run" onclick={() => view.start()} disabled={view.running} data-testid="run">
     {view.running ? "Running…" : "Run"}
   </button>
-  <div class="fluid-data"><FluidOrigin fluid={view.fluid} /></div>
 </div>
 
 <section class="card results" data-testid="bench" data-state={view.running ? "running" : run ? "done" : "idle"}>
@@ -112,6 +111,9 @@
   {/if}
 </section>
 
+<!-- Below the page's content, so its lines never move the plot (PLAN.md M21.4). -->
+<div class="fluid-data"><FluidOrigin fluid={view.fluid} /></div>
+
 <style>
   .intro {
     max-width: 760px;
@@ -130,7 +132,8 @@
   }
 
   .controls {
-    --picker-padding: 5px 10px;
+    --picker-padding: 6px 10px;
+    --picker-height: 35px;
     display: flex;
     flex-wrap: wrap;
     gap: 16px 24px;
@@ -140,7 +143,7 @@
   }
 
   .fluid-data {
-    flex-basis: 100%;
+    margin-top: 16px;
   }
 
   .field {

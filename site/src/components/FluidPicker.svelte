@@ -71,10 +71,11 @@
     min-width: 14em;
   }
 
-  /* A page's controls row sets --picker-padding to its own controls'. */
+  /* A page's row of controls sets --picker-padding and --picker-height to those of its selects. */
   input {
     width: 100%;
     min-width: 0;
+    height: var(--picker-height, auto);
     background: var(--surface);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-sm);

@@ -13,15 +13,18 @@
 </div>
 
 <style>
+  /* Each line keeps its height while its text is on its way, so nothing below it moves. */
   .origin {
     display: grid;
     gap: 2px;
     font-size: 13px;
+    line-height: 18px;
     color: var(--fg-muted);
   }
 
   p {
     margin: 0;
+    min-height: 18px;
   }
 
   .error {
