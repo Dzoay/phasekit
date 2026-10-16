@@ -87,6 +87,8 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0058", div_0058),
     ("DIV-0059", div_0059),
     ("DIV-0060", div_0060),
+    ("DIV-0061", div_0061),
+    ("DIV-0062", div_0062),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1654,6 +1656,62 @@ fn div_0060() {
     let ((xs, rho_l), (ys, rho_v)) = mix_sat::phases(mix, phasekit_mix::Side::Bubble, &ours);
     let phasekit = worst(ours.t, ours.p, (&xs, rho_l), (&ys, rho_v));
     assert!(oracle > 1e-6 && phasekit <= 1e-12, "{oracle:e} against {phasekit:e}");
+}
+
+/// The `mix_flash` row of `label` at z₁, `pair`, T and (for QT and PQ) Q.
+fn mix_flash_row(label: &str, z1: f64, pair: &str, t: f64, q: Option<f64>) -> mix_flash::FlashRow {
+    mix_flash::rows_of(pair)
+        .into_iter()
+        .find(|o| o.label == label && o.z1 == z1 && (o.t - t).abs() < 0.01 && q.is_none_or(|q| o.q == q))
+        .unwrap()
+}
+
+/// DIV-0061 (`SkipOracle`, PLAN.md M13.10): R32/R125 at z₁ 0.5 and 246.72 K, at the bulk density of the oracle's PT
+/// split at √(p_bub p_dew): (1) its DT is one phase (Q −1) at the homogeneous state's p(T, ρ), 513.0 kPa, within
+/// `Flash`; (2) phasekit's DT is the split at the PT row's p and Q within DIV-0060's 5e-7; (3) the split's molar
+/// Helmholtz energy lies below the homogeneous state's.
+fn div_0061() {
+    let label = "R32&R125";
+    let pt = mix_flash::rows_of("PT");
+    let twin =
+        pt.iter().find(|o| o.label == label && o.z1 == 0.5 && (o.t - 246.716).abs() < 0.01 && o.q > 0.0).unwrap();
+    let dt_rows = mix_flash::rows_of("DT");
+    let row = dt_rows.iter().find(|o| o.label == label && o.t == twin.t && o.rho == twin.rho).unwrap();
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let fluid = mix_flash::binary(&registry, label, row.z1);
+    let dt = |opts: &FlashOptions| {
+        fluid.flash(Input::new(phasekit_core::Pair::DT, row.rho, row.t, Basis::Molar).unwrap(), opts).unwrap()
+    };
+    let homogeneous = dt(&FlashOptions::new().with_phase(Phase::Gas));
+    assert!(row.q == -1.0 && (homogeneous.p() / row.p - 1.0).abs() <= 1e-9 && (row.p - 513_000.0).abs() < 100.0);
+    let split = dt(&FlashOptions::new());
+    let q = split.quality().unwrap();
+    assert!((split.p() / twin.p - 1.0).abs() <= 5e-7 && (q / twin.q - 1.0).abs() <= 5e-7, "{} {q}", split.p());
+    assert!(
+        split.a(Basis::Molar) < homogeneous.a(Basis::Molar),
+        "{} {}",
+        split.a(Basis::Molar),
+        homogeneous.a(Basis::Molar)
+    );
+}
+
+/// DIV-0062 (`SkipOracle`, PLAN.md M13.10): Methane/n-Butane at z₁ 0.75, QT at 181.43 K and Q 0.5: (1) the oracle's own
+/// phases miss the feed, (1 − Q) x₁ + Q y₁ more than 7e-3 from z₁; (2) its p is more than 2e-2 from phasekit's; (3)
+/// phasekit's phases add up to the feed within 1e-15 and their fugacities are equal within `Identity`.
+fn div_0062() {
+    let label = "Methane&n-Butane";
+    let row = mix_flash_row(label, 0.75, "QT", 181.425, Some(0.5));
+    assert!(((1.0 - row.q) * row.x1 + row.q * row.y1 - row.z1).abs() > 7e-3, "{} {}", row.x1, row.y1);
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let fluid = mix_flash::binary(&registry, label, row.z1);
+    let mix = mix_flash::mixture(&fluid);
+    let c = mix.coexisting(row.q, phasekit_mix::Given::T(row.t)).unwrap();
+    assert!((c.p / row.p - 1.0).abs() > 2e-2, "{} against {}", c.p, row.p);
+    for (i, z) in mix.composition().iter().enumerate() {
+        assert!(((1.0 - c.beta) * c.x[i] + c.beta * c.y[i] - z).abs() <= 1e-15);
+    }
+    let differences = mix_sat::fugacity_differences(mix, c.t, c.p, (&c.x, c.rho_liquid), (&c.y, c.rho_vapour));
+    assert!(differences.iter().all(|(d, bound)| d.abs() <= *bound), "{differences:?}");
 }
 
 /// DIV-0055 (`KeepOracle`, PLAN.md M13.5): AGA8's binary test set comes from an implementation whose θ_k are TM15's

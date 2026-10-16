@@ -197,19 +197,16 @@ fn blends_meet_their_pseudo_pure_ancillaries() {
     }
 }
 
-/// QT and PQ serve Q = 0 and 1 only until M13.10: a Q inside (0, 1) is `Unsupported`. PQ at QT's bubble and dew
-/// pressures returns QT's temperature within `Flash`. A given T below the mixture's T_min is refused before the solve.
+/// PQ at QT's bubble and dew pressures returns QT's temperature within `Flash`, and at the pressure of QT at Q = 0.5
+/// (M13.10) its temperature too. A given T below the mixture's T_min is refused before the solve.
 #[test]
 fn quality_inputs_are_the_saturation_points() {
     let registry = registry();
     let fluid = phasekit_mix::mixture(&registry, &[("CarbonDioxide", 0.5), ("Methane", 0.5)], DataSet::Parity).unwrap();
-    for q in [0.0, 1.0] {
+    for q in [0.0, 0.5, 1.0] {
         let p = flash(&fluid, Pair::QT, q, 230.0).unwrap().p();
         let t = flash(&fluid, Pair::PQ, q, p).unwrap().t();
         assert!((t - 230.0).abs() <= ToleranceClass::Flash.bound(230.0).unwrap(), "Q {q}: {t} K at {p} Pa");
-        for (pair, x) in [(Pair::QT, 230.0), (Pair::PQ, p)] {
-            assert_eq!(flash(&fluid, pair, 0.5, x).err(), Some(Error::Unsupported { pair }));
-        }
     }
     let t_min = fluid.model().limits().unwrap().t_min();
     let below = flash(&fluid, Pair::QT, 0.0, 200.0).err();

@@ -16,6 +16,7 @@ mod equilibrium;
 #[rustfmt::skip] // datagen's output, one table row a line (`gates datagen` compares it byte for byte)
 mod generated;
 mod gerg;
+mod illinois;
 mod mixture;
 mod multifluid;
 mod reducing;

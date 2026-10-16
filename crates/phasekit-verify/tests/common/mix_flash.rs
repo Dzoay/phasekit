@@ -1,4 +1,4 @@
-//! A mixture's PT equilibria (PLAN.md M13.8): the oracle's `mix_flash` rows, the binaries they belong to, and each
+//! A mixture's equilibria (PLAN.md M13.8, M13.10): the oracle's `mix_flash` rows, the binaries they belong to, and each
 //! phase's fugacities and Gibbs energy on its stable root.
 
 #![allow(dead_code, reason = "each test binary that includes the rows uses its part of them")]
@@ -7,33 +7,38 @@ use phasekit_core::{DataSet, Fluid, Order, Registry, math};
 use phasekit_mix::{Equilibrium, Mixture};
 use phasekit_verify::{Fixture, ToleranceClass, fixture};
 
-/// One of `mix_flash`'s PT flashes.
+/// One of `mix_flash`'s flashes.
+#[derive(Clone, Debug)]
 pub struct FlashRow {
     /// The binary, "A&B".
     pub label: String,
     /// The first component's mole fraction.
     pub z1: f64,
-    /// T (K) and p (Pa), the inputs.
+    /// The input pair: "PT", "QT", "PQ" or "DT".
+    pub pair: String,
+    /// T (K) and p (Pa): the inputs of PT, one input and one output of QT and PQ, DT's input T and output p.
     pub t: f64,
     pub p: f64,
-    /// Q (−1 for one phase), the bulk molar density, and a split's first liquid and vapour fractions (NaN otherwise).
+    /// Q (−1 for one phase; QT's and PQ's input), the bulk molar density (DT's input), and a split's first liquid and
+    /// vapour fractions (NaN otherwise).
     pub q: f64,
     pub rho: f64,
     pub x1: f64,
     pub y1: f64,
 }
 
-/// Every row the oracle flashed (`status` ok), in the file's order.
-pub fn flash_rows() -> Vec<FlashRow> {
+/// Every row of `pair` the oracle flashed (`status` ok), in the file's order.
+pub fn rows_of(pair: &str) -> Vec<FlashRow> {
     let (path, text) = fixture!("coolprop-8.0.0/all/mix_flash.csv");
     let table = Fixture::parse(path, text).unwrap();
     (0..table.rows().len())
-        .filter(|&row| table.printed(row, "status") == Some("ok"))
+        .filter(|&row| table.printed(row, "status") == Some("ok") && table.printed(row, "pair") == Some(pair))
         .map(|row| {
             let value = |column: &str| table.value(row, column).unwrap();
             FlashRow {
                 label: table.printed(row, "mixture").unwrap().to_string(),
                 z1: value("z1"),
+                pair: pair.to_string(),
                 t: value("T"),
                 p: value("p"),
                 q: value("Q"),
@@ -43,6 +48,11 @@ pub fn flash_rows() -> Vec<FlashRow> {
             }
         })
         .collect()
+}
+
+/// Every PT row the oracle flashed (`status` ok), in the file's order (PLAN.md M13.8).
+pub fn flash_rows() -> Vec<FlashRow> {
+    rows_of("PT")
 }
 
 /// The binary `label` at `z1` on `Parity`, the oracle's data.

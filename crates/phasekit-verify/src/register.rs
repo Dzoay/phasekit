@@ -96,6 +96,10 @@ pub enum Rows {
     At(&'static [f64]),
     /// Rows at exactly these (T (K), p (Pa)), as the fixture prints them.
     AtTP(&'static [(f64, f64)]),
+    /// The `mix_flash` kind's DT rows whose state is two-phase.
+    DtTwoPhase,
+    /// Rows whose own two phases do not add up to their feed (`RowKey::balanced`).
+    Unbalanced,
 }
 
 /// What a row is known by when the register is asked about it: its temperature, the input label of a `sat` row or the
@@ -110,6 +114,9 @@ pub struct RowKey<'a> {
     pub two_phase: bool,
     /// The row's pressure (Pa), where the kind has one as an input.
     pub p: Option<f64>,
+    /// Whether the row's own two phases, where it reports them, add up to its feed (the `mix_flash` kind's QT and PQ
+    /// rows, within 1e-9); true for every other row.
+    pub balanced: bool,
 }
 
 /// The oracle cells a `SkipOracle` entry does not assert on Parity; the tests count them.
@@ -1507,6 +1514,44 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[13],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0061",
+        fluids: &["*"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_mix::mixture"),
+        evidence: "map 04 #17: v8.0.0's DT of a mixture tests the stability of the feed at (T, p(T, rho)) on its own \
+                   root at that p, not of the state at rho (FlashRoutines.cpp:3932-3946); where that root is stable it \
+                   returns the homogeneous state at rho. Its DT at the bulk density of its own PT splits returns one \
+                   phase at the EOS pressure: R32/R125 at z1 0.5, 246.72 K and 302.17 mol/m3 at 513.0 kPa, where the \
+                   PT split lies at 301.2 kPa with Q 0.529. phasekit's DT tests the state at rho itself and returns \
+                   the split, of lower Helmholtz energy, the PT row's p and Q (M13.10)",
+        exempt: Some(Exempt { kinds: &[Kind::MixFlash], columns: &["*"], rows: Rows::DtTwoPhase }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0062",
+        fluids: &["*"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_mix::saturation"),
+        evidence: "map 04 #2 (ROT-182): v8.0.0 solves QT and PQ at 0 < Q < 1 with its bubble and dew Newton, whose \
+                   residual has no mass balance (FlashRoutines.cpp:1022, :1342; VLERoutines.cpp:1490-1561). Of \
+                   mix_flash's QT and PQ rows, those whose own phases miss the feed by more than 1e-9 do so by up to \
+                   7.6e-3 (Methane/n-Butane at z1 0.75, 181.43 K, Q 0.5: (1 - Q) x1 + Q y1 is 0.7576), and their p or \
+                   T sit up to 3.1e-2 from phasekit's, whose phases add up to the feed by construction. The 45 such \
+                   rows are skipped; the others are phasekit's within 9.1e-9, inside DIV-0060's 5e-7 (M13.10)",
+        exempt: Some(Exempt { kinds: &[Kind::MixFlash], columns: &["*"], rows: Rows::Unbalanced }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The output columns of the `cubic` and `cubic_sat` kinds (PLAN.md M11.4, M11.5).
@@ -1533,7 +1578,7 @@ const CUBIC_COLUMNS: [&str; 17] = [
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an
 /// exemption of every row, of a temperature band or of listed temperatures (the others need more than T to decide).
 pub fn exempt_at(register: &[Divergence], fluid: &str, kind: Kind, column: &str, t: f64) -> Option<&'static str> {
-    exempt_row(register, fluid, kind, column, RowKey { t, input: None, two_phase: false, p: None })
+    exempt_row(register, fluid, kind, column, RowKey { t, input: None, two_phase: false, p: None, balanced: true })
 }
 
 /// [`exempt_at`] for a row known by more than its T ([`RowKey`]): [`Rows::TwoPhase`] exempts the two-phase rows,
@@ -1547,7 +1592,7 @@ pub fn exempt_row(
     column: &str,
     row: RowKey<'_>,
 ) -> Option<&'static str> {
-    let RowKey { t, input, two_phase, p } = row;
+    let RowKey { t, input, two_phase, p, balanced } = row;
     let applies = |d: &&Divergence| {
         let Some(e) = &d.exempt else { return false };
         let rows = match e.rows {
@@ -1562,6 +1607,8 @@ pub fn exempt_row(
             Rows::PtInputs => input == Some("PT"),
             Rows::At(list) => list.contains(&t),
             Rows::AtTP(list) => p.is_some_and(|p| list.contains(&(t, p))),
+            Rows::DtTwoPhase => input == Some("DT") && two_phase,
+            Rows::Unbalanced => !balanced,
             _ => false,
         };
         (d.fluids.contains(&fluid) || d.fluids == ["*"])
@@ -1690,7 +1737,13 @@ mod tests {
         assert_eq!(at("B", Kind::Sat, "p", 9.0), Some("DIV-0102"));
         assert_eq!(at("B", Kind::Props, "p", 9.0), None, "two-phase rows need more than T");
         let props = |two_phase| {
-            exempt_row(&register, "B", Kind::Props, "p", RowKey { t: 9.0, input: None, two_phase, p: None })
+            exempt_row(
+                &register,
+                "B",
+                Kind::Props,
+                "p",
+                RowKey { t: 9.0, input: None, two_phase, p: None, balanced: true },
+            )
         };
         assert_eq!([props(true), props(false)], [Some("DIV-0103"), None]);
         // DIV-0037 and DIV-0043: a single-phase or saturated row's Q; a pseudo-pure fluid's saturated g (QT at 0 or 1).
@@ -1700,7 +1753,7 @@ mod tests {
                 fluid,
                 Kind::Props,
                 column,
-                RowKey { t: 300.0, input: Some(input), two_phase, p: None },
+                RowKey { t: 300.0, input: Some(input), two_phase, p: None, balanced: true },
             )
         };
         assert_eq!([row("Water", "Q", "DT", false), row("Water", "Q", "DT", true)], [Some("DIV-0037"), None]);
@@ -1716,7 +1769,13 @@ mod tests {
         );
         // DIV-0018: the oracle's PQ cells but p, its input; not its QT or `sa` rows, nor a row whose input is unknown.
         let sat = |column, input| {
-            exempt_row(DIVERGENCES, "Water", Kind::Sat, column, RowKey { t: 400.0, input, two_phase: false, p: None })
+            exempt_row(
+                DIVERGENCES,
+                "Water",
+                Kind::Sat,
+                column,
+                RowKey { t: 400.0, input, two_phase: false, p: None, balanced: true },
+            )
         };
         assert_eq!(
             [sat("T", Some("p")), sat("sV", Some("p")), sat("p", Some("p")), sat("T", Some("T")), sat("T", None)],
@@ -1725,7 +1784,13 @@ mod tests {
         assert_eq!(exempt_at(DIVERGENCES, "Water", Kind::Sat, "rhoL", 400.0), None);
         // DIV-0019: SES36's two-phase flash rows from 200 K to 220 K, their p only.
         let ses36 = |column, t, two_phase| {
-            exempt_row(DIVERGENCES, "SES36", Kind::Flash, column, RowKey { t, input: None, two_phase, p: None })
+            exempt_row(
+                DIVERGENCES,
+                "SES36",
+                Kind::Flash,
+                column,
+                RowKey { t, input: None, two_phase, p: None, balanced: true },
+            )
         };
         assert_eq!(
             [ses36("p", 206.0, true), ses36("p", 220.0, true), ses36("p", 206.0, false), ses36("h", 206.0, true)],
@@ -1734,7 +1799,13 @@ mod tests {
         assert_eq!((ses36("p", 199.9, true), ses36("p", 220.1, true)), (None, None));
         // DIV-0020: p, h, s and u of every fluid's PT rows, not of its DT rows, nor ρ.
         let flash = |column, input| {
-            exempt_row(DIVERGENCES, "Water", Kind::Flash, column, RowKey { t: 300.0, input, two_phase: false, p: None })
+            exempt_row(
+                DIVERGENCES,
+                "Water",
+                Kind::Flash,
+                column,
+                RowKey { t: 300.0, input, two_phase: false, p: None, balanced: true },
+            )
         };
         assert_eq!(
             [flash("p", Some("PT")), flash("u", Some("PT")), flash("rho", Some("PT")), flash("p", Some("DT"))],
