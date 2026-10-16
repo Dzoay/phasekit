@@ -79,6 +79,17 @@ jobs:
         run: |
           git config --global --add safe.directory '*'
           scripts/fetch-coolprop.sh
+      - name: AGA8 checkout cache
+        id: aga8
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reference/AGA8
+          key: aga8-${{ hashFiles('scripts/fetch-aga8.sh') }} # the script pins the commit
+      - name: Fetch AGA8
+        if: steps.aga8.outputs.cache-hit != 'true'
+        run: |
+          git config --global --add safe.directory '*'
+          scripts/fetch-aga8.sh
       - name: The committed oracle fixtures (from MANIFEST.sha256)
         id: sets
         run: echo "facts=$(grep -oE 'coolprop-8\.0\.0/facts/[a-z0-9_]+\.csv' "$FIXTURES/MANIFEST.sha256" | sed -E 's|.*/||; s|\.csv$||' | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
@@ -113,6 +124,8 @@ jobs:
           cargo xtask oracle --kind transport --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind transport --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind transport --set probes --out "$FIXTURES/coolprop-8.0.0" --write-manifest
+          cargo xtask teqp --kind aga8 --out "$FIXTURES" --write-manifest
+          cargo xtask teqp --kind gerg --out "$FIXTURES" --write-manifest
       - name: Upload the regenerated fixtures
         if: inputs.regenerate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -166,6 +179,9 @@ jobs:
             cargo xtask oracle --kind transport --tier all --out "$FIXTURES/coolprop-8.0.0" --check
             cargo xtask oracle --kind transport --set probes --out "$FIXTURES/coolprop-8.0.0" --check
             echo "pass $pass: transport/*.csv and all/transport.csv identical"
+            cargo xtask teqp --kind aga8 --out "$FIXTURES" --check
+            cargo xtask teqp --kind gerg --out "$FIXTURES" --check
+            echo "pass $pass: aga8/*.csv and teqp-0.23.2/gerg/*.csv identical"
           done
       - name: The full set into fixtures-full/
         run: |

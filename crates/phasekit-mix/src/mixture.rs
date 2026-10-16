@@ -21,7 +21,7 @@ use phasekit_core::{
     Limits, ModelKey, NativeInput, Order, Pair, Phase, Reducing, Registry, Source, State, ThermoModel, Virials, math,
 };
 
-use crate::MultiFluid;
+use crate::{MultiFluid, gerg};
 
 /// The molar gas constant of every mixture of two or more components, J/(mol·K): CODATA 2018's, CoolProp 8.0.0's
 /// `R_U_CODATA` (user decision MX3).
@@ -64,8 +64,11 @@ impl Mixture {
         }
         let fluids: Vec<&Fluid> = fluid.fluids().collect();
         let model = |f: &Fluid| f.model().helmholtz().map(|m| m.gas_constant()).unwrap_or(f64::NAN);
-        let r_ratio = fluids.iter().map(|f| model(f) / R_CODATA).collect();
-        let name = fluids.iter().zip(z).map(|(f, x)| format!("{}[{x}]", f.info().name())).collect::<Vec<_>>().join("&");
+        let r_ratio = fluids.iter().map(|f| model(f) / fluid.gas_constant()).collect();
+        let prefix = fluid.prefix();
+        let label = |f: &Fluid| f.info().name().strip_prefix(prefix).unwrap_or(f.info().name()).to_string();
+        let parts: Vec<String> = fluids.iter().zip(z).map(|(f, x)| format!("{}[{x}]", label(f))).collect();
+        let name = format!("{prefix}{}", parts.join("&"));
         let molar_mass = fluids.iter().zip(z).map(|(f, x)| x * f.info().molar_mass()).sum();
         let mut content = name.clone().into_bytes();
         for f in &fluids {
@@ -96,7 +99,8 @@ impl Mixture {
         }
         let total = (self.ideal(t, rho, Order::Two) + self.residual(t, rho, Order::Two)).bundle();
         let total = total.ok_or(Error::InvalidInput { quantity: "density", value: rho })?;
-        let state = State::from_total(self.info.key(), t, rho, R_CODATA, self.info.molar_mass(), phase, &total)?;
+        let r = self.fluid.gas_constant();
+        let state = State::from_total(self.info.key(), t, rho, r, self.info.molar_mass(), phase, &total)?;
         Ok(if inside { state } else { state.mark_extrapolated() })
     }
 }
@@ -112,7 +116,7 @@ fn intersection(fluids: &[&Fluid]) -> Result<Limits, Error> {
 
 impl HelmholtzModel for Mixture {
     fn gas_constant(&self) -> f64 {
-        R_CODATA
+        self.fluid.gas_constant()
     }
 
     fn residual(&self, t: f64, rho: f64, order: Order) -> Derivs {
@@ -202,14 +206,30 @@ impl ThermoModel for Mixture {
 /// (ROT-192), the rest validated (ROT-193); one component left is that pure fluid itself, from `registry` (bitwise,
 /// under any gauge; ROT-099, ROT-208), two or more a [`Mixture`] on `data_set`'s library.
 pub fn mixture(registry: &Registry, components: &[(&str, f64)], data_set: DataSet) -> Result<Fluid, Error> {
-    let z: Vec<f64> = components.iter().map(|(_, x)| *x).collect();
-    validated(&z)?;
-    let kept: Vec<(&str, f64)> = components.iter().copied().filter(|(_, x)| *x != 0.0).collect();
-    if let [(one, _)] = kept[..] {
+    let (names, fractions) = trimmed(components)?;
+    if let [one] = names[..] {
         return registry.resolve(one);
     }
-    let names: Vec<&str> = kept.iter().map(|(n, _)| *n).collect();
-    let fractions: Vec<f64> = kept.iter().map(|(_, x)| *x).collect();
     let mixture = Mixture::new(MultiFluid::new(registry, &names, data_set)?, &fractions)?;
     Ok(Fluid::new(Arc::new(mixture)))
+}
+
+/// GERG-2008's fluid of `components` (names, alias or CAS in `registry`, with mole fractions; PLAN.md M13.5), trimmed
+/// and validated as [`mixture`]'s: one component left is GERG's pure fluid, `GERG2008::<name>`, bit for bit the one
+/// [`crate::with_gerg2008`] registers; two or more a [`Mixture`] on [`MultiFluid::gerg2008`].
+pub fn gerg2008(registry: &Registry, components: &[(&str, f64)]) -> Result<Fluid, Error> {
+    let (names, fractions) = trimmed(components)?;
+    if let [one] = names[..] {
+        let (i, fluid) = gerg::component(registry, one)?;
+        return Ok(Fluid::new(Arc::new(gerg::pure_fluid(i, &fluid)?)));
+    }
+    let mixture = Mixture::new(MultiFluid::gerg2008(registry, &names)?, &fractions)?;
+    Ok(Fluid::new(Arc::new(mixture)))
+}
+
+/// `components` validated (ROT-193), its zero fractions trimmed (ROT-192): the names and fractions left.
+fn trimmed<'a>(components: &[(&'a str, f64)]) -> Result<(Vec<&'a str>, Vec<f64>), Error> {
+    let z: Vec<f64> = components.iter().map(|(_, x)| *x).collect();
+    validated(&z)?;
+    Ok(components.iter().filter(|(_, x)| *x != 0.0).map(|&(n, x)| (n, x)).unzip())
 }

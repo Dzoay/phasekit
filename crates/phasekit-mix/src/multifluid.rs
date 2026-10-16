@@ -11,9 +11,11 @@ use std::sync::Arc;
 use phasekit_core::{DataSet, Derivs, Error, Fluid, LoadError, Order, Registry, Virials};
 
 use crate::corrections;
-use crate::data::{DepartureData, PairData};
+use crate::data::{DepartureData, PairData, Reducing};
 use crate::departure;
 use crate::generated::{CAS, DEPARTURES, PAIRS};
+use crate::gerg;
+use crate::mixture::R_CODATA;
 use crate::reducing::ReducingFunctions;
 
 /// One component: its fluid and the state its residual reduces by.
@@ -33,6 +35,13 @@ struct Departure {
     function: &'static DepartureData,
 }
 
+/// Which multi-fluid model: CoolProp 8.0.0's library over the registry's fluids, or GERG-2008 over its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Family {
+    Library,
+    Gerg2008,
+}
+
 /// The multi-fluid model of a set of components, for any composition of them: their fluids, the reducing functions
 /// of every pair and the departure functions of those with F ≠ 0. Immutable; share it through an `Arc`.
 #[derive(Clone, Debug)]
@@ -40,6 +49,7 @@ pub struct MultiFluid {
     components: Arc<[Component]>,
     reducing: ReducingFunctions,
     departures: Arc<[Departure]>,
+    family: Family,
 }
 
 /// v8.0.0's pair of two CAS numbers, and whether `(a, b)` is the reverse of its order; none for a number with itself.
@@ -57,7 +67,7 @@ fn pair(a: &str, b: &str) -> Option<(&'static PairData, bool)> {
 }
 
 /// The CAS number of a library fluid by its canonical name.
-fn cas(name: &str) -> Option<&'static str> {
+pub(crate) fn cas(name: &str) -> Option<&'static str> {
     CAS.binary_search_by(|(n, _)| (*n).cmp(name)).ok().and_then(|i| CAS.get(i)).map(|(_, cas)| *cas)
 }
 
@@ -68,7 +78,8 @@ impl MultiFluid {
     /// library, and a pair the library does not have (`UnknownName("binary pair A&B")`; v8.0.0 refuses it too,
     /// ROT-292).
     pub fn new(registry: &Registry, names: &[&str], data_set: DataSet) -> Result<MultiFluid, Error> {
-        let components = names.iter().map(|name| component(registry, name)).collect::<Result<Vec<_>, _>>()?;
+        let components =
+            names.iter().map(|name| component(&registry.resolve(name)?, name)).collect::<Result<Vec<_>, _>>()?;
         let keys = components
             .iter()
             .map(|c| cas(c.fluid.info().name()).ok_or_else(|| unknown(c.fluid.info().name())))
@@ -99,9 +110,64 @@ impl MultiFluid {
                 }
             }
         }
+        Ok(MultiFluid::from_parts(components, &parameters, departures, Family::Library))
+    }
+
+    /// GERG-2008's model of `names` (PLAN.md M13.5), each resolved in `registry` (name, alias or CAS) to one of its 21
+    /// components, which take GERG's own equations; its 210 binaries all have parameters, and 15 a departure function.
+    /// Refused: fewer than two components, a component twice, and one outside GERG-2008
+    /// (`UnknownName("GERG2008::<name>")`).
+    pub fn gerg2008(registry: &Registry, names: &[&str]) -> Result<MultiFluid, Error> {
+        let resolved = names.iter().map(|name| gerg::component(registry, name)).collect::<Result<Vec<_>, _>>()?;
+        let index: Vec<usize> = resolved.iter().map(|(i, _)| *i).collect();
+        if index.len() < 2 || index.iter().enumerate().any(|(k, i)| index[..k].contains(i)) {
+            return Err(Error::InvalidInput { quantity: "number of distinct components", value: index.len() as f64 });
+        }
+        let mut components = Vec::with_capacity(resolved.len());
+        for (i, fluid) in &resolved {
+            let fluid = Fluid::new(Arc::new(gerg::pure_fluid(*i, fluid)?));
+            components.push(component(&fluid, fluid.info().name())?);
+        }
+        let (mut parameters, mut departures) = (Vec::new(), Vec::new());
+        for a in 0..index.len() {
+            for b in a + 1..index.len() {
+                let (binary, swapped) = gerg::binary(index[a], index[b]).ok_or_else(|| unknown("GERG-2008 binary"))?;
+                let reducing = Reducing::Gerg([binary.beta_t, binary.gamma_t, binary.beta_v, binary.gamma_v]);
+                parameters.push((a, b, reducing, swapped));
+                if let Some(function) = binary.model.and_then(gerg::departure).filter(|_| binary.f != 0.0) {
+                    departures.push(Departure { i: a, j: b, f: binary.f, function });
+                }
+            }
+        }
+        Ok(MultiFluid::from_parts(components, &parameters, departures, Family::Gerg2008))
+    }
+
+    fn from_parts(
+        components: Vec<Component>,
+        parameters: &[(usize, usize, Reducing, bool)],
+        departures: Vec<Departure>,
+        family: Family,
+    ) -> MultiFluid {
         let states: Vec<(f64, f64)> = components.iter().map(|c| (c.t_r, c.rho_r)).collect();
-        let reducing = ReducingFunctions::new(&states, &parameters);
-        Ok(MultiFluid { components: components.into(), reducing, departures: departures.into() })
+        let reducing = ReducingFunctions::new(&states, parameters);
+        MultiFluid { components: components.into(), reducing, departures: departures.into(), family }
+    }
+
+    /// The model's molar gas constant, J/(mol·K): `R_CODATA` for the library's mixtures, `R_GERG` for GERG-2008's (user
+    /// decision MX3).
+    pub fn gas_constant(&self) -> f64 {
+        match self.family {
+            Family::Library => R_CODATA,
+            Family::Gerg2008 => gerg::R_GERG,
+        }
+    }
+
+    /// The prefix of the model's mixture names: none for the library's, `GERG2008::` for GERG-2008's (MX6).
+    pub(crate) fn prefix(&self) -> &'static str {
+        match self.family {
+            Family::Library => "",
+            Family::Gerg2008 => gerg::PREFIX,
+        }
     }
 
     /// The number of components.
@@ -184,9 +250,8 @@ fn unknown(name: &str) -> Error {
     Error::Load(LoadError::UnknownName(name.into()))
 }
 
-/// The component `name` resolves to, with the state its Helmholtz model reduces by.
-fn component(registry: &Registry, name: &str) -> Result<Component, Error> {
-    let fluid = registry.resolve(name)?;
+/// `fluid` as a component, with the state its Helmholtz model reduces by; `name` is what a refusal names.
+fn component(fluid: &Fluid, name: &str) -> Result<Component, Error> {
     let reducing = fluid.model().helmholtz().and_then(|model| model.reducing()).ok_or_else(|| unknown(name))?;
-    Ok(Component { fluid, t_r: reducing.t, rho_r: reducing.rho })
+    Ok(Component { fluid: fluid.clone(), t_r: reducing.t, rho_r: reducing.rho })
 }

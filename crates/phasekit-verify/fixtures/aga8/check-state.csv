@@ -1,0 +1,10 @@
+# fixture: aga8_check/v1
+# generator: teqp.py sha256=f6dacb0b6f55de67f22dc6afbf167668e3bfa911b3605858a5421bca16eee77c teqp=0.23.2 so_sha256=af42155f521d8a61442c9dd84d9ce1d188c46f72a050a6673ff466c46d2e6a96 numpy=2.5.4 python=3.12.15 libc=glibc-2.41
+# env: LC_ALL=C
+# fluid: AGA8CODE/C/GERG2008_test_01.cpp sha256=d736b3ea8d9bf1349196abb4c9a969145c3b5e60893bf0654efdbf2fadb9720c
+# source: aga8:AGA8CODE/C/GERG2008_test_01.cpp@3bdb9ab8
+# columns: x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15,x16,x17,x18,x19,x20,x21,T,P_in,mm,D,P,Z,dPdD,d2PdD2,dPdT,U,H,s,Cv,Cp,W,G,JT,Kappa
+# units: -,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,K,kPa,g/mol,mol/l,kPa,-,kPa/(mol/l),kPa/(mol/l)^2,kPa/K,J/mol,J/mol,J/(mol K),J/(mol K),J/(mol K),m/s,J/mol,K/kPa,-
+# tol: in,in,in,in,in,in,in,in,in,in,in,in,in,in,in,in,in,in,in,in,in,in,in,prop,flash,prop,prop,prop,prop,prop,prop,prop,prop,prop,prop,prop,prop,prop,prop
+# bits: fnv1a64=2a8b9633894669f0
+0.77824,0.02,0.06,0.08,0.03,0.0015,0.003,0.0005,0.00165,0.00215,0.00088,0.00024,0.00015,9e-05,0.004,0.005,0.002,0.0001,0.0025,0.007,0.001,400.0,50000.0,20.5427445016,12.79828626082062,50000.0,1.174690666383717,7000.694030193327,1129.526655214841,235.9832292593096,-2746.49290121253,1160.280160510973,-38.57590392409089,39.02948218156372,58.45522051000366,714.4248840596024,16590.64173014733,7.155629581480913e-05,2.683820255058032

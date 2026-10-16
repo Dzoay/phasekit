@@ -570,6 +570,12 @@ fn div_0051_to_0054(facts: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0051", "DIV-0052", "DIV-0053", "DIV-0054"]
 }
 
+/// DIV-0055 cites no oracle fact: GERG-2008 is not in v8.0.0; its evidence is AGA8's test data, which
+/// `tests/gerg.rs` and its proof check.
+fn div_0055(_: &Fixture<'_>) -> Vec<&'static str> {
+    vec!["DIV-0055"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -596,6 +602,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0048_to_0049,
         div_0050,
         div_0051_to_0054,
+        div_0055,
     ]
     .iter()
     .flat_map(|group| group(&facts))

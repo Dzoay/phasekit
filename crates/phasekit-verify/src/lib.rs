@@ -22,7 +22,7 @@ pub use conformance::{
     policy_equivalence,
 };
 pub use fixture::{Cell, CheckError, ColumnRole, Fixture, FixtureError, FixtureMismatch, Kind, Row};
-pub use lock::{ORACLE_LOCK, OracleLock, generator_environment, on_the_pinned_image};
+pub use lock::{ORACLE_LOCK, OracleLock, TEQP_LOCK, generator_environment, on_the_pinned_image};
 pub use register::{
     CRITICAL_NOT_REDUCING, DIVERGENCES, DivStatus, Divergence, Exempt, Fix, Part, Policy, RegisterError, Rows,
     check_register, missing_proofs, unregistered_proofs,

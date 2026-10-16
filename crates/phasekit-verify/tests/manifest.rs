@@ -6,6 +6,9 @@ use phasekit_verify::{fixture, sha256_hex};
 /// Every committed fixture. A new fixture is added here, to MANIFEST.sha256 (`cargo xtask oracle --write-manifest`)
 /// and to the test that reads it.
 const COMMITTED: &[(&str, &str)] = &[
+    fixture!("aga8/binary.csv"),
+    fixture!("aga8/check-state.csv"),
+    fixture!("aga8/gases.csv"),
     fixture!("coolprop-8.0.0/all/crit.csv"),
     fixture!("coolprop-8.0.0/all/cubic.csv"),
     fixture!("coolprop-8.0.0/all/cubic_sat.csv"),
@@ -333,6 +336,8 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("paper/mixtures/Bell-JPCRD-2022.XI.csv"),
     fixture!("paper/mixtures/Bell-JPCRD-2023.XIII.check.csv"),
     fixture!("paper/mixtures/Bell-JPCRD-2023.XIII.csv"),
+    fixture!("paper/mixtures/Kunz-GERG-TM15-2007.A3.check.csv"),
+    fixture!("paper/mixtures/Kunz-GERG-TM15-2007.A3.csv"),
     fixture!("paper/mixtures/Lemmon-JPCRD-2004.6.check.csv"),
     fixture!("paper/mixtures/Lemmon-JPCRD-2004.6.csv"),
     fixture!("paper/mixtures/Tkaczuk-JPCRD-2020.8.check.csv"),
@@ -383,6 +388,9 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("paper/p-Xylene/CoolProp-Tests.eta.csv"),
     fixture!("paper/p-Xylene/CoolProp-Tests.lambda.check.csv"),
     fixture!("paper/p-Xylene/CoolProp-Tests.lambda.csv"),
+    fixture!("teqp-0.23.2/gerg/binary.csv"),
+    fixture!("teqp-0.23.2/gerg/gas.csv"),
+    fixture!("teqp-0.23.2/gerg/pure.csv"),
 ];
 
 const MANIFEST: &str = include_str!("../fixtures/MANIFEST.sha256");

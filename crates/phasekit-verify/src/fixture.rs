@@ -330,6 +330,7 @@ impl Fixture<'static> {
             Some(Origin::Paper { citation, table }) => Provenance::Paper { citation, table },
             Some(Origin::Iapws { release }) => Provenance::Iapws { release },
             Some(Origin::MultiPrecision { source }) => Provenance::MultiPrecision { source },
+            Some(Origin::OtherImplementation { name }) => Provenance::OtherImplementation { name },
             None => Provenance::SelfReferential, // parse() refuses an unknown source
         }
     }
@@ -338,10 +339,23 @@ impl Fixture<'static> {
 /// The forms of `source:` (VERIFICATION.md §3.3).
 enum Origin<'a> {
     Coolprop,
-    CoolpropSource { git: &'a str },
-    Paper { citation: &'a str, table: &'a str },
-    Iapws { release: &'a str },
-    MultiPrecision { source: &'a str },
+    CoolpropSource {
+        git: &'a str,
+    },
+    Paper {
+        citation: &'a str,
+        table: &'a str,
+    },
+    Iapws {
+        release: &'a str,
+    },
+    MultiPrecision {
+        source: &'a str,
+    },
+    /// Another implementation's output: NIST's AGA8 code's test data at a commit, or teqp at a version (M13.5).
+    OtherImplementation {
+        name: &'a str,
+    },
 }
 
 /// A rule of the format that the text breaks: its 1-based line, 0 for the file as a whole, and what is wrong.
@@ -469,6 +483,11 @@ fn parse_source(source: &str) -> Option<Origin<'_>> {
             .split_once('@')
             .filter(|(p, g)| nonempty(p) && nonempty(g))
             .map(|(_, git)| Origin::CoolpropSource { git }),
+        "aga8" => rest
+            .split_once('@')
+            .filter(|(p, g)| nonempty(p) && nonempty(g))
+            .map(|_| Origin::OtherImplementation { name: source }),
+        "teqp" => Some(rest).filter(|r| nonempty(r)).map(|_| Origin::OtherImplementation { name: source }),
         _ => None,
     }
 }
@@ -747,6 +766,10 @@ mod tests {
             provenance("coolprop-source:src/DataStructures.cpp@ae81610e"),
             Ok(Provenance::Oracle { version: "ae81610e" })
         );
+        let other = |name| Ok(Provenance::OtherImplementation { name });
+        assert_eq!(provenance("aga8:TESTDATA/Test Data.xls@3bdb9ab8"), other("aga8:TESTDATA/Test Data.xls@3bdb9ab8"));
+        assert_eq!(provenance("teqp:0.23.2"), other("teqp:0.23.2"));
+        assert!(!Provenance::OtherImplementation { name: "teqp:0.23.2" }.is_arbiter());
         for bad in [
             "paper:/7",
             "paper:lemmon2016/",
@@ -755,6 +778,9 @@ mod tests {
             "mp:",
             "coolprop-source:@ae81610e",
             "coolprop-source:src/x.cpp@",
+            "aga8:x.cpp@",
+            "aga8:@3bdb9ab8",
+            "teqp:",
             "refprop:10",
         ] {
             assert!(fixture(bad).is_err(), "{bad}");

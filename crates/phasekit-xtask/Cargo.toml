@@ -17,5 +17,9 @@ serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 # `gates complexity` parses every function (M7.9c, user decision CX4); already in Cargo.lock through serde's derive.
 syn = { version = "3.0.6", default-features = false, features = ["full", "parsing", "visit"] }
 
+[dev-dependencies]
+# `gerg_2008_is_aga8s` reads GERG-2008's transcription through `phasekit_mix::internal` (PLAN.md M13.5).
+phasekit-mix.workspace = true
+
 [lints]
 workspace = true

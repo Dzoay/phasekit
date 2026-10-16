@@ -5,6 +5,9 @@
 /// The committed lock.
 pub const ORACLE_LOCK: &str = include_str!("../fixtures/oracle.lock");
 
+/// The GERG-2008 generator's lock, `teqp.lock` (VERIFICATION.md §3.8, PLAN.md M13.5), in the same format.
+pub const TEQP_LOCK: &str = include_str!("../fixtures/teqp.lock");
+
 /// A parsed lock: its `key value` lines in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OracleLock<'a> {

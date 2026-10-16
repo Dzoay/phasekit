@@ -1352,6 +1352,27 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[13],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0055",
+        fluids: &["*"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::KeepOracle,
+        fix: Fix::None,
+        evidence: "map 06 G1: GERG-2008 is not in v8.0.0, so AGA8's binary test set (TESTDATA/Test Data.xls, every pair \
+                   at 50/50, p, c_v, c_p and w to eight digits) is checked against phasekit's model of AGA8's code. The \
+                   sheet comes from another implementation: its c_v, c_p and w follow theta_k = vartheta_k T_c with GERG \
+                   TM15's nine-decimal vartheta, as teqp's ideal gas does (nitrogen/isobutane c_v at 361.72 K, 8 mol/l: \
+                   teqp 67.83937549, the sheet 67.839375, phasekit's theta_k in K 67.8393755004), and its p near zero \
+                   is 1.4e-12 of the carried scale from both teqp and phasekit (methane/n-pentane, 78.9 K, 16 mol/l). \
+                   Beyond half a unit of the printed digit 15 of 14580 cells differ, at most 1.13e-10 of max(|X|, \
+                   Term's carried scale/10), propane/isobutane c_v (M13.5)",
+        exempt: None,
+        tolerance: Some(Tolerance::Relative(2e-10)),
+        table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The output columns of the `cubic` and `cubic_sat` kinds (PLAN.md M11.4, M11.5).

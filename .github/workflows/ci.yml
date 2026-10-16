@@ -97,6 +97,15 @@ jobs:
       - name: Fetch CoolProp (anonymous clone of the pinned commit)
         if: steps.coolprop.outputs.cache-hit != 'true'
         run: scripts/fetch-coolprop.sh
+      - name: AGA8 checkout cache
+        id: aga8
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reference/AGA8
+          key: aga8-${{ hashFiles('scripts/fetch-aga8.sh') }} # the script pins the commit
+      - name: Fetch AGA8 (anonymous clone of the pinned commit; GERG-2008's transcription check, PLAN.md M13.5)
+        if: steps.aga8.outputs.cache-hit != 'true'
+        run: scripts/fetch-aga8.sh
       - name: G3 cargo nextest run --workspace --profile ci
         run: cargo nextest run --workspace --profile ci
       - name: G3 cargo test --doc --workspace
@@ -177,6 +186,15 @@ jobs:
       - name: Fetch CoolProp (anonymous clone of the pinned commit)
         if: steps.coolprop.outputs.cache-hit != 'true'
         run: scripts/fetch-coolprop.sh
+      - name: AGA8 checkout cache
+        id: aga8
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reference/AGA8
+          key: aga8-${{ hashFiles('scripts/fetch-aga8.sh') }} # the script pins the commit
+      - name: Fetch AGA8 (anonymous clone of the pinned commit; GERG-2008's transcription check, PLAN.md M13.5)
+        if: steps.aga8.outputs.cache-hit != 'true'
+        run: scripts/fetch-aga8.sh
       - name: G8 cargo xtask gates mutants, one shard
         run: cargo xtask gates mutants --shard ${{ matrix.shard }}/4
 
@@ -252,6 +270,15 @@ jobs:
       - name: Fetch CoolProp (anonymous clone of the pinned commit)
         if: steps.coolprop.outputs.cache-hit != 'true'
         run: scripts/fetch-coolprop.sh
+      - name: AGA8 checkout cache
+        id: aga8
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reference/AGA8
+          key: aga8-${{ hashFiles('scripts/fetch-aga8.sh') }} # the script pins the commit
+      - name: Fetch AGA8 (anonymous clone of the pinned commit; GERG-2008's transcription check, PLAN.md M13.5)
+        if: steps.aga8.outputs.cache-hit != 'true'
+        run: scripts/fetch-aga8.sh
       - name: G3 on the MSRV, cargo nextest run --workspace --profile ci
         run: cargo nextest run --workspace --profile ci
       - name: doctests on the MSRV

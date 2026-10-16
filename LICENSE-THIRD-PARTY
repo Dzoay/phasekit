@@ -17,6 +17,15 @@ mapping of each piece to [-1, 1]) follows CoolProp's
 include/CoolProp/superancillary/superancillary.h, which carries the NIST
 notice reproduced at the end of this file.
 
+GERG-2008's coefficients (O. Kunz and W. Wagner, J. Chem. Eng. Data 57 (2012)
+3032, doi:10.1021/je300655b) are transcribed from NIST's AGA8 code
+(https://github.com/usnistgov/AGA8, commit 3bdb9ab8) into
+crates/phasekit-mix/src/gerg/tables.rs, and its test data and values computed
+with NIST's teqp 0.23.2 (https://github.com/usnistgov/teqp) are among
+phasekit's test fixtures. phasekit credits NIST, AGA8 and teqp for them; both
+carry the NIST notice reproduced at the end of this file (and in
+LICENSES/LicenseRef-NIST-GERG.txt).
+
 phasekit is not affiliated with or endorsed by the CoolProp project or NIST.
 
 --------------------------------------------------------------------------------
@@ -46,7 +55,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------------------
-NIST Disclaimer of Copyright and Warranty (CoolProp's superancillary.h)
+NIST Disclaimer of Copyright and Warranty (CoolProp's superancillary.h; AGA8's and teqp's LICENSE)
 --------------------------------------------------------------------------------
 
 This software was developed by employees of the National Institute of

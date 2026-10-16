@@ -76,7 +76,9 @@ impl ReducingFunctions {
             .iter()
             .map(|p| {
                 let ([beta, c], xi, xj) = (of(p), x[p.i], x[p.j]);
-                c * xi * xj * (xi + xj) / (beta * beta * xi + xj)
+                // Two absent components (x_i = x_j = 0) contribute nothing, not 0/0.
+                let denominator = beta * beta * xi + xj;
+                if denominator == 0.0 { 0.0 } else { c * xi * xj * (xi + xj) / denominator }
             })
             .sum();
         pure + mixed

@@ -31,6 +31,9 @@ exclude_globs = [
     # Datagen's output (PLAN.md M13.2): the mixture library's tables, literals only. `gates datagen` holds every byte to a
     # fresh generation from the pinned JSON, so a mutated literal fails it, not a test.
     "crates/phasekit-mix/src/generated.rs",
+    # GERG-2008's transcription from AGA8 (PLAN.md M13.5): literals only. xtask's `gerg_2008_is_aga8s` holds every number
+    # to AGA8's GERG2008.cpp, so a mutated literal fails it, not a model test.
+    "crates/phasekit-mix/src/gerg/tables.rs",
     # The FP guard off Linux (PLAN.md M10.7): Windows x64's MXCSR and every other target's no-op. They do not compile
     # where the mutants job runs; the Windows runner runs their tests (`pk_exports_restore_the_callers_fp_environment`).
     "crates/phasekit-capi/src/fp/windows.rs",

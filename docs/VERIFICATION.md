@@ -162,7 +162,9 @@ Rules, all enforced by `phasekit_verify::fixture` (a violation is an error):
   *(inference: autocrlf would rewrite them)*.
 - `source:` → `Provenance`: `coolprop` → `Oracle`; `paper:<bibkey>/<table>` → `Paper`; `iapws:<release>/<table>` →
   `Iapws`; `mp:coolprop-json`, `mp:fastchebpure@<tag>` → `MultiPrecision`; `coolprop-source:<path>@<git>` (names
-  and codes read from the reference sources, e.g. the pair-name table of `src/DataStructures.cpp`) → `Oracle`.
+  and codes read from the reference sources, e.g. the pair-name table of `src/DataStructures.cpp`) → `Oracle`;
+  `aga8:<path>@<git>` (NIST's AGA8 code's GERG-2008 test data, 3.8) and `teqp:<version>` (teqp's vectors, 3.8) →
+  `OtherImplementation`, which never arbitrates against the oracle (GERG-2008 is not in it, map 06 G1).
 
 ### 3.4 Layout and naming
 
@@ -180,6 +182,9 @@ crates/phasekit-verify/
     mp/fastchebpure.lock                      release tag, zip sha256, per-file sha256 (PLAN.md M6.1)
     mp/fastchebpure-2026.06.02-v2/<Fluid>.csv dense outputcheck data, core fluids
     hash/                                     cross-target hashes (9.4)
+    teqp.lock                                 the GERG-2008 generator's environment (3.8)
+    aga8/<name>.csv                           AGA8's GERG-2008 test data: check state, binary set, natural gases (3.8)
+    teqp-0.23.2/gerg/<name>.csv               teqp's GERG-2008 vectors: pure components, binaries, natural gases (3.8)
   fixtures-full/                              gitignored: the nightly full set, same tree under coolprop-8.0.0/
 ```
 
@@ -267,6 +272,24 @@ All three fixture kinds may be committed (user decision 3b; D14), each with prov
 | `coolprop-8.0.0/**`, `mp/check-points.csv`, `oracle.lock` | `MIT` | CoolProp's copyright line, verbatim from its v8.0.0 LICENSE | header `oracle:` line |
 | `paper/**` | `MIT OR Apache-2.0` (the transcription) | phasekit contributors | header `citation:` (DOI or report, table, page); the cells are numerical facts *(inference: facts are not copyrightable; not legal advice)* |
 | `mp/fastchebpure-*/**`, `mp/fastchebpure.lock` | `LicenseRef-fastchebpure`; its `LICENSES/` text records the user-decision-3a fact (no upstream licence file; NIST work generally not under US copyright, *inference*) and the NIST disclaimer | NIST (fastchebpure authors) | `source: mp:fastchebpure@2026.06.02-v2` + the superancillary paper in NOTICE |
+| `aga8/**`, `teqp-0.23.2/**` (and phasekit-mix's `src/gerg/tables.rs`) | `LicenseRef-NIST-GERG`; its `LICENSES/` text records the provenance and NIST's notice, which AGA8 and teqp both carry (works of NIST employees, 17 U.S.C. 105) | NIST (AGA8 and teqp authors) | `source: aga8:<path>@<git>` or `teqp:0.23.2`, and LICENSE-THIRD-PARTY |
+
+### 3.8 The GERG-2008 generator: teqp.py
+
+GERG-2008 is not in the oracle (map 06 G1), so its fixtures come from a second generator, `scripts/oracle/teqp.py`
+(PLAN.md M13.5), which `cargo xtask teqp` runs as `cargo xtask oracle` runs gen.py (3.1): the same scrubbed
+environment, the uv command taken from its own lock, the same `--kind`, `--out`, `--check` and `--write-manifest`, and
+in the nightly the same pinned runner image, regeneration and twofold drift check. `fixtures/teqp.lock` pins teqp
+0.23.2 (its wheel tag and extension module's sha256), numpy, xlrd, the AGA8 commit `scripts/fetch-aga8.sh` checks out
+and the sha256 of the two AGA8 files read; teqp.py checks them all before a row is written, and its own sha256, the
+Python patch version and the libc go into each header's `generator:` line, as gen.py's do.
+
+| Kind | Files | Columns | Compared with |
+|---|---|---|---|
+| `aga8` | `aga8/check-state.csv` (`aga8_check`, one row): AGA8CODE/C/GERG2008_test_01.cpp's 21 mole fractions, T, P and the 16 values it tests at 1e-8 | x1-x21, T, P_in, mm, D, P, Z, dPdD, d2PdD2, dPdT, U, H, s, Cv, Cp, W, G, JT, Kappa (AGA8's units) | D `Flash` from a PT solve; the rest `Prop` at AGA8's D, u, h, s and g once the rounding of AGA8's ten-digit n₁ and n₂ is added (phasekit computes them exactly), far inside AGA8's own 1e-8 |
+| | `aga8/binary.csv` (`aga8_binary`, 3645 rows): TESTDATA/Test Data.xls's GERG-2008 columns, every pair at 50/50 along the saturation boundary, the outputs at their eight significant digits | pair, T, D, P, cv, cp, w | half a unit of the eighth digit plus DIV-0055's 2e-10 of max(\|X\|, `Term`'s carried scale/10): the sheet's implementation takes θ_k = ϑ_k T_c |
+| | `aga8/gases.csv` (`aga8_gases`, 200 rows): its natural gases by AGA8's gas number, in GERG's component order, the fractions normalised (AGA8 rounds each to 1e-6 mol%) | gas, 21 fractions | the compositions of `teqp-0.23.2/gerg/gas.csv` |
+| `gerg` | `teqp-0.23.2/gerg/pure.csv`, `binary.csv`, `gas.csv` (`gerg_pure`, `gerg_binary`, `gerg_gas`; 84, 840 and 400 rows): teqp's `GERG2008resid` for the 21 components and the 210 binaries at 50/50 at (τ, δ) = (0.6, 0.1), (0.8, 0.8), (1.25, 1.6), (1.5, 2.4) of each one's reducing state, and the 200 gases at the middle two | label, T, rhomolar, Tr, rhor, alphar and A_ij to order 3 | T_r, ρ_r within `Prop` (plus the rounding of AGA8's reciprocal β for isobutane/n-butane, nine decimals); A_ij at teqp's own τ and δ within `Term` on the components' majorants, or `Prop` of max(\|A_ij\|, 1). teqp's ideal gas is not used: its θ_k = ϑ_k T_c moves α⁰'s τ-derivatives about 1e-11 from AGA8's θ_k in K |
 
 ## 4. Literature arbiters
 
@@ -306,6 +329,9 @@ coefficients (map 10 §1). Their p is not: it carries a double-precision liquid 
 # tol: in,in,paper,paper,paper,paper
 ```
 
+   `kind:` is K1, K2 or K3 (4.3), `rows`, or `coefficients` for a model's printed coefficient tables, which
+   cross-check a transcription rather than arbitrate a property (GERG TM15's Tables A3.1-A3.8, PLAN.md M13.5: one row
+   per cell, `table,component,quantity,value`, the term index in the quantity's label, `n[12]`).
 3. Cells keep the printed strings exactly, trailing zeros included: they set the tolerance. Digit-group spaces are
    dropped and `× 10ⁿ` is written `en`, so `0.996 556 0 × 10³` is `0.9965560e3` (PLAN.md M1.8); a release without a DOI
    cites `report=<id>` in place of `doi=`; `page=` is the printed page number, which can differ from the PDF's (NIST IR
@@ -379,6 +405,7 @@ Procedure (`tests/arbiters.rs`, on the mutable `FluidRecord` seam, ARCHITECTURE.
 | Transport, 40 fluids | the 318 `CoolProp-Tests.cpp` rows re-labelled (`paper/<Fluid>/CoolProp-Tests.{eta,lambda}.csv`, M8.3): only `paper` and `iapws` rows arbitrate, never Helium's (ROT-124); `refprop`, `self`, `experiment` and unsourced rows do not (map 13 §8, map 10 R6) | rows | median 7.8e-6 vs oracle; 262 arbiter rows over 56 fluid-property pairs | M8 |
 | Helium λ | NIST TN 1334 (rev. 1998) Appendix B (OA): the 54 single-phase rows of 5-6.5 K on the 0.2-0.4 MPa isobars, Hands and Arp 1981 on TN 1334's own EOS and η | rows | `Inconsistent` (1.1e-2); DIV-0035's replacing check, within its measured 1.2e-2 | HE1 |
 | Multi-fluid mixtures | Bell et al. 2023 Table XIII (5 pairs, 6 pure fluids), Bell et al. 2022 Table XI (its 3 final pairs; the interim 3 are 2023's) | K1 | `Transcribed` at M13.3: within the printed digits, or 4 ulp (T_r, ρ_r) and 1e-13 of \|α^r\| where those are finer; Table XI's R1234yf rows DIV-0050, its R1234yf/R1234ze(E) γ_T DIV-0013 | M13 |
+| GERG-2008 | AGA8's check state (`GERG2008_test_01.cpp`: 21 components, 400 K, 50 MPa) and binary test set (`Test Data.xls`: 210 pairs at 50/50, 3645 states); GERG TM15 Tables A3.1-A3.8 (the 18 GERG-2004 components' coefficients, double-entered) | K2, coefficients | check state within `Prop`; binary set within its eighth digit and DIV-0055's 2e-10; TM15 cross-checks the transcription: 2135 cells, the 44 GERG-2008 changed named (isopentane's and carbon monoxide's equations and critical parameters, 16 γ) | M13 |
 
 `phasekit_verify::arbiters::ARBITERS` (PLAN.md M1.7) holds these rows as records, all `Expected` or `Unpublished`
 at M1 until their tables are transcribed; the 12 one-row fluids join at M1.12, the n-Heptane and D6 c_p⁰ equation checks
