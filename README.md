@@ -1,11 +1,13 @@
 # phasekit
 
+> [!WARNING]
+> **Work in progress, not yet released.** phasekit has not reached its first release: there is no `v0.1.0` tag, and
+> nothing is published on crates.io or npm. APIs, data formats and computed values can change in any commit, without
+> notice or a deprecation period. Try it, report what you find, but do not depend on it yet.
+
 A modular, memory-safe Rust library for thermophysical properties, starting with fluids and growing into materials
 and all states of matter. It is a from-scratch successor to [CoolProp](https://github.com/CoolProp/CoolProp), not a
 binding, verified against CoolProp 8.0.0 and the published literature.
-
-> **Status: v0.1.0, the first release.** Releases are the repository's `v*` tags, with the C library and the browser
-> package attached; what changed is in [CHANGELOG.md](CHANGELOG.md), what comes next in [docs/PLAN.md](docs/PLAN.md).
 
 ## Goals
 
@@ -13,30 +15,56 @@ binding, verified against CoolProp 8.0.0 and the published literature.
   plug in without editing the core.
 - **Concurrent by construction:** immutable shared models and small `Copy` states, so many parallel requests on the
   same or different fluids need no locks. Fluids load lazily, only when a request needs them.
-- **Fast single calls and batches**, with a scalar reference path that any future SIMD or threaded path must match
-  bit for bit.
+- **Fast single calls and batches**, with a scalar reference path that the threaded and SIMD paths match bit for bit.
 - **Cross-platform:** Linux, Windows and WebAssembly (browser and WASI).
-- **Minimal dependencies:** the core uses only `std` until the parallel-batch milestone.
+- **Minimal dependencies:** the core needs only `std`; threads (`rayon`), the portable maths library (`libm`) and SIMD
+  lanes are opt-in features.
 - **Verified:** CoolProp 8.0.0 is the oracle; printed literature arbitrates; every deliberate difference is a cited,
   tested entry in a divergence register.
 - **Easy migration:** a `PropsSI`-style string API, a C ABI with a small CoolProp-compatible shim, and later Python.
 
-## v0.1
+## Where it stands
 
-All 136 CoolProp 8.0.0 pure and pseudo-pure fluids; all 19 input pairs; transport properties and surface tension
-where models exist; melting lines; reference states; derivative outputs; parallel batches; the `PropsSI`-style API, the
-C ABI and a browser WebAssembly package. Cubic models, mixtures, IF97, incompressibles, humid air, Python and plotting
-follow afterwards ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)).
+The work follows a test-first plan, one step per pull request. Finished milestones are tagged in git (`m0` to `m12`
+so far); the open ones, and their steps, are in [docs/PLAN.md](docs/PLAN.md). The workspace's version already reads
+0.1.0 and [CHANGELOG.md](CHANGELOG.md) has a 0.1.0 section written ahead of the tag, but `v0.1.0` is tagged only when
+the maintainer decides ([DECISIONS.md](docs/DECISIONS.md) RL4), and the crates and the npm package are published after
+that.
 
-| Use it from | Get | Start with |
+**On `main` now**, built and tested:
+
+| Area | What works |
+|---|---|
+| Fluids | All 136 CoolProp 8.0.0 pure and pseudo-pure fluids on their Helmholtz equations of state; van der Waals, SRK and Peng-Robinson cubics of each pure fluid (`phasekit-cubic`) |
+| Inputs | All 19 input pairs, below the triple point refused unless a call asks to extrapolate |
+| Outputs | Thermodynamic properties with first and second partial derivatives, exact virials, transport properties and surface tension where models exist, melting lines, reference states |
+| Batches | Point-major batches with a status per cell; parallel (`rayon`) and SIMD-lane (`simd`) execution, bit for bit equal to the scalar path |
+| Interfaces | The typed Rust API, CoolProp's `PropsSI` strings, a C ABI (`pk_*`) with a CoolPropLib.h-compatible shim, a browser WebAssembly package |
+
+**In progress:**
+
+- **Mixtures** (milestone M13, the crate `phasekit-mix`): multi-fluid Helmholtz mixtures and GERG-2008, with
+  vapour-liquid equilibrium, critical points and phase envelopes, reaching the `PropsSI` strings, the C ABI and the
+  browser package. On `main`: the multi-fluid residual, a mixture at a fixed composition, GERG-2008 and composition
+  derivatives. Being built: critical points, stability, bubble and dew points, phase envelopes, then the names, C and
+  the browser.
+- **The site** (M21): a single page at <https://dzoay.github.io/phasekit/>, deployed from `main`, that runs the browser
+  package in your browser. The calculator and the diagrams (p–h, T–s, p–T, T–ρ and h–s, with phase regions and a
+  state picked under the cursor) are there; sweeps, an in-browser benchmark, all 136 fluids and mixtures follow.
+
+**Later** ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)): IAPWS-IF97 and ice, PC-SAFT, Python, incompressibles,
+humid air and diagram geometry.
+
+## Trying it
+
+Nothing is published yet, so everything below builds from a checkout of this repository.
+
+| Use it from | Build | Start with |
 |---|---|---|
-| Rust | the crates `phasekit-core` (the typed API) and `phasekit-compat` (CoolProp's strings) | `crates/phasekit-compat/examples/migration.rs` |
-| C | the release's archive: `include/phasekit.h` and the `pk_*` library | `crates/phasekit-capi/tests/c/smoke.c` |
-| A CoolProp host | the same archive's `phasekit_coolproplib`, CoolProp's Tier A functions | [docs/MIGRATION.md](docs/MIGRATION.md) |
-| A browser | the npm package `phasekit` (`phasekit/simd` for the `simd128` build) | `crates/phasekit-wasm/tests/node.rs` |
-
-See it run: [dzoay.github.io/phasekit](https://dzoay.github.io/phasekit/) computes every property of a fluid in your
-browser with the WebAssembly package, built from `main` (`site/`, [PLAN.md M21](docs/PLAN.md#m21-the-site)).
+| Rust | a git dependency on `phasekit-core` (the typed API) or `phasekit-compat` (CoolProp's strings) | `crates/phasekit-compat/examples/migration.rs` |
+| C | `cargo build --release -p phasekit-capi`: the `pk_*` library, its header `crates/phasekit-capi/include/phasekit.h` | `crates/phasekit-capi/tests/c/smoke.c` |
+| A CoolProp host | the same build with `--features coolproplib-shim`: CoolProp's Tier A functions, distributed as `phasekit_coolproplib` | [docs/MIGRATION.md](docs/MIGRATION.md) |
+| A browser | `scripts/release/npm-package.sh <version>`: the npm package `phasekit` (`phasekit/simd` for the `simd128` build) | `crates/phasekit-wasm/tests/node.rs` |
 
 ## Documentation
 
@@ -44,7 +72,7 @@ browser with the WebAssembly package, built from `main` (`site/`, [PLAN.md M21](
 |---|---|
 | [docs/BRIEF.md](docs/BRIEF.md) | The requirements, verbatim, and the decisions the design had to make |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Crates, core types, decisions D1-D17, milestones |
-| [docs/PLAN.md](docs/PLAN.md) | The test-first implementation plan, step by step (M0-M10 to v0.1, then the roadmap) |
+| [docs/PLAN.md](docs/PLAN.md) | The test-first implementation plan, step by step: M0-M10 for v0.1, then the roadmap from M11 |
 | [docs/VERIFICATION.md](docs/VERIFICATION.md) | Oracle fixtures, literature arbiters, tolerances, the divergence register, CI gates |
 | [docs/ROT-REGISTER.md](docs/ROT-REGISTER.md) | Every CoolProp problem found, how phasekit avoids it, and the test that proves it |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | The maintainer's decisions, dated; they override older text |
@@ -57,29 +85,35 @@ browser with the WebAssembly package, built from `main` (`site/`, [PLAN.md M21](
 
 ```text
 docs/        design, plan and evidence (above)
-scripts/     fetch-coolprop.sh, check-toolchain.sh, the oracle generator (oracle/), the C++ baseline (baseline/) and
-             the release artefacts (release/)
-crates/      the Cargo workspace: phasekit-core, -data, -compat, -cubic, -capi, -wasm, -verify, -xtask; later -py
+crates/      the Cargo workspace: phasekit-core, -data, -compat, -cubic, -mix, -capi, -wasm, -verify, -xtask; -py later
+site/        the GitHub Pages site (Svelte, Vite, TypeScript) over the browser package
+scripts/     fetch-coolprop.sh, check-toolchain.sh, the oracle generator (oracle/), the C++ baseline (baseline/), the
+             release artefacts (release/) and the site's build and checks (site/)
+data/        the fluid data's lock, cited corrections and citations
+ci/          the gates' recorded test counts and exemption lists
 reference/   gitignored: the pinned CoolProp checkout and local papers
 ```
 
 ## Getting started (contributors)
 
 Requirements: the latest stable Rust with the `wasm32-unknown-unknown`, `wasm32-wasip2` and `x86_64-pc-windows-msvc`
-targets, [uv](https://docs.astral.sh/uv/) for the CoolProp oracle, Valgrind for the instruction gate, and the cargo
-tools that `scripts/check-toolchain.sh` lists; it reports what is missing and how to install it.
+targets, [uv](https://docs.astral.sh/uv/) for the CoolProp oracle, Valgrind for the instruction gate, Node.js 24 or
+later with npm for the browser package's tests and the site, and the cargo tools that `scripts/check-toolchain.sh`
+lists; it reports what is missing and how to install it.
 
 ```sh
 scripts/check-toolchain.sh         # reports which of the tools above are missing
 scripts/fetch-coolprop.sh          # pinned, read-only CoolProp v8.0.0 checkout in reference/
 cargo nextest run --workspace      # the workspace's tests
 cargo test --doc --workspace       # and its doctests
+scripts/site/check.sh              # the site's gate (once: npx playwright install chromium)
 actionlint                         # after editing .github/workflows/
 uv run --no-project --python 3.12 --with CoolProp==8.0.0 \
   python -c "import CoolProp.CoolProp as CP; print(CP.PropsSI('H', 'T', 300, 'P', 101325, 'Water'))"
 ```
 
-Then read [CONTRIBUTING.md](CONTRIBUTING.md). AI coding agents start with [AGENTS.md](AGENTS.md).
+Every gate a pull request passes, G1-G9, is defined in [PLAN.md §2.4](docs/PLAN.md#24-standard-gates). Then read
+[CONTRIBUTING.md](CONTRIBUTING.md). AI coding agents start with [AGENTS.md](AGENTS.md).
 
 ## How changes land
 
