@@ -349,7 +349,7 @@ impl PropsCheck {
     ) {
         let output = table.printed(row, "output").unwrap();
         let [x1, x2] = at.x;
-        let key = RowKey { t: x2, input: Some(at.pair), two_phase: at.two_phase };
+        let key = RowKey { t: x2, input: Some(at.pair), two_phase: at.two_phase, p: None };
         if let Some(id) = exempt_row(DIVERGENCES, name, Kind::Props, register_column(output), key) {
             *self.exempt.entry(id).or_default() += 1;
             return;

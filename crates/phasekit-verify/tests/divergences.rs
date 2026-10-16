@@ -18,6 +18,8 @@ use phasekit_verify::{
 
 #[path = "common/mix_crit.rs"]
 mod mix_crit;
+#[path = "common/mix_flash.rs"]
+mod mix_flash;
 #[path = "common/transport_rows.rs"]
 mod transport_rows;
 
@@ -79,6 +81,9 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0054", div_0054),
     ("DIV-0055", div_0055),
     ("DIV-0056", div_0056),
+    ("DIV-0057", div_0057),
+    ("DIV-0058", div_0058),
+    ("DIV-0059", div_0059),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1491,6 +1496,134 @@ fn div_0056() {
             .any(|p| ((p.t - o.t) / o.t).abs() < 1e-2 && ((p.rho - o.rho) / o.rho).abs() < 1e-2);
         assert!(!near, "{} at {} K: {:?}", o.label, o.t, mix.critical_points());
     }
+}
+
+/// The `mix_flash` row of `label` at (T, p), and the registry it is read on.
+fn flash_row(label: &str, t: f64, p: f64) -> (mix_flash::FlashRow, Registry) {
+    let row = mix_flash::flash_rows().into_iter().find(|o| o.label == label && o.t == t && o.p == p).unwrap();
+    (row, Registry::from_embedded(DataSet::Parity).unwrap())
+}
+
+/// DIV-0057 (`SkipOracle`, PLAN.md M13.8): at its two rows of v8.0.0's PT flash, (1) the oracle's density reproduces p
+/// within `Flash`; (2) dp/dρ ≤ 0 at 131 and 119 of 200 points between 0 and it, so no gas branch reaches it; (3) its
+/// g is −13126 and −653017 J/mol, below the liquid root's; (4) phasekit's flash is single-phase on that liquid root,
+/// 14510.0 and 20944.5 mol/m³.
+fn div_0057() {
+    let cases = [
+        ("Methane&n-Butane", 224.459_211_179_501_2, 6_192_796.478_490_418, 131, -13126.0, 14510.0),
+        ("CarbonDioxide&Methane", 181.292_230_629_320_58, 2_997_846.370_061_397, 119, -653_017.0, 20944.5),
+    ];
+    for (label, t, p, falling, g, ours) in cases {
+        let (o, registry) = flash_row(label, t, p);
+        let fluid = mix_flash::binary(&registry, label, o.z1);
+        let model = fluid.model().helmholtz().unwrap();
+        let rt = model.gas_constant() * t;
+        let at = |rho: f64| {
+            let d = model.residual(t, rho, Order::Two);
+            let (a01, a02) = (d.get(0, 1).unwrap(), d.get(0, 2).unwrap());
+            let total = model.ideal(t, rho, Order::One) + model.residual(t, rho, Order::One);
+            (
+                rho * rt * (1.0 + a01),
+                rt * (1.0 + 2.0 * a01 + a02),
+                rt * (total.get(0, 0).unwrap() + total.get(0, 1).unwrap()),
+            )
+        };
+        let (p_o, _, g_o) = at(o.rho);
+        assert!((p_o - p).abs() <= ToleranceClass::Flash.bound(p).unwrap(), "{label}: p {p_o} against {p}");
+        let count = (1..=200).filter(|k| at(o.rho * f64::from(*k) / 200.0).1 <= 0.0).count();
+        assert_eq!(count, falling, "{label}");
+        assert!((g_o / g - 1.0).abs() < 1e-4, "{label}: g {g_o}");
+        let rho = mix_flash::single(&mix_flash::mixture(&fluid).equilibrium(t, p).unwrap()).unwrap();
+        assert!((rho / ours - 1.0).abs() < 1e-5 && at(rho).2 > g_o, "{label}: {rho}");
+    }
+}
+
+/// DIV-0058 (`SkipOracle`, PLAN.md M13.8), near R134a/R1234yf's azeotrope: (1) at z₁ 0.25, 257.34 K the oracle's split
+/// is phasekit's with the phases swapped: its Q is 1 − β, its liquid fraction the vapour's, and its "liquid", on its
+/// stable root at (T, p), is the dilute phase (91 mol/m³ against its "vapour"'s 11229); the two meet the fugacity
+/// equations, so it is the same split, named the other way round; (2) at 0.25, 312.48 K and 0.5, 313.32 K the state lies between the
+/// oracle's own bubble and dew pressures (its rows at 1.1 p_bub and 0.9 p_dew), the oracle returns one phase, and
+/// phasekit's split meets the fugacity gate and lowers the Gibbs energy; at 313.32 K its compositions differ by less
+/// than v8.0.0's gate's 1e-4 spread.
+fn div_0058() {
+    let label = "R134a&R1234yf";
+    let (o, registry) = flash_row(label, 257.337_465_084_179_54, 181_489.100_783_288_2);
+    let fluid = mix_flash::binary(&registry, label, o.z1);
+    let mix = mix_flash::mixture(&fluid);
+    let split = mix.equilibrium(o.t, o.p).unwrap();
+    let (beta, x, y, _, _) = mix_flash::parts(&split).unwrap();
+    assert!((beta - (1.0 - o.q)).abs() <= 1e-6 && (y[0] - o.x1).abs() <= 1e-7 && (x[0] - o.y1).abs() <= 1e-7);
+    let (liquid, vapour) = ([o.x1, 1.0 - o.x1], [o.y1, 1.0 - o.y1]);
+    let (rho_l, rho_v) =
+        (mix_flash::root(&registry, mix, o.t, o.p, &liquid), mix_flash::root(&registry, mix, o.t, o.p, &vapour));
+    let labelled = phasekit_mix::Equilibrium::Split {
+        beta: o.q,
+        x: liquid.to_vec(),
+        y: vapour.to_vec(),
+        rho_liquid: rho_l,
+        rho_vapour: rho_v,
+    };
+    assert!(rho_l < 100.0 && rho_v > 11_000.0, "the oracle's liquid at {rho_l}, its vapour at {rho_v}");
+    let worst = mix_flash::fugacity_differences(mix, o.t, &labelled).iter().fold(0.0_f64, |m, (d, _)| m.max(d.abs()));
+    assert!(worst < 1e-9, "{worst}");
+    for (z1, t, p) in
+        [(0.25, 312.481_207_602_218_03, 1_036_661.768_427_621_1), (0.5, 313.316_216_669_962_2, 1_071_511.306_009_241_1)]
+    {
+        let rows: Vec<_> =
+            mix_flash::flash_rows().into_iter().filter(|o| o.label == label && o.z1 == z1 && o.t == t).collect();
+        let pressures: Vec<f64> = rows.iter().map(|o| o.p).collect();
+        let (p_bub, p_dew) = (
+            pressures.iter().fold(0.0_f64, |m, p| m.max(*p)) / 1.1,
+            pressures.iter().fold(f64::INFINITY, |m, p| m.min(*p)) / 0.9,
+        );
+        assert!(p_dew < p && p < p_bub, "{t} K: {p_dew} < {p} < {p_bub}");
+        assert!(rows.iter().any(|o| o.p == p && o.q == -1.0));
+        let fluid = mix_flash::binary(&registry, label, z1);
+        let mix = mix_flash::mixture(&fluid);
+        let split = mix.equilibrium(t, p).unwrap();
+        let (beta, x, y, rho_liquid, rho_vapour) = mix_flash::parts(&split).unwrap();
+        assert!(mix_flash::fugacity_differences(mix, t, &split).iter().all(|(d, bound)| d.abs() <= *bound));
+        let feed =
+            mix_flash::gibbs(mix, t, mix_flash::root(&registry, mix, t, p, mix.composition()), mix.composition());
+        let g = (1.0 - beta) * mix_flash::gibbs(mix, t, rho_liquid, x) + beta * mix_flash::gibbs(mix, t, rho_vapour, y);
+        assert!(g < feed, "{t} K: {g} against {feed}");
+        assert_eq!((y[0] - x[0]).abs() < 1e-4, z1 == 0.5, "{t} K");
+    }
+}
+
+/// DIV-0059 (`KeepOracle`, PLAN.md M13.8): v8.0.0's splits are converged to its second-order stage's 1e-9, phasekit's
+/// to the fugacity gate. At R32/R125 z₁ 0.75, 300.6 K, (1) the oracle's β is more than 1e-8 and less than its
+/// measured 1e-7 from phasekit's; (2) its phases' fractions, each on its stable root, leave ln f unequal by 5.5e-11,
+/// more than 1e-11, where phasekit's split meets the gate's 1e-12 (1.8e-14).
+fn div_0059() {
+    let label = "R32&R125";
+    let row = mix_flash::flash_rows()
+        .into_iter()
+        .find(|o| o.label == label && o.z1 == 0.75 && o.q > 0.0 && o.t > 300.0)
+        .unwrap();
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let fluid = mix_flash::binary(&registry, label, row.z1);
+    let mix = mix_flash::mixture(&fluid);
+    let ours = mix.equilibrium(row.t, row.p).unwrap();
+    let (beta, ..) = mix_flash::parts(&ours).unwrap();
+    let off = ((beta - row.q) / row.q).abs();
+    assert!(off > 1e-8 && off < 1e-7, "{off:e}");
+    let (liquid, vapour) = ([row.x1, 1.0 - row.x1], [row.y1, 1.0 - row.y1]);
+    let (rho_l, rho_v) = (
+        mix_flash::root(&registry, mix, row.t, row.p, &liquid),
+        mix_flash::root(&registry, mix, row.t, row.p, &vapour),
+    );
+    let oracle = phasekit_mix::Equilibrium::Split {
+        beta: row.q,
+        x: liquid.to_vec(),
+        y: vapour.to_vec(),
+        rho_liquid: rho_l,
+        rho_vapour: rho_v,
+    };
+    let worst = |e: &phasekit_mix::Equilibrium| {
+        mix_flash::fugacity_differences(mix, row.t, e).iter().fold(0.0_f64, |m, (d, _)| m.max(d.abs()))
+    };
+    assert!(worst(&oracle) > 1e-11 && worst(&ours) <= 1e-12, "{:e} against {:e}", worst(&oracle), worst(&ours));
 }
 
 /// DIV-0055 (`KeepOracle`, PLAN.md M13.5): AGA8's binary test set comes from an implementation whose θ_k are TM15's
