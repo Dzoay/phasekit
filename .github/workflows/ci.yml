@@ -483,8 +483,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       # Screenshot baselines are made on this runner (PLAN.md M21.2): one that was missing is written by the run above,
-      # uploaded here, and fails the job until it is committed.
+      # which then fails its test (Playwright 1.63), uploaded here whatever happened, and fails the job until committed.
       - name: The screenshot baselines this run wrote
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: site-baselines
