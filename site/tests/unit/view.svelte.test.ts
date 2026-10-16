@@ -250,3 +250,73 @@ describe("the diagrams view, before and between answers", { timeout: 30_000 }, (
     stop();
   });
 });
+
+describe("picking a state", { timeout: 30_000 }, () => {
+  test("snapping and the grid's density are in the URL", async () => {
+    const { view, writes, stop } = await setup("fluid=Water&d=ph&snap=1&grid=5");
+    expect([view.snap, view.grid]).toEqual([true, 5]);
+    view.toggleSnap();
+    view.setGrid(2);
+    flushSync();
+    expect(last(writes)).toBe("fluid=Water&d=ph&grid=2");
+    view.toggleSnap();
+    view.setGrid(3);
+    flushSync();
+    expect(last(writes)).toBe("fluid=Water&d=ph&snap=1");
+    for (const [grid, level] of [
+      ["9", 5],
+      ["0", 1],
+      ["2.6", 3],
+      ["x", 3],
+      ["", 3],
+      [" ", 3],
+    ] as const) {
+      view.load(new URLSearchParams(`grid=${grid}`));
+      expect(view.grid, grid).toBe(level);
+    }
+    view.load(new URLSearchParams("snap=yes"));
+    expect(view.snap).toBe(false);
+    stop();
+  });
+
+  test("a view starts unsnapped, at the default density, before any route", async () => {
+    const view = new DiagramView((await realEngine()).engine);
+    expect([view.snap, view.grid, view.pinned]).toEqual([false, 3, false]);
+    expect(view.params().toString()).toBe("fluid=Water&d=ph");
+  });
+
+  test("a pinned readout ignores the cursor, but not a step", async () => {
+    const { view, stop } = await setup("fluid=Water&d=ph");
+    const at = (p: number): [Key, number, Key, number] => ["Hmass", 400e3, "P", p];
+    view.hover(at(1e6));
+    await vi.waitFor(() => expect(view.readout?.inputs).toEqual(at(1e6)));
+    view.togglePin();
+    expect(view.pinned).toBe(true);
+    view.hover(at(2e6));
+    view.leave();
+    await tick();
+    expect(view.readout?.inputs).toEqual(at(1e6));
+    view.point(at(3e6));
+    await vi.waitFor(() => expect(view.readout?.inputs).toEqual(at(3e6)));
+    view.togglePin();
+    view.hover(at(4e6));
+    await vi.waitFor(() => expect(view.readout?.inputs).toEqual(at(4e6)));
+    view.togglePin();
+    view.unpin();
+    expect(view.pinned).toBe(false);
+    view.leave();
+    expect(view.readout).toBeNull();
+    stop();
+  });
+
+  test("opens the readout's state in the calculator", async () => {
+    const { view, stop } = await setup("fluid=Water&d=ph");
+    expect(view.calculatorLink()).toBeNull();
+    view.point(["Hmass", 400e3, "P", 1e6]);
+    await vi.waitFor(() => expect(view.readout?.state).toBeTruthy());
+    expect(view.calculatorLink()).toBe("#/calculator?fluid=Water&a=Hmass%3A400000&b=P%3A1000000");
+    view.setSystem("engineering");
+    expect(view.calculatorLink()).toBe("#/calculator?fluid=Water&a=Hmass%3A400000&b=P%3A1000000&units=engineering");
+    stop();
+  });
+});

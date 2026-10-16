@@ -469,7 +469,7 @@ conformance kit (VERIFICATION.md §10) and, where marked, a **zero-line core dif
 v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
       ├─ M13 mixtures ────── M19 diagram geometry
       ├─ M14 IAPWS, ice ──── M18 humid air
-      ├─ M21 site: M21.1, M21.7, M21.2-M21.4 now, M21.5 after M13, M21.6 after M19
+      ├─ M21 site: M21.1, M21.7, M21.2, M21.8, M21.9, M21.3, M21.4 now, M21.5 after M13, M21.6 after M19
       └─ M12 SIMD spike, M16 Python, M17 INCOMP; on demand: Tier B shim, WIT, network service, materials
 ```
 
@@ -485,7 +485,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M18 | `phasekit-humidair` | M14 done (ice) | RP-1485 humid air on injected Water, Air and ice `Fluid`s (map 07 H3); HA strings in compat; the shim's real `HAPropsSI` replaces the stub; `pk_*` gains humid-air symbols (D11) | RP-1485 tables (map 10 §8.1, ~120 values); `HAPropsSI("H","T",300,"P",1e5,"R",0) = 27013.112479771713` (map 11 §8) |
 | M19 | a diagram-geometry crate (T1f), named at its plan | M13 done (user decision 13) | Geometry, not drawing (user decision WS4): saturation domes, isolines of T, p, h, s, ρ and quality on the p–h, T–s, p–T, T–ρ and h–s planes, split at the dome and at failed cells, sampled more densely where a line bends, with labels and ranges; M13's phase envelopes; over saturation, `flash` and batch; the browser package serves it to the site (M21.6) | Every vertex reproduces its line's value within `Flash`; a line's dome crossings are the saturation states at its value (`Exact` against `QT` or `PQ`); M21.2's checks pass on its geometry; the site's screenshots re-approved at M21.6 |
 | M20 | core, compat, verify, CI | M12 landed (user decision PL1) | Four follow-ups: Cv, Cp, w, τ and δ as derivative variables; the conformance kit's `identities` and `part_additivity`; the intra-doc link check; the nightly report: [M20 Follow-ups](#m20-follow-ups) | Each step's checks; G1-G8 |
-| M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19, mutation testing of the site's code; seven steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
+| M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19, mutation testing of the site's code, picking states on the diagrams, phase regions; nine steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
@@ -793,7 +793,7 @@ are independent and may be reordered. M20 does not move `MILESTONE`.
 this repository as its GitHub Pages site, `https://dzoay.github.io/phasekit/` (user decisions WS1-WS3). The site is a
 consumer of the browser package: every number it shows comes from `phasekit-wasm` at the commit it was built from, and
 what the page needs that the package lacks is added to the package in a step, with its tests. **Entry.** The user's
-word, 2026-10-16, beside M13 (WS3): M21.1, then M21.7 (WS5), then M21.2-M21.4; M21.5 after M13, M21.6 after M19. **Prerequisites.** User
+word, 2026-10-16, beside M13 (WS3): M21.1, then M21.7 (WS5), M21.2, M21.8 and M21.9 (the user's requests, 2026-10-16), then M21.3 and M21.4; M21.5 after M13, M21.6 after M19. **Prerequisites.** User
 decisions WS1-WS4; DEPENDENCIES.md's tier T5; Pages on, its source GitHub Actions, the `github-pages` environment
 deploying from `main` only (done 2026-10-16). **Arbiters.** The page adds no numerics, so its oracle is the browser package: a value on
 the page equals the package's at the same inputs (`Exact`), and the library's own tests check the package. Unit
@@ -805,6 +805,7 @@ contrast ratio. M21 does not move `MILESTONE`.
 | M21.1 | `site/`: Svelte 5, Vite and TypeScript (T5); the calculator over the five embedded fluids, its view in the URL; themes (light, dark, the system's; four accents), WCAG 2.2 AA contrast checked; the engine worker on the `simd128` build where validated; the browser package's `outputKeys()`; `scripts/release/wasm-modules.sh`, which the npm package and the site share; G9 and CI's `site` job; `pages.yml`; the licences page; the page's budget, 33 218 B + 10 % |
 | M21.2 | The diagrams page: p–h, T–s, p–T, T–ρ and h–s of the embedded fluids, sampled in `site/src/sample/` by the package's batch (every vertex `Exact` against it): the dome down to the saturation temperature of the lowest plotted pressure and the critical point; isotherms and isobars through the dome at their QT or PQ saturation states, isentropes, isenthalps and isochores with their QS, HQ or DQ edges, quality lines; a failed cell a gap. The readout flashes the state under the cursor; zoom and pan; CSV, SVG and PNG; three colour-blind-safe family colours, each with its dash; screenshots compared on CI's runner. The browser package's `Props1SI`; the page loaded on first visit; the budget 66 406 B + 10 % |
 | M21.7 | `site/src/lib/calculator.svelte.ts`: the calculator's view and wiring, which `Calculator.svelte` binds to and Vitest drives in a client-transformed environment; StrykerJS 10 with its Vitest runner (Vitest held at 4.1): `scripts/site/mutants.sh` in G9 on the site TypeScript a PR changes, static mutants skipped, and the weekly `site mutants` job over all of it; equivalent mutants excluded with their reasons; the baseline's 38.45 % raised to 100 % |
+| M21.8 | Picking a state on a diagram (the user's request, 2026-10-16): the cursor snaps to a grid in the shown units at five densities (`site/src/diagram/grid.ts`: d3's nice steps on a linear axis; decades, 1-2-5, 1 to 9, halves and tenths per decade on a log one, each an integer over a power of ten), its lines drawn while snapping; a click pins the readout, the arrow keys step it along the grid, Escape lets it go; Open in calculator carries its two inputs, so the calculator shows the same state. Snapping and the density are in the URL. Before it, the readout keeps one flash in flight |
 
 - **M21.3 Sweeps and the benchmark.**
   - Sweeps: any output against T along isobars or against p along isotherms, several lines at once (c_p near the
@@ -839,6 +840,25 @@ contrast ratio. M21 does not move `MILESTONE`.
 - **M21.6 The diagrams from M19.** The diagrams take their domes, isolines and envelopes from M19's geometry through
   the browser package, and `site/src/sample/` is deleted. *Red:* M21.2's checks on M19's geometry, run first against
   the package without its export. *Done when:* G1-G9; the screenshots re-approved in the PR.
+
+- **M21.9 Phase regions on the diagrams (the user's request, 2026-10-16).** A toggle tints the plot by the package's
+  phase: liquid, gas, liquid + vapour, supercritical, supercritical liquid and supercritical gas, each labelled, so
+  colour is never the only cue.
+  - Each region is a polygon whose edges are the package's lines: the dome, the critical isotherm and isobar, and the
+    isotherms and isobars that bound the fluid's range (T from the plotted lowest to `T_max`, p from the plotted lowest
+    to `P_max`). The batch samples them once per fluid with every diagram's axes among its outputs, so a diagram, a
+    size or a zoom costs no call. Each region's phase is the package's (`State.phase`) at a state inside it: the page
+    names no phase itself. Where the package has no state, beyond the range or the melting line, nothing is tinted.
+  - The tint is drawn softened under the lines, the dome and the critical isotherm and isobar sharp over it.
+  - *Re-planned before it started (2026-10-16):* classifying a 120 × 80 grid of the plot's cells by the readout pair
+    takes 0.4 s on p–h but 15 s on T–s and 106 s on h–s (Water, Node, the reference machine): an (s, T) flash costs
+    0.4 ms, and a failed (h, s) flash 11 ms. The batch's boundaries replace the cells, and no `Fluid.phases` export is
+    needed.
+
+  *Red:* Vitest on the real package that for Water and n-Propane on each diagram, points inside each region and clear
+  of its edges flash (by the readout pair) to the region's phase, and each label sits inside its region; Playwright
+  that the toggle is in the URL and tints the plot. *Done when:* G1-G9; the regions' cost per fluid recorded in the PR;
+  their screenshots approved in the PR.
 
 **Exit gate.** G1-G9 at every step; the page deployed from `main` at each merge; every value on the page equals the
 package's (`Exact`); M21.1's budget and SL8's wasm budgets hold; `reuse lint` and `actionlint` clean. **ROT rows.**

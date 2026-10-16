@@ -7,7 +7,8 @@
   import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
   import { untrack } from "svelte";
   import { buildModel, renderSvg, toCsv } from "../diagram/model";
-  import { baseScales, readoutInputs } from "../diagram/scales";
+  import { GRID_LEVELS, describeGrid, gridValues, snap, step } from "../diagram/grid";
+  import { baseScales, readoutAt, shownAt } from "../diagram/scales";
   import { styleOf, unitOfKey } from "../diagram/style";
   import { DiagramView, READOUT_KEYS } from "../diagram/view.svelte";
   import { getEngine } from "../engine/client";
@@ -73,6 +74,24 @@
     return buildModel(view.diagram, view.data, { ...zoomed, system: view.system, hidden, colour });
   });
 
+  // The snap grid in the shown units, over what the plot shows now (PLAN.md M21.8).
+  const grids = $derived(
+    zoomed
+      ? {
+          x: gridValues(zoomed.x.domain() as [number, number], view.diagram.x.log, view.grid),
+          y: gridValues(zoomed.y.domain() as [number, number], view.diagram.y.log, view.grid),
+        }
+      : { x: [], y: [] },
+  );
+
+  // A pinned readout's crosshair sits on its state; otherwise it follows the cursor.
+  const crosshair = $derived.by((): [number, number] | null => {
+    if (!view.pinned) return cursor;
+    if (!zoomed || !view.readout) return null;
+    const [xv, yv] = shownAt(view.diagram, view.readout.inputs, view.system);
+    return [zoomed.x(xv), zoomed.y(yv)];
+  });
+
   // Paint the model's lines and the critical point, clipped to the plot.
   $effect(() => {
     const context = canvas?.getContext("2d");
@@ -88,6 +107,22 @@
     context.rect(left, top, right - left, bottom - top);
     context.clip();
     [context.lineJoin, context.lineCap] = ["round", "round"];
+    // The snap grid under the lines, where it is not so fine as to fill the plot.
+    if (view.snap && grids.x.length + grids.y.length <= 300) {
+      [context.lineWidth, context.strokeStyle] = [1, colour("--border")];
+      context.beginPath();
+      for (const v of grids.x) {
+        const x = Math.round(zoomedX(v)) + 0.5;
+        context.moveTo(x, top);
+        context.lineTo(x, bottom);
+      }
+      for (const v of grids.y) {
+        const y = Math.round(zoomedY(v)) + 0.5;
+        context.moveTo(left, y);
+        context.lineTo(right, y);
+      }
+      context.stroke();
+    }
     for (const stroke of model.strokes) {
       context.beginPath();
       context.setLineDash([...stroke.dash]);
@@ -131,19 +166,50 @@
     untrack(reset);
   });
 
+  const zoomedX = (v: number) => (zoomed ? zoomed.x(v) : 0);
+  const zoomedY = (v: number) => (zoomed ? zoomed.y(v) : 0);
+
   function move(event: PointerEvent): void {
-    if (!zoomed || !overlay) return;
+    if (!zoomed || !overlay || view.pinned) return;
     const bounds = overlay.getBoundingClientRect();
     const [px, py] = [event.clientX - bounds.left, event.clientY - bounds.top];
     const { left, top, right, bottom } = zoomed.plot;
     if (px < left || px > right || py < top || py > bottom) return leave();
-    cursor = [px, py];
-    view.point(readoutInputs(view.diagram, zoomed.x, zoomed.y, px, py, view.system));
+    let [xv, yv] = [zoomed.x.invert(px), zoomed.y.invert(py)];
+    if (view.snap) [xv, yv] = [snap(xv, grids.x, view.diagram.x.log), snap(yv, grids.y, view.diagram.y.log)];
+    cursor = [zoomed.x(xv), zoomed.y(yv)];
+    view.hover(readoutAt(view.diagram, xv, yv, view.system));
   }
 
   function leave(): void {
+    if (view.pinned) return;
     cursor = null;
     view.leave();
+  }
+
+  // A click pins the readout or lets it go; while pinned, the arrow keys step it along the grid and Esc lets it go.
+  function click(event: MouseEvent): void {
+    if (event.detail > 1) return;
+    view.togglePin();
+    if (!view.pinned) move(event as PointerEvent);
+  }
+
+  function key(event: KeyboardEvent): void {
+    if (event.key === "Escape") return void view.unpin();
+    const arrows: Record<string, [0 | 1, 1 | -1]> = {
+      ArrowRight: [0, 1],
+      ArrowLeft: [0, -1],
+      ArrowUp: [1, 1],
+      ArrowDown: [1, -1],
+    };
+    const arrow = arrows[event.key];
+    if (!arrow || !view.pinned || !view.readout) return;
+    event.preventDefault();
+    const shown = shownAt(view.diagram, view.readout.inputs, view.system);
+    const [axis, direction] = arrow;
+    const [grid, log] = axis === 0 ? [grids.x, view.diagram.x.log] : [grids.y, view.diagram.y.log];
+    shown[axis] = step(shown[axis], grid, log, direction);
+    view.point(readoutAt(view.diagram, shown[0], shown[1], view.system));
   }
 
   function download(name: string, blob: Blob): void {
@@ -255,14 +321,22 @@
     {:else}
       <div class="stack" style:height="{height}px">
         <canvas bind:this={canvas} style:width="{width}px" style:height="{height}px"></canvas>
+        <!-- The plot takes its own pointer and keyboard input, as an ARIA application, its label saying how; Svelte's
+             lint counts no role of an <svg> as interactive. -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
         <svg
           bind:this={overlay}
           {width}
           {height}
-          role="img"
-          aria-label="{view.diagram.title} diagram of {view.fluid}"
+          role="application"
+          aria-roledescription="diagram"
+          aria-label="{view.diagram
+            .title} diagram of {view.fluid}: move to read a state, click to pin it, arrow keys to step along the grid, Escape to let it go"
+          tabindex="0"
           onpointermove={move}
           onpointerleave={leave}
+          onclick={click}
+          onkeydown={key}
         >
           {#if model}
             {@const p = model.plot}
@@ -288,9 +362,23 @@
               {#each model.labels as l, i (i)}
                 <text class="label" x={l.x} y={l.y} text-anchor={l.anchor}>{l.text}</text>
               {/each}
-              {#if cursor}
-                <line class="crosshair" x1={cursor[0]} x2={cursor[0]} y1={p.top} y2={p.bottom} />
-                <line class="crosshair" x1={p.left} x2={p.right} y1={cursor[1]} y2={cursor[1]} />
+              {#if crosshair}
+                <line
+                  class="crosshair"
+                  class:pinned={view.pinned}
+                  x1={crosshair[0]}
+                  x2={crosshair[0]}
+                  y1={p.top}
+                  y2={p.bottom}
+                />
+                <line
+                  class="crosshair"
+                  class:pinned={view.pinned}
+                  x1={p.left}
+                  x2={p.right}
+                  y1={crosshair[1]}
+                  y2={crosshair[1]}
+                />
               {/if}
             </g>
           {/if}
@@ -333,8 +421,39 @@
       </ul>
     </section>
 
+    <section class="card grid">
+      <h2>Grid</h2>
+      <label class="check">
+        <input type="checkbox" checked={view.snap} onchange={() => view.toggleSnap()} />
+        Snap to grid
+      </label>
+      <label class="density">
+        <span>Density</span>
+        <input
+          type="range"
+          min="1"
+          max={GRID_LEVELS}
+          step="1"
+          value={view.grid}
+          oninput={(e) => view.setGrid(Number(e.currentTarget.value))}
+        />
+      </label>
+      {#if zoomed}
+        {@const d = view.diagram}
+        <p class="muted" data-testid="grid-description">
+          {output(d.x.key)?.symbol}: {describeGrid(zoomed.x.domain() as [number, number], d.x.log, view.grid)}
+          {d.x.log ? "" : unitOfKey(d.x.key, view.system).label} · {output(d.y.key)?.symbol}:
+          {describeGrid(zoomed.y.domain() as [number, number], d.y.log, view.grid)}
+          {d.y.log ? "" : unitOfKey(d.y.key, view.system).label}
+        </p>
+      {/if}
+    </section>
+
     <section class="card readout" data-testid="readout" data-inputs={JSON.stringify(view.readout?.inputs ?? null)}>
-      <h2>Under the cursor</h2>
+      <h2>
+        Under the cursor
+        {#if view.pinned}<span class="pin" data-testid="pinned">pinned</span>{/if}
+      </h2>
       {#if view.readout?.state}
         <p class="phase">Phase <strong data-testid="readout-phase">{view.readout.state.phase}</strong></p>
         <table>
@@ -348,6 +467,10 @@
             {/each}
           </tbody>
         </table>
+        {@const link = view.calculatorLink()}
+        {#if link}
+          <a class="open" href={link} data-testid="open-calculator">Open in calculator →</a>
+        {/if}
       {:else if view.readout?.refusal}
         <p class="muted">The package refused this point: <code>{view.readout.refusal}</code></p>
       {:else}
@@ -510,6 +633,53 @@
   .crosshair {
     stroke: var(--fg-muted);
     stroke-dasharray: 3 3;
+  }
+
+  .crosshair.pinned {
+    stroke: var(--accent);
+    stroke-dasharray: none;
+  }
+
+  .stack svg:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  .pin {
+    margin-left: 6px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: 11px;
+    font-weight: 600;
+    vertical-align: middle;
+  }
+
+  .grid .check,
+  .grid .density {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    margin-bottom: 8px;
+  }
+
+  .grid .density input {
+    flex: 1;
+    accent-color: var(--accent);
+  }
+
+  .grid p {
+    margin: 0;
+    font-size: 12.5px;
+  }
+
+  .open {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 13.5px;
+    font-weight: 550;
   }
 
   .loading {

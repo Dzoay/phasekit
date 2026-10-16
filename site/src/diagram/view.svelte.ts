@@ -7,13 +7,22 @@ import type { System } from "../lib/units";
 import { diagram, type Diagram, type DiagramId, type Key } from "../sample/diagrams";
 import { sampleDiagram, type Batch, type DiagramData } from "../sample/lines";
 import { LIMIT_KEYS, limits } from "../sample/ranges";
+import { GRID_LEVELS } from "./grid";
 
 /** What the readout shows of the state under the cursor, beside its phase. */
 export const READOUT_KEYS = ["T", "P", "Hmass", "Smass", "Dmass", "Q"] as const;
 
 const FAMILIES: readonly Key[] = ["T", "P", "Hmass", "Smass", "Dmass", "Q"];
 
-const DEFAULT = { fluid: "Water", id: "ph" } as const;
+const DEFAULT = { fluid: "Water", id: "ph", grid: 3 } as const;
+
+/** A grid level from the URL: a number rounded into 1..GRID_LEVELS, the default for anything else. */
+function gridLevel(raw: string | null): number {
+  const level = Number(raw);
+  return raw === null || raw.trim() === "" || !Number.isFinite(level)
+    ? DEFAULT.grid
+    : Math.min(GRID_LEVELS, Math.max(1, Math.round(level)));
+}
 
 export interface Readout {
   inputs: [Key, number, Key, number];
@@ -28,6 +37,11 @@ export class DiagramView {
   id = $state<DiagramId>(DEFAULT.id);
   system = $state<System>("si");
   hidden = $state<Key[]>([]);
+  /** Whether the cursor snaps to the grid, and the grid's density, 1 to GRID_LEVELS (PLAN.md M21.8). */
+  snap = $state(false);
+  grid = $state<number>(DEFAULT.grid);
+  /** A pinned readout stays where it was clicked; only the arrow keys' steps move it. */
+  pinned = $state(false);
 
   // The geometry and the readout are replaced whole, never changed in place: raw state, which proxies neither its
   // thousands of vertices nor the cache's copies, so a cached diagram is the same object again.
@@ -54,6 +68,8 @@ export class DiagramView {
     this.fluid = params.get("fluid") ?? DEFAULT.fluid;
     this.id = diagram(String(params.get("d")))?.id ?? DEFAULT.id;
     this.system = params.get("units") === "engineering" ? "engineering" : "si";
+    this.snap = params.get("snap") === "1";
+    this.grid = gridLevel(params.get("grid"));
     this.hidden = String(params.get("hide"))
       .split(",")
       .filter((k): k is Key => FAMILIES.includes(k as Key));
@@ -63,6 +79,8 @@ export class DiagramView {
     const params = new URLSearchParams({ fluid: this.fluid, d: this.id });
     if (this.system === "engineering") params.set("units", this.system);
     if (this.hidden.length > 0) params.set("hide", this.hidden.join(","));
+    if (this.snap) params.set("snap", "1");
+    if (this.grid !== DEFAULT.grid) params.set("grid", String(this.grid));
     return params;
   }
 
@@ -86,8 +104,40 @@ export class DiagramView {
     if (!this.#flying) this.#flash();
   }
 
-  /** The cursor has left the plot: no readout, none that arrives late, and no waiting point. */
+  toggleSnap(): void {
+    this.snap = !this.snap;
+  }
+
+  setGrid(level: number): void {
+    this.grid = gridLevel(String(level));
+  }
+
+  /** The cursor's point: the readout's, unless it is pinned. */
+  hover(inputs: [Key, number, Key, number]): void {
+    if (!this.pinned) this.point(inputs);
+  }
+
+  togglePin(): void {
+    this.pinned = !this.pinned;
+  }
+
+  unpin(): void {
+    this.pinned = false;
+  }
+
+  /** The calculator at the readout's state: its two inputs, the fluid and the units. */
+  calculatorLink(): string | null {
+    const inputs = this.readout?.inputs;
+    if (!inputs) return null;
+    const [k1, v1, k2, v2] = inputs;
+    const params = new URLSearchParams({ fluid: this.fluid, a: `${k1}:${v1}`, b: `${k2}:${v2}` });
+    if (this.system === "engineering") params.set("units", this.system);
+    return `#/calculator?${params}`;
+  }
+
+  /** The cursor has left the plot: no readout, none that arrives late, and no waiting point; unless it is pinned. */
   leave(): void {
+    if (this.pinned) return;
     this.#pointer += 1;
     this.#latest = null;
     this.readout = null;

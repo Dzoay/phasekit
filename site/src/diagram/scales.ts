@@ -52,6 +52,16 @@ export function baseScales(
   };
 }
 
+/** The flash a point names, given in the shown units: the diagram's readout pair, its values in SI. */
+export function readoutAt(d: Diagram, xv: number, yv: number, system: System): [Key, number, Key, number] {
+  const at = new Map<Key, number>([
+    [d.x.key, toSI(xv, unitOfKey(d.x.key, system))],
+    [d.y.key, toSI(yv, unitOfKey(d.y.key, system))],
+  ]);
+  const [k1, k2] = d.readout;
+  return [k1, at.get(k1) as number, k2, at.get(k2) as number];
+}
+
 /** The flash a pixel names: the diagram's readout pair, its values in SI. */
 export function readoutInputs(
   d: Diagram,
@@ -61,10 +71,17 @@ export function readoutInputs(
   py: number,
   system: System,
 ): [Key, number, Key, number] {
-  const at = new Map<Key, number>([
-    [d.x.key, toSI(x.invert(px), unitOfKey(d.x.key, system))],
-    [d.y.key, toSI(y.invert(py), unitOfKey(d.y.key, system))],
+  return readoutAt(d, x.invert(px), y.invert(py), system);
+}
+
+/** Where a readout's inputs sit on the diagram, in the shown units: [x, y]. */
+export function shownAt(d: Diagram, inputs: readonly [Key, number, Key, number], system: System): [number, number] {
+  const si = new Map<Key, number>([
+    [inputs[0], inputs[1]],
+    [inputs[2], inputs[3]],
   ]);
-  const [k1, k2] = d.readout;
-  return [k1, at.get(k1) as number, k2, at.get(k2) as number];
+  return [
+    fromSI(si.get(d.x.key) as number, unitOfKey(d.x.key, system)),
+    fromSI(si.get(d.y.key) as number, unitOfKey(d.y.key, system)),
+  ];
 }
