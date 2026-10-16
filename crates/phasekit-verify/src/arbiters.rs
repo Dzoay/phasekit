@@ -298,6 +298,8 @@ pub const TABLES: &[(&str, &str)] = &[
     crate::fixture!("paper/HeavyWater/IAPWS-R4-84-2007.B4.csv"),
     crate::fixture!("paper/mixtures/Bell-JPCRD-2022.XI.csv"),
     crate::fixture!("paper/mixtures/Bell-JPCRD-2023.XIII.csv"),
+    crate::fixture!("paper/mixtures/Lemmon-JPCRD-2004.6.csv"),
+    crate::fixture!("paper/mixtures/Tkaczuk-JPCRD-2020.8.csv"),
 ];
 
 /// The committed text of the printed table `file` (a [`Table::file`]).
@@ -760,6 +762,26 @@ pub static ARBITERS: &[Arbiter] = &[
         part: ArbiterPart::AlphaR,
         citation: Citation { key: "Bell-JPCRD-2023", doi_or_report: Some("10.1063/5.0135368"), role: Role::EosPaper },
         tables: &[Table { file: "paper/mixtures/Bell-JPCRD-2023.XIII.csv", kind: TableKind::K1, rows: Some(11) }],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
+    },
+    Arbiter {
+        fluid: "R32&R125",
+        part: ArbiterPart::AlphaR,
+        citation: Citation { key: "Lemmon-JPCRD-2004", doi_or_report: Some("10.1063/1.1649997"), role: Role::EosPaper },
+        tables: &[Table { file: "paper/mixtures/Lemmon-JPCRD-2004.6.csv", kind: TableKind::K2, rows: Some(22) }],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
+    },
+    Arbiter {
+        fluid: "Helium&Neon",
+        part: ArbiterPart::AlphaR,
+        citation: Citation {
+            key: "Tkaczuk-JPCRD-2020",
+            doi_or_report: Some("10.1063/1.5142275"),
+            role: Role::EosPaper,
+        },
+        tables: &[Table { file: "paper/mixtures/Tkaczuk-JPCRD-2020.8.csv", kind: TableKind::K2, rows: Some(3) }],
         constants: None,
         status: ArbiterStatus::Transcribed,
     },

@@ -13,9 +13,11 @@ mod departure;
 #[cfg_attr(not(test), expect(dead_code, reason = "the predefined mixtures are built from PLAN.md M13.13"))]
 #[rustfmt::skip] // datagen's output, one table row a line (`gates datagen` compares it byte for byte)
 mod generated;
+mod mixture;
 mod multifluid;
 mod reducing;
 
+pub use mixture::{Mixture, R_CODATA, mixture};
 pub use multifluid::MultiFluid;
 
 #[cfg(test)]

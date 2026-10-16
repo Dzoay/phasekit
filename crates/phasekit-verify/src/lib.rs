@@ -24,8 +24,8 @@ pub use conformance::{
 pub use fixture::{Cell, CheckError, ColumnRole, Fixture, FixtureError, FixtureMismatch, Kind, Row};
 pub use lock::{ORACLE_LOCK, OracleLock, generator_environment, on_the_pinned_image};
 pub use register::{
-    DIVERGENCES, DivStatus, Divergence, Exempt, Fix, Part, Policy, RegisterError, Rows, check_register, missing_proofs,
-    unregistered_proofs,
+    CRITICAL_NOT_REDUCING, DIVERGENCES, DivStatus, Divergence, Exempt, Fix, Part, Policy, RegisterError, Rows,
+    check_register, missing_proofs, unregistered_proofs,
 };
 pub use sample::SplitMix64;
 pub use sha256::{sha256, sha256_hex};

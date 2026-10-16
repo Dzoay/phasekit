@@ -30,7 +30,7 @@ MIXTURES_DIR = ROOT / "reference" / "CoolProp" / "dev" / "mixtures"
 FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
 MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
 KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transport", "sigma", "melt", "refstate", "cubic",
-         "cubic_sat", "mix_alphar", "props", "codes"]
+         "cubic_sat", "mix_alphar", "mix_eos", "props", "codes"]
 SCRUBBED_PREFIXES = ("COOLPROP_", "PXFLASH_")
 FLUID_COUNT = 136
 
@@ -126,6 +126,15 @@ FACTS = {
         ("div0012_p_t250_rho55018.5", "PropsSI", ("P", "T", 250, "Dmolar", 55018.5, "Water")),
         ("div0013_alphar_t469_rho3399", "PropsSI", ("alphar", "T", 469, "Dmolar", 3399, BELL_TABLE_XI_MIXTURE)),
         ("div0014_p_t400_rho8000", "PropsSI", ("P", "T", 400, "Dmolar", 8000, "R1224YDZ")),
+        # Tkaczuk et al. 2020 Table 8's states, the oracle's p with its R_CODATA (DIV-0051).
+        *[
+            (f"div0051_p_{label}", "PropsSI", ("P", "T", 200, "Dmolar", 10000, f"HEOS::{a}[0.5]&{b}[0.5]"))
+            for label, a, b in (("he_ne", "Helium", "Neon"), ("he_ar", "Helium", "Argon"), ("ne_ar", "Neon", "Argon"))
+        ],
+        # Lemmon and Jacobsen 2004 Table 6's R32/R134a liquid row, the oracle's c_v (DIV-0053: R134a's critical T is not
+        # its reducing T, and v8.0.0 evaluates its alpha0 at the critical one in a mixture).
+        ("div0053_cvmolar_r32_r134a_t300_rho15000", "PropsSI",
+         ("CVMOLAR", "T", 300, "Dmolar", 15000, "HEOS::R32[0.5]&R134a[0.5]")),
         ("div0015_t_reducing", "Props1SI", ("R123", "T_reducing")),
         ("div0015_cp0molar_t300", "PropsSI", ("CP0MOLAR", "T", 300, "Dmolar", 1, "R123")),
         # CoolProp's own VLE at PropyleneGlycol's triple point, superancillaries off (DIV-0016).
@@ -1030,6 +1039,74 @@ def mix_alphar(CP, lock, config, files, args):
     return {"all/mix_alphar.csv": text + "".join(lines)}
 
 
+# The `mix_eos` kind (PLAN.md M13.4): CoolProp 8.0.0's mixtures at fixed composition, the gas phase imposed so that
+# (T, rho) is evaluated as given, over `mix_alphar`'s mixtures at two states of each one's reducing state: (tau, delta)
+# = (0.8, 0.5) and (1.25, 2.0). Columns: p, h, s, u, c_v, c_p, w, Z, and the ideal part's alpha0, tau dalpha0/dtau and
+# tau^2 d2alpha0/dtau2.
+MIX_EOS_OUTPUTS = [
+    ("p", "Pa", lambda s: s.p()),
+    ("hmolar", "J/mol", lambda s: s.hmolar()),
+    ("smolar", "J/mol/K", lambda s: s.smolar()),
+    ("umolar", "J/mol", lambda s: s.umolar()),
+    ("cvmolar", "J/mol/K", lambda s: s.cvmolar()),
+    ("cpmolar", "J/mol/K", lambda s: s.cpmolar()),
+    ("speed_sound", "m/s", lambda s: s.speed_sound()),
+    ("Z", "-", lambda s: s.compressibility_factor()),
+    ("alpha0", "-", lambda s: s.alpha0()),
+    ("A0_10", "-", lambda s: s.tau() * s.dalpha0_dTau()),
+    ("A0_20", "-", lambda s: s.tau() ** 2 * s.d2alpha0_dTau2()),
+]
+MIX_EOS_STATES = ((0.8, 0.5), (1.25, 2.0))
+MIX_EOS_COLUMNS = ["mixture", "z1", "T", "rhomolar", "status", *(name for name, _, _ in MIX_EOS_OUTPUTS)]
+MIX_EOS_UNITS = ["-", "-", "K", "mol/m3", "-", *(unit for _, unit, _ in MIX_EOS_OUTPUTS)]
+MIX_EOS_TOL = ["label", "in", "in", "in", "label", *["prop"] * len(MIX_EOS_OUTPUTS)]
+
+
+def mix_eos_rows(CP, label, z1, fluids, fractions, floats, lines):
+    """The rows of one mixture: an `err` row per state where the oracle cannot build or evaluate it."""
+    for tau, delta in MIX_EOS_STATES:
+        t = rho = math.nan
+        try:
+            state = CP.AbstractState("HEOS", fluids)
+            if fractions is not None:
+                state.set_mole_fractions(fractions)
+            t, rho = state.T_reducing() / tau, delta * state.rhomolar_reducing()
+            state.specify_phase(CP.iphase_gas)
+            state.update(CP.DmolarT_INPUTS, rho, t)
+            values = []
+            for _, _, get in MIX_EOS_OUTPUTS:
+                try:
+                    values.append(get(state))
+                except Exception:  # one output (w where the state is mechanically unstable): nan, the row stays
+                    values.append(math.nan)
+            status = "ok"
+        except Exception as exception:  # a missing pair, an unknown component: a status, never a crash
+            values, status = [math.nan] * len(MIX_EOS_OUTPUTS), f"err:{error_class(exception)}"
+        floats.extend([z1, t, rho, *values])
+        lines.append(",".join([label, cell(z1), cell(t), cell(rho), status, *map(cell, values)]) + "\n")
+
+
+def mix_eos(CP, lock, config, files, args):
+    """The `mix_eos` kind: all/mix_eos.csv over the library's pairs and predefined mixtures (any --tier)."""
+    pairs, predefined = mixture_library(lock)
+    lines, floats, seen = [], [], set()
+    for pair in sorted(pairs, key=lambda p: tuple(sorted((p["CAS1"], p["CAS2"])))):
+        assert_pair(CP, pair)
+        mix_eos_rows(CP, f"{pair['Name1']}&{pair['Name2']}", 0.4, f"{pair['Name1']}&{pair['Name2']}", [0.4, 0.6],
+                     floats, lines)
+    for mixture in sorted(predefined, key=lambda m: m["name"]):
+        if mixture["name"] in seen:
+            continue
+        seen.add(mixture["name"])
+        mix_eos_rows(CP, f"{mixture['name']}.mix", math.nan, f"{mixture['name']}.mix", None, floats, lines)
+    fluids = (f"{len(pairs)} pairs and {len(seen)} predefined mixtures, fluids_sha256={lock['fluids_sha256']}, "
+              f"mixtures_sha256={lock['mixtures_sha256']}")
+    grid = "pairs at z1 = 0.4; (tau, delta) in {(0.8,0.5),(1.25,2.0)} of each mixture's reducing state; gas imposed"
+    text = header("mix_eos", lock, config, fluids, MIX_EOS_COLUMNS, MIX_EOS_TOL, floats, units=MIX_EOS_UNITS,
+                  grid=grid)
+    return {"all/mix_eos.csv": text + "".join(lines)}
+
+
 # The `sat` kind (section 3.5). Since M5.2 it holds the `sa` rows: p, rho' and rho'' straight from
 # `CP.SuperAncillary(json).eval_sat` (map 03 section 8); since M5.2a a QT row at Q = 0 at each `sa` temperature; since
 # M6.8 a PQ row at Q = 1 at each of their pressures, and the core files: QT and PQ at both Q, no `sa` rows. A PQ row's
@@ -1799,7 +1876,7 @@ def codes(CP, lock, config, files, args):
 
 
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "cubic": cubic,
-              "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
+              "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "mix_eos": mix_eos, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
               "props": props, "codes": codes}
 
 

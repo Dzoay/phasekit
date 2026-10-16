@@ -75,6 +75,9 @@ exclude_re = [
     # Datagen's predefined mixtures (PLAN.md M13.2) refuse fractions summing more than 1e-10 from 1: `>=` differs only
     # at exactly that distance, which no entry of the library is.
     "datagen/mixtures\\.rs:[0-9]+:[0-9]+: replace > with >= in predefined_mixtures",
+    # A mixture's fractions sum to 1 within 1e-10 (PLAN.md M13.4): `>=` differs only at exactly that distance, which no
+    # sum of doubles lands on (1 + 1e-10 is 1.000000082740371e-10 from 1).
+    "mixture\\.rs:[0-9]+:[0-9]+: replace > with >= in validated",
     # A multi-fluid model has two or more components (PLAN.md M13.3: `MultiFluid::new` refuses fewer), so `is_empty` is
     # always false; clippy's `len_without_is_empty` asks for it beside `len`.
     "multifluid\\.rs:[0-9]+:[0-9]+: replace MultiFluid::is_empty -> bool with false",

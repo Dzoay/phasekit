@@ -148,6 +148,34 @@ pub struct Divergence {
     pub status: DivStatus,
 }
 
+/// The 24 embedded fluids whose published critical temperature is not their EOS's reducing one (DIV-0053; ROT-062).
+pub const CRITICAL_NOT_REDUCING: [&str; 24] = [
+    "Air",
+    "Fluorine",
+    "Helium",
+    "HydrogenChloride",
+    "IsoButane",
+    "IsoButene",
+    "Isohexane",
+    "Krypton",
+    "MDM",
+    "MM",
+    "Methanol",
+    "Nitrogen",
+    "Oxygen",
+    "R11",
+    "R113",
+    "R116",
+    "R1234ze(E)",
+    "R134a",
+    "R227EA",
+    "R41",
+    "SES36",
+    "n-Nonane",
+    "n-Pentane",
+    "n-Undecane",
+];
+
 /// The register (VERIFICATION.md §6), seeded from map 12 §6.3 and the map 10 §8.5 seed list (E15); it grows by PR
 /// with a proof per entry. `Investigate` stubs become `UsePaper` once their arbiter row is transcribed
 /// (M1-M8), or `KeepOracle` when the user accepts the oracle value (DIV-0005, docs/DECISIONS.md).
@@ -1250,6 +1278,77 @@ pub static DIVERGENCES: &[Divergence] = &[
         exempt: None,
         tolerance: Some(Tolerance::Relative(2e-8)),
         table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0051",
+        fluids: &["Helium&Neon", "Helium&Argon", "Neon&Argon"],
+        part: Part::GasConstant,
+        arbiter: None,
+        policy: Policy::KeepOracle,
+        fix: Fix::None,
+        evidence: "map 04 §8: Tkaczuk et al. 2020 Table 8 prints p with the mole-fraction-weighted R of its Sec. 2, as \
+                   v8.0.0 does with NORMALIZE_GAS_CONSTANTS off; v8.0.0 (on, its default) and phasekit (user decision \
+                   MX3) use R_CODATA: +3.4e-7 (Helium&Neon), -2.68e-6 (the argon pairs) at 200 K, 10 mol/dm3 (M13.4)",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0052",
+        fluids: &["*"],
+        part: Part::GasConstant,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::None,
+        evidence: "map 15 X12: v8.0.0's mixture alpha0 is sum x_i (R_i/R)[alpha0_i + ln x_i], each ln delta_i weighted \
+                   by R_i/R, so its s is not its p's (Maxwell) at R_i != R; phasekit keeps the ideal delta-part ln delta \
+                   exactly (core's contract) and weights the components' tau-parts: s and alpha0 differ by \
+                   R(1 - sum x_i R_i/R) ln rho, 2.4e-5 in alpha0 for Methane&Ethane (M13.4)",
+        exempt: Some(Exempt { kinds: &[Kind::MixEos], columns: &["smolar", "alpha0"], rows: Rows::All }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0053",
+        fluids: &CRITICAL_NOT_REDUCING,
+        part: Part::Reducing,
+        arbiter: Some("Lemmon-JPCRD-2004 Table 6"),
+        policy: Policy::SkipOracle,
+        fix: Fix::None,
+        evidence: "map 15 X12, map 04 #4: in a mixture v8.0.0 evaluates a component's alpha0 at tau_i = T_c,i tau/T_r \
+                   and delta_i = delta rho_r/rho_c,i, its critical state, not its reducing one; for these 24 fluids \
+                   T_c != T_r, so every alpha0-derived output moves: R32&R134a's c_v at Lemmon 2004 Table 6's 300 K, 15 \
+                   mol/dm3 is 3.1e-5 below the table, phasekit's within 3.2e-7 (M13.4)",
+        exempt: Some(Exempt {
+            kinds: &[Kind::MixEos],
+            columns: &["hmolar", "smolar", "umolar", "cvmolar", "cpmolar", "speed_sound", "alpha0", "A0_10", "A0_20"],
+            rows: Rows::All,
+        }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0054",
+        fluids: &["R32&R125", "R32&R134a", "R125&R134a", "R125&R143a", "R134a&R143a", "R134a&R152a"],
+        part: Part::GasConstant,
+        arbiter: None,
+        policy: Policy::KeepOracle,
+        fix: Fix::None,
+        evidence: "map 04 §8: Lemmon and Jacobsen 2004 Table 6 (REFPROP, the components' R) against phasekit's model \
+                   (R_CODATA, user decision MX3): away from the critical point p 2.1e-6, c_v 3.2e-7, c_p 8.4e-7, w \
+                   1.2e-6; at its six near-critical rows p 4.6e-6, w 9.2e-6, c_v 4.8e-7, where c_p diverges and moves \
+                   5.4e-4 (v8.0.0 alike) (M13.4)",
+        exempt: None,
+        tolerance: Some(Tolerance::Relative(3e-6)),
+        table_tolerances: &[("paper/mixtures/Lemmon-JPCRD-2004.6.csv", Tolerance::Relative(1e-5))],
         proof: &[13],
         status: DivStatus::Open,
     },

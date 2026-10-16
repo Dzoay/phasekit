@@ -1,0 +1,11 @@
+# fixture: paper/v1
+# source: paper:Tkaczuk-JPCRD-2020/Table8
+# citation: doi=10.1063/1.5142275 table=8 page=11 erratum-checked=2026-10-16 pdf_sha256=451bdd88d4ac82314afe21c6444d0f1b8332151757a366a7fabc23ee9206e36b
+# kind: K2
+# transcribed: Claude session A; checked: Claude session B (separate session, double entry)
+# columns: T,rho,z1,p,fluids
+# units: K,mol/dm3,-,Pa,-
+# tol: in,in,in,paper,label
+200.0,10.0,0.5,18430775.292600896,Helium&Neon
+200.0,10.0,0.5,17128034.388362616,Helium&Argon
+200.0,10.0,0.5,15905875.375781253,Neon&Argon
