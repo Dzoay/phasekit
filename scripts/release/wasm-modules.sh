@@ -19,5 +19,8 @@ for build in baseline simd; do
   wasm-bindgen --target web --weak-refs --out-name phasekit --out-dir "$dir/$build" \
     "$from/wasm32-unknown-unknown/release/phasekit_wasm.wasm"
 done
+# cargo-about reads `cargo metadata` of the whole workspace, which needs every locked crate on disk, dev-dependencies
+# included; the builds above fetched only theirs.
+cargo fetch --locked
 cargo about generate --offline --fail --manifest-path crates/phasekit-wasm/Cargo.toml --target wasm32-unknown-unknown \
   --features simd -o "$dir/THIRD-PARTY-CRATES.txt" about.hbs
