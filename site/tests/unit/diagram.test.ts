@@ -13,7 +13,7 @@ import {
   type Box,
   type Model,
 } from "../../src/diagram/model";
-import { padded, baseScales, readoutInputs } from "../../src/diagram/scales";
+import { padded, baseScales, readoutAt, readoutInputs, shownAt } from "../../src/diagram/scales";
 import { lineLabel, styleOf } from "../../src/diagram/style";
 import { DIAGRAMS, diagram, type Diagram } from "../../src/sample/diagrams";
 import type { DiagramData, Vertex } from "../../src/sample/lines";
@@ -403,5 +403,18 @@ describe("the dome and the files", () => {
         "</svg>",
       ].join("\n"),
     );
+  });
+});
+
+describe("snapped points", () => {
+  test("reach the package as the round values they show, and come back to where they were", () => {
+    const ts = diagram("ts") as Diagram;
+    expect(readoutAt(ph, 2500, 1, "engineering")).toEqual(["Hmass", 2.5e6, "P", 1e5]);
+    expect(readoutAt(ts, 1.5, 25, "engineering")).toEqual(["Smass", 1500, "T", 298.15]);
+    expect(readoutAt(ts, 1500, 300, "si")).toEqual(["Smass", 1500, "T", 300]);
+    expect(shownAt(ph, ["Hmass", 2.5e6, "P", 1e5], "engineering")).toEqual([2500, 1]);
+    expect(shownAt(ts, ["Smass", 1500, "T", 298.15], "engineering")).toEqual([1.5, 25]);
+    const hs = diagram("hs") as Diagram;
+    expect(shownAt(hs, ["Hmass", 2e6, "Smass", 6000], "si")).toEqual([6000, 2e6]);
   });
 });
