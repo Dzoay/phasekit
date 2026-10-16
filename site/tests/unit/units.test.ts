@@ -38,3 +38,9 @@ describe("units", () => {
     }
   });
 });
+
+describe("unit lookup", () => {
+  test("names what is missing", () => {
+    expect(() => unit("temperature", "°F")).toThrow("no unit °F of temperature");
+  });
+});

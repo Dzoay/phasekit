@@ -440,7 +440,10 @@ jobs:
     needs: wasm-browser
     runs-on: ubuntu-24.04
     steps:
+      # The whole history: G9's mutants step diffs against origin/main (PLAN.md M21.7).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -461,6 +464,13 @@ jobs:
       - name: Playwright's Chromium and its system libraries
         working-directory: site
         run: npx --no-install playwright install --with-deps chromium
+      # StrykerJS's incremental file: a re-run of the same branch tests only the mutants its new commits touch.
+      - name: StrykerJS cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: site/reports/stryker-incremental.json
+          key: site-stryker-${{ github.head_ref || github.ref_name }}-${{ github.run_id }}
+          restore-keys: site-stryker-${{ github.head_ref || github.ref_name }}-
       - name: G9 scripts/site/check.sh
         env:
           PK_PREBUILT: "1"

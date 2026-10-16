@@ -3,6 +3,7 @@
 
 function linear(channel: number): number {
   const c = channel / 255;
+  // Stryker disable next-line EqualityOperator: no 8-bit channel is 0.04045 (10.31 / 255), where < and <= differ.
   return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
 }
 

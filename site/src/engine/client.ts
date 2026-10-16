@@ -1,12 +1,10 @@
 // The page's side of the engine: one worker, started on first use, and a promise per request.
-import type { Op, Request, Response, Values } from "./protocol";
-
-type Body<K extends Op> = Omit<Extract<Request, { op: K }>, "id">;
+import type { Body, Engine, Response, Values } from "./protocol";
 
 /** A refusal: the package's message, or the worker's if it could not load. */
 export class EngineError extends Error {}
 
-class Engine {
+class WorkerEngine implements Engine {
   #worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
   #next = 1;
   #pending = new Map<number, (response: Response) => void>();
@@ -24,18 +22,18 @@ class Engine {
     };
   }
 
-  call<K extends Op>(body: Body<K> & { op: K }): Promise<Values[K]> {
+  call<B extends Body>(body: B): Promise<Values[B["op"]]> {
     const id = this.#next++;
     return new Promise((resolve, reject) => {
-      this.#pending.set(id, (r) => (r.ok ? resolve(r.value as Values[K]) : reject(new EngineError(r.error))));
+      this.#pending.set(id, (r) => (r.ok ? resolve(r.value as Values[B["op"]]) : reject(new EngineError(r.error))));
       this.#worker.postMessage({ ...body, id });
     });
   }
 }
 
-let engine: Engine | undefined;
+let engine: WorkerEngine | undefined;
 
 export function getEngine(): Engine {
-  engine ??= new Engine();
+  engine ??= new WorkerEngine();
   return engine;
 }

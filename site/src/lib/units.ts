@@ -36,7 +36,7 @@ export type KindId =
 /** A quantity's units, its SI unit first. */
 export interface Kind {
   id: KindId;
-  units: readonly Unit[];
+  units: readonly [Unit, ...Unit[]];
 }
 
 const u = (label: string, scale = 1, offset = 0): Unit => ({ label, scale, offset });
@@ -67,9 +67,11 @@ export const KINDS: readonly Kind[] = [
   { id: "dimensionless", units: [u("")] },
 ];
 
+const KIND = Object.fromEntries(KINDS.map((k) => [k.id, k])) as Record<KindId, Kind>;
+
 /** The unit of `kind` labelled `label`; a programming error if there is none. */
 export function unit(kind: KindId, label: string): Unit {
-  const found = KINDS.find((k) => k.id === kind)?.units.find((x) => x.label === label);
+  const found = KIND[kind].units.find((x) => x.label === label);
   if (!found) throw new Error(`no unit ${label} of ${kind}`);
   return found;
 }
@@ -104,9 +106,9 @@ const ENGINEERING: Partial<Record<KindId, string>> = {
   inversePressure: "1/MPa",
 };
 
-/** The unit a quantity of `kind` shows in, in `system`. */
+/** The unit a quantity of `kind` shows in, in `system`: SI, or the engineer's where the kind has one. */
 export function displayUnit(kind: KindId, system: System): Unit {
-  const label = system === "engineering" ? ENGINEERING[kind] : undefined;
-  const units = KINDS.find((k) => k.id === kind)?.units ?? [];
-  return units.find((x) => x.label === label) ?? units[0] ?? u("");
+  const units = KIND[kind].units;
+  if (system === "si") return units[0];
+  return units.find((x) => x.label === ENGINEERING[kind]) ?? units[0];
 }

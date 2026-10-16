@@ -24,3 +24,5 @@
 /site/public/notices/
 /site/test-results/
 /site/playwright-report/
+/site/reports/
+/site/.stryker-tmp/

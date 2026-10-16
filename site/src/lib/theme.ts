@@ -23,16 +23,14 @@ const isAccent = (v: unknown): v is Accent => ACCENTS.some((a) => a === v);
 
 /** The theme a stored string names, or the default for anything else. */
 export function parseTheme(raw: string | null): Theme {
+  let value: unknown;
   try {
-    const value: unknown = JSON.parse(raw ?? "null");
-    if (typeof value === "object" && value !== null) {
-      const { mode, accent } = value as Record<string, unknown>;
-      if (isMode(mode) && isAccent(accent)) return { mode, accent };
-    }
+    value = JSON.parse(String(raw));
   } catch {
-    // Not JSON: the default.
+    // Not JSON: no fields, so the default below.
   }
-  return DEFAULT_THEME;
+  const { mode, accent } = Object(value) as Record<string, unknown>;
+  return isMode(mode) && isAccent(accent) ? { mode, accent } : DEFAULT_THEME;
 }
 
 /** The stored theme, or the default where storage is empty or blocked. */

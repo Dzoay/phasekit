@@ -1,7 +1,8 @@
 // The engine the page's worker runs, under Node on the real package: it adds no numerics, so what it answers is the
 // package's value, bit for bit (`Exact`, VERIFICATION.md §5).
-import { describe, expect, test } from "vitest";
-import { createHandler } from "../../src/engine/handler";
+import { describe, expect, test, vi } from "vitest";
+import { BUDGET_MS, MAX_RUNS, createHandler, measure } from "../../src/engine/handler";
+import type { Pk } from "../../src/engine/pk";
 import { simdSupported } from "../../src/engine/simd";
 import { loadPk, propsSI, sameBits } from "../pk";
 
@@ -113,5 +114,113 @@ describe("timing", () => {
       outputs: [],
     });
     expect(got.ok).toBe(false);
+  });
+});
+
+describe("the SIMD probe", () => {
+  test("is false where the browser rejects the probe or cannot validate", () => {
+    const validate = vi.spyOn(WebAssembly, "validate");
+    validate.mockReturnValueOnce(false);
+    expect(simdSupported()).toBe(false);
+    validate.mockImplementationOnce(() => {
+      throw new Error("no WebAssembly");
+    });
+    expect(simdSupported()).toBe(false);
+    validate.mockRestore();
+  });
+});
+
+/** A package that counts what the engine does with it: its registries, fluid handles, flashes, reads and frees. */
+function fakePk() {
+  const calls = { registries: 0, fluids: 0, flashes: 0, reads: 0, freed: 0 };
+  class State {
+    phase = "liquid";
+    get(key: string): number {
+      calls.reads += 1;
+      if (key === "refused") throw new Error("not here");
+      if (key === "odd") throw "a bare string";
+      return 1;
+    }
+    free(): void {
+      calls.freed += 1;
+    }
+  }
+  class Fluid {
+    flash(): State {
+      calls.flashes += 1;
+      return new State();
+    }
+  }
+  class Registry {
+    constructor() {
+      calls.registries += 1;
+    }
+    fluid(name: string): Fluid {
+      calls.fluids += 1;
+      if (name === "Nothing") throw new Error("unknown fluid Nothing");
+      return new Fluid();
+    }
+    PropsSI(): number {
+      return 42;
+    }
+  }
+  return { pk: { Registry, outputKeys: () => ["T"] } as unknown as Pk, calls };
+}
+
+const at = { name1: "T", value1: 300, name2: "P", value2: 1e5 };
+
+describe("the engine's handles", () => {
+  test("opens one registry and each fluid once", () => {
+    const { pk, calls } = fakePk();
+    const handle = createHandler(pk, "baseline");
+    handle({ id: 1, op: "state", fluid: "Water", ...at, outputs: ["T"] });
+    handle({ id: 2, op: "state", fluid: "Water", ...at, outputs: ["T"] });
+    const props = handle({ id: 3, op: "props", output: "T", ...at, fluid: "Water" });
+    expect(props).toEqual({ id: 3, ok: true, op: "props", value: 42 });
+    expect([calls.registries, calls.fluids]).toEqual([1, 1]);
+  });
+
+  test("frees every state it makes, a timing's included", () => {
+    const { pk, calls } = fakePk();
+    const handle = createHandler(pk, "baseline");
+    const state = handle({ id: 1, op: "state", fluid: "Water", ...at, outputs: ["T", "refused", "odd"] });
+    expect(state).toEqual({
+      id: 1,
+      ok: true,
+      op: "state",
+      value: { phase: "liquid", values: [1, null, null], errors: [null, "not here", "a bare string"] },
+    });
+    expect([calls.flashes, calls.freed]).toEqual([1, 1]);
+    const time = handle({ id: 2, op: "time", fluid: "Water", ...at, outputs: ["T", "refused"] });
+    expect(time.ok && time.op).toBe("time");
+    expect(calls.flashes).toBeGreaterThan(3);
+    expect(calls.freed).toBe(calls.flashes);
+    expect(calls.reads).toBeGreaterThan(3 + 4);
+  });
+
+  test("answers a refused fluid with the package's message", () => {
+    const { pk } = fakePk();
+    const got = createHandler(pk, "baseline")({ id: 9, op: "time", fluid: "Nothing", ...at, outputs: [] });
+    expect(got).toEqual({ id: 9, ok: false, op: "time", error: "unknown fluid Nothing" });
+  });
+});
+
+describe("measure", () => {
+  test("warms once, then repeats until the budget has passed", () => {
+    let [t, calls] = [5, 0];
+    const timing = measure(
+      () => (calls += 1),
+      () => (t += 1),
+    );
+    expect(timing).toEqual({ us: 1000, runs: BUDGET_MS });
+    expect(calls).toBe(BUDGET_MS + 1);
+  });
+
+  test("stops at its cap when the clock does not move", () => {
+    const timing = measure(
+      () => {},
+      () => 0,
+    );
+    expect(timing).toEqual({ us: 0, runs: MAX_RUNS });
   });
 });

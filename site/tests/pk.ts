@@ -1,6 +1,8 @@
 // The browser package as the tests load it under Node: the module the page runs, from the bytes of its .wasm (Node's
-// fetch reads no file: URLs). scripts/site/build.sh puts both builds in src/pk.
+// fetch reads no file: URLs). scripts/site/build.sh puts both builds in src/pk. Paths are from the site directory, where
+// Vitest, Playwright and Stryker run: Vite's client transform rewrites `new URL(…, import.meta.url)` for browsers.
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { Pk } from "../src/engine/pk";
 
 export type Build = "baseline" | "simd";
@@ -9,7 +11,7 @@ const loaded = new Map<Build, Promise<Pk>>();
 
 async function load(build: Build): Promise<Pk> {
   const pk = (await import(`../src/pk/${build}/phasekit.js`)) as Pk;
-  await pk.default({ module_or_path: readFileSync(new URL(`../src/pk/${build}/phasekit_bg.wasm`, import.meta.url)) });
+  await pk.default({ module_or_path: readFileSync(resolve(`src/pk/${build}/phasekit_bg.wasm`)) });
   return pk;
 }
 
