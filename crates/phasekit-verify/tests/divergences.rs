@@ -75,6 +75,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0052", div_0052),
     ("DIV-0053", div_0053),
     ("DIV-0054", div_0054),
+    ("DIV-0055", div_0055),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1424,4 +1425,32 @@ fn div_0054() {
     let entry = DIVERGENCES.iter().find(|d| d.id == "DIV-0054").unwrap();
     assert_eq!(entry.tolerance, Some(phasekit_verify::Tolerance::Relative(3e-6)));
     assert!((1e-6..=3e-6).contains(&away) && (3e-6..=1e-5).contains(&near), "{away:e} {near:e}");
+}
+
+/// DIV-0055 (`KeepOracle`, PLAN.md M13.5): AGA8's binary test set comes from an implementation whose θ_k are TM15's
+/// ϑ_k T_c, where phasekit's are AGA8's θ_k in K. Nitrogen/isobutane's c_v at 361.72 K and 8 mol/l is 67.8393755004
+/// here, past the half unit of the sheet's 67.839375 and within the registered 2e-10 of it; `tests/gerg.rs` checks the
+/// whole set at that tolerance.
+fn div_0055() {
+    let (path, text) = fixture!("aga8/binary.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let row = (0..table.rows().len())
+        .find(|&r| {
+            table.printed(r, "pair") == Some("nitrogen&isobutan")
+                && table.printed(r, "T") == Some("361.72")
+                && table.printed(r, "D") == Some("8.0")
+        })
+        .unwrap();
+    let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
+    let fluid = phasekit_mix::gerg2008(&registry, &[("Nitrogen", 0.5), ("IsoButane", 0.5)]).unwrap();
+    let input = Input::new(phasekit_core::Pair::DT, 8e3, 361.72, Basis::Molar).unwrap();
+    let cv = fluid.flash(input, &FlashOptions::new().with_phase(Phase::Gas)).unwrap().cv(Basis::Molar).unwrap();
+    let (want, half) = (table.value(row, "cv").unwrap(), 5e-7);
+    let entry = DIVERGENCES.iter().find(|d| d.id == "DIV-0055").unwrap();
+    let measured = match entry.tolerance {
+        Some(phasekit_verify::Tolerance::Relative(measured)) => measured,
+        _ => f64::NAN, // fails the bound below
+    };
+    assert_eq!(table.printed(row, "cv"), Some("67.839375"));
+    assert!((cv - want).abs() > half && (cv - want).abs() <= half + measured * want, "{cv}");
 }

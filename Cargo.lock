@@ -544,6 +544,7 @@ name = "phasekit-xtask"
 version = "0.1.0"
 dependencies = [
  "phasekit-core",
+ "phasekit-mix",
  "phasekit-verify",
  "serde",
  "serde_json",

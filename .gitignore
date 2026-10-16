@@ -1,4 +1,4 @@
-# Pinned CoolProp checkout used as read-only reference/oracle (see scripts/fetch-coolprop.sh)
+# Pinned read-only reference checkouts (scripts/fetch-coolprop.sh, scripts/fetch-aga8.sh) and local papers
 /reference/
 
 # Rust build output

@@ -12,6 +12,8 @@
 //!   `--check`, checks the committed result files (M1.15).
 //! - `oracle`: runs scripts/oracle/gen.py through `uv run --no-project --python 3.12 --with CoolProp==8.0.0` (M1.3),
 //!   scrubbed `COOLPROP_*`/`PXFLASH_*`, all 38 config keys recorded and `oracle.lock` checked.
+//! - `teqp`: runs scripts/oracle/teqp.py the same way under `teqp.lock`: GERG-2008's teqp vectors and AGA8's test data
+//!   (M13.5).
 //! - `gates`: gate G8 (VERIFICATION.md §11.2). From M0.4 the zero-dependency guard, workspace lints, executed-test
 //!   counts, `#[ignore]` reasons, doc excerpts and rot-register ticks; later fixture manifest drift, the facade
 //!   feature-tree check and .wasm size budget (E7), perf-table recording (E9).
@@ -38,7 +40,8 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.split_first() {
         Some((task, rest)) if task == "gates" => gates::main(rest),
-        Some((task, rest)) if task == "oracle" => oracle::main(rest),
+        Some((task, rest)) if task == "oracle" => oracle::main(oracle::ORACLE, rest),
+        Some((task, rest)) if task == "teqp" => oracle::main(oracle::TEQP, rest),
         Some((task, rest)) if task == "baseline" => baseline::main(rest),
         Some((task, rest)) if task == "bench" => bench::main(rest),
         Some((task, rest)) if task == "changelog" => changelog::main(rest),
@@ -46,7 +49,9 @@ fn main() -> ExitCode {
         Some((task, rest)) if task == "datagen" => datagen::main(rest),
         Some((task, rest)) if task == "fetch-fastchebpure" => fastchebpure::main(rest),
         _ => {
-            eprintln!("usage: cargo xtask <baseline|bench|changelog|datagen|fetch-fastchebpure|fluid|oracle|gates>");
+            eprintln!(
+                "usage: cargo xtask <baseline|bench|changelog|datagen|fetch-fastchebpure|fluid|oracle|teqp|gates>"
+            );
             ExitCode::FAILURE
         }
     }

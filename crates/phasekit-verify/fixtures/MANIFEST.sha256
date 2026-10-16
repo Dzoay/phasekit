@@ -1,4 +1,7 @@
 # MANIFEST.sha256 (docs/VERIFICATION.md section 3.4): "<sha256> <bytes> <rows> <path>" for every committed fixture.
+6ebfa38d68a17ad18913762fc7a3b42b690330b6542474783acc8dfe6b1aecd7 237470 3645 aga8/binary.csv
+fd5099c7b8372b868efc2f1704cd9e35a775d55731626cfe301d70273f400b20 1365 1 aga8/check-state.csv
+c4cd279d68ac8137d0acdad9e17330dbad40bb05e0896dde2f9ae69f225127fb 37645 200 aga8/gases.csv
 b76d0449ae1837f39cdad6959daf21452036df836cf693c294950268736dd3e4 24924 136 coolprop-8.0.0/all/crit.csv
 7b2dc8bd7a1ac7436c166e66565da0cf93bf429f680b6248633bf0bd0b5222b4 623464 1856 coolprop-8.0.0/all/cubic.csv
 0f941e4bf631f20aef7291f354d090636d2555c0c3dbe70edb06ed0a1eb61ccc 97061 1160 coolprop-8.0.0/all/cubic_sat.csv
@@ -326,6 +329,8 @@ e4e0af1b091476a9421da8ed64beaafc9c8b3f68a0f1d04b0e40cc6c9f13e382 667 3 paper/m-X
 186d43d51a93b4b47cf092fb5a5e92d89ee34f85bddcaaedc0b391ddc6744279 1397 12 paper/mixtures/Bell-JPCRD-2022.XI.csv
 3317571fb02b2f51735b0673376b1389ef3e5e11433d379f5ec3fc88152d9b3b 1351 11 paper/mixtures/Bell-JPCRD-2023.XIII.check.csv
 3317571fb02b2f51735b0673376b1389ef3e5e11433d379f5ec3fc88152d9b3b 1351 11 paper/mixtures/Bell-JPCRD-2023.XIII.csv
+d81162a6aa71f632705d9fa4d27f325f15cb72254d18a7603a6c7e4374b3feec 58284 1739 paper/mixtures/Kunz-GERG-TM15-2007.A3.check.csv
+d81162a6aa71f632705d9fa4d27f325f15cb72254d18a7603a6c7e4374b3feec 58284 1739 paper/mixtures/Kunz-GERG-TM15-2007.A3.csv
 c2e9569b4b5f7480fd7f36bfc2f90471a5c4a9a8d572c31b5d7fac31c3527076 2245 22 paper/mixtures/Lemmon-JPCRD-2004.6.check.csv
 c2e9569b4b5f7480fd7f36bfc2f90471a5c4a9a8d572c31b5d7fac31c3527076 2245 22 paper/mixtures/Lemmon-JPCRD-2004.6.csv
 d8ad61599a35ade95f1b770dbfe38f8da01bd547d8c09afc9c05ee9700098795 539 3 paper/mixtures/Tkaczuk-JPCRD-2020.8.check.csv
@@ -376,3 +381,6 @@ e4ad1980262ca1166675e83688018461852c33f80b4eecd081a9914e6a245ea5 530 1 paper/n-P
 570afcb4363fd39ce591b888e5ae44360e0c72cc12e1abbb11c74c797dc8f92c 1061 9 paper/p-Xylene/CoolProp-Tests.eta.csv
 bffce90ec18d1ce108b043a1824fd3f23a4e3091acd2abc4afbc1dc5a6f22267 669 3 paper/p-Xylene/CoolProp-Tests.lambda.check.csv
 bffce90ec18d1ce108b043a1824fd3f23a4e3091acd2abc4afbc1dc5a6f22267 669 3 paper/p-Xylene/CoolProp-Tests.lambda.csv
+8acc911e6646d223f5ae9e9bb7fb5afdea93b80785b210d3c384b1a2cfb4345c 245800 840 teqp-0.23.2/gerg/binary.csv
+560e80af9865cb4fc168a4463bdc3277ad7fb298776729797085b7dedc12443e 110236 400 teqp-0.23.2/gerg/gas.csv
+be7c311010236d64b6edc66ad362c928b06d732adaea80ad0e2b60a925b653c1 22111 84 teqp-0.23.2/gerg/pure.csv

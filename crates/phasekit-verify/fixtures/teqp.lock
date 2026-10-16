@@ -1,0 +1,16 @@
+# teqp.lock v1 (docs/VERIFICATION.md section 3.8): the GERG-2008 generator's environment, scripts/oracle/teqp.py,
+# run in oracle.lock's runner_image (PLAN.md M13.5). Editing any line regenerates the GERG fixtures (section 6.5).
+package               teqp
+version               0.23.2
+wheel_tag             cp312-cp312-manylinux_2_17_x86_64
+so_name               teqp.cpython-312-x86_64-linux-gnu.so
+so_size               36613592
+so_sha256             af42155f521d8a61442c9dd84d9ce1d188c46f72a050a6673ff466c46d2e6a96
+numpy                 2.5.4
+xlrd                  2.0.1
+python                3.12
+uv_command            uv run --no-project --python 3.12 --with teqp==0.23.2 --with numpy==2.5.4 --with xlrd==2.0.1
+aga8_git              3bdb9ab8ff317c618b0b59d1b704c2c86ddc5fce
+aga8_check_sha256     d736b3ea8d9bf1349196abb4c9a969145c3b5e60893bf0654efdbf2fadb9720c
+aga8_testdata_sha256  9206789b440aef22ff56c5d061b1f0b544f50449efc58aee90d36ec22e1485c8
+locale                LC_ALL=C

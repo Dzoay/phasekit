@@ -39,6 +39,18 @@ precedence = "override"
 SPDX-FileCopyrightText = "2012-2018 Ian H. Bell and other CoolProp developers"
 SPDX-License-Identifier = "MIT"
 
+# GERG-2008's coefficients transcribed from NIST's AGA8 code, AGA8's test data and teqp's GERG-2008 vectors (PLAN.md
+# M13.5; user decision MX7): NIST's notice and disclaimer, which AGA8 and teqp both carry.
+[[annotations]]
+path = [
+    "crates/phasekit-mix/src/gerg/tables.rs",
+    "crates/phasekit-verify/fixtures/aga8/**",
+    "crates/phasekit-verify/fixtures/teqp-0.23.2/**",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "NIST (AGA8 and teqp authors)"
+SPDX-License-Identifier = "LicenseRef-NIST-GERG"
+
 # Check values transcribed from papers: the transcription is the project's; the cells are numerical facts, each file
 # citing its source in its header (VERIFICATION.md §3.7).
 [[annotations]]

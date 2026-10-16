@@ -1,0 +1,1747 @@
+# fixture: paper/v1
+# source: paper:Kunz-GERG-TM15-2007/TableA3
+# citation: report=GERG-TM15-2007 table=A3.1-A3.8 page=471 pages=471-485 erratum-checked=2026-10-16 pdf_sha256=eed3a0ded9d7fbd298c2a72c3ab1de8fde69da89407ce1034246b84f0e93dfde
+# kind: coefficients
+# transcribed: Claude session A; checked: Claude session B (separate session, double entry)
+# columns: table,component,quantity,value
+# units: -,-,-,-
+# tol: label,label,label,paper
+A3.1,Methane,n0[1],19.597538587
+A3.1,Methane,n0[2],-83.959667892
+A3.1,Methane,n0[3],3.000880000
+A3.1,Methane,n0[4],0.763150000
+A3.1,Methane,theta[4],4.306474465
+A3.1,Methane,n0[5],0.004600000
+A3.1,Methane,theta[5],0.936220902
+A3.1,Methane,n0[6],8.744320000
+A3.1,Methane,theta[6],5.577233895
+A3.1,Methane,n0[7],-4.469210000
+A3.1,Methane,theta[7],5.722644361
+A3.1,Nitrogen,n0[1],11.083437707
+A3.1,Nitrogen,n0[2],-22.202102428
+A3.1,Nitrogen,n0[3],2.500310000
+A3.1,Nitrogen,n0[4],0.137320000
+A3.1,Nitrogen,theta[4],5.251822620
+A3.1,Nitrogen,n0[5],-0.146600000
+A3.1,Nitrogen,theta[5],-5.393067706
+A3.1,Nitrogen,n0[6],0.900660000
+A3.1,Nitrogen,theta[6],13.788988208
+A3.1,Carbon dioxide,n0[1],11.925182741
+A3.1,Carbon dioxide,n0[2],-16.118762264
+A3.1,Carbon dioxide,n0[3],2.500020000
+A3.1,Carbon dioxide,n0[4],2.044520000
+A3.1,Carbon dioxide,theta[4],3.022758166
+A3.1,Carbon dioxide,n0[5],-1.060440000
+A3.1,Carbon dioxide,theta[5],-2.844425476
+A3.1,Carbon dioxide,n0[6],2.033660000
+A3.1,Carbon dioxide,theta[6],1.589964364
+A3.1,Carbon dioxide,n0[7],0.013930000
+A3.1,Carbon dioxide,theta[7],1.121596090
+A3.1,Ethane,n0[1],24.675465518
+A3.1,Ethane,n0[2],-77.425313760
+A3.1,Ethane,n0[3],3.002630000
+A3.1,Ethane,n0[4],4.339390000
+A3.1,Ethane,theta[4],1.831882406
+A3.1,Ethane,n0[5],1.237220000
+A3.1,Ethane,theta[5],0.731306621
+A3.1,Ethane,n0[6],13.197400000
+A3.1,Ethane,theta[6],3.378007481
+A3.1,Ethane,n0[7],-6.019890000
+A3.1,Ethane,theta[7],3.508721939
+A3.1,Propane,n0[1],31.602934734
+A3.1,Propane,n0[2],-84.463284382
+A3.1,Propane,n0[3],3.029390000
+A3.1,Propane,n0[4],6.605690000
+A3.1,Propane,theta[4],1.297521801
+A3.1,Propane,n0[5],3.197000000
+A3.1,Propane,theta[5],0.543210978
+A3.1,Propane,n0[6],19.192100000
+A3.1,Propane,theta[6],2.583146083
+A3.1,Propane,n0[7],-8.372670000
+A3.1,Propane,theta[7],2.777773271
+A3.1,n-Butane,n0[1],20.884168790
+A3.1,n-Butane,n0[2],-91.638478026
+A3.1,n-Butane,n0[3],3.339440000
+A3.1,n-Butane,n0[4],9.448930000
+A3.1,n-Butane,theta[4],1.101487798
+A3.1,n-Butane,n0[5],6.894060000
+A3.1,n-Butane,theta[5],0.431957660
+A3.1,n-Butane,n0[6],24.461800000
+A3.1,n-Butane,theta[6],4.502440459
+A3.1,n-Butane,n0[7],14.782400000
+A3.1,n-Butane,theta[7],2.124516319
+A3.1,Isobutane,n0[1],20.413751434
+A3.1,Isobutane,n0[2],-94.467620036
+A3.1,Isobutane,n0[3],3.067140000
+A3.1,Isobutane,n0[4],8.975750000
+A3.1,Isobutane,theta[4],1.074673199
+A3.1,Isobutane,n0[5],5.251560000
+A3.1,Isobutane,theta[5],0.485556021
+A3.1,Isobutane,n0[6],25.142300000
+A3.1,Isobutane,theta[6],4.671261865
+A3.1,Isobutane,n0[7],16.138800000
+A3.1,Isobutane,theta[7],2.191583480
+A3.1,n-Pentane,n0[1],14.536635738
+A3.1,n-Pentane,n0[2],-89.919548319
+A3.1,n-Pentane,n0[3],3.000000000
+A3.1,n-Pentane,n0[4],8.950430000
+A3.1,n-Pentane,theta[4],0.380391739
+A3.1,n-Pentane,n0[5],21.836000000
+A3.1,n-Pentane,theta[5],1.789520971
+A3.1,n-Pentane,n0[6],33.403200000
+A3.1,n-Pentane,theta[6],3.777411113
+A3.1,Isopentane,n0[1],15.449937973
+A3.1,Isopentane,n0[2],-101.298172792
+A3.1,Isopentane,n0[3],3.000000000
+A3.1,Isopentane,n0[4],11.761800000
+A3.1,Isopentane,theta[4],0.635392636
+A3.1,Isopentane,n0[5],20.110100000
+A3.1,Isopentane,theta[5],1.977271641
+A3.1,Isopentane,n0[6],33.168800000
+A3.1,Isopentane,theta[6],4.169371131
+A3.1,n-Hexane,n0[1],14.345993081
+A3.1,n-Hexane,n0[2],-96.165722367
+A3.1,n-Hexane,n0[3],3.000000000
+A3.1,n-Hexane,n0[4],11.697700000
+A3.1,n-Hexane,theta[4],0.359036667
+A3.1,n-Hexane,n0[5],26.814200000
+A3.1,n-Hexane,theta[5],1.691951873
+A3.1,n-Hexane,n0[6],38.616400000
+A3.1,n-Hexane,theta[6],3.596924107
+A3.1,n-Heptane,n0[1],15.063809621
+A3.1,n-Heptane,n0[2],-97.345252349
+A3.1,n-Heptane,n0[3],3.000000000
+A3.1,n-Heptane,n0[4],13.726600000
+A3.1,n-Heptane,theta[4],0.314348398
+A3.1,n-Heptane,n0[5],30.470700000
+A3.1,n-Heptane,theta[5],1.548136560
+A3.1,n-Heptane,n0[6],43.556100000
+A3.1,n-Heptane,theta[6],3.259326458
+A3.1,n-Octane,n0[1],15.864709639
+A3.1,n-Octane,n0[2],-97.370667555
+A3.1,n-Octane,n0[3],3.000000000
+A3.1,n-Octane,n0[4],15.686500000
+A3.1,n-Octane,theta[4],0.279143540
+A3.1,n-Octane,n0[5],33.802900000
+A3.1,n-Octane,theta[5],1.431644769
+A3.1,n-Octane,n0[6],48.173100000
+A3.1,n-Octane,theta[6],2.973845992
+A3.1,Hydrogen,n0[1],13.796474934
+A3.1,Hydrogen,n0[2],-175.864487294
+A3.1,Hydrogen,n0[3],1.479060000
+A3.1,Hydrogen,n0[4],0.958060000
+A3.1,Hydrogen,theta[4],6.891654113
+A3.1,Hydrogen,n0[5],0.454440000
+A3.1,Hydrogen,theta[5],9.847634830
+A3.1,Hydrogen,n0[6],1.560390000
+A3.1,Hydrogen,theta[6],49.765290750
+A3.1,Hydrogen,n0[7],-1.375600000
+A3.1,Hydrogen,theta[7],50.367279301
+A3.1,Oxygen,n0[1],10.001874708
+A3.1,Oxygen,n0[2],-14.996095135
+A3.1,Oxygen,n0[3],2.501460000
+A3.1,Oxygen,n0[4],1.075580000
+A3.1,Oxygen,theta[4],14.461722565
+A3.1,Oxygen,n0[5],1.013340000
+A3.1,Oxygen,theta[5],7.223325463
+A3.1,Carbon monoxide,n0[1],10.814500335
+A3.1,Carbon monoxide,n0[2],-19.843695435
+A3.1,Carbon monoxide,n0[3],2.500550000
+A3.1,Carbon monoxide,n0[4],1.028650000
+A3.1,Carbon monoxide,theta[4],11.675075301
+A3.1,Carbon monoxide,n0[5],0.004930000
+A3.1,Carbon monoxide,theta[5],5.305158133
+A3.1,Water,n0[1],8.203553050
+A3.1,Water,n0[2],-11.996306443
+A3.1,Water,n0[3],3.003920000
+A3.1,Water,n0[4],0.010590000
+A3.1,Water,theta[4],0.415386589
+A3.1,Water,n0[5],0.987630000
+A3.1,Water,theta[5],1.763895929
+A3.1,Water,n0[6],3.069040000
+A3.1,Water,theta[6],3.874803739
+A3.1,Helium,n0[1],13.628441975
+A3.1,Helium,n0[2],-143.470759602
+A3.1,Helium,n0[3],1.500000000
+A3.1,Argon,n0[1],8.316662546
+A3.1,Argon,n0[2],-4.946502600
+A3.1,Argon,n0[3],1.500000000
+A3.2,Propane,n[1],0.10403973107358e1
+A3.2,Propane,n[2],-0.28318404081403e1
+A3.2,Propane,n[3],0.84393809606294
+A3.2,Propane,n[4],-0.76559591850023e-1
+A3.2,Propane,n[5],0.94697373057280e-1
+A3.2,Propane,n[6],0.24796475497006e-3
+A3.2,Propane,n[7],0.27743760422870
+A3.2,Propane,n[8],-0.43846000648377e-1
+A3.2,Propane,n[9],-0.26991064784350
+A3.2,Propane,n[10],-0.69313413089860e-1
+A3.2,Propane,n[11],-0.29632145981653e-1
+A3.2,Propane,n[12],0.14040126751380e-1
+A3.2,n-Butane,n[1],0.10626277411455e1
+A3.2,n-Butane,n[2],-0.28620951828350e1
+A3.2,n-Butane,n[3],0.88738233403777
+A3.2,n-Butane,n[4],-0.12570581155345
+A3.2,n-Butane,n[5],0.10286308708106
+A3.2,n-Butane,n[6],0.25358040602654e-3
+A3.2,n-Butane,n[7],0.32325200233982
+A3.2,n-Butane,n[8],-0.37950761057432e-1
+A3.2,n-Butane,n[9],-0.32534802014452
+A3.2,n-Butane,n[10],-0.79050969051011e-1
+A3.2,n-Butane,n[11],-0.20636720547775e-1
+A3.2,n-Butane,n[12],0.57053809334750e-2
+A3.2,Isobutane,n[1],0.10429331589100e1
+A3.2,Isobutane,n[2],-0.28184272548892e1
+A3.2,Isobutane,n[3],0.86176232397850
+A3.2,Isobutane,n[4],-0.10613619452487
+A3.2,Isobutane,n[5],0.98615749302134e-1
+A3.2,Isobutane,n[6],0.23948208682322e-3
+A3.2,Isobutane,n[7],0.30330004856950
+A3.2,Isobutane,n[8],-0.41598156135099e-1
+A3.2,Isobutane,n[9],-0.29991937470058
+A3.2,Isobutane,n[10],-0.80369342764109e-1
+A3.2,Isobutane,n[11],-0.29761373251151e-1
+A3.2,Isobutane,n[12],0.13059630303140e-1
+A3.2,n-Pentane,n[1],0.10968643098001e1
+A3.2,n-Pentane,n[2],-0.29988888298061e1
+A3.2,n-Pentane,n[3],0.99516886799212
+A3.2,n-Pentane,n[4],-0.16170708558539
+A3.2,n-Pentane,n[5],0.11334460072775
+A3.2,n-Pentane,n[6],0.26760595150748e-3
+A3.2,n-Pentane,n[7],0.40979881986931
+A3.2,n-Pentane,n[8],-0.40876423083075e-1
+A3.2,n-Pentane,n[9],-0.38169482469447
+A3.2,n-Pentane,n[10],-0.10931956843993
+A3.2,n-Pentane,n[11],-0.32073223327990e-1
+A3.2,n-Pentane,n[12],0.16877016216975e-1
+A3.2,Isopentane,n[1],0.11017531966644e1
+A3.2,Isopentane,n[2],-0.30082368531980e1
+A3.2,Isopentane,n[3],0.99411904271336
+A3.2,Isopentane,n[4],-0.14008636562629
+A3.2,Isopentane,n[5],0.11193995351286
+A3.2,Isopentane,n[6],0.29548042541230e-3
+A3.2,Isopentane,n[7],0.36370108598133
+A3.2,Isopentane,n[8],-0.48236083488293e-1
+A3.2,Isopentane,n[9],-0.35100280270615
+A3.2,Isopentane,n[10],-0.10185043812047
+A3.2,Isopentane,n[11],-0.35242601785454e-1
+A3.2,Isopentane,n[12],0.19756797599888e-1
+A3.2,n-Hexane,n[1],0.10553238013661e1
+A3.2,n-Hexane,n[2],-0.26120615890629e1
+A3.2,n-Hexane,n[3],0.76613882967260
+A3.2,n-Hexane,n[4],-0.29770320622459
+A3.2,n-Hexane,n[5],0.11879907733358
+A3.2,n-Hexane,n[6],0.27922861062617e-3
+A3.2,n-Hexane,n[7],0.46347589844105
+A3.2,n-Hexane,n[8],0.11433196980297e-1
+A3.2,n-Hexane,n[9],-0.48256968738131
+A3.2,n-Hexane,n[10],-0.93750558924659e-1
+A3.2,n-Hexane,n[11],-0.67273247155994e-2
+A3.2,n-Hexane,n[12],-0.51141583585428e-2
+A3.2,n-Heptane,n[1],0.10543747645262e1
+A3.2,n-Heptane,n[2],-0.26500681506144e1
+A3.2,n-Heptane,n[3],0.81730047827543
+A3.2,n-Heptane,n[4],-0.30451391253428
+A3.2,n-Heptane,n[5],0.12253868710800
+A3.2,n-Heptane,n[6],0.27266472743928e-3
+A3.2,n-Heptane,n[7],0.49865825681670
+A3.2,n-Heptane,n[8],-0.71432815084176e-3
+A3.2,n-Heptane,n[9],-0.54236895525450
+A3.2,n-Heptane,n[10],-0.13801821610756
+A3.2,n-Heptane,n[11],-0.61595287380011e-2
+A3.2,n-Heptane,n[12],0.48602510393022e-3
+A3.2,n-Octane,n[1],0.10722544875633e1
+A3.2,n-Octane,n[2],-0.24632951172003e1
+A3.2,n-Octane,n[3],0.65386674054928
+A3.2,n-Octane,n[4],-0.36324974085628
+A3.2,n-Octane,n[5],0.12713269626764
+A3.2,n-Octane,n[6],0.30713572777930e-3
+A3.2,n-Octane,n[7],0.52656856987540
+A3.2,n-Octane,n[8],0.19362862857653e-1
+A3.2,n-Octane,n[9],-0.58939426849155
+A3.2,n-Octane,n[10],-0.14069963991934
+A3.2,n-Octane,n[11],-0.78966330500036e-2
+A3.2,n-Octane,n[12],0.33036597968109e-2
+A3.2,Oxygen,n[1],0.88878286369701
+A3.2,Oxygen,n[2],-0.24879433312148e1
+A3.2,Oxygen,n[3],0.59750190775886
+A3.2,Oxygen,n[4],0.96501817061881e-2
+A3.2,Oxygen,n[5],0.71970428712770e-1
+A3.2,Oxygen,n[6],0.22337443000195e-3
+A3.2,Oxygen,n[7],0.18558686391474
+A3.2,Oxygen,n[8],-0.38129368035760e-1
+A3.2,Oxygen,n[9],-0.15352245383006
+A3.2,Oxygen,n[10],-0.26726814910919e-1
+A3.2,Oxygen,n[11],-0.25675298677127e-1
+A3.2,Oxygen,n[12],0.95714302123668e-2
+A3.2,Carbon monoxide,n[1],0.92310041400851
+A3.2,Carbon monoxide,n[2],-0.24885845205800e1
+A3.2,Carbon monoxide,n[3],0.58095213783396
+A3.2,Carbon monoxide,n[4],0.28859164394654e-1
+A3.2,Carbon monoxide,n[5],0.70256257276544e-1
+A3.2,Carbon monoxide,n[6],0.21687043269488e-3
+A3.2,Carbon monoxide,n[7],0.13758331015182
+A3.2,Carbon monoxide,n[8],-0.51501116343466e-1
+A3.2,Carbon monoxide,n[9],-0.14865357483379
+A3.2,Carbon monoxide,n[10],-0.38857100886810e-1
+A3.2,Carbon monoxide,n[11],-0.29100433948943e-1
+A3.2,Carbon monoxide,n[12],0.14155684466279e-1
+A3.2,Argon,n[1],0.85095714803969
+A3.2,Argon,n[2],-0.24003222943480e1
+A3.2,Argon,n[3],0.54127841476466
+A3.2,Argon,n[4],0.16919770692538e-1
+A3.2,Argon,n[5],0.68825965019035e-1
+A3.2,Argon,n[6],0.21428032815338e-3
+A3.2,Argon,n[7],0.17429895321992
+A3.2,Argon,n[8],-0.33654495604194e-1
+A3.2,Argon,n[9],-0.13526799857691
+A3.2,Argon,n[10],-0.16387350791552e-1
+A3.2,Argon,n[11],-0.24987666851475e-1
+A3.2,Argon,n[12],0.88769204815709e-2
+A3.2,*,d[1],1
+A3.2,*,t[1],0.250
+A3.2,*,d[2],1
+A3.2,*,t[2],1.125
+A3.2,*,d[3],1
+A3.2,*,t[3],1.500
+A3.2,*,d[4],2
+A3.2,*,t[4],1.375
+A3.2,*,d[5],3
+A3.2,*,t[5],0.250
+A3.2,*,d[6],7
+A3.2,*,t[6],0.875
+A3.2,*,c[7],1
+A3.2,*,d[7],2
+A3.2,*,t[7],0.625
+A3.2,*,c[8],1
+A3.2,*,d[8],5
+A3.2,*,t[8],1.750
+A3.2,*,c[9],2
+A3.2,*,d[9],1
+A3.2,*,t[9],3.625
+A3.2,*,c[10],2
+A3.2,*,d[10],4
+A3.2,*,t[10],3.625
+A3.2,*,c[11],3
+A3.2,*,d[11],3
+A3.2,*,t[11],14.500
+A3.2,*,c[12],3
+A3.2,*,d[12],4
+A3.2,*,t[12],12.000
+A3.2,Propane,KPol,6
+A3.2,Propane,KExp,6
+A3.2,n-Butane,KPol,6
+A3.2,n-Butane,KExp,6
+A3.2,Isobutane,KPol,6
+A3.2,Isobutane,KExp,6
+A3.2,n-Pentane,KPol,6
+A3.2,n-Pentane,KExp,6
+A3.2,Isopentane,KPol,6
+A3.2,Isopentane,KExp,6
+A3.2,n-Hexane,KPol,6
+A3.2,n-Hexane,KExp,6
+A3.2,n-Heptane,KPol,6
+A3.2,n-Heptane,KExp,6
+A3.2,n-Octane,KPol,6
+A3.2,n-Octane,KExp,6
+A3.2,Oxygen,KPol,6
+A3.2,Oxygen,KExp,6
+A3.2,Carbon monoxide,KPol,6
+A3.2,Carbon monoxide,KExp,6
+A3.2,Argon,KPol,6
+A3.2,Argon,KExp,6
+A3.3,Methane,n[1],0.57335704239162
+A3.3,Methane,n[2],-0.16760687523730e1
+A3.3,Methane,n[3],0.23405291834916
+A3.3,Methane,n[4],-0.21947376343441
+A3.3,Methane,n[5],0.16369201404128e-1
+A3.3,Methane,n[6],0.15004406389280e-1
+A3.3,Methane,n[7],0.98990489492918e-1
+A3.3,Methane,n[8],0.58382770929055
+A3.3,Methane,n[9],-0.74786867560390
+A3.3,Methane,n[10],0.30033302857974
+A3.3,Methane,n[11],0.20985543806568
+A3.3,Methane,n[12],-0.18590151133061e-1
+A3.3,Methane,n[13],-0.15782558339049
+A3.3,Methane,n[14],0.12716735220791
+A3.3,Methane,n[15],-0.32019743894346e-1
+A3.3,Methane,n[16],-0.68049729364536e-1
+A3.3,Methane,n[17],0.24291412853736e-1
+A3.3,Methane,n[18],0.51440451639444e-2
+A3.3,Methane,n[19],-0.19084949733532e-1
+A3.3,Methane,n[20],0.55229677241291e-2
+A3.3,Methane,n[21],-0.44197392976085e-2
+A3.3,Methane,n[22],0.40061416708429e-1
+A3.3,Methane,n[23],-0.33752085907575e-1
+A3.3,Methane,n[24],-0.25127658213357e-2
+A3.3,Nitrogen,n[1],0.59889711801201
+A3.3,Nitrogen,n[2],-0.16941557480731e1
+A3.3,Nitrogen,n[3],0.24579736191718
+A3.3,Nitrogen,n[4],-0.23722456755175
+A3.3,Nitrogen,n[5],0.17954918715141e-1
+A3.3,Nitrogen,n[6],0.14592875720215e-1
+A3.3,Nitrogen,n[7],0.10008065936206
+A3.3,Nitrogen,n[8],0.73157115385532
+A3.3,Nitrogen,n[9],-0.88372272336366
+A3.3,Nitrogen,n[10],0.31887660246708
+A3.3,Nitrogen,n[11],0.20766491728799
+A3.3,Nitrogen,n[12],-0.19379315454158e-1
+A3.3,Nitrogen,n[13],-0.16936641554983
+A3.3,Nitrogen,n[14],0.13546846041701
+A3.3,Nitrogen,n[15],-0.33066712095307e-1
+A3.3,Nitrogen,n[16],-0.60690817018557e-1
+A3.3,Nitrogen,n[17],0.12797548292871e-1
+A3.3,Nitrogen,n[18],0.58743664107299e-2
+A3.3,Nitrogen,n[19],-0.18451951971969e-1
+A3.3,Nitrogen,n[20],0.47226622042472e-2
+A3.3,Nitrogen,n[21],-0.52024079680599e-2
+A3.3,Nitrogen,n[22],0.43563505956635e-1
+A3.3,Nitrogen,n[23],-0.36251690750939e-1
+A3.3,Nitrogen,n[24],-0.28974026866543e-2
+A3.3,Ethane,n[1],0.63596780450714
+A3.3,Ethane,n[2],-0.17377981785459e1
+A3.3,Ethane,n[3],0.28914060926272
+A3.3,Ethane,n[4],-0.33714276845694
+A3.3,Ethane,n[5],0.22405964699561e-1
+A3.3,Ethane,n[6],0.15715424886913e-1
+A3.3,Ethane,n[7],0.11450634253745
+A3.3,Ethane,n[8],0.10612049379745e1
+A3.3,Ethane,n[9],-0.12855224439423e1
+A3.3,Ethane,n[10],0.39414630777652
+A3.3,Ethane,n[11],0.31390924682041
+A3.3,Ethane,n[12],-0.21592277117247e-1
+A3.3,Ethane,n[13],-0.21723666564905
+A3.3,Ethane,n[14],-0.28999574439489
+A3.3,Ethane,n[15],0.42321173025732
+A3.3,Ethane,n[16],0.46434100259260e-1
+A3.3,Ethane,n[17],-0.13138398329741
+A3.3,Ethane,n[18],0.11492850364368e-1
+A3.3,Ethane,n[19],-0.33387688429909e-1
+A3.3,Ethane,n[20],0.15183171583644e-1
+A3.3,Ethane,n[21],-0.47610805647657e-2
+A3.3,Ethane,n[22],0.46917166277885e-1
+A3.3,Ethane,n[23],-0.39401755804649e-1
+A3.3,Ethane,n[24],-0.32569956247611e-2
+A3.3,*,d[1],1
+A3.3,*,t[1],0.125
+A3.3,*,d[2],1
+A3.3,*,t[2],1.125
+A3.3,*,d[3],2
+A3.3,*,t[3],0.375
+A3.3,*,d[4],2
+A3.3,*,t[4],1.125
+A3.3,*,d[5],4
+A3.3,*,t[5],0.625
+A3.3,*,d[6],4
+A3.3,*,t[6],1.500
+A3.3,*,c[7],1
+A3.3,*,d[7],1
+A3.3,*,t[7],0.625
+A3.3,*,c[8],1
+A3.3,*,d[8],1
+A3.3,*,t[8],2.625
+A3.3,*,c[9],1
+A3.3,*,d[9],1
+A3.3,*,t[9],2.750
+A3.3,*,c[10],1
+A3.3,*,d[10],2
+A3.3,*,t[10],2.125
+A3.3,*,c[11],1
+A3.3,*,d[11],3
+A3.3,*,t[11],2.000
+A3.3,*,c[12],1
+A3.3,*,d[12],6
+A3.3,*,t[12],1.750
+A3.3,*,c[13],2
+A3.3,*,d[13],2
+A3.3,*,t[13],4.500
+A3.3,*,c[14],2
+A3.3,*,d[14],3
+A3.3,*,t[14],4.750
+A3.3,*,c[15],2
+A3.3,*,d[15],3
+A3.3,*,t[15],5.000
+A3.3,*,c[16],2
+A3.3,*,d[16],4
+A3.3,*,t[16],4.000
+A3.3,*,c[17],2
+A3.3,*,d[17],4
+A3.3,*,t[17],4.500
+A3.3,*,c[18],3
+A3.3,*,d[18],2
+A3.3,*,t[18],7.500
+A3.3,*,c[19],3
+A3.3,*,d[19],3
+A3.3,*,t[19],14.000
+A3.3,*,c[20],3
+A3.3,*,d[20],4
+A3.3,*,t[20],11.500
+A3.3,*,c[21],6
+A3.3,*,d[21],5
+A3.3,*,t[21],26.000
+A3.3,*,c[22],6
+A3.3,*,d[22],6
+A3.3,*,t[22],28.000
+A3.3,*,c[23],6
+A3.3,*,d[23],6
+A3.3,*,t[23],30.000
+A3.3,*,c[24],6
+A3.3,*,d[24],7
+A3.3,*,t[24],16.000
+A3.3,Methane,KPol,6
+A3.3,Methane,KExp,18
+A3.3,Nitrogen,KPol,6
+A3.3,Nitrogen,KExp,18
+A3.3,Ethane,KPol,6
+A3.3,Ethane,KExp,18
+A3.4,Carbon dioxide,d[1],1
+A3.4,Carbon dioxide,t[1],0.000
+A3.4,Carbon dioxide,n[1],0.52646564804653
+A3.4,Carbon dioxide,d[2],1
+A3.4,Carbon dioxide,t[2],1.250
+A3.4,Carbon dioxide,n[2],-0.14995725042592e1
+A3.4,Carbon dioxide,d[3],2
+A3.4,Carbon dioxide,t[3],1.625
+A3.4,Carbon dioxide,n[3],0.27329786733782
+A3.4,Carbon dioxide,d[4],3
+A3.4,Carbon dioxide,t[4],0.375
+A3.4,Carbon dioxide,n[4],0.12949500022786
+A3.4,Carbon dioxide,c[5],1
+A3.4,Carbon dioxide,d[5],3
+A3.4,Carbon dioxide,t[5],0.375
+A3.4,Carbon dioxide,n[5],0.15404088341841
+A3.4,Carbon dioxide,c[6],1
+A3.4,Carbon dioxide,d[6],3
+A3.4,Carbon dioxide,t[6],1.375
+A3.4,Carbon dioxide,n[6],-0.58186950946814
+A3.4,Carbon dioxide,c[7],1
+A3.4,Carbon dioxide,d[7],4
+A3.4,Carbon dioxide,t[7],1.125
+A3.4,Carbon dioxide,n[7],-0.18022494838296
+A3.4,Carbon dioxide,c[8],1
+A3.4,Carbon dioxide,d[8],5
+A3.4,Carbon dioxide,t[8],1.375
+A3.4,Carbon dioxide,n[8],-0.95389904072812e-1
+A3.4,Carbon dioxide,c[9],1
+A3.4,Carbon dioxide,d[9],6
+A3.4,Carbon dioxide,t[9],0.125
+A3.4,Carbon dioxide,n[9],-0.80486819317679e-2
+A3.4,Carbon dioxide,c[10],1
+A3.4,Carbon dioxide,d[10],6
+A3.4,Carbon dioxide,t[10],1.625
+A3.4,Carbon dioxide,n[10],-0.35547751273090e-1
+A3.4,Carbon dioxide,c[11],2
+A3.4,Carbon dioxide,d[11],1
+A3.4,Carbon dioxide,t[11],3.750
+A3.4,Carbon dioxide,n[11],-0.28079014882405
+A3.4,Carbon dioxide,c[12],2
+A3.4,Carbon dioxide,d[12],4
+A3.4,Carbon dioxide,t[12],3.500
+A3.4,Carbon dioxide,n[12],-0.82435890081677e-1
+A3.4,Carbon dioxide,c[13],3
+A3.4,Carbon dioxide,d[13],1
+A3.4,Carbon dioxide,t[13],7.500
+A3.4,Carbon dioxide,n[13],0.10832427979006e-1
+A3.4,Carbon dioxide,c[14],3
+A3.4,Carbon dioxide,d[14],1
+A3.4,Carbon dioxide,t[14],8.000
+A3.4,Carbon dioxide,n[14],-0.67073993161097e-2
+A3.4,Carbon dioxide,c[15],3
+A3.4,Carbon dioxide,d[15],3
+A3.4,Carbon dioxide,t[15],6.000
+A3.4,Carbon dioxide,n[15],-0.46827907600524e-2
+A3.4,Carbon dioxide,c[16],3
+A3.4,Carbon dioxide,d[16],3
+A3.4,Carbon dioxide,t[16],16.000
+A3.4,Carbon dioxide,n[16],-0.28359911832177e-1
+A3.4,Carbon dioxide,c[17],3
+A3.4,Carbon dioxide,d[17],4
+A3.4,Carbon dioxide,t[17],11.000
+A3.4,Carbon dioxide,n[17],0.19500174744098e-1
+A3.4,Carbon dioxide,c[18],5
+A3.4,Carbon dioxide,d[18],5
+A3.4,Carbon dioxide,t[18],24.000
+A3.4,Carbon dioxide,n[18],-0.21609137507166
+A3.4,Carbon dioxide,c[19],5
+A3.4,Carbon dioxide,d[19],5
+A3.4,Carbon dioxide,t[19],26.000
+A3.4,Carbon dioxide,n[19],0.43772794926972
+A3.4,Carbon dioxide,c[20],5
+A3.4,Carbon dioxide,d[20],5
+A3.4,Carbon dioxide,t[20],28.000
+A3.4,Carbon dioxide,n[20],-0.22130790113593
+A3.4,Carbon dioxide,c[21],6
+A3.4,Carbon dioxide,d[21],5
+A3.4,Carbon dioxide,t[21],24.000
+A3.4,Carbon dioxide,n[21],0.15190189957331e-1
+A3.4,Carbon dioxide,c[22],6
+A3.4,Carbon dioxide,d[22],5
+A3.4,Carbon dioxide,t[22],26.000
+A3.4,Carbon dioxide,n[22],-0.15380948953300e-1
+A3.4,Hydrogen,d[1],1
+A3.4,Hydrogen,t[1],0.500
+A3.4,Hydrogen,n[1],0.53579928451252e1
+A3.4,Hydrogen,d[2],1
+A3.4,Hydrogen,t[2],0.625
+A3.4,Hydrogen,n[2],-0.62050252530595e1
+A3.4,Hydrogen,d[3],2
+A3.4,Hydrogen,t[3],0.375
+A3.4,Hydrogen,n[3],0.13830241327086
+A3.4,Hydrogen,d[4],2
+A3.4,Hydrogen,t[4],0.625
+A3.4,Hydrogen,n[4],-0.71397954896129e-1
+A3.4,Hydrogen,d[5],4
+A3.4,Hydrogen,t[5],1.125
+A3.4,Hydrogen,n[5],0.15474053959733e-1
+A3.4,Hydrogen,c[6],1
+A3.4,Hydrogen,d[6],1
+A3.4,Hydrogen,t[6],2.625
+A3.4,Hydrogen,n[6],-0.14976806405771
+A3.4,Hydrogen,c[7],1
+A3.4,Hydrogen,d[7],5
+A3.4,Hydrogen,t[7],0.000
+A3.4,Hydrogen,n[7],-0.26368723988451e-1
+A3.4,Hydrogen,c[8],1
+A3.4,Hydrogen,d[8],5
+A3.4,Hydrogen,t[8],0.250
+A3.4,Hydrogen,n[8],0.56681303156066e-1
+A3.4,Hydrogen,c[9],1
+A3.4,Hydrogen,d[9],5
+A3.4,Hydrogen,t[9],1.375
+A3.4,Hydrogen,n[9],-0.60063958030436e-1
+A3.4,Hydrogen,c[10],2
+A3.4,Hydrogen,d[10],1
+A3.4,Hydrogen,t[10],4.000
+A3.4,Hydrogen,n[10],-0.45043942027132
+A3.4,Hydrogen,c[11],2
+A3.4,Hydrogen,d[11],1
+A3.4,Hydrogen,t[11],4.250
+A3.4,Hydrogen,n[11],0.42478840244500
+A3.4,Hydrogen,c[12],3
+A3.4,Hydrogen,d[12],2
+A3.4,Hydrogen,t[12],5.000
+A3.4,Hydrogen,n[12],-0.21997640827139e-1
+A3.4,Hydrogen,c[13],3
+A3.4,Hydrogen,d[13],5
+A3.4,Hydrogen,t[13],8.000
+A3.4,Hydrogen,n[13],-0.10499521374530e-1
+A3.4,Hydrogen,c[14],5
+A3.4,Hydrogen,d[14],1
+A3.4,Hydrogen,t[14],8.000
+A3.4,Hydrogen,n[14],-0.28955902866816e-2
+A3.4,Water,d[1],1
+A3.4,Water,t[1],0.500
+A3.4,Water,n[1],0.82728408749586
+A3.4,Water,d[2],1
+A3.4,Water,t[2],1.250
+A3.4,Water,n[2],-0.18602220416584e1
+A3.4,Water,d[3],1
+A3.4,Water,t[3],1.875
+A3.4,Water,n[3],-0.11199009613744e1
+A3.4,Water,d[4],2
+A3.4,Water,t[4],0.125
+A3.4,Water,n[4],0.15635753976056
+A3.4,Water,d[5],2
+A3.4,Water,t[5],1.500
+A3.4,Water,n[5],0.87375844859025
+A3.4,Water,d[6],3
+A3.4,Water,t[6],1.000
+A3.4,Water,n[6],-0.36674403715731
+A3.4,Water,d[7],4
+A3.4,Water,t[7],0.750
+A3.4,Water,n[7],0.53987893432436e-1
+A3.4,Water,c[8],1
+A3.4,Water,d[8],1
+A3.4,Water,t[8],1.500
+A3.4,Water,n[8],0.10957690214499e1
+A3.4,Water,c[9],1
+A3.4,Water,d[9],5
+A3.4,Water,t[9],0.625
+A3.4,Water,n[9],0.53213037828563e-1
+A3.4,Water,c[10],1
+A3.4,Water,d[10],5
+A3.4,Water,t[10],2.625
+A3.4,Water,n[10],0.13050533930825e-1
+A3.4,Water,c[11],2
+A3.4,Water,d[11],1
+A3.4,Water,t[11],5.000
+A3.4,Water,n[11],-0.41079520434476
+A3.4,Water,c[12],2
+A3.4,Water,d[12],2
+A3.4,Water,t[12],4.000
+A3.4,Water,n[12],0.14637443344120
+A3.4,Water,c[13],2
+A3.4,Water,d[13],4
+A3.4,Water,t[13],4.500
+A3.4,Water,n[13],-0.55726838623719e-1
+A3.4,Water,c[14],3
+A3.4,Water,d[14],4
+A3.4,Water,t[14],3.000
+A3.4,Water,n[14],-0.11201774143800e-1
+A3.4,Water,c[15],5
+A3.4,Water,d[15],1
+A3.4,Water,t[15],4.000
+A3.4,Water,n[15],-0.66062758068099e-2
+A3.4,Water,c[16],5
+A3.4,Water,d[16],1
+A3.4,Water,t[16],6.000
+A3.4,Water,n[16],0.46918522004538e-2
+A3.4,Helium,d[1],1
+A3.4,Helium,t[1],0.000
+A3.4,Helium,n[1],-0.45579024006737
+A3.4,Helium,d[2],1
+A3.4,Helium,t[2],0.125
+A3.4,Helium,n[2],0.12516390754925e1
+A3.4,Helium,d[3],1
+A3.4,Helium,t[3],0.750
+A3.4,Helium,n[3],-0.15438231650621e1
+A3.4,Helium,d[4],4
+A3.4,Helium,t[4],1.000
+A3.4,Helium,n[4],0.20467489707221e-1
+A3.4,Helium,c[5],1
+A3.4,Helium,d[5],1
+A3.4,Helium,t[5],0.750
+A3.4,Helium,n[5],-0.34476212380781
+A3.4,Helium,c[6],1
+A3.4,Helium,d[6],3
+A3.4,Helium,t[6],2.625
+A3.4,Helium,n[6],-0.20858459512787e-1
+A3.4,Helium,c[7],1
+A3.4,Helium,d[7],5
+A3.4,Helium,t[7],0.125
+A3.4,Helium,n[7],0.16227414711778e-1
+A3.4,Helium,c[8],1
+A3.4,Helium,d[8],5
+A3.4,Helium,t[8],1.250
+A3.4,Helium,n[8],-0.57471818200892e-1
+A3.4,Helium,c[9],1
+A3.4,Helium,d[9],5
+A3.4,Helium,t[9],2.000
+A3.4,Helium,n[9],0.19462416430715e-1
+A3.4,Helium,c[10],2
+A3.4,Helium,d[10],2
+A3.4,Helium,t[10],1.000
+A3.4,Helium,n[10],-0.33295680123020e-1
+A3.4,Helium,c[11],3
+A3.4,Helium,d[11],1
+A3.4,Helium,t[11],4.500
+A3.4,Helium,n[11],-0.10863577372367e-1
+A3.4,Helium,c[12],3
+A3.4,Helium,d[12],2
+A3.4,Helium,t[12],5.000
+A3.4,Helium,n[12],-0.22173365245954e-1
+A3.4,Carbon dioxide,KPol,4
+A3.4,Carbon dioxide,KExp,18
+A3.4,Hydrogen,KPol,5
+A3.4,Hydrogen,KExp,9
+A3.4,Water,KPol,7
+A3.4,Water,KExp,9
+A3.4,Helium,KPol,4
+A3.4,Helium,KExp,8
+A3.5,Methane,rhoc,10.139342719
+A3.5,Methane,Tc,190.564000000
+A3.5,Methane,M,16.042460
+A3.5,Nitrogen,rhoc,11.183900000
+A3.5,Nitrogen,Tc,126.192000000
+A3.5,Nitrogen,M,28.013400
+A3.5,Carbon dioxide,rhoc,10.624978698
+A3.5,Carbon dioxide,Tc,304.128200000
+A3.5,Carbon dioxide,M,44.009500
+A3.5,Ethane,rhoc,6.870854540
+A3.5,Ethane,Tc,305.322000000
+A3.5,Ethane,M,30.069040
+A3.5,Propane,rhoc,5.000043088
+A3.5,Propane,Tc,369.825000000
+A3.5,Propane,M,44.095620
+A3.5,n-Butane,rhoc,3.920016792
+A3.5,n-Butane,Tc,425.125000000
+A3.5,n-Butane,M,58.122200
+A3.5,Isobutane,rhoc,3.860142940
+A3.5,Isobutane,Tc,407.817000000
+A3.5,Isobutane,M,58.122200
+A3.5,n-Pentane,rhoc,3.215577588
+A3.5,n-Pentane,Tc,469.700000000
+A3.5,n-Pentane,M,72.148780
+A3.5,Isopentane,rhoc,3.271018581
+A3.5,Isopentane,Tc,460.350000000
+A3.5,Isopentane,M,72.148780
+A3.5,n-Hexane,rhoc,2.705877875
+A3.5,n-Hexane,Tc,507.820000000
+A3.5,n-Hexane,M,86.175360
+A3.5,n-Heptane,rhoc,2.315324434
+A3.5,n-Heptane,Tc,540.130000000
+A3.5,n-Heptane,M,100.201940
+A3.5,n-Octane,rhoc,2.056404127
+A3.5,n-Octane,Tc,569.320000000
+A3.5,n-Octane,M,114.228520
+A3.5,Hydrogen,rhoc,14.940000000
+A3.5,Hydrogen,Tc,33.190000000
+A3.5,Hydrogen,M,2.015880
+A3.5,Oxygen,rhoc,13.630000000
+A3.5,Oxygen,Tc,154.595000000
+A3.5,Oxygen,M,31.998800
+A3.5,Carbon monoxide,rhoc,10.850000000
+A3.5,Carbon monoxide,Tc,132.800000000
+A3.5,Carbon monoxide,M,28.010100
+A3.5,Water,rhoc,17.873716090
+A3.5,Water,Tc,647.096000000
+A3.5,Water,M,18.015280
+A3.5,Helium,rhoc,17.399000000
+A3.5,Helium,Tc,5.195300000
+A3.5,Helium,M,4.002602
+A3.5,Argon,rhoc,13.407429659
+A3.5,Argon,Tc,150.687000000
+A3.5,Argon,M,39.948000
+A3.6,Methane&Nitrogen,F,0.100000000000e1
+A3.6,Methane&Carbon dioxide,F,0.100000000000e1
+A3.6,Methane&Ethane,F,0.100000000000e1
+A3.6,Methane&Propane,F,0.100000000000e1
+A3.6,Methane&n-Butane,F,0.100000000000e1
+A3.6,Methane&Isobutane,F,0.771035405688
+A3.6,Methane&Hydrogen,F,0.100000000000e1
+A3.6,Nitrogen&Carbon dioxide,F,0.100000000000e1
+A3.6,Nitrogen&Ethane,F,0.100000000000e1
+A3.6,Ethane&Propane,F,0.130424765150
+A3.6,Ethane&n-Butane,F,0.281570073085
+A3.6,Ethane&Isobutane,F,0.260632376098
+A3.6,Propane&n-Butane,F,0.312572600489e-1
+A3.6,Propane&Isobutane,F,-0.551609771024e-1
+A3.6,n-Butane&Isobutane,F,-0.551240293009e-1
+A3.7,Methane&Nitrogen,d[1],1
+A3.7,Methane&Nitrogen,t[1],0.000
+A3.7,Methane&Nitrogen,n[1],-0.98038985517335e-2
+A3.7,Methane&Nitrogen,d[2],4
+A3.7,Methane&Nitrogen,t[2],1.850
+A3.7,Methane&Nitrogen,n[2],0.42487270143005e-3
+A3.7,Methane&Nitrogen,d[3],1
+A3.7,Methane&Nitrogen,t[3],7.850
+A3.7,Methane&Nitrogen,n[3],-0.34800214576142e-1
+A3.7,Methane&Nitrogen,eta[3],1.000
+A3.7,Methane&Nitrogen,epsilon[3],0.500
+A3.7,Methane&Nitrogen,beta[3],1.000
+A3.7,Methane&Nitrogen,gamma[3],0.500
+A3.7,Methane&Nitrogen,d[4],2
+A3.7,Methane&Nitrogen,t[4],5.400
+A3.7,Methane&Nitrogen,n[4],-0.13333813013896
+A3.7,Methane&Nitrogen,eta[4],1.000
+A3.7,Methane&Nitrogen,epsilon[4],0.500
+A3.7,Methane&Nitrogen,beta[4],1.000
+A3.7,Methane&Nitrogen,gamma[4],0.500
+A3.7,Methane&Nitrogen,d[5],2
+A3.7,Methane&Nitrogen,t[5],0.000
+A3.7,Methane&Nitrogen,n[5],-0.11993694974627e-1
+A3.7,Methane&Nitrogen,eta[5],0.250
+A3.7,Methane&Nitrogen,epsilon[5],0.500
+A3.7,Methane&Nitrogen,beta[5],2.500
+A3.7,Methane&Nitrogen,gamma[5],0.500
+A3.7,Methane&Nitrogen,d[6],2
+A3.7,Methane&Nitrogen,t[6],0.750
+A3.7,Methane&Nitrogen,n[6],0.69243379775168e-1
+A3.7,Methane&Nitrogen,eta[6],0.000
+A3.7,Methane&Nitrogen,epsilon[6],0.500
+A3.7,Methane&Nitrogen,beta[6],3.000
+A3.7,Methane&Nitrogen,gamma[6],0.500
+A3.7,Methane&Nitrogen,d[7],2
+A3.7,Methane&Nitrogen,t[7],2.800
+A3.7,Methane&Nitrogen,n[7],-0.31022508148249
+A3.7,Methane&Nitrogen,eta[7],0.000
+A3.7,Methane&Nitrogen,epsilon[7],0.500
+A3.7,Methane&Nitrogen,beta[7],3.000
+A3.7,Methane&Nitrogen,gamma[7],0.500
+A3.7,Methane&Nitrogen,d[8],2
+A3.7,Methane&Nitrogen,t[8],4.450
+A3.7,Methane&Nitrogen,n[8],0.24495491753226
+A3.7,Methane&Nitrogen,eta[8],0.000
+A3.7,Methane&Nitrogen,epsilon[8],0.500
+A3.7,Methane&Nitrogen,beta[8],3.000
+A3.7,Methane&Nitrogen,gamma[8],0.500
+A3.7,Methane&Nitrogen,d[9],3
+A3.7,Methane&Nitrogen,t[9],4.250
+A3.7,Methane&Nitrogen,n[9],0.22369816716981
+A3.7,Methane&Nitrogen,eta[9],0.000
+A3.7,Methane&Nitrogen,epsilon[9],0.500
+A3.7,Methane&Nitrogen,beta[9],3.000
+A3.7,Methane&Nitrogen,gamma[9],0.500
+A3.7,Methane&Carbon dioxide,d[1],1
+A3.7,Methane&Carbon dioxide,t[1],2.600
+A3.7,Methane&Carbon dioxide,n[1],-0.10859387354942
+A3.7,Methane&Carbon dioxide,d[2],2
+A3.7,Methane&Carbon dioxide,t[2],1.950
+A3.7,Methane&Carbon dioxide,n[2],0.80228576727389e-1
+A3.7,Methane&Carbon dioxide,d[3],3
+A3.7,Methane&Carbon dioxide,t[3],0.000
+A3.7,Methane&Carbon dioxide,n[3],-0.93303985115717e-2
+A3.7,Methane&Carbon dioxide,d[4],1
+A3.7,Methane&Carbon dioxide,t[4],3.950
+A3.7,Methane&Carbon dioxide,n[4],0.40989274005848e-1
+A3.7,Methane&Carbon dioxide,eta[4],1.000
+A3.7,Methane&Carbon dioxide,epsilon[4],0.500
+A3.7,Methane&Carbon dioxide,beta[4],1.000
+A3.7,Methane&Carbon dioxide,gamma[4],0.500
+A3.7,Methane&Carbon dioxide,d[5],2
+A3.7,Methane&Carbon dioxide,t[5],7.950
+A3.7,Methane&Carbon dioxide,n[5],-0.24338019772494
+A3.7,Methane&Carbon dioxide,eta[5],0.500
+A3.7,Methane&Carbon dioxide,epsilon[5],0.500
+A3.7,Methane&Carbon dioxide,beta[5],2.000
+A3.7,Methane&Carbon dioxide,gamma[5],0.500
+A3.7,Methane&Carbon dioxide,d[6],3
+A3.7,Methane&Carbon dioxide,t[6],8.000
+A3.7,Methane&Carbon dioxide,n[6],0.23855347281124
+A3.7,Methane&Carbon dioxide,eta[6],0.000
+A3.7,Methane&Carbon dioxide,epsilon[6],0.500
+A3.7,Methane&Carbon dioxide,beta[6],3.000
+A3.7,Methane&Carbon dioxide,gamma[6],0.500
+A3.7,Methane&Ethane,d[1],3
+A3.7,Methane&Ethane,t[1],0.650
+A3.7,Methane&Ethane,n[1],-0.80926050298746e-3
+A3.7,Methane&Ethane,d[2],4
+A3.7,Methane&Ethane,t[2],1.550
+A3.7,Methane&Ethane,n[2],-0.75381925080059e-3
+A3.7,Methane&Ethane,d[3],1
+A3.7,Methane&Ethane,t[3],3.100
+A3.7,Methane&Ethane,n[3],-0.41618768891219e-1
+A3.7,Methane&Ethane,eta[3],1.000
+A3.7,Methane&Ethane,epsilon[3],0.500
+A3.7,Methane&Ethane,beta[3],1.000
+A3.7,Methane&Ethane,gamma[3],0.500
+A3.7,Methane&Ethane,d[4],2
+A3.7,Methane&Ethane,t[4],5.900
+A3.7,Methane&Ethane,n[4],-0.23452173681569
+A3.7,Methane&Ethane,eta[4],1.000
+A3.7,Methane&Ethane,epsilon[4],0.500
+A3.7,Methane&Ethane,beta[4],1.000
+A3.7,Methane&Ethane,gamma[4],0.500
+A3.7,Methane&Ethane,d[5],2
+A3.7,Methane&Ethane,t[5],7.050
+A3.7,Methane&Ethane,n[5],0.14003840584586
+A3.7,Methane&Ethane,eta[5],1.000
+A3.7,Methane&Ethane,epsilon[5],0.500
+A3.7,Methane&Ethane,beta[5],1.000
+A3.7,Methane&Ethane,gamma[5],0.500
+A3.7,Methane&Ethane,d[6],2
+A3.7,Methane&Ethane,t[6],3.350
+A3.7,Methane&Ethane,n[6],0.63281744807738e-1
+A3.7,Methane&Ethane,eta[6],0.875
+A3.7,Methane&Ethane,epsilon[6],0.500
+A3.7,Methane&Ethane,beta[6],1.250
+A3.7,Methane&Ethane,gamma[6],0.500
+A3.7,Methane&Ethane,d[7],2
+A3.7,Methane&Ethane,t[7],1.200
+A3.7,Methane&Ethane,n[7],-0.34660425848809e-1
+A3.7,Methane&Ethane,eta[7],0.750
+A3.7,Methane&Ethane,epsilon[7],0.500
+A3.7,Methane&Ethane,beta[7],1.500
+A3.7,Methane&Ethane,gamma[7],0.500
+A3.7,Methane&Ethane,d[8],2
+A3.7,Methane&Ethane,t[8],5.800
+A3.7,Methane&Ethane,n[8],-0.23918747334251
+A3.7,Methane&Ethane,eta[8],0.500
+A3.7,Methane&Ethane,epsilon[8],0.500
+A3.7,Methane&Ethane,beta[8],2.000
+A3.7,Methane&Ethane,gamma[8],0.500
+A3.7,Methane&Ethane,d[9],2
+A3.7,Methane&Ethane,t[9],2.700
+A3.7,Methane&Ethane,n[9],0.19855255066891e-2
+A3.7,Methane&Ethane,eta[9],0.000
+A3.7,Methane&Ethane,epsilon[9],0.500
+A3.7,Methane&Ethane,beta[9],3.000
+A3.7,Methane&Ethane,gamma[9],0.500
+A3.7,Methane&Ethane,d[10],3
+A3.7,Methane&Ethane,t[10],0.450
+A3.7,Methane&Ethane,n[10],0.61777746171555e1
+A3.7,Methane&Ethane,eta[10],0.000
+A3.7,Methane&Ethane,epsilon[10],0.500
+A3.7,Methane&Ethane,beta[10],3.000
+A3.7,Methane&Ethane,gamma[10],0.500
+A3.7,Methane&Ethane,d[11],3
+A3.7,Methane&Ethane,t[11],0.550
+A3.7,Methane&Ethane,n[11],-0.69575358271105e1
+A3.7,Methane&Ethane,eta[11],0.000
+A3.7,Methane&Ethane,epsilon[11],0.500
+A3.7,Methane&Ethane,beta[11],3.000
+A3.7,Methane&Ethane,gamma[11],0.500
+A3.7,Methane&Ethane,d[12],3
+A3.7,Methane&Ethane,t[12],1.950
+A3.7,Methane&Ethane,n[12],0.10630185306388e1
+A3.7,Methane&Ethane,eta[12],0.000
+A3.7,Methane&Ethane,epsilon[12],0.500
+A3.7,Methane&Ethane,beta[12],3.000
+A3.7,Methane&Ethane,gamma[12],0.500
+A3.7,Methane&Propane,d[1],3
+A3.7,Methane&Propane,t[1],1.850
+A3.7,Methane&Propane,n[1],0.13746429958576e-1
+A3.7,Methane&Propane,d[2],3
+A3.7,Methane&Propane,t[2],3.950
+A3.7,Methane&Propane,n[2],-0.74425012129552e-2
+A3.7,Methane&Propane,d[3],4
+A3.7,Methane&Propane,t[3],0.000
+A3.7,Methane&Propane,n[3],-0.45516600213685e-2
+A3.7,Methane&Propane,d[4],4
+A3.7,Methane&Propane,t[4],1.850
+A3.7,Methane&Propane,n[4],-0.54546603350237e-2
+A3.7,Methane&Propane,d[5],4
+A3.7,Methane&Propane,t[5],3.850
+A3.7,Methane&Propane,n[5],0.23682016824471e-2
+A3.7,Methane&Propane,d[6],1
+A3.7,Methane&Propane,t[6],5.250
+A3.7,Methane&Propane,n[6],0.18007763721438
+A3.7,Methane&Propane,eta[6],0.250
+A3.7,Methane&Propane,epsilon[6],0.500
+A3.7,Methane&Propane,beta[6],0.750
+A3.7,Methane&Propane,gamma[6],0.500
+A3.7,Methane&Propane,d[7],1
+A3.7,Methane&Propane,t[7],3.850
+A3.7,Methane&Propane,n[7],-0.44773942932486
+A3.7,Methane&Propane,eta[7],0.250
+A3.7,Methane&Propane,epsilon[7],0.500
+A3.7,Methane&Propane,beta[7],1.000
+A3.7,Methane&Propane,gamma[7],0.500
+A3.7,Methane&Propane,d[8],1
+A3.7,Methane&Propane,t[8],0.200
+A3.7,Methane&Propane,n[8],0.19327374888200e-1
+A3.7,Methane&Propane,eta[8],0.000
+A3.7,Methane&Propane,epsilon[8],0.500
+A3.7,Methane&Propane,beta[8],2.000
+A3.7,Methane&Propane,gamma[8],0.500
+A3.7,Methane&Propane,d[9],2
+A3.7,Methane&Propane,t[9],6.500
+A3.7,Methane&Propane,n[9],-0.30632197804624
+A3.7,Methane&Propane,eta[9],0.000
+A3.7,Methane&Propane,epsilon[9],0.500
+A3.7,Methane&Propane,beta[9],3.000
+A3.7,Methane&Propane,gamma[9],0.500
+A3.7,Nitrogen&Carbon dioxide,d[1],2
+A3.7,Nitrogen&Carbon dioxide,t[1],1.850
+A3.7,Nitrogen&Carbon dioxide,n[1],0.28661625028399
+A3.7,Nitrogen&Carbon dioxide,d[2],3
+A3.7,Nitrogen&Carbon dioxide,t[2],1.400
+A3.7,Nitrogen&Carbon dioxide,n[2],-0.10919833861247
+A3.7,Nitrogen&Carbon dioxide,d[3],1
+A3.7,Nitrogen&Carbon dioxide,t[3],3.200
+A3.7,Nitrogen&Carbon dioxide,n[3],-0.11374032082270e1
+A3.7,Nitrogen&Carbon dioxide,eta[3],0.250
+A3.7,Nitrogen&Carbon dioxide,epsilon[3],0.500
+A3.7,Nitrogen&Carbon dioxide,beta[3],0.750
+A3.7,Nitrogen&Carbon dioxide,gamma[3],0.500
+A3.7,Nitrogen&Carbon dioxide,d[4],1
+A3.7,Nitrogen&Carbon dioxide,t[4],2.500
+A3.7,Nitrogen&Carbon dioxide,n[4],0.76580544237358
+A3.7,Nitrogen&Carbon dioxide,eta[4],0.250
+A3.7,Nitrogen&Carbon dioxide,epsilon[4],0.500
+A3.7,Nitrogen&Carbon dioxide,beta[4],1.000
+A3.7,Nitrogen&Carbon dioxide,gamma[4],0.500
+A3.7,Nitrogen&Carbon dioxide,d[5],1
+A3.7,Nitrogen&Carbon dioxide,t[5],8.000
+A3.7,Nitrogen&Carbon dioxide,n[5],0.42638000926819e-2
+A3.7,Nitrogen&Carbon dioxide,eta[5],0.000
+A3.7,Nitrogen&Carbon dioxide,epsilon[5],0.500
+A3.7,Nitrogen&Carbon dioxide,beta[5],2.000
+A3.7,Nitrogen&Carbon dioxide,gamma[5],0.500
+A3.7,Nitrogen&Carbon dioxide,d[6],2
+A3.7,Nitrogen&Carbon dioxide,t[6],3.750
+A3.7,Nitrogen&Carbon dioxide,n[6],0.17673538204534
+A3.7,Nitrogen&Carbon dioxide,eta[6],0.000
+A3.7,Nitrogen&Carbon dioxide,epsilon[6],0.500
+A3.7,Nitrogen&Carbon dioxide,beta[6],3.000
+A3.7,Nitrogen&Carbon dioxide,gamma[6],0.500
+A3.7,Nitrogen&Ethane,d[1],2
+A3.7,Nitrogen&Ethane,t[1],0.000
+A3.7,Nitrogen&Ethane,n[1],-0.47376518126608
+A3.7,Nitrogen&Ethane,d[2],2
+A3.7,Nitrogen&Ethane,t[2],0.050
+A3.7,Nitrogen&Ethane,n[2],0.48961193461001
+A3.7,Nitrogen&Ethane,d[3],3
+A3.7,Nitrogen&Ethane,t[3],0.000
+A3.7,Nitrogen&Ethane,n[3],-0.57011062090535e-2
+A3.7,Nitrogen&Ethane,d[4],1
+A3.7,Nitrogen&Ethane,t[4],3.650
+A3.7,Nitrogen&Ethane,n[4],-0.19966820041320
+A3.7,Nitrogen&Ethane,eta[4],1.000
+A3.7,Nitrogen&Ethane,epsilon[4],0.500
+A3.7,Nitrogen&Ethane,beta[4],1.000
+A3.7,Nitrogen&Ethane,gamma[4],0.500
+A3.7,Nitrogen&Ethane,d[5],2
+A3.7,Nitrogen&Ethane,t[5],4.900
+A3.7,Nitrogen&Ethane,n[5],-0.69411103101723
+A3.7,Nitrogen&Ethane,eta[5],1.000
+A3.7,Nitrogen&Ethane,epsilon[5],0.500
+A3.7,Nitrogen&Ethane,beta[5],1.000
+A3.7,Nitrogen&Ethane,gamma[5],0.500
+A3.7,Nitrogen&Ethane,d[6],2
+A3.7,Nitrogen&Ethane,t[6],4.450
+A3.7,Nitrogen&Ethane,n[6],0.69226192739021
+A3.7,Nitrogen&Ethane,eta[6],0.875
+A3.7,Nitrogen&Ethane,epsilon[6],0.500
+A3.7,Nitrogen&Ethane,beta[6],1.250
+A3.7,Nitrogen&Ethane,gamma[6],0.500
+A3.7,Methane&Hydrogen,d[1],1
+A3.7,Methane&Hydrogen,t[1],2.000
+A3.7,Methane&Hydrogen,n[1],-0.25157134971934
+A3.7,Methane&Hydrogen,d[2],3
+A3.7,Methane&Hydrogen,t[2],-1.000
+A3.7,Methane&Hydrogen,n[2],-0.62203841111983e-2
+A3.7,Methane&Hydrogen,d[3],3
+A3.7,Methane&Hydrogen,t[3],1.750
+A3.7,Methane&Hydrogen,n[3],0.88850315184396e-1
+A3.7,Methane&Hydrogen,d[4],4
+A3.7,Methane&Hydrogen,t[4],1.400
+A3.7,Methane&Hydrogen,n[4],-0.35592212573239e-1
+A3.7,generalized,d[1],1
+A3.7,generalized,t[1],1.000
+A3.7,generalized,n[1],0.25574776844118e1
+A3.7,generalized,d[2],1
+A3.7,generalized,t[2],1.550
+A3.7,generalized,n[2],-0.79846357136353e1
+A3.7,generalized,d[3],1
+A3.7,generalized,t[3],1.700
+A3.7,generalized,n[3],0.47859131465806e1
+A3.7,generalized,d[4],2
+A3.7,generalized,t[4],0.250
+A3.7,generalized,n[4],-0.73265392369587
+A3.7,generalized,d[5],2
+A3.7,generalized,t[5],1.350
+A3.7,generalized,n[5],0.13805471345312e1
+A3.7,generalized,d[6],3
+A3.7,generalized,t[6],0.000
+A3.7,generalized,n[6],0.28349603476365
+A3.7,generalized,d[7],3
+A3.7,generalized,t[7],1.250
+A3.7,generalized,n[7],-0.49087385940425
+A3.7,generalized,d[8],4
+A3.7,generalized,t[8],0.000
+A3.7,generalized,n[8],-0.10291888921447
+A3.7,generalized,d[9],4
+A3.7,generalized,t[9],0.700
+A3.7,generalized,n[9],0.11836314681968
+A3.7,generalized,d[10],4
+A3.7,generalized,t[10],5.400
+A3.7,generalized,n[10],0.55527385721943e-4
+A3.7,Methane&Nitrogen,KPol,2
+A3.7,Methane&Nitrogen,KExp,7
+A3.7,Methane&Carbon dioxide,KPol,3
+A3.7,Methane&Carbon dioxide,KExp,3
+A3.7,Methane&Ethane,KPol,2
+A3.7,Methane&Ethane,KExp,10
+A3.7,Methane&Propane,KPol,5
+A3.7,Methane&Propane,KExp,4
+A3.7,Nitrogen&Carbon dioxide,KPol,2
+A3.7,Nitrogen&Carbon dioxide,KExp,4
+A3.7,Nitrogen&Ethane,KPol,3
+A3.7,Nitrogen&Ethane,KExp,3
+A3.7,Methane&Hydrogen,KPol,4
+A3.7,Methane&Hydrogen,KExp,0
+A3.7,generalized,KPol,10
+A3.7,generalized,KExp,0
+A3.8,CH4&N2,beta_v,0.998721377
+A3.8,CH4&N2,gamma_v,1.013950311
+A3.8,CH4&N2,beta_T,0.998098830
+A3.8,CH4&N2,gamma_T,0.979273013
+A3.8,CH4&CO2,beta_v,0.999518072
+A3.8,CH4&CO2,gamma_v,1.002806594
+A3.8,CH4&CO2,beta_T,1.022624490
+A3.8,CH4&CO2,gamma_T,0.975665369
+A3.8,CH4&C2H6,beta_v,0.997547866
+A3.8,CH4&C2H6,gamma_v,1.006617867
+A3.8,CH4&C2H6,beta_T,0.996336508
+A3.8,CH4&C2H6,gamma_T,1.049707697
+A3.8,CH4&C3H8,beta_v,1.004827070
+A3.8,CH4&C3H8,gamma_v,1.038470657
+A3.8,CH4&C3H8,beta_T,0.989680305
+A3.8,CH4&C3H8,gamma_T,1.098655531
+A3.8,CH4&n-C4H10,beta_v,0.979105972
+A3.8,CH4&n-C4H10,gamma_v,1.045375122
+A3.8,CH4&n-C4H10,beta_T,0.994174910
+A3.8,CH4&n-C4H10,gamma_T,1.171607691
+A3.8,CH4&i-C4H10,beta_v,1.011240388
+A3.8,CH4&i-C4H10,gamma_v,1.054319053
+A3.8,CH4&i-C4H10,beta_T,0.980315756
+A3.8,CH4&i-C4H10,gamma_T,1.161117729
+A3.8,CH4&n-C5H12,beta_v,0.948330120
+A3.8,CH4&n-C5H12,gamma_v,1.124508039
+A3.8,CH4&n-C5H12,beta_T,0.992127525
+A3.8,CH4&n-C5H12,gamma_T,1.249173968
+A3.8,CH4&i-C5H12,beta_v,1.000000000
+A3.8,CH4&i-C5H12,gamma_v,1.343685343
+A3.8,CH4&i-C5H12,beta_T,1.000000000
+A3.8,CH4&i-C5H12,gamma_T,1.188899743
+A3.8,CH4&n-C6H14,beta_v,0.958015294
+A3.8,CH4&n-C6H14,gamma_v,1.052643846
+A3.8,CH4&n-C6H14,beta_T,0.981844797
+A3.8,CH4&n-C6H14,gamma_T,1.330570181
+A3.8,CH4&n-C7H16,beta_v,0.962050831
+A3.8,CH4&n-C7H16,gamma_v,1.156655935
+A3.8,CH4&n-C7H16,beta_T,0.977431529
+A3.8,CH4&n-C7H16,gamma_T,1.379850328
+A3.8,CH4&n-C8H18,beta_v,0.994740603
+A3.8,CH4&n-C8H18,gamma_v,1.116549372
+A3.8,CH4&n-C8H18,beta_T,0.957473785
+A3.8,CH4&n-C8H18,gamma_T,1.449245409
+A3.8,CH4&H2,beta_v,1.000000000
+A3.8,CH4&H2,gamma_v,1.018702573
+A3.8,CH4&H2,beta_T,1.000000000
+A3.8,CH4&H2,gamma_T,1.352643115
+A3.8,CH4&O2,beta_v,1.000000000
+A3.8,CH4&O2,gamma_v,1.000000000
+A3.8,CH4&O2,beta_T,1.000000000
+A3.8,CH4&O2,gamma_T,0.950000000
+A3.8,CH4&CO,beta_v,0.997340772
+A3.8,CH4&CO,gamma_v,1.006102927
+A3.8,CH4&CO,beta_T,0.987411732
+A3.8,CH4&CO,gamma_T,0.987473033
+A3.8,CH4&H2O,beta_v,1.012783169
+A3.8,CH4&H2O,gamma_v,1.585018334
+A3.8,CH4&H2O,beta_T,1.063333913
+A3.8,CH4&H2O,gamma_T,0.775810513
+A3.8,CH4&He,beta_v,1.000000000
+A3.8,CH4&He,gamma_v,0.881405683
+A3.8,CH4&He,beta_T,1.000000000
+A3.8,CH4&He,gamma_T,3.159776855
+A3.8,CH4&Ar,beta_v,1.034630259
+A3.8,CH4&Ar,gamma_v,1.014678542
+A3.8,CH4&Ar,beta_T,0.990954281
+A3.8,CH4&Ar,gamma_T,0.989843388
+A3.8,N2&CO2,beta_v,0.977794634
+A3.8,N2&CO2,gamma_v,1.047578256
+A3.8,N2&CO2,beta_T,1.005894529
+A3.8,N2&CO2,gamma_T,1.107654104
+A3.8,N2&C2H6,beta_v,0.978880168
+A3.8,N2&C2H6,gamma_v,1.042352891
+A3.8,N2&C2H6,beta_T,1.007671428
+A3.8,N2&C2H6,gamma_T,1.098650964
+A3.8,N2&C3H8,beta_v,0.974424681
+A3.8,N2&C3H8,gamma_v,1.081025408
+A3.8,N2&C3H8,beta_T,1.002677329
+A3.8,N2&C3H8,gamma_T,1.201264026
+A3.8,N2&n-C4H10,beta_v,0.996082610
+A3.8,N2&n-C4H10,gamma_v,1.146949309
+A3.8,N2&n-C4H10,beta_T,0.994515234
+A3.8,N2&n-C4H10,gamma_T,1.304886838
+A3.8,N2&i-C4H10,beta_v,0.986415830
+A3.8,N2&i-C4H10,gamma_v,1.100576129
+A3.8,N2&i-C4H10,beta_T,0.992868130
+A3.8,N2&i-C4H10,gamma_T,1.284462634
+A3.8,N2&n-C5H12,beta_v,1.000000000
+A3.8,N2&n-C5H12,gamma_v,1.078877166
+A3.8,N2&n-C5H12,beta_T,1.000000000
+A3.8,N2&n-C5H12,gamma_T,1.419029041
+A3.8,N2&i-C5H12,beta_v,1.000000000
+A3.8,N2&i-C5H12,gamma_v,1.154135439
+A3.8,N2&i-C5H12,beta_T,1.000000000
+A3.8,N2&i-C5H12,gamma_T,1.381770770
+A3.8,N2&n-C6H14,beta_v,1.000000000
+A3.8,N2&n-C6H14,gamma_v,1.195952177
+A3.8,N2&n-C6H14,beta_T,1.000000000
+A3.8,N2&n-C6H14,gamma_T,1.472607971
+A3.8,N2&n-C7H16,beta_v,1.000000000
+A3.8,N2&n-C7H16,gamma_v,1.404554090
+A3.8,N2&n-C7H16,beta_T,1.000000000
+A3.8,N2&n-C7H16,gamma_T,1.520975334
+A3.8,N2&n-C8H18,beta_v,1.000000000
+A3.8,N2&n-C8H18,gamma_v,1.186067025
+A3.8,N2&n-C8H18,beta_T,1.000000000
+A3.8,N2&n-C8H18,gamma_T,1.733280051
+A3.8,N2&H2,beta_v,0.972532065
+A3.8,N2&H2,gamma_v,0.970115357
+A3.8,N2&H2,beta_T,0.946134337
+A3.8,N2&H2,gamma_T,1.175696583
+A3.8,N2&O2,beta_v,0.999521770
+A3.8,N2&O2,gamma_v,0.997082328
+A3.8,N2&O2,beta_T,0.997190589
+A3.8,N2&O2,gamma_T,0.995157044
+A3.8,N2&CO,beta_v,1.000000000
+A3.8,N2&CO,gamma_v,1.008690943
+A3.8,N2&CO,beta_T,1.000000000
+A3.8,N2&CO,gamma_T,0.993425388
+A3.8,N2&H2O,beta_v,1.000000000
+A3.8,N2&H2O,gamma_v,1.094749685
+A3.8,N2&H2O,beta_T,1.000000000
+A3.8,N2&H2O,gamma_T,0.968808467
+A3.8,N2&He,beta_v,0.969501055
+A3.8,N2&He,gamma_v,0.932629867
+A3.8,N2&He,beta_T,0.692868765
+A3.8,N2&He,gamma_T,1.471831580
+A3.8,N2&Ar,beta_v,1.004166412
+A3.8,N2&Ar,gamma_v,1.002212182
+A3.8,N2&Ar,beta_T,0.999069843
+A3.8,N2&Ar,gamma_T,0.990034831
+A3.8,CO2&C2H6,beta_v,1.002525718
+A3.8,CO2&C2H6,gamma_v,1.032876701
+A3.8,CO2&C2H6,beta_T,1.013871147
+A3.8,CO2&C2H6,gamma_T,0.900949530
+A3.8,CO2&C3H8,beta_v,0.996898004
+A3.8,CO2&C3H8,gamma_v,1.047596298
+A3.8,CO2&C3H8,beta_T,1.033620538
+A3.8,CO2&C3H8,gamma_T,0.908772477
+A3.8,CO2&n-C4H10,beta_v,1.174760923
+A3.8,CO2&n-C4H10,gamma_v,1.222437324
+A3.8,CO2&n-C4H10,beta_T,1.018171004
+A3.8,CO2&n-C4H10,gamma_T,0.911498231
+A3.8,CO2&i-C4H10,beta_v,1.076551882
+A3.8,CO2&i-C4H10,gamma_v,1.081909003
+A3.8,CO2&i-C4H10,beta_T,1.023339824
+A3.8,CO2&i-C4H10,gamma_T,0.929982936
+A3.8,CO2&n-C5H12,beta_v,1.024311498
+A3.8,CO2&n-C5H12,gamma_v,1.068406078
+A3.8,CO2&n-C5H12,beta_T,1.027000795
+A3.8,CO2&n-C5H12,gamma_T,0.979217302
+A3.8,CO2&i-C5H12,beta_v,1.060793104
+A3.8,CO2&i-C5H12,gamma_v,1.116793198
+A3.8,CO2&i-C5H12,beta_T,1.019180957
+A3.8,CO2&i-C5H12,gamma_T,0.961218039
+A3.8,CO2&n-C6H14,beta_v,1.000000000
+A3.8,CO2&n-C6H14,gamma_v,0.851343711
+A3.8,CO2&n-C6H14,beta_T,1.000000000
+A3.8,CO2&n-C6H14,gamma_T,1.038675574
+A3.8,CO2&n-C7H16,beta_v,1.205469976
+A3.8,CO2&n-C7H16,gamma_v,1.164585914
+A3.8,CO2&n-C7H16,beta_T,1.011806317
+A3.8,CO2&n-C7H16,gamma_T,1.046169823
+A3.8,CO2&n-C8H18,beta_v,1.026169373
+A3.8,CO2&n-C8H18,gamma_v,1.104043935
+A3.8,CO2&n-C8H18,beta_T,1.029690780
+A3.8,CO2&n-C8H18,gamma_T,1.074455386
+A3.8,CO2&H2,beta_v,0.904142159
+A3.8,CO2&H2,gamma_v,1.152792550
+A3.8,CO2&H2,beta_T,0.942320195
+A3.8,CO2&H2,gamma_T,1.782924792
+A3.8,CO2&O2,beta_v,1.000000000
+A3.8,CO2&O2,gamma_v,1.000000000
+A3.8,CO2&O2,beta_T,1.000000000
+A3.8,CO2&O2,gamma_T,1.000000000
+A3.8,CO2&CO,beta_v,1.000000000
+A3.8,CO2&CO,gamma_v,1.000000000
+A3.8,CO2&CO,beta_T,1.000000000
+A3.8,CO2&CO,gamma_T,1.000000000
+A3.8,CO2&H2O,beta_v,0.949055959
+A3.8,CO2&H2O,gamma_v,1.542328793
+A3.8,CO2&H2O,beta_T,0.997372205
+A3.8,CO2&H2O,gamma_T,0.775453996
+A3.8,CO2&He,beta_v,0.846647561
+A3.8,CO2&He,gamma_v,0.864141549
+A3.8,CO2&He,beta_T,0.768377630
+A3.8,CO2&He,gamma_T,3.207456948
+A3.8,CO2&Ar,beta_v,1.008392428
+A3.8,CO2&Ar,gamma_v,1.029205465
+A3.8,CO2&Ar,beta_T,0.996512863
+A3.8,CO2&Ar,gamma_T,1.050971635
+A3.8,C2H6&C3H8,beta_v,0.997607277
+A3.8,C2H6&C3H8,gamma_v,1.003034720
+A3.8,C2H6&C3H8,beta_T,0.996199694
+A3.8,C2H6&C3H8,gamma_T,1.014730190
+A3.8,C2H6&n-C4H10,beta_v,0.999157205
+A3.8,C2H6&n-C4H10,gamma_v,1.006179146
+A3.8,C2H6&n-C4H10,beta_T,0.999130554
+A3.8,C2H6&n-C4H10,gamma_T,1.034832749
+A3.8,C2H6&i-C4H10,beta_v,1.000000000
+A3.8,C2H6&i-C4H10,gamma_v,1.006616886
+A3.8,C2H6&i-C4H10,beta_T,1.000000000
+A3.8,C2H6&i-C4H10,gamma_T,1.033283811
+A3.8,C2H6&n-C5H12,beta_v,0.993851009
+A3.8,C2H6&n-C5H12,gamma_v,1.026085655
+A3.8,C2H6&n-C5H12,beta_T,0.998688946
+A3.8,C2H6&n-C5H12,gamma_T,1.066665676
+A3.8,C2H6&i-C5H12,beta_v,1.000000000
+A3.8,C2H6&i-C5H12,gamma_v,1.045439246
+A3.8,C2H6&i-C5H12,beta_T,1.000000000
+A3.8,C2H6&i-C5H12,gamma_T,1.021150247
+A3.8,C2H6&n-C6H14,beta_v,1.000000000
+A3.8,C2H6&n-C6H14,gamma_v,1.169701102
+A3.8,C2H6&n-C6H14,beta_T,1.000000000
+A3.8,C2H6&n-C6H14,gamma_T,1.092177796
+A3.8,C2H6&n-C7H16,beta_v,1.000000000
+A3.8,C2H6&n-C7H16,gamma_v,1.057666085
+A3.8,C2H6&n-C7H16,beta_T,1.000000000
+A3.8,C2H6&n-C7H16,gamma_T,1.134532014
+A3.8,C2H6&n-C8H18,beta_v,1.007469726
+A3.8,C2H6&n-C8H18,gamma_v,1.071917985
+A3.8,C2H6&n-C8H18,beta_T,0.984068272
+A3.8,C2H6&n-C8H18,gamma_T,1.168636194
+A3.8,C2H6&H2,beta_v,0.925367171
+A3.8,C2H6&H2,gamma_v,1.106072040
+A3.8,C2H6&H2,beta_T,0.932969831
+A3.8,C2H6&H2,gamma_T,1.902008495
+A3.8,C2H6&O2,beta_v,1.000000000
+A3.8,C2H6&O2,gamma_v,1.000000000
+A3.8,C2H6&O2,beta_T,1.000000000
+A3.8,C2H6&O2,gamma_T,1.000000000
+A3.8,C2H6&CO,beta_v,1.000000000
+A3.8,C2H6&CO,gamma_v,1.201417898
+A3.8,C2H6&CO,beta_T,1.000000000
+A3.8,C2H6&CO,gamma_T,1.069224728
+A3.8,C2H6&H2O,beta_v,1.000000000
+A3.8,C2H6&H2O,gamma_v,1.000000000
+A3.8,C2H6&H2O,beta_T,1.000000000
+A3.8,C2H6&H2O,gamma_T,1.000000000
+A3.8,C2H6&He,beta_v,1.000000000
+A3.8,C2H6&He,gamma_v,1.000000000
+A3.8,C2H6&He,beta_T,1.000000000
+A3.8,C2H6&He,gamma_T,1.000000000
+A3.8,C2H6&Ar,beta_v,1.000000000
+A3.8,C2H6&Ar,gamma_v,1.000000000
+A3.8,C2H6&Ar,beta_T,1.000000000
+A3.8,C2H6&Ar,gamma_T,1.000000000
+A3.8,C3H8&n-C4H10,beta_v,0.999795868
+A3.8,C3H8&n-C4H10,gamma_v,1.003264179
+A3.8,C3H8&n-C4H10,beta_T,1.000310289
+A3.8,C3H8&n-C4H10,gamma_T,1.007392782
+A3.8,C3H8&i-C4H10,beta_v,0.999243146
+A3.8,C3H8&i-C4H10,gamma_v,1.001156119
+A3.8,C3H8&i-C4H10,beta_T,0.998012298
+A3.8,C3H8&i-C4H10,gamma_T,1.005250774
+A3.8,C3H8&n-C5H12,beta_v,1.044919431
+A3.8,C3H8&n-C5H12,gamma_v,1.019921513
+A3.8,C3H8&n-C5H12,beta_T,0.996484021
+A3.8,C3H8&n-C5H12,gamma_T,1.008344412
+A3.8,C3H8&i-C5H12,beta_v,1.040459289
+A3.8,C3H8&i-C5H12,gamma_v,0.999432118
+A3.8,C3H8&i-C5H12,beta_T,0.994364425
+A3.8,C3H8&i-C5H12,gamma_T,1.003269500
+A3.8,C3H8&n-C6H14,beta_v,1.000000000
+A3.8,C3H8&n-C6H14,gamma_v,1.057872566
+A3.8,C3H8&n-C6H14,beta_T,1.000000000
+A3.8,C3H8&n-C6H14,gamma_T,1.025657518
+A3.8,C3H8&n-C7H16,beta_v,1.000000000
+A3.8,C3H8&n-C7H16,gamma_v,1.079648053
+A3.8,C3H8&n-C7H16,beta_T,1.000000000
+A3.8,C3H8&n-C7H16,gamma_T,1.050044169
+A3.8,C3H8&n-C8H18,beta_v,1.000000000
+A3.8,C3H8&n-C8H18,gamma_v,1.102764612
+A3.8,C3H8&n-C8H18,beta_T,1.000000000
+A3.8,C3H8&n-C8H18,gamma_T,1.063694129
+A3.8,C3H8&H2,beta_v,1.000000000
+A3.8,C3H8&H2,gamma_v,1.074006110
+A3.8,C3H8&H2,beta_T,1.000000000
+A3.8,C3H8&H2,gamma_T,2.308215191
+A3.8,C3H8&O2,beta_v,1.000000000
+A3.8,C3H8&O2,gamma_v,1.000000000
+A3.8,C3H8&O2,beta_T,1.000000000
+A3.8,C3H8&O2,gamma_T,1.000000000
+A3.8,C3H8&CO,beta_v,1.000000000
+A3.8,C3H8&CO,gamma_v,1.108143673
+A3.8,C3H8&CO,beta_T,1.000000000
+A3.8,C3H8&CO,gamma_T,1.197564208
+A3.8,C3H8&H2O,beta_v,1.000000000
+A3.8,C3H8&H2O,gamma_v,1.011759763
+A3.8,C3H8&H2O,beta_T,1.000000000
+A3.8,C3H8&H2O,gamma_T,0.600340961
+A3.8,C3H8&He,beta_v,1.000000000
+A3.8,C3H8&He,gamma_v,1.000000000
+A3.8,C3H8&He,beta_T,1.000000000
+A3.8,C3H8&He,gamma_T,1.000000000
+A3.8,C3H8&Ar,beta_v,1.000000000
+A3.8,C3H8&Ar,gamma_v,1.000000000
+A3.8,C3H8&Ar,beta_T,1.000000000
+A3.8,C3H8&Ar,gamma_T,1.000000000
+A3.8,n-C4H10&i-C4H10,beta_v,1.000880464
+A3.8,n-C4H10&i-C4H10,gamma_v,1.000414440
+A3.8,n-C4H10&i-C4H10,beta_T,1.000077547
+A3.8,n-C4H10&i-C4H10,gamma_T,1.001432824
+A3.8,n-C4H10&n-C5H12,beta_v,1.000000000
+A3.8,n-C4H10&n-C5H12,gamma_v,1.018159650
+A3.8,n-C4H10&n-C5H12,beta_T,1.000000000
+A3.8,n-C4H10&n-C5H12,gamma_T,1.002143640
+A3.8,n-C4H10&i-C5H12,beta_v,1.000000000
+A3.8,n-C4H10&i-C5H12,gamma_v,1.002728262
+A3.8,n-C4H10&i-C5H12,beta_T,1.000000000
+A3.8,n-C4H10&i-C5H12,gamma_T,1.000792201
+A3.8,n-C4H10&n-C6H14,beta_v,1.000000000
+A3.8,n-C4H10&n-C6H14,gamma_v,1.034995284
+A3.8,n-C4H10&n-C6H14,beta_T,1.000000000
+A3.8,n-C4H10&n-C6H14,gamma_T,1.009157060
+A3.8,n-C4H10&n-C7H16,beta_v,1.000000000
+A3.8,n-C4H10&n-C7H16,gamma_v,1.019174227
+A3.8,n-C4H10&n-C7H16,beta_T,1.000000000
+A3.8,n-C4H10&n-C7H16,gamma_T,1.021283378
+A3.8,n-C4H10&n-C8H18,beta_v,1.000000000
+A3.8,n-C4H10&n-C8H18,gamma_v,1.046905515
+A3.8,n-C4H10&n-C8H18,beta_T,1.000000000
+A3.8,n-C4H10&n-C8H18,gamma_T,1.033180106
+A3.8,n-C4H10&H2,beta_v,1.000000000
+A3.8,n-C4H10&H2,gamma_v,1.232939523
+A3.8,n-C4H10&H2,beta_T,1.000000000
+A3.8,n-C4H10&H2,gamma_T,2.509259945
+A3.8,n-C4H10&O2,beta_v,1.000000000
+A3.8,n-C4H10&O2,gamma_v,1.000000000
+A3.8,n-C4H10&O2,beta_T,1.000000000
+A3.8,n-C4H10&O2,gamma_T,1.000000000
+A3.8,n-C4H10&CO,beta_v,1.000000000
+A3.8,n-C4H10&CO,gamma_v,1.084740904
+A3.8,n-C4H10&CO,beta_T,1.000000000
+A3.8,n-C4H10&CO,gamma_T,1.174055065
+A3.8,n-C4H10&H2O,beta_v,1.000000000
+A3.8,n-C4H10&H2O,gamma_v,1.223638763
+A3.8,n-C4H10&H2O,beta_T,1.000000000
+A3.8,n-C4H10&H2O,gamma_T,0.615512682
+A3.8,n-C4H10&He,beta_v,1.000000000
+A3.8,n-C4H10&He,gamma_v,1.000000000
+A3.8,n-C4H10&He,beta_T,1.000000000
+A3.8,n-C4H10&He,gamma_T,1.000000000
+A3.8,n-C4H10&Ar,beta_v,1.000000000
+A3.8,n-C4H10&Ar,gamma_v,1.214638734
+A3.8,n-C4H10&Ar,beta_T,1.000000000
+A3.8,n-C4H10&Ar,gamma_T,1.245039498
+A3.8,i-C4H10&n-C5H12,beta_v,1.000000000
+A3.8,i-C4H10&n-C5H12,gamma_v,1.002779804
+A3.8,i-C4H10&n-C5H12,beta_T,1.000000000
+A3.8,i-C4H10&n-C5H12,gamma_T,1.002495889
+A3.8,i-C4H10&i-C5H12,beta_v,1.000000000
+A3.8,i-C4H10&i-C5H12,gamma_v,1.002284197
+A3.8,i-C4H10&i-C5H12,beta_T,1.000000000
+A3.8,i-C4H10&i-C5H12,gamma_T,1.001835788
+A3.8,i-C4H10&n-C6H14,beta_v,1.000000000
+A3.8,i-C4H10&n-C6H14,gamma_v,1.010493989
+A3.8,i-C4H10&n-C6H14,beta_T,1.000000000
+A3.8,i-C4H10&n-C6H14,gamma_T,1.006018054
+A3.8,i-C4H10&n-C7H16,beta_v,1.000000000
+A3.8,i-C4H10&n-C7H16,gamma_v,1.021668316
+A3.8,i-C4H10&n-C7H16,beta_T,1.000000000
+A3.8,i-C4H10&n-C7H16,gamma_T,1.009885760
+A3.8,i-C4H10&n-C8H18,beta_v,1.000000000
+A3.8,i-C4H10&n-C8H18,gamma_v,1.032807063
+A3.8,i-C4H10&n-C8H18,beta_T,1.000000000
+A3.8,i-C4H10&n-C8H18,gamma_T,1.013945424
+A3.8,i-C4H10&H2,beta_v,1.000000000
+A3.8,i-C4H10&H2,gamma_v,1.147595688
+A3.8,i-C4H10&H2,beta_T,1.000000000
+A3.8,i-C4H10&H2,gamma_T,1.895305393
+A3.8,i-C4H10&O2,beta_v,1.000000000
+A3.8,i-C4H10&O2,gamma_v,1.000000000
+A3.8,i-C4H10&O2,beta_T,1.000000000
+A3.8,i-C4H10&O2,gamma_T,1.000000000
+A3.8,i-C4H10&CO,beta_v,1.000000000
+A3.8,i-C4H10&CO,gamma_v,1.087272232
+A3.8,i-C4H10&CO,beta_T,1.000000000
+A3.8,i-C4H10&CO,gamma_T,1.161523504
+A3.8,i-C4H10&H2O,beta_v,1.000000000
+A3.8,i-C4H10&H2O,gamma_v,1.000000000
+A3.8,i-C4H10&H2O,beta_T,1.000000000
+A3.8,i-C4H10&H2O,gamma_T,1.000000000
+A3.8,i-C4H10&He,beta_v,1.000000000
+A3.8,i-C4H10&He,gamma_v,1.000000000
+A3.8,i-C4H10&He,beta_T,1.000000000
+A3.8,i-C4H10&He,gamma_T,1.000000000
+A3.8,i-C4H10&Ar,beta_v,1.000000000
+A3.8,i-C4H10&Ar,gamma_v,1.000000000
+A3.8,i-C4H10&Ar,beta_T,1.000000000
+A3.8,i-C4H10&Ar,gamma_T,1.000000000
+A3.8,n-C5H12&i-C5H12,beta_v,1.000000000
+A3.8,n-C5H12&i-C5H12,gamma_v,1.000024352
+A3.8,n-C5H12&i-C5H12,beta_T,1.000000000
+A3.8,n-C5H12&i-C5H12,gamma_T,1.000050537
+A3.8,n-C5H12&n-C6H14,beta_v,1.000000000
+A3.8,n-C5H12&n-C6H14,gamma_v,1.002480637
+A3.8,n-C5H12&n-C6H14,beta_T,1.000000000
+A3.8,n-C5H12&n-C6H14,gamma_T,1.000761237
+A3.8,n-C5H12&n-C7H16,beta_v,1.000000000
+A3.8,n-C5H12&n-C7H16,gamma_v,1.008972412
+A3.8,n-C5H12&n-C7H16,beta_T,1.000000000
+A3.8,n-C5H12&n-C7H16,gamma_T,1.002441051
+A3.8,n-C5H12&n-C8H18,beta_v,1.000000000
+A3.8,n-C5H12&n-C8H18,gamma_v,1.069223964
+A3.8,n-C5H12&n-C8H18,beta_T,1.000000000
+A3.8,n-C5H12&n-C8H18,gamma_T,1.016422347
+A3.8,n-C5H12&H2,beta_v,1.000000000
+A3.8,n-C5H12&H2,gamma_v,1.188334783
+A3.8,n-C5H12&H2,beta_T,1.000000000
+A3.8,n-C5H12&H2,gamma_T,2.013859174
+A3.8,n-C5H12&O2,beta_v,1.000000000
+A3.8,n-C5H12&O2,gamma_v,1.000000000
+A3.8,n-C5H12&O2,beta_T,1.000000000
+A3.8,n-C5H12&O2,gamma_T,1.000000000
+A3.8,n-C5H12&CO,beta_v,1.000000000
+A3.8,n-C5H12&CO,gamma_v,1.119954454
+A3.8,n-C5H12&CO,beta_T,1.000000000
+A3.8,n-C5H12&CO,gamma_T,1.206195595
+A3.8,n-C5H12&H2O,beta_v,1.000000000
+A3.8,n-C5H12&H2O,gamma_v,0.956677310
+A3.8,n-C5H12&H2O,beta_T,1.000000000
+A3.8,n-C5H12&H2O,gamma_T,0.447666011
+A3.8,n-C5H12&He,beta_v,1.000000000
+A3.8,n-C5H12&He,gamma_v,1.000000000
+A3.8,n-C5H12&He,beta_T,1.000000000
+A3.8,n-C5H12&He,gamma_T,1.000000000
+A3.8,n-C5H12&Ar,beta_v,1.000000000
+A3.8,n-C5H12&Ar,gamma_v,1.000000000
+A3.8,n-C5H12&Ar,beta_T,1.000000000
+A3.8,n-C5H12&Ar,gamma_T,1.000000000
+A3.8,i-C5H12&n-C6H14,beta_v,1.000000000
+A3.8,i-C5H12&n-C6H14,gamma_v,1.002996055
+A3.8,i-C5H12&n-C6H14,beta_T,1.000000000
+A3.8,i-C5H12&n-C6H14,gamma_T,1.001204174
+A3.8,i-C5H12&n-C7H16,beta_v,1.000000000
+A3.8,i-C5H12&n-C7H16,gamma_v,1.009928531
+A3.8,i-C5H12&n-C7H16,beta_T,1.000000000
+A3.8,i-C5H12&n-C7H16,gamma_T,1.003194615
+A3.8,i-C5H12&n-C8H18,beta_v,1.000000000
+A3.8,i-C5H12&n-C8H18,gamma_v,1.017880981
+A3.8,i-C5H12&n-C8H18,beta_T,1.000000000
+A3.8,i-C5H12&n-C8H18,gamma_T,1.005647480
+A3.8,i-C5H12&H2,beta_v,1.000000000
+A3.8,i-C5H12&H2,gamma_v,1.184339122
+A3.8,i-C5H12&H2,beta_T,1.000000000
+A3.8,i-C5H12&H2,gamma_T,1.996386669
+A3.8,i-C5H12&O2,beta_v,1.000000000
+A3.8,i-C5H12&O2,gamma_v,1.000000000
+A3.8,i-C5H12&O2,beta_T,1.000000000
+A3.8,i-C5H12&O2,gamma_T,1.000000000
+A3.8,i-C5H12&CO,beta_v,1.000000000
+A3.8,i-C5H12&CO,gamma_v,1.116693501
+A3.8,i-C5H12&CO,beta_T,1.000000000
+A3.8,i-C5H12&CO,gamma_T,1.199475627
+A3.8,i-C5H12&H2O,beta_v,1.000000000
+A3.8,i-C5H12&H2O,gamma_v,1.000000000
+A3.8,i-C5H12&H2O,beta_T,1.000000000
+A3.8,i-C5H12&H2O,gamma_T,1.000000000
+A3.8,i-C5H12&He,beta_v,1.000000000
+A3.8,i-C5H12&He,gamma_v,1.000000000
+A3.8,i-C5H12&He,beta_T,1.000000000
+A3.8,i-C5H12&He,gamma_T,1.000000000
+A3.8,i-C5H12&Ar,beta_v,1.000000000
+A3.8,i-C5H12&Ar,gamma_v,1.000000000
+A3.8,i-C5H12&Ar,beta_T,1.000000000
+A3.8,i-C5H12&Ar,gamma_T,1.000000000
+A3.8,n-C6H14&n-C7H16,beta_v,1.000000000
+A3.8,n-C6H14&n-C7H16,gamma_v,1.001508227
+A3.8,n-C6H14&n-C7H16,beta_T,1.000000000
+A3.8,n-C6H14&n-C7H16,gamma_T,0.999762786
+A3.8,n-C6H14&n-C8H18,beta_v,1.000000000
+A3.8,n-C6H14&n-C8H18,gamma_v,1.006268954
+A3.8,n-C6H14&n-C8H18,beta_T,1.000000000
+A3.8,n-C6H14&n-C8H18,gamma_T,1.001633952
+A3.8,n-C6H14&H2,beta_v,1.000000000
+A3.8,n-C6H14&H2,gamma_v,1.243461678
+A3.8,n-C6H14&H2,beta_T,1.000000000
+A3.8,n-C6H14&H2,gamma_T,3.021197546
+A3.8,n-C6H14&O2,beta_v,1.000000000
+A3.8,n-C6H14&O2,gamma_v,1.000000000
+A3.8,n-C6H14&O2,beta_T,1.000000000
+A3.8,n-C6H14&O2,gamma_T,1.000000000
+A3.8,n-C6H14&CO,beta_v,1.000000000
+A3.8,n-C6H14&CO,gamma_v,1.155145836
+A3.8,n-C6H14&CO,beta_T,1.000000000
+A3.8,n-C6H14&CO,gamma_T,1.233435828
+A3.8,n-C6H14&H2O,beta_v,1.000000000
+A3.8,n-C6H14&H2O,gamma_v,1.170217596
+A3.8,n-C6H14&H2O,beta_T,1.000000000
+A3.8,n-C6H14&H2O,gamma_T,0.569681333
+A3.8,n-C6H14&He,beta_v,1.000000000
+A3.8,n-C6H14&He,gamma_v,1.000000000
+A3.8,n-C6H14&He,beta_T,1.000000000
+A3.8,n-C6H14&He,gamma_T,1.000000000
+A3.8,n-C6H14&Ar,beta_v,1.000000000
+A3.8,n-C6H14&Ar,gamma_v,1.000000000
+A3.8,n-C6H14&Ar,beta_T,1.000000000
+A3.8,n-C6H14&Ar,gamma_T,1.000000000
+A3.8,n-C7H16&n-C8H18,beta_v,1.000000000
+A3.8,n-C7H16&n-C8H18,gamma_v,1.006767176
+A3.8,n-C7H16&n-C8H18,beta_T,1.000000000
+A3.8,n-C7H16&n-C8H18,gamma_T,0.998793111
+A3.8,n-C7H16&H2,beta_v,1.000000000
+A3.8,n-C7H16&H2,gamma_v,1.159131722
+A3.8,n-C7H16&H2,beta_T,1.000000000
+A3.8,n-C7H16&H2,gamma_T,3.169143057
+A3.8,n-C7H16&O2,beta_v,1.000000000
+A3.8,n-C7H16&O2,gamma_v,1.000000000
+A3.8,n-C7H16&O2,beta_T,1.000000000
+A3.8,n-C7H16&O2,gamma_T,1.000000000
+A3.8,n-C7H16&CO,beta_v,1.000000000
+A3.8,n-C7H16&CO,gamma_v,1.190354273
+A3.8,n-C7H16&CO,beta_T,1.000000000
+A3.8,n-C7H16&CO,gamma_T,1.256295219
+A3.8,n-C7H16&H2O,beta_v,1.000000000
+A3.8,n-C7H16&H2O,gamma_v,1.000000000
+A3.8,n-C7H16&H2O,beta_T,1.000000000
+A3.8,n-C7H16&H2O,gamma_T,1.000000000
+A3.8,n-C7H16&He,beta_v,1.000000000
+A3.8,n-C7H16&He,gamma_v,1.000000000
+A3.8,n-C7H16&He,beta_T,1.000000000
+A3.8,n-C7H16&He,gamma_T,1.000000000
+A3.8,n-C7H16&Ar,beta_v,1.000000000
+A3.8,n-C7H16&Ar,gamma_v,1.000000000
+A3.8,n-C7H16&Ar,beta_T,1.000000000
+A3.8,n-C7H16&Ar,gamma_T,1.000000000
+A3.8,n-C8H18&H2,beta_v,1.000000000
+A3.8,n-C8H18&H2,gamma_v,1.305249405
+A3.8,n-C8H18&H2,beta_T,1.000000000
+A3.8,n-C8H18&H2,gamma_T,2.191555216
+A3.8,n-C8H18&O2,beta_v,1.000000000
+A3.8,n-C8H18&O2,gamma_v,1.000000000
+A3.8,n-C8H18&O2,beta_T,1.000000000
+A3.8,n-C8H18&O2,gamma_T,1.000000000
+A3.8,n-C8H18&CO,beta_v,1.000000000
+A3.8,n-C8H18&CO,gamma_v,1.219206702
+A3.8,n-C8H18&CO,beta_T,1.000000000
+A3.8,n-C8H18&CO,gamma_T,1.276744779
+A3.8,n-C8H18&H2O,beta_v,1.000000000
+A3.8,n-C8H18&H2O,gamma_v,0.599484191
+A3.8,n-C8H18&H2O,beta_T,1.000000000
+A3.8,n-C8H18&H2O,gamma_T,0.662072469
+A3.8,n-C8H18&He,beta_v,1.000000000
+A3.8,n-C8H18&He,gamma_v,1.000000000
+A3.8,n-C8H18&He,beta_T,1.000000000
+A3.8,n-C8H18&He,gamma_T,1.000000000
+A3.8,n-C8H18&Ar,beta_v,1.000000000
+A3.8,n-C8H18&Ar,gamma_v,1.000000000
+A3.8,n-C8H18&Ar,beta_T,1.000000000
+A3.8,n-C8H18&Ar,gamma_T,1.000000000
+A3.8,H2&O2,beta_v,1.000000000
+A3.8,H2&O2,gamma_v,1.000000000
+A3.8,H2&O2,beta_T,1.000000000
+A3.8,H2&O2,gamma_T,1.000000000
+A3.8,H2&CO,beta_v,1.000000000
+A3.8,H2&CO,gamma_v,1.121416201
+A3.8,H2&CO,beta_T,1.000000000
+A3.8,H2&CO,gamma_T,1.377504607
+A3.8,H2&H2O,beta_v,1.000000000
+A3.8,H2&H2O,gamma_v,1.000000000
+A3.8,H2&H2O,beta_T,1.000000000
+A3.8,H2&H2O,gamma_T,1.000000000
+A3.8,H2&He,beta_v,1.000000000
+A3.8,H2&He,gamma_v,1.000000000
+A3.8,H2&He,beta_T,1.000000000
+A3.8,H2&He,gamma_T,1.000000000
+A3.8,H2&Ar,beta_v,1.000000000
+A3.8,H2&Ar,gamma_v,1.000000000
+A3.8,H2&Ar,beta_T,1.000000000
+A3.8,H2&Ar,gamma_T,1.000000000
+A3.8,O2&CO,beta_v,1.000000000
+A3.8,O2&CO,gamma_v,1.000000000
+A3.8,O2&CO,beta_T,1.000000000
+A3.8,O2&CO,gamma_T,1.000000000
+A3.8,O2&H2O,beta_v,1.000000000
+A3.8,O2&H2O,gamma_v,1.143174289
+A3.8,O2&H2O,beta_T,1.000000000
+A3.8,O2&H2O,gamma_T,0.964767932
+A3.8,O2&He,beta_v,1.000000000
+A3.8,O2&He,gamma_v,1.000000000
+A3.8,O2&He,beta_T,1.000000000
+A3.8,O2&He,gamma_T,1.000000000
+A3.8,O2&Ar,beta_v,0.999746847
+A3.8,O2&Ar,gamma_v,0.993907223
+A3.8,O2&Ar,beta_T,1.000023103
+A3.8,O2&Ar,gamma_T,0.990430423
+A3.8,CO&H2O,beta_v,1.000000000
+A3.8,CO&H2O,gamma_v,1.000000000
+A3.8,CO&H2O,beta_T,1.000000000
+A3.8,CO&H2O,gamma_T,1.000000000
+A3.8,CO&He,beta_v,1.000000000
+A3.8,CO&He,gamma_v,1.000000000
+A3.8,CO&He,beta_T,1.000000000
+A3.8,CO&He,gamma_T,1.000000000
+A3.8,CO&Ar,beta_v,1.000000000
+A3.8,CO&Ar,gamma_v,1.159720623
+A3.8,CO&Ar,beta_T,1.000000000
+A3.8,CO&Ar,gamma_T,0.954215746
+A3.8,H2O&He,beta_v,1.000000000
+A3.8,H2O&He,gamma_v,1.000000000
+A3.8,H2O&He,beta_T,1.000000000
+A3.8,H2O&He,gamma_T,1.000000000
+A3.8,H2O&Ar,beta_v,1.000000000
+A3.8,H2O&Ar,gamma_v,1.038993495
+A3.8,H2O&Ar,beta_T,1.000000000
+A3.8,H2O&Ar,gamma_T,1.070941866
+A3.8,He&Ar,beta_v,1.000000000
+A3.8,He&Ar,gamma_v,1.000000000
+A3.8,He&Ar,beta_T,1.000000000
+A3.8,He&Ar,gamma_T,1.000000000
