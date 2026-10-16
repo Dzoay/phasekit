@@ -1,3 +1,4 @@
 # The open family milestone's start tag: `cargo xtask gates core-frozen` holds crates/phasekit-core/ unchanged since it
-# (VERIFICATION.md §10; PLAN.md M11.1). One tag, or none between family milestones: M11 held the core from m11-start
-# to its close (PLAN.md M11.8), and no family milestone is open now.
+# (VERIFICATION.md §10; PLAN.md M11.1). One tag, or none between family milestones: M13 holds the core from m13-start,
+# M13.1's merge commit, to its close (PLAN.md M13).
+m13-start

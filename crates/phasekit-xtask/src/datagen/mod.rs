@@ -11,6 +11,7 @@ pub mod fnv;
 pub mod index;
 pub mod json;
 pub mod mirror;
+pub mod mixtures;
 pub mod record;
 pub mod superanc;
 pub mod transport;
@@ -204,7 +205,16 @@ pub fn main(args: &[String]) -> ExitCode {
             println!("datagen: {} defines {name} (names come from INFO.NAME; map 09 §4.3)", source.file);
         }
     }
-    let outputs = index::outputs(&entries);
+    let library = match mixtures::load(&repo, &sources) {
+        Ok(library) => library,
+        Err(errors) => {
+            errors.iter().for_each(|e| eprintln!("datagen: {e}"));
+            return ExitCode::FAILURE;
+        }
+    };
+    library.notes.iter().for_each(|note| println!("datagen: mixtures: {note}"));
+    let mut outputs = index::outputs(&entries);
+    outputs.extend(mixtures::outputs(&library));
     let written = outputs.iter().try_for_each(|(path, bytes)| repo.write_bytes(path, bytes));
     let stale = differences(&repo, &outputs).and_then(|found| {
         let blobs = format!("{}/blobs/", index::DATA_CRATE);
@@ -223,7 +233,9 @@ pub fn main(args: &[String]) -> ExitCode {
     let eos: usize = sources.iter().map(|s| s.fluid.eos.len()).sum();
     println!("datagen: {} fluids, {eos} EOS entries, {stamps} source_eos_hash stamps recomputed", sources.len());
     println!("datagen: {keys} index keys; blob bytes per fluid: min {min}, median {median}, max {max}");
-    println!("datagen: wrote {} files under {}", outputs.len(), index::DATA_CRATE);
+    let (pairs, departures, predefined) = (library.pairs.len(), library.departures.len(), library.predefined.len());
+    println!("datagen: {pairs} binary pairs, {departures} departure functions, {predefined} predefined mixtures");
+    println!("datagen: wrote {} files under {} and {}", outputs.len(), index::DATA_CRATE, mixtures::GENERATED);
     ExitCode::SUCCESS
 }
 

@@ -12,6 +12,7 @@ mod caloric_curves;
 mod files;
 mod ideal;
 mod mapping;
+mod mixtures;
 mod transport_blocks;
 
 fn sources() -> Vec<Source> {

@@ -590,30 +590,8 @@ oracle checks the multi-fluid model outside the known-bad states of map 04 §8. 
 | Step | Landed |
 |---|---|
 | M13.1 | Core's mixture seams (MX2): each phase point keeps its molar mass, so `State::from_split` takes phases of different M (one R) and weighs them by mass (`State::mass_quality`, `Prop::Qmass`, mass-basis values), a pure fluid's split bit for bit as before; `Input::with_quality_basis`, `NativeInput::quality_basis` and `BatchRequest::with_quality_basis`, compat's `Qmass` key a mass quality; the public `density` module (`solve` on a `Branch`, `roots`, `select` under a `RootPolicy`, the acceptance gate `reproduces`); `Registry::with_resolver` and `resolve` with the `Resolver` trait (a family caches what it builds); `HelmholtzModel::reducing`; `tests/mixture_seam.rs` |
+| M13.2 | `m13-start` on M13.1's merge commit, named in `ci/core-frozen.txt`; `crates/phasekit-mix` on `phasekit-core` alone (T1f, `gates deps`), PR scope `mix`; `data/mixtures.lock` (v8.0.0's three mixture JSON files and ASHRAE 34's list); datagen's mixture step writes `src/generated.rs` (`gates datagen` compares it): 888 pairs keyed by their sorted CAS pair, β inverted where the file lists the larger CAS first, Lemmon's six ξ/ζ pairs kept as such; 28 departure functions by kind (16, 9, 3); 147 predefined mixtures (seven exact repeats dropped), ASHRAE 34's mass fractions kept for 124 of them, matched by name or library fluid; every fluid's CAS number. Its tests pin ROT-199 (the mass fractions give v8.0.0's mole fractions for the 120 the library can weigh, 80 to 1e-12, at most 8e-6 off, R405A) and ROT-200 (27 blends lack a pair, 4 name the unknown R1132a) |
 
-- **M13.2 The start: `m13-start`, the crate, the mixture data.**
-  - Tag `m13-start` on M13.1's merge commit; `ci/core-frozen.txt` names it.
-  - A new crate `crates/phasekit-mix`, on `phasekit-core` alone (T1f, default features off). It is not published:
-    that is the user's call. Its PR-title scope is `mix`.
-  - `data/mixtures.lock` pins the sha256 of v8.0.0's three `dev/mixtures` JSON files, and `oracle.lock` gains them.
-  - `cargo xtask datagen` writes `crates/phasekit-mix/src/generated.rs`:
-    - the 888 binary pairs, keyed by their sorted CAS pair, with β oriented to that order (a swap inverts β_T and
-      β_v);
-    - Lemmon's six ξ/ζ pairs kept as ξ/ζ, converted when a model is built from the components' reducing states;
-    - each pair's F and departure-function index;
-    - the 28 departure functions by kind: 16 Exponential, 9 GERG-2008, 3 Gaussian + Exponential;
-    - the 147 predefined mixtures as mole fractions (v8.0.0 lists 154 entries: seven are exact duplicates, and
-      datagen refuses a duplicate that differs, ROT-041).
-  - `cargo xtask mixture` is the readable dump (FD1).
-  - A register entry (the next free id) for the predefined fractions (ROT-199): `Corrected` derives them from ASHRAE
-    34's mass fractions with phasekit's molar masses, `Parity` keeps v8.0.0's mole fractions. 121 of 147 agree within
-    5e-4; the step measures the rest.
-
-  *Red:* datagen's `pairs_are_oriented_by_cas`, `every_departure_kind_decodes`,
-  `predefined_fractions_follow_ashrae_mass_fractions` (ROT-199) and `pair_coverage_names_every_unbuildable_mixture`
-  (ROT-200: v8.0.0's 31, 27 for a missing pair, R124/R22 the commonest, and 4 for the unknown R1132a); the lock gate
-  refusing an edited JSON; `gates deps` refusing a third-party dependency of phasekit-mix. They run first against a
-  datagen without the mixture step. *Done when:* `gates core-frozen` passes since `m13-start`.
 - **M13.3 The multi-fluid residual.**
   - `MultiFluid`: the components (`Fluid`s from a registry), their pairs and departures, immutable behind an `Arc`.
   - Reducing functions T_r(x) and v_r(x) in GERG's β/γ form. Lemmon's ξ/ζ pairs are converted with the components'
@@ -782,6 +760,9 @@ oracle checks the multi-fluid model outside the known-bad states of map 04 §8. 
   - compat's `fluid_in` passes `&`, `[` and `]` to the registry's `resolve`; it still refuses `?` and `%`.
   - A missing binary pair is `NoModel` naming the pair (ROT-292: Ammonia&Water), never an estimate (estimators come on
     demand).
+  - The predefined blends' fractions (ROT-199): `Corrected` derives the mole fractions from ASHRAE 34's mass fractions
+    (M13.2's table) with the registry's molar masses, `Parity` keeps v8.0.0's (at most 8e-6 apart); a register entry
+    (the next free id) records the difference and its arbiter.
   - Parameters are overridden through a builder that returns a new model and leaves the defaults untouched (ROT-196).
 
   *Red:* `compat_reads_coolprop_mixture_strings` (the oracle's `PropsSI` on `HEOS::R32[0.697615]&R125[0.302385]` and
