@@ -605,3 +605,23 @@ Tkaczuk et al. (2020) print their Table 8 pressures with Σx_i R_i. GERG-2008 is
 | MX5 | Do mixtures reach C and the browser in M13? | **Yes: compat, the C ABI and its Tier A shim, and the browser package** | `pk_*` and the shim's `PropsSI` take `HEOS::A[x]&B[y]` and `.mix` names as v8.0.0 does, and `get_global_param_string("predefined_mixtures")` lists them; the browser package serves mixtures, its `.wasm` budgets re-measured at size + 10 % (as SL8). *Rejected:* Rust and compat only. |
 | MX6 | GERG-2008's registry prefix | **`GERG2008::`** | `GERG2008::Methane[0.9]&Ethane[0.1]`, and `GERG2008::Methane` for a GERG pure fluid; teqp's spelling (`GERG2008resid`). Components resolve through the registry's usual names and aliases. *Rejected:* `GERG-2008::`. |
 | MX7 | Where GERG-2008's coefficients come from | **NIST's AGA8 code (`usnistgov/AGA8`, public domain), pinned at commit 3bdb9ab8** | Transcribed into `phasekit-mix`, credited in NOTICE, and checked number for number by an xtask test against a gitignored fetched copy; cross-checked against the GERG TM15 monograph (the 18 GERG-2004 components) and teqp 0.23.2. *Rejected:* teqp's `GERG.hpp`. |
+
+## The site (2026-10-16)
+
+Asked while M13 was being planned: "I would like to have you build a webpage that visualises phasekits capabilities
+dynamically [...] Should this even be in the same repo. I would like nice things like themeing on the page - it should
+probably be a spa", then "it would be great if this was a github page on the repo that we build and deploy". Facts: the
+repository is public; the user turned its Pages site on the same day (source GitHub Actions; the `github-pages`
+environment deploys from `main` only). The browser package on `main` (M10.8, M12.10) serves `PropsSI`, the
+typed flash, the batch over typed arrays and `withReference` in a baseline and a `simd128` build: enough for a
+calculator, saturation domes, isolines sampled by batch, the state under a cursor, property sweeps and an in-browser
+benchmark. It embeds five fluids (CO₂, n-Propane, Nitrogen, R134a, Water); nothing builds the packs `withPack` takes
+(`phasekit_core::internal::pack` serves tests only), and the registry's names are not exported to JS. PLAN.md §4 had
+M19 as a plotting crate checked by visual regression on documented diagrams *(inference)*.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| WS1 | Where does the site live, and when is it deployed? | **In this repository, under `site/`, as its GitHub Pages site, built and deployed on every merge to `main` whose CI is green** | `https://dzoay.github.io/phasekit/`, built from the commit it shows, so it waits for no npm publish (P5 and RL2 unchanged). The site ships in no crate or package. Pages is on, its source GitHub Actions (2026-10-16). *Rejected:* a separate repository over the published npm package; deploys on milestone or release tags only. |
+| WS2 | The site's stack | **A single-page app in Svelte 5, Vite and TypeScript; d3's modules for the diagrams; the browser package in a Web Worker; themes as CSS custom properties** | Hash routes (Pages has no rewrites) with the view's state in the URL. The diagrams draw their lines on a canvas and their axes and labels in SVG. Themes: light, dark and the system's, with accent themes; the diagrams read the same tokens, so they re-theme live. The worker loads the `simd128` build where the browser validates SIMD, else the baseline. *Rejected:* React (a heavier runtime); TypeScript with web components and no framework (the fewest packages, more hand-written state and routing). |
+| WS3 | How does the site fit the plan? | **Milestone M21, six steps, one PR each with its `Plan-Step:` footer; it starts now, beside M13, and does not move `MILESTONE`** | M21.4 builds the per-fluid packs; M21.5 waits for M13 (MX5 brings mixtures to the browser package), M21.6 for M19. M21.1 adds the site's gate, G9. *Rejected:* the site inside M19 (it would wait for M13); a lane outside the plan, whose progress git would not record. |
+| WS4 | What does M19 build? | **Diagram geometry, drawn by the site** | M19's crate computes saturation domes, isolines and mixture envelopes as polylines with labels and ranges, split at the dome and at failed cells, on core's public API with no new dependency (T1f). The browser package serves them to the site (M21.6), and M16's Python can draw them with matplotlib. Its checks are numerical, and the site's screenshots are its visual check. Replaces PLAN.md §4's visual regression on documented diagrams. Decision 13 still holds: M19 starts after M13. *Rejected:* M19 as a plotting crate that draws, checked by visual regression. |

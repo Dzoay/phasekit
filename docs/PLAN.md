@@ -103,7 +103,8 @@ reorder or split steps need a reviewer's. Once a step has been merged, its ID ne
 | INCOMP, humid air (real `HAPropsSI`) | Own `ThermoModel`s; humid air needs water, air and ice models (map 07 §9) | M17, M18 |
 | SIMD lanes | Investigated in a time-boxed spike, shipped if it is faster than the scalar path (D9; Kernel's fatal flaw; user decision TG1) | M12, which may land before the `v0.1.0` tag as an opt-in feature (user decision RL4) |
 | Python | After v0.1, own namespace + `compat` (user decision 7) | M16 |
-| Plotting | After the mixtures milestone (user decision 13) | M19 |
+| Plotting | After the mixtures milestone (user decision 13); diagram geometry, drawn by the site (user decision WS4) | M19 |
+| The site | A page over the browser package, outside the library: it ships in no crate or package (user decisions WS1-WS3) | M21, from 2026-10-16 |
 | Tier B shim (`AbstractState_*`), WIT component, network service facade | Deferred until a consumer asks (user decisions 9a, 8; BRIEF "connected": a server is an outer facade, never core) | On demand |
 | TTSE/BICUBIC, REFPROP backend | Not ported: crashes and garbage reproduced on the oracle (map 08 R1-R9); proprietary and process-global (map 07) | Never: ROT-REGISTER.md's `Not-ported` rows |
 | Runtime CoolProp JSON (`json` feature) | No consumer yet (S-12) | When a consumer is scheduled |
@@ -465,8 +466,9 @@ conformance kit (VERIFICATION.md §10) and, where marked, a **zero-line core dif
 
 ```text
 v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
-      ├─ M13 mixtures ────── M19 plotting
+      ├─ M13 mixtures ────── M19 diagram geometry
       ├─ M14 IAPWS, ice ──── M18 humid air
+      ├─ M21 site: M21.1-M21.4 now, M21.5 after M13, M21.6 after M19
       └─ M12 SIMD spike, M16 Python, M17 INCOMP; on demand: Tier B shim, WIT, network service, materials
 ```
 
@@ -480,8 +482,9 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M16 | `phasekit-py` | v0.1 + demand | pyo3 abi3 wheels, import name `phasekit`, `phasekit.compat.PropsSI(...)`, GIL released around kernel calls, NumPy `(N, M)` point-major (user decisions 7, 11; R16) | map 14 U1 Python-contract fixtures for the compat surface; installs beside `CoolProp` |
 | M17 | `phasekit-incomp` | v0.1 + demand | INCOMP fits as a `ThermoModel`, placeholders rejected at datagen, `Example*` fluids excluded, restricted data off by default (map 07 §9; D14) | Source tables; known-bad register (map 07 I1-I14) |
 | M18 | `phasekit-humidair` | M14 done (ice) | RP-1485 humid air on injected Water, Air and ice `Fluid`s (map 07 H3); HA strings in compat; the shim's real `HAPropsSI` replaces the stub; `pk_*` gains humid-air symbols (D11) | RP-1485 tables (map 10 §8.1, ~120 values); `HAPropsSI("H","T",300,"P",1e5,"R",0) = 27013.112479771713` (map 11 §8) |
-| M19 | plotting crate | M13 done (user decision 13) | Isolines and diagrams over saturation, `flash` and batch; a separate crate | Visual regression on documented diagrams *(inference)* |
+| M19 | a diagram-geometry crate (T1f), named at its plan | M13 done (user decision 13) | Geometry, not drawing (user decision WS4): saturation domes, isolines of T, p, h, s, ρ and quality on the p–h, T–s, p–T, T–ρ and h–s planes, split at the dome and at failed cells, sampled more densely where a line bends, with labels and ranges; M13's phase envelopes; over saturation, `flash` and batch; the browser package serves it to the site (M21.6) | Every vertex reproduces its line's value within `Flash`; a line's dome crossings are the saturation states at its value (`Exact` against `QT` or `PQ`); M21.2's checks pass on its geometry; the site's screenshots re-approved at M21.6 |
 | M20 | core, compat, verify, CI | M12 landed (user decision PL1) | Four follow-ups: Cv, Cp, w, τ and δ as derivative variables; the conformance kit's `identities` and `part_additivity`; the intra-doc link check; the nightly report: [M20 Follow-ups](#m20-follow-ups) | Each step's checks; G1-G8 |
+| M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19; six steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
@@ -863,6 +866,107 @@ are independent and may be reordered. M20 does not move `MILESTONE`.
   small fixture set, against a report that lists rows and failed calls only.
 
 **Exit gate.** G1-G8; each step's checks. **ROT rows.** None. **User decisions implemented.** PL1, OD1.
+
+### M21 The site
+
+**Goal.** A single-page site that shows what phasekit computes, live in the visitor's browser, built and deployed from
+this repository as its GitHub Pages site, `https://dzoay.github.io/phasekit/` (user decisions WS1-WS3). The site is a
+consumer of the browser package: every number it shows comes from `phasekit-wasm` at the commit it was built from, and
+what the page needs that the package lacks is added to the package in a step, with its tests. **Entry.** The user's
+word, 2026-10-16, beside M13 (WS3): M21.1-M21.4 now, M21.5 after M13, M21.6 after M19. **Prerequisites.** User
+decisions WS1-WS4; DEPENDENCIES.md's tier T5; Pages on, its source GitHub Actions, the `github-pages` environment
+deploying from `main` only (done 2026-10-16). **Arbiters.** The page adds no numerics, so its oracle is the browser package: a value on
+the page equals the package's at the same inputs (`Exact`), and the library's own tests check the package. Unit
+conversions follow the SI brochure's definitions (0 °C = 273.15 K, 1 bar = 10⁵ Pa), theme contrast WCAG 2.2's
+contrast ratio. M21 does not move `MILESTONE`.
+
+- **M21.1 The skeleton, the themes, the deploy and the calculator.**
+  - `site/`, outside the Cargo workspace: `package.json` (`"private": true`, Node LTS in `engines`) and
+    `package-lock.json`; Svelte 5, Vite and TypeScript (WS2); a relative `base`, so the build serves from
+    `/phasekit/`; hash routes, with the view's state in the URL.
+  - The engine: a module Web Worker that loads the `simd128` build where `WebAssembly.validate` accepts a SIMD probe,
+    else the baseline, and makes every package call; the footer names the build and the commit.
+  - Themes: tokens as CSS custom properties on `:root`; light, dark and the system's (`prefers-color-scheme`), and
+    accent themes; the choice kept in `localStorage` behind `try`, so the page works without it; a font served with
+    the page (OFL-1.1), so screenshots do not depend on the machine's fonts.
+  - The calculator: one of the five embedded fluids, two input keys with values in chosen units, every output the
+    package gives and the phase; a refusal shown in the package's words.
+  - `scripts/site/build.sh`: the commit's two release wasm modules through wasm-bindgen (`--target web --weak-refs`)
+    into the site's gitignored `src/pk/`, then `npm ci` and `vite build` into `site/dist`. Its wasm-bindgen calls
+    are `scripts/release/npm-package.sh`'s (one script both call), so the page runs what the npm package ships.
+  - G9 in section 2.4: `scripts/site/check.sh` runs `prettier --check`, `svelte-check`, Vitest, the build and its
+    budget (the page's JS and CSS, gzipped, its measured size + 10 %, as SL8) and Playwright on Chromium; locally, and
+    in CI's `site` job, which takes the two modules from the `wasm-browser` job. It runs on every PR, so a change to
+    the browser package that breaks the page fails its own PR; the maintainer adds it to the required checks. Every
+    "G1-G8" that means all the gates (AGENTS.md, CONTRIBUTING.md, sections 0 and 2.1, VERIFICATION.md §11.1) becomes
+    G1-G9.
+  - `pages.yml`: on the `ci` workflow's success on `main` (and by hand), the page built from that run's commit and
+    modules, deployed with `upload-pages-artifact` and `deploy-pages`; actions pinned by commit; `actionlint` clean.
+  - Licences: the page serves LICENSE-MIT, LICENSE-APACHE, the modules' cargo-about notices and the licences of the
+    npm packages it bundles, which `scripts/site/notices.mjs` collects from the lockfile's production tree, failing
+    on a licence outside `deny.toml`'s allow-list; `reuse lint` covers `site/`.
+  - The `site` PR-title scope (`pr-title.yml`, CONTRIBUTING.md); VERIFICATION.md §11.3's rows for `ci: site` and
+    `pages`; README.md links the page.
+
+  *Red:* Vitest: the unit conversions match the SI definitions and round-trip; every theme's text and background
+  token pairs reach a contrast ratio of 4.5 (WCAG 2.2 AA); the worker answers `PropsSI("T", "P", 101325, "Q", 0,
+  "Water")` with the package's value bit for bit under Node. Playwright: the calculator at that state shows the same
+  T; the chosen theme survives a reload, and the page renders with storage blocked. Each runs first against an empty
+  `site/`. *Done when:* G1-G9 pass and the first deploy from `main` serves the calculator; its URL is in the PR.
+- **M21.2 The diagrams.** p–h (log p), T–s, p–T, T–ρ and h–s for any loaded fluid.
+  - The saturation dome from QT batches between T_triple (or T_min) and T_c, the grid closing in on T_c; the critical
+    and triple points.
+  - Isotherms, isobars, isentropes, isenthalps, isochores and lines of constant quality, each from `evaluate` along
+    its line, split where it meets the dome (its two-phase part from `PQ` or `QT`) and where a cell fails, which
+    leaves a gap, never a join.
+  - Zoom and pan; a crosshair that flashes the state under the cursor (p–h by HP, T–s by ST, p–T by PT, T–ρ by DT,
+    h–s by HS) and lists its properties; PNG, SVG and CSV export; colours from the theme tokens, the isolines in a
+    colour-blind-safe palette.
+  - The sampling is plain TypeScript in `site/src/sample/`, which M21.6 replaces with M19's geometry.
+
+  *Red:* Vitest under Node on the real package, for Water and n-Propane: every vertex equals the package's value at
+  its inputs (`Exact`); a one-phase segment's vertices lie on one side of the dome, and a two-phase segment's ends are
+  the saturation states at its value (`Exact` against `QT` or `PQ`); a failed cell leaves a gap. Playwright: a hover
+  over a known point of Water's p–h diagram lists the HP flash's values; screenshots of each diagram in the light and
+  dark themes (`toHaveScreenshot`, Chromium on Linux) become the visual baseline. *Done when:* G9; each diagram's
+  sampling time in the worker (Chromium, the i7-8700K) is recorded in the PR.
+- **M21.3 Sweeps and the benchmark.**
+  - Sweeps: any output against T along isobars or against p along isotherms, several lines at once (c_p near the
+    critical point, w, η, λ, Z); σ, the latent heat and both phases' properties along saturation.
+  - The benchmark: N states of a chosen pair on both builds, in the viewer's browser: states per second, the cells by
+    status, and whether the two builds' values are equal bit for bit, as SL8 says they are.
+
+  *Red:* Vitest: a sweep's points equal `PropsSI` at the same inputs (`Exact`); the benchmark's comparison reports a
+  planted one-ulp difference, and none between the two builds on n-Propane's DT, QT and PQ grids (Node runs
+  `simd128`). Playwright: the benchmark page completes and reports the equality.
+- **M21.4 All 136 fluids.**
+  - `cargo xtask packs <dir>`: one pack per fluid from `phasekit-data`'s blobs (`phasekit_core::internal::pack`),
+    naming the fluids it requires (ECS references), and `index.json` with each fluid's names, aliases, CAS number,
+    bytes and requirements. `scripts/site/build.sh` writes them into the page; they are never committed.
+  - The browser package exports what its registry names and has loaded (core's `Registry::names` and `loaded`), with
+    Node tests.
+  - The page: a fluid picker that searches names, aliases and CAS numbers; a fluid's packs fetched on first use, its
+    requirements first; the bytes fetched and the fluids loaded shown, ARCHITECTURE.md §8's "only what is needed"
+    made visible.
+
+  *Red:* an xtask test: every pack decodes (`Pack::new`), its layer over the five embedded fluids resolves the fluid
+  and each alias, and a fluid whose transport needs a reference computes its viscosity from its packs alone. A Node
+  test (`tests/node.rs`): R32 from its pack gives the fixture values in their classes. Playwright: a fluid with an
+  ECS reference fetches both packs, the reference first. *Done when:* G1-G9; the core unchanged (`gates core-frozen`
+  holds through M13); the packs' total and largest sizes recorded in the PR.
+- **M21.5 Mixtures.** After M13, on what MX5 brings to the browser package: a mixture picker (components from the
+  index, mole fractions that sum to one, the predefined mixtures); the phase envelope on p–T and T–ρ with its critical
+  point; bubble and dew points; two-phase states with each phase's composition in the readout; a liquid-liquid or
+  three-phase refusal shown as the package's typed error. The step's detail is fixed when M13 closes. *Red:* Vitest:
+  every envelope vertex is a bubble or dew state of the package (`Exact` against its flash at Q = 0 or 1) and the
+  critical point lies on the envelope. Playwright: R410A.mix's envelope and a two-phase readout.
+- **M21.6 The diagrams from M19.** The diagrams take their domes, isolines and envelopes from M19's geometry through
+  the browser package, and `site/src/sample/` is deleted. *Red:* M21.2's checks on M19's geometry, run first against
+  the package without its export. *Done when:* G1-G9; the screenshots re-approved in the PR.
+
+**Exit gate.** G1-G9 at every step; the page deployed from `main` at each merge; every value on the page equals the
+package's (`Exact`); M21.1's budget and SL8's wasm budgets hold; `reuse lint` and `actionlint` clean. **ROT rows.**
+None. **User decisions implemented.** WS1, WS2, WS3, WS4.
 
 ## 5. Cross-cutting tracks
 
