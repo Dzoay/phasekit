@@ -2,13 +2,30 @@
 // the package's, and every refusal is the package's message. It holds one registry and the fluid handles it has
 // opened; each state is freed once its outputs are read.
 import type { Pk } from "./pk";
-import type { Build, Request, Response, StateValue } from "./protocol";
+import type { Build, Request, Response, StateValue, TimeValue, Timing } from "./protocol";
 
 // The handle types; wasm-bindgen's private constructors rule out `InstanceType`.
 type Registry = Pk["Registry"]["prototype"];
 type Fluid = Pk["Fluid"]["prototype"];
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** How long a timing repeats its run: long enough that a browser's coarse clock (100 µs without isolation) blurs the
+ *  mean by under 1 %. */
+const BUDGET_MS = 20;
+
+/** The mean time of `run`, repeated for the budget after one untimed run that warms it (and throws if it fails). */
+function measure(run: () => void): Timing {
+  run();
+  const start = performance.now();
+  let [runs, now] = [0, start];
+  do {
+    run();
+    runs += 1;
+    now = performance.now();
+  } while (now - start < BUDGET_MS && runs < 1_000_000);
+  return { us: ((now - start) * 1000) / runs, runs };
+}
 
 export function createHandler(pk: Pk, build: Build): (request: Request) => Response {
   let registry: Registry | undefined;
@@ -44,6 +61,27 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
     }
   };
 
+  // A flash with a state handle made and freed, as the page makes one; then every output read from one state.
+  const time = (r: Extract<Request, { op: "time" }>): TimeValue => {
+    const f = fluid(r.fluid);
+    const flash = measure(() => f.flash(r.name1, r.value1, r.name2, r.value2).free());
+    const s = f.flash(r.name1, r.value1, r.name2, r.value2);
+    try {
+      const outputs = measure(() => {
+        for (const key of r.outputs) {
+          try {
+            s.get(key);
+          } catch {
+            // A refused output costs its refusal, as on the page.
+          }
+        }
+      });
+      return { flash, outputs };
+    } finally {
+      s.free();
+    }
+  };
+
   return (request) => {
     const { id, op } = request;
     try {
@@ -62,6 +100,8 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
         }
         case "state":
           return { id, ok: true, op: "state", value: state(request) };
+        case "time":
+          return { id, ok: true, op: "time", value: time(request) };
       }
     } catch (e) {
       return { id, ok: false, op, error: message(e) };

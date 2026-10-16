@@ -17,6 +17,19 @@ export interface StateValue {
   errors: (string | null)[];
 }
 
+/** The mean time of one run, over `runs` runs repeated for a short budget. */
+export interface Timing {
+  us: number;
+  runs: number;
+}
+
+export interface TimeValue {
+  /** One flash at the inputs, a state handle made and freed, as the page calls it. */
+  flash: Timing;
+  /** Every output requested, read from one state. */
+  outputs: Timing;
+}
+
 export type Request =
   | { id: number; op: "info" }
   | {
@@ -38,6 +51,16 @@ export type Request =
       name2: string;
       value2: number;
       outputs: string[];
+    }
+  | {
+      id: number;
+      op: "time";
+      fluid: string;
+      name1: string;
+      value1: number;
+      name2: string;
+      value2: number;
+      outputs: string[];
     };
 
 export type Op = Request["op"];
@@ -46,6 +69,7 @@ export interface Values {
   info: Info;
   props: number;
   state: StateValue;
+  time: TimeValue;
 }
 
 export type Response =

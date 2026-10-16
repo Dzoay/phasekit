@@ -77,3 +77,16 @@ test("a chosen fluid computes and stays chosen", async ({ page }) => {
   await expect(page.getByTestId("value-molar_mass")).toHaveAttribute("data-value", /^0\.0280134/);
   await expect(page).toHaveURL(/fluid=Nitrogen/);
 });
+
+test("a refusal restates the inputs in SI and in the viewer's units", async ({ page }) => {
+  // −273.15 °C is 0 K, which the package refuses; its message names the SI value, without a unit.
+  await page.goto("./#/calculator?fluid=Water&a=P:1002500000&b=T:0&units=engineering");
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("invalid temperature: 0");
+  const inputs = page.getByTestId("refusal-inputs");
+  await expect(inputs).toContainText("T = 0 K (−273.15 °C)");
+  await expect(inputs).toContainText("p = 1.0025 × 10⁹ Pa (10025 bar)");
+  await page.getByRole("radio", { name: "SI" }).check();
+  await expect(inputs).toContainText("T = 0 K");
+  await expect(inputs).not.toContainText("°C");
+});

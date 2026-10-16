@@ -31,3 +31,8 @@ export function formatNumber(x: number): string {
 export function inputText(x: number): string {
   return Number.isFinite(x) ? String(x) : "";
 }
+
+/** A duration given in µs: three significant digits, in µs below a millisecond, else in ms. */
+export function formatTime(us: number): string {
+  return us < 1000 ? `${us.toPrecision(3)} µs` : `${(us / 1000).toPrecision(3)} ms`;
+}

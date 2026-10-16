@@ -3,9 +3,9 @@
   // The view lives in the URL (`#/calculator?fluid=Water&a=P:101325&b=Q:0&units=engineering`, values in SI).
   import { untrack } from "svelte";
   import { getEngine } from "../engine/client";
-  import type { StateValue } from "../engine/protocol";
+  import type { StateValue, TimeValue } from "../engine/protocol";
   import { FLUIDS, PRESETS, type Preset } from "../lib/fluids";
-  import { formatNumber } from "../lib/format";
+  import { formatNumber, formatTime } from "../lib/format";
   import { GROUPS, HEADLINE, INPUTS, OUTPUTS, output, type Output } from "../lib/outputs";
   import { route, writeParams } from "../lib/route.svelte";
   import { SYSTEMS, displayUnit, fromSI, toSI, type System, type Unit } from "../lib/units";
@@ -33,6 +33,48 @@
   let refusal = $state<string | null>(null);
   let busy = $state(true);
   let sequence = 0;
+  let timing = $state<TimeValue | null>(null);
+  let build = $state("");
+
+  $effect(() => {
+    getEngine()
+      .call({ op: "info" })
+      .then(
+        (info) => (build = info.build),
+        () => {},
+      );
+  });
+
+  // Once a state has settled (a pause after its result), the engine times it: a flash, and every output read from one
+  // state, each repeated for a short budget. A result is the latest request's, so the inputs read here are its own.
+  $effect(() => {
+    const settled = result;
+    if (!settled) {
+      timing = null;
+      return;
+    }
+    const request = untrack(() => ({
+      op: "time" as const,
+      fluid,
+      name1: aKey,
+      value1: aValue,
+      name2: bKey,
+      value2: bValue,
+      outputs: KEYS,
+    }));
+    const mine = sequence;
+    const timer = setTimeout(() => {
+      getEngine()
+        .call(request)
+        .then(
+          (value) => {
+            if (mine === sequence) timing = value;
+          },
+          () => {},
+        );
+    }, 300);
+    return () => clearTimeout(timer);
+  });
 
   const unitOf = (key: string): Unit => displayUnit(output(key)?.kind ?? "dimensionless", system);
   const shown = (key: string, value: number): string => {
@@ -141,6 +183,16 @@
     { which: "a" as const, key: aKey, text: aText },
     { which: "b" as const, key: bKey, text: bText },
   ]);
+  // An input as the package received it, in SI, with the viewer's unit beside it where that differs: the package's
+  // messages name SI values.
+  function received(key: string, value: number): string {
+    const o = output(key);
+    const si = displayUnit(o?.kind ?? "dimensionless", "si");
+    const shown = unitOf(key);
+    const inSI = `${o?.symbol.replace("_", "") ?? key} = ${formatNumber(value)}${si.label ? ` ${si.label}` : ""}`;
+    return shown.label === si.label ? inSI : `${inSI} (${formatNumber(fromSI(value, shown))} ${shown.label})`;
+  }
+
   const label = (o: Output | undefined, key: string): string => (o ? `${o.label} (${o.symbol.replace("_", "")})` : key);
   const fluids = $derived(FLUIDS.some((f) => f.name === fluid) ? FLUIDS : [...FLUIDS, { name: fluid, label: fluid }]);
 </script>
@@ -220,7 +272,10 @@
     {#if refusal}
       <div class="card refusal" role="alert">
         <strong>The package refused this state.</strong>
-        <p>{refusal}</p>
+        <p data-testid="refusal-inputs">
+          It works in SI, and received {received(aKey, aValue)} and {received(bKey, bValue)}.
+        </p>
+        <p class="message"><span class="muted">Its message, in SI:</span> <code>{refusal}</code></p>
       </div>
     {:else if result}
       <div class="summary">
@@ -238,6 +293,13 @@
             </div>
           {/each}
         </div>
+        {#if timing}
+          <p class="timing" data-testid="timing">
+            Computed here in your browser by the {build} build: one flash {formatTime(timing.flash.us)}, all
+            {KEYS.length} outputs {formatTime(timing.outputs.us)}
+            <span class="muted">(means of {timing.flash.runs} and {timing.outputs.runs} runs)</span>
+          </p>
+        {/if}
       </div>
 
       <div class="groups">
@@ -497,6 +559,12 @@
     letter-spacing: -0.01em;
   }
 
+  .timing {
+    margin: 10px 0 0;
+    font-size: 13px;
+    color: var(--fg-muted);
+  }
+
   .stat-value small {
     font-size: 12px;
     font-weight: 500;
@@ -593,7 +661,9 @@
 
   .refusal p {
     margin: 6px 0 0;
-    font-family: var(--mono);
+  }
+
+  .refusal .message code {
     font-size: 13px;
   }
 

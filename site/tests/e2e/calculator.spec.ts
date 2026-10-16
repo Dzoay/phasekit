@@ -30,3 +30,11 @@ test("shows a refused state in the package's words", async ({ page }) => {
   await expect(page.getByRole("alert")).toContainText(/\S/);
   await expect(page.getByTestId("value-T")).toHaveCount(0);
 });
+
+test("shows how long the state took in this browser", async ({ page }) => {
+  await page.goto("./#/calculator?fluid=Water&a=P:101325&b=Q:0");
+  const timing = page.getByTestId("timing");
+  await expect(timing).toContainText(/flash [\d.]+ (µs|ms)/);
+  await expect(timing).toContainText(/84 outputs [\d.]+ (µs|ms)/);
+  await expect(timing).toContainText("simd128");
+});

@@ -86,3 +86,32 @@ describe("engine", () => {
     expect(simdSupported()).toBe(true);
   });
 });
+
+describe("timing", () => {
+  test("times a flash and its outputs, each the mean of many runs", async () => {
+    const handle = createHandler(await loadPk("simd"), "simd128");
+    const request = { fluid: "Water", name1: "P", value1: 101325, name2: "Q", value2: 0, outputs: ["T", "Hmass"] };
+    const got = handle({ id: 4, op: "time", ...request });
+    expect(got.ok && got.op === "time", JSON.stringify(got)).toBe(true);
+    if (!got.ok || got.op !== "time") return;
+    for (const timing of [got.value.flash, got.value.outputs]) {
+      expect(timing.runs).toBeGreaterThan(1);
+      expect(Number.isFinite(timing.us) && timing.us > 0).toBe(true);
+    }
+  });
+
+  test("times nothing where the package refuses the state", async () => {
+    const handle = createHandler(await loadPk("simd"), "simd128");
+    const got = handle({
+      id: 5,
+      op: "time",
+      fluid: "Water",
+      name1: "T",
+      value1: 0,
+      name2: "P",
+      value2: 1e5,
+      outputs: [],
+    });
+    expect(got.ok).toBe(false);
+  });
+});
