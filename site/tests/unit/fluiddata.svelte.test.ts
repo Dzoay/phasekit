@@ -147,6 +147,14 @@ describe("a fluid's packs", () => {
 });
 
 describe("the registry", () => {
+  test("is asked once on one touch", async () => {
+    const { data, log } = fakes();
+    data.touch();
+    await settle();
+    await settle();
+    expect(log).toEqual(["contents"]);
+  });
+
   test("is asked again on a touch, and once more after a request in flight, never twice at once", async () => {
     const { data, log, state } = fakes();
     data.touch();

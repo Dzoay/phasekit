@@ -132,7 +132,16 @@ describe("the SIMD probe", () => {
 
 /** A package that counts what the engine does with it: its registries, fluid handles, flashes, reads and frees. */
 function fakePk() {
-  const calls = { registries: 0, fluids: 0, flashes: 0, reads: 0, freed: 0, evaluated: 0, batchesFreed: 0 };
+  const calls = {
+    registries: 0,
+    registriesFreed: 0,
+    fluids: 0,
+    flashes: 0,
+    reads: 0,
+    freed: 0,
+    evaluated: 0,
+    batchesFreed: 0,
+  };
   class State {
     phase = "liquid";
     get(key: string): number {
@@ -174,6 +183,18 @@ function fakePk() {
     }
     PropsSI(): number {
       return 42;
+    }
+    withPack(): Registry {
+      return new Registry();
+    }
+    names(): string[] {
+      return ["Water"];
+    }
+    loaded(): string[] {
+      return [];
+    }
+    free(): void {
+      calls.registriesFreed += 1;
     }
   }
   return { pk: { Registry, outputKeys: () => ["T"] } as unknown as Pk, calls };
@@ -284,6 +305,13 @@ describe("the engine's constants and batches", () => {
     expect(got.value.status[4]).toBeGreaterThan(1);
     want.free();
     fluid.free();
+  });
+
+  test("frees each registry a pack replaces", () => {
+    const { pk, calls } = fakePk();
+    const handle = createHandler(pk, "baseline");
+    for (const id of [1, 2]) expect(handle({ id, op: "pack", bytes: new Uint8Array([id]) }).ok).toBe(true);
+    expect([calls.registries, calls.registriesFreed]).toEqual([3, 2]);
   });
 
   test("frees each batch it runs", () => {

@@ -70,6 +70,7 @@ describe("search", () => {
     expect(search([q], "1122y")).toEqual([{ entry: q, via: "1122y" }]);
     expect(search([q], "x")).toEqual([{ entry: q, via: "11-22-x" }]);
     expect(search([foo, q], "nothing")).toEqual([]);
+    expect(search([foo], "e")).toEqual([]);
   });
 
   test("finds the index's fluids by name, alias and CAS number", () => {

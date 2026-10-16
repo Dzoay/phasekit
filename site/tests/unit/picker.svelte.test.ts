@@ -48,6 +48,7 @@ describe("the picker", () => {
 
   test("closed, shows the chosen fluid's canonical name, or the text where no fluid answers to it", () => {
     const { picker, box } = setup("co2");
+    expect([picker.query, names(picker)]).toEqual(["", FLUIDS.map((f) => f.name)]);
     expect([picker.open, picker.text]).toEqual([false, "CarbonDioxide"]);
     box.value = "Unobtainium";
     expect(picker.text).toBe("Unobtainium");
