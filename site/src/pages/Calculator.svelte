@@ -1,6 +1,7 @@
 <script lang="ts">
   // The calculator: a fluid, two inputs, and every output the package gives at that state, from the engine worker.
   // The view lives in the URL (`#/calculator?fluid=Water&a=P:101325&b=Q:0&units=engineering`, values in SI).
+  import { untrack } from "svelte";
   import { getEngine } from "../engine/client";
   import type { StateValue } from "../engine/protocol";
   import { FLUIDS, PRESETS, type Preset } from "../lib/fluids";
@@ -44,14 +45,17 @@
     bText = shown(bKey, bValue);
   }
 
-  // From the URL, on load and on every hash change.
+  // From the URL, on load and on every hash change. The route is its only dependency: the view it sets, and the input
+  // text `showInputs` reads it into, are untracked, or each edit would re-run this and restore the URL's old view.
   $effect(() => {
     const params = route.params;
-    fluid = params.get("fluid") ?? DEFAULT.fluid;
-    [aKey, aValue] = readInput(params.get("a"), DEFAULT.a);
-    [bKey, bValue] = readInput(params.get("b"), DEFAULT.b);
-    system = params.get("units") === "engineering" ? "engineering" : "si";
-    showInputs();
+    untrack(() => {
+      fluid = params.get("fluid") ?? DEFAULT.fluid;
+      [aKey, aValue] = readInput(params.get("a"), DEFAULT.a);
+      [bKey, bValue] = readInput(params.get("b"), DEFAULT.b);
+      system = params.get("units") === "engineering" ? "engineering" : "si";
+      showInputs();
+    });
   });
 
   // To the URL.
