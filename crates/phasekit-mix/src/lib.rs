@@ -5,12 +5,18 @@
 //! Its milestone holds phasekit-core unchanged from `m13-start` (`cargo xtask gates core-frozen`), after M13.1 added
 //! the seams a mixture needs (user decision MX2).
 
-// The library's shapes and tables; the multi-fluid model reads them from M13.3.
-#[cfg_attr(not(test), expect(dead_code, reason = "read by the multi-fluid model from PLAN.md M13.3"))]
+mod corrections;
+// The predefined mixtures are read from PLAN.md M13.13; until then only the tests read them.
+#[cfg_attr(not(test), expect(dead_code, reason = "the predefined mixtures are built from PLAN.md M13.13"))]
 mod data;
-#[cfg_attr(not(test), expect(dead_code, reason = "read by the multi-fluid model from PLAN.md M13.3"))]
+mod departure;
+#[cfg_attr(not(test), expect(dead_code, reason = "the predefined mixtures are built from PLAN.md M13.13"))]
 #[rustfmt::skip] // datagen's output, one table row a line (`gates datagen` compares it byte for byte)
 mod generated;
+mod multifluid;
+mod reducing;
+
+pub use multifluid::MultiFluid;
 
 #[cfg(test)]
 mod tests;

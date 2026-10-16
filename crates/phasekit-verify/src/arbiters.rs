@@ -296,6 +296,8 @@ pub const TABLES: &[(&str, &str)] = &[
     crate::fixture!("paper/HeavyWater/Herrig-JPCRD-2019.S3-4.csv"),
     crate::fixture!("paper/HeavyWater/IAPWS-R4-84-2007.A5.csv"),
     crate::fixture!("paper/HeavyWater/IAPWS-R4-84-2007.B4.csv"),
+    crate::fixture!("paper/mixtures/Bell-JPCRD-2022.XI.csv"),
+    crate::fixture!("paper/mixtures/Bell-JPCRD-2023.XIII.csv"),
 ];
 
 /// The committed text of the printed table `file` (a [`Table::file`]).
@@ -742,6 +744,24 @@ pub static ARBITERS: &[Arbiter] = &[
         tables: &[],
         constants: None,
         status: ArbiterStatus::Unpublished,
+    },
+    // The multi-fluid mixture tables (PLAN.md M13.3): each prints α^r and the reducing state of its pure fluids and
+    // pairs; a record is keyed by the pair it arbitrates a divergence for (Table XI: DIV-0013's) or by its first pair.
+    Arbiter {
+        fluid: "R1234yf&R1234ze(E)",
+        part: ArbiterPart::AlphaR,
+        citation: Citation { key: "Bell-JPCRD-2022", doi_or_report: Some("10.1063/5.0086060"), role: Role::EosPaper },
+        tables: &[Table { file: "paper/mixtures/Bell-JPCRD-2022.XI.csv", kind: TableKind::K1, rows: Some(12) }],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
+    },
+    Arbiter {
+        fluid: "R32&R1234yf",
+        part: ArbiterPart::AlphaR,
+        citation: Citation { key: "Bell-JPCRD-2023", doi_or_report: Some("10.1063/5.0135368"), role: Role::EosPaper },
+        tables: &[Table { file: "paper/mixtures/Bell-JPCRD-2023.XIII.csv", kind: TableKind::K1, rows: Some(11) }],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
     },
 ];
 

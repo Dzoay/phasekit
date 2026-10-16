@@ -591,26 +591,8 @@ oracle checks the multi-fluid model outside the known-bad states of map 04 §8. 
 |---|---|
 | M13.1 | Core's mixture seams (MX2): each phase point keeps its molar mass, so `State::from_split` takes phases of different M (one R) and weighs them by mass (`State::mass_quality`, `Prop::Qmass`, mass-basis values), a pure fluid's split bit for bit as before; `Input::with_quality_basis`, `NativeInput::quality_basis` and `BatchRequest::with_quality_basis`, compat's `Qmass` key a mass quality; the public `density` module (`solve` on a `Branch`, `roots`, `select` under a `RootPolicy`, the acceptance gate `reproduces`); `Registry::with_resolver` and `resolve` with the `Resolver` trait (a family caches what it builds); `HelmholtzModel::reducing`; `tests/mixture_seam.rs` |
 | M13.2 | `m13-start` on M13.1's merge commit, named in `ci/core-frozen.txt`; `crates/phasekit-mix` on `phasekit-core` alone (T1f, `gates deps`), PR scope `mix`; `data/mixtures.lock` (v8.0.0's three mixture JSON files and ASHRAE 34's list); datagen's mixture step writes `src/generated.rs` (`gates datagen` compares it): 888 pairs keyed by their sorted CAS pair, β inverted where the file lists the larger CAS first, Lemmon's six ξ/ζ pairs kept as such; 28 departure functions by kind (16, 9, 3); 147 predefined mixtures (seven exact repeats dropped), ASHRAE 34's mass fractions kept for 124 of them, matched by name or library fluid; every fluid's CAS number. Its tests pin ROT-199 (the mass fractions give v8.0.0's mole fractions for the 120 the library can weigh, 80 to 1e-12, at most 8e-6 off, R405A) and ROT-200 (27 blends lack a pair, 4 name the unknown R1132a) |
+| M13.3 | `MultiFluid::new(registry, names, data_set)`: GERG's reducing functions over the components' own reducing states (`HelmholtzModel::reducing`), Lemmon's ξ/ζ converted, cube roots as v8.0.0's `pow(v, 1/3)`; the three departure kinds in one kernel over `Real` on `Jet4` to order 4, against num-dual; each component at the mixture's τ and δ; departures only where F ≠ 0 (ROT-195); DIV-0013 `UsePaper` (γ_T 0.993309 under `Corrected`, phasekit-mix's corrections table; ROT-207) and DIV-0050 (Bell 2022 Table XI's pre-publication R1234yf, 1.48e-8, `KeepOracle` at 2e-8); Bell 2023 Table XIII and Bell 2022 Table XI double-entered (`paper/mixtures/`); oracle kind `mix_alphar` (all 840 buildable pairs at two states, A_ij to order 3; the 48 pairs naming fluids outside v8.0.0's library refused by both) and `oracle.lock`'s `mixtures_sha256` |
 
-- **M13.3 The multi-fluid residual.**
-  - `MultiFluid`: the components (`Fluid`s from a registry), their pairs and departures, immutable behind an `Arc`.
-  - Reducing functions T_r(x) and v_r(x) in GERG's β/γ form. Lemmon's ξ/ζ pairs are converted with the components'
-    reducing states, as v8.0.0 does (map 04 §3.2).
-  - The three departure kinds: GERG-2008's Gaussian takes β(δ − γ); Gaussian + Exponential takes β(τ − γ)².
-  - α^r(τ, δ, x) = Σ x_i α^r_oi(τ, δ) + Σ_{i<j} x_i x_j F_ij α^r_ij(τ, δ). Each component is evaluated at the mixture's
-    τ and δ through its own `residual` at (T_r,i/τ, δρ_r,i), to order 4. Only pairs with F ≠ 0 carry a departure
-    (ROT-195).
-  - DIV-0013 becomes `UsePaper`. R1234yf/R1234ze(E)'s γ_T is 0.993309 in Bell et al. 2022 Table III and in NIST IR
-    8570's supplement (`HMX_DOE.bnc`), and 0.999309, a typo, in v8.0.0. `Corrected` takes the paper's value, `Parity`
-    keeps v8.0.0's. The 1.2e-8 left on Table XI's R1234yf rows comes from the pre-publication R1234yf EOS the table
-    used (ROT-207).
-  - Oracle kind `mix_alphar`: α^r and the A_ij at (T, ρ, x) for every binary of the library at three compositions,
-    and for the predefined mixtures.
-
-  *Red:* `alphar_matches_bell_2023_table_xiii` (`Paper`); `alphar_matches_bell_2022_table_xi` (DIV-0013's proof);
-  `swapping_components_changes_nothing` (bitwise); `departure_kinds_match_ad` (num-dual, `Term`);
-  `only_pairs_with_a_departure_are_evaluated` (ROT-195); `mix_alphar` within `Term`. They run first against a residual
-  that returns the components' weighted sum alone.
 - **M13.4 The mixture at fixed composition.**
   - `Mixture` holds a `MultiFluid` and a composition z. z is validated: finite, each fraction in [0, 1], summing to 1
     within a stated tolerance, else a typed refusal (ROT-193). Zero fractions are trimmed (ROT-192), and a composition

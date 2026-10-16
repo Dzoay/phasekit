@@ -16,9 +16,12 @@ categories.workspace = true
 [dependencies]
 phasekit-core.workspace = true
 
-# Until the multi-fluid model reads it (PLAN.md M13.3), the crate holds data only; M13.3 removes this.
-[package.metadata.cargo-shear]
-ignored = ["phasekit-core"]
+# num-dual, the AD oracle of the departure functions' jets (dependencies T3). The printed check tables and the oracle are
+# phasekit-verify's tests (tests/mixture.rs).
+[dev-dependencies]
+num-dual = { version = "0.15", default-features = false }
+# The embedded fluids, the components of the tests' mixtures.
+phasekit-core = { workspace = true, features = ["fluids-all"] }
 
 [lints]
 workspace = true

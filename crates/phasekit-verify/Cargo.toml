@@ -29,6 +29,8 @@ phasekit-compat = { workspace = true, features = ["fluids-all"] }
 # The cubic family, against its oracle kind and in its divergence proofs (tests/cubic.rs, tests/divergences.rs; PLAN.md
 # M11.4, M11.7). It dev-depends on this crate in turn, which Cargo allows for dev-dependencies.
 phasekit-cubic.workspace = true
+# The mixture family, in its divergence proofs (tests/divergences.rs; PLAN.md M13.3); it dev-depends on this crate too.
+phasekit-mix.workspace = true
 # The AD oracle for Jet4 and the power-term fast path (tests/terms.rs; PLAN.md M3.2): scalar duals only, so no
 # nalgebra (dependencies §2.4).
 num-dual = { version = "0.15", default-features = false }

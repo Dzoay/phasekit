@@ -26,10 +26,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 FLUIDS_DIR = ROOT / "reference" / "CoolProp" / "dev" / "fluids"
+MIXTURES_DIR = ROOT / "reference" / "CoolProp" / "dev" / "mixtures"
 FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
 MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
 KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transport", "sigma", "melt", "refstate", "cubic",
-         "cubic_sat", "props", "codes"]
+         "cubic_sat", "mix_alphar", "props", "codes"]
 SCRUBBED_PREFIXES = ("COOLPROP_", "PXFLASH_")
 FLUID_COUNT = 136
 
@@ -320,6 +321,31 @@ def fluid_files(lock):
     if hashlib.sha256(listing.encode("utf-8")).hexdigest() != lock["fluids_sha256"]:
         fail(f"assertion 4: {FLUIDS_DIR} differs from the lock's fluids_sha256 (scripts/fetch-coolprop.sh)")
     return {json.loads(p.read_text(encoding="utf-8"))["INFO"]["NAME"]: p for p in paths}
+
+
+def mixture_library(lock):
+    """The binary pairs and predefined mixtures of reference/CoolProp/dev/mixtures, after checking the directory's four
+    files (data/mixtures.lock's) against the lock's mixtures_sha256 (the sorted "file sha256" lines; assertion 4)."""
+    names = ["ASHRAE_predefined_2026.tsv", "mixture_binary_pairs.json", "mixture_departure_functions.json",
+             "predefined_mixtures.json"]
+    listing = "".join(f"{n} {hashlib.sha256((MIXTURES_DIR / n).read_bytes()).hexdigest()}\n" for n in names)
+    if hashlib.sha256(listing.encode("utf-8")).hexdigest() != lock["mixtures_sha256"]:
+        fail(f"assertion 4: {MIXTURES_DIR} differs from the lock's mixtures_sha256 (scripts/fetch-coolprop.sh)")
+    read = lambda name: json.loads((MIXTURES_DIR / name).read_text(encoding="utf-8"))
+    return read("mixture_binary_pairs.json"), read("predefined_mixtures.json")
+
+
+def assert_pair(CP, pair):
+    """Assertion 4 for a binary pair: the oracle's loaded parameters are the repo file's. CoolProp keys a pair by its CAS
+    numbers sorted as strings and inverts beta where that swaps the file's order (MixtureParameters.cpp:130-163)."""
+    keys = ["betaT", "gammaT", "betaV", "gammaV", "F"] if "betaT" in pair else ["xi", "zeta", "F"]
+    cas1, cas2 = sorted((pair["CAS1"], pair["CAS2"]))
+    swapped = cas1 != pair["CAS1"]
+    for key in keys:
+        loaded = float(CP.get_mixture_binary_pair_data(cas1, cas2, key))
+        want = 1.0 / pair[key] if swapped and key in ("betaT", "betaV") else pair[key]
+        if abs(loaded - want) > 1e-15 * abs(want):
+            fail(f"assertion 4: CoolProp's {key} of {pair['Name1']}&{pair['Name2']} is {loaded}, the file's {want}")
 
 
 def assert_fluid(CP, files, fluid):
@@ -939,6 +965,69 @@ def cubic_sat(CP, lock, config, files, args):
     text = header("cubic_sat", lock, config, fluids, CUBIC_SAT_COLUMNS, CUBIC_SAT_TOL, floats, units=CUBIC_SAT_UNITS,
                   grid=grid)
     return {"all/cubic_sat.csv": text + "".join(lines)}
+
+
+# The `mix_alphar` kind (PLAN.md M13.3): CoolProp 8.0.0's multi-fluid residual, the gas phase imposed so that (T, rho)
+# is evaluated as given, for every binary pair of its library at z1 = 0.4 (the file's first component; Bell et al.'s
+# check tables use it) and for every predefined mixture it can build, at two states of each mixture's own reducing
+# state: (tau, delta) = (0.8, 0.8) and (1.25, 1.6). Columns: the reducing T and rho, alpha^r and its A_ij to order 3.
+MIX_ALPHAR_OUTPUTS = [
+    ("Tr", "K", lambda s: s.T_reducing()),
+    ("rhor", "mol/m3", lambda s: s.rhomolar_reducing()),
+    ("alphar", "-", lambda s: s.alphar()),
+    ("A10", "-", lambda s: s.tau() * s.dalphar_dTau()),
+    ("A01", "-", lambda s: s.delta() * s.dalphar_dDelta()),
+    ("A20", "-", lambda s: s.tau() ** 2 * s.d2alphar_dTau2()),
+    ("A11", "-", lambda s: s.tau() * s.delta() * s.d2alphar_dDelta_dTau()),
+    ("A02", "-", lambda s: s.delta() ** 2 * s.d2alphar_dDelta2()),
+    ("A30", "-", lambda s: s.tau() ** 3 * s.d3alphar_dTau3()),
+    ("A21", "-", lambda s: s.tau() ** 2 * s.delta() * s.d3alphar_dDelta_dTau2()),
+    ("A12", "-", lambda s: s.tau() * s.delta() ** 2 * s.d3alphar_dDelta2_dTau()),
+    ("A03", "-", lambda s: s.delta() ** 3 * s.d3alphar_dDelta3()),
+]
+MIX_ALPHAR_STATES = ((0.8, 0.8), (1.25, 1.6))
+MIX_ALPHAR_COLUMNS = ["mixture", "z1", "T", "rhomolar", "status", *(name for name, _, _ in MIX_ALPHAR_OUTPUTS)]
+MIX_ALPHAR_UNITS = ["-", "-", "K", "mol/m3", "-", *(unit for _, unit, _ in MIX_ALPHAR_OUTPUTS)]
+MIX_ALPHAR_TOL = ["label", "in", "in", "in", "label", *["prop"] * len(MIX_ALPHAR_OUTPUTS)]
+
+
+def mix_alphar_rows(CP, label, z1, fluids, fractions, floats, lines):
+    """The rows of one mixture: an `err` row per state where the oracle cannot build or evaluate it."""
+    for tau, delta in MIX_ALPHAR_STATES:
+        t = rho = math.nan
+        try:
+            state = CP.AbstractState("HEOS", fluids)
+            if fractions is not None:
+                state.set_mole_fractions(fractions)
+            t, rho = state.T_reducing() / tau, delta * state.rhomolar_reducing()
+            state.specify_phase(CP.iphase_gas)
+            state.update(CP.DmolarT_INPUTS, rho, t)
+            values, status = [get(state) for _, _, get in MIX_ALPHAR_OUTPUTS], "ok"
+        except Exception as exception:  # a missing pair, an unknown component: a status, never a crash
+            values, status = [math.nan] * len(MIX_ALPHAR_OUTPUTS), f"err:{error_class(exception)}"
+        floats.extend([z1, t, rho, *values])
+        lines.append(",".join([label, cell(z1), cell(t), cell(rho), status, *map(cell, values)]) + "\n")
+
+
+def mix_alphar(CP, lock, config, files, args):
+    """The `mix_alphar` kind: all/mix_alphar.csv over the library's pairs and predefined mixtures (any --tier)."""
+    pairs, predefined = mixture_library(lock)
+    lines, floats, seen = [], [], set()
+    for pair in sorted(pairs, key=lambda p: tuple(sorted((p["CAS1"], p["CAS2"])))):
+        assert_pair(CP, pair)
+        mix_alphar_rows(CP, f"{pair['Name1']}&{pair['Name2']}", 0.4, f"{pair['Name1']}&{pair['Name2']}", [0.4, 0.6],
+                        floats, lines)
+    for mixture in sorted(predefined, key=lambda m: m["name"]):
+        if mixture["name"] in seen:
+            continue
+        seen.add(mixture["name"])
+        mix_alphar_rows(CP, f"{mixture['name']}.mix", math.nan, f"{mixture['name']}.mix", None, floats, lines)
+    fluids = (f"{len(pairs)} pairs and {len(seen)} predefined mixtures, fluids_sha256={lock['fluids_sha256']}, "
+              f"mixtures_sha256={lock['mixtures_sha256']}")
+    grid = "pairs at z1 = 0.4; (tau, delta) in {(0.8,0.8),(1.25,1.6)} of each mixture's reducing state; gas imposed"
+    text = header("mix_alphar", lock, config, fluids, MIX_ALPHAR_COLUMNS, MIX_ALPHAR_TOL, floats,
+                  units=MIX_ALPHAR_UNITS, grid=grid)
+    return {"all/mix_alphar.csv": text + "".join(lines)}
 
 
 # The `sat` kind (section 3.5). Since M5.2 it holds the `sa` rows: p, rho' and rho'' straight from
@@ -1710,7 +1799,7 @@ def codes(CP, lock, config, files, args):
 
 
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "cubic": cubic,
-              "cubic_sat": cubic_sat, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
+              "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
               "props": props, "codes": codes}
 
 

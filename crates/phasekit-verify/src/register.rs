@@ -374,10 +374,11 @@ pub static DIVERGENCES: &[Divergence] = &[
         id: "DIV-0013",
         fluids: &["R1234yf&R1234ze(E)"],
         part: Part::Reducing,
-        arbiter: None,
-        policy: Policy::Investigate,
-        fix: Fix::None,
-        evidence: "map 10 §8.4: mixture alphar -0.464679 vs Bell 2022 Table XI -0.460595; reducing T differs (M13)",
+        arbiter: Some("Bell-JPCRD-2022 Table III"),
+        policy: Policy::UsePaper,
+        fix: Fix::Code("phasekit_mix::multifluid"),
+        evidence: "map 10 §8.4: mixture alphar -0.464679 vs Bell 2022 Table XI -0.460595; v8.0.0's gammaT 0.999309 is \
+                   Table III's 0.993309 (and NIST IR 8570's HMX_DOE.bnc) mistyped, T_r 376.449 K for 375.369 (M13.3)",
         exempt: None,
         tolerance: None,
         table_tolerances: &[],
@@ -1233,6 +1234,23 @@ pub static DIVERGENCES: &[Divergence] = &[
         tolerance: None,
         table_tolerances: &[],
         proof: &[11],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0050",
+        fluids: &["R1234yf"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::KeepOracle,
+        fix: Fix::None,
+        evidence: "map 10 §8.4: Bell 2022 Table XI's NEWR1234YF alphar -0.46835369904081 at 460 K, 3344 mol/m3; Bell \
+                   2023 Table XIII, whose R1234yf is v8.0.0's (tests/mixture.rs), gives -0.46835370596876, 1.48e-8 \
+                   apart: Table XI predates the published R1234yf equation (Lemmon and Akasaka 2022), so its R1234yf \
+                   rows hold only to that (M13.3)",
+        exempt: None,
+        tolerance: Some(Tolerance::Relative(2e-8)),
+        table_tolerances: &[],
+        proof: &[13],
         status: DivStatus::Open,
     },
 ];

@@ -177,14 +177,20 @@ pub struct Library {
     pub notes: Vec<String>,
 }
 
-/// Checks the files against the lock: each named once, with the lock's sha256.
-pub fn check_lock(lock: &str, files: &[(&str, &str)]) -> Result<(), Vec<String>> {
+/// Checks the files against the lock: each named once, with the lock's sha256; and the lock's lines against
+/// `oracle.lock`'s `mixtures_sha256`, so the oracle's fixtures and phasekit's tables come from the same files (M13.3).
+pub fn check_lock(lock: &str, mixtures_sha256: &str, files: &[(&str, &str)]) -> Result<(), Vec<String>> {
+    let lines: Vec<&str> = lock.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()).collect();
+    let listing: String = lines.iter().map(|l| format!("{l}\n")).collect();
+    let mut errors = Vec::new();
+    if phasekit_verify::sha256_hex(listing.as_bytes()) != mixtures_sha256 {
+        errors.push(format!("{MIXTURES_LOCK} does not hash to oracle.lock's mixtures_sha256 {mixtures_sha256}"));
+    }
     let locked: Vec<(&str, &str)> = lock
         .lines()
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
         .filter_map(|l| l.split_once(' '))
         .collect();
-    let mut errors = Vec::new();
     for (name, text) in files {
         match locked.iter().find(|(f, _)| f == name) {
             None => errors.push(format!("{name}: not in {MIXTURES_LOCK}")),
@@ -208,7 +214,11 @@ pub fn read(repo: &Repo) -> Result<Vec<String>, Vec<String>> {
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| vec![format!("{e} (scripts/fetch-coolprop.sh)")])?;
     let named: Vec<(&str, &str)> = FILES.iter().copied().zip(texts.iter().map(String::as_str)).collect();
-    check_lock(&repo.read(MIXTURES_LOCK).map_err(|e| vec![e])?, &named)?;
+    let fail = |e: String| vec![e];
+    let oracle = repo.read(crate::oracle::LOCK).map_err(fail)?;
+    let oracle = phasekit_verify::OracleLock::parse(&oracle).map_err(fail)?;
+    let sha = oracle.get("mixtures_sha256").ok_or_else(|| fail("oracle.lock has no mixtures_sha256".into()))?;
+    check_lock(&repo.read(MIXTURES_LOCK).map_err(fail)?, sha, &named)?;
     Ok(texts)
 }
 
