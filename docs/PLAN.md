@@ -474,7 +474,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 |---|---|---|---|---|
 | M11 | `phasekit-cubic` | The user's word, before `v0.1.0` (user decision CB2) | vdW/SRK/PR via Δ1/Δ2, Soave/MC/Twu alpha, parameters from the canonical fluid records, borrowed HEOS ideal gas, cubic superancillary (map 06 U1-U5), eight steps: [M11 Cubic family](#m11-cubic-family) | Zero-line core diff; `new_family` conformance; cubic-R register entry (below); DIV-0010 proof by the entropy identity (oracle PR propane 400 K, 1 bar: T(∂s/∂T)_p = 91.35 vs cp = 93.89 J/mol/K; map 12 §6.3); Z_c = 1/3 (SRK), 0.30740 (PR) (map 06 §8) |
 | M12 | core `simd` feature | Built from 2026-10-13 in a worktree; merged when green, before the `v0.1.0` tag if it is ready first (user decision RL4) | A time-boxed SIMD spike (the user's follow-up asks to investigate SIMD), ten steps: [M12 SIMD lanes](#m12-simd-lanes) | ≥ 2.5× α^r batch throughput on AVX2 over the scalar path is the target (user decisions SL3, TG1); the feature ships if it is faster than the scalar path, otherwise the spike's measurements are recorded and the stack closed (D9) |
-| M13 | `phasekit-mix` | v0.1 + demand for mixtures | `Mixture: HelmholtzModel` at fixed z, own `ThermoModel` (VLE, stability, `from_split`), `MixtureModel` with AD composition derivatives, GERG-2008 datasets, compat `A[x]&B[y]`, true-mixture variants (`R410A.mix`) registered beside the pseudo-pure names (D4, user decision 4) | x = [1, 0] equals the pure fluid under any gauge (map 04 §8, map 15 §8); GERG teqp vectors (map 06 U7); Bell 2023 Table XIII; DIV-0013 resolved or kept; core diff zero expected |
+| M13 | `phasekit-mix` | The user's word, before `v0.1.0` (user decision MX1) | `Mixture: HelmholtzModel` at fixed z, own `ThermoModel` (stability, VLE, critical points, phase envelopes, `from_split`), `MixtureModel` with AD composition derivatives, GERG-2008 (`GERG2008::`, from NIST's AGA8 code), compat `A[x]&B[y]` in Rust, C and the browser, true-mixture variants (`R410A.mix`) registered beside the pseudo-pure names (D4, user decisions 4, MX2-MX7), sixteen steps: [M13 Mixtures](#m13-mixtures) | One core seam step (M13.1, MX2), then the core frozen from `m13-start`; x = [1, 0] is the pure fluid under any gauge (map 04 §8, map 15 §8); GERG teqp vectors and the AGA8 check state (map 06 U7); Bell 2023 Table XIII; DIV-0013 resolved |
 | M14 | `phasekit-iapws` | v0.1 + a water/steam or solid use case | IF97 regions 1-5 with backward equations, ice Ih (R10-06) and sublimation (R14-08) on `bundle_from_gibbs`, `from_split` for ice + vapour (map 07 §9) | **Zero-line core diff**; IAPWS tables first, oracle second; `gibbs_seam` conformance on real models |
 | M15 | `phasekit-pcsaft` | M11 done + demand | Hard chain, dispersion, association, polar terms on `Jet4` (map 06 U9-U11) | Zero-line core diff; teqp/FeOs cross-checks; oracle only where map 06 §8 says it is usable |
 | M16 | `phasekit-py` | v0.1 + demand | pyo3 abi3 wheels, import name `phasekit`, `phasekit.compat.PropsSI(...)`, GIL released around kernel calls, NumPy `(N, M)` point-major (user decisions 7, 11; R16) | map 14 U1 Python-contract fixtures for the compat surface; installs beside `CoolProp` |
@@ -556,6 +556,284 @@ move `MILESTONE`: M11 stays the first open milestone.
 i7-8700K, the CI runners (x86-64, aarch64) and wasip2 with `simd128`; the lane `exp`, `expm1` and `ln` bitwise equal to
 `libm`'s; the `simd` build reproduces `fixtures/hash/libm.txt`; the K1/K2 paper rows pass at every level
 (VERIFICATION.md §9.2); ≥ 2.5× (SL3). **ROT rows.** None. **User decisions implemented.** SL1, SL2, SL3, SL6, SL7, SL8.
+
+### M13 Mixtures
+
+**Goal.** Multi-fluid Helmholtz mixtures (Kunz and Wagner's form, the model of CoolProp's HEOS mixtures) and GERG-2008
+as a family crate, `phasekit-mix` (D4; ARCHITECTURE.md §11). A mixture at fixed composition is a `HelmholtzModel` with
+its own `ThermoModel`: stability, vapour-liquid equilibrium, critical points and phase envelopes, its two-phase states
+built through `State::from_split` (user decision MX4). A `MixtureModel` trait gives composition derivatives by one
+mole-number AD path. Mixtures reach compat strings (`HEOS::A[x]&B[y]`, `.mix` names), the C ABI and its shim, and the
+browser package (MX5). **Entry.** The user's word, before `v0.1.0`, on the i7-8700K (MX1); the steps merge in order
+when green. **Prerequisites.** User decisions MX1-MX7; M13.1's core seams (MX2), after which `m13-start` is tagged and
+the core stays frozen to M13's close. **Arbiters**, all open and in `reference/papers`:
+- Bell et al. 2023 Table XIII: α^r of five refrigerant pairs and their six pure fluids at z₁ = 0.4; v8.0.0 and teqp
+  reproduce it to 1e-14.
+- Bell et al. 2022 Table XI, with DIV-0013's fix.
+- Tkaczuk et al. 2020 Table 8: p of three noble-gas pairs, printed at Σx_iR_i.
+- Lemmon and Jacobsen 2004 Table 6: 22 rows of p, c_v, c_p, w and the first component's fugacity, for six HFC binaries
+  and two ternaries.
+- AGA8's GERG-2008 check state (21 components, 400 K, 50 MPa) and its 3645-row binary test set; the GERG TM15
+  monograph (2007).
+
+NIST IR 8570 prints no check values, so v8.0.0's rows from it are self-referential (map 10). Kunz and Wagner 2012,
+Michelsen 1982a,b and Gernert et al. 2014 are closed. Bell and Jäger 2017 is free at the publisher, which refuses
+scripted downloads (section 6). teqp 0.23.2 (NIST public domain) is `OtherImplementation`, differential only
+(VERIFICATION.md §10): it gives GERG-2008 vectors, the multi-fluid model on v8.0.0's JSON, and VLE and critical-locus
+traces. Its conversion of Lemmon's ξ/ζ pairs halves γ_T, so a generator converts them to β/γ before teqp sees them. The
+oracle checks the multi-fluid model outside the known-bad states of map 04 §8. M13 closes by setting `MILESTONE` to 14.
+
+- **M13.1 The mixture seams in core (MX2).** One core PR, before `m13-start`.
+  - (a) *Phase molar masses.* Each phase point of a `State` carries its molar mass. `State::from_split` accepts phases
+    of different molar mass (same model key and R). A split's mass-basis values divide by (1 − q)M′ + qM″, and
+    `Prop::Qmass` is qM″/((1 − q)M′ + qM″). `one_phase` reports a saturated side with its own M. A mass quality input
+    (compat's `Qmass` key) reaches the model with its basis on `NativeInput`; `PureFluid` treats both bases alike.
+  - (b) *A public density solve.* `phasekit_core::density` gives the density at (T, p) on any `HelmholtzModel`: every
+    root of the isotherm as `Roots` under `RootPolicy`, a branch from a seed, and the acceptance gate (`reproduces`).
+  - (c) *A resolver layer.* `Registry::with_resolver(Arc<dyn Resolver>)` and `Registry::resolve(name) -> Result<Fluid,
+    Error>`. A name no layer holds goes to each resolver layer in turn, which may build a `ThermoModel` from the name
+    and the registry (its components). A resolver layer keeps a small bounded cache of what it built, so a repeated
+    compat string builds once; there is no global state.
+  - `Constants::reducing` becomes a contract: the state at which `HelmholtzModel::residual`'s τ and δ are defined.
+    The multi-fluid model evaluates each component through it.
+  - ARCHITECTURE.md §3.6, §3.8, D4 and §11 say what landed.
+
+  *Red:* `tests/mixture_seam.rs` in phasekit-verify, a two-component toy family like `gibbs_seam.rs`'s. A split whose
+  phases differ in M reports the mass quality and the mass h of the lever rule on mass. A `Qmass` input reaches the toy
+  as mass. The public density solve finds vdW's three roots. `toy[0.5]&toy2[0.5]` resolves through a resolver layer,
+  twice from one build. Each runs first against today's refusal ("the phases of a split must share R and M"), the
+  missing API and the unknown-name error. *Done when:* `new_family.rs` and `gibbs_seam.rs` pass unchanged and every
+  pure-fluid fixture is bit-identical.
+- **M13.2 The start: `m13-start`, the crate, the mixture data.**
+  - Tag `m13-start` on M13.1's merge commit; `ci/core-frozen.txt` names it.
+  - A new crate `crates/phasekit-mix`, on `phasekit-core` alone (T1f, default features off). It is not published:
+    that is the user's call. Its PR-title scope is `mix`.
+  - `data/mixtures.lock` pins the sha256 of v8.0.0's three `dev/mixtures` JSON files, and `oracle.lock` gains them.
+  - `cargo xtask datagen` writes `crates/phasekit-mix/src/generated.rs`:
+    - the 888 binary pairs, keyed by their sorted CAS pair, with β oriented to that order (a swap inverts β_T and
+      β_v);
+    - Lemmon's six ξ/ζ pairs kept as ξ/ζ, converted when a model is built from the components' reducing states;
+    - each pair's F and departure-function index;
+    - the 28 departure functions by kind: 16 Exponential, 9 GERG-2008, 3 Gaussian + Exponential;
+    - the 147 predefined mixtures as mole fractions (v8.0.0 lists 154 entries: seven are exact duplicates, and
+      datagen refuses a duplicate that differs, ROT-041).
+  - `cargo xtask mixture` is the readable dump (FD1).
+  - A register entry (the next free id) for the predefined fractions (ROT-199): `Corrected` derives them from ASHRAE
+    34's mass fractions with phasekit's molar masses, `Parity` keeps v8.0.0's mole fractions. 121 of 147 agree within
+    5e-4; the step measures the rest.
+
+  *Red:* datagen's `pairs_are_oriented_by_cas`, `every_departure_kind_decodes`,
+  `predefined_fractions_follow_ashrae_mass_fractions` (ROT-199) and `pair_coverage_names_every_unbuildable_mixture`
+  (ROT-200: v8.0.0's 31, 27 for a missing pair, R124/R22 the commonest, and 4 for the unknown R1132a); the lock gate
+  refusing an edited JSON; `gates deps` refusing a third-party dependency of phasekit-mix. They run first against a
+  datagen without the mixture step. *Done when:* `gates core-frozen` passes since `m13-start`.
+- **M13.3 The multi-fluid residual.**
+  - `MultiFluid`: the components (`Fluid`s from a registry), their pairs and departures, immutable behind an `Arc`.
+  - Reducing functions T_r(x) and v_r(x) in GERG's β/γ form. Lemmon's ξ/ζ pairs are converted with the components'
+    reducing states, as v8.0.0 does (map 04 §3.2).
+  - The three departure kinds: GERG-2008's Gaussian takes β(δ − γ); Gaussian + Exponential takes β(τ − γ)².
+  - α^r(τ, δ, x) = Σ x_i α^r_oi(τ, δ) + Σ_{i<j} x_i x_j F_ij α^r_ij(τ, δ). Each component is evaluated at the mixture's
+    τ and δ through its own `residual` at (T_r,i/τ, δρ_r,i), to order 4. Only pairs with F ≠ 0 carry a departure
+    (ROT-195).
+  - DIV-0013 becomes `UsePaper`. R1234yf/R1234ze(E)'s γ_T is 0.993309 in Bell et al. 2022 Table III and in NIST IR
+    8570's supplement (`HMX_DOE.bnc`), and 0.999309, a typo, in v8.0.0. `Corrected` takes the paper's value, `Parity`
+    keeps v8.0.0's. The 1.2e-8 left on Table XI's R1234yf rows comes from the pre-publication R1234yf EOS the table
+    used (ROT-207).
+  - Oracle kind `mix_alphar`: α^r and the A_ij at (T, ρ, x) for every binary of the library at three compositions,
+    and for the predefined mixtures.
+
+  *Red:* `alphar_matches_bell_2023_table_xiii` (`Paper`); `alphar_matches_bell_2022_table_xi` (DIV-0013's proof);
+  `swapping_components_changes_nothing` (bitwise); `departure_kinds_match_ad` (num-dual, `Term`);
+  `only_pairs_with_a_departure_are_evaluated` (ROT-195); `mix_alphar` within `Term`. They run first against a residual
+  that returns the components' weighted sum alone.
+- **M13.4 The mixture at fixed composition.**
+  - `Mixture` holds a `MultiFluid` and a composition z. z is validated: finite, each fraction in [0, 1], summing to 1
+    within a stated tolerance, else a typed refusal (ROT-193). Zero fractions are trimmed (ROT-192), and a composition
+    that trims to one component is that pure `Fluid` itself.
+  - `Mixture: HelmholtzModel`:
+    - R = R_CODATA (MX3); α^r from M13.3.
+    - α⁰ = Σ z_i (R_i/R)[α⁰_oi(T, ρ) + ln z_i]. Each component's ideal part is in its own variables and carries its
+      native gauge, so the mixture's gauge is the z-weighted one (D4; ROT-062, ROT-103).
+    - Exact virials: the components' at T_r,i/τ plus the departures' δ-series.
+    - `rho_max`, and its own `Limits`: the components' intersection, not their mole-fraction averages (ROT-197).
+    - `FluidInfo` with M_z and the reducing state (T_r(z), ρ_r(z)); a `ModelKey` from components, pairs and z.
+  - Its `ThermoModel` flashes DT and PT with a phase hint, single-phase, through M13.1's density solve. Until M13.8 it
+    returns `Unsupported` otherwise.
+  - Register entries:
+    - The 15 fluids whose critical and reducing states differ: v8.0.0 evaluates their α⁰ at τ_i = T_c,i τ/T_r (map 15
+      X12), so their α⁰-derived mixture outputs are `SkipOracle`.
+    - A composition with a unit fraction differs from v8.0.0 by its R ratio, since v8.0.0 keeps R_CODATA at x = [1, 0]
+      (MX3).
+    - Tkaczuk's Table 8 is checked at Σx_iR_i (`KeepOracle`, MX3).
+  - Oracle kind `mix_eos`: single-phase (T, ρ) states of the binaries, a ternary and the `.mix` blends, with p, h, s,
+    u, c_v, c_p, w, Z and the α⁰ and α^r parts.
+
+  *Red:* `unit_fraction_is_the_pure_fluid` (bitwise, under any gauge; ROT-099, ROT-208);
+  `near_unit_fraction_approaches_the_pure_fluid` (up to MX3's R ratio); `trace_mixture_equals_pure` over the 15
+  fluids (ROT-062); `composition_is_validated` (ROT-193: (0.3, 0.3), (−0.1, 1.1), NaN);
+  `zero_components_equal_the_trimmed_mixture` (ROT-192); `limits_are_the_components_intersection` (ROT-197); Lemmon
+  and Jacobsen's Table 6 and Tkaczuk's Table 8, each class set by its transcription's self-consistency (VERIFICATION.md
+  §4.3); `mix_eos` within `Prop`. They run first against a `Mixture` that refuses every composition.
+- **M13.5 GERG-2008.**
+  - The 21 components get GERG's own pure equations (12- or 24-term power and exponential sums) and ideal gas
+    (Planck–Einstein in sinh and cosh, n₁ and n₂ fixed so that h = s = 0 for the ideal gas at 298.15 K and 101 325 Pa),
+    each as its own `HelmholtzModel`.
+  - Its 210 binaries and 15 departure functions; R = 8.314472 (MX3).
+  - Transcribed from NIST's AGA8 code (MX7): `scripts/fetch-aga8.sh` fetches it into a gitignored `reference/AGA8` at
+    the pinned commit, like `fetch-coolprop.sh`; xtask's `gerg_2008_is_aga8s` checks the transcription number for
+    number; NOTICE credits it. Cross-checked against TM15's tables for the 18 GERG-2004 components.
+  - It is a `MultiFluid` like M13.3's, so every later step serves both models.
+  - `GERG2008::` names (MX6) for the pure components and for mixtures. The pure components are `PureFluid`s with GERG's
+    critical parameters, core's VLE serving their saturation. GERG's 60-700 K range is their `Limits`, with `t_triple`
+    the component's own (ROT-205).
+  - A second generator, `scripts/oracle/teqp.py`, pins teqp 0.23.2 as gen.py pins CoolProp and runs in the same image.
+    It writes `fixtures/teqp-0.23.2/gerg/*.csv`: the 21 pure components and every binary at 50/50 on a (T, ρ) grid,
+    and AGA8's natural gases. VERIFICATION.md §3 gains its lock and kinds.
+
+  *Red:*
+  - AGA8's check state: Z, its p derivatives, c_v, c_p, w, JT and κ at AGA8's own 1e-8 test; u, h, s and g within the
+    1e-8 that the reference-constant rounding leaves.
+  - AGA8's binary test set: 3645 rows at their printed digits.
+  - teqp's vectors within `Term` and `Prop` (ROT-198, ROT-203).
+  - Pure GERG HP, PS and PU round trips (ROT-083); x = [1, 0] equals the GERG pure fluid, bitwise.
+
+  They run first against a GERG model with no departures. ROT-204 and ROT-206 are designed out: the data is immutable
+  and the vectors are CSV fixtures.
+- **M13.6 Composition derivatives.** `MixtureModel` is public in phasekit-mix and implemented by both multi-fluid
+  models.
+  - At (T, ρ, n) it gives the residual Helmholtz energy's derivatives in n to order 3, by one mole-number AD path. The
+    crate's own multivariate Taylor numbers compose each component's (τ, δ) jet with τ(n) and δ(n); there is no
+    third-party dependency (T1f).
+  - From them: ln φ_i, n ∂ln φ_i/∂n_j, (∂ln φ_i/∂T)_p,n, (∂ln φ_i/∂p)_T,n, partial molar volumes and chemical
+    potentials (ROT-191, ROT-210).
+  - `mix_eos` gains the oracle's `fugacity_coefficient` and `chemical_potential` columns.
+
+  *Red:* `gibbs_duhem_holds` (Σ x_i n ∂ln φ_i/∂n_j = 0, `Identity`); `ln_phi_hessian_is_symmetric`;
+  `euler_homogeneity`; `composition_derivatives_match_fd` (`Fd`) and num-dual (`Term`); Lemmon and Jacobsen's fugacity
+  column; the oracle's ln φ within `Prop`. They run first against derivatives that return zero.
+- **M13.7 Critical points.**
+  - Heidemann and Khalil's criticality conditions (det L* = det M* = 0, the order-3 tensors from M13.6) at a fixed z.
+  - Every critical point in the model's range, found once and kept in the immutable `Mixture` (ROT-187).
+  - `ThermoModel::critical_point()` is the one the vapour-liquid envelope passes (`CriticalOrigin::Model`), and M13.8's
+    labels use it.
+
+  *Red:* `critical_points_satisfy_heidemann_khalil` (`Identity`); the Methane/Ethane locus against Bell and Jäger 2017
+  once the paper is in hand, until then teqp's `trace_critical_arclength_binary` (differential); the oracle's
+  `all_critical_points` outside its known-bad states (map 04 #14). They run first against a `critical_point` of
+  `None`.
+- **M13.8 Stability and the PT flash.**
+  - Rachford–Rice in β with ln K inputs, bracketed and negative-flash capable; Wilson's K.
+  - Michelsen's tangent-plane stability test: successive substitution, then a second-order minimisation on the
+    n ∂ln φ/∂n Hessian, with near-pure trial phases. The feed density comes from the density solve's roots, never a
+    forced branch (ROT-186).
+  - The PT split: accelerated successive substitution, then Newton in the minority phase's variables.
+  - Every density root is enumerated through M13.1's solve and its acceptance gate (ROT-181, ROT-183).
+  - Phase labels from the critical point. Supercritical labels are as for a pure fluid; below the critical point a
+    phase is liquid where ρ > ρ_c(z) and gas otherwise (ROT-009; v8.0.0 compares with ρ_r(z)). A liquid-liquid split is
+    refused with a typed error (MX4).
+  - Oracle kind `mix_flash`: PT, and later pairs, with map 04 §8's known-bad states excluded and listed.
+
+  *Red:*
+  - `every_split_has_equal_fugacities_and_mass_balance` and `a_split_lowers_the_gibbs_energy` (`Identity`).
+  - The C1/C2/C3 state (0.05, 0.90, 0.05) at 2 MPa and 223.15 K is single-phase on its stable root (ROT-181).
+  - ROT-183's regression corpus (bd:ft05, #3283, #3448), and v8.0.0's Michelsen scenarios
+    (`CoolProp-Tests-Michelsen.cpp`, the papers' compositions), judged by the invariants.
+  - `mix_flash` PT within `Flash`.
+
+  They run first against a flash that returns the single-phase state.
+- **M13.9 Bubble and dew points.**
+  - QT and PQ at Q ∈ {0, 1}: Newton in (ln K, ln T or ln p) with the AD Jacobian, seeded by Wilson and successive
+    substitution. It ends on a residual gate over the equal-fugacity and summation equations, never on the step size
+    (ROT-185).
+  - The incipient phase's composition and density are on the split (M13.1's phase M); fugacities at Q = 0 and 1
+    (ROT-194).
+  - The `.mix` blends' bubble and dew points are checked against the pseudo-pure names' ancillaries, which were fitted
+    to them.
+  - Oracle kind `mix_sat`: bubble and dew T and p sweeps for the binaries and the `.mix` blends.
+
+  *Red:* `bubble_and_dew_residuals_meet_the_gate` (`Identity`); `fugacity_at_q_0_and_1` (ROT-194); teqp's isotherm
+  traces (differential); `mix_sat` within `Flash`. They run first against QT and PQ that return `Unsupported`.
+- **M13.10 Inside the envelope: interior Q and DT.**
+  - QT and PQ at 0 < Q < 1 by a flash with Q imposed: Rachford–Rice at the given β, with both phases' compositions and
+    the mass balance among the unknowns (ROT-182).
+  - DT at (T, v): the stability test at fixed volume, then the isochoric split, and the homogeneous state where it is
+    stable.
+  - ROT-190's bench measures the test's cost over `Strategy::Direct`'s DT; ARCHITECTURE.md §7 sets no target.
+  - v8.0.0 returns a homogeneous gas at 1.513 MPa for an R32/R125 split at 1 MPa (its TP test at the EOS pressure):
+    those oracle rows are excluded under a register entry.
+
+  *Red:* `interior_q_conserves_mass_and_fugacity` (`Identity`); `dt_in_the_dome_is_the_split` (a DT at a two-phase
+  state's (T, ρ) returns its split within `Flash`); `mix_flash` QT, PQ and DT within `Flash`. They run first against a
+  DT that returns the homogeneous state.
+- **M13.11 Every pair.**
+  - The other pairs come from an outer solve on M13.8-M13.10: HP, PS and PU along the isobar; HT, ST and TU along the
+    isotherm; DP, DH, DS and DU along the isochore; HS, SU, DQ, HQ and QS along the saturation boundary.
+  - Each pair enters `Capabilities` only once it passes (ROT-293: v8.0.0 lacks DP, DQ, HQ and QS for mixtures).
+  - The mass quality in and out (ROT-201).
+
+  *Red:* the conformance kit's `capability_matrix` (19 pairs × single- and two-phase truths) on R410A.mix, Air.mix and
+  a GERG natural gas; the near-dew HSU_P band of map 04 #12's mixture (ROT-184); Qmass round trips; phase-label
+  fixtures (ROT-009). They run first against capabilities that declare PT, DT, QT and PQ only.
+- **M13.12 Phase envelopes.**
+  - `Mixture::envelope(&EnvelopeOptions)`: a continuation in (ln K, ln T, ln p) with the most sensitive variable
+    specified (Michelsen's method, map 04 §3.8).
+  - It runs from a low-pressure dew or bubble point through the critical point to the other side, bounded by the
+    model's `Limits` and a stated p_max.
+  - It ends typed (closed, a bound, or no convergence) instead of running away (ROT-188).
+  - Its points are named by incipient and bulk phase, in a struct of arrays. Nothing in a flash reads it (ROT-189: no
+    history).
+
+  *Red:* `every_envelope_point_is_a_bubble_or_dew_point` (M13.9's gate); M13.7's critical point lies on the envelope;
+  the envelopes of CO₂/water, C₁/nC₁₀, H₂/C₁ and N₂/C₁/C₂/C₃ (map 04 #15) end typed within bounds; the oracle's
+  `build_phase_envelope` for well-behaved binaries. They run first against a tracer that returns no points.
+- **M13.13 Names.** `phasekit_mix::with_mixtures(&registry)`:
+  - A resolver (M13.1) for CoolProp's `A[x]&B[y]` grammar. Names go through the registry's names and aliases, the
+    fractions are validated as M13.4's, and `HEOS::` and `GERG2008::` prefixes are accepted. Nothing is parsed
+    leniently (ROT-166).
+  - CoolProp's predefined mixtures by `.mix` name, registered beside the pseudo-pure names, which keep their behaviour
+    (user decision 4).
+  - compat's `fluid_in` passes `&`, `[` and `]` to the registry's `resolve`; it still refuses `?` and `%`.
+  - A missing binary pair is `NoModel` naming the pair (ROT-292: Ammonia&Water), never an estimate (estimators come on
+    demand).
+  - Parameters are overridden through a builder that returns a new model and leaves the defaults untouched (ROT-196).
+
+  *Red:* `compat_reads_coolprop_mixture_strings` (the oracle's `PropsSI` on `HEOS::R32[0.697615]&R125[0.302385]` and
+  `R410A.mix`); `pseudo_pure_names_keep_their_behaviour`; `ammonia_water_is_no_model`;
+  `bip_override_never_poisons_the_defaults`; `malformed_mixture_strings_are_refused`. They run first against compat's
+  current refusal.
+- **M13.14 C and the browser (MX5).**
+  - `phasekit-capi` and `phasekit-wasm` depend on phasekit-mix and serve `with_mixtures` over their embedded
+    registries.
+  - `pk_*` and the shim's `PropsSI` take mixture strings. `get_global_param_string("predefined_mixtures")` and
+    `("mixture_binary_pairs_list")` return v8.0.0's lists (today they return "").
+  - The browser package serves the same strings. Its two `.wasm` budgets are re-measured at size + 10 % (as SL8), and
+    the `cargo about` notices carry AGA8's credit.
+
+  *Red:* the C smoke test and the shim's `PropsSI` on a mixture string, against the oracle's value; the two global
+  strings against v8.0.0's (`facts`); the wasm-bindgen test under Node. They run first against facades that refuse
+  the strings.
+- **M13.15 Conformance.** `tests/mixture_family.rs` runs the kit on R410A.mix, Air.mix, a GERG natural gas and a
+  ternary, in both datasets:
+  - `capability_matrix`;
+  - `gauge_invariance`, with x = [1, 0] under IIR, ASHRAE and NBP;
+  - `policy_equivalence` under `Reference`, `Parallel` and `Simd`;
+  - `thread_invariance`, `fd_first_order` and `entropy_identity`.
+
+  The mixture benches (α^r, DT, PT, QT; ROT-190, ROT-195) are recorded on the i7-8700K (section 5.1). *Red:* each
+  check on a mixture registered through `with_mixtures`, run first against a registry without it.
+- **M13.16 M13 closed.** `MILESTONE` = 14: every M13 proof falls due (DIV-0013 and M13's new entries) and every M13
+  ROT row is ticked. `gates core-frozen` passes since `m13-start`, and `ci/core-frozen.txt` then names no tag.
+  ARCHITECTURE.md's crate table and §11, VERIFICATION.md §10, MIGRATION.md (mixture strings) and the README say what
+  landed. Tag `m13` with the user's approval.
+
+**Exit gate.** G1-G8; `gates core-frozen` since `m13-start`; the conformance kit on multi-fluid and GERG-2008 mixtures;
+a composition that trims to one component is the pure fluid under any gauge (map 04 §8, map 15 §8); Bell et al. 2023
+Table XIII; the AGA8 GERG-2008 check state and teqp's GERG vectors; DIV-0013 resolved (`UsePaper`); equal fugacities
+and mass balance at every two-phase state. **ROT rows.** ROT-199, ROT-200 (M13.2); ROT-195, ROT-207 (M13.3); ROT-062,
+ROT-099, ROT-103, ROT-192, ROT-193, ROT-197, ROT-208 (M13.4); ROT-083, ROT-198, ROT-203 to ROT-206 (M13.5); ROT-191,
+ROT-210 (M13.6); ROT-187 (M13.7); ROT-009, ROT-181, ROT-183, ROT-186 (M13.8); ROT-185, ROT-194 (M13.9); ROT-182,
+ROT-190 (M13.10); ROT-184, ROT-201, ROT-293 (M13.11); ROT-188, ROT-189 (M13.12); ROT-196, ROT-292 (M13.13). **User
+decisions implemented.** MX1-MX7; 4 (the `.mix` variants).
 
 ### M20 Follow-ups
 
@@ -659,4 +937,5 @@ measurement: #143, PT + h ≤ 3 µs (the target is PF2's); #144, α^r ≤ 0.3 µ
 | R123's c_p⁰ block `Tc` (DIV-0015) | Younglove and McLinden 1994 (P4) | the entry decides Corrected |
 | Stored constants of map 13 R1's 15 candidates | each EOS paper | an `Investigate` entry once a paper value is in hand |
 | The order-3 identities of Thorade and Saadat 2013 (user decision OD5) | not open | M7.10 checks the identities VERIFICATION.md §8.1 lists |
+| The Methane/Ethane critical locus (M13.7) | Bell and Jäger, Fluid Phase Equilib. 433 (2017) 159: free to read at the publisher, which refuses scripted downloads | the locus arbitrates M13.7's critical points; until then teqp's trace and the oracle check them |
 | The CoolProp rows of R1132(E) and VinylChloride | CC BY, but Springer refuses scripted downloads | re-check them against their papers |
