@@ -12,18 +12,22 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 
 /** How long a timing repeats its run: long enough that a browser's coarse clock (100 µs without isolation) blurs the
  *  mean by under 1 %. */
-const BUDGET_MS = 20;
+export const BUDGET_MS = 20;
 
-/** The mean time of `run`, repeated for the budget after one untimed run that warms it (and throws if it fails). */
-function measure(run: () => void): Timing {
+/** The most runs a timing makes, whatever the clock says: a clock that never moves cannot hang the worker. */
+export const MAX_RUNS = 1_000_000;
+
+/** The mean time of `run` in µs, repeated for the budget after one untimed run that warms it (and throws if it fails).
+ *  `clock` gives milliseconds. */
+export function measure(run: () => void, clock: () => number = () => performance.now()): Timing {
   run();
-  const start = performance.now();
+  const start = clock();
   let [runs, now] = [0, start];
   do {
     run();
     runs += 1;
-    now = performance.now();
-  } while (now - start < BUDGET_MS && runs < 1_000_000);
+    now = clock();
+  } while (now - start < BUDGET_MS && runs < MAX_RUNS);
   return { us: ((now - start) * 1000) / runs, runs };
 }
 

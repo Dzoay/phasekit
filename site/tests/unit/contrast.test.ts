@@ -1,11 +1,13 @@
 // The themes against WCAG 2.2: text at least 4.5:1 on its background (success criterion 1.4.3, AA) and the borders of
 // controls at least 3:1 (1.4.11), with the standard's contrast ratio and relative luminance.
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
-import { contrast } from "../../src/lib/contrast";
+import { contrast, luminance } from "../../src/lib/contrast";
 import { themes } from "./tokens";
 
-const css = readFileSync(new URL("../../src/app.css", import.meta.url), "utf8");
+// From the site directory: see tests/pk.ts.
+const css = readFileSync(resolve("src/app.css"), "utf8");
 
 // [foreground, background, minimum ratio]
 const PAIRS: [string, string, number][] = [
@@ -42,5 +44,24 @@ describe("contrast", () => {
         expect(contrast(a ?? "", b ?? ""), `${theme.name}: ${fg} on ${bg}`).toBeGreaterThanOrEqual(min);
       }
     }
+  });
+});
+
+describe("luminance", () => {
+  test("reads #rrggbb in either case and nothing else", () => {
+    expect(luminance("#FFFFFF")).toBe(1);
+    expect(luminance("#ffffff")).toBe(1);
+    for (const bad of ["ffffff", "#fff", "#ffffff0", "x#ffffff", "#gggggg", ""]) {
+      expect(luminance(bad), bad).toBeNaN();
+    }
+  });
+
+  test("linearises dark channels by 1/12.92 and the rest by the power law", () => {
+    // 10/255 sits below the sRGB threshold 0.04045, 11/255 above it; the two branches differ there in the fourth digit.
+    expect(luminance("#0a0a0a")).toBeCloseTo(10 / 255 / 12.92, 9);
+    expect(luminance("#0b0b0b")).toBeCloseTo(((11 / 255 + 0.055) / 1.055) ** 2.4, 9);
+    expect(luminance("#ff0000")).toBeCloseTo(0.2126, 12);
+    expect(luminance("#00ff00")).toBeCloseTo(0.7152, 12);
+    expect(luminance("#0000ff")).toBeCloseTo(0.0722, 12);
   });
 });

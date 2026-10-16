@@ -1,41 +1,18 @@
 <script lang="ts">
-  // The calculator: a fluid, two inputs, and every output the package gives at that state, from the engine worker.
-  // The view lives in the URL (`#/calculator?fluid=Water&a=P:101325&b=Q:0&units=engineering`, values in SI).
-  import { untrack } from "svelte";
+  // The calculator: a fluid, two inputs, and every output the package gives at that state. Its view and wiring are
+  // src/lib/calculator.svelte.ts; this component only binds to them.
   import { getEngine } from "../engine/client";
-  import type { StateValue, TimeValue } from "../engine/protocol";
-  import { FLUIDS, PRESETS, type Preset } from "../lib/fluids";
+  import { Calculator, KEYS, invalid } from "../lib/calculator.svelte";
+  import { PRESETS } from "../lib/fluids";
   import { formatNumber, formatTime } from "../lib/format";
-  import { GROUPS, HEADLINE, INPUTS, OUTPUTS, output, type Output } from "../lib/outputs";
+  import { GROUPS, HEADLINE, INPUTS, output, type Output } from "../lib/outputs";
   import { route, writeParams } from "../lib/route.svelte";
-  import { SYSTEMS, displayUnit, fromSI, toSI, type System, type Unit } from "../lib/units";
+  import { SYSTEMS, fromSI } from "../lib/units";
 
-  const KEYS = OUTPUTS.map((o) => o.key);
-  const DEFAULT = { fluid: "Water", a: ["P", 101325], b: ["Q", 0] } as const;
+  const calc = new Calculator(getEngine());
+  $effect(() => calc.connect(route, (params) => writeParams("calculator", params)));
 
-  function readInput(raw: string | null, fallback: readonly [string, number]): [string, number] {
-    const [key = "", text = ""] = (raw ?? "").split(":");
-    const value = Number(text);
-    return INPUTS.includes(key) && text !== "" && Number.isFinite(value) ? [key, value] : [fallback[0], fallback[1]];
-  }
-
-  // The view: SI values; the input fields' text is separate, so typing is never reformatted under the cursor.
-  let fluid = $state<string>(DEFAULT.fluid);
-  let aKey = $state<string>(DEFAULT.a[0]);
-  let aValue = $state<number>(DEFAULT.a[1]);
-  let bKey = $state<string>(DEFAULT.b[0]);
-  let bValue = $state<number>(DEFAULT.b[1]);
-  let system = $state<System>("si");
-  let aText = $state("");
-  let bText = $state("");
-
-  let result = $state<StateValue | null>(null);
-  let refusal = $state<string | null>(null);
-  let busy = $state(true);
-  let sequence = 0;
-  let timing = $state<TimeValue | null>(null);
   let build = $state("");
-
   $effect(() => {
     getEngine()
       .call({ op: "info" })
@@ -45,156 +22,11 @@
       );
   });
 
-  // Once a state has settled (a pause after its result), the engine times it: a flash, and every output read from one
-  // state, each repeated for a short budget. A result is the latest request's, so the inputs read here are its own.
-  $effect(() => {
-    const settled = result;
-    if (!settled) {
-      timing = null;
-      return;
-    }
-    const request = untrack(() => ({
-      op: "time" as const,
-      fluid,
-      name1: aKey,
-      value1: aValue,
-      name2: bKey,
-      value2: bValue,
-      outputs: KEYS,
-    }));
-    const mine = sequence;
-    const timer = setTimeout(() => {
-      getEngine()
-        .call(request)
-        .then(
-          (value) => {
-            if (mine === sequence) timing = value;
-          },
-          () => {},
-        );
-    }, 300);
-    return () => clearTimeout(timer);
-  });
-
-  const unitOf = (key: string): Unit => displayUnit(output(key)?.kind ?? "dimensionless", system);
-  const shown = (key: string, value: number): string => {
-    const x = fromSI(value, unitOf(key));
-    return Number.isFinite(x) ? String(Number(x.toPrecision(12))) : "";
-  };
-
-  function showInputs(): void {
-    aText = shown(aKey, aValue);
-    bText = shown(bKey, bValue);
-  }
-
-  // From the URL, on load and on every hash change. The route is its only dependency: the view it sets, and the input
-  // text `showInputs` reads it into, are untracked, or each edit would re-run this and restore the URL's old view.
-  $effect(() => {
-    const params = route.params;
-    untrack(() => {
-      fluid = params.get("fluid") ?? DEFAULT.fluid;
-      [aKey, aValue] = readInput(params.get("a"), DEFAULT.a);
-      [bKey, bValue] = readInput(params.get("b"), DEFAULT.b);
-      system = params.get("units") === "engineering" ? "engineering" : "si";
-      showInputs();
-    });
-  });
-
-  // To the URL.
-  $effect(() => {
-    const params = new URLSearchParams({ fluid, a: `${aKey}:${aValue}`, b: `${bKey}:${bValue}` });
-    if (system === "engineering") params.set("units", system);
-    writeParams("calculator", params);
-  });
-
-  // The state, from the engine; a late answer to an older request is dropped.
-  $effect(() => {
-    const request = {
-      op: "state" as const,
-      fluid,
-      name1: aKey,
-      value1: aValue,
-      name2: bKey,
-      value2: bValue,
-      outputs: KEYS,
-    };
-    const mine = ++sequence;
-    busy = true;
-    getEngine()
-      .call(request)
-      .then(
-        (value) => {
-          if (mine !== sequence) return;
-          [result, refusal, busy] = [value, null, false];
-        },
-        (e: unknown) => {
-          if (mine !== sequence) return;
-          [result, refusal, busy] = [null, e instanceof Error ? e.message : String(e), false];
-        },
-      );
-  });
-
-  const values = $derived.by(() => {
-    const map = new Map<string, number>();
-    const errors = new Map<string, string>();
-    if (result) {
-      for (const [i, key] of KEYS.entries()) {
-        const value = result.values[i];
-        if (typeof value === "number" && !Number.isNaN(value)) map.set(key, value);
-        else errors.set(key, result.errors[i] ?? "not defined at this state");
-      }
-    }
-    return { map, errors };
-  });
-
-  function typed(which: "a" | "b", text: string): void {
-    const key = which === "a" ? aKey : bKey;
-    const x = Number(text.trim());
-    if (which === "a") aText = text;
-    else bText = text;
-    if (text.trim() === "" || !Number.isFinite(x)) return;
-    if (which === "a") aValue = toSI(x, unitOf(key));
-    else bValue = toSI(x, unitOf(key));
-  }
-
-  const invalid = (text: string): boolean => text.trim() === "" || !Number.isFinite(Number(text.trim()));
-
-  // A new input key keeps the state: its value is the current state's, where the package gave one.
-  function rekey(which: "a" | "b", key: string): void {
-    const value = values.map.get(key);
-    if (which === "a") [aKey, aValue] = [key, value ?? aValue];
-    else [bKey, bValue] = [key, value ?? bValue];
-    showInputs();
-  }
-
-  function setSystem(next: System): void {
-    system = next;
-    showInputs();
-  }
-
-  function apply(preset: Preset): void {
-    fluid = preset.fluid;
-    [aKey, aValue] = preset.a;
-    [bKey, bValue] = preset.b;
-    showInputs();
-  }
-
   const rows = $derived([
-    { which: "a" as const, key: aKey, text: aText },
-    { which: "b" as const, key: bKey, text: bText },
+    { which: "a" as const, key: calc.aKey, text: calc.aText },
+    { which: "b" as const, key: calc.bKey, text: calc.bText },
   ]);
-  // An input as the package received it, in SI, with the viewer's unit beside it where that differs: the package's
-  // messages name SI values.
-  function received(key: string, value: number): string {
-    const o = output(key);
-    const si = displayUnit(o?.kind ?? "dimensionless", "si");
-    const shown = unitOf(key);
-    const inSI = `${o?.symbol.replace("_", "") ?? key} = ${formatNumber(value)}${si.label ? ` ${si.label}` : ""}`;
-    return shown.label === si.label ? inSI : `${inSI} (${formatNumber(fromSI(value, shown))} ${shown.label})`;
-  }
-
   const label = (o: Output | undefined, key: string): string => (o ? `${o.label} (${o.symbol.replace("_", "")})` : key);
-  const fluids = $derived(FLUIDS.some((f) => f.name === fluid) ? FLUIDS : [...FLUIDS, { name: fluid, label: fluid }]);
 </script>
 
 <section class="intro">
@@ -209,8 +41,8 @@
   <form class="card inputs" onsubmit={(e) => e.preventDefault()}>
     <div class="field">
       <label for="fluid">Fluid</label>
-      <select id="fluid" bind:value={fluid}>
-        {#each fluids as f (f.name)}
+      <select id="fluid" bind:value={calc.fluid}>
+        {#each calc.fluids as f (f.name)}
           <option value={f.name}>{f.label}</option>
         {/each}
       </select>
@@ -224,7 +56,7 @@
             id="key-{which}"
             aria-label="{which === 'a' ? 'First' : 'Second'} input variable"
             value={key}
-            onchange={(e) => rekey(which, e.currentTarget.value)}
+            onchange={(e) => calc.rekey(which, e.currentTarget.value)}
           >
             {#each INPUTS as k (k)}
               <option value={k}>{label(output(k), k)}</option>
@@ -239,9 +71,9 @@
             spellcheck="false"
             value={text}
             aria-invalid={invalid(text)}
-            oninput={(e) => typed(which, e.currentTarget.value)}
+            oninput={(e) => calc.typed(which, e.currentTarget.value)}
           />
-          <span class="unit">{unitOf(key).label}</span>
+          <span class="unit">{calc.unitOf(key).label}</span>
         </div>
       </div>
     {/each}
@@ -250,8 +82,8 @@
       <legend>Units</legend>
       <div class="segmented">
         {#each SYSTEMS as s (s.id)}
-          <label class:active={system === s.id}>
-            <input type="radio" name="units" checked={system === s.id} onchange={() => setSystem(s.id)} />
+          <label class:active={calc.system === s.id}>
+            <input type="radio" name="units" checked={calc.system === s.id} onchange={() => calc.setSystem(s.id)} />
             {s.label}
           </label>
         {/each}
@@ -262,58 +94,61 @@
       <span class="caption">Try</span>
       <ul class="presets">
         {#each PRESETS as preset (preset.label)}
-          <li><button type="button" onclick={() => apply(preset)}>{preset.label}</button></li>
+          <li><button type="button" onclick={() => calc.apply(preset)}>{preset.label}</button></li>
         {/each}
       </ul>
     </div>
   </form>
 
-  <div class="results" class:busy aria-live="polite">
-    {#if refusal}
+  <div class="results" class:busy={calc.busy} aria-live="polite">
+    {#if calc.refusal}
       <div class="card refusal" role="alert">
         <strong>The package refused this state.</strong>
         <p data-testid="refusal-inputs">
-          It works in SI, and received {received(aKey, aValue)} and {received(bKey, bValue)}.
+          It works in SI, and received {calc.received(calc.aKey, calc.aValue)} and {calc.received(
+            calc.bKey,
+            calc.bValue,
+          )}.
         </p>
-        <p class="message"><span class="muted">Its message, in SI:</span> <code>{refusal}</code></p>
+        <p class="message"><span class="muted">Its message, in SI:</span> <code>{calc.refusal}</code></p>
       </div>
-    {:else if result}
+    {:else if calc.result}
       <div class="summary">
-        <p class="phase">Phase <strong data-testid="phase">{result.phase}</strong></p>
+        <p class="phase">Phase <strong data-testid="phase">{calc.result.phase}</strong></p>
         <div class="headline">
           {#each HEADLINE as key (key)}
             {@const o = output(key)}
-            {@const v = values.map.get(key)}
+            {@const v = calc.values.map.get(key)}
             <div class="card stat">
               <span class="stat-label">{o?.label}</span>
               <span class="stat-value num" data-testid="headline-{key}">
-                {v === undefined ? "—" : formatNumber(fromSI(v, unitOf(key)))}
-                <small>{unitOf(key).label}</small>
+                {v === undefined ? "—" : formatNumber(fromSI(v, calc.unitOf(key)))}
+                <small>{calc.unitOf(key).label}</small>
               </span>
             </div>
           {/each}
         </div>
-        {#if timing}
+        {#if calc.timing}
           <p class="timing" data-testid="timing">
-            Computed here in your browser by the {build} build: one flash {formatTime(timing.flash.us)}, all
-            {KEYS.length} outputs {formatTime(timing.outputs.us)}
-            <span class="muted">(means of {timing.flash.runs} and {timing.outputs.runs} runs)</span>
+            Computed here in your browser by the {build} build: one flash {formatTime(calc.timing.flash.us)}, all
+            {KEYS.length} outputs {formatTime(calc.timing.outputs.us)}
+            <span class="muted">(means of {calc.timing.flash.runs} and {calc.timing.outputs.runs} runs)</span>
           </p>
         {/if}
       </div>
 
       <div class="groups">
         {#each GROUPS as group (group.title)}
-          {@const available = group.outputs.filter((o) => values.map.has(o.key))}
-          {@const missing = group.outputs.filter((o) => !values.map.has(o.key))}
+          {@const available = group.outputs.filter((o) => calc.values.map.has(o.key))}
+          {@const missing = group.outputs.filter((o) => !calc.values.map.has(o.key))}
           <section class="card group">
             <h2>{group.title}</h2>
             {#if available.length > 0}
               <table>
                 <tbody>
                   {#each available as o (o.key)}
-                    {@const v = values.map.get(o.key) ?? Number.NaN}
-                    {@const u = unitOf(o.key)}
+                    {@const v = calc.values.map.get(o.key) ?? Number.NaN}
+                    {@const u = calc.unitOf(o.key)}
                     {@const [base, sub] = o.symbol.split("_")}
                     <tr>
                       <td class="symbol"
@@ -334,7 +169,7 @@
                 <summary>{missing.length} not defined here</summary>
                 <ul>
                   {#each missing as o (o.key)}
-                    <li><code>{o.key}</code>: {values.errors.get(o.key)}</li>
+                    <li><code>{o.key}</code>: {calc.values.errors.get(o.key)}</li>
                   {/each}
                 </ul>
               </details>

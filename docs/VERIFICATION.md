@@ -781,13 +781,14 @@ required check on `main`. They pin GitHub's own actions by commit, install the t
 | `ci`: `windows`, `aarch64` | Windows MSVC; aarch64 Linux | G3 and the doctests without `phasekit-xtask`, so G6 is a real build; MSVC's transcendentals differ in ulps, which the classes absorb |
 | `ci`: `wasip2` | Linux + wasmtime | G4: fixtures through `include_str!`, no filesystem, thread tests compiled out |
 | `ci`: `wasm-browser` | Linux | G5; `phasekit-core` with `fluids-core` for `wasm32-unknown-unknown`, baseline and `+simd128` (K15); from M10 also `phasekit-wasm` and the JS smoke test (section 13); from M21.1 the two release modules and their crates' notices (`scripts/release/wasm-modules.sh`), the `site-modules` artifact |
-| `ci`: `site` | Linux + Chromium | G9 on `wasm-browser`'s modules (PLAN.md M21.1); the built page as the `site` artifact |
+| `ci`: `site` | Linux + Chromium | G9 on `wasm-browser`'s modules (PLAN.md M21.1), StrykerJS on the PR's changed site TypeScript included (M21.7; its incremental file cached per branch); the built page as the `site` artifact |
 | `pr-title` | Linux | the PR title is a Conventional Commit (CONTRIBUTING.md) |
 | `pages`: `deploy` | Linux | after a green `ci` run on a push to `main`, that run's `site` artifact to GitHub Pages (user decision WS1) |
 | `nightly`: `oracle` | the pinned `runner_image` | regenerates the committed fixtures and checks them byte for byte (drift, determinism; 3.6); generates the full tier into `fixtures-full/` and fetches every fastchebpure file; runs the L5 sweep (`--run-ignored only`); its job summary lists rows and failed oracle calls per committed fixture and the sweep's result |
 | `nightly`: `advisories` | Linux | `cargo deny check advisories` |
 | `nightly`: `thread scaling` | Linux x86-64; aarch64 Linux | `cargo xtask bench --record scaling` at the latest `Plan-Step:` (12): the results file in the run summary and the `scaling-<runner>` artifact; informational (PLAN.md M9.2) |
 | `weekly`: `latest-deps` | Linux | `cargo update`, then the workspace tests |
+| `weekly`: `site mutants` | Linux | StrykerJS over all of the site's TypeScript (`scripts/site/mutants.sh --all`; user decision WS5), its HTML report an artifact |
 | `weekly`: `mutants` | Linux, 8 shards | a full `cargo mutants` run in the gate's two passes, a report (user decisions TQ2, CI1, CI5) |
 | `ci`: `linux`, `windows`, `aarch64`, `wasip2`; `hash-compare` | the four test targets | each runs `tests/cross_target.rs` with std and with `--features phasekit-core/libm` and uploads its two hash lines; `hash-compare` lists the eight in its job summary (9.4). The libm runs assert `fixtures/hash/libm.txt` |
 

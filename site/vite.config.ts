@@ -8,6 +8,12 @@ export default defineConfig({
   plugins: [svelte()],
   define: { __PHASEKIT_COMMIT__: JSON.stringify(process.env.PHASEKIT_COMMIT ?? "dev") },
   worker: { format: "es" },
+  // Under Vitest, packages' browser entry points, as Svelte's testing guide says: its client runtime, where effects run.
+  resolve: process.env.VITEST ? { conditions: ["browser"] } : undefined,
   build: { target: "es2022" },
-  test: { include: ["tests/unit/**/*.test.ts"] },
+  // The unit tests run in Node with modules transformed for the client, so rune tests' effects run (tests/env).
+  test: {
+    include: ["tests/unit/**/*.test.ts"],
+    environment: "./tests/env/client.ts",
+  },
 });

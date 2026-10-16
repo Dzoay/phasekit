@@ -1,15 +1,6 @@
-// The page's route, `#/<page>?<params>`. Hash routes need no server rewrites on GitHub Pages (user decision WS2), and
-// the params hold the view's state, so a link reproduces the view.
-
-export interface Route {
-  page: string;
-  params: URLSearchParams;
-}
-
-export function parseRoute(hash: string): Route {
-  const [path = "", query = ""] = hash.replace(/^#\/?/, "").split("?", 2);
-  return { page: path || "calculator", params: new URLSearchParams(query) };
-}
+// The current route, following the browser's hash (routes.ts parses it). Browser glue: it reads `location` and
+// `history` when imported, so Playwright drives it and the mutants gate skips it (scripts/site/mutants.sh).
+import { parseRoute, type Route } from "./routes";
 
 /** The current route; it changes when the hash does (a link, the back button), not when a page writes its params. */
 export const route: Route = $state(parseRoute(location.hash));

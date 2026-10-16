@@ -75,3 +75,11 @@ export interface Values {
 export type Response =
   | { [K in Op]: { id: number; ok: true; op: K; value: Values[K] } }[Op]
   | { id: number; ok: false; op: Op; error: string };
+
+/** A request without its id, which the engine's client assigns. */
+export type Body = { [K in Op]: Omit<Extract<Request, { op: K }>, "id"> }[Op];
+
+/** What the page needs of an engine: the worker's client, or in tests the handler itself. */
+export interface Engine {
+  call<B extends Body>(body: B): Promise<Values[B["op"]]>;
+}
