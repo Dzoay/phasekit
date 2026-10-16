@@ -4,6 +4,7 @@
 import { flushSync } from "svelte";
 import { describe, expect, test, vi } from "vitest";
 import { DiagramView, READOUT_KEYS } from "../../src/diagram/view.svelte";
+import type { Key } from "../../src/sample/diagrams";
 import { createHandler } from "../../src/engine/handler";
 import type { Body, Engine, Request, Values } from "../../src/engine/protocol";
 import { loadPk } from "../pk";
@@ -188,28 +189,38 @@ describe("the diagrams view, before and between answers", { timeout: 30_000 }, (
     stop();
   });
 
-  test("drops a late readout, and any from before the cursor left", async () => {
+  test("keeps one readout flash in flight, then asks for the latest point only", async () => {
     const { engine, waiting, answer } = await held(["state"]);
     const view = new DiagramView(engine);
-    view.point(["Hmass", 2.8e6, "P", 1e5]);
-    view.point(["Hmass", 400e3, "P", 1e6]);
-    await answer(1);
+    const at = (p: number): [Key, number, Key, number] => ["Hmass", 400e3, "P", p];
+    const asked = () => waiting.map((w) => ("value2" in w.body ? w.body.value2 : null));
+    view.point(at(1e5));
+    view.point(at(2e5));
+    view.point(at(3e5));
+    expect(asked()).toEqual([1e5]);
     await answer(0);
     await tick();
-    expect(view.readout?.inputs).toEqual(["Hmass", 400e3, "P", 1e6]);
+    expect(view.readout).toBeNull(); // the first point's answer is not the latest point's
+    expect(asked()).toEqual([1e5, 3e5]);
+    await answer(1);
+    await tick();
+    expect(view.readout?.inputs).toEqual(at(3e5));
     view.point(["Hmass", -1e9, "P", 1e6]);
-    view.point(["Hmass", 400e3, "P", 2e6]);
-    await answer(3);
     await answer(2);
     await tick();
-    expect([view.readout?.inputs, view.readout?.refusal]).toEqual([["Hmass", 400e3, "P", 2e6], null]);
-    view.point(["Hmass", 400e3, "P", 3e6]);
+    expect([view.readout?.state, typeof view.readout?.refusal]).toEqual([null, "string"]);
+    // Leaving drops the flash in flight and the point that waited for it.
+    view.point(at(4e5));
+    view.point(at(5e5));
     view.leave();
-    view.point(["Hmass", -1e9, "P", 4e6]);
+    await answer(3);
+    await tick();
+    expect([view.readout, asked().length]).toEqual([null, 4]);
+    view.point(at(6e5));
+    expect(asked().at(-1)).toBe(6e5);
     await answer(4);
     await tick();
-    expect(view.readout).toBeNull();
-    expect(waiting.length).toBe(6);
+    expect(view.readout?.inputs).toEqual(at(6e5));
   });
 
   test("drops a late diagram, sampled or refused", async () => {
