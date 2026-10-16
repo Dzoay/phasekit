@@ -507,6 +507,7 @@ version = "0.1.0"
 name = "phasekit-mix"
 version = "0.1.0"
 dependencies = [
+ "num-dual",
  "phasekit-core",
 ]
 
@@ -523,6 +524,7 @@ dependencies = [
  "phasekit-core",
  "phasekit-cubic",
  "phasekit-data",
+ "phasekit-mix",
  "rayon",
 ]
 

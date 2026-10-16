@@ -121,10 +121,13 @@ fn pair_coverage_names_every_unbuildable_mixture() {
 fn the_mixture_lock_refuses_an_edited_file() {
     let sha = phasekit_verify::sha256_hex(b"[]");
     let lock = format!("# comment\na.json {sha}\nb.json {sha}\n");
-    assert_eq!(mixtures::check_lock(&lock, &[("a.json", "[]"), ("b.json", "[]")]), Ok(()));
-    let errors = mixtures::check_lock(&lock, &[("a.json", "[ ]"), ("c.json", "[]")]).unwrap_err();
+    let listing = phasekit_verify::sha256_hex(format!("a.json {sha}\nb.json {sha}\n").as_bytes());
+    assert_eq!(mixtures::check_lock(&lock, &listing, &[("a.json", "[]"), ("b.json", "[]")]), Ok(()));
+    let errors = mixtures::check_lock(&lock, &listing, &[("a.json", "[ ]"), ("c.json", "[]")]).unwrap_err();
     assert!(errors[0].starts_with("a.json: sha256 differs"), "{errors:?}");
     assert!(errors[1].starts_with("c.json: not in") && errors[2].starts_with("b.json: in"), "{errors:?}");
+    let other = mixtures::check_lock(&lock, &"0".repeat(64), &[("a.json", "[]"), ("b.json", "[]")]).unwrap_err();
+    assert!(other[0].contains("mixtures_sha256"), "{other:?}");
 }
 
 /// A pair gives one reducing form and carries a departure exactly where F ≠ 0; a CAS pair twice, a predefined mixture

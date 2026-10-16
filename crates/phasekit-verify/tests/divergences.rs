@@ -33,6 +33,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0010", div_0010),
     ("DIV-0011", div_0011),
     ("DIV-0012", div_0012),
+    ("DIV-0013", div_0013),
     ("DIV-0014", div_0014),
     ("DIV-0015", div_0015),
     ("DIV-0016", div_0016),
@@ -69,6 +70,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0047", div_0047),
     ("DIV-0048", div_0048),
     ("DIV-0049", div_0049),
+    ("DIV-0050", div_0050),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1233,4 +1235,72 @@ fn div_0049() {
     let h_offset = fact("div0049_hmolar_pr_r40_t500") - fact("div0049_hmolar_heos_r40_t500");
     let cp0_offset = fact("div0049_cp0molar_pr_r134a_t500") / fact("div0049_cp0molar_heos_r134a_t500") - 1.0;
     assert!((h_offset + 2.38e4).abs() < 50.0 && (cp0_offset + 5.19e-5).abs() < 5e-8, "{h_offset} {cp0_offset:e}");
+}
+
+/// A Bell et al. table row's (T_r, α^r) on `data` at its (T, ρ, z₁): the pair's from the multi-fluid model, a pure
+/// fluid's from its own (`NEWR1234YF` is R1234yf, `R1234ZEE` R1234ze(E)).
+fn bell_row(table: &Fixture<'_>, row: usize, data: DataSet) -> (f64, f64) {
+    fn name(n: &str) -> &str {
+        match n {
+            "NEWR1234YF" => "R1234yf",
+            "R1234ZEE" => "R1234ze(E)",
+            other => other,
+        }
+    }
+    let registry = Registry::from_embedded(data).unwrap();
+    let names: Vec<&str> = table.printed(row, "fluids").unwrap().split('&').map(name).collect();
+    let (t, rho, z1) =
+        (table.value(row, "T").unwrap(), table.value(row, "rho").unwrap(), table.value(row, "z1").unwrap());
+    if let [one] = names[..] {
+        let eos = registry.get(one).unwrap().model().helmholtz().unwrap();
+        return (eos.reducing().unwrap().t, eos.residual(t, rho, Order::One).get(0, 0).unwrap());
+    }
+    let mix = phasekit_mix::MultiFluid::new(&registry, &names, data).unwrap();
+    let x = [z1, 1.0 - z1];
+    (mix.reducing_state(&x).0, mix.residual(&x, t, rho, Order::One).unwrap().get(0, 0).unwrap())
+}
+
+/// DIV-0013 (`UsePaper`, PLAN.md M13.3; ROT-207): Bell et al. 2022 Table III gives R1234yf/R1234ze(E) γ_T = 0.993309;
+/// v8.0.0's library has 0.999309. (1) `Corrected`'s T_r at Table XI's row (z₁ = 0.4) is the table's, 375.3687082354176
+/// K, within its printed digits, and its α^r within DIV-0050's bound of the table's (whose R1234yf equation predates
+/// v8.0.0's); (2) the oracle's α^r there is −0.4646790, 0.89 % from the table; (3) `Parity`, with v8.0.0's γ_T, gives
+/// the oracle's within 1e-12 and T_r 376.449 K.
+fn div_0013() {
+    let (path, text) = fixture!("paper/mixtures/Bell-JPCRD-2022.XI.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let row = (0..table.rows().len()).find(|&r| table.printed(r, "fluids") == Some("NEWR1234YF&R1234ZEE")).unwrap();
+    let (t_r, alphar) = bell_row(&table, row, DataSet::Corrected);
+    // Within the printed 13 decimals, or 4 ulp where those are finer than the reducing sums' rounding.
+    let bound = half_unit(&table, row, "Tred").max(4.0 * f64::EPSILON * t_r);
+    table.check_bound(row, "Tred", t_r, bound).unwrap();
+    let printed = table.value(row, "alphar").unwrap();
+    assert!((alphar / printed - 1.0).abs() <= registered_bound("DIV-0050"), "{alphar} against {printed}");
+    let oracle = fact("div0013_alphar_t469_rho3399");
+    assert!((oracle / printed - 1.0 - 0.00887).abs() < 1e-4, "the oracle {oracle} against the table {printed}");
+    let (t_r, parity) = bell_row(&table, row, DataSet::Parity);
+    assert!((parity / oracle - 1.0).abs() <= 1e-12 && (t_r - 376.449).abs() < 1e-3, "{parity} {t_r}");
+}
+
+/// DIV-0050 (`KeepOracle`, PLAN.md M13.3): Bell et al. 2022 Table XI used a pre-publication R1234yf equation. Its pure
+/// R1234yf row's α^r is 1.48e-8 from v8.0.0's (which Table XIII's row matches within its printed digits), and its two
+/// final pairs with R1234yf hold within the registered 2e-8 (its interim R125/R1234yf and R1234yf/R152a are not
+/// v8.0.0's models; Table XIII arbitrates them).
+fn div_0050() {
+    let bound = registered_bound("DIV-0050");
+    let (path, text) = fixture!("paper/mixtures/Bell-JPCRD-2022.XI.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let interim = ["R125&NEWR1234YF", "NEWR1234YF&R152A"];
+    let fluids = |r: usize| table.printed(r, "fluids").unwrap();
+    let rows = (0..table.rows().len()).filter(|&r| fluids(r).contains("NEWR1234YF") && !interim.contains(&fluids(r)));
+    let mut worst: f64 = 0.0;
+    for row in rows {
+        let (_, alphar) = bell_row(&table, row, DataSet::Corrected);
+        worst = worst.max((alphar / table.value(row, "alphar").unwrap() - 1.0).abs());
+    }
+    assert!((1e-8..=bound).contains(&worst), "{worst:e}");
+    let (path, text) = fixture!("paper/mixtures/Bell-JPCRD-2023.XIII.csv");
+    let newer = Fixture::parse(path, text).unwrap();
+    let row = (0..newer.rows().len()).find(|&r| newer.printed(r, "fluids") == Some("NEWR1234YF")).unwrap();
+    let alphar = bell_row(&newer, row, DataSet::Corrected).1;
+    newer.check_bound(row, "alphar", alphar, half_unit(&newer, row, "alphar").max(1e-13 * alphar.abs())).unwrap();
 }
