@@ -37,3 +37,11 @@ export function formatNumber(x: number): string {
 export function formatTime(us: number): string {
   return Number(us.toPrecision(3)) < 1000 ? `${us.toPrecision(3)} µs` : `${(us / 1000).toPrecision(3)} ms`;
 }
+
+/** A size given in bytes: in B below a kilobyte, else three significant digits in kB while that rounds below a
+ *  megabyte, else in MB (SI prefixes: 10³ and 10⁶ bytes). */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1000) return `${bytes} B`;
+  const kB = (bytes / 1e3).toPrecision(3);
+  return Number(kB) < 1000 ? `${kB} kB` : `${(bytes / 1e6).toPrecision(3)} MB`;
+}

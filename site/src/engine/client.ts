@@ -1,5 +1,9 @@
 // The page's side of the engine: a worker, started on first use, and a promise per request. The page has one worker on
-// the build its browser runs best; the benchmark one more for each build (PLAN.md M21.3).
+// the build its browser runs best; the benchmark one more for each build (PLAN.md M21.3). A request that names a fluid
+// first adds the packs that fluid needs (PLAN.md M21.4): each pack goes to every worker, and a worker that starts later
+// is given every pack added so far before any request.
+import { FluidData } from "../lib/fluiddata.svelte";
+import type { PackIndex } from "../lib/packs";
 import type { Body, Build, Engine, Response, Values } from "./protocol";
 import { simdSupported } from "./simd";
 
@@ -35,13 +39,73 @@ class WorkerEngine implements Engine {
   }
 }
 
-const engines = new Map<Build | "", WorkerEngine>();
+const workers = new Map<Build | "", WorkerEngine>();
+/** Every pack added, in order. */
+const packs: Uint8Array[] = [];
+
+/** The worker on `build`, started on first use with every pack added so far. A worker answers in the order it is asked,
+ *  so those packs are in its registry before any later request. */
+function worker(build: Build | ""): WorkerEngine {
+  let w = workers.get(build);
+  if (!w) {
+    w = new WorkerEngine(build);
+    for (const bytes of packs) w.call({ op: "pack", bytes }).catch(() => {});
+    workers.set(build, w);
+  }
+  return w;
+}
+
+/** Fetches a file beside the page, refusing what the server did not serve. */
+async function fetched(path: string): Promise<globalThis.Response> {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`${path}: ${response.status} ${response.statusText}`);
+  return response;
+}
+
+/** The page's fluids: packs/index.json and the packs beside it, added to every worker. */
+export const fluidData = new FluidData(
+  {
+    index: async () => (await (await fetched("packs/index.json")).json()) as PackIndex,
+    pack: async (file) => new Uint8Array(await (await fetched(`packs/${file}`)).arrayBuffer()),
+  },
+  {
+    add(bytes) {
+      const main = worker("");
+      packs.push(bytes);
+      for (const w of workers.values()) if (w !== main) w.call({ op: "pack", bytes }).catch(() => {});
+      return main.call({ op: "pack", bytes });
+    },
+    contents: () => worker("").call({ op: "registry" }),
+  },
+);
+
+/** An engine that adds the packs a request's fluid needs before the request, and then asks the registry what it has
+ *  decoded. */
+class FluidEngine implements Engine {
+  readonly #worker: WorkerEngine;
+
+  constructor(w: WorkerEngine) {
+    this.#worker = w;
+  }
+
+  async call<B extends Body>(body: B): Promise<Values[B["op"]]> {
+    if (!("fluid" in body)) return this.#worker.call(body);
+    await fluidData.ensure(body.fluid);
+    try {
+      return await this.#worker.call(body);
+    } finally {
+      fluidData.touch();
+    }
+  }
+}
+
+const engines = new Map<Build | "", FluidEngine>();
 
 /** The engine on `build`, or on the best build this browser runs; one worker for each, started on first use. */
 export function getEngine(build: Build | "" = ""): Engine {
   let engine = engines.get(build);
   if (!engine) {
-    engine = new WorkerEngine(build);
+    engine = new FluidEngine(worker(build));
     engines.set(build, engine);
   }
   return engine;

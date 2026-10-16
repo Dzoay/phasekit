@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Pk } from "../src/engine/pk";
+import type { PackIndex } from "../src/lib/packs";
 
 export type Build = "baseline" | "simd";
 
@@ -47,4 +48,24 @@ export async function propsSI(
 /** Two numbers with the same bits (NaN payloads aside, which no test compares). */
 export function sameBits(a: number, b: number): boolean {
   return Object.is(a, b);
+}
+
+/** packs/index.json as scripts/site/build.sh writes it into the page (`cargo xtask packs`, PLAN.md M21.4). */
+export function packIndex(): PackIndex {
+  return JSON.parse(readFileSync(resolve("public/packs/index.json"), "utf8")) as PackIndex;
+}
+
+/** A pack's bytes, as the page fetches them. */
+export function packBytes(file: string): Uint8Array {
+  return new Uint8Array(readFileSync(resolve(`public/packs/${file}`)));
+}
+
+/** The five fluids the package embeds, as its registry names them. */
+export async function embedded(build: Build = "simd"): Promise<string[]> {
+  const registry = new (await loadPk(build)).Registry();
+  try {
+    return registry.names();
+  } finally {
+    registry.free();
+  }
 }

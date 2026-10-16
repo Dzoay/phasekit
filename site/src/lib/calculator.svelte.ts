@@ -4,7 +4,7 @@
 import { untrack } from "svelte";
 import type { Engine, StateValue, TimeValue } from "../engine/protocol";
 import { formatNumber } from "./format";
-import { FLUIDS, type FluidChoice, type Preset } from "./fluids";
+import type { Preset } from "./fluids";
 import { INPUTS, OUTPUTS, output } from "./outputs";
 import { displayUnit, fromSI, toSI, type System, type Unit } from "./units";
 
@@ -59,11 +59,6 @@ export class Calculator {
     }
     return { map, errors };
   });
-
-  /** The fluids to offer: the embedded ones, and the URL's if it names another. */
-  readonly fluids: readonly FluidChoice[] = $derived(
-    FLUIDS.some((f) => f.name === this.fluid) ? FLUIDS : [...FLUIDS, { name: this.fluid, label: this.fluid }],
-  );
 
   readonly #engine: Engine;
   readonly #timingDelayMs: number;

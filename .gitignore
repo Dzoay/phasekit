@@ -22,6 +22,7 @@
 /site/dist/
 /site/src/pk/
 /site/public/notices/
+/site/public/packs/
 /site/test-results/
 /site/playwright-report/
 /site/reports/

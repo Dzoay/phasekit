@@ -1,6 +1,6 @@
 // How the page writes numbers and durations.
 import { describe, expect, test } from "vitest";
-import { formatNumber, formatTime } from "../../src/lib/format";
+import { formatBytes, formatNumber, formatTime } from "../../src/lib/format";
 import { parseRoute } from "../../src/lib/routes";
 
 describe("format", () => {
@@ -41,6 +41,20 @@ describe("format", () => {
       [123456, "123 ms"],
     ];
     for (const [us, text] of cases) expect(formatTime(us), String(us)).toBe(text);
+  });
+
+  test("sizes: in B below a kilobyte, else three significant digits in kB, in MB once they round to a megabyte", () => {
+    const cases: [number, string][] = [
+      [0, "0 B"],
+      [999, "999 B"],
+      [1000, "1.00 kB"],
+      [12_345, "12.3 kB"],
+      [98_720, "98.7 kB"],
+      [999_499, "999 kB"],
+      [999_500, "1.00 MB"],
+      [8_993_440, "8.99 MB"],
+    ];
+    for (const [bytes, text] of cases) expect(formatBytes(bytes), String(bytes)).toBe(text);
   });
 });
 

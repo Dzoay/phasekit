@@ -1,6 +1,8 @@
 <script lang="ts">
   // The calculator: a fluid, two inputs, and every output the package gives at that state. Its view and wiring are
   // src/lib/calculator.svelte.ts; this component only binds to them.
+  import FluidOrigin from "../components/FluidOrigin.svelte";
+  import FluidPicker from "../components/FluidPicker.svelte";
   import { getEngine } from "../engine/client";
   import { Calculator, KEYS, invalid } from "../lib/calculator.svelte";
   import { PRESETS } from "../lib/fluids";
@@ -41,11 +43,8 @@
   <form class="card inputs" onsubmit={(e) => e.preventDefault()}>
     <div class="field">
       <label for="fluid">Fluid</label>
-      <select id="fluid" bind:value={calc.fluid}>
-        {#each calc.fluids as f (f.name)}
-          <option value={f.name}>{f.label}</option>
-        {/each}
-      </select>
+      <FluidPicker id="fluid" bind:value={calc.fluid} />
+      <FluidOrigin fluid={calc.fluid} />
     </div>
 
     {#each rows as { which, key, text } (which)}

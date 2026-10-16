@@ -44,8 +44,18 @@ export interface BatchValue {
   outputs: number;
 }
 
+/** What the engine's registry serves and has decoded (the package's `names()` and `loaded()`, PLAN.md M21.4). */
+export interface RegistryValue {
+  /** The canonical name of every fluid it serves, the newest pack's first and the five embedded last. */
+  names: string[];
+  /** The fluids it has decoded so far, in the order of its layers. */
+  loaded: string[];
+}
+
 export type Request =
   | { id: number; op: "info" }
+  | { id: number; op: "registry" }
+  | { id: number; op: "pack"; bytes: Uint8Array }
   | {
       id: number;
       op: "props";
@@ -102,6 +112,8 @@ export type Op = Request["op"];
 
 export interface Values {
   info: Info;
+  registry: RegistryValue;
+  pack: RegistryValue;
   props: number;
   state: StateValue;
   time: TimeValue;

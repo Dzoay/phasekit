@@ -70,7 +70,8 @@ test("a new URL loads its view", async ({ page }) => {
 
 test("a chosen fluid computes and stays chosen", async ({ page }) => {
   await ready(page, "./#/calculator?fluid=Water&a=T:300&b=P:100000");
-  await page.getByLabel("Fluid").selectOption("Nitrogen");
+  await page.getByRole("combobox", { name: "Fluid" }).fill("nitrogen");
+  await page.getByRole("option", { name: /^Nitrogen\b/ }).click();
   await expect(page.getByTestId("value-molar_mass")).toHaveAttribute("data-value", /^0\.0280134/);
   await page.getByRole("radio", { name: "°C, bar, kJ" }).check();
   await expect(page.getByLabel("Fluid")).toHaveValue("Nitrogen");

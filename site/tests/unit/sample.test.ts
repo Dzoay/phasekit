@@ -202,6 +202,13 @@ describe("ranges", () => {
     expect(ts.every((t, i) => i === 0 || t > (ts[i - 1] as number))).toBe(true);
     expect(647.096 - (ts.at(-1) as number)).toBeLessThan(0.1);
     expect(ts.at(-1)).toBeLessThan(647.096);
+    // PLAN.md M21.4: on exactly the lowest temperature, which T_c − (T_c − low) misses by a rounding for R12 and
+    // n-Pentane (their T_min and triple point), where the package then refuses the dome's first state.
+    for (const [low, tc] of [
+      [116.099, 385.1199997681392],
+      [143.47, 469.6999998711195],
+    ] as const)
+      expect(domeTemperatures(low, tc, 120)[0]).toBe(low);
   });
 
   test("isoline values strictly inside: nice ticks; 1-2-5 per decade for log quantities, decades past 12 lines; tenths of quality", () => {

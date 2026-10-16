@@ -232,13 +232,18 @@ mod tests {
         assert_eq!(r32, &want);
     }
 
-    /// A CAS number: groups of 2 to 7, 2 and 1 digits, the last the check digit, the others' weighted sum mod 10.
+    /// A CAS number: groups of 2 to 7, 2 and 1 digits, the last the check digit, the others' weighted sum mod 10. Each
+    /// rule is broken alone too, by a number whose check digit is right: `5-00-5`, `12345678-90-0`, `75-100-8`, `75-1-2`.
     #[test]
     fn cas_numbers_are_checked() {
         for good in ["75-10-5", "7732-18-5", "1234567-89-5", "50-00-0"] {
             assert!(is_cas(good), "{good}");
         }
         for bad in [
+            "5-00-5",
+            "12345678-90-0",
+            "75-100-8",
+            "75-1-2",
             "75-10-4",
             "7732-18-6",
             "5-00-0",

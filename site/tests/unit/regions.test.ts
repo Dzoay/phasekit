@@ -18,8 +18,7 @@ import {
   type PhaseAt,
   type Regions,
 } from "../../src/sample/regions";
-import { FLUIDS } from "../../src/lib/fluids";
-import { loadPk } from "../pk";
+import { embedded, loadPk } from "../pk";
 
 async function engine(fluid: string) {
   const handle = createHandler(await loadPk("simd"), "simd128");
@@ -104,8 +103,10 @@ function frame(d: Diagram, regions: Regions, l: Limits) {
   return { x, y, at: (c: Corner): Point => [x.to(c[d.x.key as AxisKey]), y.to(c[d.y.key as AxisKey])] };
 }
 
+const EMBEDDED = await embedded();
+
 describe("the phase regions", { timeout: 60_000 }, () => {
-  for (const { name: fluid } of FLUIDS) {
+  for (const fluid of EMBEDDED) {
     test(`of ${fluid}: inside each region, clear of its edges, the package's phase is the region's`, async () => {
       const { batch, phaseAt, l } = await engine(fluid);
       const sampled = await sampleRegions(l, batch, phaseAt);

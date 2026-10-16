@@ -2,11 +2,11 @@
 // tells its row apart. The presets are states the package computes.
 import { describe, expect, test } from "vitest";
 import { createHandler } from "../../src/engine/handler";
-import { FLUIDS, PRESETS } from "../../src/lib/fluids";
+import { PRESETS } from "../../src/lib/fluids";
 import { GROUPS, HEADLINE, INPUTS, OUTPUTS, output } from "../../src/lib/outputs";
 import { ACCENTS, ACCENT_LABELS, MODES, MODE_LABELS } from "../../src/lib/theme";
 import { KINDS, SYSTEMS, displayUnit, type KindId } from "../../src/lib/units";
-import { loadPk } from "../pk";
+import { embedded, loadPk, packBytes, packIndex } from "../pk";
 import { COOLPROP_UNITS } from "./coolprop-units";
 
 /** A unit label in CoolProp's notation: `J/(mol·K)` is `J/mol/K`, `kg/m³` is `kg/m^3`, `Pa·s` is `Pa-s`. */
@@ -57,20 +57,27 @@ describe("tables", () => {
     expect(HEADLINE).toEqual(["T", "P", "Dmass", "Hmass", "Smass", "Q"]);
   });
 
-  test("the fluids' and presets' names are written and distinct; presets name offered fluids and input keys", () => {
-    expect(distinct(FLUIDS.map((f) => f.label)) && written(FLUIDS.map((f) => f.label))).toBe(true);
+  test("the presets' names are written and distinct; presets name fluids of the index and input keys", () => {
     expect(distinct(PRESETS.map((p) => p.label)) && written(PRESETS.map((p) => p.label))).toBe(true);
+    const fluids = packIndex().fluids;
     for (const p of PRESETS) {
       expect(
-        FLUIDS.some((f) => f.name === p.fluid),
+        fluids.some((f) => f.name === p.fluid),
         p.label,
       ).toBe(true);
       expect(INPUTS.includes(p.a[0]) && INPUTS.includes(p.b[0]) && p.a[0] !== p.b[0], p.label).toBe(true);
     }
   });
 
-  test("each preset is a state the package computes", async () => {
+  test("each preset is a state the package computes, one from its pack", async () => {
     const handle = createHandler(await loadPk("simd"), "simd128");
+    const named = await embedded();
+    const packed = PRESETS.filter((p) => !named.includes(p.fluid));
+    expect(packed.map((p) => p.fluid)).toEqual(["R32"]);
+    for (const p of packed) {
+      const entry = packIndex().fluids.find((f) => f.name === p.fluid);
+      expect(handle({ id: 0, op: "pack", bytes: packBytes(entry?.pack ?? "") }).ok).toBe(true);
+    }
     for (const [i, p] of PRESETS.entries()) {
       const [[name1, value1], [name2, value2]] = [p.a, p.b];
       const got = handle({ id: i, op: "state", fluid: p.fluid, name1, value1, name2, value2, outputs: ["T"] });
