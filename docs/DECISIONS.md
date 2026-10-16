@@ -637,3 +637,30 @@ M19 as a plotting crate checked by visual regression on documented diagrams *(in
 | WS3 | How does the site fit the plan? | **Milestone M21, six steps, one PR each with its `Plan-Step:` footer; it starts now, beside M13, and does not move `MILESTONE`** | M21.4 builds the per-fluid packs; M21.5 waits for M13 (MX5 brings mixtures to the browser package), M21.6 for M19. M21.1 adds the site's gate, G9. *Rejected:* the site inside M19 (it would wait for M13); a lane outside the plan, whose progress git would not record. |
 | WS4 | What does M19 build? | **Diagram geometry, drawn by the site** | M19's crate computes saturation domes, isolines and mixture envelopes as polylines with labels and ranges, split at the dome and at failed cells, on core's public API with no new dependency (T1f). The browser package serves them to the site (M21.6), and M16's Python can draw them with matplotlib. Its checks are numerical, and the site's screenshots are its visual check. Replaces PLAN.md §4's visual regression on documented diagrams. Decision 13 still holds: M19 starts after M13. *Rejected:* M19 as a plotting crate that draws, checked by visual regression. |
 | WS5 | Mutation testing for the site | **StrykerJS 10 with its Vitest runner: a mutant that survives in the site files a PR changes fails G9; a weekly full run over `site/src`** | Asked after the maintainer's visual test of M21.1 found the calculator's controls snapping back to the URL's view, a wiring bug in a component only Playwright exercised. Stryker judges mutants through unit-test runners (Playwright only through its command runner, which rebuilds and runs the browser suite per mutant), so the calculator's state moves into a module that Vitest tests, its reactive wiring included. A seventh step, M21.7, worked next, before M21.2. T5 gains `@stryker-mutator/core` and `@stryker-mutator/vitest-runner` (Apache-2.0). *Rejected:* a weekly report only; no mutation testing for now. |
+
+## Mixtures in lanes (2026-10-16)
+
+Asked during M13 ("what part of the mixture calculation pipeline takes advantage of simd work?", then "lets plan this
+as a follow-up"). Facts: no part does. Core's batch takes its lane path only for a `PureFluid` (`batch.rs`), and
+`phasekit-mix` overrides neither `residual_batch` nor `ideal_batch`, so a mixture's batch runs point by point. Its
+numerics are scalar: the multi-fluid residual (each component through its own `HelmholtzModel::residual` at the
+mixture's τ and δ, then the departures), the composition derivatives on multivariate Taylor numbers, and the flashes'
+density solves and Newton iterations. `Lanes<W>` and the lane `exp`, `ln` and `expm1` are crate-private in core
+(ARCHITECTURE.md §7). Measured in release on the i7-8700K under load (about 28):
+
+| Mixture | α^r, order 2 | its components' own α^r | composition derivatives, order 2 / 3 | PT flash |
+|---|---|---|---|---|
+| R32/R125 | 4.4 µs | 1.5 µs | 24 / 45 µs | 2.5 ms |
+| Methane/Ethane | 7.3 µs | 3.4 µs | 16 / 34 µs | 19 ms |
+| a five-component natural gas | 20.8 µs | 6.5 µs | 115 / 387 µs | 59 ms |
+
+A flash's time goes to the composition derivatives, which its stability test and Newton iterations evaluate many times,
+not to α^r alone; and of α^r much is the reducing functions and the departures, which a batch at fixed z computes once
+and lanes respectively *(inference)*.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| ML1 | Which parts of the mixture pipeline go into lanes? | **Batches in lanes, then a time-boxed spike on a flash's inner kernels** | A mixture's α^r and α⁰ batches at fixed z through the components' own lane kernels (M12), the reducing state once per batch and the departures in lanes; DT batches under a phase hint (`Strategy::Direct`); the `simd128` browser build. Then the spike: a flash's two phases, and its stability test's trial phases, evaluated in lanes in the composition derivatives, each kept only if faster (ML4). *Rejected:* batches only (flashes stay scalar); a scalar profiling step first, lanes decided from its baseline. |
+| ML2 | When? | **After M13 closes (the `m13` tag)** | Core is frozen through M13 (MX2), and two steps change it: the public lanes (ML3) and a batch lane path for any Helmholtz model under a phase hint. Planned now as milestone M22, which does not move `MILESTONE`. *Rejected:* after `v0.1.0`; starting the parts that touch only `phasekit-mix` beside M13. |
+| ML3 | How does a model crate reach core's lane math? | **A public, semver-stable `phasekit_core::lanes`** | `Lanes<W>`, its arithmetic and selects, and the lane `exp`, `ln` and `expm1`, bitwise `libm`'s (SL1), documented for any model crate, `phasekit-mix` first. Adding it is a minor version (D9); changing it later is a breaking one. ARCHITECTURE.md §7 changes with it. *Rejected:* under `phasekit_core::internal`, doc-hidden with no semver promise; kept private, the departures staying scalar. |
+| ML4 | What decides whether a kernel ships? | **It ships if it is faster (D9)** | Measured on the i7-8700K against M22.1's scalar baseline, the same build; a kernel that is not faster is taken out and its measurements recorded. Targets are recorded, not enforced. Lanes stay bitwise equal to the scalar path (K17), so no result changes either way. *Rejected:* a required speedup that the gate enforces, as SL3 did for M12. |
