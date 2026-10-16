@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[2]
 AGA8_DIR = ROOT / "reference" / "AGA8"
 FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
 MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
-KINDS = ["aga8", "gerg"]
+KINDS = ["aga8", "gerg", "gerg_crit"]
 CHECK_STATE = "AGA8CODE/C/GERG2008_test_01.cpp"
 TEST_DATA = "TESTDATA/Test Data.xls"
 
@@ -274,7 +274,35 @@ def gerg(lock, args):
     }
 
 
-GENERATORS = {"aga8": aga8, "gerg": gerg}
+def gerg_crit(lock, args):
+    """teqp's critical locus of GERG-2008's methane/ethane (`trace_critical_arclength_binary`, polished), from pure
+    methane's critical point toward ethane: 21 points evenly spaced in methane's fraction (PLAN.md M13.7)."""
+    teqp, numpy = import_teqp(lock)
+    model = teqp.make_model({"kind": "GERG2008resid", "model": {"names": ["methane", "ethane"]}})
+    pure = teqp.make_model({"kind": "GERG2008resid", "model": {"names": ["methane"]}})
+    t0, rho0 = pure.solve_pure_critical(190.564, 10139.342719)
+    options = teqp.TCABOptions()
+    options.polish = True
+    options.integration_order = 5
+    options.init_dt = 100
+    trace = model.trace_critical_arclength_binary(t0, numpy.array([rho0, 0.0]), None, options)
+    points = []
+    for row in trace:
+        rho = row["rho0 / mol/m^3"] + row["rho1 / mol/m^3"]
+        points.append((row["rho0 / mol/m^3"] / rho, row["T / K"], rho, row["p / Pa"]))
+    rows = []
+    for target in [1.0 - k / 20 for k in range(21)]:
+        z1, t, rho, p = min(points, key=lambda q: abs(q[0] - target))
+        if 0.0 < z1 < 1.0 and not any(r[1] == z1 for r in rows):
+            rows.append(["methane&ethane", z1, t, rho, p])
+    columns, units = ["pair", "z1", "T", "rhomolar", "p"], ["-", "-", "K", "mol/m3", "Pa"]
+    tol = ["label", "in", "flash", "flash", "flash"]
+    fluid, source = "GERG2008resid (methane, ethane)", f"teqp:{lock['version']}"
+    grid = "trace_critical_arclength_binary from pure methane, polished; the points nearest z1 = 1 - k/20"
+    return {"teqp-0.23.2/gerg/critical.csv": fixture("gerg_crit", lock, fluid, source, columns, units, tol, rows, grid)}
+
+
+GENERATORS = {"aga8": aga8, "gerg": gerg, "gerg_crit": gerg_crit}
 
 
 def write(out, files):

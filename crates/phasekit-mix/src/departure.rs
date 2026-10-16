@@ -1,27 +1,188 @@
-//! A binary pair's departure function α^r_ij(τ, δ) in one kernel over `Real` (f64, and `Jet4` for its τ, δ derivatives
-//! to order 4; ROT-218's pattern), its terms as CoolProp 8.0.0 evaluates them (`ExcessHEFunction.h:104-196`,
+//! A binary pair's departure function α^r_ij(τ, δ) in one kernel over [`Scalar`] (f64, and [`Series`] for its τ, δ
+//! derivatives; ROT-218's pattern), its terms as CoolProp 8.0.0 evaluates them (`ExcessHEFunction.h:104-196`,
 //! `Helmholtz.h:377-457`; PLAN.md M13.3):
 //! - Exponential: Σ n δ^d τ^t exp(−δ^l), without the exponential where l = 0;
 //! - GERG-2008: `power` terms n δ^d τ^t, then n δ^d τ^t exp(−η(δ − ε)² − β(δ − γ)): β multiplies δ − γ, not its square;
 //! - Gaussian + Exponential: `power` terms n δ^d τ^t exp(−δ^l), then n δ^d τ^t exp(−η(δ − ε)² − β(τ − γ)²).
+//!
+//! Every term is separable, n T(τ) D(δ), so its derivatives are products of two univariate series: the jet to order k
+//! costs O(k²) a term, not a bivariate composition's (PLAN.md M13.7: the critical search evaluates it some ten thousand
+//! times a mixture).
 
-use phasekit_core::{Derivs, Jet4, Order, Real};
+use core::ops::{Mul, Sub};
+
+use phasekit_core::{Derivs, Order, math};
 
 use crate::data::{DepartureData, Kind, Term};
 
-/// α^r_ij at (τ, δ).
-pub(crate) fn alpha<R: Real>(f: &DepartureData, tau: R, delta: R) -> R {
-    let mut sum = R::from_f64(0.0);
-    for (k, term) in f.terms.iter().enumerate() {
-        sum = sum + one(f.kind, k >= f.power, term, tau, delta);
-    }
-    sum
+/// n! for n ≤ 4.
+const FACTORIAL: [f64; 5] = [1.0, 1.0, 2.0, 6.0, 24.0];
+
+/// What the kernel computes on: a number, or a univariate series.
+pub(crate) trait Scalar: Copy + Sub<Output = Self> + Mul<Output = Self> {
+    fn from_f64(x: f64) -> Self;
+    fn powi(self, n: i32) -> Self;
+    fn powf(self, t: f64) -> Self;
+    fn exp(self) -> Self;
 }
 
-/// One term: its power part times its exponential, if it has one.
-fn one<R: Real>(kind: Kind, gaussian: bool, term: &Term, tau: R, delta: R) -> R {
-    let power = R::from_f64(term.n) * delta.powi(term.d as i32) * tau.powf(term.t);
-    let c = |x: f64| R::from_f64(x);
+impl Scalar for f64 {
+    fn from_f64(x: f64) -> f64 {
+        x
+    }
+    fn powi(self, n: i32) -> f64 {
+        math::powi(self, n)
+    }
+    fn powf(self, t: f64) -> f64 {
+        math::powf(self, t)
+    }
+    fn exp(self) -> f64 {
+        math::exp(self)
+    }
+}
+
+/// A univariate Taylor series truncated at `order` ≤ 4: `c[k]` is the k-th derivative over k!. Its value slot is
+/// computed as the f64 kernel computes it, so a jet's value is the plain evaluation's, bit for bit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Series {
+    order: usize,
+    c: [f64; 5],
+}
+
+impl Series {
+    /// The variable at `x`.
+    fn variable(x: f64, order: usize) -> Series {
+        let mut c = [0.0; 5];
+        (c[0], c[1]) = (x, if order >= 1 { 1.0 } else { 0.0 });
+        Series { order, c }
+    }
+
+    /// f(self) from f's derivatives `d` at the value: Σ_n d_n/n! εⁿ by Horner, ε = self − value; for the variable itself
+    /// (ε the unit monomial) the coefficients d_n/n! directly, which is what Horner's products with it give exactly.
+    fn compose(self, d: [f64; 5]) -> Series {
+        if self.c[1] == 1.0 && self.c[2..].iter().all(|c| *c == 0.0) {
+            let mut c = [0.0; 5];
+            let mut k = 0;
+            while k <= self.order {
+                c[k] = d[k] / FACTORIAL[k];
+                k += 1;
+            }
+            return Series { order: self.order, c };
+        }
+        let mut eps = self;
+        eps.c[0] = 0.0;
+        let mut r = Series::from_f64(d[self.order] / FACTORIAL[self.order]).with_order(self.order);
+        for n in (0..self.order).rev() {
+            r = r * eps;
+            r.c[0] = d[n] / FACTORIAL[n];
+        }
+        r.c[0] = d[0];
+        r
+    }
+
+    fn with_order(mut self, order: usize) -> Series {
+        self.order = order;
+        self
+    }
+
+    /// The truncated product; the value slot is the values' product alone. Plain index loops: the tests' build runs
+    /// this crate unoptimised (user decision SP1), where an iterator chain costs several times the arithmetic.
+    /// A constant's product is a scale, the general sum's terms with its zero slots being exact zeros.
+    fn product(&self, other: &Series) -> Series {
+        let order = self.order.max(other.order);
+        let mut c = [0.0; 5];
+        c[0] = self.c[0] * other.c[0];
+        if self.order == 0 || other.order == 0 {
+            let (series, k0) = if self.order == 0 { (other, self.c[0]) } else { (self, other.c[0]) };
+            let mut k = 1;
+            while k <= order {
+                c[k] = k0 * series.c[k];
+                k += 1;
+            }
+            return Series { order, c };
+        }
+        let mut k = 1;
+        while k <= order {
+            let (mut sum, mut a) = (0.0, 0);
+            while a <= k {
+                sum += self.c[a] * other.c[k - a];
+                a += 1;
+            }
+            c[k] = sum;
+            k += 1;
+        }
+        Series { order, c }
+    }
+}
+
+impl Sub for Series {
+    type Output = Series;
+    fn sub(mut self, other: Series) -> Series {
+        self.order = self.order.max(other.order);
+        for (x, y) in self.c.iter_mut().zip(other.c) {
+            *x -= y;
+        }
+        self
+    }
+}
+
+impl Mul for Series {
+    type Output = Series;
+    fn mul(self, other: Series) -> Series {
+        self.product(&other)
+    }
+}
+
+impl Scalar for Series {
+    /// A constant, of order 0: an operand of any order raises it.
+    fn from_f64(x: f64) -> Series {
+        let mut c = [0.0; 5];
+        c[0] = x;
+        Series { order: 0, c }
+    }
+
+    /// x^n's derivatives n (n − 1) ... (n − k + 1) x^(n − k), 0 where the falling factorial is (x = 0 at δ = 0).
+    fn powi(self, n: i32) -> Series {
+        let mut d = [0.0; 5];
+        let mut falling = 1.0;
+        for (k, slot) in d.iter_mut().enumerate().take(self.order + 1) {
+            *slot = if falling == 0.0 { 0.0 } else { falling * math::powi(self.c[0], n - k as i32) };
+            falling *= f64::from(n) - k as f64;
+        }
+        self.compose(d)
+    }
+
+    fn powf(self, t: f64) -> Series {
+        let mut d = [0.0; 5];
+        let mut falling = 1.0;
+        for (k, slot) in d.iter_mut().enumerate().take(self.order + 1) {
+            *slot = falling * math::powf(self.c[0], t - k as f64);
+            falling *= t - k as f64;
+        }
+        self.compose(d)
+    }
+
+    fn exp(self) -> Series {
+        self.compose([math::exp(self.c[0]); 5])
+    }
+}
+
+/// A term's τ part: τ^t, times exp(−β(τ − γ)²) for a Gaussian + Exponential function's Gaussian terms.
+fn tau_part<S: Scalar>(kind: Kind, gaussian: bool, term: &Term, tau: S) -> S {
+    let power = tau.powf(term.t);
+    match (kind, gaussian) {
+        (Kind::GaussianExponential, true) => {
+            let t = tau - S::from_f64(term.gamma);
+            power * (S::from_f64(0.0) - S::from_f64(term.beta) * t * t).exp()
+        }
+        _ => power,
+    }
+}
+
+/// A term's δ part: δ^d times its exponential in δ, if it has one.
+fn delta_part<S: Scalar>(kind: Kind, gaussian: bool, term: &Term, delta: S) -> S {
+    let power = delta.powi(term.d as i32);
+    let c = S::from_f64;
     let exponent = match (kind, gaussian) {
         (Kind::Gerg2008, false) => return power,
         (Kind::Exponential, _) | (Kind::GaussianExponential, false) if term.l == 0.0 => return power,
@@ -31,22 +192,66 @@ fn one<R: Real>(kind: Kind, gaussian: bool, term: &Term, tau: R, delta: R) -> R 
             c(0.0) - c(term.eta) * shifted * shifted - c(term.beta) * (delta - c(term.gamma))
         }
         (Kind::GaussianExponential, true) => {
-            let (d, t) = (delta - c(term.epsilon), tau - c(term.gamma));
-            c(0.0) - c(term.eta) * d * d - c(term.beta) * t * t
+            let shifted = delta - c(term.epsilon);
+            c(0.0) - c(term.eta) * shifted * shifted
         }
     };
     power * exponent.exp()
 }
 
-/// α^r_ij's jet at (τ, δ): its unscaled derivatives ∂^(i+j)α^r_ij/∂τ^i∂δ^j to order 4, finite at δ = 0 (the virials).
-pub(crate) fn jet(f: &DepartureData, tau: f64, delta: f64) -> Jet4 {
-    alpha(f, Jet4::tau(tau), Jet4::delta(delta))
+/// α^r_ij at (τ, δ): Σ (n T(τ)) D(δ), the plain evaluation a jet's value is checked against.
+#[cfg(test)]
+fn alpha(f: &DepartureData, tau: f64, delta: f64) -> f64 {
+    let mut sum = 0.0;
+    for (k, term) in f.terms.iter().enumerate() {
+        let gaussian = k >= f.power;
+        sum += term.n * tau_part(f.kind, gaussian, term, tau) * delta_part(f.kind, gaussian, term, delta);
+    }
+    sum
+}
+
+/// α^r_ij's Taylor coefficients at (τ, δ) to total order `order` ≤ 4: `c[i][j]` is ∂^(i+j)α^r_ij/∂τ^i∂δ^j over i! j!.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Jet {
+    order: usize,
+    c: [[f64; 5]; 5],
+}
+
+impl Jet {
+    /// ∂^(i+j)α^r_ij/∂τ^i∂δ^j, or `None` beyond the order kept.
+    pub(crate) fn derivative(&self, i: usize, j: usize) -> Option<f64> {
+        (i + j <= self.order).then(|| self.c[i][j] * FACTORIAL[i] * FACTORIAL[j])
+    }
+}
+
+/// α^r_ij's jet at (τ, δ) to total order `order` (≤ 4), finite at δ = 0 (the virials): each term's two univariate
+/// series multiplied out, the value slot summed as [`alpha`] sums it.
+pub(crate) fn jet(f: &DepartureData, tau: f64, delta: f64, order: usize) -> Jet {
+    let order = order.min(4);
+    let mut c = [[0.0; 5]; 5];
+    let (t0, d0) = (Series::variable(tau, order), Series::variable(delta, order));
+    for (k, term) in f.terms.iter().enumerate() {
+        let gaussian = k >= f.power;
+        let (t, d) = (tau_part(f.kind, gaussian, term, t0), delta_part(f.kind, gaussian, term, d0));
+        let mut i = 0;
+        while i <= order {
+            let (nt, mut j) = (term.n * t.c[i], 0);
+            while i + j <= order {
+                c[i][j] += nt * d.c[j];
+                j += 1;
+            }
+            i += 1;
+        }
+    }
+    Jet { order, c }
 }
 
 /// α^r_ij's scaled derivatives A_ij = τ^i δ^j ∂^(i+j)α^r_ij/∂τ^i∂δ^j at (τ, δ), to `order`.
 pub(crate) fn derivs(f: &DepartureData, tau: f64, delta: f64, order: Order) -> Derivs {
-    let jet = jet(f, tau, delta).derivs(tau, delta);
-    Derivs::from_fn(order, |i, j| jet.get(i, j).unwrap_or(f64::NAN))
+    let jet = jet(f, tau, delta, order.get());
+    Derivs::from_fn(order, |i, j| {
+        jet.derivative(i, j).unwrap_or(f64::NAN) * math::powi(tau, i as i32) * math::powi(delta, j as i32)
+    })
 }
 
 #[cfg(test)]
@@ -126,12 +331,30 @@ mod tests {
         }
     }
 
-    /// The f64 kernel is the jet's value, bit for bit, so α^r_ij evaluated alone costs no derivatives.
+    /// The f64 kernel is the jet's value, bit for bit, at every order, so α^r_ij evaluated alone costs no derivatives.
     #[test]
     fn the_value_is_the_jet_s() {
         for f in &DEPARTURES {
-            let jet = derivs(f, 0.9, 1.1, Order::One);
-            assert_eq!(alpha(f, 0.9, 1.1).to_bits(), jet.get(0, 0).unwrap().to_bits(), "{}", f.name);
+            for order in 0..=4 {
+                let value = jet(f, 0.9, 1.1, order).derivative(0, 0).unwrap();
+                assert_eq!(alpha(f, 0.9, 1.1).to_bits(), value.to_bits(), "{} at order {order}", f.name);
+            }
+        }
+    }
+
+    /// A shorter jet's derivatives are the longer one's, bit for bit.
+    #[test]
+    fn truncation_keeps_the_lower_orders() {
+        for f in &DEPARTURES {
+            let full = jet(f, 0.8, 0.7, 4);
+            for order in 1..4 {
+                let short = jet(f, 0.8, 0.7, order);
+                for (i, j) in (0..=order).flat_map(|n| (0..=n).map(move |i| (i, n - i))) {
+                    let (a, b) = (short.derivative(i, j).unwrap(), full.derivative(i, j).unwrap());
+                    assert_eq!(a.to_bits(), b.to_bits(), "{} ({i}, {j}) at order {order}", f.name);
+                }
+                assert_eq!(short.derivative(order + 1, 0), None);
+            }
         }
     }
 }

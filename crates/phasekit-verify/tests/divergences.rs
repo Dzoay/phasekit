@@ -16,6 +16,8 @@ use phasekit_verify::{
     Cell, DIVERGENCES, Fixture, MILESTONE, ToleranceClass, fixture, from_printed, missing_proofs, unregistered_proofs,
 };
 
+#[path = "common/mix_crit.rs"]
+mod mix_crit;
 #[path = "common/transport_rows.rs"]
 mod transport_rows;
 
@@ -76,6 +78,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0053", div_0053),
     ("DIV-0054", div_0054),
     ("DIV-0055", div_0055),
+    ("DIV-0056", div_0056),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1377,6 +1380,25 @@ fn div_0052() {
     let sum = z1 * value("chemical_potential_1") + (1.0 - z1) * value("chemical_potential_2");
     let g = value("hmolar") - t * value("smolar");
     assert!((sum - g).abs() > 0.04, "{sum} against {g}");
+    // (4) Its critical points: with every R_i/R taken as 1, as its L* takes them, phasekit's are the oracle's within
+    // `Flash` (each binary at z1 = 0.5, DIV-0056's point aside), and with its own weights one is more than 1e-7 away.
+    let (mut compared, mut own) = (0, 0.0_f64);
+    let mut fluid: Option<(String, phasekit_core::Fluid)> = None;
+    for o in mix_crit::oracle_points().into_iter().filter(|o| o.z1 == 0.5) {
+        if fluid.as_ref().is_none_or(|(label, _)| *label != o.label) {
+            fluid = Some((o.label.clone(), mix_crit::binary(&registry, &o.label, o.z1)));
+        }
+        let Some((_, fluid)) = &fluid else { continue };
+        if o.t < fluid.model().limits().unwrap().t_min() || o.t == 231.162_260_498_000_05 {
+            continue;
+        }
+        let mix = mix_crit::mixture(fluid);
+        let unit = mix_crit::offsets(&phasekit_mix::internal::critical_points_with_unit_weights(mix), &o).unwrap();
+        assert!(unit.iter().all(|x| *x <= ToleranceClass::Flash.bound(1.0).unwrap()), "{} {}: {unit:?}", o.label, o.t);
+        own = mix_crit::offsets(mix.critical_points(), &o).unwrap().into_iter().fold(own, f64::max);
+        compared += 1;
+    }
+    assert!(compared >= 14 && own > 1e-7, "{compared} points, own weights {own:e} away");
 }
 
 /// DIV-0053 (`SkipOracle`, PLAN.md M13.4; ROT-062, ROT-103): R134a's critical T is not its reducing one, and v8.0.0
@@ -1433,6 +1455,42 @@ fn div_0054() {
     let entry = DIVERGENCES.iter().find(|d| d.id == "DIV-0054").unwrap();
     assert_eq!(entry.tolerance, Some(phasekit_verify::Tolerance::Relative(3e-6)));
     assert!((1e-6..=3e-6).contains(&away) && (3e-6..=1e-5).contains(&near), "{away:e} {near:e}");
+}
+
+/// DIV-0056 (`SkipOracle`, PLAN.md M13.7): at its three points of v8.0.0's `all_critical_points`, (1) L*'s first row,
+/// δ_1j/x_1 + n ∂²(n α^r)/∂n_1∂n_j, vanishes to 1e-13 of its largest entry (4.6e-14 at most, std or libm), so
+/// det L* = det M* = 0 whatever the third derivatives; (2) Q's null vector there is the first component's direction,
+/// and the cubic form along it,
+/// ∂³(A/RT)/∂n_1³ = n ∂³(n α^r)/∂n_1³ − 1/x_1², is 1.69, 1.50 and 375.9: no critical point; (3) phasekit reports none
+/// within 1 % of it.
+fn div_0056() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let entry = DIVERGENCES.iter().find(|d| d.id == "DIV-0056").unwrap();
+    let listed: &[f64] = match entry.exempt {
+        Some(phasekit_verify::Exempt { rows: phasekit_verify::Rows::At(listed), .. }) => listed,
+        _ => &[],
+    };
+    assert_eq!(listed.len(), 3, "DIV-0056 lists its rows");
+    let points: Vec<_> = mix_crit::oracle_points().into_iter().filter(|o| listed.contains(&o.t)).collect();
+    assert_eq!(points.len(), listed.len());
+    for (o, cubic) in points.iter().zip([1.69, 1.50, 375.9]) {
+        let fluid = mix_crit::binary(&registry, &o.label, o.z1);
+        let mix = mix_crit::mixture(&fluid);
+        let c = mix.composition_at(o.t, o.rho, Order::Three).unwrap();
+        let x = [o.z1, 1.0 - o.z1];
+        let n = phasekit_mix::Var::N;
+        let l = |i: usize, j: usize| c.psi(&[n(i), n(j)]) + if i == j { 1.0 / x[i] } else { 0.0 };
+        let (row, largest) = (l(0, 0).abs().max(l(0, 1).abs()), l(1, 1).abs());
+        assert!(row <= 1e-13 * largest, "{} at {} K: L*'s first row {row:e} of {largest}", o.label, o.t);
+        // To the evidence's printed digits.
+        let along = c.psi(&[n(0), n(0), n(0)]) - 1.0 / (x[0] * x[0]);
+        assert!((along / cubic - 1.0).abs() < 3e-3, "{} at {} K: {along}", o.label, o.t);
+        let near = mix
+            .critical_points()
+            .iter()
+            .any(|p| ((p.t - o.t) / o.t).abs() < 1e-2 && ((p.rho - o.rho) / o.rho).abs() < 1e-2);
+        assert!(!near, "{} at {} K: {:?}", o.label, o.t, mix.critical_points());
+    }
 }
 
 /// DIV-0055 (`KeepOracle`, PLAN.md M13.5): AGA8's binary test set comes from an implementation whose θ_k are TM15's

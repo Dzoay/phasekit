@@ -40,6 +40,7 @@ pub enum Kind {
     CubicSat,
     MixAlphar,
     MixEos,
+    MixCrit,
     Crit,
     Sat,
     Flash,

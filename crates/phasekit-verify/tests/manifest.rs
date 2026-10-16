@@ -16,6 +16,7 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("coolprop-8.0.0/all/flash.csv"),
     fixture!("coolprop-8.0.0/all/melt.csv"),
     fixture!("coolprop-8.0.0/all/mix_alphar.csv"),
+    fixture!("coolprop-8.0.0/all/mix_crit.csv"),
     fixture!("coolprop-8.0.0/all/mix_eos.csv"),
     fixture!("coolprop-8.0.0/all/sat.csv"),
     fixture!("coolprop-8.0.0/all/sigma.csv"),
@@ -389,6 +390,7 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("paper/p-Xylene/CoolProp-Tests.lambda.check.csv"),
     fixture!("paper/p-Xylene/CoolProp-Tests.lambda.csv"),
     fixture!("teqp-0.23.2/gerg/binary.csv"),
+    fixture!("teqp-0.23.2/gerg/critical.csv"),
     fixture!("teqp-0.23.2/gerg/gas.csv"),
     fixture!("teqp-0.23.2/gerg/pure.csv"),
 ];

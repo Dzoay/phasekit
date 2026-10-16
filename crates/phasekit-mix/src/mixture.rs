@@ -13,15 +13,16 @@
 //! Until the stability test (M13.8) a flash needs a phase hint: DT is then the state at (T, ρ), PT the density on the
 //! hinted branch through core's public density solve (M13.1). Any other input is `Unsupported`.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use phasekit_core::density::{self, Branch};
 use phasekit_core::{
-    Capabilities, Constant, DataSet, DataTerms, Derivs, DomainPolicy, Error, FlashOptions, Fluid, FluidInfo,
-    HelmholtzModel, Limits, ModelKey, NativeInput, Order, Pair, Phase, Prop, Reducing, Registry, Source, State,
-    ThermoModel, Virials, math,
+    Capabilities, Constant, CriticalOrigin, CriticalPoint, DataSet, DataTerms, Derivs, DomainPolicy, Error,
+    FlashOptions, Fluid, FluidInfo, HelmholtzModel, Limits, ModelKey, NativeInput, Order, Pair, Phase, Prop, Reducing,
+    Registry, Source, State, ThermoModel, Virials, math,
 };
 
+use crate::critical::{CriticalState, Criticality, critical_points};
 use crate::{Composition, MixtureModel, MultiFluid, Var, gerg};
 
 /// The molar gas constant of every mixture of two or more components, J/(mol·K): CODATA 2018's, CoolProp 8.0.0's
@@ -41,6 +42,8 @@ pub struct Mixture {
     r_ratio: Box<[f64]>,
     info: FluidInfo,
     limits: Limits,
+    /// Every critical point in the model's range, found on first use (ROT-187).
+    critical: OnceLock<Vec<CriticalState>>,
 }
 
 /// Refuses a composition that is not one: a fraction not finite or outside [0, 1], or fractions not summing to 1
@@ -78,7 +81,7 @@ impl Mixture {
         let source = Source::new("Kunz-JCED-2012", Some("10.1021/je300655b"), DataTerms::Published);
         let info = FluidInfo::new(&name, molar_mass, source, ModelKey::from_content(&content))?;
         let limits = intersection(&fluids)?;
-        Ok(Mixture { fluid, z: z.into(), r_ratio, info, limits })
+        Ok(Mixture { fluid, z: z.into(), r_ratio, info, limits, critical: OnceLock::new() })
     }
 
     /// The mole fractions, one per component.
@@ -89,6 +92,25 @@ impl Mixture {
     /// The multi-fluid model.
     pub fn model(&self) -> &MultiFluid {
         &self.fluid
+    }
+
+    /// Every critical point of this mixture in its range, in increasing density (PLAN.md M13.7): found once, on first
+    /// use, and kept (ROT-187). Points at negative pressure (on a liquid branch of the stability limit) are among them.
+    pub fn critical_points(&self) -> &[CriticalState] {
+        self.critical.get_or_init(|| self.critical_points_weighted(&self.r_ratio))
+    }
+
+    /// The critical points with the ideal part's composition terms weighted by `w` in place of R_i/R.
+    pub(crate) fn critical_points_weighted(&self, w: &[f64]) -> Vec<CriticalState> {
+        let (t_r, _) = self.fluid.reducing_state(&self.z);
+        let range = (self.limits.t_min(), self.limits.t_max());
+        critical_points(&self.fluid, &self.z, w, range, self.rho_max(t_r)).unwrap_or_default()
+    }
+
+    /// Heidemann and Khalil's conditions at (T, ρ): det(D Q D), D = diag(√z_i), and the cubic form along Q's
+    /// D-normalised null vector, both 0 at a critical point (PLAN.md M13.7).
+    pub fn criticality(&self, t: f64, rho: f64) -> Result<Criticality, Error> {
+        crate::critical::conditions_at(&self.fluid, &self.z, &self.r_ratio, t, rho)
     }
 
     /// The residual's composition derivatives at (T, ρ) and this mixture's composition, to `order` (PLAN.md M13.6).
@@ -223,6 +245,19 @@ impl ThermoModel for Mixture {
 
     fn limits(&self) -> Option<&Limits> {
         Some(&self.limits)
+    }
+
+    /// The vapour-liquid critical point, as the model's own (`CriticalOrigin::Model`): of the critical points at
+    /// positive pressure, the one at the highest temperature, on the stability limit's outermost branch. The others
+    /// at positive pressure lie on inner branches (Methane/n-Propane's at 240 K, below its 314 K one; v8.0.0's
+    /// `all_critical_points` reports only the outer one); M13.12's envelope traces through the one chosen.
+    fn critical_point(&self) -> Option<CriticalPoint> {
+        self.critical_points().iter().filter(|c| c.p > 0.0).max_by(|a, b| a.t.total_cmp(&b.t)).map(|c| CriticalPoint {
+            t: c.t,
+            p: c.p,
+            rho: c.rho,
+            origin: CriticalOrigin::Model,
+        })
     }
 
     fn helmholtz(&self) -> Option<&dyn HelmholtzModel> {
