@@ -717,15 +717,17 @@ including a subcritical point, derivative outputs, exact virials, gauge, batch, 
 `tests/gibbs_seam.rs`, a Gibbs solid (PT solid, QT ice + vapour through `from_split`, registry, reference state, batch,
 compat, partials).
 
-**Zero-line core diff gates (M11 cubic; M14 IAPWS ice + IF97).** The milestone starts by tagging `m11-start` (or
-`m14-start`); `cargo xtask gates core-frozen --since m11-start` fails if any file under `crates/phasekit-core/` differs
-from the tag (zero lines: `git diff --name-only` and untracked files). A failure means the seam was insufficient: stop, record why in the
-decision log, land the seam change as its own core PR, re-tag and restart the family series (Extensible graft, D3).
-M11 held it: `crates/phasekit-core/` is unchanged from `m11-start` to M11.8 (PLAN.md M11), and `ci/core-frozen.txt`
-names no tag between family milestones.
+**Zero-line core diff gates (M11 cubic; M13 mixtures after M13.1's seams, user decision MX2; M14 IAPWS ice + IF97).**
+The milestone starts by tagging `m11-start` (or `m13-start`, `m14-start`); `cargo xtask gates core-frozen --since
+m11-start` fails if any file under `crates/phasekit-core/` differs from the tag (zero lines: `git diff --name-only` and
+untracked files). A failure means the seam was insufficient: stop, record why in the decision log, land the seam change
+as its own core PR, re-tag and restart the family series (Extensible graft, D3). M11 held it: `crates/phasekit-core/` is
+unchanged from `m11-start` to M11.8 (PLAN.md M11), and `ci/core-frozen.txt` names no tag between family milestones.
 
 Family arbiters are papers. CoolProp 8.0.0 cubic and PC-SAFT values are not arbiters (map 10 U14: no provenance;
-DIV-0010); teqp and Clapeyron are `OtherImplementation`, differential only (GERG vectors from teqp at M13, D4).
+DIV-0010); teqp and Clapeyron are `OtherImplementation`, differential only (GERG vectors and the multi-fluid model
+from teqp 0.23.2 at M13, D4; teqp is NIST public domain, and its conversion of Lemmon's ξ/ζ pairs halves γ_T, so the
+generator converts them to β/γ first).
 
 ## 11. Gates and CI
 
