@@ -10,8 +10,10 @@ publish.workspace = true
 # verify depends on core, never the reverse: no dev-dependency cycles. Real crate dev-deps (tier T3):
 # num-dual (the AD oracle for Jet4, M3), proptest (std only; BatchRequest and Input::new shapes, E12),
 # criterion (M2.9) and gungraun (M9) in benches/ (E9; dependencies R18).
+# The library reads no fluid: its tests embed all 136 (below), and a crate that dev-depends on it, such as the browser
+# package with its five (PLAN.md M21.4), keeps its own set.
 [dependencies]
-phasekit-core = { workspace = true, features = ["fluids-all"] }
+phasekit-core.workspace = true
 
 # The SIMD build of the benches (PLAN.md M12.4): core's `simd` feature, and the `alphar_batch/simd` case that times it.
 [features]
@@ -22,6 +24,7 @@ simd = ["phasekit-core/simd"]
 # so the workspace stays free of `unsafe` code.
 [dev-dependencies]
 allocation-counter = "0.8"
+phasekit-core = { workspace = true, features = ["fluids-all"] }
 # The Tier A shim's pinned v8.0.0 codes, against the `codes` fixture (tests/codes.rs; PLAN.md M10.6).
 phasekit-capi = { workspace = true, features = ["fluids-all"] }
 # The PropsSI-style facade, so the seams reach it by name (tests/new_family.rs, tests/gibbs_seam.rs; PLAN.md M5.9).

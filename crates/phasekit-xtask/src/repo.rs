@@ -219,6 +219,14 @@ impl Repo {
         std::fs::write(path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))
     }
 
+    /// Writes `bytes` to a file outside the repository (the site's packs, `cargo xtask packs`), creating its directory.
+    pub fn write_outside_bytes(&self, path: &Path, bytes: &[u8]) -> Result<(), String> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+        }
+        std::fs::write(path, bytes).map_err(|e| format!("cannot write {}: {e}", path.display()))
+    }
+
     /// The text of a file outside the repository (a download or an extracted archive).
     pub fn read_outside(&self, path: &Path) -> Result<String, String> {
         std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))

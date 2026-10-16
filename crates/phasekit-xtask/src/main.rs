@@ -14,6 +14,7 @@
 //!   scrubbed `COOLPROP_*`/`PXFLASH_*`, all 38 config keys recorded and `oracle.lock` checked.
 //! - `teqp`: runs scripts/oracle/teqp.py the same way under `teqp.lock`: GERG-2008's teqp vectors and AGA8's test data
 //!   (M13.5).
+//! - `packs <dir>`: one pack per fluid and `index.json`, which the site fetches (PLAN.md M21.4).
 //! - `gates`: gate G8 (VERIFICATION.md §11.2). From M0.4 the zero-dependency guard, workspace lints, executed-test
 //!   counts, `#[ignore]` reasons, doc excerpts and rot-register ticks; later fixture manifest drift, the facade
 //!   feature-tree check and .wasm size budget (E7), perf-table recording (E9).
@@ -31,6 +32,7 @@ mod fastchebpure;
 mod fluid;
 mod gates;
 mod oracle;
+mod packs;
 mod repo;
 mod transcriptions;
 
@@ -48,9 +50,10 @@ fn main() -> ExitCode {
         Some((task, rest)) if task == "fluid" => fluid::main(rest),
         Some((task, rest)) if task == "datagen" => datagen::main(rest),
         Some((task, rest)) if task == "fetch-fastchebpure" => fastchebpure::main(rest),
+        Some((task, rest)) if task == "packs" => packs::main(rest),
         _ => {
             eprintln!(
-                "usage: cargo xtask <baseline|bench|changelog|datagen|fetch-fastchebpure|fluid|oracle|teqp|gates>"
+                "usage: cargo xtask <baseline|bench|changelog|datagen|fetch-fastchebpure|fluid|oracle|packs|teqp|gates>"
             );
             ExitCode::FAILURE
         }

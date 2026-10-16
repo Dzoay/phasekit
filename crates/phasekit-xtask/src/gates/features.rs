@@ -150,7 +150,7 @@ fn wasm_build(dir: &str, simd: bool) -> Vec<String> {
 }
 
 /// The `core = [...]` list of phasekit-data's `[features]`, sorted.
-fn core_list(manifest: &str) -> Result<Vec<String>, Vec<String>> {
+pub(crate) fn core_list(manifest: &str) -> Result<Vec<String>, Vec<String>> {
     let missing = || vec!["phasekit-data's [features] has no `core = [...]` list".to_string()];
     let lines = table(manifest, "features").ok_or_else(missing)?;
     let start = lines
