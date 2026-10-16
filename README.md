@@ -45,10 +45,12 @@ that.
 
 - **Mixtures** (milestone M13, the crate `phasekit-mix`): multi-fluid Helmholtz mixtures and GERG-2008, with
   vapour-liquid equilibrium, critical points and phase envelopes, reaching the `PropsSI` strings, the C ABI and the
-  browser package. The core's mixture seams have landed; the crate is being built.
+  browser package. On `main`: the multi-fluid residual, a mixture at a fixed composition, GERG-2008 and composition
+  derivatives. Being built: critical points, stability, bubble and dew points, phase envelopes, then the names, C and
+  the browser.
 - **The site** (M21): a single page at <https://dzoay.github.io/phasekit/>, deployed from `main`, that runs the browser
-  package in your browser. The calculator is there; diagrams, sweeps, an in-browser benchmark and all 136 fluids
-  follow.
+  package in your browser. The calculator and the diagrams (p–h, T–s, p–T, T–ρ and h–s, with phase regions and a
+  state picked under the cursor) are there; sweeps, an in-browser benchmark, all 136 fluids and mixtures follow.
 
 **Later** ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)): IAPWS-IF97 and ice, PC-SAFT, Python, incompressibles,
 humid air and diagram geometry.
@@ -83,8 +85,7 @@ Nothing is published yet, so everything below builds from a checkout of this rep
 
 ```text
 docs/        design, plan and evidence (above)
-crates/      the Cargo workspace: phasekit-core, -data, -compat, -cubic, -capi, -wasm, -verify, -xtask; -mix next,
-             -py later
+crates/      the Cargo workspace: phasekit-core, -data, -compat, -cubic, -mix, -capi, -wasm, -verify, -xtask; -py later
 site/        the GitHub Pages site (Svelte, Vite, TypeScript) over the browser package
 scripts/     fetch-coolprop.sh, check-toolchain.sh, the oracle generator (oracle/), the C++ baseline (baseline/), the
              release artefacts (release/) and the site's build and checks (site/)
