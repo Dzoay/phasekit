@@ -1,5 +1,6 @@
-// The themes against WCAG 2.2: text at least 4.5:1 on its background (success criterion 1.4.3, AA), and the borders of
-// controls and the diagrams' lines at least 3:1 (1.4.11), with the standard's contrast ratio and relative luminance.
+// The themes against WCAG 2.2: text at least 4.5:1 on its background (success criterion 1.4.3, AA), the phase regions'
+// tints included, and the borders of controls and the diagrams' lines at least 3:1 (1.4.11), with the standard's
+// contrast ratio and relative luminance. Over the tints each line is drawn on a halo of the surface.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -25,6 +26,13 @@ const PAIRS: [string, string, number][] = [
   ["--iso-1", "--surface", 3],
   ["--iso-2", "--surface", 3],
   ["--iso-3", "--surface", 3],
+  // The phase regions' names, and the lines' labels, on each tint (PLAN.md M21.9).
+  ...["liquid", "twophase", "gas", "supercritical-liquid", "supercritical", "supercritical-gas"].flatMap(
+    (phase): [string, string, number][] => [
+      ["--fg", `--phase-${phase}`, 4.5],
+      ["--fg-muted", `--phase-${phase}`, 4.5],
+    ],
+  ),
 ];
 
 describe("contrast", () => {
