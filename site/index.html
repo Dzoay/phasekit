@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Thermophysical properties of fluids, computed in your browser by phasekit's WebAssembly package."
+    />
+    <title>phasekit</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <script>
+      // The stored theme before the first paint, so a dark choice never flashes light. src/lib/theme.ts owns the key
+      // and the values; app.css matches only the values it knows.
+      try {
+        const theme = JSON.parse(localStorage.getItem("phasekit.theme") ?? "null");
+        if (theme) Object.assign(document.documentElement.dataset, { theme: theme.mode, accent: theme.accent });
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

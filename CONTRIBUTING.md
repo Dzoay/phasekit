@@ -51,8 +51,8 @@ BREAKING CHANGE: <what breaks and how to migrate>
 | `chore` | everything else (dependency bumps, `chore: rust 1.NN`) | none |
 | `revert` | reverts an earlier commit (`revert: feat(core): ...`) | as the reverted change |
 
-- **Scopes:** the crate without its prefix (`core`, `data`, `compat`, `cubic`, `verify`, `xtask`, `capi`, `wasm`, `py`), or
-  `plan`, `deps`, `repo`. Omit the scope only when a change truly spans everything.
+- **Scopes:** the crate without its prefix (`core`, `data`, `compat`, `cubic`, `verify`, `xtask`, `capi`, `wasm`, `py`), `site`
+  (`site/`, PLAN.md M21), or `plan`, `deps`, `repo`. Omit the scope only when a change truly spans everything.
 - **Breaking changes:** add `!` before the colon *and* a `BREAKING CHANGE:` footer.
 - **Footers:** `Plan-Step:` is required on plan steps. `Rot:` and `Div:` link rot-register rows and divergence-register
   entries.
@@ -123,7 +123,7 @@ Add the same public key on GitHub (Settings → SSH and GPG keys → New SSH key
 ## What a PR must show
 
 - For a test-first step: the failing test and its red output (paste it in the PR description).
-- All standard gates green: G1-G8 locally, and the `ci` workflow's required checks on the PR.
+- All standard gates green: G1-G9 locally, and the `ci` workflow's required checks on the PR.
 - Docs: each fact changed in its one home ([PLAN.md §2.1](docs/PLAN.md#21-ids-and-references)) and nowhere else. A plan
   step collapses its own step text to a ledger row and puts what it measured in the PR description
   ([PLAN.md §0.1](docs/PLAN.md#01-the-step-loop) item 7).

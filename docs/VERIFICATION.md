@@ -733,7 +733,7 @@ generator converts them to β/γ first).
 
 ### 11.1 The cargo gates
 
-G1-G8 are defined once, in [PLAN.md §2.4](PLAN.md#24-standard-gates); 11.3 says where each runs in CI.
+G1-G9 are defined once, in [PLAN.md §2.4](PLAN.md#24-standard-gates); 11.3 says where each runs in CI.
 
 ### 11.2 `cargo xtask gates`
 
@@ -780,8 +780,10 @@ required check on `main`. They pin GitHub's own actions by commit, install the t
 | `ci`: `msrv` | Linux | G3 and the doctests on the workspace `rust-version` (user decision MS1) |
 | `ci`: `windows`, `aarch64` | Windows MSVC; aarch64 Linux | G3 and the doctests without `phasekit-xtask`, so G6 is a real build; MSVC's transcendentals differ in ulps, which the classes absorb |
 | `ci`: `wasip2` | Linux + wasmtime | G4: fixtures through `include_str!`, no filesystem, thread tests compiled out |
-| `ci`: `wasm-browser` | Linux | G5; `phasekit-core` with `fluids-core` for `wasm32-unknown-unknown`, baseline and `+simd128` (K15); from M10 also `phasekit-wasm` and the JS smoke test (section 13) |
+| `ci`: `wasm-browser` | Linux | G5; `phasekit-core` with `fluids-core` for `wasm32-unknown-unknown`, baseline and `+simd128` (K15); from M10 also `phasekit-wasm` and the JS smoke test (section 13); from M21.1 the two release modules and their crates' notices (`scripts/release/wasm-modules.sh`), the `site-modules` artifact |
+| `ci`: `site` | Linux + Chromium | G9 on `wasm-browser`'s modules (PLAN.md M21.1); the built page as the `site` artifact |
 | `pr-title` | Linux | the PR title is a Conventional Commit (CONTRIBUTING.md) |
+| `pages`: `deploy` | Linux | after a green `ci` run on a push to `main`, that run's `site` artifact to GitHub Pages (user decision WS1) |
 | `nightly`: `oracle` | the pinned `runner_image` | regenerates the committed fixtures and checks them byte for byte (drift, determinism; 3.6); generates the full tier into `fixtures-full/` and fetches every fastchebpure file; runs the L5 sweep (`--run-ignored only`); its job summary lists rows and failed oracle calls per committed fixture and the sweep's result |
 | `nightly`: `advisories` | Linux | `cargo deny check advisories` |
 | `nightly`: `thread scaling` | Linux x86-64; aarch64 Linux | `cargo xtask bench --record scaling` at the latest `Plan-Step:` (12): the results file in the run summary and the `scaling-<runner>` artifact; informational (PLAN.md M9.2) |

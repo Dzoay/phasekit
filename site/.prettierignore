@@ -1,0 +1,7 @@
+dist/
+node_modules/
+src/pk/
+public/notices/
+test-results/
+playwright-report/
+package-lock.json

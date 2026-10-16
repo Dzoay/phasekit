@@ -1,0 +1,70 @@
+// The engine: the page's requests (protocol.ts) answered by the browser package. It adds no numerics: every value is
+// the package's, and every refusal is the package's message. It holds one registry and the fluid handles it has
+// opened; each state is freed once its outputs are read.
+import type { Pk } from "./pk";
+import type { Build, Request, Response, StateValue } from "./protocol";
+
+// The handle types; wasm-bindgen's private constructors rule out `InstanceType`.
+type Registry = Pk["Registry"]["prototype"];
+type Fluid = Pk["Fluid"]["prototype"];
+
+const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+export function createHandler(pk: Pk, build: Build): (request: Request) => Response {
+  let registry: Registry | undefined;
+  const fluids = new Map<string, Fluid>();
+
+  const fluid = (name: string): Fluid => {
+    let handle = fluids.get(name);
+    if (!handle) {
+      registry ??= new pk.Registry();
+      handle = registry.fluid(name);
+      fluids.set(name, handle);
+    }
+    return handle;
+  };
+
+  const state = (r: Extract<Request, { op: "state" }>): StateValue => {
+    const s = fluid(r.fluid).flash(r.name1, r.value1, r.name2, r.value2);
+    try {
+      const values: (number | null)[] = [];
+      const errors: (string | null)[] = [];
+      for (const key of r.outputs) {
+        try {
+          values.push(s.get(key));
+          errors.push(null);
+        } catch (e) {
+          values.push(null);
+          errors.push(message(e));
+        }
+      }
+      return { phase: s.phase, values, errors };
+    } finally {
+      s.free();
+    }
+  };
+
+  return (request) => {
+    const { id, op } = request;
+    try {
+      switch (request.op) {
+        case "info":
+          return { id, ok: true, op: "info", value: { build, outputs: pk.outputKeys() } };
+        case "props": {
+          registry ??= new pk.Registry();
+          const { output, name1, value1, name2, value2 } = request;
+          return {
+            id,
+            ok: true,
+            op: "props",
+            value: registry.PropsSI(output, name1, value1, name2, value2, request.fluid),
+          };
+        }
+        case "state":
+          return { id, ok: true, op: "state", value: state(request) };
+      }
+    } catch (e) {
+      return { id, ok: false, op, error: message(e) };
+    }
+  };
+}

@@ -77,12 +77,7 @@ jobs:
           cargo install --locked --root ~/.tools --features cli "cargo-about@$CARGO_ABOUT_VERSION"
           cargo install --locked --root ~/.tools "wasm-bindgen-cli@$WASM_BINDGEN_VERSION"
       - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
-      - name: The baseline and simd128 modules
-        run: |
-          cargo build --release --locked -p phasekit-wasm --target wasm32-unknown-unknown
-          RUSTFLAGS="-C target-feature=+simd128" cargo build --release --locked -p phasekit-wasm --features simd \
-            --target wasm32-unknown-unknown --target-dir target/simd
-      - name: The package
+      - name: The package (its two modules from scripts/release/wasm-modules.sh)
         run: scripts/release/npm-package.sh "${GITHUB_REF_NAME#v}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

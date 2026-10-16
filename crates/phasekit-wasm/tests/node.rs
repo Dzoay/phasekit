@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use phasekit_core::batch::Status;
 use phasekit_verify::ToleranceClass;
-use phasekit_wasm::Registry;
+use phasekit_wasm::{Registry, output_keys};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -34,6 +34,18 @@ export function batchStatus(fluid) {
     batch.free();
     return status;
 }
+export function outputErrors(registry, keys) {
+    const state = registry.fluid("Water").flash("T", 300, "P", 1e5), errors = [];
+    for (const key of keys) {
+        try {
+            state.get(key);
+        } catch (e) {
+            errors.push(e.message);
+        }
+    }
+    state.free();
+    return errors;
+}
 export function errorMessage(registry) {
     try {
         registry.PropsSI("X", "T", 300, "P", 1e5, "Water");
@@ -51,6 +63,8 @@ extern "C" {
     fn batch_values(fluid: &JsValue) -> Vec<f64>;
     #[wasm_bindgen(js_name = batchStatus)]
     fn batch_status(fluid: &JsValue) -> Vec<u8>;
+    #[wasm_bindgen(js_name = outputErrors)]
+    fn output_errors(registry: &JsValue, keys: Vec<String>) -> Vec<String>;
     #[wasm_bindgen(js_name = errorMessage)]
     fn error_message(registry: &JsValue) -> String;
 }
@@ -171,4 +185,20 @@ fn handles_do_not_leak_over_1e5_calls() {
     let warm = core::arch::wasm32::memory_size::<0>();
     churn(&registry, 99_000);
     assert_eq!(core::arch::wasm32::memory_size::<0>(), warm, "pages after 10^3 and after 10^5 handles");
+}
+
+/// M21.1: `outputKeys()` names CoolProp's 85 outputs in its order, as compat's table holds them, and `State.get` knows
+/// each one: at a state of Water, a key may be refused for the state or the fluid, but never as an unknown key.
+#[wasm_bindgen_test]
+fn output_keys_are_coolprops_85() {
+    let keys = output_keys();
+    let want: Vec<&str> = phasekit_compat::output_names().take(phasekit_compat::OUTPUT_COUNT).collect();
+    assert_eq!(keys, want);
+    assert_eq!(
+        (keys.len(), keys.first().map(String::as_str), keys.last().map(String::as_str)),
+        (85, Some("T"), Some("Phase"))
+    );
+    let registry = JsValue::from(Registry::new().unwrap());
+    let unknown: Vec<String> = output_errors(&registry, keys).into_iter().filter(|e| e.contains("unknown")).collect();
+    assert!(unknown.is_empty(), "{unknown:?}");
 }

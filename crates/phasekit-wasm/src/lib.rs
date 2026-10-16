@@ -4,6 +4,7 @@
 //! - [`Registry`]: `new Registry()`, `withPack(bytes)`, `withReference(fluid, state)`, `PropsSI(...)`, `fluid(name)`.
 //! - [`Fluid`]: `flash(name1, value1, name2, value2)`, the typed flash, and `evaluate(outputs, name1, values1, name2,
 //!   values2)`, the one batch: point-major `Float64Array` values (N × M) and a `Uint8Array` of cell codes.
+//! - [`output_keys`]: `outputKeys()`, CoolProp's 85 output keys, which `PropsSI` and `State.get` take.
 //! - Errors are JS `Error`s. JS's garbage collector never frees wasm memory, so `Registry` and `Fluid`, the handle
 //!   objects, are freed with `free()`; the `State` and `Batch` a call returns are values, freed the same way.
 //!
@@ -23,6 +24,13 @@ use wasm_bindgen::prelude::*;
 /// A JS `Error` with `e`'s message.
 fn js(e: impl Display) -> JsError {
     JsError::new(&e.to_string())
+}
+
+/// CoolProp's 85 output keys in its order (map 01 §4a), without their aliases: what `PropsSI` and `State.get` take as
+/// an output, besides the aliases and the derivative grammar. The site lists them (PLAN.md M21.1).
+#[wasm_bindgen(js_name = outputKeys)]
+pub fn output_keys() -> Vec<String> {
+    compat::output_names().take(compat::OUTPUT_COUNT).map(String::from).collect()
 }
 
 /// A registry: the five core fluids, any fetched packs, any re-gauged fluids. A handle object: free it with `free()`.

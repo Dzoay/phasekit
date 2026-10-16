@@ -16,3 +16,11 @@
 # Local scratch
 *.swp
 .DS_Store
+
+# The site's dependencies, build and test output, and what scripts/site/build.sh generates (PLAN.md M21.1)
+/site/node_modules/
+/site/dist/
+/site/src/pk/
+/site/public/notices/
+/site/test-results/
+/site/playwright-report/

@@ -36,7 +36,7 @@ a way the plan did not foresee, stop and re-plan ([PLAN.md §0.4](docs/PLAN.md#0
 Do not start the next step in the same PR. `scripts/check-toolchain.sh` checks that the tools the gates need are
 installed. After editing `.github/workflows/`, run `actionlint` (no gate does) and fix what it reports.
 
-Gates are defined once in [PLAN.md §2.4](docs/PLAN.md#24-standard-gates) (G1-G8). Agents always set
+Gates are defined once in [PLAN.md §2.4](docs/PLAN.md#24-standard-gates) (G1-G9). Agents always set
 `CARGO_TARGET_DIR` to a scratch directory outside the repository.
 
 ## Git and GitHub

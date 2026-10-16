@@ -1,22 +1,14 @@
 #!/usr/bin/env bash
-# npm-package.sh <version>: the browser package's npm tarball (PLAN.md §5.4 item 7) from the release builds of
-# `phasekit-wasm` in target/ (baseline) and target/simd/ (`+simd128`, `--features simd`): wasm-bindgen's ES-module output of each, with
-# weak references (ROT-158), `phasekit` and `phasekit/simd`, the licences and cargo-about's notices, as
-# dist/phasekit-<version>.tgz. Run from the repository root; needs wasm-bindgen-cli at the locked version and npm.
+# npm-package.sh <version>: the browser package's npm tarball (PLAN.md §5.4 item 7): the two release modules of
+# wasm-modules.sh (baseline and `+simd128`) as `phasekit` and `phasekit/simd`, the licences and cargo-about's notices, as
+# dist/phasekit-<version>.tgz. Run from the repository root; needs wasm-bindgen-cli at the locked version, cargo-about
+# and npm.
 set -euo pipefail
 version=${1:?version}
 out=dist/npm
 rm -rf "$out" && mkdir -p "$out"
-for build in baseline simd; do
-  dir=target
-  [ "$build" = simd ] && dir=target/simd
-  wasm-bindgen --target web --weak-refs --out-name phasekit --out-dir "$out/$build" \
-    "$dir/wasm32-unknown-unknown/release/phasekit_wasm.wasm"
-done
+"$(dirname "$0")/wasm-modules.sh" "$out"
 cp LICENSE-MIT LICENSE-APACHE LICENSE-THIRD-PARTY "$out/"
-# The simd build's tree (`--features simd`, PLAN.md M12.10) holds the baseline's and adds fearless_simd and libm.
-cargo about generate --offline --fail --manifest-path crates/phasekit-wasm/Cargo.toml --target wasm32-unknown-unknown \
-  --features simd -o "$out/THIRD-PARTY-CRATES.txt" about.hbs
 cat > "$out/README.md" <<EOF
 # phasekit
 

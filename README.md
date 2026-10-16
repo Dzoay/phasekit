@@ -35,6 +35,9 @@ follow afterwards ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)).
 | A CoolProp host | the same archive's `phasekit_coolproplib`, CoolProp's Tier A functions | [docs/MIGRATION.md](docs/MIGRATION.md) |
 | A browser | the npm package `phasekit` (`phasekit/simd` for the `simd128` build) | `crates/phasekit-wasm/tests/node.rs` |
 
+See it run: [dzoay.github.io/phasekit](https://dzoay.github.io/phasekit/) computes every property of a fluid in your
+browser with the WebAssembly package, built from `main` (`site/`, [PLAN.md M21](docs/PLAN.md#m21-the-site)).
+
 ## Documentation
 
 | Document | What it is |
