@@ -19,6 +19,7 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("coolprop-8.0.0/all/mix_crit.csv"),
     fixture!("coolprop-8.0.0/all/mix_eos.csv"),
     fixture!("coolprop-8.0.0/all/mix_flash.csv"),
+    fixture!("coolprop-8.0.0/all/mix_sat.csv"),
     fixture!("coolprop-8.0.0/all/sat.csv"),
     fixture!("coolprop-8.0.0/all/sigma.csv"),
     fixture!("coolprop-8.0.0/all/term.csv"),
@@ -394,6 +395,7 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("teqp-0.23.2/gerg/critical.csv"),
     fixture!("teqp-0.23.2/gerg/gas.csv"),
     fixture!("teqp-0.23.2/gerg/pure.csv"),
+    fixture!("teqp-0.23.2/gerg/vle.csv"),
 ];
 
 const MANIFEST: &str = include_str!("../fixtures/MANIFEST.sha256");

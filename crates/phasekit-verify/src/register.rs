@@ -1478,9 +1478,31 @@ pub static DIVERGENCES: &[Divergence] = &[
                    its beta and bulk density sit up to 5.9e-8 and 5.2e-8 from phasekit's (R32/R125 at z1 0.75, \
                    300.6 K, where y1 - x1 is 0.016 and beta carries the compositions' error 60-fold), its x1 and y1 \
                    up to 8.2e-9 and 7.6e-10. There its phases leave ln f unequal by 5.5e-11, phasekit's by \
-                   1.8e-14. Its single-phase densities are phasekit's within 1.8e-15 (M13.8)",
+                   6.4e-15 (ln f at the split's p, M13.9). Its single-phase densities are phasekit's within 1.8e-15 \
+                   (M13.8)",
         exempt: None,
         tolerance: Some(Tolerance::Relative(1e-7)),
+        table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0060",
+        fluids: &["*"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::KeepOracle,
+        fix: Fix::None,
+        evidence: "map 04 #11 (ROT-185): v8.0.0's bubble and dew Newton ends where its residual's rms is under 1e-7 or \
+                   any one variable's relative change is under 1000 eps (VLERoutines.cpp:1425-1431); phasekit's ends \
+                   on 1e-12 in ln f. Over mix_sat's binaries its T, p and liquid density sit up to 1.3e-12, 4.1e-9 \
+                   and 7.7e-9 from phasekit's, its vapour density and incipient fraction up to 4.1e-7 and 1.4e-7: \
+                   Methane/n-Butane at z1 0.75, its bubble point at 220.30 K and 7.39 MPa, where its phases leave ln f \
+                   unequal by 1.5e-6 and phasekit's by 8.9e-15, and Nitrogen/Methane at 0.75, its dew point at 1 MPa, \
+                   1.0e-7 against 8.0e-15. Over the blends its T, p and densities sit up to 1.9e-9, 1.5e-8 and 8.2e-8 \
+                   away (M13.9)",
+        exempt: None,
+        tolerance: Some(Tolerance::Relative(5e-7)),
         table_tolerances: &[],
         proof: &[13],
         status: DivStatus::Open,

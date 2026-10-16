@@ -71,10 +71,20 @@ pub fn root(registry: &Registry, mixture: &Mixture, t: f64, p: f64, x: &[f64]) -
     phasekit_mix::internal::stable_root(fluid.model().helmholtz().unwrap(), t, p).unwrap()
 }
 
-/// ln f_i^V − ln f_i^L of a split and the bound `Identity` puts on each (1e-12 of its terms' largest).
-pub fn fugacity_differences(mixture: &Mixture, t: f64, split: &Equilibrium) -> Vec<(f64, f64)> {
+/// ln φ_i of mole fractions `x` at (T, ρ) at the pressure `p` the phase is at: ∂Ψ/∂n_i − ln(p/(ρRT)). It is
+/// `ln_phi` at the root of p; but a stiff liquid's p(ρ) moves by K_T/p ulps of p per ulp of ρ, so the model's Z there
+/// leaves ln φ a floor of a few 1e-12 at 0.1 MPa that p's own does not (PLAN.md M13.9).
+pub fn ln_phi_at(mixture: &Mixture, t: f64, p: f64, rho: f64, x: &[f64]) -> Vec<f64> {
+    use phasekit_mix::{MixtureModel, Var};
+    let c = mixture.model().composition(t, rho, x, Order::One).unwrap();
+    let ln_z = math::ln(p / (rho * mixture.model().gas_constant() * t));
+    (0..x.len()).map(|i| c.psi(&[Var::N(i)]) - ln_z).collect()
+}
+
+/// ln f_i^V − ln f_i^L of a split at (T, p) and the bound `Identity` puts on each (1e-12 of its terms' largest).
+pub fn fugacity_differences(mixture: &Mixture, t: f64, p: f64, split: &Equilibrium) -> Vec<(f64, f64)> {
     let Equilibrium::Split { x, y, rho_liquid, rho_vapour, .. } = split else { return Vec::new() };
-    let (phi_l, phi_v) = (ln_phi(mixture, t, *rho_liquid, x), ln_phi(mixture, t, *rho_vapour, y));
+    let (phi_l, phi_v) = (ln_phi_at(mixture, t, p, *rho_liquid, x), ln_phi_at(mixture, t, p, *rho_vapour, y));
     (0..x.len())
         .map(|i| {
             let terms = [math::ln(y[i]), phi_v[i], math::ln(x[i]), phi_l[i]];

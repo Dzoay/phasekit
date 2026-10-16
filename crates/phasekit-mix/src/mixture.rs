@@ -17,7 +17,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use phasekit_core::density::{self, Branch};
+use phasekit_core::density::Branch;
 use phasekit_core::{
     Capabilities, Constant, CriticalOrigin, CriticalPoint, DataSet, DataTerms, Derivs, DomainPolicy, Error,
     FlashOptions, Fluid, FluidInfo, HelmholtzModel, Limits, ModelKey, NativeInput, Order, Pair, Phase, Prop, Reducing,
@@ -26,6 +26,7 @@ use phasekit_core::{
 
 use crate::critical::{CriticalState, Criticality, critical_points};
 use crate::equilibrium::{self, Stability};
+use crate::saturation::{self, Given, Saturation, Side};
 use crate::{Composition, MixtureModel, MultiFluid, Var, gerg};
 
 /// The molar gas constant of every mixture of two or more components, J/(mol·K): CODATA 2018's, CoolProp 8.0.0's
@@ -201,6 +202,46 @@ impl Mixture {
         Err(Error::NoConvergence { strategy: phasekit_core::Strategy::Vle, iterations: 0 })
     }
 
+    /// The bubble or dew point at a given T or p (PLAN.md M13.9): the other of T and p, the feed's density and the
+    /// incipient phase's fractions and density.
+    pub fn saturation(&self, side: Side, given: Given) -> Result<Saturation, Error> {
+        saturation::saturation(self, side, given)
+    }
+
+    /// A saturated state, Q = 0 at a bubble point and 1 at a dew point: the feed and the incipient phase, the liquid
+    /// first, as a split.
+    fn saturated(&self, side: Side, given: Given, opts: &FlashOptions) -> Result<State, Error> {
+        let s = self.saturation(side, given)?;
+        let feed = (self.z.to_vec(), s.rho);
+        let incipient = (s.incipient.clone(), s.rho_incipient);
+        let ((x, rho_l), (y, rho_v), q) = match side {
+            Side::Bubble => (feed, incipient, 0.0),
+            Side::Dew => (incipient, feed, 1.0),
+        };
+        let liquid = self.state_of(&x, self.molar_mass_of(&x), s.t, rho_l, Phase::Liquid, opts)?;
+        let vapour = self.state_of(&y, self.molar_mass_of(&y), s.t, rho_v, Phase::Gas, opts)?;
+        State::from_split(liquid, vapour, phasekit_core::Quality::new(q)?, s.t, s.p)
+    }
+
+    /// QT and PQ at Q = 0 (a bubble point) or 1 (a dew point); a Q inside (0, 1) is not yet served (M13.10). Under
+    /// `DomainPolicy::Enforce` a given T outside the limits is refused before the solve.
+    fn quality_input(&self, pair: Pair, (a, b): (f64, f64), opts: &FlashOptions) -> Result<State, Error> {
+        let (q, given) = match pair {
+            Pair::QT => (a, Given::T(b)),
+            _ => (b, Given::P(a)),
+        };
+        if let (Given::T(t), DomainPolicy::Enforce) = (given, opts.domain()) {
+            self.limits.check_t(t)?;
+        }
+        if q == 0.0 {
+            self.saturated(Side::Bubble, given, opts)
+        } else if q == 1.0 {
+            self.saturated(Side::Dew, given, opts)
+        } else {
+            Err(Error::Unsupported { pair })
+        }
+    }
+
     /// A single phase's label (ROT-009): at or above the critical temperature as a pure fluid's (supercritical above
     /// the critical pressure, else a supercritical gas); below it liquid where ρ > ρ_c(z) (a supercritical liquid above
     /// p_c), gas otherwise. v8.0.0 compares ρ with ρ_r(z). Without a critical point, ρ_r(z) decides.
@@ -354,11 +395,14 @@ impl ThermoModel for Mixture {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::none().with(Pair::DT).with(Pair::PT)
+        Capabilities::none().with(Pair::DT).with(Pair::PT).with(Pair::QT).with(Pair::PQ)
     }
 
     fn flash(&self, input: NativeInput, opts: &FlashOptions) -> Result<State, Error> {
         let (pair, (x, y)) = (input.pair(), input.values());
+        if matches!(pair, Pair::QT | Pair::PQ) {
+            return self.quality_input(pair, (x, y), opts);
+        }
         let Some(phase) = opts.phase_hint() else {
             return match pair {
                 Pair::PT => self.pt(y, x, opts),
@@ -373,7 +417,7 @@ impl ThermoModel for Mixture {
                     _ => Branch::Vapour,
                 };
                 let guess = opts.guess().map(|(_, rho)| rho);
-                self.state(y, density::solve(self, y, x, branch, guess)?, phase, opts)
+                self.state(y, equilibrium::branch_root(self, y, x, branch, guess)?, phase, opts)
             }
             _ => Err(Error::Unsupported { pair }),
         }

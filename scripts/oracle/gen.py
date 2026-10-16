@@ -30,7 +30,7 @@ MIXTURES_DIR = ROOT / "reference" / "CoolProp" / "dev" / "mixtures"
 FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
 MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
 KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transport", "sigma", "melt", "refstate", "cubic",
-         "cubic_sat", "mix_alphar", "mix_eos", "mix_crit", "mix_flash", "props", "codes"]
+         "cubic_sat", "mix_alphar", "mix_eos", "mix_crit", "mix_flash", "mix_sat", "props", "codes"]
 SCRUBBED_PREFIXES = ("COOLPROP_", "PXFLASH_")
 FLUID_COUNT = 136
 
@@ -1179,6 +1179,65 @@ def mix_flash(CP, lock, config, files, args):
     return {"all/mix_flash.csv": text + "".join(lines)}
 
 
+# The `mix_sat` kind (PLAN.md M13.9): CoolProp 8.0.0's bubble and dew points. MIX_CRIT_PAIRS at each MIX_CRIT_Z1, QT
+# at Q = 0 and 1 at T = 0.7 and 0.85 of the mixture's reducing temperature and PQ at Q = 0 and 1 at 0.2 and 1 MPa; every
+# predefined mixture (once by name) at 0.7 T_r and 1 MPa likewise. Columns: the solved one of T and p, both phases'
+# molar densities and, for a pair, the first component's liquid and vapour fractions (the feed's and the incipient's).
+MIX_SAT_T = (0.7, 0.85)
+MIX_SAT_P = (2e5, 1e6)
+MIX_SAT_COLUMNS = ["mixture", "z1", "pair", "Q", "T", "p", "status", "rho_liquid", "rho_vapour", "x1", "y1"]
+MIX_SAT_UNITS = ["-", "-", "-", "-", "K", "Pa", "-", "mol/m3", "mol/m3", "-", "-"]
+MIX_SAT_TOL = ["label", "in", "label", "in", "flash", "flash", "label", "flash", "flash", "flash", "flash"]
+
+
+def mix_sat_rows(CP, label, z1, fluids, fractions, states, floats, lines):
+    """One mixture's rows: for each (pair, Q, value) of `states`, an `err` row where the oracle throws."""
+    for pair, q, value in states:
+        t = p = math.nan
+        values = [math.nan] * 4
+        try:
+            state = CP.AbstractState("HEOS", fluids)
+            if fractions is not None:
+                state.set_mole_fractions(fractions)
+            if pair == "QT":
+                t = value * state.T_reducing()
+                state.update(CP.QT_INPUTS, q, t)
+            else:
+                p = value
+                state.update(CP.PQ_INPUTS, p, q)
+            t, p = state.T(), state.p()
+            first = lambda xs: xs[0] if fractions is not None else math.nan
+            values = [state.saturated_liquid_keyed_output(CP.iDmolar), state.saturated_vapor_keyed_output(CP.iDmolar),
+                      first(state.mole_fractions_liquid()), first(state.mole_fractions_vapor())]
+            status = "ok"
+        except Exception as exception:  # noqa: BLE001 - the oracle's refusal is a row
+            status = f"err:{error_class(exception)}"
+        floats.extend([z1, q, t, p, *values])
+        lines.append(",".join([label, cell(z1), pair, cell(q), cell(t), cell(p), status, *map(cell, values)]) + "\n")
+
+
+def mix_sat(CP, lock, config, files, args):
+    """The `mix_sat` kind: all/mix_sat.csv over MIX_CRIT_PAIRS and the predefined mixtures (any --tier)."""
+    _, predefined = mixture_library(lock)
+    lines, floats, seen = [], [], set()
+    pair_states = [("QT", q, r) for r in MIX_SAT_T for q in (0.0, 1.0)] + [("PQ", q, p) for p in MIX_SAT_P for q in (0.0, 1.0)]
+    for label in MIX_CRIT_PAIRS:
+        for z1 in MIX_CRIT_Z1:
+            mix_sat_rows(CP, label, z1, label, [z1, 1.0 - z1], pair_states, floats, lines)
+    blend_states = [("QT", 0.0, 0.7), ("QT", 1.0, 0.7), ("PQ", 0.0, 1e6), ("PQ", 1.0, 1e6)]
+    for mixture in sorted(predefined, key=lambda m: m["name"]):
+        if mixture["name"] in seen:
+            continue
+        seen.add(mixture["name"])
+        mix_sat_rows(CP, f"{mixture['name']}.mix", math.nan, f"{mixture['name']}.mix", None, blend_states, floats, lines)
+    fluids = (f"{len(MIX_CRIT_PAIRS)} pairs and {len(seen)} predefined mixtures, fluids_sha256={lock['fluids_sha256']}, "
+              f"mixtures_sha256={lock['mixtures_sha256']}")
+    grid = ("pairs at z1 in {0.25,0.5,0.75}: QT at Q in {0,1}, T in {0.7,0.85} T_r; PQ at Q in {0,1}, p in {0.2,1} MPa; "
+            "predefined mixtures: QT at 0.7 T_r and PQ at 1 MPa, Q in {0,1}")
+    text = header("mix_sat", lock, config, fluids, MIX_SAT_COLUMNS, MIX_SAT_TOL, floats, units=MIX_SAT_UNITS, grid=grid)
+    return {"all/mix_sat.csv": text + "".join(lines)}
+
+
 def mix_eos(CP, lock, config, files, args):
     """The `mix_eos` kind: all/mix_eos.csv over the library's pairs and predefined mixtures (any --tier)."""
     pairs, predefined = mixture_library(lock)
@@ -1969,7 +2028,7 @@ def codes(CP, lock, config, files, args):
 
 
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "cubic": cubic,
-              "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "mix_eos": mix_eos, "mix_crit": mix_crit, "mix_flash": mix_flash, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
+              "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "mix_eos": mix_eos, "mix_crit": mix_crit, "mix_flash": mix_flash, "mix_sat": mix_sat, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
               "props": props, "codes": codes}
 
 
