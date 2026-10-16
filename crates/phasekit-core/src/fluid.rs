@@ -443,7 +443,7 @@ impl Fluid {
                     _ => v.dc_dt,
                 }
             }
-            Prop::Qmass => state.quality().ok_or(Error::Undefined { prop, phase: state.phase() })?,
+            Prop::Qmass => state.mass_quality().ok_or(Error::Undefined { prop, phase: state.phase() })?,
             Prop::Tau | Prop::Delta => {
                 let reducing = self.info().constants().reducing.ok_or(Error::NoModel { prop })?;
                 if prop == Prop::Tau { reducing.t / state.t() } else { state.rho(molar) / reducing.rho }

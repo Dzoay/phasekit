@@ -93,23 +93,19 @@ pub fn fluid_in<'r>(registry: &'r Registry, fluid: &str) -> Result<&'r Fluid, Co
 /// map 14 §3.2), so a vector call refuses a bad key or fluid whole.
 struct Plan<'r> {
     output: Output,
-    pair: Pair,
-    swapped: bool,
-    basis: Basis,
+    keys: Keys,
     fluid: &'r Fluid,
 }
 
 impl<'r> Plan<'r> {
     fn new(registry: &'r Registry, output: &str, name1: &str, name2: &str, fluid: &str) -> Result<Self, CompatError> {
         let output = parse_output(output).ok_or_else(|| CompatError::UnknownOutput(output.into()))?;
-        let (pair, swapped, basis) = pair_of(name1, name2)?;
-        Ok(Plan { output, pair, swapped, basis, fluid: fluid_in(registry, fluid)? })
+        Ok(Plan { output, keys: pair_of(name1, name2)?, fluid: fluid_in(registry, fluid)? })
     }
 
     /// The state at the two input values, in the order of the call's keys.
     fn state(&self, value1: f64, value2: f64, flash: &FlashOptions) -> Result<State, Error> {
-        let (x, y) = if self.swapped { (value2, value1) } else { (value1, value2) };
-        self.fluid.flash(Input::new(self.pair, x, y, self.basis)?, flash)
+        self.fluid.flash(self.keys.input(value1, value2)?, flash)
     }
 
     /// The output at the two input values.
@@ -139,9 +135,7 @@ pub fn flash_si(
     (name2, value2): (&str, f64),
     flash: &FlashOptions,
 ) -> Result<State, CompatError> {
-    let (pair, swapped, basis) = pair_of(name1, name2)?;
-    let (x, y) = if swapped { (value2, value1) } else { (value1, value2) };
-    Ok(fluid.flash(Input::new(pair, x, y, basis)?, flash)?)
+    Ok(fluid.flash(pair_of(name1, name2)?.input(value1, value2)?, flash)?)
 }
 
 /// A batch cell's code, which the C batch (`PK_*`) and the browser batch share (map 11 F15, F23): 0 for success, 1 for
@@ -163,8 +157,25 @@ pub fn status_code(status: Status) -> u8 {
     }
 }
 
-/// The pair two input keys name, whether they come in its reverse order, and their basis (molar if neither says).
-fn pair_of(name1: &str, name2: &str) -> Result<(Pair, bool, Basis), CompatError> {
+/// What two input keys name: the pair, whether they come in its reverse order, their basis (molar if neither says) and
+/// the quality's (mass for `Qmass`, which reaches the model as a mass quality: a mixture's phases differ in molar mass).
+struct Keys {
+    pair: Pair,
+    swapped: bool,
+    basis: Basis,
+    quality_basis: Basis,
+}
+
+impl Keys {
+    /// The input at the two values, in the order of the call's keys.
+    fn input(&self, value1: f64, value2: f64) -> Result<Input, Error> {
+        let (x, y) = if self.swapped { (value2, value1) } else { (value1, value2) };
+        Ok(Input::new(self.pair, x, y, self.basis)?.with_quality_basis(self.quality_basis))
+    }
+}
+
+/// The [`Keys`] of two input keys.
+fn pair_of(name1: &str, name2: &str) -> Result<Keys, CompatError> {
     let (v1, b1) = parse_input(name1).ok_or_else(|| CompatError::UnknownInput(name1.into()))?;
     let (v2, b2) = parse_input(name2).ok_or_else(|| CompatError::UnknownInput(name2.into()))?;
     let invalid = || CompatError::InvalidPair(name1.into(), name2.into());
@@ -173,7 +184,8 @@ fn pair_of(name1: &str, name2: &str) -> Result<(Pair, bool, Basis), CompatError>
         (a, b) => a.or(b).unwrap_or(Basis::Molar),
     };
     let (pair, swapped) = Pair::from_vars(v1, v2).ok_or_else(invalid)?;
-    Ok((pair, swapped, basis))
+    let mass = [name1, name2].iter().any(|key| keys::spells(key, "Qmass"));
+    Ok(Keys { pair, swapped, basis, quality_basis: if mass { Basis::Mass } else { Basis::Molar } })
 }
 
 /// `PropsSI(output, name1, value1, name2, value2, fluid)` over any registry. No echo shortcut (map 01 R7):
@@ -278,9 +290,10 @@ pub fn batch_si_with(
         None => Err(CompatError::UnknownOutput((*key).into())),
     };
     let props = outputs.iter().map(property).collect::<Result<Vec<_>, _>>()?;
-    let (pair, swapped, basis) = pair_of(name1, name2)?;
+    let Keys { pair, swapped, basis, quality_basis } = pair_of(name1, name2)?;
     let (x, y) = if swapped { (values2, values1) } else { (values1, values2) };
-    Ok(batch::evaluate(fluid, &BatchRequest::new(pair, basis, x, y, &props).with_exec(exec), out, status)?)
+    let request = BatchRequest::new(pair, basis, x, y, &props).with_exec(exec).with_quality_basis(quality_basis);
+    Ok(batch::evaluate(fluid, &request, out, status)?)
 }
 
 /// Point `i` of a vector operand, a length-1 one at every point.

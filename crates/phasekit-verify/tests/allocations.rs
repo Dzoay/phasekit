@@ -119,14 +119,15 @@ fn all_136_loaded_rss() {
     assert!(rss <= 16 * 1024, "RSS {rss} KiB over 16 MiB (issue #146)");
 }
 
-/// PLAN.md M9.7 (ARCHITECTURE.md §3.8 and §6: per state ≤ 256 B on the stack): `State` is 208 B on 64-bit targets,
-/// recorded here, and within 256 B on every target (as `lib.rs` asserts at compile time).
+/// PLAN.md M9.7 (ARCHITECTURE.md §3.8 and §6: per state ≤ 256 B on the stack): `State` is 224 B on 64-bit targets,
+/// recorded here, and within 256 B on every target (as `lib.rs` asserts at compile time). M13.1 gave each phase point
+/// its molar mass (a mixture's phases differ): 208 B before.
 #[test]
 fn state_fits_256_bytes() {
     let size = std::mem::size_of::<phasekit_core::State>();
     assert!(size <= 256, "{size} B");
     if cfg!(target_pointer_width = "64") {
-        assert_eq!(size, 208);
+        assert_eq!(size, 224);
     }
 }
 

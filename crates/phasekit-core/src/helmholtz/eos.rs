@@ -7,6 +7,7 @@ use super::{
 use crate::derivs::{Derivs, Order, Virials};
 use crate::error::{Error, LoadError};
 use crate::exec::{self, ExecPolicy, LaneKernel};
+use crate::model::Reducing;
 use crate::num::{Lanes, Real};
 
 /// Residual block kinds: a closed set compiled to SoA at decode, `match`ed once per block, never per term.
@@ -183,6 +184,11 @@ impl HelmholtzModel for MultiParameterEos {
 
     fn ideal(&self, t: f64, rho: f64, order: Order) -> Derivs {
         self.ideal.eval(t, rho, order)
+    }
+
+    /// τ = T_r/T and δ = ρ/ρ_r of [`residual`](Self::residual) (PLAN.md M13.1).
+    fn reducing(&self) -> Option<Reducing> {
+        Some(Reducing { t: self.t_r, rho: self.rho_r, p: None })
     }
 
     /// The ideal part's lane kernel under `exec`: `ExecPolicy::Simd` evaluates states side by side (PLAN.md M12.8).
@@ -449,5 +455,21 @@ mod tests {
         assert_eq!((v.b, v.c), (f1 / 10_000.0, 2.0 * f2 / 1e8));
         assert!(((v.db_dt / (-0.25 * f1 / (t * 10_000.0))) - 1.0).abs() < 1e-15);
         assert!(((v.dc_dt / (-2.0 * 1.5 * f2 / (t * 1e8))) - 1.0).abs() < 1e-15);
+    }
+
+    /// M13.1: a data fluid's EOS reports the state it reduces by, its record's (after the dataset's corrections), so a
+    /// family composing models evaluates it at a τ and δ of its own.
+    #[cfg(feature = "embedded")]
+    #[test]
+    fn the_eos_reports_its_reducing_state() {
+        let registry = crate::Registry::from_embedded(crate::DataSet::Corrected).unwrap();
+        for name in ["Water", "Methanol", "R134a", "n-Propane"] {
+            let fluid = registry.get(name).unwrap();
+            let (eos, constants) = (fluid.model().helmholtz().unwrap(), fluid.info().constants());
+            let (Some(r), Some(c)) = (eos.reducing(), constants.reducing) else {
+                panic!("{name}: {:?}", eos.reducing())
+            };
+            assert_eq!((r.t, r.rho), (c.t, c.rho), "{name}");
+        }
     }
 }

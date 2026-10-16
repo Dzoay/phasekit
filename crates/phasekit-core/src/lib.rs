@@ -35,7 +35,7 @@
 mod blob;
 mod crit;
 mod data;
-mod density;
+pub mod density;
 mod derivs;
 mod error;
 mod exec;
@@ -74,7 +74,7 @@ pub use model::{
 };
 pub use num::{Jet4, Real};
 pub use prop::{Constant, DerivVar, Partial, Prop, SecondPartial};
-pub use registry::Registry;
+pub use registry::{Registry, Resolver};
 pub use relations::{GibbsDerivs, bundle_from_gibbs};
 pub use saturation::{SatAccuracy, SatPair, SatSide, SaturationCurve};
 pub use state::{Phase, SolvePath, State, Strategy};

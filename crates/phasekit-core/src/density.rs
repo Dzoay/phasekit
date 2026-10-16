@@ -10,9 +10,15 @@
 //!   model's largest density for a liquid, the ideal gas's p/RT for a vapour.
 //!
 //! Both run Newton in ln ρ on p(T, ρ) − p, whose derivative is (∂p/∂ln ρ)_T = ρRT(2A01 + A02).
+//!
+//! The public items are the seam a family with its own flash uses (PLAN.md M13.1; a mixture's phases at (T, p)): [`solve`]
+//! on a branch, [`roots`] from both branches' far ends, [`select`] among them under a [`RootPolicy`], and the acceptance
+//! gate [`reproduces`] the core flash applies to every state it returns.
 
 use crate::derivs::{Bundle, Derivs, Order};
-use crate::error::Error;
+use crate::error::{Error, Roots};
+use crate::flash::RootPolicy;
+use crate::flash::search::choose;
 use crate::helmholtz::HelmholtzModel;
 use crate::num::math;
 use crate::roots::newton_converged;
@@ -160,8 +166,9 @@ fn failed(iterations: u16) -> Error {
 /// to 1.4e-14 leaves p 4e-5 Pa off, 2e-12 of ρRT (PLAN.md M7.1, the nightly grid).
 const REPRODUCED: f64 = 1e-12;
 
-/// Whether the state at (T, ρ) with total bundle `b` reproduces the pressure `p` ([`REPRODUCED`]).
-pub(crate) fn reproduces(r: f64, t: f64, rho: f64, p: f64, b: &Bundle) -> bool {
+/// Whether the state at (T, ρ) with total bundle `b` reproduces the pressure `p` to 1e-12 of the scale it cancels from:
+/// the acceptance gate the core flash applies to every state it returns.
+pub fn reproduces(r: f64, t: f64, rho: f64, p: f64, b: &Bundle) -> bool {
     let rt = r * t;
     let scale = (rho * rt * (1.0 + b.a01.abs())).max(rho * rt * (2.0 * b.a01 + b.a02));
     (crate::relations::pressure(r, t, rho, b) - p).abs() <= REPRODUCED * scale
@@ -183,6 +190,63 @@ pub(crate) fn liquid_above(eos: &dyn HelmholtzModel, t: f64, p: f64, lo: f64) ->
         }
     }
     Err(Error::NoConvergence { strategy: Strategy::DensityNewton, iterations: 0 })
+}
+
+/// The branch of an isotherm a density solve follows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Branch {
+    /// The dense branch, entered from the model's largest density.
+    Liquid,
+    /// The dilute branch, entered from the ideal gas's p/RT.
+    Vapour,
+}
+
+/// The density (mol/m³) at (T, p) on `branch`: Newton in ln ρ from `seed` when given, else from the branch's far end,
+/// through mechanically stable states only ((∂p/∂ρ)_T > 0), and refused (`NoConvergence { DensityNewton }`) unless the
+/// root [`reproduces`] p. A seed in the unstable region restarts from the far end.
+pub fn solve(eos: &dyn HelmholtzModel, t: f64, p: f64, branch: Branch, seed: Option<f64>) -> Result<f64, Error> {
+    let liquid = branch == Branch::Liquid;
+    let (rho, iterations) = match seed {
+        Some(seed) => at_t_p(eos, t, p, seed, liquid)?,
+        None => newton(eos, t, p, far_end(eos, t, p, liquid))?,
+    };
+    let b = (eos.residual(t, rho, Order::Two) + Derivs::IDEAL_DELTA).bundle().ok_or(failed(iterations))?;
+    if reproduces(eos.gas_constant(), t, rho, p, &b) { Ok(rho) } else { Err(failed(iterations)) }
+}
+
+/// Two roots closer than this in ln ρ are one, reached from both ends (above the critical temperature, or off the
+/// dome): each is converged to [`STEP_TOL`].
+const SAME_ROOT: f64 = 1e-12;
+
+/// Every distinct root [`solve`] reaches from the two branches' far ends at (T, p), ascending: two where a vapour and a
+/// liquid (each stable or metastable) coexist on the isotherm, one elsewhere, none where neither converges. Never a root
+/// on the unstable branch between them (ROT-181).
+pub fn roots(eos: &dyn HelmholtzModel, t: f64, p: f64) -> Roots {
+    let [vapour, liquid] = [Branch::Vapour, Branch::Liquid].map(|branch| solve(eos, t, p, branch, None).ok());
+    match (vapour, liquid) {
+        (Some(v), Some(l)) if (math::ln(l) - math::ln(v)).abs() > SAME_ROOT => Roots::new(&[v.min(l), v.max(l)]),
+        (Some(one), _) | (None, Some(one)) => Roots::new(&[one]),
+        (None, None) => Roots::new(&[]),
+    }
+}
+
+/// One root of [`roots`] under `policy`: the only one; of two, `Strict` refuses with `Ambiguous`, `Nearest(ρ)` takes the
+/// one nearest ρ, `Stable` the one of lower Gibbs energy (at fixed T, p and composition, the stable single phase).
+/// `NoConvergence { DensityNewton }` without a root.
+pub fn select(eos: &dyn HelmholtzModel, t: f64, p: f64, policy: RootPolicy) -> Result<f64, Error> {
+    let roots = roots(eos, t, p);
+    let chosen = match (roots.as_slice(), policy) {
+        (several @ [_, _, ..], RootPolicy::Stable) => {
+            let gibbs = |rho: &f64| {
+                let d = eos.ideal(t, *rho, Order::One) + eos.residual(t, *rho, Order::One);
+                d.get(0, 0).zip(d.get(0, 1)).map_or(f64::NAN, |(a00, a01)| a00 + a01)
+            };
+            several.iter().copied().min_by(|a, b| gibbs(a).total_cmp(&gibbs(b)))
+        }
+        (all, policy) => choose(all, |rho| *rho, policy)?,
+    };
+    chosen.ok_or(failed(0))
 }
 
 /// Growth steps [`liquid_above`] may take: 1.05^100 ≈ 131 times its lower end.

@@ -25,6 +25,7 @@ pub use terms::{DoubleExponentialTerm, GaoBTerm, GaussianTerm, Lemmon2005Term, N
 use crate::derivs::{Derivs, Order, Virials};
 use crate::error::Error;
 use crate::exec::ExecPolicy;
+use crate::model::Reducing;
 
 /// The seam for Helmholtz-explicit model families: CoolProp multiparameter (built in), cubic, PC-SAFT,
 /// GERG and mixtures at fixed composition (later crates). Object-safe; one virtual call per evaluation,
@@ -77,6 +78,13 @@ pub trait HelmholtzModel: Send + Sync + fmt::Debug {
     /// Exact virial coefficients from the δ → 0 Taylor coefficients of α^r (E4). `None` when the family
     /// has no closed form: virial outputs are then refused, never approximated at a small δ (map 12 R8).
     fn zero_density(&self, _t: f64) -> Option<Virials> {
+        None
+    }
+
+    /// The state this model reduces by, τ = T_r/T and δ = ρ/ρ_r, where it has one: what a family that composes models
+    /// needs to evaluate one at a τ and δ of its own (a multi-fluid mixture evaluates each component at the mixture's,
+    /// through `residual(T_r/τ, δ·ρ_r)`; PLAN.md M13.1). The contract stays in (T, ρ); `None` by default.
+    fn reducing(&self) -> Option<Reducing> {
         None
     }
 }
