@@ -6,7 +6,7 @@ import { describe, expect, test, vi } from "vitest";
 import { createHandler } from "../../src/engine/handler";
 import type { Body, Engine, Request, StateValue, Values } from "../../src/engine/protocol";
 import { Calculator, KEYS, invalid } from "../../src/lib/calculator.svelte";
-import { FLUIDS, PRESETS } from "../../src/lib/fluids";
+import { PRESETS } from "../../src/lib/fluids";
 import { loadPk } from "../pk";
 
 /** The engine as the page's worker runs it, called directly. */
@@ -245,14 +245,6 @@ describe("calculator", () => {
     stop();
   });
 
-  test("the fluid list keeps a fluid the route names that is not offered", async () => {
-    const { calc, stop } = await setup("fluid=Argon&a=T:300&b=P:101325");
-    expect(calc.fluids.at(-1)).toEqual({ name: "Argon", label: "Argon" });
-    calc.fluid = "Water";
-    expect(calc.fluids.some((f) => f.name === "Argon")).toBe(false);
-    stop();
-  });
-
   test("a late answer to an older request is dropped", async () => {
     const pending: { body: Body; resolve: (v: unknown) => void }[] = [];
     const engine: Engine = {
@@ -325,7 +317,6 @@ describe("calculator, before and between answers", () => {
       null,
       null,
     ]);
-    expect(calc.fluids).toBe(FLUIDS);
   });
 
   test("an empty route is the default view", async () => {

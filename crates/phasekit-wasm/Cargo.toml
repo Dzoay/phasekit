@@ -18,8 +18,10 @@ phasekit-compat = { workspace = true, features = ["fluids-core"] }
 phasekit-core.workspace = true
 wasm-bindgen = "0.2.129"
 
-# wasm-bindgen-test runs the tests under Node (tier T3); verify gives them its tolerance classes.
+# wasm-bindgen-test runs the tests under Node (tier T3); verify gives them its tolerance classes and fixtures. Neither
+# adds a fluid, so the tests run the five the package ships (PLAN.md M21.4).
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+phasekit-data.workspace = true # R32's names, for its pack (tests/node.rs; PLAN.md M21.4)
 phasekit-verify.workspace = true
 wasm-bindgen-test = "0.3.79"
 

@@ -459,6 +459,15 @@ jobs:
           path: site-modules
           if-no-files-found: error
           retention-days: 7
+      # One pack per fluid and their index, which the page fetches on a fluid's first use (PLAN.md M21.4).
+      - name: The packs for the site
+        run: cargo xtask packs site-packs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: site-packs
+          path: site-packs
+          if-no-files-found: error
+          retention-days: 7
 
   # G9, the site's gate (PLAN.md §2.4, M21.1), on the modules `wasm-browser` built; the page it builds is the artifact
   # `site`, which pages.yml deploys after a green run on `main` (user decision WS1).
@@ -480,6 +489,10 @@ jobs:
         with:
           name: site-modules
           path: site/src/pk
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: site-packs
+          path: site/public/packs
       - name: The site's packages
         working-directory: site
         run: npm ci --no-audit --no-fund

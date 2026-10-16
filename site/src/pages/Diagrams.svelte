@@ -11,8 +11,9 @@
   import { baseScales, readoutAt, shownAt } from "../diagram/scales";
   import { CRITICAL_LINE, PHASES, styleOf, unitOfKey } from "../diagram/style";
   import { DiagramView, READOUT_KEYS } from "../diagram/view.svelte";
+  import FluidOrigin from "../components/FluidOrigin.svelte";
+  import FluidPicker from "../components/FluidPicker.svelte";
   import { getEngine } from "../engine/client";
-  import { FLUIDS } from "../lib/fluids";
   import { formatNumber } from "../lib/format";
   import { output } from "../lib/outputs";
   import { route, writeParams } from "../lib/route.svelte";
@@ -286,14 +287,10 @@
 </section>
 
 <div class="card controls">
-  <label class="field">
-    <span>Fluid</span>
-    <select bind:value={view.fluid}>
-      {#each FLUIDS as f (f.name)}
-        <option value={f.name}>{f.label}</option>
-      {/each}
-    </select>
-  </label>
+  <div class="field">
+    <label for="fluid">Fluid</label>
+    <FluidPicker id="fluid" bind:value={view.fluid} />
+  </div>
   <fieldset class="field">
     <legend>Diagram</legend>
     <div class="segmented">
@@ -549,6 +546,9 @@
   </aside>
 </div>
 
+<!-- Below the page's content, so its lines never move the plot (PLAN.md M21.4). -->
+<div class="fluid-data"><FluidOrigin fluid={view.fluid} /></div>
+
 <span class="probe" bind:this={probe} aria-hidden="true"></span>
 
 <style>
@@ -569,12 +569,18 @@
   }
 
   .controls {
+    --picker-padding: 6px 10px;
+    --picker-height: 35px;
     display: flex;
     flex-wrap: wrap;
     gap: 16px 24px;
     padding: 14px 18px;
     margin-bottom: 20px;
     align-items: end;
+  }
+
+  .fluid-data {
+    margin-top: 16px;
   }
 
   .field {
@@ -586,7 +592,7 @@
     min-width: 0;
   }
 
-  .field > span,
+  .field > label,
   legend {
     font-size: 12px;
     font-weight: 600;
@@ -594,14 +600,6 @@
     text-transform: uppercase;
     color: var(--fg-muted);
     padding: 0;
-  }
-
-  select {
-    background: var(--surface);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-sm);
-    padding: 6px 10px;
-    min-width: 12em;
   }
 
   .segmented {

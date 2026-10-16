@@ -11,6 +11,8 @@ mod datagen;
 mod deps;
 mod doc_excerpts;
 mod features;
+#[cfg(test)]
+pub(crate) use features::core_list;
 mod fixtures;
 mod ignores;
 mod lints;

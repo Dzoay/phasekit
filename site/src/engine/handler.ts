@@ -1,8 +1,19 @@
 // The engine: the page's requests (protocol.ts) answered by the browser package. It adds no numerics: every value is
-// the package's, and every refusal is the package's message. It holds one registry and the fluid handles it has
-// opened; each state is freed once its outputs are read.
+// the package's, and every refusal is the package's message. It holds one registry, which each pack the page adds
+// replaces with a registry that also serves the pack's fluids (PLAN.md M21.4), and the fluid handles it has opened,
+// which outlive the registry they came from; each state is freed once its outputs are read.
 import type { Pk } from "./pk";
-import type { BatchValue, BenchValue, Build, Request, Response, StateValue, TimeValue, Timing } from "./protocol";
+import type {
+  BatchValue,
+  BenchValue,
+  Build,
+  RegistryValue,
+  Request,
+  Response,
+  StateValue,
+  TimeValue,
+  Timing,
+} from "./protocol";
 
 // The handle types; wasm-bindgen's private constructors rule out `InstanceType`.
 type Registry = Pk["Registry"]["prototype"];
@@ -35,14 +46,26 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
   let registry: Registry | undefined;
   const fluids = new Map<string, Fluid>();
 
+  const reg = (): Registry => (registry ??= new pk.Registry());
+
   const fluid = (name: string): Fluid => {
     let handle = fluids.get(name);
     if (!handle) {
-      registry ??= new pk.Registry();
-      handle = registry.fluid(name);
+      handle = reg().fluid(name);
       fluids.set(name, handle);
     }
     return handle;
+  };
+
+  const contents = (): RegistryValue => ({ names: reg().names(), loaded: reg().loaded() });
+
+  // A pack's fluids over the registry's: the new registry replaces the old, which is freed; a refused pack (corrupt, or
+  // naming a fluid the registry has) leaves the registry as it was.
+  const pack = (bytes: Uint8Array): RegistryValue => {
+    const next = reg().withPack(bytes);
+    reg().free();
+    registry = next;
+    return contents();
   };
 
   const state = (r: Extract<Request, { op: "state" }>): StateValue => {
@@ -91,7 +114,7 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
     fluid(r.fluid);
     return r.keys.map((key) => {
       try {
-        return (registry as Registry).Props1SI(key, r.fluid);
+        return reg().Props1SI(key, r.fluid);
       } catch {
         return null;
       }
@@ -122,14 +145,17 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
       switch (request.op) {
         case "info":
           return { id, ok: true, op: "info", value: { build, outputs: pk.outputKeys() } };
+        case "registry":
+          return { id, ok: true, op: "registry", value: contents() };
+        case "pack":
+          return { id, ok: true, op: "pack", value: pack(request.bytes) };
         case "props": {
-          registry ??= new pk.Registry();
           const { output, name1, value1, name2, value2 } = request;
           return {
             id,
             ok: true,
             op: "props",
-            value: registry.PropsSI(output, name1, value1, name2, value2, request.fluid),
+            value: reg().PropsSI(output, name1, value1, name2, value2, request.fluid),
           };
         }
         case "state":

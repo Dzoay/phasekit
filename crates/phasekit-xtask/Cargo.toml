@@ -10,7 +10,9 @@ publish.workspace = true
 # Real crate (tools tier T4): owns the one serde mirror of CoolProp's JSON (serde + serde_json, S-12; M2.1) and
 # reaches core's records through `phasekit_core::internal` (M2.3); nalgebra/faer only here (dependencies R7/R9).
 [dependencies]
-phasekit-core.workspace = true
+# Every fluid embedded: datagen's tests read the embedded registry, and `packs` packs each fluid's blob (PLAN.md M21.4).
+phasekit-core = { workspace = true, features = ["fluids-all"] }
+phasekit-data = { workspace = true, features = ["all"] }
 phasekit-verify.workspace = true # `MILESTONE`, read by `gates rot`
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["float_roundtrip"] }

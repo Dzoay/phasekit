@@ -1,6 +1,5 @@
-// The calculator lists every output the package takes, and offers only fluids the package embeds.
+// The calculator lists every output the package takes.
 import { describe, expect, test } from "vitest";
-import { FLUIDS } from "../../src/lib/fluids";
 import { INPUTS, OUTPUTS } from "../../src/lib/outputs";
 import { loadPk } from "../pk";
 
@@ -19,17 +18,5 @@ describe("outputs", () => {
         OUTPUTS.some((o) => o.key === key),
         key,
       ).toBe(true);
-  });
-
-  test("the fluids are the five embedded ones, each under its canonical name", async () => {
-    const pk = await loadPk("simd");
-    const registry = new pk.Registry();
-    expect(FLUIDS.length).toBe(5);
-    for (const { name } of FLUIDS) {
-      const fluid = registry.fluid(name);
-      expect(fluid.name).toBe(name);
-      fluid.free();
-    }
-    registry.free();
   });
 });

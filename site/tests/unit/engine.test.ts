@@ -4,7 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 import { BUDGET_MS, MAX_RUNS, createHandler, measure } from "../../src/engine/handler";
 import type { Pk } from "../../src/engine/pk";
 import { simdSupported } from "../../src/engine/simd";
-import { loadPk, propsSI, sameBits } from "../pk";
+import { embedded, loadPk, packBytes, propsSI, sameBits } from "../pk";
 
 describe("engine", () => {
   test("answers PropsSI with the package's value", async () => {
@@ -132,7 +132,16 @@ describe("the SIMD probe", () => {
 
 /** A package that counts what the engine does with it: its registries, fluid handles, flashes, reads and frees. */
 function fakePk() {
-  const calls = { registries: 0, fluids: 0, flashes: 0, reads: 0, freed: 0, evaluated: 0, batchesFreed: 0 };
+  const calls = {
+    registries: 0,
+    registriesFreed: 0,
+    fluids: 0,
+    flashes: 0,
+    reads: 0,
+    freed: 0,
+    evaluated: 0,
+    batchesFreed: 0,
+  };
   class State {
     phase = "liquid";
     get(key: string): number {
@@ -174,6 +183,18 @@ function fakePk() {
     }
     PropsSI(): number {
       return 42;
+    }
+    withPack(): Registry {
+      return new Registry();
+    }
+    names(): string[] {
+      return ["Water"];
+    }
+    loaded(): string[] {
+      return [];
+    }
+    free(): void {
+      calls.registriesFreed += 1;
     }
   }
   return { pk: { Registry, outputKeys: () => ["T"] } as unknown as Pk, calls };
@@ -286,6 +307,13 @@ describe("the engine's constants and batches", () => {
     fluid.free();
   });
 
+  test("frees each registry a pack replaces", () => {
+    const { pk, calls } = fakePk();
+    const handle = createHandler(pk, "baseline");
+    for (const id of [1, 2]) expect(handle({ id, op: "pack", bytes: new Uint8Array([id]) }).ok).toBe(true);
+    expect([calls.registries, calls.registriesFreed]).toEqual([3, 2]);
+  });
+
   test("frees each batch it runs", () => {
     const { pk, calls } = fakePk();
     const handle = createHandler(pk, "baseline");
@@ -306,5 +334,61 @@ describe("the engine's constants and batches", () => {
       value: { values: new Float64Array([7]), status: new Uint8Array([0]), outputs: 1 },
     });
     expect([calls.evaluated, calls.batchesFreed]).toEqual([1, 1]);
+  });
+});
+
+describe("the engine's packs (PLAN.md M21.4)", () => {
+  const state = (fluid: string) => ({
+    op: "state" as const,
+    fluid,
+    name1: "P",
+    value1: 101325,
+    name2: "Q",
+    value2: 0,
+    outputs: ["T"],
+  });
+
+  test("its registry names the five embedded fluids; a pack adds its own, first, and fluids opened before it still compute", async () => {
+    const handle = createHandler(await loadPk("simd"), "simd128");
+    const five = await embedded();
+    expect(handle({ id: 1, op: "registry" })).toEqual({
+      id: 1,
+      ok: true,
+      op: "registry",
+      value: { names: five, loaded: [] },
+    });
+    const water = handle({ id: 2, ...state("Water") });
+    expect(handle({ id: 3, op: "pack", bytes: packBytes("r32.pack") })).toEqual({
+      id: 3,
+      ok: true,
+      op: "pack",
+      value: { names: ["R32", ...five], loaded: ["Water"] },
+    });
+    expect(handle({ id: 4, ...state("Water") })).toEqual({ ...water, id: 4 });
+    const r32 = handle({ id: 5, ...state("R32") });
+    expect(r32.ok && r32.op === "state" && r32.value.values[0], JSON.stringify(r32)).toBeCloseTo(221.5, 0);
+    expect(handle({ id: 6, op: "registry" })).toEqual({
+      id: 6,
+      ok: true,
+      op: "registry",
+      value: { names: ["R32", ...five], loaded: ["Water", "R32"] },
+    });
+  });
+
+  test("a refused pack, corrupt or naming a fluid the registry serves, leaves the registry as it was", async () => {
+    const handle = createHandler(await loadPk("simd"), "simd128");
+    const corrupt = packBytes("r32.pack");
+    corrupt.set([(corrupt.at(-1) as number) ^ 1], corrupt.length - 1);
+    const refused = handle({ id: 1, op: "pack", bytes: corrupt });
+    expect(refused).toEqual({ id: 1, ok: false, op: "pack", error: expect.stringContaining("checksum") });
+    const twice = handle({ id: 2, op: "pack", bytes: packBytes("water.pack") });
+    expect(twice).toEqual({ id: 2, ok: false, op: "pack", error: expect.stringContaining("already registered") });
+    expect(handle({ id: 3, op: "registry" })).toEqual({
+      id: 3,
+      ok: true,
+      op: "registry",
+      value: { names: await embedded(), loaded: [] },
+    });
+    expect(handle({ id: 4, ...state("Water") }).ok).toBe(true);
   });
 });

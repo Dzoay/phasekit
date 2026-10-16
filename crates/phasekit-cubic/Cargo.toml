@@ -19,6 +19,8 @@ phasekit-core.workspace = true
 # The conformance kit (phasekit-verify) and num-dual, the AD oracle of the cubic's jets (dependencies T3).
 [dev-dependencies]
 num-dual = { version = "0.15", default-features = false }
+# Its tests compare with the embedded fluids (tests/fluid.rs, tests/saturation.rs).
+phasekit-core = { workspace = true, features = ["fluids-all"] }
 phasekit-verify.workspace = true
 
 [lints]

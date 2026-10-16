@@ -534,6 +534,7 @@ version = "0.1.0"
 dependencies = [
  "phasekit-compat",
  "phasekit-core",
+ "phasekit-data",
  "phasekit-verify",
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -544,6 +545,7 @@ name = "phasekit-xtask"
 version = "0.1.0"
 dependencies = [
  "phasekit-core",
+ "phasekit-data",
  "phasekit-mix",
  "phasekit-verify",
  "serde",

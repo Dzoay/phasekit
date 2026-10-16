@@ -36,8 +36,8 @@ jobs:
       - name: G3 cargo test --workspace
         run: cargo test --workspace
 
-  # StrykerJS over all of the site's TypeScript (PLAN.md M21.7; user decision WS5), on the modules the npm package ships;
-  # its HTML report an artifact, also when a mutant survives.
+  # StrykerJS over all of the site's TypeScript (PLAN.md M21.7; user decision WS5), on the modules the npm package ships
+  # and the packs the page fetches; its HTML report an artifact, also when a mutant survives.
   site-mutants:
     name: site mutants
     runs-on: ubuntu-24.04
@@ -61,6 +61,9 @@ jobs:
       - run: echo "$HOME/.tools/bin" >> "$GITHUB_PATH"
       - name: The browser package's modules
         run: scripts/release/wasm-modules.sh site/src/pk
+      # The unit tests read the packs as the page fetches them (PLAN.md M21.4).
+      - name: The packs
+        run: cargo xtask packs site/public/packs
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24

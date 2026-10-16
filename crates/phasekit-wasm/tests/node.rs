@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use phasekit_core::batch::Status;
-use phasekit_verify::ToleranceClass;
+use phasekit_verify::{Fixture, ToleranceClass};
 use phasekit_wasm::{Registry, output_keys};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::wasm_bindgen_test;
@@ -228,4 +228,83 @@ fn props1si_answers_constants_as_compat_does() {
     let refusal = props1_error(&JsValue::from(registry), "T");
     assert_eq!(refusal, phasekit_compat::props1_si_in(&native, "T", "Water").unwrap_err().to_string());
     assert!(refusal.contains("depends on the state"), "{refusal}");
+}
+
+/// The oracle's all-fluid tier, read as the package's tests run: compiled in (wasm32-unknown-unknown has no files).
+const CRIT: (&str, &str) = ("all/crit.csv", include_str!("../../phasekit-verify/fixtures/coolprop-8.0.0/all/crit.csv"));
+const TRANSPORT: (&str, &str) =
+    ("all/transport.csv", include_str!("../../phasekit-verify/fixtures/coolprop-8.0.0/all/transport.csv"));
+
+/// R32's pack as `cargo xtask packs` writes it: its names and requirements from the index, its committed blob.
+fn r32_pack() -> Vec<u8> {
+    let r32 = phasekit_data::FLUIDS.iter().find(|f| f.name == "R32").unwrap();
+    let names = core::iter::once(r32.name).chain(r32.aliases.iter().copied()).map(String::from).collect();
+    let requires = r32.requires.iter().copied().map(String::from).collect();
+    let blob: Arc<[u8]> = Arc::from(&include_bytes!("../../phasekit-data/blobs/r32.bin")[..]);
+    phasekit_core::internal::pack(&[(names, requires, blob)])
+}
+
+/// PLAN.md M21.4: the registry names the five fluids the package embeds, and R32 once its pack is added, the pack's
+/// first. It has decoded none until one is used: R32's enthalpy decodes R32 alone, and its transport the reference
+/// fluid it reads too (its conductivity is ECS on n-Propane, map 05 §5), listed in layer order. The first registry
+/// shares its embedded layer with the new one (E6), so it has n-Propane decoded too, and never R32.
+#[wasm_bindgen_test]
+fn names_and_loaded_follow_the_packs() {
+    let registry = Registry::new().unwrap();
+    assert_eq!(registry.names(), ["CarbonDioxide", "Nitrogen", "R134a", "Water", "n-Propane"]);
+    assert!(registry.fluid("R32").is_err(), "the package embeds five fluids, R32 not among them");
+    let page = registry.with_pack(&r32_pack()).unwrap();
+    assert_eq!(page.names(), ["R32", "CarbonDioxide", "Nitrogen", "R134a", "Water", "n-Propane"]);
+    assert_eq!(page.loaded(), Vec::<String>::new());
+    page.props_si("Hmolar", "T", 300.0, "Dmolar", 100.0, "R32").unwrap();
+    assert_eq!(page.loaded(), ["R32"]);
+    page.props_si("L", "T", 300.0, "Dmolar", 100.0, "R32").unwrap();
+    assert_eq!(page.loaded(), ["n-Propane", "R32"]);
+    assert_eq!(registry.loaded(), ["n-Propane"]);
+}
+
+/// PLAN.md M21.4: R32 from its pack, over the five embedded fluids, gives the oracle's values in their classes, as the
+/// library's own tests check them. Through `Props1SI`: its triple point, limits, molar mass and gas constant (`Exact`),
+/// and its critical point, the model's as CoolProp computes it with superancillaries on (`Flash`). Through `PropsSI`, at
+/// the all-fluid tier's eight states: its viscosity (ρ*_sr-CS, `TransportDirect`) and conductivity (ECS on the embedded
+/// n-Propane, `TransportEcs`).
+#[wasm_bindgen_test]
+fn r32_from_its_pack_gives_the_fixture_values() {
+    let page = Registry::new().unwrap().with_pack(&r32_pack()).unwrap();
+    let crit = Fixture::parse(CRIT.0, CRIT.1).unwrap();
+    let row = (0..crit.rows().len()).find(|&r| crit.printed(r, "fluid") == Some("R32")).unwrap();
+    let mut failures = Vec::new();
+    for (column, key) in [("Tc_num", "T_critical"), ("pc_num", "p_critical"), ("rhoc_num", "rhomolar_critical")] {
+        let (got, want) = (page.props1_si(key, "R32").unwrap(), crit.value(row, column).unwrap());
+        failures.extend(crit.check_scaled(row, column, got, want.abs()).err().map(|e| format!("{key}: {e:?}")));
+    }
+    let keys = [
+        ("Ttriple", "T_triple"),
+        ("ptriple", "p_triple"),
+        ("Tmin", "T_min"),
+        ("Tmax", "T_max"),
+        ("pmax", "P_max"),
+        ("M", "molar_mass"),
+        ("R", "gas_constant"),
+    ];
+    for (column, key) in keys {
+        let got = page.props1_si(key, "R32").unwrap();
+        failures.extend(crit.check(row, column, got).err().map(|e| format!("{key}: {e:?}")));
+    }
+    let transport = Fixture::parse(TRANSPORT.0, TRANSPORT.1).unwrap();
+    let mut rows = 0;
+    for row in (0..transport.rows().len()).filter(|&r| transport.printed(r, "fluid") == Some("R32")) {
+        let (t, rho) = (transport.value(row, "T").unwrap(), transport.value(row, "rho").unwrap());
+        for (column, key, class) in
+            [("eta", "V", ToleranceClass::TransportDirect), ("lambda", "L", ToleranceClass::TransportEcs)]
+        {
+            assert_eq!(transport.printed(row, &format!("{column}_status")), Some("ok"));
+            let got = page.props_si(key, "T", t, "Dmolar", rho, "R32").unwrap();
+            let bound = class.bound(transport.value(row, column).unwrap()).unwrap();
+            failures.extend(transport.check_bound(row, column, got, bound).err().map(|e| format!("{key}: {e:?}")));
+        }
+        rows += 1;
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    assert_eq!(rows, 8);
 }

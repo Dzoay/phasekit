@@ -2,6 +2,7 @@ dist/
 node_modules/
 src/pk/
 public/notices/
+public/packs/
 test-results/
 playwright-report/
 package-lock.json
