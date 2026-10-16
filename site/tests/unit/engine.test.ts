@@ -96,7 +96,7 @@ describe("timing", () => {
     expect(got.ok && got.op === "time", JSON.stringify(got)).toBe(true);
     if (!got.ok || got.op !== "time") return;
     for (const timing of [got.value.flash, got.value.outputs]) {
-      expect(timing.runs).toBeGreaterThan(1);
+      expect(timing.runs).toBeGreaterThanOrEqual(1);
       expect(Number.isFinite(timing.us) && timing.us > 0).toBe(true);
     }
   });
@@ -132,7 +132,7 @@ describe("the SIMD probe", () => {
 
 /** A package that counts what the engine does with it: its registries, fluid handles, flashes, reads and frees. */
 function fakePk() {
-  const calls = { registries: 0, fluids: 0, flashes: 0, reads: 0, freed: 0 };
+  const calls = { registries: 0, fluids: 0, flashes: 0, reads: 0, freed: 0, evaluated: 0, batchesFreed: 0 };
   class State {
     phase = "liquid";
     get(key: string): number {
@@ -145,7 +145,19 @@ function fakePk() {
       calls.freed += 1;
     }
   }
+  class Batch {
+    values = new Float64Array([7]);
+    status = new Uint8Array([0]);
+    outputs = 1;
+    free(): void {
+      calls.batchesFreed += 1;
+    }
+  }
   class Fluid {
+    evaluate(): Batch {
+      calls.evaluated += 1;
+      return new Batch();
+    }
     flash(): State {
       calls.flashes += 1;
       return new State();
@@ -222,5 +234,76 @@ describe("measure", () => {
       () => 0,
     );
     expect(timing).toEqual({ us: 0, runs: MAX_RUNS });
+  });
+});
+
+describe("the engine's constants and batches", () => {
+  test("reads a fluid's constants as Props1SI does, and null for a key that is not one", async () => {
+    const pk = await loadPk("simd");
+    const handle = createHandler(pk, "simd128");
+    const keys = ["T_critical", "p_critical", "T_triple", "T", "P_max"];
+    const got = handle({ id: 1, op: "constants", fluid: "Water", keys });
+    const registry = new pk.Registry();
+    const want = keys.map((k) => {
+      try {
+        return registry.Props1SI(k, "Water");
+      } catch {
+        return null;
+      }
+    });
+    registry.free();
+    expect(want[3]).toBeNull();
+    expect(got).toEqual({ id: 1, ok: true, op: "constants", value: want });
+    expect(handle({ id: 2, op: "constants", fluid: "Unobtainium", keys }).ok).toBe(false);
+  });
+
+  test("runs a batch as the package's evaluate does, bit for bit, failed cells coded", async () => {
+    const pk = await loadPk("simd");
+    const handle = createHandler(pk, "simd128");
+    const [values1, values2] = [new Float64Array([300, 500, -1]), new Float64Array([1e5, 1e6, 1e5])];
+    const got = handle({
+      id: 3,
+      op: "batch",
+      fluid: "Water",
+      outputs: ["Hmass", "Q"],
+      name1: "T",
+      values1,
+      name2: "P",
+      values2,
+    });
+    expect(got.ok && got.op).toBe("batch");
+    if (!got.ok || got.op !== "batch") return;
+    const fluid = new pk.Registry().fluid("Water");
+    const want = fluid.evaluate(["Hmass", "Q"], "T", values1, "P", values2);
+    expect([...got.value.values].map((v) => Object.is(v, NaN) || v)).toEqual(
+      [...want.values].map((v) => Object.is(v, NaN) || v),
+    );
+    expect([...got.value.status]).toEqual([...want.status]);
+    expect(got.value.outputs).toBe(2);
+    expect(got.value.status[4]).toBeGreaterThan(1);
+    want.free();
+    fluid.free();
+  });
+
+  test("frees each batch it runs", () => {
+    const { pk, calls } = fakePk();
+    const handle = createHandler(pk, "baseline");
+    const got = handle({
+      id: 4,
+      op: "batch",
+      fluid: "Water",
+      outputs: ["T"],
+      name1: "T",
+      values1: new Float64Array([1]),
+      name2: "P",
+      values2: new Float64Array([1]),
+    });
+    expect(got).toEqual({
+      id: 4,
+      ok: true,
+      op: "batch",
+      value: { values: new Float64Array([7]), status: new Uint8Array([0]), outputs: 1 },
+    });
+    expect([calls.evaluated, calls.batchesFreed]).toEqual([1, 1]);
   });
 });

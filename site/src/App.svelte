@@ -10,6 +10,11 @@
 <main>
   {#if route.page === "calculator"}
     <Calculator />
+  {:else if route.page === "diagrams"}
+    <!-- Loaded on first visit: the diagrams and d3 stay out of the calculator's first load. -->
+    {#await import("./pages/Diagrams.svelte") then page}
+      <page.default />
+    {/await}
   {:else if route.page === "licences"}
     <Licences />
   {:else}

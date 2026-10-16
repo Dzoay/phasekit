@@ -1,5 +1,5 @@
-// The themes against WCAG 2.2: text at least 4.5:1 on its background (success criterion 1.4.3, AA) and the borders of
-// controls at least 3:1 (1.4.11), with the standard's contrast ratio and relative luminance.
+// The themes against WCAG 2.2: text at least 4.5:1 on its background (success criterion 1.4.3, AA), and the borders of
+// controls and the diagrams' lines at least 3:1 (1.4.11), with the standard's contrast ratio and relative luminance.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -22,6 +22,9 @@ const PAIRS: [string, string, number][] = [
   ["--on-accent", "--accent", 4.5],
   ["--danger", "--surface", 4.5],
   ["--border-strong", "--surface", 3],
+  ["--iso-1", "--surface", 3],
+  ["--iso-2", "--surface", 3],
+  ["--iso-3", "--surface", 3],
 ];
 
 describe("contrast", () => {

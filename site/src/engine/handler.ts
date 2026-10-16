@@ -2,7 +2,7 @@
 // the package's, and every refusal is the package's message. It holds one registry and the fluid handles it has
 // opened; each state is freed once its outputs are read.
 import type { Pk } from "./pk";
-import type { Build, Request, Response, StateValue, TimeValue, Timing } from "./protocol";
+import type { BatchValue, Build, Request, Response, StateValue, TimeValue, Timing } from "./protocol";
 
 // The handle types; wasm-bindgen's private constructors rule out `InstanceType`.
 type Registry = Pk["Registry"]["prototype"];
@@ -86,6 +86,28 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
     }
   };
 
+  // Each key's Props1SI value, null where the package refuses it; an unknown fluid refuses the whole request.
+  const constants = (r: Extract<Request, { op: "constants" }>): (number | null)[] => {
+    fluid(r.fluid);
+    return r.keys.map((key) => {
+      try {
+        return (registry as Registry).Props1SI(key, r.fluid);
+      } catch {
+        return null;
+      }
+    });
+  };
+
+  // The package's batch, its handle freed once its arrays are copied out.
+  const batch = (r: Extract<Request, { op: "batch" }>): BatchValue => {
+    const b = fluid(r.fluid).evaluate(r.outputs, r.name1, r.values1, r.name2, r.values2);
+    try {
+      return { values: b.values, status: b.status, outputs: b.outputs };
+    } finally {
+      b.free();
+    }
+  };
+
   return (request) => {
     const { id, op } = request;
     try {
@@ -106,6 +128,10 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
           return { id, ok: true, op: "state", value: state(request) };
         case "time":
           return { id, ok: true, op: "time", value: time(request) };
+        case "constants":
+          return { id, ok: true, op: "constants", value: constants(request) };
+        case "batch":
+          return { id, ok: true, op: "batch", value: batch(request) };
       }
     } catch (e) {
       return { id, ok: false, op, error: message(e) };

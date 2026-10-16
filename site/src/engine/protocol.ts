@@ -30,6 +30,14 @@ export interface TimeValue {
   outputs: Timing;
 }
 
+/** A batch's answer (the package's `Fluid.evaluate`): output k of point i at `values[i * outputs + k]`, its cell code
+ *  at `status[i * outputs + k]` (0 success, 1 a flagged extrapolation, more a failure). */
+export interface BatchValue {
+  values: Float64Array;
+  status: Uint8Array;
+  outputs: number;
+}
+
 export type Request =
   | { id: number; op: "info" }
   | {
@@ -52,6 +60,17 @@ export type Request =
       value2: number;
       outputs: string[];
     }
+  | { id: number; op: "constants"; fluid: string; keys: string[] }
+  | {
+      id: number;
+      op: "batch";
+      fluid: string;
+      outputs: string[];
+      name1: string;
+      values1: Float64Array;
+      name2: string;
+      values2: Float64Array;
+    }
   | {
       id: number;
       op: "time";
@@ -70,6 +89,9 @@ export interface Values {
   props: number;
   state: StateValue;
   time: TimeValue;
+  /** Each key's `Props1SI` value, or null where the package refused it. */
+  constants: (number | null)[];
+  batch: BatchValue;
 }
 
 export type Response =

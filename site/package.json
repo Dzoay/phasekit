@@ -18,6 +18,9 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "d3-scale": "4.0.2",
+    "d3-selection": "3.0.0",
+    "d3-zoom": "3.0.0",
     "svelte": "5.57.1"
   },
   "devDependencies": {
@@ -25,6 +28,9 @@
     "@stryker-mutator/core": "10.0.0",
     "@stryker-mutator/vitest-runner": "10.0.0",
     "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@types/d3-scale": "4.0.9",
+    "@types/d3-selection": "3.0.12",
+    "@types/d3-zoom": "3.0.9",
     "@types/node": "24.19.1",
     "prettier": "3.9.9",
     "prettier-plugin-svelte": "4.1.1",

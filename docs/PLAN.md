@@ -219,7 +219,7 @@ This table is the one definition of G1-G9.
 | G6 | `cargo check --workspace --all-targets --target x86_64-pc-windows-msvc` | local (check only: no MSVC linker); CI windows runs G3 | M0.2 |
 | G7 | `cargo clippy -p phasekit-core --no-default-features --all-targets -- -D warnings` (+ `-p phasekit-compat` from M5.9) | local; CI linux | M0.2 |
 | G8 | `cargo xtask gates all`; each subcommand, its rule and the milestone it starts at: VERIFICATION.md §11.2 | local; CI linux (needs `reference/CoolProp`, fetched and cached by the job) | M0.4 |
-| G9 | `scripts/site/check.sh`: the site's build (`scripts/site/build.sh`), `prettier --check`, `svelte-check`, Vitest, StrykerJS on the site TypeScript changed against `origin/main` (`scripts/site/mutants.sh`: a surviving mutant fails it, as G8's `gates mutants` does; M21.7), the page's budget (`site/size-budget.txt`) and Playwright on Chromium | local (Node, npm, cargo-about and wasm-bindgen-cli; `npx playwright install chromium` once); CI site, on every PR | M21.1 |
+| G9 | `scripts/site/check.sh`: the site's build (`scripts/site/build.sh`), `prettier --check`, `svelte-check`, Vitest, StrykerJS on the site TypeScript changed against `origin/main` (`scripts/site/mutants.sh`: a surviving mutant fails it, as G8's `gates mutants` does; M21.7), the page's budget (`site/size-budget.txt`) and Playwright on Chromium, its screenshot comparisons on CI's runner only, where their baselines are made (M21.2) | local (Node, npm, cargo-about and wasm-bindgen-cli; `npx playwright install chromium` once); CI site, on every PR | M21.1 |
 
 CI also runs what no local gate does (VERIFICATION.md §11.3): the aarch64 tests, G3 on the MSRV, the nightly oracle
 sweep, the weekly latest-dependency and full mutants runs, and from M9 the gungraun benches. `cargo deny check`,
@@ -848,25 +848,9 @@ contrast ratio. M21 does not move `MILESTONE`.
 | Step | Landed |
 |---|---|
 | M21.1 | `site/`: Svelte 5, Vite and TypeScript (T5); the calculator over the five embedded fluids, its view in the URL; themes (light, dark, the system's; four accents), WCAG 2.2 AA contrast checked; the engine worker on the `simd128` build where validated; the browser package's `outputKeys()`; `scripts/release/wasm-modules.sh`, which the npm package and the site share; G9 and CI's `site` job; `pages.yml`; the licences page; the page's budget, 33 218 B + 10 % |
+| M21.2 | The diagrams page: p–h, T–s, p–T, T–ρ and h–s of the embedded fluids, sampled in `site/src/sample/` by the package's batch (every vertex `Exact` against it): the dome down to the saturation temperature of the lowest plotted pressure and the critical point; isotherms and isobars through the dome at their QT or PQ saturation states, isentropes, isenthalps and isochores with their QS, HQ or DQ edges, quality lines; a failed cell a gap. The readout flashes the state under the cursor; zoom and pan; CSV, SVG and PNG; three colour-blind-safe family colours, each with its dash; screenshots compared on CI's runner. The browser package's `Props1SI`; the page loaded on first visit; the budget 66 406 B + 10 % |
 | M21.7 | `site/src/lib/calculator.svelte.ts`: the calculator's view and wiring, which `Calculator.svelte` binds to and Vitest drives in a client-transformed environment; StrykerJS 10 with its Vitest runner (Vitest held at 4.1): `scripts/site/mutants.sh` in G9 on the site TypeScript a PR changes, static mutants skipped, and the weekly `site mutants` job over all of it; equivalent mutants excluded with their reasons; the baseline's 38.45 % raised to 100 % |
 
-- **M21.2 The diagrams.** p–h (log p), T–s, p–T, T–ρ and h–s for any loaded fluid.
-  - The saturation dome from QT batches between T_triple (or T_min) and T_c, the grid closing in on T_c; the critical
-    and triple points.
-  - Isotherms, isobars, isentropes, isenthalps, isochores and lines of constant quality, each from `evaluate` along
-    its line, split where it meets the dome (its two-phase part from `PQ` or `QT`) and where a cell fails, which
-    leaves a gap, never a join.
-  - Zoom and pan; a crosshair that flashes the state under the cursor (p–h by HP, T–s by ST, p–T by PT, T–ρ by DT,
-    h–s by HS) and lists its properties; PNG, SVG and CSV export; colours from the theme tokens, the isolines in a
-    colour-blind-safe palette.
-  - The sampling is plain TypeScript in `site/src/sample/`, which M21.6 replaces with M19's geometry.
-
-  *Red:* Vitest under Node on the real package, for Water and n-Propane: every vertex equals the package's value at
-  its inputs (`Exact`); a one-phase segment's vertices lie on one side of the dome, and a two-phase segment's ends are
-  the saturation states at its value (`Exact` against `QT` or `PQ`); a failed cell leaves a gap. Playwright: a hover
-  over a known point of Water's p–h diagram lists the HP flash's values; screenshots of each diagram in the light and
-  dark themes (`toHaveScreenshot`, Chromium on Linux) become the visual baseline. *Done when:* G9; each diagram's
-  sampling time in the worker (Chromium, the i7-8700K) is recorded in the PR.
 - **M21.3 Sweeps and the benchmark.**
   - Sweeps: any output against T along isobars or against p along isotherms, several lines at once (c_p near the
     critical point, w, η, λ, Z); σ, the latent heat and both phases' properties along saturation.

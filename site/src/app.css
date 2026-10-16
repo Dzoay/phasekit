@@ -21,6 +21,12 @@
   --fg: light-dark(#11141a, #e8ebf1);
   --fg-muted: light-dark(#545e6d, #9ba5b5);
   --danger: light-dark(#b42318, #ff8f80);
+  /* The isoline families' colours (the dataviz skill's first three slots, validated with --pairs all on these surfaces;
+     the light third darkened to reach 3:1, which puts its CVD separation in the 6-8 band, so each family also
+     has its own dash pattern and direct labels). */
+  --iso-1: light-dark(#2a78d6, #3987e5);
+  --iso-2: light-dark(#eb6834, #d95926);
+  --iso-3: light-dark(#169a6b, #199e70);
   --shadow:
     0 1px 2px light-dark(rgb(16 24 40 / 6%), rgb(0 0 0 / 40%)),
     0 4px 16px light-dark(rgb(16 24 40 / 5%), rgb(0 0 0 / 25%));
