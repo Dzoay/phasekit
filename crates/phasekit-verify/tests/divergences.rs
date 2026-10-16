@@ -20,6 +20,8 @@ use phasekit_verify::{
 mod mix_crit;
 #[path = "common/mix_flash.rs"]
 mod mix_flash;
+#[path = "common/mix_sat.rs"]
+mod mix_sat;
 #[path = "common/transport_rows.rs"]
 mod transport_rows;
 
@@ -84,6 +86,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0057", div_0057),
     ("DIV-0058", div_0058),
     ("DIV-0059", div_0059),
+    ("DIV-0060", div_0060),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1564,7 +1567,8 @@ fn div_0058() {
         rho_vapour: rho_v,
     };
     assert!(rho_l < 100.0 && rho_v > 11_000.0, "the oracle's liquid at {rho_l}, its vapour at {rho_v}");
-    let worst = mix_flash::fugacity_differences(mix, o.t, &labelled).iter().fold(0.0_f64, |m, (d, _)| m.max(d.abs()));
+    let worst =
+        mix_flash::fugacity_differences(mix, o.t, o.p, &labelled).iter().fold(0.0_f64, |m, (d, _)| m.max(d.abs()));
     assert!(worst < 1e-9, "{worst}");
     for (z1, t, p) in
         [(0.25, 312.481_207_602_218_03, 1_036_661.768_427_621_1), (0.5, 313.316_216_669_962_2, 1_071_511.306_009_241_1)]
@@ -1582,7 +1586,7 @@ fn div_0058() {
         let mix = mix_flash::mixture(&fluid);
         let split = mix.equilibrium(t, p).unwrap();
         let (beta, x, y, rho_liquid, rho_vapour) = mix_flash::parts(&split).unwrap();
-        assert!(mix_flash::fugacity_differences(mix, t, &split).iter().all(|(d, bound)| d.abs() <= *bound));
+        assert!(mix_flash::fugacity_differences(mix, t, p, &split).iter().all(|(d, bound)| d.abs() <= *bound));
         let feed =
             mix_flash::gibbs(mix, t, mix_flash::root(&registry, mix, t, p, mix.composition()), mix.composition());
         let g = (1.0 - beta) * mix_flash::gibbs(mix, t, rho_liquid, x) + beta * mix_flash::gibbs(mix, t, rho_vapour, y);
@@ -1593,8 +1597,8 @@ fn div_0058() {
 
 /// DIV-0059 (`KeepOracle`, PLAN.md M13.8): v8.0.0's splits are converged to its second-order stage's 1e-9, phasekit's
 /// to the fugacity gate. At R32/R125 z₁ 0.75, 300.6 K, (1) the oracle's β is more than 1e-8 and less than its
-/// measured 1e-7 from phasekit's; (2) its phases' fractions, each on its stable root, leave ln f unequal by 5.5e-11,
-/// more than 1e-11, where phasekit's split meets the gate's 1e-12 (1.8e-14).
+/// measured 1e-7 from phasekit's; (2) its phases' fractions, each on its stable root, leave ln f at (T, p) unequal by
+/// 5.5e-11, more than 1e-11, where phasekit's split meets the gate's 1e-12 (6.4e-15).
 fn div_0059() {
     let label = "R32&R125";
     let row = mix_flash::flash_rows()
@@ -1621,9 +1625,35 @@ fn div_0059() {
         rho_vapour: rho_v,
     };
     let worst = |e: &phasekit_mix::Equilibrium| {
-        mix_flash::fugacity_differences(mix, row.t, e).iter().fold(0.0_f64, |m, (d, _)| m.max(d.abs()))
+        mix_flash::fugacity_differences(mix, row.t, row.p, e).iter().fold(0.0_f64, |m, (d, _)| m.max(d.abs()))
     };
     assert!(worst(&oracle) > 1e-11 && worst(&ours) <= 1e-12, "{:e} against {:e}", worst(&oracle), worst(&ours));
+}
+
+/// DIV-0060 (`KeepOracle`, PLAN.md M13.9): v8.0.0's bubble and dew points end on its step, phasekit's on the fugacity
+/// gate. At Methane/n-Butane z₁ 0.75's bubble point at 220.30 K, (1) the oracle's vapour density is more than 1e-7 and
+/// less than the measured 5e-7 from phasekit's; (2) its phases, at its own densities and p, leave ln f unequal by
+/// 1.5e-6, more than 1e-6, where phasekit's meet the gate's 1e-12 (8.9e-15).
+fn div_0060() {
+    let label = "Methane&n-Butane";
+    let row = mix_sat::sat_rows()
+        .into_iter()
+        .find(|o| o.label == label && o.z1 == 0.75 && o.given_t && o.q == 0.0 && o.t > 220.0)
+        .unwrap();
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let fluid = mix_sat::row_fluid(&registry, label, row.z1);
+    let mix = mix_sat::mixture(&fluid);
+    let ours = mix.saturation(phasekit_mix::Side::Bubble, phasekit_mix::Given::T(row.t)).unwrap();
+    let off = ((ours.rho_incipient - row.rho_vapour) / row.rho_vapour).abs();
+    assert!(off > 1e-7 && off < 5e-7, "{off:e}");
+    let worst = |t: f64, p: f64, liquid: (&[f64], f64), vapour: (&[f64], f64)| {
+        mix_sat::fugacity_differences(mix, t, p, liquid, vapour).iter().fold(0.0_f64, |m, (d, _)| m.max(d.abs()))
+    };
+    let (x, y) = ([row.x1, 1.0 - row.x1], [row.y1, 1.0 - row.y1]);
+    let oracle = worst(row.t, row.p, (&x, row.rho_liquid), (&y, row.rho_vapour));
+    let ((xs, rho_l), (ys, rho_v)) = mix_sat::phases(mix, phasekit_mix::Side::Bubble, &ours);
+    let phasekit = worst(ours.t, ours.p, (&xs, rho_l), (&ys, rho_v));
+    assert!(oracle > 1e-6 && phasekit <= 1e-12, "{oracle:e} against {phasekit:e}");
 }
 
 /// DIV-0055 (`KeepOracle`, PLAN.md M13.5): AGA8's binary test set comes from an implementation whose θ_k are TM15's

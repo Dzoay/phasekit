@@ -12,10 +12,10 @@
 //!   accelerated by the dominant eigenvalue every fifth step, then Newton's method in the minority phase's mole numbers.
 //!   It ends on a residual gate over the fugacity equations, never on the step.
 
-use phasekit_core::density;
-use phasekit_core::{Constant, Derivs, Error, HelmholtzModel, Order, Reducing, RootPolicy, Strategy, Virials, math};
+use phasekit_core::density::{self, Branch};
+use phasekit_core::{Constant, Derivs, Error, HelmholtzModel, Order, Reducing, Strategy, Virials, math};
 
-use crate::{Composition, Mixture, MixtureModel};
+use crate::{Composition, Mixture, MixtureModel, Var};
 
 /// Successive substitutions of the tangent-plane test before its Newton stage, and that stage's steps.
 const SUBSTITUTIONS: usize = 12;
@@ -67,12 +67,25 @@ impl HelmholtzModel for Phase<'_> {
 pub(crate) struct AtTp {
     pub(crate) rho: f64,
     pub(crate) c: Composition,
+    /// The pressure the phase is at, Pa, and RT, J/mol.
+    pub(crate) p: f64,
+    pub(crate) rt: f64,
 }
 
 impl AtTp {
-    /// ln φ_i for every component.
-    fn ln_phi(&self) -> Vec<f64> {
-        (0..self.c.components()).map(|i| self.c.ln_phi(i)).collect()
+    /// `x` at (T, ρ), a root at p, to `order`.
+    pub(crate) fn new(mixture: &Mixture, t: f64, p: f64, rho: f64, x: &[f64], order: Order) -> Result<AtTp, Error> {
+        let c = mixture.model().composition(t, rho, x, order)?;
+        Ok(AtTp { rho, c, p, rt: mixture.model().gas_constant() * t })
+    }
+
+    /// ln φ_i = ∂Ψ/∂n_i − ln(p/(ρRT)) for every component, at the pressure the phase is at. At the root it is
+    /// `Composition::ln_phi`'s, which takes Z from the model at ρ; but a dense phase's p(ρ) moves by K_T/p ulps of p per
+    /// ulp of ρ (2.5e4 for a propane-rich liquid at 41 kPa), so the model's Z there leaves ln φ a floor of 1e-12 that
+    /// p's own does not.
+    pub(crate) fn ln_phi(&self) -> Vec<f64> {
+        let ln_z = math::ln(self.p / (self.rho * self.rt));
+        (0..self.c.components()).map(|i| self.c.psi(&[Var::N(i)]) - ln_z).collect()
     }
 
     /// n (∂ln φ_i/∂n_j)_(T,p), needs `Order::Two`.
@@ -87,14 +100,14 @@ impl AtTp {
 pub(crate) fn at_t_p(mixture: &Mixture, t: f64, p: f64, x: &[f64], order: Order) -> Result<AtTp, Error> {
     let phase = Phase { mixture, x };
     let rho = polished(&phase, t, p, stable_root(&phase, t, p)?);
-    Ok(AtTp { rho, c: mixture.model().composition(t, rho, x, order)? })
+    AtTp::new(mixture, t, p, rho, x, order)
 }
 
 /// `rho`, a root of p(T, ρ) = p, polished by up to three Newton steps to the rounding of p: core's solve accepts a root
 /// that reproduces p to its gate, and a liquid's ln f_i moves with p by v̄_i/RT, which at low pressure leaves the
 /// fugacity equations a floor of 1e-11 (Methane/n-Butane's butane-rich liquid at 181 K and 66.5 kPa). A step that
 /// does not lower |p(ρ) − p| is not taken.
-fn polished(model: &dyn HelmholtzModel, t: f64, p: f64, mut rho: f64) -> f64 {
+pub(crate) fn polished(model: &dyn HelmholtzModel, t: f64, p: f64, mut rho: f64) -> f64 {
     let rt = model.gas_constant() * t;
     let at = |rho: f64| {
         let d = model.residual(t, rho, Order::Two);
@@ -127,17 +140,79 @@ fn rising(model: &dyn HelmholtzModel, t: f64, from: f64, to: f64) -> bool {
     })
 }
 
-/// The stable density root at (T, p): of the roots core's density solve finds on the vapour and the liquid branch
-/// (M13.1), those its branch reaches with the pressure rising throughout, and of those the one of least Gibbs energy
-/// (core's `RootPolicy::Stable`), checked first. Where two roots are found, the dilute one must rise from the ideal gas
+/// The density at (T, p) on `branch`, from `seed` where one is known: core's solve (M13.1), and where it does not
+/// converge, Newton's method in ln ρ from the same start that ends on core's acceptance gate (`density::reproduces`), not
+/// on the step. Core's Newton stops on a step within 1e-14 in ln ρ, or on a residual within 1e-14 of ρRT and a step no
+/// longer halving; an R22-rich liquid's p rounds at 2e-14 of ρRT, so its steps wander by 1e-14 at the root until the
+/// iterations run out (R411B's incipient liquid at 258 K and 291 kPa). Core stays frozen to M13's close.
+pub(crate) fn branch_root(
+    model: &dyn HelmholtzModel,
+    t: f64,
+    p: f64,
+    branch: Branch,
+    seed: Option<f64>,
+) -> Result<f64, Error> {
+    density::solve(model, t, p, branch, seed).or_else(|error| {
+        let far_end = far_end(model, t, p, branch);
+        seed.and_then(|seed| gated(model, t, p, seed)).or_else(|| gated(model, t, p, far_end)).ok_or(error)
+    })
+}
+
+/// Where a branch's solve starts without a seed, as core's: the model's largest density for the liquid, the ideal gas's
+/// p/RT for the vapour.
+fn far_end(model: &dyn HelmholtzModel, t: f64, p: f64, branch: Branch) -> f64 {
+    if branch == Branch::Liquid { model.rho_max(t) } else { p / (model.gas_constant() * t) }
+}
+
+/// Newton iterations [`gated`] may spend, and its largest step in ln ρ: core's.
+const GATED_ITERATIONS: usize = 50;
+const GATED_STEP: f64 = 0.25;
+
+/// Newton's method in ln ρ on p(T, ρ) − p from `start`, through mechanically stable states only, until the density
+/// reproduces p by core's acceptance gate; `None` at an unstable or non-finite iterate, or out of iterations.
+fn gated(model: &dyn HelmholtzModel, t: f64, p: f64, start: f64) -> Option<f64> {
+    let (r, mut u) = (model.gas_constant(), math::ln(start));
+    for _ in 0..GATED_ITERATIONS {
+        let rho = math::exp(u);
+        let b = (model.residual(t, rho, Order::Two) + Derivs::IDEAL_DELTA).bundle()?;
+        let (pressure, slope) = (rho * r * t * b.a01, rho * r * t * (2.0 * b.a01 + b.a02));
+        if !(pressure.is_finite() && slope > 0.0) {
+            return None;
+        }
+        if density::reproduces(r, t, rho, p, &b) {
+            return Some(rho);
+        }
+        u += ((p - pressure) / slope).clamp(-GATED_STEP, GATED_STEP);
+    }
+    None
+}
+
+/// Two roots closer than this in ln ρ are one, reached from both branches' ends: core's `density::roots`'.
+const SAME_ROOT: f64 = 1e-12;
+
+/// The distinct roots [`branch_root`] reaches from the vapour's and the liquid's far end, ascending: core's
+/// `density::roots` on [`branch_root`].
+fn roots(model: &dyn HelmholtzModel, t: f64, p: f64) -> Vec<f64> {
+    let [vapour, liquid] = [Branch::Vapour, Branch::Liquid].map(|branch| branch_root(model, t, p, branch, None).ok());
+    match (vapour, liquid) {
+        (Some(v), Some(l)) if (math::ln(l) - math::ln(v)).abs() > SAME_ROOT => vec![v.min(l), v.max(l)],
+        (Some(one), _) | (None, Some(one)) => vec![one],
+        (None, None) => vec![],
+    }
+}
+
+/// The stable density root at (T, p): of the roots [`branch_root`] finds on the vapour and the liquid branch, those
+/// its branch reaches with the pressure rising throughout, and of those the one of least Gibbs energy (core's
+/// `RootPolicy::Stable`), checked first. Where two roots are found, the dilute one must rise from the ideal gas
 /// and the dense one from the model's largest density, dp/dρ > 0 at `BRANCH_POINTS` points between: a root on a loop of the
 /// isotherm past a spinodal, where the multi-fluid equations are extrapolated, fails it and is dropped, however low its
 /// Gibbs energy (#3283's ρ ≈ 6751 for C1/C2/C3 at 2 MPa; a butane-rich trial phase's ρ ≈ 4646 at 220 K and 8 MPa).
+/// Where neither is on its branch, the one of least Gibbs energy.
 pub(crate) fn stable_root(model: &dyn HelmholtzModel, t: f64, p: f64) -> Result<f64, Error> {
-    let roots = density::roots(model, t, p);
-    let [dilute, dense] = match roots.as_slice() {
-        [dilute, dense] => [*dilute, *dense],
-        _ => return density::select(model, t, p, RootPolicy::Stable),
+    let [dilute, dense] = match roots(model, t, p)[..] {
+        [dilute, dense] => [dilute, dense],
+        [one] => return Ok(one),
+        _ => return Err(Error::NoConvergence { strategy: Strategy::DensityNewton, iterations: 0 }),
     };
     let rising = |from: f64, to: f64| rising(model, t, from, to);
     let gibbs = |rho: f64| {
@@ -147,13 +222,7 @@ pub(crate) fn stable_root(model: &dyn HelmholtzModel, t: f64, p: f64) -> Result<
     // The lower-Gibbs root first; the other only where the first is not on its branch.
     let ends = [(dilute, 0.0), (dense, model.rho_max(t))];
     let [first, second] = if gibbs(dense) < gibbs(dilute) { [ends[1], ends[0]] } else { ends };
-    if rising(first.1, first.0) {
-        Ok(first.0)
-    } else if rising(second.1, second.0) {
-        Ok(second.0)
-    } else {
-        density::select(model, t, p, RootPolicy::Stable)
-    }
+    if !rising(first.1, first.0) && rising(second.1, second.0) { Ok(second.0) } else { Ok(first.0) }
 }
 
 /// `x` divided by its sum.
@@ -162,15 +231,21 @@ pub(crate) fn normalised(x: &[f64]) -> Vec<f64> {
     x.iter().map(|x| x / total).collect()
 }
 
-/// Wilson's ln K_i = ln(p_c,i/p) + 5.373 (1 + ω_i)(1 − T_c,i/T), from each component's published critical point and
-/// acentric factor (0 where it has none, as GERG-2008's components).
+/// Wilson's ln K_i = ln(p_c,i/p) + a_i(T), a_i = 5.373 (1 + ω_i)(1 − T_c,i/T), from each component's published critical
+/// point and acentric factor (0 where it has none, as GERG-2008's components).
 pub(crate) fn wilson(mixture: &Mixture, t: f64, p: f64) -> Vec<f64> {
+    wilson_parts(mixture, t).iter().map(|(p_c, a)| math::ln(p_c / p) + a).collect()
+}
+
+/// Each component's (p_c,i, a_i(T)) of Wilson's K; a component without a published critical point takes (1 MPa, 0),
+/// a seed and no more.
+pub(crate) fn wilson_parts(mixture: &Mixture, t: f64) -> Vec<(f64, f64)> {
     mixture
         .model()
         .fluids()
         .map(|f| {
             let omega = f.constant(Constant::Acentric).unwrap_or(0.0);
-            f.info().published_critical().map_or(0.0, |c| math::ln(c.p / p) + 5.373 * (1.0 + omega) * (1.0 - c.t / t))
+            f.info().published_critical().map_or((1e6, 0.0), |c| (c.p, 5.373 * (1.0 + omega) * (1.0 - c.t / t)))
         })
         .collect()
 }
@@ -364,7 +439,7 @@ impl Tpd<'_> {
 }
 
 /// The n × n matrix of `f(i, j)`.
-fn square(n: usize, f: impl Fn(usize, usize) -> f64) -> Vec<Vec<f64>> {
+pub(crate) fn square(n: usize, f: impl Fn(usize, usize) -> f64) -> Vec<Vec<f64>> {
     (0..n).map(|i| (0..n).map(|j| f(i, j)).collect()).collect()
 }
 
@@ -649,6 +724,20 @@ mod tests {
         assert!(virials.is_some() && virials == mixture.model().virials(&x, 250.0));
     }
 
+    /// At a root of p(T, ρ) = p, ln φ from the pressure the phase is at is `Composition::ln_phi`'s, which takes Z from
+    /// the model at ρ: library Methane/Ethane's 30/70 liquid and 90/10 vapour at 200 K and 1.5 MPa.
+    #[test]
+    fn ln_phi_at_the_phase_s_pressure_is_the_model_s() {
+        let mixture = library(&["Methane", "Ethane"], &[0.5, 0.5]);
+        for x in [[0.3, 0.7], [0.9, 0.1]] {
+            let phase = at_t_p(&mixture, 200.0, 1.5e6, &x, Order::One).unwrap_or_else(|e| panic!("{e:?}"));
+            for (i, ln_phi) in phase.ln_phi().into_iter().enumerate() {
+                let model = phase.c.ln_phi(i);
+                assert!((ln_phi - model).abs() < 1e-10, "{x:?}: {i}: {ln_phi} {model}");
+            }
+        }
+    }
+
     /// A root is polished to the rounding of p: from 1e-7 off Methane/Ethane's 50/50 liquid at 180 K and 1 MPa, p(T, ρ)
     /// comes within 1e-15 of (∂p/∂ln ρ)_T of p. A Newton step that would leave |p(T, ρ) − p| larger is not taken: just
     /// above the liquid's spinodal, where the slope is small, the first step overshoots, and the density is kept.
@@ -851,9 +940,10 @@ mod tests {
     }
 
     /// The split's Newton stage works in the minority phase's amounts, so a split at the edge of the dome keeps its
-    /// precision: Methane/Ethane at 50/50 and 200 K, its pressure bisected 26 times between a split and a single phase
-    /// toward the bubble point and toward the dew point, splits with β within 1e-5 of 0 and of 1 whose fugacities are
-    /// equal within the gate and whose phases add up to the feed.
+    /// precision: Methane/Ethane at 50/50 and 200 K, its pressure bisected 30 times between a split and a single phase
+    /// toward the bubble point and toward the dew point, splits with β within 1e-9 of 0 and of 1 whose fugacities are
+    /// equal within the gate and whose phases add up to the feed. A minority of 2e-10 of the feed, where the stability
+    /// test stops seeing the split, taken as the feed less the majority would keep 1e-7 of its precision.
     #[test]
     fn splits_at_the_dome_s_edges_keep_their_precision() {
         let mixture = library(&["Methane", "Ethane"], &[0.5, 0.5]);
@@ -864,7 +954,7 @@ mod tests {
         };
         for (inside, outside) in [(2e6, 3e6), (1e6, 2e5)] {
             let (mut inside, mut outside) = (math::ln(inside), math::ln(outside));
-            for _ in 0..26 {
+            for _ in 0..30 {
                 let middle = (inside + outside) / 2.0;
                 if split_at(math::exp(middle)).is_some() {
                     inside = middle;
@@ -874,7 +964,7 @@ mod tests {
             }
             let p = math::exp(inside);
             let (beta, x, y) = split_at(p).unwrap_or_else(|| panic!("no split at {p}"));
-            assert!(beta.min(1.0 - beta) < 1e-5, "{p}: {beta}");
+            assert!(beta.min(1.0 - beta) < 1e-9, "{p}: {beta}");
             let (liquid, vapour) = (at_t_p(&mixture, t, p, &x, Order::One), at_t_p(&mixture, t, p, &y, Order::One));
             let (liquid, vapour) =
                 (liquid.unwrap_or_else(|e| panic!("{e:?}")), vapour.unwrap_or_else(|e| panic!("{e:?}")));
@@ -885,6 +975,111 @@ mod tests {
                 assert!(f.abs() <= FUGACITY_GATE && (total - z[i]).abs() <= 1e-15, "{p}: {i}: {f} {total}");
             }
         }
+    }
+
+    /// p(T, ρ) of `model` and (∂p/∂ρ)_T.
+    fn pressure(model: &dyn HelmholtzModel, t: f64, rho: f64) -> (f64, f64) {
+        let d = model.residual(t, rho, Order::Two);
+        let (a01, a02) = (d.get(0, 1).unwrap_or(f64::NAN), d.get(0, 2).unwrap_or(f64::NAN));
+        let rt = model.gas_constant() * t;
+        (rho * rt * (1.0 + a01), rt * (1.0 + 2.0 * a01 + a02))
+    }
+
+    /// R411B's incipient liquid at its dew point, 258.36 K and 290.9 kPa: core's Newton reaches the root and then wanders
+    /// by 1e-14 in ln ρ, its p rounding at 2e-14 of ρRT, until its iterations run out. `branch_root` ends there on the
+    /// acceptance gate, from the model's largest density or from a seed; the vapour's branch is core's.
+    #[test]
+    fn a_branch_ends_on_the_acceptance_gate_where_core_s_newton_wanders() {
+        let blend = crate::generated::PREDEFINED.iter().find(|m| m.name == "R411B").unwrap_or_else(|| panic!("R411B"));
+        let mixture = library(blend.components, blend.mole_fractions);
+        let x = normalised(&[0.047_147_088_441_823_304, 0.880_369_508_739_880_1, 0.072_483_402_818_296_75]);
+        let phase = Phase { mixture: &mixture, x: &x };
+        let (t, p) = (258.356_778_119_287_8, 290_942.622_783_934_23);
+        assert!(density::solve(&phase, t, p, Branch::Liquid, None).is_err());
+        for seed in [None, Some(15_000.0)] {
+            let rho = branch_root(&phase, t, p, Branch::Liquid, seed).unwrap_or_else(|e| panic!("{e:?}"));
+            let (got, slope) = pressure(&phase, t, rho);
+            assert!((got - p).abs() <= 1e-12 * rho * slope && (rho - 15_248.134).abs() < 1e-3, "{seed:?}: {rho}");
+        }
+        let vapour = branch_root(&phase, t, p, Branch::Vapour, None);
+        assert_eq!(vapour, density::solve(&phase, t, p, Branch::Vapour, None));
+    }
+
+    /// The gated Newton refuses a start where (∂p/∂ρ)_T ≤ 0, inside library Methane/Ethane's spinodals at 50/50, 200 K and
+    /// 1.5 MPa; a branch starts from the model's largest density or p/RT.
+    #[test]
+    fn the_gated_newton_starts_on_a_stable_state() {
+        let mixture = library(&["Methane", "Ethane"], &[0.5, 0.5]);
+        let (t, p) = (200.0, 1.5e6);
+        let unstable = (1..100).map(|k| 200.0 * f64::from(k)).find(|rho| pressure(&mixture, t, *rho).1 < 0.0);
+        let unstable = unstable.unwrap_or_else(|| panic!("no unstable density"));
+        assert_eq!(gated(&mixture, t, p, unstable), None);
+        assert_eq!(far_end(&mixture, t, p, Branch::Liquid), mixture.rho_max(t));
+        assert_eq!(far_end(&mixture, t, p, Branch::Vapour), p / (mixture.gas_constant() * t));
+    }
+
+    /// A model that counts its residual evaluations.
+    #[derive(Debug)]
+    struct Counting<'a> {
+        model: &'a dyn HelmholtzModel,
+        #[allow(clippy::disallowed_types)] // the test's own counter; HelmholtzModel is Sync
+        residuals: std::sync::atomic::AtomicUsize,
+    }
+
+    impl<'a> Counting<'a> {
+        #[allow(clippy::disallowed_types)] // the test's own counter
+        fn new(model: &'a dyn HelmholtzModel) -> Counting<'a> {
+            Counting { model, residuals: std::sync::atomic::AtomicUsize::new(0) }
+        }
+
+        fn evaluations(&self) -> usize {
+            self.residuals.load(std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+
+    impl HelmholtzModel for Counting<'_> {
+        fn gas_constant(&self) -> f64 {
+            self.model.gas_constant()
+        }
+
+        fn residual(&self, t: f64, rho: f64, order: Order) -> Derivs {
+            self.residuals.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.model.residual(t, rho, order)
+        }
+
+        fn ideal(&self, t: f64, rho: f64, order: Order) -> Derivs {
+            self.model.ideal(t, rho, order)
+        }
+
+        fn rho_max(&self, t: f64) -> f64 {
+            self.model.rho_max(t)
+        }
+    }
+
+    /// The gated Newton's slope is (∂p/∂ln ρ)_T, so it converges quadratically: from the ideal gas's p/RT to library
+    /// Methane/Ethane's 50/50 vapour at 250 K and 2 MPa, core's root, in a few evaluations of the model.
+    #[test]
+    fn the_gated_newton_converges_in_a_few_steps() {
+        let mixture = library(&["Methane", "Ethane"], &[0.5, 0.5]);
+        let counting = Counting::new(&mixture);
+        let (t, p) = (250.0, 2e6);
+        let rho = gated(&counting, t, p, far_end(&mixture, t, p, Branch::Vapour)).unwrap_or(f64::NAN);
+        let core = density::solve(&mixture, t, p, Branch::Vapour, None).unwrap_or_else(|e| panic!("{e:?}"));
+        let evaluations = counting.evaluations();
+        assert!((rho / core - 1.0).abs() < 1e-12 && evaluations <= 6, "{rho} {core}: {evaluations}");
+    }
+
+    /// Two roots where both branches reach their own (Methane/Ethane at 50/50, 200 K, 1.5 MPa, inside the dome), ascending;
+    /// one where both reach the same, above the critical temperature (300 K, 5 MPa); the stable one of either.
+    #[test]
+    fn roots_are_distinct_and_ascending() {
+        let mixture = library(&["Methane", "Ethane"], &[0.5, 0.5]);
+        let two = roots(&mixture, 200.0, 1.5e6);
+        assert!(two.len() == 2 && two[0] < 2_000.0 && two[1] > 15_000.0, "{two:?}");
+        let one = roots(&mixture, 300.0, 5e6);
+        assert_eq!(one.len(), 1, "{one:?}");
+        assert_eq!(stable_root(&mixture, 300.0, 5e6).ok(), Some(one[0]));
+        assert!(two.contains(&stable_root(&mixture, 200.0, 1.5e6).unwrap_or(f64::NAN)));
     }
 
     /// The solve inverts a 3 × 3 system that needs pivoting, and refuses a singular one.

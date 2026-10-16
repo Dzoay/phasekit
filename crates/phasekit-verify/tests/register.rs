@@ -583,6 +583,12 @@ fn div_0057_to_0059(_: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0057", "DIV-0058", "DIV-0059"]
 }
 
+/// DIV-0060 cites no oracle fact: its evidence is the `mix_sat` kind's rows, which `tests/bubble_dew.rs` and its proof
+/// check.
+fn div_0060(_: &Fixture<'_>) -> Vec<&'static str> {
+    vec!["DIV-0060"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -611,6 +617,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0051_to_0054,
         div_0055_to_0056,
         div_0057_to_0059,
+        div_0060,
     ]
     .iter()
     .flat_map(|group| group(&facts))

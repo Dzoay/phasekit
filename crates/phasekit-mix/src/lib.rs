@@ -8,18 +8,18 @@
 mod composition;
 mod corrections;
 mod critical;
-// The predefined mixtures are read from PLAN.md M13.13; until then only the tests read them.
+// The predefined mixtures are built from PLAN.md M13.13; until then only the kit reads their fractions.
 #[cfg_attr(not(test), expect(dead_code, reason = "the predefined mixtures are built from PLAN.md M13.13"))]
 mod data;
 mod departure;
 mod equilibrium;
-#[cfg_attr(not(test), expect(dead_code, reason = "the predefined mixtures are built from PLAN.md M13.13"))]
 #[rustfmt::skip] // datagen's output, one table row a line (`gates datagen` compares it byte for byte)
 mod generated;
 mod gerg;
 mod mixture;
 mod multifluid;
 mod reducing;
+mod saturation;
 mod taylor;
 
 pub use composition::{Composition, MixtureModel, Var};
@@ -27,6 +27,7 @@ pub use critical::{CriticalState, Criticality};
 pub use gerg::{PREFIX as GERG_PREFIX, R_GERG, with_gerg2008};
 pub use mixture::{Equilibrium, Mixture, R_CODATA, gerg2008, mixture};
 pub use multifluid::MultiFluid;
+pub use saturation::{Given, Saturation, Side};
 
 /// What `cargo xtask` and the verification kit read of the crate's data; not a stable API.
 #[doc(hidden)]
@@ -53,6 +54,12 @@ pub mod internal {
     /// their branch reaches with the pressure rising, the one of least Gibbs energy (PLAN.md M13.8).
     pub fn stable_root(model: &dyn phasekit_core::HelmholtzModel, t: f64, p: f64) -> Result<f64, phasekit_core::Error> {
         crate::equilibrium::stable_root(model, t, p)
+    }
+
+    /// v8.0.0's predefined mixture `name` (without `.mix`): its components and mole fractions, as its library gives
+    /// them (PLAN.md M13.9's bubble and dew points; M13.13 registers them).
+    pub fn predefined(name: &str) -> Option<(&'static [&'static str], &'static [f64])> {
+        crate::generated::PREDEFINED.iter().find(|m| m.name == name).map(|m| (m.components, m.mole_fractions))
     }
 }
 

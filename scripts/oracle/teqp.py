@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[2]
 AGA8_DIR = ROOT / "reference" / "AGA8"
 FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
 MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
-KINDS = ["aga8", "gerg", "gerg_crit"]
+KINDS = ["aga8", "gerg", "gerg_crit", "gerg_vle"]
 CHECK_STATE = "AGA8CODE/C/GERG2008_test_01.cpp"
 TEST_DATA = "TESTDATA/Test Data.xls"
 
@@ -302,7 +302,39 @@ def gerg_crit(lock, args):
     return {"teqp-0.23.2/gerg/critical.csv": fixture("gerg_crit", lock, fluid, source, columns, units, tol, rows, grid)}
 
 
-GENERATORS = {"aga8": aga8, "gerg": gerg, "gerg_crit": gerg_crit}
+def gerg_vle(lock, args):
+    """teqp's vapour-liquid isotherms of GERG-2008's methane/ethane (`trace_VLE_isotherm_binary`, polished) at 200 and
+    250 K from pure ethane's saturation: at each, the trace's points nearest the liquid's methane fraction k/20 for
+    k = 1 ... 18 (PLAN.md M13.9)."""
+    teqp, numpy = import_teqp(lock)
+    model = teqp.make_model({"kind": "GERG2008resid", "model": {"names": ["methane", "ethane"]}})
+    pure = teqp.make_model({"kind": "GERG2008resid", "model": {"names": ["ethane"]}})
+    rows = []
+    for t in (200.0, 250.0):
+        rho_l, rho_v = pure.pure_VLE_T(t, 17000.0, 200.0, 100)
+        options = teqp.TVLEOptions()
+        options.polish = True
+        options.integration_order = 5
+        options.init_dt = 1e-5
+        trace = model.trace_VLE_isotherm_binary(t, numpy.array([0.0, rho_l]), numpy.array([0.0, rho_v]), options)
+        points = [(r["xL_0 / mole frac."], r["xV_0 / mole frac."], r["pL / Pa"], sum(r["rhoL / mol/m^3"]),
+                   sum(r["rhoV / mol/m^3"])) for r in trace]
+        seen = set()
+        for k in range(1, 19):
+            x1, y1, p, rho_l, rho_v = min(points, key=lambda q: abs(q[0] - k / 20))
+            if x1 in seen:
+                continue
+            seen.add(x1)
+            rows.append(["methane&ethane", t, x1, y1, p, rho_l, rho_v])
+    columns = ["pair", "T", "x1", "y1", "p", "rho_liquid", "rho_vapour"]
+    units = ["-", "K", "-", "-", "Pa", "mol/m3", "mol/m3"]
+    tol = ["label", "in", "in", "flash", "flash", "flash", "flash"]
+    fluid, source = "GERG2008resid (methane, ethane)", f"teqp:{lock['version']}"
+    grid = "trace_VLE_isotherm_binary at 200 and 250 K from pure ethane, polished; the points nearest x1 = k/20"
+    return {"teqp-0.23.2/gerg/vle.csv": fixture("gerg_vle", lock, fluid, source, columns, units, tol, rows, grid)}
+
+
+GENERATORS = {"aga8": aga8, "gerg": gerg, "gerg_crit": gerg_crit, "gerg_vle": gerg_vle}
 
 
 def write(out, files):

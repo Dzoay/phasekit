@@ -117,15 +117,15 @@ fn pt(fluid: &Fluid, t: f64, p: f64) -> Result<phasekit_core::State, Error> {
     fluid.flash(Input::new(Pair::PT, p, t, Basis::Molar)?, &FlashOptions::new())
 }
 
-/// Every split of the corpus (and methanol/benzene's liquid-liquid one), each with its mixture and T.
-fn splits(registry: &Registry) -> Vec<(String, Fluid, f64, Equilibrium)> {
+/// Every split of the corpus (and methanol/benzene's liquid-liquid one), each with its mixture, T and p.
+fn splits(registry: &Registry) -> Vec<(String, Fluid, f64, f64, Equilibrium)> {
     let mut out = Vec::new();
     let states = CORPUS.iter().map(|(f, t, p, _)| (*f, *t, *p)).chain([(METHANOL_BENZENE, 308.15, 101_325.0)]);
     for (components, t, p) in states {
         let fluid = feed(registry, components);
         let e = mixture(&fluid).equilibrium(t, p).unwrap();
         if matches!(e, Equilibrium::Split { .. }) {
-            out.push((format!("{components:?} at {t} K, {p} Pa"), fluid, t, e));
+            out.push((format!("{components:?} at {t} K, {p} Pa"), fluid, t, p, e));
         }
     }
     out
@@ -137,9 +137,9 @@ fn splits(registry: &Registry) -> Vec<(String, Fluid, f64, Equilibrium)> {
 fn every_split_has_equal_fugacities_and_mass_balance() {
     let registry = registry();
     let splits = splits(&registry);
-    for (name, fluid, t, e) in &splits {
+    for (name, fluid, t, p, e) in &splits {
         let mix = mixture(fluid);
-        for (i, (d, bound)) in fugacity_differences(mix, *t, e).iter().enumerate() {
+        for (i, (d, bound)) in fugacity_differences(mix, *t, *p, e).iter().enumerate() {
             assert!(d.abs() <= *bound, "{name}: ln f_{i} differs by {d:e}");
         }
         let Equilibrium::Split { beta, x, y, .. } = e else { continue };
@@ -156,7 +156,7 @@ fn every_split_has_equal_fugacities_and_mass_balance() {
 #[test]
 fn a_split_lowers_the_gibbs_energy() {
     let registry = registry();
-    for (name, fluid, t, e) in splits(&registry) {
+    for (name, fluid, t, _, e) in splits(&registry) {
         let mix = mixture(&fluid);
         let Equilibrium::Split { beta, x, y, rho_liquid, rho_vapour } = &e else { continue };
         let p = phasekit_mix::MixtureModel::composition(mix.model(), t, *rho_vapour, y, Order::One).unwrap().pressure();
