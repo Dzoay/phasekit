@@ -13,7 +13,8 @@
 //! A PT flash without a phase hint runs the tangent-plane stability test on the feed's stable root and splits where it
 //! fails (M13.8): a stable feed is labelled from the critical point, a split is two phases of their own compositions,
 //! and a liquid-liquid split is refused (MX4). With a hint, DT is the state at (T, ρ) and PT the density on the hinted
-//! branch through core's public density solve (M13.1). Any other input is `Unsupported`.
+//! branch through core's public density solve (M13.1). QT and PQ are two coexisting phases (M13.9, M13.10), and every
+//! other pair an outer solve on them and on the feed's homogeneous states (`pairs`, M13.11).
 
 use std::sync::{Arc, OnceLock};
 
@@ -29,6 +30,8 @@ use crate::equilibrium::{self, Stability};
 use crate::illinois::{End, illinois};
 use crate::saturation::{self, Coexisting, Given, Saturation, Side};
 use crate::{Composition, MixtureModel, MultiFluid, Var, gerg};
+
+mod pairs;
 
 /// Secant steps of a mass quality's molar vapour fraction.
 const MASS_STEPS: usize = 30;
@@ -561,7 +564,7 @@ impl ThermoModel for Mixture {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::none().with(Pair::DT).with(Pair::PT).with(Pair::QT).with(Pair::PQ)
+        Pair::ALL.iter().fold(Capabilities::none(), |c, pair| c.with(*pair))
     }
 
     fn flash(&self, input: NativeInput, opts: &FlashOptions) -> Result<State, Error> {
@@ -573,7 +576,7 @@ impl ThermoModel for Mixture {
             return match pair {
                 Pair::PT => self.pt(y, x, opts),
                 Pair::DT => self.dt(y, x, opts),
-                _ => Err(Error::Unsupported { pair }),
+                _ => self.outer(&input, opts),
             };
         };
         match pair {

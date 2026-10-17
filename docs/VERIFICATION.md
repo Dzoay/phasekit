@@ -660,6 +660,11 @@ the other dome's cells hold that dome's state or a typed refusal, and QT and the
 (`InvalidInput`). The 14 core fluids run in G3; all 136 run nightly (`tests/sweeps.rs`, as every nightly test), where
 SES36's departures are listed with their reason (its ancillaries and EOS disagree beyond the other pseudo-pure fluids').
 
+Mixtures, as built at M13.11 (`tests/mixture_pairs.rs`): R410A.mix, Air.mix and a five-component GERG-2008 natural gas,
+each with two DT truths from its model's critical point, a single phase at (0.6 ρ_c, 1.2 T_c) and the dome at
+(ρ_c, 0.8 T_c). Every cell passes in class `Flash`, phase included, but a quality pair at the single-phase truth
+(`Undefined { Q }`). A mixture's PT in the dome is one state, so it passes there.
+
 ### 8.6 Property-based and structural tests
 
 - proptest (std only, dependencies R18), fixed CI seed, committed `proptest-regressions/`: `Input::new` over NaN, ±∞,
