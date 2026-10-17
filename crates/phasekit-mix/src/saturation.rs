@@ -108,8 +108,28 @@ const BISECTIONS: usize = 8;
 /// Bisections of Wilson's seed inside the dome, in ln p or 1/T.
 const WILSON_BISECTIONS: usize = 80;
 
+/// The phases of feed `z` at vapour fraction β from `ln_k`: x_i = z_i/(1 + β(K_i − 1)) and y_i = K_i x_i, so
+/// (1 − β)x + βy = z.
+pub(crate) fn fractions(beta: f64, z: &[f64], ln_k: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    z.iter()
+        .zip(ln_k)
+        .map(|(z, l)| {
+            let k = math::exp(*l);
+            let x = z / (1.0 + beta * (k - 1.0));
+            (x, k * x)
+        })
+        .unzip()
+}
+
 /// A phase of `x` at (T, p) on `branch`, from `seed` where one is known, polished, to `order`.
-fn on_branch(mixture: &Mixture, t: f64, p: f64, x: &[f64], branch: Branch, seed: Option<f64>) -> Result<AtTp, Error> {
+pub(crate) fn on_branch(
+    mixture: &Mixture,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    branch: Branch,
+    seed: Option<f64>,
+) -> Result<AtTp, Error> {
     let phase = Phase { mixture, x };
     let rho = polished(&phase, t, p, branch_root(&phase, t, p, branch, seed)?);
     AtTp::new(mixture, t, p, rho, x, Order::Two)
@@ -119,13 +139,13 @@ fn on_branch(mixture: &Mixture, t: f64, p: f64, x: &[f64], branch: Branch, seed:
 /// returned, whose fractions are x/Σx and y/Σy: Σx = 1 − βF_{N+1} and Σy = 1 + (1 − β)F_{N+1} there, so
 /// ln(y_i/x_i) is ln K_i − F_{N+1} to its square (1e-24 inside the gate), each F_i is judged with that shift, and
 /// F_{N+1} itself.
-fn meets_gate(f: &[f64]) -> bool {
+pub(crate) fn meets_gate(f: &[f64]) -> bool {
     let Some((balance, fugacities)) = f.split_last() else { return false };
     balance.abs() <= GATE && fugacities.iter().all(|f| (f - balance).abs() <= GATE)
 }
 
 /// Whether an iterate is the trivial solution (`TRIVIAL`): every |ln K_i| and |ln(ρ′/ρ″)| small.
-fn trivial(ln_k: &[f64], rho_liquid: f64, rho_vapour: f64) -> bool {
+pub(crate) fn trivial(ln_k: &[f64], rho_liquid: f64, rho_vapour: f64) -> bool {
     ln_k.iter().all(|l| l.abs() < TRIVIAL.0) && math::ln(rho_liquid / rho_vapour).abs() < TRIVIAL.1
 }
 
@@ -186,12 +206,27 @@ fn wilson_t(mixture: &Mixture, beta: f64, p: f64) -> f64 {
 /// The bubble or dew point of `mixture` at `given` T or p: from Wilson's seed; else from the split nearest the side's own
 /// end of Wilson's interval; else from that split's boundary with the feed's own phase, bisected.
 pub(crate) fn saturation(mixture: &Mixture, side: Side, given: Given) -> Result<Saturation, Error> {
-    let found = at_side(mixture, side, given)?;
+    Ok(on_side(side, at_side(mixture, side, given)?))
+}
+
+/// The bubble or dew point of `mixture` at `given` from `seed` (T, p, ln K) alone, M13.9's Newton without its own
+/// seeds (PLAN.md M13.12: the oracle's envelope points, each a seed).
+pub(crate) fn saturation_from(
+    mixture: &Mixture,
+    side: Side,
+    given: Given,
+    seed: (f64, f64, Vec<f64>),
+) -> Result<Saturation, Error> {
+    Ok(on_side(side, coexisting_from(mixture, side.beta(), given, seed)?))
+}
+
+/// The point on `side` of two coexisting phases: the feed and the incipient phase.
+fn on_side(side: Side, found: Coexisting) -> Saturation {
     let (feed, incipient) = match side {
         Side::Bubble => ((found.rho_liquid, found.y), found.rho_vapour),
         Side::Dew => ((found.rho_vapour, found.x), found.rho_liquid),
     };
-    Ok(Saturation { t: found.t, p: found.p, rho: feed.0, incipient: feed.1, rho_incipient: incipient })
+    Saturation { t: found.t, p: found.p, rho: feed.0, incipient: feed.1, rho_incipient: incipient }
 }
 
 /// The bubble or dew point as two coexisting phases (`saturation`'s solve).
@@ -418,15 +453,7 @@ impl<'a> Solver<'a> {
 
     /// x_i = z_i/(1 + β(K_i − 1)) and y_i = K_i x_i.
     fn fractions(&self, ln_k: &[f64]) -> (Vec<f64>, Vec<f64>) {
-        self.z
-            .iter()
-            .zip(ln_k)
-            .map(|(z, l)| {
-                let k = math::exp(*l);
-                let x = z / (1.0 + self.beta * (k - 1.0));
-                (x, k * x)
-            })
-            .unzip()
+        fractions(self.beta, self.z, ln_k)
     }
 
     /// Wilson's seed at `given` and up to `SUBSTITUTIONS` successive substitutions from it: K from the phases' fugacity

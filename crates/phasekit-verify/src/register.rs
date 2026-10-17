@@ -100,6 +100,8 @@ pub enum Rows {
     DtTwoPhase,
     /// Rows whose own two phases do not add up to their feed (`RowKey::balanced`).
     Unbalanced,
+    /// Rows whose two phases lie near the critical point (`RowKey::near_critical`).
+    NearCritical,
 }
 
 /// What a row is known by when the register is asked about it: its temperature, the input label of a `sat` row or the
@@ -117,6 +119,9 @@ pub struct RowKey<'a> {
     /// Whether the row's own two phases, where it reports them, add up to its feed (the `mix_flash` kind's QT and PQ
     /// rows, within 1e-9); true for every other row.
     pub balanced: bool,
+    /// Whether the row's two phases lie within 0.1 of each other in |ln ρ|, near the critical point (the `mix_env`
+    /// kind's rows); false for every other row.
+    pub near_critical: bool,
 }
 
 /// The oracle cells a `SkipOracle` entry does not assert on Parity; the tests count them.
@@ -1552,6 +1557,28 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[13],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0063",
+        fluids: &["*"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_mix::envelope"),
+        evidence: "map 04 #11: v8.0.0's envelope points come from its saturation Newton in rho''-imposed mode, which \
+                   ends where its residual's rms is under 1e-7 or any one variable's relative change is under 1000 eps \
+                   (VLERoutines.cpp:1425-1431, PhaseEnvelopeRoutines.cpp:159). Near the critical point, where the two \
+                   phases lie within 0.1 of each other in |ln rho|, the equations are nearly singular and carry such a \
+                   residual far: Methane/Ethane at z1 0.5, its bubble point at 261.69 K and 6.774 MPa, leaves ln f \
+                   unequal by 9.0e-8 in phasekit's model, and phasekit's point at that T, which meets 1e-12, lies \
+                   1.5e-4 from its bulk density. Of mix_env's 82 such rows within the mixtures' range, 36 miss \
+                   DIV-0060's 5e-7 by up to 1.2e-2 in a density, or leave phasekit's Newton without convergence from \
+                   them; the rows whose phases lie farther apart are phasekit's within DIV-0060's 5e-7 (M13.12)",
+        exempt: Some(Exempt { kinds: &[Kind::MixEnv], columns: &["*"], rows: Rows::NearCritical }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The output columns of the `cubic` and `cubic_sat` kinds (PLAN.md M11.4, M11.5).
@@ -1578,7 +1605,13 @@ const CUBIC_COLUMNS: [&str; 17] = [
 /// The register entry, if any, whose `exempt` cells include `column` of a `kind` row of `fluid` at temperature `t`: an
 /// exemption of every row, of a temperature band or of listed temperatures (the others need more than T to decide).
 pub fn exempt_at(register: &[Divergence], fluid: &str, kind: Kind, column: &str, t: f64) -> Option<&'static str> {
-    exempt_row(register, fluid, kind, column, RowKey { t, input: None, two_phase: false, p: None, balanced: true })
+    exempt_row(
+        register,
+        fluid,
+        kind,
+        column,
+        RowKey { t, input: None, two_phase: false, p: None, balanced: true, near_critical: false },
+    )
 }
 
 /// [`exempt_at`] for a row known by more than its T ([`RowKey`]): [`Rows::TwoPhase`] exempts the two-phase rows,
@@ -1592,7 +1625,7 @@ pub fn exempt_row(
     column: &str,
     row: RowKey<'_>,
 ) -> Option<&'static str> {
-    let RowKey { t, input, two_phase, p, balanced } = row;
+    let RowKey { t, input, two_phase, p, balanced, near_critical } = row;
     let applies = |d: &&Divergence| {
         let Some(e) = &d.exempt else { return false };
         let rows = match e.rows {
@@ -1609,6 +1642,7 @@ pub fn exempt_row(
             Rows::AtTP(list) => p.is_some_and(|p| list.contains(&(t, p))),
             Rows::DtTwoPhase => input == Some("DT") && two_phase,
             Rows::Unbalanced => !balanced,
+            Rows::NearCritical => near_critical,
             _ => false,
         };
         (d.fluids.contains(&fluid) || d.fluids == ["*"])
@@ -1742,7 +1776,7 @@ mod tests {
                 "B",
                 Kind::Props,
                 "p",
-                RowKey { t: 9.0, input: None, two_phase, p: None, balanced: true },
+                RowKey { t: 9.0, input: None, two_phase, p: None, balanced: true, near_critical: false },
             )
         };
         assert_eq!([props(true), props(false)], [Some("DIV-0103"), None]);
@@ -1753,7 +1787,7 @@ mod tests {
                 fluid,
                 Kind::Props,
                 column,
-                RowKey { t: 300.0, input: Some(input), two_phase, p: None, balanced: true },
+                RowKey { t: 300.0, input: Some(input), two_phase, p: None, balanced: true, near_critical: false },
             )
         };
         assert_eq!([row("Water", "Q", "DT", false), row("Water", "Q", "DT", true)], [Some("DIV-0037"), None]);
@@ -1774,7 +1808,7 @@ mod tests {
                 "Water",
                 Kind::Sat,
                 column,
-                RowKey { t: 400.0, input, two_phase: false, p: None, balanced: true },
+                RowKey { t: 400.0, input, two_phase: false, p: None, balanced: true, near_critical: false },
             )
         };
         assert_eq!(
@@ -1789,7 +1823,7 @@ mod tests {
                 "SES36",
                 Kind::Flash,
                 column,
-                RowKey { t, input: None, two_phase, p: None, balanced: true },
+                RowKey { t, input: None, two_phase, p: None, balanced: true, near_critical: false },
             )
         };
         assert_eq!(
@@ -1804,7 +1838,7 @@ mod tests {
                 "Water",
                 Kind::Flash,
                 column,
-                RowKey { t: 300.0, input, two_phase: false, p: None, balanced: true },
+                RowKey { t: 300.0, input, two_phase: false, p: None, balanced: true, near_critical: false },
             )
         };
         assert_eq!(

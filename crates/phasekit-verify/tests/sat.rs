@@ -450,7 +450,8 @@ fn pq_row(row: &QRow<'_, '_>, t_qt: Option<f64>, out: &mut QRows) {
     let Some(state) = row.state(row.fluid.flash(pq(row.p, row.q), &nearest), out) else { return };
     out.pq += 1;
     for column in ["T", "rhoL", "rhoV", "hL", "hV", "sL", "sV"] {
-        let key = RowKey { t: row.t, input: Some("p"), two_phase: false, p: None, balanced: true };
+        let key =
+            RowKey { t: row.t, input: Some("p"), two_phase: false, p: None, balanced: true, near_critical: false };
         match exempt_row(DIVERGENCES, row.name, Kind::Sat, column, key) {
             Some("DIV-0018") => out.exempt += 1,
             other => out.failures.push(format!("{}: {column} exempt by {other:?}", row.at)),

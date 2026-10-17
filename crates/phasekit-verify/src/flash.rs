@@ -152,7 +152,14 @@ impl FlashCheck {
             }
         }
         for (column, got, floor, relation) in columns {
-            let key = RowKey { t, input: Some(label("pair")), two_phase: !single, p: None, balanced: true };
+            let key = RowKey {
+                t,
+                input: Some(label("pair")),
+                two_phase: !single,
+                p: None,
+                balanced: true,
+                near_critical: false,
+            };
             if exempt_row(DIVERGENCES, name, Kind::Flash, column, key).is_some() {
                 self.exempt += 1;
                 continue;

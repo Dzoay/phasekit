@@ -30,7 +30,7 @@ MIXTURES_DIR = ROOT / "reference" / "CoolProp" / "dev" / "mixtures"
 FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
 MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
 KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transport", "sigma", "melt", "refstate", "cubic",
-         "cubic_sat", "mix_alphar", "mix_eos", "mix_crit", "mix_flash", "mix_sat", "props", "codes"]
+         "cubic_sat", "mix_alphar", "mix_eos", "mix_crit", "mix_flash", "mix_sat", "mix_env", "props", "codes"]
 SCRUBBED_PREFIXES = ("COOLPROP_", "PXFLASH_")
 FLUID_COUNT = 136
 
@@ -1261,6 +1261,46 @@ def mix_sat(CP, lock, config, files, args):
     return {"all/mix_sat.csv": text + "".join(lines)}
 
 
+# The `mix_env` kind (PLAN.md M13.12): CoolProp 8.0.0's phase envelopes, `build_phase_envelope("none")`, of
+# MIX_CRIT_PAIRS at each MIX_CRIT_Z1, one row per point in the oracle's order. Its trace starts at a dew point at 100 Pa
+# (Q 1, the feed the vapour) and runs through the critical point to bubble points (Q 0, the feed the liquid). Columns:
+# the incipient phase's and the feed's molar densities (the oracle's `rhomolar_liq` and `rhomolar_vap` in a mixture's
+# trace) and the incipient phase's first fraction; an `err` row (index -1) where the oracle throws.
+MIX_ENV_COLUMNS = ["mixture", "z1", "index", "status", "Q", "T", "p", "rho_incipient", "rho_bulk", "x1"]
+MIX_ENV_UNITS = ["-", "-", "-", "-", "-", "K", "Pa", "mol/m3", "mol/m3", "-"]
+MIX_ENV_TOL = ["label", "in", "in", "label", "in", "flash", "flash", "flash", "flash", "flash"]
+
+
+def mix_env_points(CP, label, z1):
+    """The oracle's envelope of `label` at z1: (Q, T, p, rho_incipient, rho_bulk, x1) per point."""
+    state = CP.AbstractState("HEOS", label)
+    state.set_mole_fractions([z1, 1.0 - z1])
+    state.build_phase_envelope("none")
+    d = state.get_phase_envelope_data()
+    return [[d.Q[i], d.T[i], d.p[i], d.rhomolar_liq[i], d.rhomolar_vap[i], d.x[0][i]] for i in range(len(d.T))]
+
+
+def mix_env(CP, lock, config, files, args):
+    """The `mix_env` kind: all/mix_env.csv over MIX_CRIT_PAIRS at each MIX_CRIT_Z1 (any --tier)."""
+    lines, floats = [], []
+    for label in MIX_CRIT_PAIRS:
+        for z1 in MIX_CRIT_Z1:
+            try:
+                points = mix_env_points(CP, label, z1)
+            except Exception as exception:  # noqa: BLE001 - the oracle's refusal is a row
+                floats.extend([z1, -1, *[math.nan] * 6])
+                lines.append(",".join([label, cell(z1), "-1", f"err:{error_class(exception)}", *[cell(math.nan)] * 6])
+                             + "\n")
+                continue
+            for index, values in enumerate(points):
+                floats.extend([z1, index, *values])
+                lines.append(",".join([label, cell(z1), str(index), "ok", *map(cell, values)]) + "\n")
+    fluids = f"{len(MIX_CRIT_PAIRS)} pairs, fluids_sha256={lock['fluids_sha256']}, mixtures_sha256={lock['mixtures_sha256']}"
+    grid = 'pairs at z1 in {0.25,0.5,0.75}: build_phase_envelope("none"), every point'
+    text = header("mix_env", lock, config, fluids, MIX_ENV_COLUMNS, MIX_ENV_TOL, floats, units=MIX_ENV_UNITS, grid=grid)
+    return {"all/mix_env.csv": text + "".join(lines)}
+
+
 def mix_eos(CP, lock, config, files, args):
     """The `mix_eos` kind: all/mix_eos.csv over the library's pairs and predefined mixtures (any --tier)."""
     pairs, predefined = mixture_library(lock)
@@ -2051,7 +2091,7 @@ def codes(CP, lock, config, files, args):
 
 
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "cubic": cubic,
-              "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "mix_eos": mix_eos, "mix_crit": mix_crit, "mix_flash": mix_flash, "mix_sat": mix_sat, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
+              "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "mix_eos": mix_eos, "mix_crit": mix_crit, "mix_flash": mix_flash, "mix_sat": mix_sat, "mix_env": mix_env, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
               "props": props, "codes": codes}
 
 

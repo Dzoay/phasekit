@@ -42,6 +42,7 @@ pub enum Kind {
     MixEos,
     MixCrit,
     MixFlash,
+    MixEnv,
     Crit,
     Sat,
     Flash,
