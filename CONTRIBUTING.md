@@ -56,7 +56,8 @@ BREAKING CHANGE: <what breaks and how to migrate>
   everything.
 - **Breaking changes:** add `!` before the colon *and* a `BREAKING CHANGE:` footer.
 - **Footers:** `Plan-Step:` is required on plan steps. `Rot:` and `Div:` link rot-register rows and divergence-register
-  entries.
+  entries. The squash merge takes its message from the PR's title and body, not from the branch's commits, so the
+  footers go in the PR body: a footer only in a branch commit does not reach `main`.
 - **Checked by CI:** the `pr-title` workflow (`.github/workflows/pr-title.yml`) fails a PR whose title is not
   `<type>(<scope>)<!>: <summary>` with a listed type and scope, a summary with no trailing full stop, and at most 72
   characters. A new crate or scope is added to that workflow and to the list above in the same PR.
