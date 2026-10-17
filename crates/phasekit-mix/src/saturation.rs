@@ -302,6 +302,18 @@ pub(crate) fn ln_k_of(x: &[f64], y: &[f64]) -> Vec<f64> {
     x.iter().zip(y).map(|(x, y)| math::ln(y / x)).collect()
 }
 
+/// The two phases at `beta` and `given` from `seed` (T, p, ln K), a point solved nearby: M13.10's Newton from it, without
+/// `coexisting`'s seeds (M13.11's outer solves step along a path). The given T or p is the seed's.
+pub(crate) fn coexisting_from(
+    mixture: &Mixture,
+    beta: f64,
+    given: Given,
+    seed: (f64, f64, Vec<f64>),
+) -> Result<Coexisting, Error> {
+    let z = mixture.composition().to_vec();
+    Solver::new(mixture, beta, &z).newton(given, seed)
+}
+
 /// A split of the PT flash (M13.8) at ln X, X the unknown of p and T: ln X and the split's ln K = ln(y/x).
 type SplitAt = (f64, Vec<f64>);
 

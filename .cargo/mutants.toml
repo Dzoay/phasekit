@@ -130,8 +130,8 @@ exclude_re = [
     "equilibrium\\.rs:509:15: replace > with >= in accelerate",
     "equilibrium\\.rs:522:29: replace < with <= in newton",
     "equilibrium\\.rs:582:25: replace \\+ with \\* in solve",
-    "mixture\\.rs:198:76: replace < with <= in Mixture::equilibrium",
-    "mixture\\.rs:343:85: replace > with >= in Mixture::equilibrium_state",
+    "mixture\\.rs:201:76: replace < with <= in Mixture::equilibrium",
+    "mixture\\.rs:346:85: replace > with >= in Mixture::equilibrium_state",
     # Equivalent (PLAN.md M13.9): ties no solve meets. The gated Newton's slope exactly 0; two branch roots exactly
     # SAME_ROOT apart in ln ρ; ln(ρ′/ρ″) exactly 1e-3 at the trivial-solution check; Wilson's p exactly p, or his
     # Rachford–Rice exactly 0, at a bisection midpoint, where either half keeps the root.
@@ -151,7 +151,13 @@ exclude_re = [
     # the solves' gates.
     "saturation\\.rs:214:20: replace \\|\\| with && in coexisting",
     "saturation\\.rs:267:13: delete match arm Some\\(Ok\\(c\\)\\) in in_beta",
-    "mixture\\.rs:318:17: delete match arm Some\\(Ok\\(Some\\(s\\)\\)\\) in Mixture::isochoric",
+    "mixture\\.rs:321:17: delete match arm Some\\(Ok\\(Some\\(s\\)\\)\\) in Mixture::isochoric",
+    # Equivalent (PLAN.md M13.11): two ends at one x leave a bracket of no width, which the regula falsi returns at once
+    # as the end of smaller |value| in either order; only a tie in |value| as well would tell them apart.
+    "pairs\\.rs:159:12: replace < with <= in falsi",
+    # Equivalent (PLAN.md M13.11): a turn has (here − before)(after − here) < 0, so here ≠ before, where `>=` and `>`
+    # agree on which way the line rises.
+    "pairs\\.rs:210:61: replace > with >= in cut_turns",
     # Equivalent (PLAN.md M13.7): the departure kernel's fast paths give the general path's bits (`truncation_keeps_the_
     # lower_orders`, `the_value_is_the_jet_s`), so taking the general path instead changes nothing.
     "departure\\.rs:63:62: replace == with != in Series::compose",
