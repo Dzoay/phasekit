@@ -18,6 +18,8 @@ use crate::taylor::Taylor;
 struct Pair {
     i: usize,
     j: usize,
+    /// β_T, γ_T, β_v and γ_v from i to j, Lemmon's ξ and ζ converted.
+    parameters: [f64; 4],
     /// β_T, 2 β_T γ_T √(T_i T_j).
     t: [f64; 2],
     /// β_v, 2 β_v γ_v (v_i^⅓ + v_j^⅓)³/8.
@@ -44,20 +46,35 @@ impl ReducingFunctions {
         let pairs = pairs
             .iter()
             .map(|&(i, j, parameters, swapped)| {
-                let (ti, tj, vi, vj) = (t[i], t[j], v[i], v[j]);
-                let t_ij = math::sqrt(ti * tj);
-                let cube = math::powi(math::powf(vi, 1.0 / 3.0) + math::powf(vj, 1.0 / 3.0), 3);
                 let [bt, gt, bv, gv] = match parameters {
                     Parameters::Gerg(p) => p,
                     Parameters::Lemmon([xi, zeta]) => {
-                        [1.0, (ti + tj + xi) / (2.0 * t_ij), 1.0, (vi + vj + zeta) / (cube / 4.0)]
+                        let (t_ij, cube) = means(&t, &v, i, j);
+                        [1.0, (t[i] + t[j] + xi) / (2.0 * t_ij), 1.0, (v[i] + v[j] + zeta) / (cube / 4.0)]
                     }
                 };
                 let (bt, bv) = if swapped { (1.0 / bt, 1.0 / bv) } else { (bt, bv) };
-                Pair { i, j, t: [bt, 2.0 * bt * gt * t_ij], v: [bv, 2.0 * bv * gv * cube / 8.0] }
+                terms(&t, &v, i, j, [bt, gt, bv, gv])
             })
             .collect();
         ReducingFunctions { t, v, pairs }
+    }
+
+    /// Pair (i, j)'s β_T, γ_T, β_v and γ_v from i to j: the β of (j, i) inverted. None for a pair outside the model.
+    pub(crate) fn parameters(&self, i: usize, j: usize) -> Option<[f64; 4]> {
+        let (a, b) = (i.min(j), i.max(j));
+        let [bt, gt, bv, gv] = self.pairs.iter().find(|p| (p.i, p.j) == (a, b))?.parameters;
+        Some(if (a, b) == (i, j) { [bt, gt, bv, gv] } else { [1.0 / bt, gt, 1.0 / bv, gv] })
+    }
+
+    /// The same functions with pair (i, j)'s parameters, from i to j, replaced. None for a pair outside the model.
+    pub(crate) fn with_parameters(&self, i: usize, j: usize, [bt, gt, bv, gv]: [f64; 4]) -> Option<ReducingFunctions> {
+        let (a, b) = (i.min(j), i.max(j));
+        let parameters = if (a, b) == (i, j) { [bt, gt, bv, gv] } else { [1.0 / bt, gt, 1.0 / bv, gv] };
+        let k = self.pairs.iter().position(|p| (p.i, p.j) == (a, b))?;
+        let mut pairs = self.pairs.clone();
+        pairs[k] = terms(&self.t, &self.v, a, b, parameters);
+        Some(ReducingFunctions { pairs, ..self.clone() })
     }
 
     /// T_r(x), K.
@@ -103,6 +120,18 @@ impl ReducingFunctions {
             .sum();
         pure + mixed
     }
+}
+
+/// √(T_i T_j) and (v_i^⅓ + v_j^⅓)³, the means pair (i, j)'s terms scale.
+fn means(t: &[f64], v: &[f64], i: usize, j: usize) -> (f64, f64) {
+    (math::sqrt(t[i] * t[j]), math::powi(math::powf(v[i], 1.0 / 3.0) + math::powf(v[j], 1.0 / 3.0), 3))
+}
+
+/// Pair (i, j)'s terms from its β_T, γ_T, β_v and γ_v from i to j.
+fn terms(t: &[f64], v: &[f64], i: usize, j: usize, parameters: [f64; 4]) -> Pair {
+    let [bt, gt, bv, gv] = parameters;
+    let (t_ij, cube) = means(t, v, i, j);
+    Pair { i, j, parameters, t: [bt, 2.0 * bt * gt * t_ij], v: [bv, 2.0 * bv * gv * cube / 8.0] }
 }
 
 #[cfg(test)]

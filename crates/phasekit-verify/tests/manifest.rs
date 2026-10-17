@@ -55,6 +55,7 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("coolprop-8.0.0/eos/R410A.csv"),
     fixture!("coolprop-8.0.0/eos/Water.csv"),
     fixture!("coolprop-8.0.0/eos/n-Heptane.csv"),
+    fixture!("coolprop-8.0.0/facts/mixtures.csv"),
     fixture!("coolprop-8.0.0/facts/register.csv"),
     fixture!("coolprop-8.0.0/facts/smoke.csv"),
     fixture!("coolprop-8.0.0/flash/Air.csv"),

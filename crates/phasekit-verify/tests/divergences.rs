@@ -92,6 +92,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0061", div_0061),
     ("DIV-0062", div_0062),
     ("DIV-0063", div_0063),
+    ("DIV-0064", div_0064),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1742,6 +1743,33 @@ fn div_0063() {
     let ours = mix_sat::fugacity_differences(mix, s.t, s.p, (&z, s.rho), (&s.incipient, s.rho_incipient));
     assert!(ours.iter().all(|(d, bound)| d.abs() <= *bound), "{ours:?}");
     assert!((s.rho / row.rho_bulk - 1.0).abs() > 1e-4, "{} against {}", s.rho, row.rho_bulk);
+}
+
+/// DIV-0064 (`UsePaper`, PLAN.md M13.13; ROT-199): v8.0.0 stores its predefined blends as mole fractions that its
+/// ASHRAE 34 injection derived from the standard's mass fractions with its own molar masses, rounded in older entries;
+/// `Corrected` derives them from the mass fractions with the registry's. R411B, R1270/R22/R152a at 3/94/3 % by mass, of
+/// the blends v8.0.0 can build the farthest off: (1) under `Corrected` its mole fractions are the mass fractions' within
+/// 4 ulp, and its molar mass theirs; (2) the oracle's molar mass misses theirs by more than 1e-7 of it; (3) under
+/// `Parity` its molar mass is the oracle's within 4 ulp.
+fn div_0064() {
+    let mass = [0.03, 0.94, 0.03];
+    let molar_mass = |set: DataSet| {
+        let registry = Registry::from_embedded(set).unwrap();
+        let fluid = phasekit_mix::predefined(&registry, "R411B", set).unwrap();
+        let mix = mix_flash::mixture(&fluid);
+        let masses: Vec<f64> = mix.model().fluids().map(|f| f.info().molar_mass()).collect();
+        (fluid.info().molar_mass(), mix.composition().to_vec(), masses)
+    };
+    let (corrected, x, masses) = molar_mass(DataSet::Corrected);
+    let moles: Vec<f64> = mass.iter().zip(&masses).map(|(w, m)| w / m).collect();
+    let total: f64 = moles.iter().sum();
+    assert!(x.iter().zip(&moles).all(|(x, n)| (x / (n / total) - 1.0).abs() <= 4.0 * f64::EPSILON), "{x:?}");
+    let arbiter = 1.0 / total;
+    assert!((corrected / arbiter - 1.0).abs() <= 4.0 * f64::EPSILON, "{corrected} against {arbiter}");
+    let oracle = fact("div0064_molar_mass_r411b");
+    assert!((oracle / arbiter - 1.0).abs() > 1e-7, "the oracle {oracle} against {arbiter}");
+    let (parity, _, _) = molar_mass(DataSet::Parity);
+    assert!((parity / oracle - 1.0).abs() <= 4.0 * f64::EPSILON, "{parity} against the oracle {oracle}");
 }
 
 /// DIV-0055 (`KeepOracle`, PLAN.md M13.5): AGA8's binary test set comes from an implementation whose θ_k are TM15's

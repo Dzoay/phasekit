@@ -61,17 +61,11 @@ pub fn sat_rows() -> Vec<SatRow> {
 /// The mixture a row names on `Parity`, the oracle's data: a binary at z1, or a predefined mixture at its library's
 /// mole fractions.
 pub fn row_fluid(registry: &Registry, label: &str, z1: f64) -> Fluid {
-    let parts: Vec<(&str, f64)> = match label.strip_suffix(".mix") {
-        Some(name) => {
-            let (components, x) = phasekit_mix::internal::predefined(name).unwrap();
-            components.iter().copied().zip(x.iter().copied()).collect()
-        }
-        None => {
-            let names: Vec<&str> = label.split('&').collect();
-            vec![(names[0], z1), (names[1], 1.0 - z1)]
-        }
-    };
-    phasekit_mix::mixture(registry, &parts, DataSet::Parity).unwrap()
+    if let Some(name) = label.strip_suffix(".mix") {
+        return phasekit_mix::predefined(registry, name, DataSet::Parity).unwrap();
+    }
+    let names: Vec<&str> = label.split('&').collect();
+    phasekit_mix::mixture(registry, &[(names[0], z1), (names[1], 1.0 - z1)], DataSet::Parity).unwrap()
 }
 
 /// The mixture model behind `fluid`.

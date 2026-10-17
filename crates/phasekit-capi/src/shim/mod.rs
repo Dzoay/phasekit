@@ -253,7 +253,7 @@ pub unsafe extern "C" fn get_fluid_param_string(
     run(0, || {
         // SAFETY: the caller's contract.
         let (fluid, param) = unsafe { (c_str(fluid, "fluid")?, c_str(param, "param")?) };
-        let value = fluid_param(fluid_in(registry()?, fluid).map_err(|e| e.to_string())?, param)?;
+        let value = fluid_param(&fluid_in(registry()?, fluid).map_err(|e| e.to_string())?, param)?;
         // SAFETY: the caller's contract.
         unsafe { str2buf(&value, output, n)? };
         Ok(1)

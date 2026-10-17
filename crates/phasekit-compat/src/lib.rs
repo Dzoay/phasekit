@@ -11,7 +11,7 @@
 use core::fmt;
 
 use phasekit_core::batch::{self, BatchRequest, BatchSummary, ExecPolicy, Status};
-use phasekit_core::{Basis, Error, FlashOptions, Fluid, Input, Pair, Prop, Registry, State};
+use phasekit_core::{Basis, Error, FlashOptions, Fluid, Input, LoadError, Pair, Prop, Registry, State};
 
 mod keys;
 
@@ -76,29 +76,38 @@ impl fmt::Display for CompatError {
 
 impl std::error::Error for CompatError {}
 
-/// The fluid a fluid string names in `registry`. The grammar is one name, with `HEOS::`, the built-in backend, as an
-/// optional prefix; any other prefix is part of a registered name (`PR::Water` from a cubic crate). Mixtures (`&`),
-/// fractions (`[…]`), backend options (`?…`, ROT-172) and incompressible concentrations (`%`) are refused by name, as
-/// are an empty or a padded string: nothing is parsed leniently (ROT-166).
-pub fn fluid_in<'r>(registry: &'r Registry, fluid: &str) -> Result<&'r Fluid, CompatError> {
+/// The fluid a fluid string names in `registry`: a name it holds, with `HEOS::`, the built-in backend, as an optional
+/// prefix (any other prefix is part of a registered name, `PR::Water` from a cubic crate); else the whole string as
+/// the registry's resolvers read it ([`Registry::resolve`]), phasekit-mix's mixture names where they are registered
+/// (`HEOS::R32[0.7]&R125[0.3]`, `R410A.mix`; PLAN.md M13.13), whose grammar is theirs. Backend options (`?…`,
+/// ROT-172) and incompressible concentrations (`%`) are refused by name, as are an empty or a padded string: nothing is
+/// parsed leniently (ROT-166). A name nothing reads is the registry's refusal of it without the prefix.
+pub fn fluid_in(registry: &Registry, fluid: &str) -> Result<Fluid, CompatError> {
     let name = fluid.strip_prefix("HEOS::").unwrap_or(fluid);
-    let outside = name.is_empty() || name.trim() != name || name.contains(['&', '[', ']', '?', '%']);
+    let outside = name.is_empty() || name.trim() != name || name.contains(['?', '%']);
     if outside {
         return Err(CompatError::InvalidFluid(fluid.into()));
     }
-    Ok(registry.get(name)?)
+    let missing = match registry.get(name) {
+        Ok(held) => return Ok(held.clone()),
+        Err(missing) => missing,
+    };
+    match registry.resolve(fluid) {
+        Err(Error::Load(LoadError::UnknownName(unread))) if *unread == *fluid => Err(missing.into()),
+        resolved => Ok(resolved?),
+    }
 }
 
 /// A `PropsSI` call's plan: everything that is checked before any state is flashed (CoolProp's plan-time errors,
 /// map 14 §3.2), so a vector call refuses a bad key or fluid whole.
-struct Plan<'r> {
+struct Plan {
     output: Output,
     keys: Keys,
-    fluid: &'r Fluid,
+    fluid: Fluid,
 }
 
-impl<'r> Plan<'r> {
-    fn new(registry: &'r Registry, output: &str, name1: &str, name2: &str, fluid: &str) -> Result<Self, CompatError> {
+impl Plan {
+    fn new(registry: &Registry, output: &str, name1: &str, name2: &str, fluid: &str) -> Result<Self, CompatError> {
         let output = parse_output(output).ok_or_else(|| CompatError::UnknownOutput(output.into()))?;
         Ok(Plan { output, keys: pair_of(name1, name2)?, fluid: fluid_in(registry, fluid)? })
     }
@@ -110,7 +119,7 @@ impl<'r> Plan<'r> {
 
     /// The output at the two input values.
     fn eval(&self, value1: f64, value2: f64, flash: &FlashOptions) -> Result<f64, Error> {
-        value(self.fluid, &self.state(value1, value2, flash)?, self.output)
+        value(&self.fluid, &self.state(value1, value2, flash)?, self.output)
     }
 }
 
@@ -456,9 +465,10 @@ mod tests {
     }
 
     /// Rot: ROT-166 (map 01 R17). CoolProp parses a fluid string differently per entry point and leniently (`MEG-abc%`
-    /// is 0 %). Here one grammar: a registered name, alias or CAS number, `HEOS::` optional; a mixture, fractions,
-    /// backend options, a concentration, an empty or a padded string is refused by name before any lookup, and any
-    /// other prefix is part of a name the registry does not have.
+    /// is 0 %). Here one grammar: a registered name, alias or CAS number, `HEOS::` optional; backend options, a
+    /// concentration, an empty or a padded string is refused by name before any lookup; any other prefix is part of a
+    /// name the registry does not have; and a mixture or fractions go whole to the registry's resolvers, whose grammar
+    /// is theirs (phasekit-mix's, PLAN.md M13.13): a registry without one holds no such name.
     #[test]
     fn fluid_string_grammar_is_strict() {
         let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
@@ -467,15 +477,19 @@ mod tests {
         for fluid in ["Water", "water", "WATER", "HEOS::Water", "R718", "7732-18-5", "HEOS::h2o"] {
             assert_eq!(call(fluid), Ok(water), "{fluid}");
         }
-        let syntax = ["", "HEOS::", " Water", "Water ", "Water&Ethanol", "Water[1.0]", "HEOS::Water[1.0]", "MEG-20%"];
-        for fluid in syntax.into_iter().chain(["INCOMP::MEG-20%", "Water?{}", "Water[0,5]"]) {
+        let syntax = ["", "HEOS::", " Water", "Water ", "MEG-20%", "INCOMP::MEG-20%", "Water?{}", "Water[1.0]?"];
+        for fluid in syntax {
             assert_eq!(call(fluid), Err(CompatError::InvalidFluid(fluid.into())), "{fluid:?}");
         }
-        for fluid in ["REFPROP::Water", "INCOMP::MEG", "Water-SRK", "SRK::Water", "HEOS::HEOS::Water", "Waterx"] {
+        let prefixed = ["REFPROP::Water", "INCOMP::MEG", "Water-SRK", "SRK::Water", "HEOS::HEOS::Water", "Waterx"];
+        let mixed = ["Water&Ethanol", "Water[1.0]", "HEOS::Water[1.0]", "Water[0,5]"];
+        for fluid in prefixed.into_iter().chain(mixed) {
             let unknown =
                 matches!(call(fluid), Err(CompatError::Core(Error::Load(phasekit_core::LoadError::UnknownName(_)))));
             assert!(unknown, "{fluid}: {:?}", call(fluid));
         }
+        let unprefixed = Err(CompatError::Core(Error::Load(phasekit_core::LoadError::UnknownName("Waterx".into()))));
+        assert_eq!(call("HEOS::Waterx"), unprefixed);
     }
 
     /// Rot: ROT-168 (map 14 R9). CoolProp's scalar PropsSI splits an output on '&', then demands one value, and fails
@@ -491,21 +505,25 @@ mod tests {
 
     /// Rot: ROT-172 (map 01 R18). CoolProp's factory splits a fluid on '&' before it strips a `?{json}` options suffix,
     /// and PropsSI refuses a JSON array in it. Here there are no string backend options (typed `FlashOptions`, D7): any
-    /// suffix, and a tabular backend's name, is refused whole, before a fluid is decoded.
+    /// suffix is refused whole, and a tabular backend's name is a name nothing holds, before a fluid is decoded.
     #[test]
     fn backend_options_suffix_is_refused() {
         let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+        let call = |fluid| props_si_in(&registry, "P", "T", 700.0, "Dmolar", 10.0, fluid);
         let suffixed = [
             r#"Water?{"critical_patch":{"mode":"a&b"}}"#,
             r#"Water?{"bbox":[600,650,1e7,3e7]}"#,
             "Water?@options.json",
-            "SVDSBTL&HEOS::Water",
             "HEOS::Water?",
         ];
         for fluid in suffixed {
-            let got = props_si_in(&registry, "P", "T", 700.0, "Dmolar", 10.0, fluid);
-            assert_eq!(got, Err(CompatError::InvalidFluid(fluid.into())), "{fluid}");
+            assert_eq!(call(fluid), Err(CompatError::InvalidFluid(fluid.into())), "{fluid}");
         }
+        let tabular = "SVDSBTL&HEOS::Water";
+        assert_eq!(
+            call(tabular),
+            Err(CompatError::Core(Error::Load(phasekit_core::LoadError::UnknownName(tabular.into()))))
+        );
         assert_eq!(registry.loaded().count(), 0);
     }
 
@@ -568,15 +586,17 @@ mod tests {
         assert_eq!(props1_si_in(&registry, "T", "Water"), Err(CompatError::NotAConstant("T".into())));
     }
 
-    /// ROT-151 (map 12 R18: a `de_DE` locale breaks CoolProp's number parsing). No string holds a number: a fluid string
-    /// with fractions is refused by name in either decimal punctuation, before anything is parsed, and a key padded,
-    /// in another case or with a separator is unknown. Values cross as `f64` only, so no locale reaches them.
+    /// ROT-151 (map 12 R18: a `de_DE` locale breaks CoolProp's number parsing). compat parses no number: a fluid string
+    /// with fractions, in either decimal punctuation, goes whole to the registry's resolvers (a registry without one
+    /// holds no such name; phasekit-mix's reads a decimal point only, `tests/mixture_names.rs`), and a key padded, in
+    /// another case or with a separator is unknown. Values cross as `f64` only, so no locale reaches them.
     #[test]
     fn malformed_numbers_and_keys_are_refused() {
         let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
         let call = |output, name1, fluid| props_si_in(&registry, output, name1, 300.0, "P", 1e5, fluid);
         for fluid in ["Water[0.5]", "Water[0,5]", "R32[0.5]&R125[0.5]", "R32[0,5]&R125[0,5]"] {
-            assert_eq!(call("Hmass", "T", fluid), Err(CompatError::InvalidFluid(fluid.into())), "{fluid}");
+            let unknown = Err(CompatError::Core(Error::Load(phasekit_core::LoadError::UnknownName(fluid.into()))));
+            assert_eq!(call("Hmass", "T", fluid), unknown, "{fluid}");
         }
         assert!(matches!(call("Hmass", "T", "Water 1,0"), Err(CompatError::Core(Error::Load(_)))), "no such fluid");
         for key in ["Hmass ", " Hmass", "hmass", "Hmass,", "H,mass", "1,5"] {

@@ -16,6 +16,7 @@ pub enum Part {
     Melting,
     Transport,
     Algorithm,
+    Composition,
 }
 
 /// What the tests do about it (VERIFICATION.md §6.2).
@@ -1574,6 +1575,25 @@ pub static DIVERGENCES: &[Divergence] = &[
                    DIV-0060's 5e-7 by up to 1.2e-2 in a density, or leave phasekit's Newton without convergence from \
                    them; the rows whose phases lie farther apart are phasekit's within DIV-0060's 5e-7 (M13.12)",
         exempt: Some(Exempt { kinds: &[Kind::MixEnv], columns: &["*"], rows: Rows::NearCritical }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[13],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0064",
+        fluids: &["*.mix"],
+        part: Part::Composition,
+        arbiter: Some("ASHRAE 34 (dev/mixtures/ASHRAE_predefined_2026.tsv)"),
+        policy: Policy::UsePaper,
+        fix: Fix::Code("phasekit_mix::names"),
+        evidence: "map 04 §4 row 4 (ROT-199): v8.0.0 stores each predefined blend as mole fractions, which its ASHRAE \
+                   injection derived from ASHRAE 34's mass fractions with CoolProp's molar masses, the older entries \
+                   rounded. With the registry's molar masses the mass fractions give 80 of the 120 the library can \
+                   weigh within 1e-12 and the rest within 8e-6 (R405A, which neither builds); of those v8.0.0 builds, \
+                   R411B's sit farthest off, 8.7e-7 in a mole fraction, its molar mass 0.0830689331 kg/mol against \
+                   the mass fractions' 0.0830688950, 4.6e-7 apart (M13.13)",
+        exempt: None,
         tolerance: None,
         table_tolerances: &[],
         proof: &[13],

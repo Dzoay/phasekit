@@ -100,7 +100,7 @@ impl Registry {
 
     /// The fluid a fluid string names (a name, alias or CAS number). A handle object: free it with `free()`.
     pub fn fluid(&self, name: &str) -> Result<Fluid, JsError> {
-        Ok(Fluid { inner: compat::fluid_in(&self.inner, name).map_err(js)?.clone() })
+        Ok(Fluid { inner: compat::fluid_in(&self.inner, name).map_err(js)? })
     }
 }
 
