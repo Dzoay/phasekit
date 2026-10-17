@@ -247,7 +247,12 @@ fn shim_strings_and_buffers_follow_str2buf() {
     assert_eq!(global("version", 0).0, 0);
     assert_eq!(global("HOME", 64), (0, "#".repeat(64)));
     assert_eq!(errstring(), "`HOME` is not a global parameter phasekit has");
-    assert_eq!((global("warnstring", 8), global("predefined_mixtures", 8)), ((1, String::new()), (1, String::new())));
+    assert_eq!(
+        (global("warnstring", 8), global("incompressible_list_pure", 8)),
+        ((1, String::new()), (1, String::new()))
+    );
+    let (ok, mixtures) = global("predefined_mixtures", 4096);
+    assert!(ok == 1 && mixtures.starts_with("AIR.MIX,AMARILLO.MIX,Air.mix,") && mixtures.split(',').count() == 294);
     let parameters = global("parameter_list", 4096).1;
     assert_eq!(parameters, output_names().collect::<Vec<_>>().join(","));
     let index = |f: unsafe extern "C" fn(*const c_char) -> c_long, name: &str| {
@@ -343,4 +348,19 @@ fn shim_fp_guard_matches_v8_0_0() {
     assert!(trapping || cfg!(target_arch = "aarch64"), "the trap was not enabled");
     assert_eq!((masked, still_masked), ((0, nearest, true), (0, 0, TOWARD_ZERO)), "a masked host stays masked");
     assert!(value.is_finite() && polled == 0, "PropsSI leaves a clean status word: {polled:#x}");
+}
+
+/// PLAN.md M13.14 (user decision MX5): the shim's `PropsSI` reads CoolProp's mixture strings. v8.0.0's density of
+/// R410A at 300 K and 1 bar by composition and by `.mix` name, and its dew pressure at 250 K
+/// (fixtures/coolprop-8.0.0/facts/mixtures.csv), within 1e-9: the shim's registry is `Corrected`, whose R410A.mix lies
+/// within 1e-12 of v8.0.0's mole fractions. Its pseudo-pure `R410A` stays the ancillary blend.
+#[test]
+fn shim_props_si_reads_mixture_strings() {
+    let _serial = serial();
+    let close = |got: f64, want: f64| (got / want - 1.0).abs() < 1e-9;
+    let mix = "HEOS::R32[0.697615]&R125[0.302385]";
+    assert!(close(props("Dmolar", ("T", 300.0), ("P", 1e5), mix), 40.604_884_843_127_04), "{}", errstring());
+    assert!(close(props("Dmolar", ("T", 300.0), ("P", 1e5), "R410A.mix"), 40.604_884_868_489_82), "{}", errstring());
+    let dew = props("P", ("T", 250.0), ("Q", 1.0), "R410A.mix");
+    assert!(close(dew, 354_068.900_078_878_3) && props("P", ("T", 250.0), ("Q", 1.0), "R410A") != dew, "{dew}");
 }

@@ -90,7 +90,8 @@ size_t pk_last_error(char *buf,
                      size_t len);
 
 // A new registry of the embedded fluids under `data_set` (`PK_DATASET_CORRECTED` or `PK_DATASET_PARITY`), into
-// `*out`. Free it with [`pk_registry_free`].
+// `*out`, which also reads CoolProp's mixture names (`HEOS::R32[0.7]&R125[0.3]`, `R410A.mix`) on that data set's
+// library. Free it with [`pk_registry_free`].
 //
 // # Safety
 // `out` is null or points to writable memory for one `pk_registry`.

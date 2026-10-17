@@ -9,7 +9,7 @@ x86_64-unknown-linux-gnu phasekit-verify::gibbs_seam 3
 x86_64-unknown-linux-gnu phasekit-verify::lazy_load 13
 x86_64-unknown-linux-gnu phasekit-verify::new_family 14
 x86_64-unknown-linux-gnu phasekit-verify::register 12
-x86_64-unknown-linux-gnu phasekit-xtask::main 166
+x86_64-unknown-linux-gnu phasekit-xtask::main 167
 x86_64-unknown-linux-gnu phasekit-core::doc 2
 wasm32-wasip2 phasekit-core::lib 251
 wasm32-wasip2 phasekit-verify::lib 60
@@ -74,11 +74,11 @@ x86_64-unknown-linux-gnu phasekit-verify::refstate 2
 wasm32-wasip2 phasekit-verify::refstate 2
 x86_64-unknown-linux-gnu phasekit-verify::props 4
 wasm32-wasip2 phasekit-verify::props 4
-x86_64-unknown-linux-gnu phasekit-capi::lib 24
+x86_64-unknown-linux-gnu phasekit-capi::lib 25
 x86_64-unknown-linux-gnu phasekit-capi::smoke 1
-x86_64-unknown-linux-gnu phasekit-capi::entry_points 1
-wasm32-wasip2 phasekit-capi::lib 16
-wasm32-wasip2 phasekit-capi::entry_points 1
+x86_64-unknown-linux-gnu phasekit-capi::entry_points 2
+wasm32-wasip2 phasekit-capi::lib 17
+wasm32-wasip2 phasekit-capi::entry_points 2
 x86_64-unknown-linux-gnu phasekit-verify::codes 1
 wasm32-wasip2 phasekit-verify::codes 1
 x86_64-unknown-linux-gnu phasekit-cubic::lib 9
@@ -97,8 +97,8 @@ x86_64-unknown-linux-gnu phasekit-verify::cubic_family 8
 wasm32-wasip2 phasekit-verify::cubic_family 8
 x86_64-unknown-linux-gnu phasekit-verify::mixture_seam 5
 wasm32-wasip2 phasekit-verify::mixture_seam 5
-x86_64-unknown-linux-gnu phasekit-mix::lib 110
-wasm32-wasip2 phasekit-mix::lib 110
+x86_64-unknown-linux-gnu phasekit-mix::lib 112
+wasm32-wasip2 phasekit-mix::lib 112
 x86_64-unknown-linux-gnu phasekit-mix::residual 4
 x86_64-unknown-linux-gnu phasekit-verify::mixture 8
 wasm32-wasip2 phasekit-mix::residual 4
@@ -123,5 +123,5 @@ x86_64-unknown-linux-gnu phasekit-verify::mixture_pairs 5
 wasm32-wasip2 phasekit-verify::mixture_pairs 5
 x86_64-unknown-linux-gnu phasekit-verify::envelope 4
 wasm32-wasip2 phasekit-verify::envelope 4
-x86_64-unknown-linux-gnu phasekit-verify::mixture_names 3
-wasm32-wasip2 phasekit-verify::mixture_names 3
+x86_64-unknown-linux-gnu phasekit-verify::mixture_names 4
+wasm32-wasip2 phasekit-verify::mixture_names 4
