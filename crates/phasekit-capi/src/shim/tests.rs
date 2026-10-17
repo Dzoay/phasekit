@@ -344,3 +344,17 @@ fn shim_fp_guard_matches_v8_0_0() {
     assert_eq!((masked, still_masked), ((0, nearest, true), (0, 0, TOWARD_ZERO)), "a masked host stays masked");
     assert!(value.is_finite() && polled == 0, "PropsSI leaves a clean status word: {polled:#x}");
 }
+
+/// PLAN.md M13.14 (user decision MX5): the shim's `PropsSI` reads CoolProp's mixture strings. v8.0.0's density of
+/// R410A at 300 K and 1 bar by composition and by `.mix` name, and its dew pressure at 250 K
+/// (fixtures/coolprop-8.0.0/facts/mixtures.csv), within 1e-9: the shim's registry is `Corrected`, whose R410A.mix lies
+/// within 1e-12 of v8.0.0's mole fractions. Its pseudo-pure `R410A` stays the ancillary blend.
+#[test]
+fn shim_props_si_reads_mixture_strings() {
+    let close = |got: f64, want: f64| (got / want - 1.0).abs() < 1e-9;
+    let mix = "HEOS::R32[0.697615]&R125[0.302385]";
+    assert!(close(props("Dmolar", ("T", 300.0), ("P", 1e5), mix), 40.604_884_843_127_04), "{}", errstring());
+    assert!(close(props("Dmolar", ("T", 300.0), ("P", 1e5), "R410A.mix"), 40.604_884_868_489_82), "{}", errstring());
+    let dew = props("P", ("T", 250.0), ("Q", 1.0), "R410A.mix");
+    assert!(close(dew, 354_068.900_078_878_3) && props("P", ("T", 250.0), ("Q", 1.0), "R410A") != dew, "{dew}");
+}

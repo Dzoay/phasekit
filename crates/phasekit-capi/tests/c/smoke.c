@@ -51,6 +51,22 @@ int main(void) {
         CHECK(cells[2] == PK_INVALID_INPUT && isnan(out[2]) && cells[3] == PK_INVALID_INPUT && isnan(out[3]));
         CHECK(pk_batch(water, keys, lens, 2, "T", 1, ts, "P", 1, ps, 2, out, cells, 3) == PK_BAD_LENGTH);
     }
+    {
+        /* Mixture strings (PLAN.md M13.14): v8.0.0's density of R410A at 300 K and 1 bar by name and by composition
+         * (fixtures/coolprop-8.0.0/facts/mixtures.csv); the registry's R410A.mix is its Corrected mole fractions, within
+         * 1e-12 of v8.0.0's. A handle on one, and its name. */
+        const char *mix = "HEOS::R32[0.697615]&R125[0.302385]";
+        pk_fluid r410a = 0;
+        double d = 0.0;
+        CHECK(props(registry, "Dmolar", "T", 300.0, "P", 1e5, "R410A.mix", &d) == PK_OK);
+        CHECK(fabs(d / 40.60488486848982 - 1.0) < 1e-9);
+        CHECK(props(registry, "Dmolar", "T", 300.0, "P", 1e5, mix, &d) == PK_OK);
+        CHECK(fabs(d / 40.60488484312704 - 1.0) < 1e-9);
+        CHECK(pk_fluid_new(registry, mix, strlen(mix), &r410a) == PK_OK);
+        CHECK(pk_fluid_name(r410a, message, sizeof message, &needed) == PK_OK);
+        CHECK(strcmp(message, "R32[0.697615]&R125[0.302385]") == 0);
+        CHECK(pk_fluid_free(r410a) == PK_OK);
+    }
     CHECK(pk_fluid_free(water) == PK_OK && pk_fluid_free(water) == PK_STALE_HANDLE);
     CHECK(pk_registry_free(registry) == PK_OK && pk_registry_free(registry) == PK_STALE_HANDLE);
     CHECK(props(registry, "T", "P", 101325.0, "Q", 0.0, "Water", &t) == PK_STALE_HANDLE);

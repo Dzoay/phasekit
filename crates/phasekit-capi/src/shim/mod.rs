@@ -190,7 +190,7 @@ pub extern "C" fn HAPropsSI(
 /// A global parameter: `version`, `errstring` (read and cleared), `warnstring` (always empty), `FluidsList` (also
 /// `fluids_list`, `fluidslist`; the registry's names, joined by `LIST_STRING_DELIMITER`), `parameter_list` (the
 /// output names, joined by commas, as CoolProp's), and the four lists phasekit has no entries for, empty.
-fn global_param(param: &str) -> Result<String, String> {
+pub fn global_param(param: &str) -> Result<String, String> {
     Ok(match param {
         "version" => env!("CARGO_PKG_VERSION").to_string(),
         "errstring" => state::take_error(),
