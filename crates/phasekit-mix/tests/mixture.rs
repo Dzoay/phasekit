@@ -186,15 +186,17 @@ fn states_outside_the_limits_are_refused_unless_extrapolated() {
     assert!(!mix.flash(dt(100.0, 320.0), &opts).unwrap().is_extrapolated());
 }
 
-/// Until the stability test (M13.8), a flash needs a phase hint; with one, PT finds the hinted branch's density and
-/// gives back the state DT gives there.
+/// With a phase hint, PT finds the hinted branch's density and gives back the state DT gives there; without one, DT
+/// tests the state's stability first (M13.10) and returns that same compressed liquid, labelled from the critical point
+/// (5 MPa lies above it).
 #[test]
 fn hinted_flashes_reach_single_phase_states() {
     let registry = registry();
     let mix = mixture(&registry, &[("R32", 0.5), ("R125", 0.5)], DataSet::Corrected).unwrap();
     let at = liquid(&mix, 280.0);
-    assert!(matches!(mix.flash(at, &FlashOptions::new()), Err(Error::Unsupported { .. })));
     let state = mix.flash(at, &FlashOptions::new().with_phase(Phase::Liquid)).unwrap();
+    let unhinted = mix.flash(at, &FlashOptions::new()).unwrap();
+    assert_eq!((unhinted.p(), unhinted.phase()), (state.p(), Phase::SupercriticalLiquid));
     assert!(((state.p() - 5e6) / 5e6).abs() < 1e-12, "{}", state.p());
     let gas = Input::pt(Pressure::new(1e5).unwrap(), Temperature::new(280.0).unwrap());
     let vapour = mix.flash(gas, &FlashOptions::new().with_phase(Phase::Gas)).unwrap();

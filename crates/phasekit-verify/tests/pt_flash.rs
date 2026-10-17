@@ -300,7 +300,7 @@ fn pt_flashes_match_the_oracle() {
     };
     let (mut single, mut split, mut skipped, mut liquid_liquid, mut misses) = (0, 0, 0, 0, Vec::new());
     for o in flash_rows() {
-        let key = RowKey { t: o.t, input: None, two_phase: o.q > 0.0, p: Some(o.p) };
+        let key = RowKey { t: o.t, input: None, two_phase: o.q > 0.0, p: Some(o.p), balanced: true };
         if exempt_row(DIVERGENCES, &o.label, Kind::MixFlash, "*", key).is_some() {
             skipped += 1;
             continue;

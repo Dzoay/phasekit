@@ -67,6 +67,10 @@ name = "dt"
 harness = false
 
 [[bench]]
+name = "mixture"
+harness = false
+
+[[bench]]
 name = "sat"
 harness = false
 

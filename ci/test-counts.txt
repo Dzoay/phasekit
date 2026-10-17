@@ -97,8 +97,8 @@ x86_64-unknown-linux-gnu phasekit-verify::cubic_family 8
 wasm32-wasip2 phasekit-verify::cubic_family 8
 x86_64-unknown-linux-gnu phasekit-verify::mixture_seam 5
 wasm32-wasip2 phasekit-verify::mixture_seam 5
-x86_64-unknown-linux-gnu phasekit-mix::lib 54
-wasm32-wasip2 phasekit-mix::lib 54
+x86_64-unknown-linux-gnu phasekit-mix::lib 68
+wasm32-wasip2 phasekit-mix::lib 68
 x86_64-unknown-linux-gnu phasekit-mix::residual 4
 x86_64-unknown-linux-gnu phasekit-verify::mixture 8
 wasm32-wasip2 phasekit-mix::residual 4
@@ -116,4 +116,6 @@ wasm32-wasip2 phasekit-verify::critical 3
 x86_64-unknown-linux-gnu phasekit-verify::pt_flash 8
 wasm32-wasip2 phasekit-verify::pt_flash 8
 x86_64-unknown-linux-gnu phasekit-verify::bubble_dew 6
+x86_64-unknown-linux-gnu phasekit-verify::interior 3
 wasm32-wasip2 phasekit-verify::bubble_dew 6
+wasm32-wasip2 phasekit-verify::interior 3
