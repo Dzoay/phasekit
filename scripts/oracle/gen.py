@@ -278,6 +278,14 @@ FACTS = {
             for q in (0, 1)
         ],
         *[(f"{label}_molar_mass", "Props1SI", (fluid, "molarmass")) for label, fluid in MIXTURE_STRINGS],
+        # The browser package's five fluids hold a pair (PLAN.md M13.14): CO2/N2 at 50/50, at 300 K and 1 bar.
+        ("co2_n2_dmolar_t300_p1e5", "PropsSI", ("Dmolar", "T", 300, "P", 1e5, "HEOS::CarbonDioxide[0.5]&Nitrogen[0.5]")),
+        # The two global strings that list them (M13.14), each by its item count and digest (see `global_digest`).
+        *[
+            (f"{name}_{what}", f"GlobalParam{what.capitalize()}", (name,))
+            for name in ("predefined_mixtures", "mixture_binary_pairs_list")
+            for what in ("items", "digest")
+        ],
     ],
 }
 
@@ -442,15 +450,26 @@ def vle_props(CP, *args):
         CP.set_config_bool(CP.ENABLE_SUPERANCILLARIES, before)
 
 
+def global_digest(text):
+    """A string as a fact's number: the first 13 hex digits of its UTF-8 sha256, 52 bits, exact in a double."""
+    return float(int(hashlib.sha256(text.encode("utf-8")).hexdigest()[:13], 16))
+
+
 def call(CP, fn, args):
     """One oracle call -> (value, status). `PropsSI` raises on failure, but `Props1SI` returns inf and leaves the
-    message in the process-wide errstring (CoolProp's C convention; reading errstring clears it): both are checked."""
+    message in the process-wide errstring (CoolProp's C convention; reading errstring clears it): both are checked.
+    `GlobalParamItems` and `GlobalParamDigest` are `get_global_param_string`'s comma-separated item count and its
+    `global_digest`."""
     CP.get_global_param_string("errstring")
     try:
         if fn == "AbstractState":
             value = float(abstract_state(CP, *args))
         elif fn == "PropsSIVle":
             value = float(vle_props(CP, *args))
+        elif fn == "GlobalParamItems":
+            value = float(len(CP.get_global_param_string(*args).split(",")))
+        elif fn == "GlobalParamDigest":
+            value = global_digest(CP.get_global_param_string(*args))
         else:
             value = float(getattr(CP, fn)(*args))
     except Exception as exception:  # every oracle failure becomes a status, never a crash
@@ -502,6 +521,8 @@ def header(kind, lock, config, fluids, columns, tol, floats, source="coolprop", 
 def fact_fluids(fn, inputs, predefined):
     """The pure fluids a fact reads: `PR::n-Propane` is n-Propane, `HEOS::A[0.4]&B[0.6]` is A and B, and `R410A.mix`
     the components `predefined` (name -> fluids) gives it, as the library names them."""
+    if fn.startswith("GlobalParam"):
+        return []
     name = {"PropsSI": inputs[-1], "PropsSIVle": inputs[-1], "Props1SI": inputs[0], "AbstractState": inputs[1]}[fn]
     name = name.split("::")[-1]
     if name.endswith(".mix"):

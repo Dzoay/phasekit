@@ -42,10 +42,12 @@ pub struct Registry {
 
 #[wasm_bindgen]
 impl Registry {
-    /// The embedded fluids, CoolProp's data with the published corrections (user decision 2).
+    /// The embedded fluids, CoolProp's data with the published corrections (user decision 2), and CoolProp's mixture
+    /// names over them and the packs added later (`HEOS::CarbonDioxide[0.5]&Nitrogen[0.5]`, `R410A.mix`; PLAN.md M13.14).
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<Registry, JsError> {
-        Ok(Registry { inner: phasekit_core::Registry::from_embedded(DataSet::Corrected).map_err(js)? })
+        let embedded = phasekit_core::Registry::from_embedded(DataSet::Corrected).map_err(js)?;
+        Ok(Registry { inner: phasekit_mix::with_mixtures(&embedded, DataSet::Corrected) })
     }
 
     /// A new registry that also serves the fluids of a pack (E6): its bytes as fetched. This one is unchanged.

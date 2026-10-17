@@ -2,8 +2,9 @@
 //! with `--no-default-features --features fluids-core` resolves to the three workspace crates, compat and core with
 //! `embedded` and `fluids-core` only (no `rayon`, `libm` or `simd`, PLAN.md M12.4), and `phasekit-data` with `core` and
 //! exactly the fluids its `core` list names.
-//! The browser package's build resolves the same (beside wasm-bindgen's own crates), except that its `simd128` build,
-//! with the package's `simd` feature, enables core's `simd` (M12.10, user decision SL8), and its release `.wasm`,
+//! The browser package's build resolves the same (beside wasm-bindgen's own crates, and phasekit-mix with no feature for
+//! its mixture names, M13.14), except that its `simd128` build, with the package's `simd` feature, enables core's `simd`
+//! (M12.10, user decision SL8), and its release `.wasm`,
 //! baseline and `simd128`, stays within its budget in `crates/phasekit-wasm/size-budget.txt` (PLAN.md M10.8).
 
 use super::{Verdict, no_args, table};
@@ -99,6 +100,7 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
 fn wanted<'a>(name: &str, core: &'a [String], root: &str, simd: bool) -> Option<Vec<&'a str>> {
     let want = match name {
         "phasekit-wasm" if root == "phasekit-wasm" => simd.then_some("simd").into_iter().collect(),
+        "phasekit-mix" if root == "phasekit-wasm" => Vec::new(),
         "phasekit-core" if simd => vec!["embedded", "fluids-core", "libm", "simd"],
         "phasekit-compat" | "phasekit-core" => vec!["embedded", "fluids-core"],
         "phasekit-data" => {
@@ -283,18 +285,23 @@ mod tests {
         );
     }
 
-    /// PLAN.md M10.8: the browser package's build embeds the same set; wasm-bindgen's crates and a repeated crate's
-    /// `(*)` line pass, another workspace crate or an extra fluid does not; the budget is one byte count.
+    /// PLAN.md M10.8: the browser package's build embeds the same set; wasm-bindgen's crates, phasekit-mix without a
+    /// feature (M13.14) and a repeated crate's `(*)` line pass, another workspace crate or an extra fluid does not, nor
+    /// phasekit-mix in compat's build; the budget is one byte count.
     #[test]
     fn wasm_feature_tree_has_no_extra_fluids() {
         let core = core_list(DATA).unwrap();
         let wasm = format!(
             "phasekit-wasm v0.0.0 (/w/crates/phasekit-wasm) []\n{}phasekit-core v0.0.0 (/w/crates/phasekit-core) \
-             [embedded,fluids-core] (*)\nwasm-bindgen v0.2.129 [default,std]\n",
+             [embedded,fluids-core] (*)\nphasekit-mix v0.0.0 (/w/crates/phasekit-mix) []\nwasm-bindgen v0.2.129 \
+             [default,std]\n",
             tree("core,fluid-nitrogen,fluid-water")
         );
         assert_eq!(check(&wasm, &core, "phasekit-wasm", false), Ok(()));
         assert!(check(&wasm, &core, "phasekit-compat", false).unwrap_err()[0].contains("pulls in phasekit-wasm"));
+        let mixed =
+            format!("{}phasekit-mix v0.0.0 (/w/crates/phasekit-mix) []\n", tree("core,fluid-nitrogen,fluid-water"));
+        assert!(check(&mixed, &core, "phasekit-compat", false).unwrap_err()[0].contains("pulls in phasekit-mix"));
         let extra = wasm.replace("core,fluid-nitrogen,fluid-water", "core,fluid-air,fluid-nitrogen,fluid-water");
         assert_eq!(
             check(&extra, &core, "phasekit-wasm", false).unwrap_err(),

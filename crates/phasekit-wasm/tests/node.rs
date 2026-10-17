@@ -231,6 +231,8 @@ fn props1si_answers_constants_as_compat_does() {
 }
 
 /// The oracle's all-fluid tier, read as the package's tests run: compiled in (wasm32-unknown-unknown has no files).
+const MIXTURES: (&str, &str) =
+    ("facts/mixtures.csv", include_str!("../../phasekit-verify/fixtures/coolprop-8.0.0/facts/mixtures.csv"));
 const CRIT: (&str, &str) = ("all/crit.csv", include_str!("../../phasekit-verify/fixtures/coolprop-8.0.0/all/crit.csv"));
 const TRANSPORT: (&str, &str) =
     ("all/transport.csv", include_str!("../../phasekit-verify/fixtures/coolprop-8.0.0/all/transport.csv"));
@@ -307,4 +309,20 @@ fn r32_from_its_pack_gives_the_fixture_values() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
     assert_eq!(rows, 8);
+}
+
+/// PLAN.md M13.14 (user decision MX5): the browser package reads CoolProp's mixture strings over its five fluids:
+/// v8.0.0's density of CO₂/N₂ at 50/50, 300 K and 1 bar (fixtures/coolprop-8.0.0/facts/mixtures.csv) within `Flash`, by
+/// `propsSI` and by a fluid handle, the same; `R410A.mix`, whose R32 and R125 the package does not embed, is refused.
+#[wasm_bindgen_test]
+fn mixture_strings_reach_the_browser() {
+    let facts = Fixture::parse(MIXTURES.0, MIXTURES.1).unwrap();
+    let row = (0..facts.rows().len()).find(|&r| facts.printed(r, "name") == Some("co2_n2_dmolar_t300_p1e5")).unwrap();
+    let want = facts.value(row, "value").unwrap();
+    let (registry, mix) = (Registry::new().unwrap(), "HEOS::CarbonDioxide[0.5]&Nitrogen[0.5]");
+    let got = registry.props_si("Dmolar", "T", 300.0, "P", 1e5, mix).unwrap();
+    assert!((got - want).abs() <= ToleranceClass::Flash.bound(want).unwrap(), "{got} against {want}");
+    let state = registry.fluid(mix).unwrap().flash("T", 300.0, "P", 1e5).unwrap();
+    assert_eq!(state.get("Dmolar").unwrap(), got);
+    assert!(registry.props_si("Dmolar", "T", 300.0, "P", 1e5, "R410A.mix").is_err());
 }

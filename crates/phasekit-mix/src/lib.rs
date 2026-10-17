@@ -29,7 +29,7 @@ pub use envelope::{Envelope, EnvelopeEnd, EnvelopeOptions};
 pub use gerg::{PREFIX as GERG_PREFIX, R_GERG, with_gerg2008};
 pub use mixture::{Equilibrium, Mixture, R_CODATA, gerg2008, mixture};
 pub use multifluid::{Binary, MultiFluid};
-pub use names::{predefined, with_mixtures};
+pub use names::{CACHED, binary_pairs, predefined, predefined_names, with_mixtures};
 pub use saturation::{Given, Saturation, Side};
 
 /// What `cargo xtask` and the verification kit read of the crate's data; not a stable API.

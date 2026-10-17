@@ -406,6 +406,8 @@ decode (systems fatal flaw on Lean); late resolution by name through a `Weak` re
 - `Registry::get` returns `&Fluid`, with no refcount traffic (Kernel graft, without `FluidRef<'r>` lifetimes).
   `Fluid::clone` is one `Arc` increment; a `Fluid` is self-contained and outlives its registry (S-05).
 - `State` holds no `Arc`. clippy bans locks, cells and env reads. Send + Sync + 'static is asserted at compile time.
+  Two exceptions hold one lock each, in a module that allows it: the C ABI's handle tables and per-call state (D11,
+  E13), and the bounded cache of phasekit-mix's mixture-name resolver (user decision MX9).
 - Batches use caller-owned buffers; `rayon` is optional with fixed chunks; warm starts are opt-in.
 
 *Why:* K1-K7; map 11 F7-F11; map 10 §7. *Rejected:* `RwLock<HashMap>`; `thread_local!` scratch; per-thread copies;

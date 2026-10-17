@@ -13,10 +13,10 @@ fn names(set: DataSet) -> Registry {
 
 /// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/facts/mixtures.csv. v8.0.0's `PropsSI` and `Props1SI` on
 /// `HEOS::R32[0.697615]&R125[0.302385]`, the same beside R134a at 0, `R32[1.0]&R125[0.0]` (R32 alone), `R410A.mix`,
-/// `HEOS::R410A.mix` and `R407C.mix`, read on `Parity`: the molar mass within 4 ulp (Σ x_i M_i summed as v8.0.0 sums
-/// it or not), the density and enthalpy at 300 K and 1 bar within `Flash`, and the bubble and dew pressures at 250 K
-/// within DIV-0060's measured bound (v8.0.0's Newton stops on its step). Not asserted: R407C's enthalpy, whose R134a
-/// is one of DIV-0053's fluids (v8.0.0 takes its α⁰ at its critical T in a mixture).
+/// `HEOS::R410A.mix`, `R407C.mix` and CO₂/N₂ at 50/50, read on `Parity`: the molar mass within 4 ulp (Σ x_i M_i summed
+/// as v8.0.0 sums it or not), the density and enthalpy at 300 K and 1 bar within `Flash`, and the bubble and dew
+/// pressures at 250 K within DIV-0060's measured bound (v8.0.0's Newton stops on its step). Not asserted: R407C's
+/// enthalpy, whose R134a is one of DIV-0053's fluids (v8.0.0 takes its α⁰ at its critical T in a mixture).
 #[test]
 fn compat_reads_coolprop_mixture_strings() {
     let (path, text) = fixture!("coolprop-8.0.0/facts/mixtures.csv");
@@ -24,12 +24,16 @@ fn compat_reads_coolprop_mixture_strings() {
     let registry = names(DataSet::Parity);
     let entry = DIVERGENCES.iter().find(|d| d.id == "DIV-0060").unwrap();
     let Some(Tolerance::Relative(saturation)) = entry.tolerance else { panic!("DIV-0060 has no relative bound") };
-    let (mut misses, mut skipped) = (Vec::new(), 0);
+    let (mut misses, mut skipped, mut compared) = (Vec::new(), 0, 0);
     for row in 0..facts.rows().len() {
         let (name, call) = (facts.printed(row, "name").unwrap(), facts.printed(row, "call").unwrap());
         let want = facts.value(row, "value").unwrap();
         let (function, args) = call.strip_suffix(')').and_then(|c| c.split_once('(')).unwrap();
         let args: Vec<&str> = args.split(';').collect();
+        if function.starts_with("GlobalParam") {
+            continue;
+        }
+        compared += 1;
         if args[0] == "Hmolar" && with_critical(&registry, args[5]) {
             skipped += 1;
             continue;
@@ -48,7 +52,7 @@ fn compat_reads_coolprop_mixture_strings() {
             other => misses.push(format!("{name}: {other:?} against {want}")),
         }
     }
-    assert!(misses.is_empty() && (facts.rows().len(), skipped) == (30, 1), "{} rows: {misses:#?}", facts.rows().len());
+    assert!(misses.is_empty() && (compared, skipped) == (31, 1), "{compared} rows: {misses:#?}");
 }
 
 /// Whether mixture name `fluid` names one of DIV-0053's fluids.
@@ -131,5 +135,25 @@ fn malformed_mixture_strings_are_refused() {
     let accepted = ["R32[0.5]&R125[0.5]", "HEOS::R32[.5]&R125[5e-1]", "R125[0.5]&R32[0.5]", "r410a.mix", "Water[1.0]"];
     for fluid in accepted.into_iter().chain(["GERG2008::Methane[0.9]&Ethane[0.1]", "GERG2008::Methane"]) {
         assert!(call(fluid).is_ok(), "{fluid}: {:?}", call(fluid));
+    }
+}
+
+/// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/facts/mixtures.csv (PLAN.md M13.14; user decision MX5). The Tier A
+/// shim's `get_global_param_string("predefined_mixtures")` and `("mixture_binary_pairs_list")` are v8.0.0's strings:
+/// the same items in the same order (each predefined mixture as `Name.mix` and as `NAME.MIX`, 294 in byte order; the
+/// 888 pairs' sorted CAS numbers joined by `&`), by their count and the 52-bit sha256 digest of the whole string.
+#[test]
+fn shim_global_strings_list_v8_mixtures() {
+    let (path, text) = fixture!("coolprop-8.0.0/facts/mixtures.csv");
+    let facts = Fixture::parse(path, text).unwrap();
+    let fact = |name: &str| {
+        let row = (0..facts.rows().len()).find(|&r| facts.printed(r, "name") == Some(name)).unwrap();
+        facts.value(row, "value").unwrap()
+    };
+    for param in ["predefined_mixtures", "mixture_binary_pairs_list"] {
+        let list = phasekit_capi::shim::global_param(param).unwrap();
+        let digest = u64::from_str_radix(&phasekit_verify::sha256_hex(list.as_bytes())[..13], 16).unwrap() as f64;
+        let ours = (list.split(',').count() as f64, digest);
+        assert_eq!(ours, (fact(&format!("{param}_items")), fact(&format!("{param}_digest"))), "{param}: {list:.200}");
     }
 }

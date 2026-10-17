@@ -8,7 +8,8 @@ too-many-lines-threshold = 100
 
 # The library's only interior mutability is std's one-shot `OnceLock` / `LazyLock` (D8). Atomics are banned too
 # (ROT-031): only phasekit-capi's FFI-state modules may allow them (M10.4), and a test that counts across threads
-# allows them on its counter alone. Each stable atomic type is listed by name.
+# allows them on its counter alone. Each stable atomic type is listed by name. One lock outside the C ABI: the cache
+# module of phasekit-mix's mixture-name resolver (user decision MX9).
 disallowed-types = [
     { path = "std::sync::Mutex", reason = "no locks in the library (D8)" },
     { path = "std::sync::RwLock", reason = "no locks in the library (D8)" },
