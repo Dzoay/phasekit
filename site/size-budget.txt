@@ -6,4 +6,6 @@
 # the calculator's first load keeps its size): 66406 bytes, + 10 %.
 # M21.3: the sweeps and benchmark pages, each loaded on its first visit, and the chunks the diagrams now share with
 # the sweeps (the sampling and d3's scales); the calculator's first load grows by 0.4 kB: 84227 bytes, + 10 %.
-js+css-gzip 92650
+# M21.10: the how-it-works page, loaded on its first visit; the calculator's first load grows by 0.2 kB (its route and
+# header link): 96289 bytes, + 10 %.
+js+css-gzip 105918

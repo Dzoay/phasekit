@@ -23,6 +23,10 @@
     {#await import("./pages/Benchmark.svelte") then page}
       <page.default />
     {/await}
+  {:else if route.page === "how-it-works"}
+    {#await import("./pages/HowItWorks.svelte") then page}
+      <page.default />
+    {/await}
   {:else if route.page === "licences"}
     <Licences />
   {:else}
