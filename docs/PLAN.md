@@ -486,7 +486,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M19 | a diagram-geometry crate (T1f), named at its plan | M13 done (user decision 13) | Geometry, not drawing (user decision WS4): saturation domes, isolines of T, p, h, s, ρ and quality on the p–h, T–s, p–T, T–ρ and h–s planes, split at the dome and at failed cells, sampled more densely where a line bends, with labels and ranges; M13's phase envelopes; over saturation, `flash` and batch; the browser package serves it to the site (M21.6) | Every vertex reproduces its line's value within `Flash`; a line's dome crossings are the saturation states at its value (`Exact` against `QT` or `PQ`); M21.2's checks pass on its geometry; the site's screenshots re-approved at M21.6 |
 | M20 | core, compat, verify, CI | M12 landed (user decision PL1) | Four follow-ups: Cv, Cp, w, τ and δ as derivative variables; the conformance kit's `identities` and `part_additivity`; the intra-doc link check; the nightly report: [M20 Follow-ups](#m20-follow-ups) | Each step's checks; G1-G8 |
 | M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19, mutation testing of the site's code, picking states on the diagrams, phase regions, how a property is calculated; ten steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
-| M22 | `phasekit-mix`, core `batch` | After M13 closes (user decision ML2) | Mixtures in lanes: α^r and α⁰ batches at fixed z through the components' lane kernels with the departures in lanes, hinted DT batches, the `simd128` build, then a time-boxed spike putting a flash's two phases and its stability test's trial phases in lanes; core runs a family's kernels over `Real` in its private lanes (user decisions ML1, ML3), eight steps: [M22 Mixture lanes](#m22-mixture-lanes) | Each kernel ships if faster than the scalar path (ML4); `policy_equivalence` bitwise at every dispatch level; G1-G9, and G1-G8 with `--features simd` |
+| M22 | `phasekit-mix`, core `batch` and `ThermoModel` | After M13 closes (user decision ML2) | Mixtures in lanes: α^r and α⁰ batches at fixed z through the components' lane kernels with the departures in lanes, hinted DT batches through a group hook on `ThermoModel`, the `simd128` build, then a time-boxed spike putting a flash's two phases and its stability test's trial phases in lanes; core runs a family's kernels over `Real` in its private lanes (user decisions ML1, ML3, ML5), eight steps: [M22 Mixture lanes](#m22-mixture-lanes) | Each kernel ships if faster than the scalar path (ML4); `policy_equivalence` bitwise at every dispatch level; G1-G9, and G1-G8 with `--features simd` |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
@@ -739,43 +739,53 @@ None. **User decisions implemented.** WS1, WS2, WS3, WS4, WS5.
 under a phase hint, and, in a time-boxed spike, the kernels inside one flash. Lanes stay bitwise equal to the scalar
 path (K17; user decision SL1), so no result changes (user decisions ML1, ML4). **Entry.** After M13 closes (the `m13`
 tag; user decision ML2), on the i7-8700K; the steps merge in order when green. **Prerequisites.** User decisions
-ML1-ML4; M12's lanes and executors; M13's `phasekit-mix`. M22 does not move `MILESTONE`.
+ML1-ML5; M12's lanes and executors; M13's `phasekit-mix`. M22 does not move `MILESTONE`.
 
 What DECISIONS.md "Mixtures in lanes" measured decides the order. A batch at fixed z computes the reducing state once
 and runs each component through its own lane kernel (M12), so it needs no core change; the departures need core to run
-them in its lanes, as a kernel over `Real` (ML3). A flash's time goes to the composition derivatives, so the spike
-targets those, through the same runner.
+them in its lanes, as a kernel over `Real` (ML3), and core's batch reaches a mixture only through a hook on
+`ThermoModel` (ML5). A flash's time goes to the composition derivatives, so the spike targets those, through the same
+runner.
 
 - **M22.1 The mixture batch and its scalar baseline.** `Mixture` overrides `residual_batch` and `ideal_batch`: the
-  reducing state once per batch (z is fixed), each component's own `residual_batch` and `ideal_batch` over its scaled
-  (T_i, ρ_i), so a built-in component runs M12's lanes under `ExecPolicy::Simd`, and the departures point by point;
-  the parts summed in the scalar order. Benches `mixture_alphar_batch/{scalar,simd}` for R32/R125, Methane/Ethane, a
-  five-component natural gas and AGA8's 21-component check gas (GERG-2008), recorded on the i7-8700K (§5.1) with the
-  breakdown into components, reducing functions and departures. *Red:* `mixture_batch_is_residual_per_point`,
-  bitwise against per-point `residual` and `ideal` for the bench mixtures at every order under `Reference`,
-  `Parallel` and `Simd`, against a stub returning `Error::Unsupported`. *Done when:* green, and the record holds both
-  benches.
+  reducing state once per batch (z is fixed), each component's own `residual_batch` over its scaled (T_i, ρ_i) and its
+  own `ideal_batch` at the mixture's (T, ρ), as `residual_at` and `ideal_at` evaluate them, so a built-in component
+  runs M12's lanes under `ExecPolicy::Simd`, and the departures point by point; the parts summed in the scalar order.
+  GERG-2008's components, the crate's own, run point by point until M22.3. Benches
+  `mixture_alphar_batch/{scalar,simd}` for R32/R125, Methane/Ethane, a five-component natural gas and AGA8's
+  21-component check gas (GERG-2008), recorded on the i7-8700K (§5.1) with the breakdown into components, reducing
+  functions and departures. *Red:* `mixture_batch_is_residual_per_point`, bitwise against per-point `residual` and
+  `ideal` for the bench mixtures at every order under `Reference`, `Parallel` and `Simd`, against a stub returning
+  `Error::Unsupported`. *Done when:* green, and the record holds both benches.
 - **M22.2 Core runs a family's kernels in lanes (ML3).** In `batch`, beside `ExecPolicy`: a public trait whose one
-  method is generic over `R: Real`, a pure function from a fixed number of inputs to a fixed number of outputs, and a
-  function that runs it over columns of `f64` under an `ExecPolicy`, at `Lanes<W>` inside core under `Simd`; unequal
-  columns are `Error::Shape`. `Lanes<W>`, the executors and the lane `exp`, `ln` and `expm1` stay crate-private.
-  ARCHITECTURE.md §3 (the seam table, the public generic types, the count of traits), §3.1 and §7 say what is public;
-  if a release tag exists, `cargo semver-checks` against it is clean for a minor version. *Red:*
-  `real_kernels_are_scalar_bitwise` in `phasekit-verify` (outside core, through the public path only): a test
-  kernel that uses every `Real` method, over batches of 1 to 65 points (a short last group at every width, SL6),
-  bitwise equal under `Reference`, `Parallel` and `Simd` to the kernel on `f64` point by point, against a stub
-  returning `Error::Unsupported`.
+  method is generic over `R: Real`, a pure function from inputs to outputs whose counts each kernel value gives (M22.5's
+  Taylor arithmetic has one variable per component, known at run time), and a function that runs it over columns of
+  `f64` under an `ExecPolicy`, at `Lanes<W>` inside core under `Simd`; unequal columns are `Error::Shape`. `Lanes<W>`,
+  the executors and the lane `exp`, `ln` and `expm1` stay crate-private. The runner's docs say that a kernel is
+  `#[inline(always)]` down to its `Real` operations, as core's are, so that `run_simd`'s target features reach it;
+  M22.3's and M22.5's kernels are. ARCHITECTURE.md §3 (the seam table, the public generic types, the count of
+  traits), §3.1 and §7 say what is public; if a release tag exists, `cargo semver-checks` against it is clean for a
+  minor version. *Red:* `real_kernels_are_scalar_bitwise` in `phasekit-verify` (outside core, through the public path
+  only): a test kernel that uses every `Real` method, its counts set at run time, over batches of 1 to 65 points (a
+  short last group at every width, SL6), bitwise equal under `Reference`, `Parallel` and `Simd` to the kernel on `f64`
+  point by point, against a stub returning `Error::Unsupported`.
 - **M22.3 Departures in lanes.** `phasekit-mix`'s departure kernel moves from its own `Scalar` trait (M13.7) onto
   `Real`: `Series` over `R: Real`, its test for the variable in `compose` a flag rather than a comparison (`Real` has
-  none); `MultiFluid`'s batch runs the departures through M22.2's runner. *Red:* `departure_lanes_are_scalar_bitwise`:
-  every library and GERG-2008 departure function at every order through the runner under `Simd`, over batches of 1 to
-  65 points, equal to the scalar kernel point by point, δ → 0 included. Bench `mixture_alphar_batch/simd` again; kept
-  if faster than M22.1's (ML4).
-- **M22.4 Hinted DT batches.** Core's batch lane path admits any model with a Helmholtz part when the request carries a
-  phase hint (`Strategy::Direct`): the bundles through `residual_batch` and `ideal_batch`, then each point's state as
-  its flash builds it; a mixture's hinted DT runs through it. Unhinted DT keeps the stability test (M13.10) and runs
-  point by point. *Red:* `policy_equivalence` over hinted DT batches of the bench mixtures (bitwise against per-point
-  `Fluid::flash`), against the `PureFluid`-only path. Bench `mixture_dt_batch/{scalar,simd}`.
+  none); `MultiFluid`'s batch runs the departures through M22.2's runner, and GERG-2008's components (`gerg::Pure`),
+  whose residual is the same kernel, override `residual_batch` through it (their α⁰, on `Jet4`, stays point by point).
+  *Red:* `departure_lanes_are_scalar_bitwise`: every library and GERG-2008 departure function, and each GERG-2008
+  component's `residual_batch`, at every order through the runner under `Simd`, over batches of 1 to 65 points, equal
+  to the scalar kernel point by point, δ → 0 included. Bench `mixture_alphar_batch/simd` again; kept if faster than
+  M22.1's (ML4).
+- **M22.4 Hinted DT batches (ML5).** `ThermoModel` gains a provided method, named at this step: the flash of a group of
+  points that core's batch has validated (validation, basis, gauge), by default each point's `flash`. Under
+  `ExecPolicy::Simd` core's batch calls it for every model, in place of its `PureFluid` downcast (`batch.rs`);
+  `PureFluid`'s is its M12 lane path for DT, QT and PQ. `Mixture`'s takes a DT group under a phase hint
+  (`Strategy::Direct`): the bundles through its `residual_batch` and `ideal_batch`, then each point's state from its
+  bundle by the function its scalar hinted DT calls. Unhinted DT keeps the stability test (M13.10), and it and the
+  other pairs run point by point. ARCHITECTURE.md §3 (the seam table) and §7 say what is public. *Red:*
+  `policy_equivalence` over hinted DT batches of the bench mixtures (bitwise against per-point `Fluid::flash`), against
+  a `Mixture` hook stubbed to return `Error::Unsupported`. Bench `mixture_dt_batch/{scalar,simd}`.
 - **M22.5 The spike: a flash's two phases in lanes.** Where a flash evaluates its liquid and its vapour at one T (the
   split's Newton, the bubble and dew Newton, the isochoric search), the two phases' composition derivatives as a batch
   of two: the components' jets through `residual_batch` at both points, the departures and the Taylor arithmetic as
@@ -798,7 +808,7 @@ targets those, through the same runner.
 **Exit gate.** G1-G9, and G1-G8 with `--features simd`; `policy_equivalence` bitwise for the mixture batches at every
 dispatch level of the i7-8700K, the CI runners (x86-64, aarch64) and wasip2 with `simd128`; the flash fixtures'
 results unchanged by the spike; each kernel faster than the scalar path or taken out (ML4). **ROT rows.** None. **User
-decisions implemented.** ML1-ML4.
+decisions implemented.** ML1-ML5.
 
 ## 5. Cross-cutting tracks
 
