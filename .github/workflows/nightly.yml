@@ -113,6 +113,7 @@ jobs:
           cargo xtask oracle --kind mix_crit --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind mix_flash --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind mix_sat --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
+          cargo xtask oracle --kind mix_env --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind sat --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind sat --tier all --out "$FIXTURES/coolprop-8.0.0" --write-manifest
           cargo xtask oracle --kind flash --out "$FIXTURES/coolprop-8.0.0" --write-manifest
@@ -164,7 +165,8 @@ jobs:
             cargo xtask oracle --kind mix_crit --tier all --out "$FIXTURES/coolprop-8.0.0" --check
             cargo xtask oracle --kind mix_flash --tier all --out "$FIXTURES/coolprop-8.0.0" --check
             cargo xtask oracle --kind mix_sat --tier all --out "$FIXTURES/coolprop-8.0.0" --check
-            echo "pass $pass: all/mix_alphar.csv, all/mix_eos.csv, all/mix_crit.csv, all/mix_flash.csv and all/mix_sat.csv identical"
+            cargo xtask oracle --kind mix_env --tier all --out "$FIXTURES/coolprop-8.0.0" --check
+            echo "pass $pass: all/mix_alphar.csv, all/mix_eos.csv, all/mix_crit.csv, all/mix_flash.csv, all/mix_sat.csv and all/mix_env.csv identical"
             cargo xtask oracle --kind sat --out "$FIXTURES/coolprop-8.0.0" --check
             cargo xtask oracle --kind sat --tier all --out "$FIXTURES/coolprop-8.0.0" --check
             echo "pass $pass: sat/*.csv and all/sat.csv identical"

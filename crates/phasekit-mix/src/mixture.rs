@@ -106,6 +106,11 @@ impl Mixture {
         &self.z
     }
 
+    /// The components' limits' intersection (ROT-197), which `ThermoModel::limits` returns.
+    pub(crate) fn range(&self) -> &Limits {
+        &self.limits
+    }
+
     /// The multi-fluid model.
     pub fn model(&self) -> &MultiFluid {
         &self.fluid

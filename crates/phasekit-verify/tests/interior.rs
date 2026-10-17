@@ -182,7 +182,8 @@ fn quality_and_dt_flashes_match_the_oracle() {
         } else {
             (true, ((1.0 - row.q) * row.x1 + row.q * row.y1 - row.z1).abs() <= 1e-9)
         };
-        let key = RowKey { t: row.t, input: Some(&row.pair), two_phase, p: Some(row.p), balanced };
+        let key =
+            RowKey { t: row.t, input: Some(&row.pair), two_phase, p: Some(row.p), balanced, near_critical: false };
         if let Some(id) = exempt_row(DIVERGENCES, &row.label, Kind::MixFlash, "*", key) {
             *skipped.entry(id).or_insert(0) += 1;
             continue;

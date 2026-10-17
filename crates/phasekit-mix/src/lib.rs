@@ -12,6 +12,7 @@ mod critical;
 #[cfg_attr(not(test), expect(dead_code, reason = "the predefined mixtures are built from PLAN.md M13.13"))]
 mod data;
 mod departure;
+mod envelope;
 mod equilibrium;
 #[rustfmt::skip] // datagen's output, one table row a line (`gates datagen` compares it byte for byte)
 mod generated;
@@ -25,6 +26,7 @@ mod taylor;
 
 pub use composition::{Composition, MixtureModel, Var};
 pub use critical::{CriticalState, Criticality};
+pub use envelope::{Envelope, EnvelopeEnd, EnvelopeOptions};
 pub use gerg::{PREFIX as GERG_PREFIX, R_GERG, with_gerg2008};
 pub use mixture::{Equilibrium, Mixture, R_CODATA, gerg2008, mixture};
 pub use multifluid::MultiFluid;
@@ -55,6 +57,17 @@ pub mod internal {
     /// their branch reaches with the pressure rising, the one of least Gibbs energy (PLAN.md M13.8).
     pub fn stable_root(model: &dyn phasekit_core::HelmholtzModel, t: f64, p: f64) -> Result<f64, phasekit_core::Error> {
         crate::equilibrium::stable_root(model, t, p)
+    }
+
+    /// The bubble or dew point of `mixture` on `side` at `given` from `seed` (T, p, ln K) alone: M13.9's Newton without
+    /// its own seeds, which checks a point another implementation found (PLAN.md M13.12's oracle envelopes).
+    pub fn saturation_from(
+        mixture: &crate::Mixture,
+        side: crate::Side,
+        given: crate::Given,
+        seed: (f64, f64, Vec<f64>),
+    ) -> Result<crate::Saturation, phasekit_core::Error> {
+        crate::saturation::saturation_from(mixture, side, given, seed)
     }
 
     /// v8.0.0's predefined mixture `name` (without `.mix`): its components and mole fractions, as its library gives

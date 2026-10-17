@@ -9,7 +9,7 @@ use phasekit_core::internal::{
 };
 use phasekit_core::{
     Basis, DataSet, Density, DomainError, Error, FlashOptions, Input, Order, Phase, Pressure, Prop, Quality, Registry,
-    Temperature, ThermoModel,
+    Temperature, ThermoModel, math,
 };
 use phasekit_verify::arbiters::{k3_values, table_text};
 use phasekit_verify::{
@@ -18,6 +18,8 @@ use phasekit_verify::{
 
 #[path = "common/mix_crit.rs"]
 mod mix_crit;
+#[path = "common/mix_env.rs"]
+mod mix_env;
 #[path = "common/mix_flash.rs"]
 mod mix_flash;
 #[path = "common/mix_sat.rs"]
@@ -89,6 +91,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0060", div_0060),
     ("DIV-0061", div_0061),
     ("DIV-0062", div_0062),
+    ("DIV-0063", div_0063),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1712,6 +1715,33 @@ fn div_0062() {
     }
     let differences = mix_sat::fugacity_differences(mix, c.t, c.p, (&c.x, c.rho_liquid), (&c.y, c.rho_vapour));
     assert!(differences.iter().all(|(d, bound)| d.abs() <= *bound), "{differences:?}");
+}
+
+/// DIV-0063 (`SkipOracle`, PLAN.md M13.12): Methane/Ethane at z₁ 0.5, the oracle's envelope bubble point at 261.69 K
+/// and 6.774 MPa: (1) its phases lie within 0.1 of each other in |ln ρ|, near the critical point; (2) in phasekit's
+/// model they leave ln f unequal by more than 5e-8, its Newton's stopping residual; (3) phasekit's bubble point at that
+/// T, from the oracle's point, meets M13.9's gate (`Identity`) and lies more than 1e-4 from its bulk density.
+fn div_0063() {
+    let rows = mix_env::env_rows();
+    let row = rows
+        .iter()
+        .find(|o| o.label == "Methane&Ethane" && o.z1 == 0.5 && o.q == 0.0 && (o.t - 261.687).abs() < 0.01)
+        .unwrap();
+    assert!(row.near_critical(), "{} {}", row.rho_incipient, row.rho_bulk);
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let fluid = mix_flash::binary(&registry, &row.label, row.z1);
+    let mix = mix_flash::mixture(&fluid);
+    let (z, incipient) = (vec![row.z1, 1.0 - row.z1], vec![row.x1, 1.0 - row.x1]);
+    let oracle = mix_sat::fugacity_differences(mix, row.t, row.p, (&z, row.rho_bulk), (&incipient, row.rho_incipient));
+    assert!(oracle.iter().any(|(d, _)| d.abs() > 5e-8), "{oracle:?}");
+    let ln_k: Vec<f64> = incipient.iter().zip(&z).map(|(y, x)| math::ln(y / x)).collect();
+    let seed = (row.t, row.p, ln_k);
+    let s =
+        phasekit_mix::internal::saturation_from(mix, phasekit_mix::Side::Bubble, phasekit_mix::Given::T(row.t), seed)
+            .unwrap();
+    let ours = mix_sat::fugacity_differences(mix, s.t, s.p, (&z, s.rho), (&s.incipient, s.rho_incipient));
+    assert!(ours.iter().all(|(d, bound)| d.abs() <= *bound), "{ours:?}");
+    assert!((s.rho / row.rho_bulk - 1.0).abs() > 1e-4, "{} against {}", s.rho, row.rho_bulk);
 }
 
 /// DIV-0055 (`KeepOracle`, PLAN.md M13.5): AGA8's binary test set comes from an implementation whose θ_k are TM15's

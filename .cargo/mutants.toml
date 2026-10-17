@@ -130,34 +130,49 @@ exclude_re = [
     "equilibrium\\.rs:509:15: replace > with >= in accelerate",
     "equilibrium\\.rs:522:29: replace < with <= in newton",
     "equilibrium\\.rs:582:25: replace \\+ with \\* in solve",
-    "mixture\\.rs:201:76: replace < with <= in Mixture::equilibrium",
-    "mixture\\.rs:346:85: replace > with >= in Mixture::equilibrium_state",
+    "mixture\\.rs:206:76: replace < with <= in Mixture::equilibrium",
+    "mixture\\.rs:351:85: replace > with >= in Mixture::equilibrium_state",
     # Equivalent (PLAN.md M13.9): ties no solve meets. The gated Newton's slope exactly 0; two branch roots exactly
     # SAME_ROOT apart in ln ρ; ln(ρ′/ρ″) exactly 1e-3 at the trivial-solution check; Wilson's p exactly p, or his
     # Rachford–Rice exactly 0, at a bisection midpoint, where either half keeps the root.
     "equilibrium\\.rs:179:44: replace > with >= in gated",
     "equilibrium\\.rs:198:65: replace > with >= in roots",
-    "saturation\\.rs:129:89: replace < with <= in trivial",
-    "saturation\\.rs:177:41: replace < with <= in wilson_t",
-    "saturation\\.rs:162:61: replace > with >= in wilson_p",
+    "saturation\\.rs:149:89: replace < with <= in trivial",
+    "saturation\\.rs:197:41: replace < with <= in wilson_t",
+    "saturation\\.rs:182:61: replace > with >= in wilson_p",
     # Equivalent (PLAN.md M13.10): a split in β needs g strictly below 0 at the bubble point and above at the dew point;
     # g exactly 0 there is that point itself, which the search then returns at once.
-    "saturation\\.rs:258:19: replace < with <= in in_beta",
-    "saturation\\.rs:258:37: replace > with >= in in_beta",
+    "saturation\\.rs:293:19: replace < with <= in in_beta",
+    "saturation\\.rs:293:37: replace > with >= in in_beta",
     # Seeds only (PLAN.md M13.10): a β of 0 or 1 through the general path reaches the same point (Wilson's seed at β is
     # `at_side`'s; failing that, the seed between the bubble and dew points is the point itself); a seed between known
     # points that is not taken falls back to `coexisting`'s own seeds, which reach the same split; and a p-isochoric
     # point not continued from the last split's K is the PT flash's own split there. Each costs steps, not bits beyond
     # the solves' gates.
-    "saturation\\.rs:214:20: replace \\|\\| with && in coexisting",
-    "saturation\\.rs:267:13: delete match arm Some\\(Ok\\(c\\)\\) in in_beta",
-    "mixture\\.rs:321:17: delete match arm Some\\(Ok\\(Some\\(s\\)\\)\\) in Mixture::isochoric",
+    "saturation\\.rs:249:20: replace \\|\\| with && in coexisting",
+    "saturation\\.rs:302:13: delete match arm Some\\(Ok\\(c\\)\\) in in_beta",
+    "mixture\\.rs:326:17: delete match arm Some\\(Ok\\(Some\\(s\\)\\)\\) in Mixture::isochoric",
     # Equivalent (PLAN.md M13.11): two ends at one x leave a bracket of no width, which the regula falsi returns at once
     # as the end of smaller |value| in either order; only a tie in |value| as well would tell them apart.
     "pairs\\.rs:159:12: replace < with <= in falsi",
     # Equivalent (PLAN.md M13.11): a turn has (here − before)(after − here) < 0, so here ≠ before, where `>=` and `>`
     # agree on which way the line rises.
     "pairs\\.rs:210:61: replace > with >= in cut_turns",
+    # Seeds only (PLAN.md M13.12): within a trace each phase's density solve starts from its root at the last point,
+    # and the branch it names decides only where that seed lies in the unstable region, which no trace meets: which
+    # phase is the denser after a step, the check that a converged point crossed as its phases were chosen, and the
+    # side the refinement toward the critical point takes before the crossing.
+    "envelope\\.rs:426:36: replace != with == in Tracer<'a>::advance",
+    "envelope\\.rs:428:29: replace match guard self\\.swaps\\(point, &next\\.v\\) == swapped with true in Tracer<'a>::advance",
+    "envelope\\.rs:472:50: delete ! in Tracer<'a>::cross_critical",
+    # Equivalent (PLAN.md M13.12): ties no trace meets (phases exactly `NEAR_CRITICAL` apart, a step exactly
+    # `MIN_STEP`, a highest pressure exactly the start's); dividing the direction by a sign of ±1 is multiplying by it;
+    # and the first step specified in ln T instead of ln p, which rise together from a bubble or dew point at the start.
+    "envelope\\.rs:407:70: replace < with <= in Tracer<'a>::swaps",
+    "envelope\\.rs:437:18: replace < with <= in Tracer<'a>::advance",
+    "envelope\\.rs:541:54: replace > with >= in Tracer<'a>::trace",
+    "envelope\\.rs:527:23: replace \\*= with /= in Tracer<'a>::trace",
+    "envelope\\.rs:518:69: replace \\+ with \\* in Tracer<'a>::trace",
     # Equivalent (PLAN.md M13.7): the departure kernel's fast paths give the general path's bits (`truncation_keeps_the_
     # lower_orders`, `the_value_is_the_jet_s`), so taking the general path instead changes nothing.
     "departure\\.rs:63:62: replace == with != in Series::compose",
