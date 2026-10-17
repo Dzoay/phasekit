@@ -693,8 +693,9 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
     it is faster than the scalar path (user decisions SL3, TG1).
 - **Dispatch.** `ExecPolicy` is a run-time value. Cargo features add executors but never change numerics (K13);
   `simd` changes them only by enabling `libm` (D12, user decision SL1).
-  Summation-order-changing variants (across-terms SIMD, FMA) exist only as a separate future `Fast` policy with its own
-  tolerance class (K9, K12).
+  Summation-order-changing variants (across-terms SIMD) exist only as a separate future `Fast` policy with its own
+  tolerance class (K9, K12). FMA is planned instead as core's opt-in `fast` feature, fused on every target so that a
+  `fast` build's bits are one set across targets (user decision IM4; PLAN.md M23).
 - **Differential testing.** `phasekit_verify::policy_equivalence(fluid, req, candidate)` asserts every cell and status
   bitwise equal to `Reference`. CI forces every dispatch level, and accelerated kernels must also pass the paper rows.
 - **Perf targets** (K19 estimates; criterion and counting-allocator benches recorded as each path lands, from M2, and
