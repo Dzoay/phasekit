@@ -300,7 +300,8 @@ pub unsafe extern "C" fn pk_last_error(buf: *mut c_char, len: usize) -> usize {
 }
 
 /// A new registry of the embedded fluids under `data_set` (`PK_DATASET_CORRECTED` or `PK_DATASET_PARITY`), into
-/// `*out`. Free it with [`pk_registry_free`].
+/// `*out`, which also reads CoolProp's mixture names (`HEOS::R32[0.7]&R125[0.3]`, `R410A.mix`) on that data set's
+/// library. Free it with [`pk_registry_free`].
 ///
 /// # Safety
 /// `out` is null or points to writable memory for one `pk_registry`.
@@ -314,7 +315,7 @@ pub unsafe extern "C" fn pk_registry_new(data_set: i32, out: *mut pk_registry) -
             PK_DATASET_PARITY => DataSet::Parity,
             other => return Err(Fail::new(PK_INVALID_INPUT, format!("data set {other} is not PK_DATASET_*"))),
         };
-        let handle = new_registry(Registry::from_embedded(set)?)?;
+        let handle = new_registry(phasekit_mix::with_mixtures(&Registry::from_embedded(set)?, set))?;
         // SAFETY: the caller's contract.
         unsafe { put(out, handle, "out") }
     })

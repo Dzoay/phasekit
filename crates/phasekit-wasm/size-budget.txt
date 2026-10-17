@@ -5,5 +5,7 @@
 # 1188898 bytes; its budget is that + 10 %.
 # M12.10 (SL8): the simd128 build, with the package's `simd` feature, runs core's lanes 8 wide; its budget is the
 # 1325552 bytes SL8 measured + 10 %.
-baseline 1307788
-simd128 1458107
+# M13.14 (user decision MX5): mixture names, phasekit-mix's library of pairs, departure functions, predefined mixtures
+# and GERG-2008, took the builds to 1739352 and 1866007 bytes; each budget is that + 10 %.
+baseline 1913287
+simd128 2052608

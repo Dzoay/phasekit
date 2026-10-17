@@ -24,9 +24,10 @@ mod tests;
 
 use std::ffi::{CStr, c_char, c_int, c_long};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::LazyLock;
 
 use phasekit_compat::{fluid_in, output_names, phase_si_with, props_si_with, props1_si_in};
-use phasekit_core::{Fluid, Registry};
+use phasekit_core::{DataSet, Error, Fluid, Registry};
 
 pub use codes::{input_pair_code, parameter_code, parameter_names};
 use config::Value;
@@ -88,9 +89,14 @@ unsafe fn str2buf(s: &str, buf: *mut c_char, n: c_int) -> Result<(), String> {
     Ok(())
 }
 
-/// The embedded registry, the shim's only one.
+/// The shim's only registry: the embedded one (`Corrected`), which also reads CoolProp's mixture names (PLAN.md
+/// M13.14), built on first use.
+static REGISTRY: LazyLock<Result<Registry, Error>> =
+    LazyLock::new(|| Registry::embedded().map(|r| phasekit_mix::with_mixtures(r, DataSet::Corrected)));
+
+/// [`REGISTRY`], or why the embedded data would not load.
 fn registry() -> Result<&'static Registry, String> {
-    Registry::embedded().map_err(|e| e.to_string())
+    REGISTRY.as_ref().map_err(|e| e.to_string())
 }
 
 /// CoolProp's `PropsSI(Output, Name1, Prop1, Name2, Prop2, FluidName)`: compat's strings under the settings' options.
@@ -189,7 +195,8 @@ pub extern "C" fn HAPropsSI(
 
 /// A global parameter: `version`, `errstring` (read and cleared), `warnstring` (always empty), `FluidsList` (also
 /// `fluids_list`, `fluidslist`; the registry's names, joined by `LIST_STRING_DELIMITER`), `parameter_list` (the
-/// output names, joined by commas, as CoolProp's), and the four lists phasekit has no entries for, empty.
+/// output names, joined by commas, as CoolProp's), the predefined mixtures and the binary pairs as v8.0.0 lists them
+/// (PLAN.md M13.14: [`predefined_mixtures`], [`binary_pairs`]), and the two incompressible lists, empty.
 pub fn global_param(param: &str) -> Result<String, String> {
     Ok(match param {
         "version" => env!("CARGO_PKG_VERSION").to_string(),
@@ -199,12 +206,27 @@ pub fn global_param(param: &str) -> Result<String, String> {
             registry()?.names().collect::<Vec<_>>().join(&state::settings().delimiter)
         }
         "parameter_list" => output_names().collect::<Vec<_>>().join(","),
-        "incompressible_list_pure"
-        | "incompressible_list_solution"
-        | "mixture_binary_pairs_list"
-        | "predefined_mixtures" => String::new(),
+        "predefined_mixtures" => predefined_mixtures(),
+        "mixture_binary_pairs_list" => binary_pairs(),
+        "incompressible_list_pure" | "incompressible_list_solution" => String::new(),
         _ => return Err(format!("`{param}` is not a global parameter phasekit has")),
     })
+}
+
+/// v8.0.0's `predefined_mixtures`: every predefined mixture by its `.mix` name and that name in upper case, the keys of
+/// its library's map, in byte order and joined by commas (`MixtureParameters.cpp:39-47, 53-60`).
+fn predefined_mixtures() -> String {
+    let mut names: Vec<String> = phasekit_mix::predefined_names()
+        .flat_map(|n| [format!("{n}.mix"), format!("{n}.mix").to_ascii_uppercase()])
+        .collect();
+    names.sort_unstable();
+    names.join(",")
+}
+
+/// v8.0.0's `mixture_binary_pairs_list`: every binary pair's CAS numbers, sorted, joined by `&`, the pairs in that
+/// order and joined by commas (`MixtureParameters.cpp:291-298`).
+fn binary_pairs() -> String {
+    phasekit_mix::binary_pairs().map(|[a, b]| format!("{a}&{b}")).collect::<Vec<_>>().join(",")
 }
 
 /// CoolProp's `get_global_param_string(param, Output, n)`: the parameter into `Output` ([`global_param`]). Returns 1,

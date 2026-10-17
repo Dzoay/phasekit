@@ -468,6 +468,7 @@ dependencies = [
  "cc",
  "phasekit-compat",
  "phasekit-core",
+ "phasekit-mix",
  "proptest",
 ]
 
@@ -535,6 +536,7 @@ dependencies = [
  "phasekit-compat",
  "phasekit-core",
  "phasekit-data",
+ "phasekit-mix",
  "phasekit-verify",
  "wasm-bindgen",
  "wasm-bindgen-test",

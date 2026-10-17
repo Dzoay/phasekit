@@ -14,17 +14,23 @@ use phasekit_core::{
     NativeInput, Order, PointDerivs, Registry, Resolver, State, ThermoModel,
 };
 
-use crate::generated::PREDEFINED;
+use crate::generated::{PAIRS, PREDEFINED};
 use crate::mixture::{gerg2008_model, trimmed};
 use crate::{Mixture, MultiFluid, gerg};
 
 /// A NEW registry whose [`Registry::resolve`] also reads mixture names (the module's grammar), on `data_set`'s
 /// library: `HEOS::R32[0.697615]&R125[0.302385]` and `R410A.mix` as CoolProp 8.0.0 reads them,
 /// `GERG2008::Methane[0.9]&Ethane[0.1]` on GERG-2008 (user decision MX6). The names `registry` holds, the pseudo-pure
-/// blends' among them, keep their fluids (user decision 4); each mixture name builds its model when resolved.
+/// blends' among them, keep their fluids (user decision 4). A mixture name builds its model when first resolved, and
+/// the resolver keeps the models of the last [`CACHED`] names (user decision MX9), so that a name used again, as
+/// `PropsSI` calls use it, finds its model and the critical points it has computed. It serves the registries made from
+/// the new one, which hold the same fluids under the same names (a layer only adds names or re-gauges one).
 pub fn with_mixtures(registry: &Registry, data_set: DataSet) -> Registry {
-    registry.with_resolver(Arc::new(Names { data_set }))
+    registry.with_resolver(Arc::new(Names { data_set, built: cache::Cache::new(CACHED) }))
 }
+
+/// How many names' models a resolver keeps (user decision MX9), the least recently used dropped first.
+pub const CACHED: usize = 64;
 
 /// CoolProp 8.0.0's predefined mixture `name` (`R410A`; ASCII case-insensitive) over `registry`'s fluids and
 /// `data_set`'s library, at the mole fractions `data_set` gives it (ROT-199, DIV-0064): `Parity` v8.0.0's stored ones;
@@ -35,20 +41,89 @@ pub fn predefined(registry: &Registry, name: &str, data_set: DataSet) -> Result<
     predefined_model(registry, name, data_set).map(Fluid::new)
 }
 
-/// The resolver [`with_mixtures`] registers.
+/// The names of CoolProp 8.0.0's predefined mixtures (`R410A`, without `.mix`), each once, in byte order.
+pub fn predefined_names() -> impl Iterator<Item = &'static str> {
+    PREDEFINED.iter().map(|m| m.name)
+}
+
+/// The library's binary pairs, by their components' CAS numbers sorted as strings, in that order: v8.0.0's.
+pub fn binary_pairs() -> impl Iterator<Item = [&'static str; 2]> {
+    PAIRS.iter().map(|p| p.cas)
+}
+
+/// The resolver [`with_mixtures`] registers: the data set its names are read on, and the models it built.
 #[derive(Debug)]
 struct Names {
     data_set: DataSet,
+    built: cache::Cache,
 }
 
 impl Resolver for Names {
+    /// A mixture name's model: the one built for it before, while kept, else a new one, kept. A refusal is not kept.
     fn resolve(&self, name: &str, registry: &Registry) -> Option<Result<Arc<dyn ThermoModel>, Error>> {
-        Some(match read(name)? {
+        let read = read(name)?;
+        if let Some(model) = self.built.get(name) {
+            return Some(Ok(model));
+        }
+        let model = match read {
             Ok(Name::Library(parts)) => library(registry, &parts, self.data_set),
             Ok(Name::Gerg(parts)) => gerg2008_model(registry, &parts),
             Ok(Name::Predefined(stem)) => predefined_model(registry, stem, self.data_set),
             Err(e) => Err(e),
-        })
+        };
+        Some(model.inspect(|m| self.built.put(name, m)))
+    }
+}
+
+/// The models a resolver built, by name (user decision MX9): the library's one lock outside the C ABI, the exception
+/// to D8 that decision grants. A model is immutable, so one found here is the one a fresh build would give, bit for bit.
+mod cache {
+    #![allow(clippy::disallowed_types, reason = "the mixture names' cache, one lock (user decision MX9; D8)")]
+
+    use std::sync::{Arc, Mutex, PoisonError};
+
+    use phasekit_core::ThermoModel;
+
+    /// A name and the model built for it.
+    type Entry = (Box<str>, Arc<dyn ThermoModel>);
+
+    /// The models of the last `capacity` names, the most recently used first.
+    #[derive(Debug)]
+    pub(super) struct Cache {
+        capacity: usize,
+        entries: Mutex<Vec<Entry>>,
+    }
+
+    impl Cache {
+        /// Empty, for `capacity` names.
+        pub(super) fn new(capacity: usize) -> Cache {
+            Cache { capacity, entries: Mutex::new(Vec::with_capacity(capacity)) }
+        }
+
+        /// The model kept for `name`, now the most recently used. A lock a panic poisoned still holds whole entries.
+        pub(super) fn get(&self, name: &str) -> Option<Arc<dyn ThermoModel>> {
+            let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+            let at = entries.iter().position(|(n, _)| **n == *name)?;
+            let entry = entries.remove(at);
+            let model = Arc::clone(&entry.1);
+            entries.insert(0, entry);
+            Some(model)
+        }
+
+        /// Keeps `model` for `name` as the most recently used, dropping the least recently used past the capacity.
+        pub(super) fn put(&self, name: &str, model: &Arc<dyn ThermoModel>) {
+            let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+            entries.retain(|(n, _)| **n != *name);
+            entries.insert(0, (name.into(), Arc::clone(model)));
+            entries.truncate(self.capacity);
+        }
+
+        /// The names kept, the most recently used first.
+        #[cfg(test)]
+        pub(super) fn names(&self) -> Vec<String> {
+            let entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+            entries.iter().map(|(n, _)| n.to_string()).collect()
+        }
     }
 }
 
@@ -265,6 +340,44 @@ mod tests {
         let methane = names.resolve("GERG2008::Methane").unwrap_or_else(|e| panic!("{e:?}"));
         let gerg = crate::gerg2008(&plain, &[("Methane", 1.0)]).unwrap_or_else(|e| panic!("{e:?}"));
         assert_eq!(methane.info(), gerg.info());
+    }
+
+    /// User decision MX9: a resolver keeps the models of the names it resolved. The same name again is the same model,
+    /// with the critical points it computed, and gives a fresh resolver's values bit for bit; what is not a mixture
+    /// name, a malformed one and a refusal are not kept.
+    #[test]
+    fn a_repeated_name_finds_its_model() {
+        let plain = registry(DataSet::Corrected);
+        let names = with_mixtures(&plain, DataSet::Corrected);
+        let resolve = |registry: &Registry| registry.resolve("R32[0.5]&R125[0.5]").unwrap_or_else(|e| panic!("{e:?}"));
+        let (first, again, fresh) =
+            (resolve(&names), resolve(&names), resolve(&with_mixtures(&plain, DataSet::Corrected)));
+        assert!(std::ptr::addr_eq(first.model(), again.model()) && !std::ptr::addr_eq(first.model(), fresh.model()));
+        let input = Input::new(Pair::PT, 1e5, 300.0, Basis::Molar).unwrap_or_else(|e| panic!("{e:?}"));
+        let opts = FlashOptions::new();
+        assert_eq!(again.flash(input, &opts), fresh.flash(input, &opts));
+        let resolver = Names { data_set: DataSet::Corrected, built: cache::Cache::new(CACHED) };
+        for name in ["Water", "R32[0,5]&R125[0.5]", "R32[0.7]&R125[0.2]", "R32[0.5]&R125[0.5]"] {
+            let _ = resolver.resolve(name, &plain);
+        }
+        assert_eq!(resolver.built.names(), ["R32[0.5]&R125[0.5]"]);
+    }
+
+    /// The cache keeps the last names put or found, the most recently used first: past its capacity the least recently
+    /// used is dropped, and a name put again moves to the front, once.
+    #[test]
+    fn the_cache_keeps_the_last_names() {
+        let water = registry(DataSet::Corrected).get("Water").cloned().unwrap_or_else(|e| panic!("{e:?}"));
+        let model: Arc<dyn ThermoModel> = Arc::new(Alone(water));
+        let cache = cache::Cache::new(2);
+        cache.put("a", &model);
+        cache.put("b", &model);
+        assert_eq!(cache.names(), ["b", "a"]);
+        assert!(cache.get("a").is_some_and(|m| Arc::ptr_eq(&m, &model)) && cache.names() == ["a", "b"]);
+        cache.put("c", &model);
+        assert_eq!((cache.names(), cache.get("b").is_none()), (vec!["c".to_string(), "a".to_string()], true));
+        cache.put("a", &model);
+        assert_eq!(cache.names(), ["a", "c"]);
     }
 
     /// A predefined mixture by name (any case): on `Parity` at v8.0.0's mole fractions; on `Corrected` at those its

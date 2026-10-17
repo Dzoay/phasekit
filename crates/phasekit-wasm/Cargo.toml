@@ -16,6 +16,8 @@ crate-type = ["cdylib", "rlib"]
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 phasekit-compat = { workspace = true, features = ["fluids-core"] }
 phasekit-core.workspace = true
+# Mixture names over the five fluids and the packs (PLAN.md M13.14; user decision MX5).
+phasekit-mix.workspace = true
 wasm-bindgen = "0.2.129"
 
 # wasm-bindgen-test runs the tests under Node (tier T3); verify gives them its tolerance classes and fixtures. Neither
