@@ -825,6 +825,9 @@ targets, a miss logged rather than blocking (user decision TG1).
 
 - Code MIT OR Apache-2.0 (M0.7). `phasekit-data` and `LICENSE-THIRD-PARTY` carry CoolProp's MIT notice; NOTICE
   credits NIST/fastchebpure and cites the superancillary paper (M2.5, M5.2; user decision 3a).
+- Core's lane `exp`, `ln` and `expm1` port the `libm` crate's (MIT) from FreeBSD's msun (Sun's notices):
+  `LICENSE-THIRD-PARTY` and `REUSE.toml` carry both. After the `m13` tag, before any crates.io publish, the three files
+  take their msun notices at their heads and `crates/phasekit-core/NOTICE` both notices (user decision LC1).
 - Every fixture and blob has a REUSE annotation with its provenance: CoolProp-derived, paper (citation), or
   fastchebpure (user decision 3b). `reuse lint` runs in CI from M0.7.
 - `Unpublished` data (Propylene, SES36, Neon; map 13 R7) get oracle-only fixtures, labelled (M2.10). Restricted data
