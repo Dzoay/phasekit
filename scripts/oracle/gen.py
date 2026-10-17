@@ -55,6 +55,11 @@ THOL_2016_TABLE3 = [(0, 200, 12600), (1, 350, 11400), (2, 383, 4290), (4, 360, 1
 NIST_IR_8474_TABLE3 = [(0, 4, 40000), (1, 4, 2000), (2, 10, 50000), (3, 10, 2000), (4, 300, 25000), (5, 300, 1000)]
 VIRIAL_STATES = [("propane", "n-Propane", 300), ("nitrogen", "Nitrogen", 300), ("water", "Water", 600)]
 BELL_TABLE_XI_MIXTURE = "HEOS::R1234yf[0.4]&R1234ze(E)[0.6]"  # z1 = 0.4 at T = 469 K, 3399 mol/m3 (map 10 section 8.4)
+# The `mixtures` facts' strings, by label: R410A's mole fractions to six digits, alone and beside a third component at
+# 0; a composition that leaves one component; R410A and R407C by `.mix` name, with and without the backend.
+MIXTURE_STRINGS = [("r32_r125", "HEOS::R32[0.697615]&R125[0.302385]"),
+                   ("r32_r125_r134a0", "R32[0.697615]&R125[0.302385]&R134a[0]"), ("r32_alone", "R32[1.0]&R125[0.0]"),
+                   ("r410a_mix", "R410A.mix"), ("heos_r410a_mix", "HEOS::R410A.mix"), ("r407c_mix", "R407C.mix")]
 # What a saturated phase gives at Q = 0 and 1, as a single phase (DIV-0004: c_p, c_v and w since SQ1, the partials and
 # order-3 outputs since SQ2, c_p0 and the residual h, s and g since SQ3).
 SATURATED_OUTPUTS = [("cpmass", "CPMASS"), ("cvmass", "CVMASS"), ("w", "A"), ("dhmass_dp_t", "d(Hmass)/d(P)|T"),
@@ -255,6 +260,24 @@ FACTS = {
             for fluid, name, key in (("R40", "hmolar", "Hmolar"), ("R134a", "cp0molar", "CP0MOLAR"))
             for prefix in ("PR::", "")
         ],
+        # DIV-0064: of the predefined blends v8.0.0 builds, R411B's stored mole fractions sit farthest from those its
+        # ASHRAE 34 mass fractions give (8.7e-7); its molar mass.
+        ("div0064_molar_mass_r411b", "Props1SI", ("R411B.mix", "molarmass")),
+    ],
+    # v8.0.0's PropsSI on its mixture strings (PLAN.md M13.13), `HEOS::A[x]&B[y]` and predefined `.mix` names: a gas
+    # state at 300 K and 1 bar, the bubble and dew points at 250 K, and the molar mass.
+    "mixtures": [
+        *[
+            (f"{label}_{key.lower()}_t300_p1e5", "PropsSI", (key, "T", 300, "P", 1e5, fluid))
+            for label, fluid in MIXTURE_STRINGS
+            for key in ("Dmolar", "Hmolar")
+        ],
+        *[
+            (f"{label}_p_t250_q{q}", "PropsSI", ("P", "T", 250, "Q", q, fluid))
+            for label, fluid in MIXTURE_STRINGS
+            for q in (0, 1)
+        ],
+        *[(f"{label}_molar_mass", "Props1SI", (fluid, "molarmass")) for label, fluid in MIXTURE_STRINGS],
     ],
 }
 
@@ -476,17 +499,23 @@ def header(kind, lock, config, fluids, columns, tol, floats, source="coolprop", 
     return "".join(f"# {line}\n" for line in lines)
 
 
-def fact_fluids(fn, inputs):
-    """The pure fluids a fact reads: `PR::n-Propane` is n-Propane, `HEOS::A[0.4]&B[0.6]` is A and B."""
+def fact_fluids(fn, inputs, predefined):
+    """The pure fluids a fact reads: `PR::n-Propane` is n-Propane, `HEOS::A[0.4]&B[0.6]` is A and B, and `R410A.mix`
+    the components `predefined` (name -> fluids) gives it, as the library names them."""
     name = {"PropsSI": inputs[-1], "PropsSIVle": inputs[-1], "Props1SI": inputs[0], "AbstractState": inputs[1]}[fn]
-    return [part.split("[")[0] for part in name.split("::")[-1].split("&")]
+    name = name.split("::")[-1]
+    if name.endswith(".mix"):
+        return predefined[name.removesuffix(".mix")]
+    return [part.split("[")[0] for part in name.split("&")]
 
 
 def facts(CP, lock, config, files, args):
     rows = FACTS.get(args.set)
     if rows is None:
         fail(f"--set must be one of {', '.join(sorted(FACTS))} for --kind facts")
-    fluids = sorted({fluid for _, fn, inputs in rows for fluid in fact_fluids(fn, inputs)})
+    predefined = {m["name"]: m["fluids"] for m in mixture_library(lock)[1]}
+    names = {fluid for _, fn, inputs in rows for fluid in fact_fluids(fn, inputs, predefined)}
+    fluids = sorted({CP.get_fluid_param_string(name, "name") for name in names})
     shas = [(fluid, assert_fluid(CP, files, fluid)) for fluid in fluids]
     lines, floats = [], []
     for name, fn, inputs in rows:

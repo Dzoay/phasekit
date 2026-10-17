@@ -379,7 +379,7 @@ pub unsafe extern "C" fn pk_fluid_new(
     guard(|| {
         // SAFETY: the caller's contract.
         let name = unsafe { text(name, name_len, "name")? };
-        let found = fluid_in(&*self::registry(registry)?, name)?.clone();
+        let found = fluid_in(&*self::registry(registry)?, name)?;
         let handle = lock(fluids()).insert(found).ok_or_else(|| Fail::new(PK_OTHER, "every fluid handle is in use"))?;
         // SAFETY: the caller's contract.
         unsafe { put(out, handle, "out") }

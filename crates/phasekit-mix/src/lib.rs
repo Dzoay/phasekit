@@ -8,8 +8,6 @@
 mod composition;
 mod corrections;
 mod critical;
-// The predefined mixtures are built from PLAN.md M13.13; until then only the kit reads their fractions.
-#[cfg_attr(not(test), expect(dead_code, reason = "the predefined mixtures are built from PLAN.md M13.13"))]
 mod data;
 mod departure;
 mod envelope;
@@ -20,6 +18,7 @@ mod gerg;
 mod illinois;
 mod mixture;
 mod multifluid;
+mod names;
 mod reducing;
 mod saturation;
 mod taylor;
@@ -29,7 +28,8 @@ pub use critical::{CriticalState, Criticality};
 pub use envelope::{Envelope, EnvelopeEnd, EnvelopeOptions};
 pub use gerg::{PREFIX as GERG_PREFIX, R_GERG, with_gerg2008};
 pub use mixture::{Equilibrium, Mixture, R_CODATA, gerg2008, mixture};
-pub use multifluid::MultiFluid;
+pub use multifluid::{Binary, MultiFluid};
+pub use names::{predefined, with_mixtures};
 pub use saturation::{Given, Saturation, Side};
 
 /// What `cargo xtask` and the verification kit read of the crate's data; not a stable API.
@@ -68,12 +68,6 @@ pub mod internal {
         seed: (f64, f64, Vec<f64>),
     ) -> Result<crate::Saturation, phasekit_core::Error> {
         crate::saturation::saturation_from(mixture, side, given, seed)
-    }
-
-    /// v8.0.0's predefined mixture `name` (without `.mix`): its components and mole fractions, as its library gives
-    /// them (PLAN.md M13.9's bubble and dew points; M13.13 registers them).
-    pub fn predefined(name: &str) -> Option<(&'static [&'static str], &'static [f64])> {
-        crate::generated::PREDEFINED.iter().find(|m| m.name == name).map(|m| (m.components, m.mole_fractions))
     }
 }
 

@@ -636,17 +636,21 @@ pub fn mixture(registry: &Registry, components: &[(&str, f64)], data_set: DataSe
 /// and validated as [`mixture`]'s: one component left is GERG's pure fluid, `GERG2008::<name>`, bit for bit the one
 /// [`crate::with_gerg2008`] registers; two or more a [`Mixture`] on [`MultiFluid::gerg2008`].
 pub fn gerg2008(registry: &Registry, components: &[(&str, f64)]) -> Result<Fluid, Error> {
+    gerg2008_model(registry, components).map(Fluid::new)
+}
+
+/// [`gerg2008`]'s model.
+pub(crate) fn gerg2008_model(registry: &Registry, components: &[(&str, f64)]) -> Result<Arc<dyn ThermoModel>, Error> {
     let (names, fractions) = trimmed(components)?;
     if let [one] = names[..] {
         let (i, fluid) = gerg::component(registry, one)?;
-        return Ok(Fluid::new(Arc::new(gerg::pure_fluid(i, &fluid)?)));
+        return Ok(Arc::new(gerg::pure_fluid(i, &fluid)?));
     }
-    let mixture = Mixture::new(MultiFluid::gerg2008(registry, &names)?, &fractions)?;
-    Ok(Fluid::new(Arc::new(mixture)))
+    Ok(Arc::new(Mixture::new(MultiFluid::gerg2008(registry, &names)?, &fractions)?))
 }
 
 /// `components` validated (ROT-193), its zero fractions trimmed (ROT-192): the names and fractions left.
-fn trimmed<'a>(components: &[(&'a str, f64)]) -> Result<(Vec<&'a str>, Vec<f64>), Error> {
+pub(crate) fn trimmed<'a>(components: &[(&'a str, f64)]) -> Result<(Vec<&'a str>, Vec<f64>), Error> {
     let z: Vec<f64> = components.iter().map(|(_, x)| *x).collect();
     validated(&z)?;
     Ok(components.iter().filter(|(_, x)| *x != 0.0).map(|&(n, x)| (n, x)).unzip())

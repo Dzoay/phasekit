@@ -601,6 +601,14 @@ fn div_0063(_: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0063"]
 }
 
+/// DIV-0064: R411B's molar mass by v8.0.0's stored mole fractions, 0.0830689331 kg/mol, and its distance from the one
+/// ASHRAE 34's 3/94/3 mass fractions give, 0.0830688950 (4.6e-7).
+fn div_0064(facts: &Fixture<'_>) -> Vec<&'static str> {
+    let oracle = ok_fact(facts, "div0064_molar_mass_r411b");
+    assert!(cites(oracle, "0.0830689331") && cites(oracle / 0.083_068_895_0 - 1.0, "4.6e-7"), "{oracle}");
+    vec!["DIV-0064"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -632,6 +640,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0060,
         div_0061_to_0062,
         div_0063,
+        div_0064,
     ]
     .iter()
     .flat_map(|group| group(&facts))

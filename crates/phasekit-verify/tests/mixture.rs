@@ -1,8 +1,8 @@
 //! The multi-fluid mixtures of `phasekit-mix` (PLAN.md M13) against Bell et al.'s printed check tables (M13.3).
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::{Basis, Bundle, DataSet, DomainPolicy, FlashOptions, Input, Order, Pair, Phase, Registry};
-use phasekit_mix::MultiFluid;
+use phasekit_core::{Basis, Bundle, DataSet, DomainPolicy, FlashOptions, Fluid, Input, Order, Pair, Phase, Registry};
+use phasekit_mix::{Mixture, MultiFluid};
 use phasekit_verify::eos::Majorants;
 use phasekit_verify::term::IdealScale;
 use phasekit_verify::{CRITICAL_NOT_REDUCING, DIVERGENCES, Fixture, fixture, majorant};
@@ -115,12 +115,32 @@ const ALPHAR_COLUMNS: [(&str, usize, usize); 10] = [
     ("A03", 0, 3),
 ];
 
+/// A `mix_alphar` or `mix_eos` row's mixture and its components' names: a pair's at (z₁, 1 − z₁), or a predefined
+/// mixture's by its `.mix` name, at its own composition (PLAN.md M13.13).
+fn row_mixture(registry: &Registry, label: &str, z1: f64) -> Result<(Fluid, Vec<String>), phasekit_core::Error> {
+    let fluid = match label.strip_suffix(".mix") {
+        Some(name) => phasekit_mix::predefined(registry, name, DataSet::Parity)?,
+        None => {
+            let names: Vec<&str> = label.split('&').collect();
+            phasekit_mix::mixture(registry, &[(names[0], z1), (names[1], 1.0 - z1)], DataSet::Parity)?
+        }
+    };
+    let names = mixture_of(&fluid).model().fluids().map(|f| f.info().name().to_string()).collect();
+    Ok((fluid, names))
+}
+
+/// The mixture behind `fluid`.
+fn mixture_of(fluid: &Fluid) -> &Mixture {
+    (fluid.model() as &dyn std::any::Any).downcast_ref::<Mixture>().unwrap()
+}
+
 /// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/all/mix_alphar.csv (PLAN.md M13.3). Every binary pair of v8.0.0's
 /// library at z₁ = 0.4 and two states of its reducing state, on `Parity`: the reducing state and α^r with its A_ij to
 /// order 3 within `Prop`: 1e-12 of the larger of |A_ij| and 1, or `Term` (1e-13 of Σ_k |φ_k|, the components' terms'
 /// majorants weighted by x_i) if that is larger, as VERIFICATION.md §5 carries it (CO₂/R124's A12 at δ = 1.6 cancels to
 /// 1.4e-12 of its value). The 48 pairs the oracle cannot build, which name a fluid outside v8.0.0's library, phasekit
-/// refuses too. The predefined mixtures' rows wait for M13.13, which builds them.
+/// refuses too. The predefined mixtures by `.mix` name (M13.13), at their own compositions: the 116 v8.0.0 builds
+/// within the same bounds, the 31 it cannot (ROT-200: 27 lack a binary pair, 4 name R1132a) refused here too.
 #[test]
 fn mix_alphar_matches_the_oracle() {
     let (path, text) = fixture!("coolprop-8.0.0/all/mix_alphar.csv");
@@ -129,21 +149,18 @@ fn mix_alphar_matches_the_oracle() {
     let (mut compared, mut refused, mut misses) = (0, 0, Vec::new());
     for row in 0..table.rows().len() {
         let label = table.printed(row, "mixture").unwrap();
-        if label.ends_with(".mix") {
-            continue;
-        }
-        let names: Vec<&str> = label.split('&').collect();
-        let built = MultiFluid::new(&registry, &names, DataSet::Parity);
+        let built = row_mixture(&registry, label, table.value(row, "z1").unwrap());
         if table.printed(row, "status") != Some("ok") {
             assert!(built.is_err(), "{label}: the oracle refuses it, phasekit builds it");
             refused += 1;
             continue;
         }
-        let mix = built.unwrap();
-        let z1 = table.value(row, "z1").unwrap();
-        let (x, t, rho) = ([z1, 1.0 - z1], table.value(row, "T").unwrap(), table.value(row, "rhomolar").unwrap());
-        let (t_r, rho_r) = mix.reducing_state(&x);
-        let d = mix.residual(&x, t, rho, Order::Three).unwrap();
+        let (fluid, names) = built.unwrap();
+        let mixture = mixture_of(&fluid);
+        let (mix, x) = (mixture.model(), mixture.composition());
+        let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rhomolar").unwrap());
+        let (t_r, rho_r) = mix.reducing_state(x);
+        let d = mix.residual(x, t, rho, Order::Three).unwrap();
         for (column, got) in [("Tr", t_r), ("rhor", rho_r)] {
             if let Err(e) = table.check_scaled(row, column, got, got.abs()) {
                 misses.push(format!("{label} row {row} {column}: {e:?}"));
@@ -154,7 +171,7 @@ fn mix_alphar_matches_the_oracle() {
         for (column, i, j) in ALPHAR_COLUMNS {
             let majorant: f64 = records
                 .iter()
-                .zip(&x)
+                .zip(x)
                 .map(|(r, xi)| xi * phasekit_verify::majorant::eos(&r.eos, tau, delta, i, j))
                 .sum();
             let scale = table.value(row, column).unwrap().abs().max(1.0).max(0.1 * majorant);
@@ -165,7 +182,7 @@ fn mix_alphar_matches_the_oracle() {
         compared += 1;
     }
     assert!(misses.is_empty(), "{} misses: {:#?}", misses.len(), &misses[..misses.len().min(20)]);
-    assert_eq!((compared, refused), (1680, 96));
+    assert_eq!((compared, refused), (1680 + 2 * 116, 96 + 2 * 31));
 }
 
 /// A table row's composition, `50/50` or `33/33/34` in mole percent, as fractions.
@@ -324,7 +341,8 @@ fn evaluate_state(
 /// library at z₁ = 0.4 and two states of its reducing state, on `Parity`: p, h, u, c_v, c_p, w, Z and the ideal part's
 /// τ-derivatives within `Prop`, or `Term` carried through each relation on the components' majorants if larger. Not
 /// asserted: s and α⁰ everywhere (DIV-0052) and every α⁰-derived column of a mixture with one of DIV-0053's fluids; the
-/// pairs the oracle refuses phasekit refuses too. The predefined mixtures wait for M13.13.
+/// pairs the oracle refuses phasekit refuses too. The predefined mixtures by `.mix` name (M13.13), at their own
+/// compositions, likewise: the 116 v8.0.0 builds compared, the 31 it cannot refused (ROT-200).
 #[test]
 fn mix_eos_matches_the_oracle() {
     let (path, text) = fixture!("coolprop-8.0.0/all/mix_eos.csv");
@@ -333,20 +351,19 @@ fn mix_eos_matches_the_oracle() {
     let exempt = |id: &str| DIVERGENCES.iter().find(|d| d.id == id).and_then(|d| d.exempt).unwrap().columns;
     let (all, critical) = (exempt("DIV-0052"), exempt("DIV-0053"));
     let (mut compared, mut skipped, mut refused, mut misses) = (0, 0, 0, Vec::new());
-    for row in (0..table.rows().len()).filter(|&row| !table.printed(row, "mixture").unwrap().ends_with(".mix")) {
+    for row in 0..table.rows().len() {
         let label = table.printed(row, "mixture").unwrap();
-        let names: Vec<&str> = label.split('&').collect();
-        let z1 = table.value(row, "z1").unwrap();
-        let x = [z1, 1.0 - z1];
-        let built = phasekit_mix::mixture(&registry, &[(names[0], x[0]), (names[1], x[1])], DataSet::Parity);
+        let built = row_mixture(&registry, label, table.value(row, "z1").unwrap());
         if table.printed(row, "status") != Some("ok") {
             assert!(built.is_err(), "{label}: the oracle refuses it, phasekit builds it");
             refused += 1;
             continue;
         }
-        let with_critical = names.iter().any(|n| CRITICAL_NOT_REDUCING.contains(&registry.canonical_name(n).unwrap()));
+        let (fluid, names) = built.unwrap();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let with_critical = names.iter().any(|n| CRITICAL_NOT_REDUCING.contains(n));
         let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rhomolar").unwrap());
-        let e = evaluate_state(&registry, &built.unwrap(), &names, &x, t, rho);
+        let e = evaluate_state(&registry, &fluid, &names, mixture_of(&fluid).composition(), t, rho);
         let (kept, left): (Vec<_>, Vec<_>) =
             e.cells.iter().partition(|(c, _)| !(all.contains(c) || (with_critical && critical.contains(c))));
         skipped += left.len();
@@ -369,7 +386,7 @@ fn mix_eos_matches_the_oracle() {
         }
     }
     assert!(misses.is_empty(), "{} misses: {:#?}", misses.len(), &misses[..misses.len().min(12)]);
-    assert_eq!((compared, skipped, refused), (10626, 7854, 96));
+    assert_eq!((compared, skipped, refused), (11566, 9466, 96 + 2 * 31));
 }
 
 /// DIV-0053's fluids are exactly the embedded ones whose published critical temperature is not their reducing one.
