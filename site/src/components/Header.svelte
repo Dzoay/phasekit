@@ -7,6 +7,7 @@
     { id: "diagrams", label: "Diagrams" },
     { id: "sweeps", label: "Sweeps" },
     { id: "benchmark", label: "Benchmark" },
+    { id: "how-it-works", label: "How it works" },
   ];
 </script>
 
@@ -65,6 +66,7 @@
 
   nav {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
     flex: 1;
   }
@@ -91,6 +93,10 @@
     .bar {
       gap: 12px;
       flex-wrap: wrap;
+    }
+
+    nav {
+      flex-basis: 100%;
     }
   }
 </style>
