@@ -489,6 +489,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M22 | `phasekit-mix`, core `batch` and `ThermoModel` | After M13 closes (user decision ML2) | Mixtures in lanes: α^r and α⁰ batches at fixed z through the components' lane kernels with the departures in lanes, hinted DT batches through a group hook on `ThermoModel`, the `simd128` build, then a time-boxed spike putting a flash's two phases and its stability test's trial phases in lanes; core runs a family's kernels over `Real` in its private lanes (user decisions ML1, ML3, ML5), eight steps: [M22 Mixture lanes](#m22-mixture-lanes) | Each kernel ships if faster than the scalar path (ML4); `policy_equivalence` bitwise at every dispatch level; G1-G9, and G1-G8 with `--features simd` |
 | M23 | core `math` | After M13 closes (the core is frozen until `m13`, MX2); independent of M22 | In-house `exp`, `ln`, `pow` and `expm1` under 1 ulp, ported from Arm's optimized-routines, one code for the scalar path and the lanes; every build's maths if they pass M9.5's rule, so `simd` leaves `libm`; then an opt-in `fast` feature with FMA on every target (user decisions IM1-IM5), eight steps: [M23 In-house maths](#m23-in-house-maths) | Under 1 ulp on the reference values (IM3); lanes bitwise at every dispatch level; each committed hash one across the four targets; M9.5's rule applied and recorded (IM1); G1-G9, and G1-G8 with `--features simd` and with `--features fast` |
 | M24 | compat, capi, wasm, mix, core | The user's word, 2026-10-18, before `v0.1.0` (user decision PH1) | Panics at the facades (issue #219): fault injection along every C export's path, the browser package's panic hook, and clippy's `indexing_slicing` and `arithmetic_side_effects` denied in the crates it reaches: [M24 Panics at the facades](#m24-panics-at-the-facades) | The fault-injection tests; clippy clean with both lints; `gates perf` |
+| M25 | xtask, `.gitattributes`, docs | The user's word, 2026-10-18, beside M24; its mutants step after `m24` (user decision LM6) | Lists that merge, kept as text (LM1): `ci/test-counts.txt` by a merge driver, ROT ids unique and the register merged by union, one file per decision section, mutant exclusions as markers in the code: [M25 Lists that merge](#m25-lists-that-merge) | Each step's red tests; G1-G8; `actionlint` clean |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
@@ -880,6 +881,56 @@ when green. M24 does not move `MILESTONE`.
 **Exit gate.** G1-G8; the fault-injection tests (the C ABI, the shim, and the browser package on both builds); clippy
 clean with both lints denied in compat, capi, wasm, mix and core; `gates perf` within +5 %. **ROT rows.** ROT-150 (its
 proof widened). **User decisions implemented.** PH1.
+
+### M25 Lists that merge
+
+**Goal.** Sessions working at once stop clashing over the repository's lists (user decisions LM1-LM6). Every list stays
+text in git (LM1), in a form that merges: a tool's list merges itself, a register refuses an id on two rows, a decision
+takes a file of its own, and a mutant exclusion sits in the code it excludes, where an edit elsewhere never moves it.
+**Entry.** The user's word, 2026-10-18 (LM6): M25.1-M25.3 beside M24, M25.4 after `m24` is tagged, because M24.4 and
+M24.5 rewrite the exclusions it moves. The steps merge in order when green. M25 does not move `MILESTONE`.
+
+- **M25.1 `ci/test-counts.txt` merges itself (LM3).** `cargo xtask merge-counts <base> <ours> <theirs>`, a git merge
+  driver over `gates counts`' manifest: for each `<target> <package>::<binary>`, a minimum both sides kept takes the
+  larger, a binary one side added joins after ours' lines, and one that a side removed while the other left it as the
+  base had it leaves; `# pending` lines likewise, by test. Anything else (a minimum lowered on one side, a comment both
+  sides changed) goes to `git merge-file`, which leaves conflict markers, and the driver exits 1. It reads and writes
+  only the paths git passes, so the repository root built into the xtask binary does not matter. `.gitattributes`
+  gives `ci/test-counts.txt` `merge=phasekit-counts`; CONTRIBUTING.md adds `git config merge.phasekit-counts.driver
+  'cargo xtask merge-counts %O %A %B'` beside signing's lines and says that without it git merges the file as text.
+  *Red:* `merge_counts_keeps_both_raises`: two sides raising adjacent minimums give both raised, a raise and a new
+  binary give both, a lowering exits 1 with markers; against a driver that returns ours.
+- **M25.2 ROT ids unique, the register merged by union (LM5).** `gates rot` refuses a ROT id on two rows, naming both
+  lines. `.gitattributes` gives `docs/ROT-REGISTER.md` `merge=union`, and ROT-REGISTER.md §1 says what that does: two
+  rows added at one place both stay, a row both sides edited appears twice and the gate refuses it, and prose both
+  sides changed at one place keeps both versions, so a rebase that merged the register is read in its diff.
+  VERIFICATION.md §6.1 says `check_register` refuses a duplicate DIV id (`RegisterError::DuplicateId`). *Red:* a
+  `gates rot` unit test on a register with one id on two rows; against the gate on `main`, which passes it.
+- **M25.3 One file per decision section (LM4).** Each `##` section of `docs/DECISIONS.md` moves unchanged to
+  `docs/decisions/<date>-<slug>.md`, dated by its heading (the first pass and its follow-ups in
+  `2026-10-05-first-pass.md`). `docs/DECISIONS.md` keeps its preamble, which now says where decisions live, how a new
+  file is named and that a later decision overrides older text; no index lists the files. `gates decisions` checks that
+  a file's name carries its heading's date, that no id (a decision table's first column) is in two files, and that each
+  id cited as "user decision(s) …" in `docs/` (`docs/history/` and the frozen evidence aside), AGENTS.md,
+  CONTRIBUTING.md, `scripts/` and `crates/` is one, numbered ids and ranges such as MX1-MX7 included. AGENTS.md,
+  CONTRIBUTING.md, section 2.1 and `scripts/release/notes.sh` point at the folder, and AGENTS.md's rule that
+  DECISIONS.md changes only when the user decides becomes the folder's. *Red:* unit tests of `gates decisions` on an
+  id in two files, a citation of an unknown id and a file named for another date; against a gate that reads one file.
+  The PR shows each moved section byte for byte equal to the old file's.
+- **M25.4 Mutant exclusions in the code (LM2).** A marker `// equivalent mutant: <mutation>`, with `<mutation>` as
+  cargo-mutants names it up to " in <function>" (`replace + with *`), ends a comment that says why no test can catch
+  the mutant, and excludes that mutation's mutants on the next line that is not a comment; `#k` after it picks the k-th
+  on the line by column. `cargo xtask mutants-config <path>` writes `.cargo/mutants.toml` plus one `exclude_re` per
+  resolved mutant, file, line and column exact, from `cargo mutants --list --json`; `gates mutants`, CI's shards and
+  the weekly run pass it with `--config`. A marker that matches no mutant, or has no reason above it, fails
+  `gates mutants` and the weekly run. Every `exclude_re` entry that names a file becomes markers; the toml keeps the
+  settings, `exclude_globs` and the patterns that name no file. VERIFICATION.md §8.6 and §11.2 say where exclusions
+  live. The PR shows that `cargo mutants --list` excludes the same mutants before and after. *Red:* unit tests of the
+  resolver: a marker excludes its line's mutant and not the same mutation on another line, a marker matching nothing
+  fails, a marker with no reason fails; against a resolver that resolves nothing. Tag `m25` with the user's approval.
+
+**Exit gate.** G1-G8; each step's red tests; `actionlint` clean after M25.4. **ROT rows.** None. **User decisions
+implemented.** LM1-LM6.
 
 ## 5. Cross-cutting tracks
 
