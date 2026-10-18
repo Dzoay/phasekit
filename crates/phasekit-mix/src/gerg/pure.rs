@@ -58,6 +58,7 @@ impl Pure {
     }
 
     /// α⁰'s τ-part (without ln δ) at u = 1/T, on any `Real`.
+    #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
     fn tau_part<R: Real>(&self, u: R) -> R {
         let c = |x: f64| R::from_f64(x);
         let [constant, n2, n3] = self.ideal;

@@ -31,6 +31,7 @@ use phasekit_core::{DomainError, Error, Limits, Strategy, math};
 use crate::Mixture;
 use crate::equilibrium::{AtTp, normalised, solve, square};
 use crate::saturation::{Given, Side, fractions, meets_gate, on_branch, saturation, trivial};
+use crate::slot::{self, at, set};
 
 /// Newton iterations of one point, and each iteration's largest step in ln K and in ln T or ln p (M13.9's).
 const CORRECTOR_STEPS: usize = 12;
@@ -214,13 +215,23 @@ struct Point {
 
 /// The index of the largest |s_i|: the unknown that varies fastest.
 fn fastest(s: &[f64]) -> usize {
-    (0..s.len()).max_by(|a, b| s[*a].abs().total_cmp(&s[*b].abs())).unwrap_or(0)
+    s.iter().enumerate().max_by(|a, b| a.1.abs().total_cmp(&b.1.abs())).map_or(0, |(i, _)| i)
+}
+
+/// The unknowns' ln T and ln p, after the N ln K (NaN where `v` is short, as [`at`] reads it).
+fn ln_tp(v: &[f64], n: usize) -> (f64, f64) {
+    (at(v, n), at(v, n.saturating_add(1)))
+}
+
+/// The unknowns' N ln K (none where `v` is short).
+fn ln_k(v: &[f64], n: usize) -> &[f64] {
+    v.get(..n).unwrap_or_default()
 }
 
 /// The unknown that varies fastest along sensitivities `s`, and the sensitivities in it, dX/dX_next = s/s_next.
 fn along(s: &[f64]) -> (usize, Vec<f64>) {
     let next = fastest(s);
-    (next, s.iter().map(|d| d / s[next]).collect())
+    (next, s.iter().map(|d| d / at(s, next)).collect())
 }
 
 /// Whether a ln K changes sign from `a` to `b`, 0 counted with the positive.
@@ -311,21 +322,23 @@ impl<'a> Tracer<'a> {
             Side::Bubble => (0.0, (s.rho, s.rho_incipient)),
             Side::Dew => (1.0, (s.rho_incipient, s.rho)),
         };
-        let key = (0..ln_k.len()).max_by(|a, b| ln_k[*a].total_cmp(&ln_k[*b])).unwrap_or(0);
+        let key = ln_k.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)).map_or(0, |(i, _)| i);
         let n = z.len();
         let mut tracer = Tracer { mixture, beta, z, key, x_denser: true, seeds: (Some(seeds.0), Some(seeds.1)) };
         let mut v = ln_k;
         v.extend([math::ln(s.t), math::ln(s.p)]);
-        let target = v[n + 1];
-        let point = tracer.correct(v, (n + 1, target))?;
+        let (lp, target) = (n.saturating_add(1), ln_tp(&v, n).1);
+        let point = tracer.correct(v, (lp, target))?;
         Ok((tracer, point))
     }
 
     /// The phases at unknowns `v`, the denser on the liquid's branch.
     fn phases(&mut self, v: &[f64]) -> Result<Phases, Error> {
         let n = self.z.len();
-        let (t, p) = (math::exp(v[n]), math::exp(v[n + 1]));
-        let (x, y) = fractions(self.beta, &self.z, &v[..n]);
+        let (ln_t, ln_p) = ln_tp(v, n);
+        let (t, p) = (math::exp(ln_t), math::exp(ln_p));
+        let short = || Error::InvalidInput { quantity: "the envelope's unknowns", value: v.len() as f64 };
+        let (x, y) = fractions(self.beta, &self.z, v.get(..n).ok_or_else(short)?);
         let (for_x, for_y) =
             if self.x_denser { (Branch::Liquid, Branch::Vapour) } else { (Branch::Vapour, Branch::Liquid) };
         let of_x = on_branch(self.mixture, t, p, &normalised(&x), for_x, self.seeds.0)?;
@@ -338,7 +351,7 @@ impl<'a> Tracer<'a> {
     fn equations(&mut self, v: &[f64]) -> Result<(Vec<f64>, Phases), Error> {
         let at = self.phases(v)?;
         let (of_x, of_y) = (at.of_x.ln_phi(), at.of_y.ln_phi());
-        let mut f: Vec<f64> = (0..self.z.len()).map(|i| v[i] + of_y[i] - of_x[i]).collect();
+        let mut f: Vec<f64> = v.iter().zip(&of_y).zip(&of_x).take(self.z.len()).map(|((v, y), x)| v + y - x).collect();
         f.push(at.y.iter().zip(&at.x).map(|(y, x)| y - x).sum());
         Ok((f, at))
     }
@@ -347,18 +360,20 @@ impl<'a> Tracer<'a> {
     /// 7.122-7.128, with M13.9's composition block).
     fn jacobian(&self, v: &[f64], at: &Phases, spec: usize) -> Vec<Vec<f64>> {
         let (n, beta) = (self.z.len(), self.beta);
-        let (t, p) = (math::exp(v[n]), math::exp(v[n + 1]));
-        let moves: Vec<f64> = (0..n).map(|k| at.x[k] * at.y[k] / self.z[k]).collect();
+        let (ln_t, ln_p) = ln_tp(v, n);
+        let (t, p) = (math::exp(ln_t), math::exp(ln_p));
+        let moves: Vec<f64> = at.x.iter().zip(&at.y).zip(&self.z).map(|((x, y), z)| x * y / z).collect();
         let (sum_x, sum_y) = (at.x.iter().sum::<f64>(), at.y.iter().sum::<f64>());
         let phi = |i: usize, k: usize| {
             (1.0 - beta) * at.of_y.c.n_dln_phi_dn(i, k) / sum_y + beta * at.of_x.c.n_dln_phi_dn(i, k) / sum_x
         };
-        let in_k = |i: usize, k: usize| (if i == k { 1.0 } else { 0.0 }) + moves[k] * phi(i, k);
-        square(n + 2, |i, k| match (i, k) {
-            (i, k) if i == n + 1 => f64::from(u8::from(k == spec)),
+        let in_k = |i: usize, k: usize| (if i == k { 1.0 } else { 0.0 }) + slot::at(&moves, k) * phi(i, k);
+        let lp = n.saturating_add(1);
+        square(n.saturating_add(2), |i, k| match (i, k) {
+            (i, k) if i == lp => f64::from(u8::from(k == spec)),
             (i, k) if i == n => {
                 if k < n {
-                    moves[k]
+                    slot::at(&moves, k)
                 } else {
                     0.0
                 }
@@ -375,10 +390,10 @@ impl<'a> Tracer<'a> {
         let n = self.z.len();
         let failed =
             |iterations: usize| Error::NoConvergence { strategy: Strategy::Vle, iterations: iterations as u16 };
-        v[spec] = target;
+        set(&mut v, spec, target);
         for iterations in 0..CORRECTOR_STEPS {
             let (f, at) = self.equations(&v)?;
-            if trivial(&v[..n], at.of_x.rho, at.of_y.rho) {
+            if trivial(ln_k(&v, n), at.of_x.rho, at.of_y.rho) {
                 return Err(failed(iterations));
             }
             if meets_gate(&f) {
@@ -395,15 +410,15 @@ impl<'a> Tracer<'a> {
 
     /// dX/dX_spec at a converged point: J dX/dS = e_{N+2} (TM15 Eq. 7.131).
     fn sensitivity(&self, point: &Point, spec: usize) -> Option<Vec<f64>> {
-        let size = self.z.len() + 2;
-        let e = (0..size).map(|i| if i + 1 == size { 1.0 } else { 0.0 }).collect();
+        let size = self.z.len().saturating_add(2);
+        let e = (1..=size).map(|i| if i == size { 1.0 } else { 0.0 }).collect();
         solve(self.jacobian(&point.v, &point.at, spec), e)
     }
 
     /// Whether a step from `point` to `to` swaps the denser phase: it crosses ln K = 0 of the key where the phases are
     /// near the critical point.
     fn swaps(&self, point: &Point, to: &[f64]) -> bool {
-        crosses(point.v[self.key], to[self.key])
+        crosses(at(&point.v, self.key), at(to, self.key))
             && math::ln(point.at.of_x.rho / point.at.of_y.rho).abs() < NEAR_CRITICAL
     }
 
@@ -419,7 +434,7 @@ impl<'a> Tracer<'a> {
     ) -> Result<(Point, f64), Error> {
         let (seeds, denser, n) = (self.seeds, self.x_denser, self.z.len());
         loop {
-            let from = point.v[spec];
+            let from = at(&point.v, spec);
             let target = landing((spec, n), from, from + direction * h);
             let predicted: Vec<f64> = point.v.iter().zip(ds).map(|(x, d)| x + d * (target - from)).collect();
             let swapped = self.swaps(point, &predicted);
@@ -449,7 +464,7 @@ impl<'a> Tracer<'a> {
         let mut out: Vec<Point> = Vec::new();
         for _ in 0..REFINEMENTS {
             let last = out.last().unwrap_or(from);
-            let u = last.v[self.key];
+            let u = at(&last.v, self.key);
             if u.abs() <= CRITICAL_SPAN {
                 break;
             }
@@ -482,8 +497,9 @@ impl<'a> Tracer<'a> {
     fn critical_between(&self, a: &Point, b: &Point) -> Option<(f64, f64)> {
         let n = self.z.len();
         let (sa, sb) = (self.sensitivity(a, self.key)?, self.sensitivity(b, self.key)?);
-        let at = |j: usize| math::exp(hermite((a.v[self.key], a.v[j], sa[j]), (b.v[self.key], b.v[j], sb[j]), 0.0));
-        Some((at(n), at(n + 1)))
+        let (ka, kb) = (at(&a.v, self.key), at(&b.v, self.key));
+        let value = |j: usize| math::exp(hermite((ka, at(&a.v, j), at(&sa, j)), (kb, at(&b.v, j), at(&sb, j)), 0.0));
+        Some((value(n), value(n.saturating_add(1))))
     }
 
     /// Appends `point`: its T and p, the feed's and the incipient phase's densities and the incipient fractions, and the
@@ -495,8 +511,9 @@ impl<'a> Tracer<'a> {
         } else {
             (point.at.of_y.rho, point.at.of_x.rho, normalised(&point.at.x))
         };
-        env.t.push(math::exp(point.v[n]));
-        env.p.push(math::exp(point.v[n + 1]));
+        let (ln_t, ln_p) = ln_tp(&point.v, n);
+        env.t.push(math::exp(ln_t));
+        env.p.push(math::exp(ln_p));
         env.side.push(side_of(bulk, incipient));
         env.rho_bulk.push(bulk);
         env.rho_incipient.push(incipient);
@@ -512,10 +529,10 @@ impl<'a> Tracer<'a> {
         let mut env = Envelope::empty(n);
         let failed =
             |iterations: usize| Error::NoConvergence { strategy: Strategy::Vle, iterations: iterations as u16 };
-        let ln_start = first.v[n + 1];
+        let ln_start = ln_tp(&first.v, n).1;
         let mut highest = ln_start;
         self.record(&mut env, &first);
-        let (mut point, mut spec, mut direction, mut h) = (first, n + 1, 1.0, FIRST_STEP);
+        let (mut point, mut spec, mut direction, mut h) = (first, n.saturating_add(1), 1.0, FIRST_STEP);
         loop {
             if env.len() >= points {
                 return env.ended(EnvelopeEnd::NoConvergence(failed(points)));
@@ -524,21 +541,22 @@ impl<'a> Tracer<'a> {
                 return env.ended(EnvelopeEnd::NoConvergence(failed(0)));
             };
             let (next, ds) = along(&s);
-            direction *= s[next].signum();
+            direction *= at(&s, next).signum();
             spec = next;
             let (found, step) = match self.advance(&point, &ds, (spec, direction), h) {
                 Ok(found) => found,
                 Err(e) => return env.ended(EnvelopeEnd::NoConvergence(e)),
             };
-            if let Some(beyond) = bound(math::exp(found.v[n]), math::exp(found.v[n + 1]), limits, p_max) {
+            let (ln_t, ln_p) = ln_tp(&found.v, n);
+            if let Some(beyond) = bound(math::exp(ln_t), math::exp(ln_p), limits, p_max) {
                 return env.ended(EnvelopeEnd::Bound(beyond));
             }
             if self.swaps(&point, &found.v) {
                 self.cross_critical(&mut env, &point, &found);
             }
             self.record(&mut env, &found);
-            highest = highest.max(found.v[n + 1]);
-            if found.v[n + 1] <= ln_start && highest > ln_start {
+            highest = highest.max(ln_p);
+            if ln_p <= ln_start && highest > ln_start {
                 return env.ended(EnvelopeEnd::Closed);
             }
             (point, h) = (found, step);
@@ -643,6 +661,22 @@ mod tests {
         assert!(
             Envelope::empty(2).is_empty() && !ok(m.envelope(&EnvelopeOptions::new().with_max_points(3))).is_empty()
         );
+    }
+
+    /// The corrector refuses the trivial solution before its equations, met there, could accept it: every K 1, so the
+    /// incipient phase is the feed on the feed's one root (methane/ethane at 400 K and 1 MPa, above both critical
+    /// temperatures, from the trace at its bubble point at 1 MPa). The unknowns' ln K are the first N, none where `v`
+    /// is short.
+    #[test]
+    fn the_trivial_solution_is_refused() {
+        let m = library(&["Methane", "Ethane"], &[0.5, 0.5]);
+        let s = ok(saturation(&m, Side::Bubble, Given::P(1e6)));
+        let (mut tracer, _) = ok(Tracer::from_point(&m, Side::Bubble, &s));
+        let (ln_t, ln_p) = (math::ln(400.0), math::ln(1e6));
+        let refused = tracer.correct(vec![0.0, 0.0, ln_t, ln_p], (3, ln_p));
+        assert_eq!(refused.err(), Some(Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 }));
+        assert_eq!(ln_k(&[0.1, -0.2, ln_t, ln_p], 2), [0.1, -0.2]);
+        assert!(ln_k(&[0.1], 2).is_empty());
     }
 
     /// The step doubles after at most two iterations, grows by a quarter after three, holds at four and halves beyond,

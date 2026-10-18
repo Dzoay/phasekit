@@ -14,9 +14,13 @@ use core::ops::{Mul, Sub};
 use phasekit_core::{Derivs, Order, math};
 
 use crate::data::{DepartureData, Kind, Term};
+use crate::slot::at;
 
 /// n! for n ≤ 4.
 const FACTORIAL: [f64; 5] = [1.0, 1.0, 2.0, 6.0, 24.0];
+
+/// A series' last slot: its coefficients up to the fourth order.
+const LAST: usize = 4;
 
 /// What the kernel computes on: a number, or a univariate series.
 pub(crate) trait Scalar: Copy + Sub<Output = Self> + Mul<Output = Self> {
@@ -59,22 +63,22 @@ impl Series {
 
     /// f(self) from f's derivatives `d` at the value: Σ_n d_n/n! εⁿ by Horner, ε = self − value; for the variable itself
     /// (ε the unit monomial) the coefficients d_n/n! directly, which is what Horner's products with it give exactly.
+    #[allow(clippy::arithmetic_side_effects, reason = "Series products: IEEE arithmetic on truncated series, no panic")]
     fn compose(self, d: [f64; 5]) -> Series {
         if self.c[1] == 1.0 && self.c[2..].iter().all(|c| *c == 0.0) {
             let mut c = [0.0; 5];
-            let mut k = 0;
-            while k <= self.order {
-                c[k] = d[k] / FACTORIAL[k];
-                k += 1;
+            for ((c, d), f) in c.iter_mut().zip(&d).zip(&FACTORIAL).take(self.order.saturating_add(1)) {
+                *c = d / f;
             }
             return Series { order: self.order, c };
         }
         let mut eps = self;
         eps.c[0] = 0.0;
-        let mut r = Series::from_f64(d[self.order] / FACTORIAL[self.order]).with_order(self.order);
-        for n in (0..self.order).rev() {
+        let mut r = Series::from_f64(at(&d, self.order) / at(&FACTORIAL, self.order)).with_order(self.order);
+        let below = self.order.min(d.len());
+        for (d, f) in d.get(..below).unwrap_or_default().iter().zip(FACTORIAL.get(..below).unwrap_or_default()).rev() {
             r = r * eps;
-            r.c[0] = d[n] / FACTORIAL[n];
+            r.c[0] = d / f;
         }
         r.c[0] = d[0];
         r
@@ -85,24 +89,27 @@ impl Series {
         self
     }
 
-    /// The truncated product; the value slot is the values' product alone. Plain index loops: the tests' build runs
-    /// this crate unoptimised (user decision SP1), where an iterator chain costs several times the arithmetic.
-    /// A constant's product is a scale, the general sum's terms with its zero slots being exact zeros.
+    /// The truncated product; the value slot is the values' product alone. A constant's product is a scale, the general
+    /// sum's terms with its zero slots being exact zeros. Each slot sums its terms in index order, from 0. Plain index
+    /// loops, up to the order or the last slot if that is lower, so every index lies in the five slots: an iterator
+    /// chain here cost the GERG gas's α^r a fifth more instructions (PLAN.md M24.4).
+    #[allow(clippy::indexing_slicing, clippy::arithmetic_side_effects, reason = "k ≤ last ≤ 4 and a ≤ k: in the slots")]
     fn product(&self, other: &Series) -> Series {
         let order = self.order.max(other.order);
+        let last = order.min(LAST);
         let mut c = [0.0; 5];
         c[0] = self.c[0] * other.c[0];
         if self.order == 0 || other.order == 0 {
             let (series, k0) = if self.order == 0 { (other, self.c[0]) } else { (self, other.c[0]) };
             let mut k = 1;
-            while k <= order {
+            while k <= last {
                 c[k] = k0 * series.c[k];
                 k += 1;
             }
             return Series { order, c };
         }
         let mut k = 1;
-        while k <= order {
+        while k <= last {
             let (mut sum, mut a) = (0.0, 0);
             while a <= k {
                 sum += self.c[a] * other.c[k - a];
@@ -145,8 +152,8 @@ impl Scalar for Series {
     fn powi(self, n: i32) -> Series {
         let mut d = [0.0; 5];
         let mut falling = 1.0;
-        for (k, slot) in d.iter_mut().enumerate().take(self.order + 1) {
-            *slot = if falling == 0.0 { 0.0 } else { falling * math::powi(self.c[0], n - k as i32) };
+        for (k, slot) in d.iter_mut().enumerate().take(self.order.saturating_add(1)) {
+            *slot = if falling == 0.0 { 0.0 } else { falling * math::powi(self.c[0], n.saturating_sub(k as i32)) };
             falling *= f64::from(n) - k as f64;
         }
         self.compose(d)
@@ -155,7 +162,7 @@ impl Scalar for Series {
     fn powf(self, t: f64) -> Series {
         let mut d = [0.0; 5];
         let mut falling = 1.0;
-        for (k, slot) in d.iter_mut().enumerate().take(self.order + 1) {
+        for (k, slot) in d.iter_mut().enumerate().take(self.order.saturating_add(1)) {
             *slot = falling * math::powf(self.c[0], t - k as f64);
             falling *= t - k as f64;
         }
@@ -168,6 +175,7 @@ impl Scalar for Series {
 }
 
 /// A term's τ part: τ^t, times exp(−β(τ − γ)²) for a Gaussian + Exponential function's Gaussian terms.
+#[allow(clippy::arithmetic_side_effects, reason = "on the kernel's scalars, f64 or Series: IEEE arithmetic, no panic")]
 fn tau_part<S: Scalar>(kind: Kind, gaussian: bool, term: &Term, tau: S) -> S {
     let power = tau.powf(term.t);
     match (kind, gaussian) {
@@ -180,6 +188,7 @@ fn tau_part<S: Scalar>(kind: Kind, gaussian: bool, term: &Term, tau: S) -> S {
 }
 
 /// A term's δ part: δ^d times its exponential in δ, if it has one.
+#[allow(clippy::arithmetic_side_effects, reason = "on the kernel's scalars, f64 or Series: IEEE arithmetic, no panic")]
 fn delta_part<S: Scalar>(kind: Kind, gaussian: bool, term: &Term, delta: S) -> S {
     let power = delta.powi(term.d as i32);
     let c = S::from_f64;
@@ -220,7 +229,8 @@ pub(crate) struct Jet {
 impl Jet {
     /// ∂^(i+j)α^r_ij/∂τ^i∂δ^j, or `None` beyond the order kept.
     pub(crate) fn derivative(&self, i: usize, j: usize) -> Option<f64> {
-        (i + j <= self.order).then(|| self.c[i][j] * FACTORIAL[i] * FACTORIAL[j])
+        let c = self.c.get(i).and_then(|row| row.get(j))?;
+        (i.saturating_add(j) <= self.order).then(|| c * at(&FACTORIAL, i) * at(&FACTORIAL, j))
     }
 }
 
@@ -233,14 +243,11 @@ pub(crate) fn jet(f: &DepartureData, tau: f64, delta: f64, order: usize) -> Jet 
     for (k, term) in f.terms.iter().enumerate() {
         let gaussian = k >= f.power;
         let (t, d) = (tau_part(f.kind, gaussian, term, t0), delta_part(f.kind, gaussian, term, d0));
-        let mut i = 0;
-        while i <= order {
-            let (nt, mut j) = (term.n * t.c[i], 0);
-            while i + j <= order {
-                c[i][j] += nt * d.c[j];
-                j += 1;
+        for (i, (row, ti)) in c.iter_mut().zip(t.c).enumerate().take(order.saturating_add(1)) {
+            let nt = term.n * ti;
+            for (cell, dj) in row.iter_mut().zip(d.c).take(order.saturating_add(1).saturating_sub(i)) {
+                *cell += nt * dj;
             }
-            i += 1;
         }
     }
     Jet { order, c }

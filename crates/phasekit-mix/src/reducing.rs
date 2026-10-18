@@ -11,6 +11,7 @@
 use phasekit_core::math;
 
 use crate::data::Reducing as Parameters;
+use crate::slot::at;
 use crate::taylor::Taylor;
 
 /// One pair's terms, i < j in component order (the pair's CAS order may be the other way round: then β is inverted).
@@ -50,7 +51,8 @@ impl ReducingFunctions {
                     Parameters::Gerg(p) => p,
                     Parameters::Lemmon([xi, zeta]) => {
                         let (t_ij, cube) = means(&t, &v, i, j);
-                        [1.0, (t[i] + t[j] + xi) / (2.0 * t_ij), 1.0, (v[i] + v[j] + zeta) / (cube / 4.0)]
+                        let (ti, tj, vi, vj) = (at(&t, i), at(&t, j), at(&v, i), at(&v, j));
+                        [1.0, (ti + tj + xi) / (2.0 * t_ij), 1.0, (vi + vj + zeta) / (cube / 4.0)]
                     }
                 };
                 let (bt, bv) = if swapped { (1.0 / bt, 1.0 / bv) } else { (bt, bv) };
@@ -73,7 +75,7 @@ impl ReducingFunctions {
         let parameters = if (a, b) == (i, j) { [bt, gt, bv, gv] } else { [1.0 / bt, gt, 1.0 / bv, gv] };
         let k = self.pairs.iter().position(|p| (p.i, p.j) == (a, b))?;
         let mut pairs = self.pairs.clone();
-        pairs[k] = terms(&self.t, &self.v, a, b, parameters);
+        *pairs.get_mut(k)? = terms(&self.t, &self.v, a, b, parameters);
         Some(ReducingFunctions { pairs, ..self.clone() })
     }
 
@@ -89,14 +91,17 @@ impl ReducingFunctions {
 
     /// T_r and v_r = 1/ρ_r on Taylor numbers of the mole fractions (PLAN.md M13.6), the same sums; a pair of two absent
     /// components contributes nothing.
+    #[allow(clippy::arithmetic_side_effects, reason = "multivariate series (&Taylor): IEEE arithmetic, no panic")]
     pub(crate) fn reduce_taylor(&self, x: &[Taylor]) -> [Taylor; 2] {
         [(&self.t, (|p: &Pair| p.t) as fn(&Pair) -> [f64; 2]), (&self.v, |p: &Pair| p.v)].map(|(y, of)| {
-            let mut sum = Taylor::constant(x[0].vars(), x[0].order(), 0.0);
+            let (m, order) = x.first().map_or((0, 0), |x0| (x0.vars(), x0.order()));
+            let mut sum = Taylor::constant(m, order, 0.0);
             for (xi, yi) in x.iter().zip(y.iter()) {
                 sum.add_scaled(*yi, &(xi * xi));
             }
             for p in self.pairs.iter() {
-                let ([beta, c], xi, xj) = (of(p), &x[p.i], &x[p.j]);
+                let (Some(xi), Some(xj)) = (x.get(p.i), x.get(p.j)) else { continue };
+                let [beta, c] = of(p);
                 let denominator = &xi.scale(beta * beta) + xj;
                 if denominator.value() != 0.0 {
                     sum.add_scaled(c, &(&(xi * xj) * &(xi + xj)).divide(&denominator));
@@ -112,7 +117,7 @@ impl ReducingFunctions {
             .pairs
             .iter()
             .map(|p| {
-                let ([beta, c], xi, xj) = (of(p), x[p.i], x[p.j]);
+                let ([beta, c], xi, xj) = (of(p), at(x, p.i), at(x, p.j));
                 // Two absent components (x_i = x_j = 0) contribute nothing, not 0/0.
                 let denominator = beta * beta * xi + xj;
                 if denominator == 0.0 { 0.0 } else { c * xi * xj * (xi + xj) / denominator }
@@ -124,7 +129,8 @@ impl ReducingFunctions {
 
 /// √(T_i T_j) and (v_i^⅓ + v_j^⅓)³, the means pair (i, j)'s terms scale.
 fn means(t: &[f64], v: &[f64], i: usize, j: usize) -> (f64, f64) {
-    (math::sqrt(t[i] * t[j]), math::powi(math::powf(v[i], 1.0 / 3.0) + math::powf(v[j], 1.0 / 3.0), 3))
+    let third = |v: f64| math::powf(v, 1.0 / 3.0);
+    (math::sqrt(at(t, i) * at(t, j)), math::powi(third(at(v, i)) + third(at(v, j)), 3))
 }
 
 /// Pair (i, j)'s terms from its β_T, γ_T, β_v and γ_v from i to j.

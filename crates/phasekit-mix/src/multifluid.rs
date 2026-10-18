@@ -17,6 +17,7 @@ use crate::generated::{CAS, DEPARTURES, PAIRS};
 use crate::gerg;
 use crate::mixture::R_CODATA;
 use crate::reducing::ReducingFunctions;
+use crate::slot::at;
 
 /// One component: its fluid and the state its residual reduces by.
 #[derive(Clone, Debug)]
@@ -102,21 +103,17 @@ impl MultiFluid {
             .iter()
             .map(|c| cas(c.fluid.info().name()).ok_or_else(|| unknown(c.fluid.info().name())))
             .collect::<Result<Vec<_>, _>>()?;
-        if components.len() < 2 || keys.iter().enumerate().any(|(i, k)| keys[..i].contains(k)) {
+        if components.len() < 2 || keys.iter().enumerate().any(|(i, k)| keys.iter().take(i).any(|j| j == k)) {
             return Err(Error::InvalidInput {
                 quantity: "number of distinct components",
                 value: components.len() as f64,
             });
         }
         let (mut parameters, mut departures) = (Vec::new(), Vec::new());
-        for i in 0..keys.len() {
-            for j in i + 1..keys.len() {
-                let (pair_data, swapped) = pair(keys[i], keys[j]).ok_or_else(|| {
-                    unknown(&format!(
-                        "binary pair {}&{}",
-                        components[i].fluid.info().name(),
-                        components[j].fluid.info().name()
-                    ))
+        for (i, (&ki, ci)) in keys.iter().zip(&components).enumerate() {
+            for (j, (&kj, cj)) in keys.iter().zip(&components).enumerate().skip(i.saturating_add(1)) {
+                let (pair_data, swapped) = pair(ki, kj).ok_or_else(|| {
+                    unknown(&format!("binary pair {}&{}", ci.fluid.info().name(), cj.fluid.info().name()))
                 })?;
                 let reducing = match data_set {
                     DataSet::Parity => pair_data.reducing,
@@ -138,7 +135,7 @@ impl MultiFluid {
     pub fn gerg2008(registry: &Registry, names: &[&str]) -> Result<MultiFluid, Error> {
         let resolved = names.iter().map(|name| gerg::component(registry, name)).collect::<Result<Vec<_>, _>>()?;
         let index: Vec<usize> = resolved.iter().map(|(i, _)| *i).collect();
-        if index.len() < 2 || index.iter().enumerate().any(|(k, i)| index[..k].contains(i)) {
+        if index.len() < 2 || index.iter().enumerate().any(|(k, i)| index.iter().take(k).any(|j| j == i)) {
             return Err(Error::InvalidInput { quantity: "number of distinct components", value: index.len() as f64 });
         }
         let mut components = Vec::with_capacity(resolved.len());
@@ -147,9 +144,9 @@ impl MultiFluid {
             components.push(component(&fluid, fluid.info().name())?);
         }
         let (mut parameters, mut departures) = (Vec::new(), Vec::new());
-        for a in 0..index.len() {
-            for b in a + 1..index.len() {
-                let (binary, swapped) = gerg::binary(index[a], index[b]).ok_or_else(|| unknown("GERG-2008 binary"))?;
+        for (a, &ia) in index.iter().enumerate() {
+            for (b, &ib) in index.iter().enumerate().skip(a.saturating_add(1)) {
+                let (binary, swapped) = gerg::binary(ia, ib).ok_or_else(|| unknown("GERG-2008 binary"))?;
                 let reducing = Reducing::Gerg([binary.beta_t, binary.gamma_t, binary.beta_v, binary.gamma_v]);
                 parameters.push((a, b, reducing, swapped));
                 if let Some(function) = binary.model.and_then(gerg::departure).filter(|_| binary.f != 0.0) {
@@ -221,14 +218,14 @@ impl MultiFluid {
     pub(crate) fn residual_at(&self, x: &[f64], t: f64, rho: f64, order: Order) -> Derivs {
         let (t_r, rho_r) = self.reducing_state(x);
         let (tau, delta) = (t_r / t, rho / rho_r);
-        let mut parts = Vec::with_capacity(self.components.len() + self.departures.len());
+        let mut parts = Vec::with_capacity(self.components.len().saturating_add(self.departures.len()));
         for (c, xi) in self.components.iter().zip(x) {
             // `component` admitted only fluids with a Helmholtz model.
             let part = c.fluid.model().helmholtz().map(|model| model.residual(c.t_r / tau, delta * c.rho_r, order));
             parts.push((*xi, part.unwrap_or_else(|| Derivs::from_fn(order, |_, _| f64::NAN))));
         }
         for d in self.departures.iter() {
-            parts.push((x[d.i] * x[d.j] * d.f, departure::derivs(d.function, tau, delta, order)));
+            parts.push((at(x, d.i) * at(x, d.j) * d.f, departure::derivs(d.function, tau, delta, order)));
         }
         Derivs::from_fn(order, |i, j| parts.iter().map(|(w, part)| w * part.get(i, j).unwrap_or(f64::NAN)).sum())
     }
@@ -248,7 +245,7 @@ impl MultiFluid {
         }
         let dtau_dt = -t_r / (t * t);
         for d in self.departures.iter() {
-            let (w, jet) = (x[d.i] * x[d.j] * d.f, departure::jet(d.function, tau, 0.0, 3));
+            let (w, jet) = (at(x, d.i) * at(x, d.j) * d.f, departure::jet(d.function, tau, 0.0, 3));
             let at = |i, j| jet.derivative(i, j).unwrap_or(f64::NAN);
             (b, c) = (b + w * at(0, 1), c + w * at(0, 2));
             (db, dc) = (db + w * at(1, 1) * dtau_dt, dc + w * at(1, 2) * dtau_dt);

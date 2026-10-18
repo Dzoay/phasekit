@@ -6,14 +6,17 @@
 
 use std::ops::{Add, Mul, Neg, Sub};
 
-/// The index of monomial x_i x_j, i ≤ j, among the degree-2 monomials.
+use crate::slot::{at, set};
+
+/// The index of monomial x_i x_j, i ≤ j, among the degree-2 monomials. The index arithmetic saturates (PLAN.md M24.4):
+/// a saturated index lies outside every coefficient vector, where [`at`] reads NaN.
 fn pair(i: usize, j: usize) -> usize {
-    j * (j + 1) / 2 + i
+    (j.saturating_mul(j.saturating_add(1)) / 2).saturating_add(i)
 }
 
 /// The index of monomial x_i x_j x_k, i ≤ j ≤ k, among the degree-3 monomials.
 fn triple(i: usize, j: usize, k: usize) -> usize {
-    k * (k + 1) * (k + 2) / 6 + pair(i, j)
+    (k.saturating_mul(k.saturating_add(1)).saturating_mul(k.saturating_add(2)) / 6).saturating_add(pair(i, j))
 }
 
 /// A polynomial of degree ≤ `order` (≤ 3) in `m` variables.
@@ -30,8 +33,12 @@ pub(crate) struct Taylor {
 impl Taylor {
     /// The constant `value`.
     pub(crate) fn constant(m: usize, order: usize, value: f64) -> Taylor {
-        let n = |degree: usize| {
-            if order >= degree { [m, m * (m + 1) / 2, m * (m + 1) * (m + 2) / 6][degree - 1] } else { 0 }
+        // The monomials of each degree: m, then the pairs and triples below index m.
+        let n = |degree: usize| match degree {
+            _ if degree > order => 0,
+            1 => m,
+            2 => pair(0, m),
+            _ => triple(0, 0, m),
         };
         Taylor { m, order, c0: value, c1: vec![0.0; n(1)], c2: vec![0.0; n(2)], c3: vec![0.0; n(3)] }
     }
@@ -118,8 +125,8 @@ impl Taylor {
     pub(crate) fn product(&self, other: &Taylor) -> Taylor {
         let (a, b) = (self, other);
         let mut out = Taylor::constant(a.m, a.order, a.c0 * b.c0);
-        for i in 0..out.c1.len() {
-            out.c1[i] = a.c0 * b.c1[i] + a.c1[i] * b.c0;
+        for ((out, x), y) in out.c1.iter_mut().zip(&a.c1).zip(&b.c1) {
+            *out = a.c0 * y + x * b.c0;
         }
         if a.order >= 2 {
             a.squares(b, &mut out.c2);
@@ -134,7 +141,7 @@ impl Taylor {
     fn squares(&self, b: &Taylor, c2: &mut [f64]) {
         for j in 0..self.m {
             for i in 0..=j {
-                c2[pair(i, j)] = self.square(b, i, j);
+                set(c2, pair(i, j), self.square(b, i, j));
             }
         }
     }
@@ -144,7 +151,7 @@ impl Taylor {
         for k in 0..self.m {
             for j in 0..=k {
                 for i in 0..=j {
-                    c3[triple(i, j, k)] = self.cube(b, (i, j, k));
+                    set(c3, triple(i, j, k), self.cube(b, (i, j, k)));
                 }
             }
         }
@@ -153,9 +160,10 @@ impl Taylor {
     /// The product's coefficient of x_i x_j, i ≤ j.
     fn square(&self, b: &Taylor, i: usize, j: usize) -> f64 {
         let a = self;
-        let cross = if i == j { a.c1[i] * b.c1[i] } else { a.c1[i] * b.c1[j] + a.c1[j] * b.c1[i] };
+        let (a1, b1) = (|i| at(&a.c1, i), |i| at(&b.c1, i));
+        let cross = if i == j { a1(i) * b1(i) } else { a1(i) * b1(j) + a1(j) * b1(i) };
         let p = pair(i, j);
-        a.c0 * b.c2[p] + a.c2[p] * b.c0 + cross
+        a.c0 * at(&b.c2, p) + at(&a.c2, p) * b.c0 + cross
     }
 
     /// The product's coefficient of x_i x_j x_k, i ≤ j ≤ k: each distinct way to split the monomial into one variable
@@ -163,8 +171,8 @@ impl Taylor {
     fn cube(&self, b: &Taylor, (i, j, k): (usize, usize, usize)) -> f64 {
         let a = self;
         let t = triple(i, j, k);
-        let split = |s: usize, p: usize| a.c1[s] * b.c2[p] + a.c2[p] * b.c1[s];
-        let mut sum = a.c0 * b.c3[t] + a.c3[t] * b.c0 + split(i, pair(j, k));
+        let split = |s: usize, p: usize| at(&a.c1, s) * at(&b.c2, p) + at(&a.c2, p) * at(&b.c1, s);
+        let mut sum = a.c0 * at(&b.c3, t) + at(&a.c3, t) * b.c0 + split(i, pair(j, k));
         if j != i {
             sum += split(j, pair(i, k));
         }
@@ -270,8 +278,8 @@ mod tests {
         assert!((unit.value() - 1.0).abs() < 1e-15 && unit.derivative(&[0, 1, 2]).abs() < 1e-13);
     }
 
-    /// Each degree's coefficients hold its monomials once: m, m(m + 1)/2 and m(m + 1)(m + 2)/6; negation is the
-    /// scale by −1.
+    /// Each degree's coefficients hold its monomials once: m, m(m + 1)/2 and m(m + 1)(m + 2)/6, and none above the
+    /// order kept; negation is the scale by −1.
     #[test]
     fn each_monomial_is_stored_once() {
         for (m, counts) in [(1, (1, 1, 1)), (3, (3, 6, 10)), (4, (4, 10, 20)), (21, (21, 231, 1771))] {
@@ -279,6 +287,9 @@ mod tests {
             assert_eq!((x.c1.len(), x.c2.len(), x.c3.len()), counts, "{m} variables");
             assert_eq!(triple(m - 1, m - 1, m - 1), counts.2 - 1);
         }
+        let (first, second) = (Taylor::constant(3, 1, 1.0), Taylor::constant(3, 2, 1.0));
+        assert_eq!([first.c1.len(), first.c2.len(), first.c3.len()], [3, 0, 0]);
+        assert_eq!([second.c1.len(), second.c2.len(), second.c3.len()], [3, 6, 0]);
         let v = Taylor::variable(2, 3, 0, 0.5);
         let y = &(&v * &v) + &v;
         assert_eq!(-&y, y.scale(-1.0));
