@@ -905,8 +905,10 @@ M24.5 rewrite the exclusions it moves. M25.1-M25.3 land in one PR, a commit and 
   on the line by column. `cargo xtask mutants-config <path>` writes `.cargo/mutants.toml` plus one `exclude_re` per
   resolved mutant, file, line and column exact, from `cargo mutants --list --json`; `gates mutants`, CI's shards and
   the weekly run pass it with `--config`. A marker that matches no mutant, or has no reason above it, fails
-  `gates mutants` and the weekly run. Every `exclude_re` entry that names a file becomes markers; the toml keeps the
-  settings, `exclude_globs` and the patterns that name no file. VERIFICATION.md §8.6 and §11.2 say where exclusions
+  `gates mutants` and the weekly run, and so does a pattern the toml keeps that matches no listed mutant (on 2026-10-18
+  13 line:col pins had drifted, two of them, `conductivity.rs:201:36` and `flash.rs:168:87`, stale on `main` for some
+  time). Every `exclude_re` entry that names a file becomes markers; the toml keeps the settings, `exclude_globs` and
+  the patterns that name no file. VERIFICATION.md §8.6 and §11.2 say where exclusions
   live. The PR shows that `cargo mutants --list` excludes the same mutants before and after. *Red:* unit tests of the
   resolver: a marker excludes its line's mutant and not the same mutation on another line, a marker matching nothing
   fails, a marker with no reason fails; against a resolver that resolves nothing. Tag `m25` with the user's approval.
