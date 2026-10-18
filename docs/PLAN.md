@@ -774,7 +774,8 @@ targets, a miss logged rather than blocking (user decision TG1).
 ### 5.3 Licensing, REUSE, supply chain
 
 - Code MIT OR Apache-2.0 (M0.7). `phasekit-data` and `LICENSE-THIRD-PARTY` carry CoolProp's MIT notice; NOTICE
-  credits NIST/fastchebpure and cites the superancillary paper (M2.5, M5.2; user decision 3a).
+  credits NIST/fastchebpure and cites the superancillary paper (M2.5, M5.2; user decision 3a). `phasekit-mix` is
+  `(MIT OR Apache-2.0) AND LicenseRef-NIST-GERG` and ships NIST's notice as its `LICENSE-NIST-GERG` (user decision MX10).
 - Every fixture and blob has a REUSE annotation with its provenance: CoolProp-derived, paper (citation), or
   fastchebpure (user decision 3b). `reuse lint` runs in CI from M0.7.
 - `Unpublished` data (Propylene, SES36, Neon; map 13 R7) get oracle-only fixtures, labelled (M2.10). Restricted data

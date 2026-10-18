@@ -44,6 +44,7 @@ SPDX-License-Identifier = "MIT"
 [[annotations]]
 path = [
     "crates/phasekit-mix/src/gerg/tables.rs",
+    "crates/phasekit-mix/LICENSE-NIST-GERG",
     "crates/phasekit-verify/fixtures/aga8/**",
     "crates/phasekit-verify/fixtures/teqp-0.23.2/**",
 ]
