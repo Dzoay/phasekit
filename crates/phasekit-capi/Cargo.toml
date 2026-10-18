@@ -34,6 +34,8 @@ cc = "1.2"
 # The entry points over arbitrary bytes, nulls and lengths (ROT-150; tier T3, std only, as phasekit-core's).
 [dev-dependencies]
 proptest = { version = "1.11", default-features = false, features = ["std"] }
+# The ABI's own tests inject panics where compat, the registry or a model is reached (PLAN.md M24.1).
+phasekit-compat = { workspace = true, features = ["fault-injection"] }
 
 # The workspace's lints (root Cargo.toml), but `unsafe_code` relaxed to `deny`: each FFI item allows it with a SAFETY
 # comment (D17, BRIEF "memory safe"); `gates lints` accepts this crate's table and no other's.

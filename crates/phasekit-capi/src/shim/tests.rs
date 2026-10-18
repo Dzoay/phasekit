@@ -364,3 +364,32 @@ fn shim_props_si_reads_mixture_strings() {
     let dew = props("P", ("T", 250.0), ("Q", 1.0), "R410A.mix");
     assert!(close(dew, 354_068.900_078_878_3) && props("P", ("T", 250.0), ("Q", 1.0), "R410A") != dew, "{dew}");
 }
+
+/// PLAN.md M24.1 (issue #219): a panic where a call reaches the registry or a model, for one of
+/// `phasekit_compat::fault`'s names, is CoolProp's failure value with the `errstring` naming the caught panic, in every
+/// shim function a fluid name reaches: `PropsSI` and `Props1SI` return `_HUGE`, `PhaseSI` and `get_fluid_param_string`
+/// 0. The next call succeeds.
+#[cfg(panic = "unwind")]
+#[test]
+fn a_panic_on_the_call_path_is_the_failure_value() {
+    use phasekit_compat::fault::{FLASH, RESOLVE};
+    let _serial = serial();
+    let caught = || errstring().contains("a panic was caught");
+    for name in [RESOLVE, FLASH] {
+        assert_eq!(props("Hmass", ("T", 300.0), ("P", 1e5), name), HUGE, "PropsSI {name}");
+        assert!(caught(), "PropsSI {name}");
+    }
+    let (resolve, flash, tcrit, name) = (c(RESOLVE), c(FLASH), c("Tcrit"), c("name"));
+    let (t, p, mut buf) = (c("T"), c("P"), [0 as c_char; 64]);
+    // SAFETY (each): every string is NUL-terminated; `buf` holds 64 bytes.
+    unsafe {
+        assert_eq!(Props1SI(resolve.as_ptr(), tcrit.as_ptr()), HUGE, "Props1SI");
+        assert!(caught(), "Props1SI");
+        assert_eq!(PhaseSI(t.as_ptr(), 300.0, p.as_ptr(), 1e5, flash.as_ptr(), buf.as_mut_ptr(), 64), 0, "PhaseSI");
+        assert!(caught(), "PhaseSI");
+        assert_eq!(get_fluid_param_string(resolve.as_ptr(), name.as_ptr(), buf.as_mut_ptr(), 64), 0, "fluid param");
+        assert!(caught(), "get_fluid_param_string");
+    }
+    assert!((props("T", ("P", 101_325.0), ("Q", 0.0), "Water") - 373.124).abs() < 1e-3);
+    assert_eq!(errstring(), "", "the next call succeeds");
+}

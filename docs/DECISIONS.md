@@ -648,6 +648,15 @@ the dependencies), and its debug mixture tests took 50-106 s each (`tests/mixtur
 |---|---|---|---|
 | SP2 | Build phasekit-mix optimised in the dev profile, as SP1 does phasekit-core? | **Yes, opt-level 2** ("don't bother with before and after timings for the build profile. Just look at the difference in CI after the fact. We can always revert.") | `Cargo.toml`'s `[profile.dev.package.phasekit-mix]`, and so `test` and `mutants`, which inherit it. Floating-point results do not depend on opt-level (SP1); overflow checks and debug assertions stay on. Judged by CI's job times after the merge; reverted if they are worse. |
 
+## Panics at the facades (2026-10-18)
+
+Asked at M13's close: issue #219, raised at M13.14, had left two pieces of panic hardening unscheduled, fault injection
+at every C export and the browser package's panics, which wasm cannot catch.
+
+| # | Question | Decision | Notes |
+|---|---|---|---|
+| PH1 | When to do issue #219 | **Before `v0.1.0`, now** ("do the fault injection and harden the C export / wasm code"), and the lints on phasekit-mix and phasekit-core too ("Yes, mix then core") | PLAN.md M24: fault injection along the C exports' paths, the browser package's panic hook, then clippy's `indexing_slicing` and `arithmetic_side_effects` denied in compat, capi and wasm, then phasekit-mix, then phasekit-core, which M13's close unfroze. |
+
 ## The site (2026-10-16)
 
 Asked while M13 was being planned: "I would like to have you build a webpage that visualises phasekits capabilities

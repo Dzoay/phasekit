@@ -487,6 +487,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M20 | core, compat, verify, CI | M12 landed (user decision PL1) | Four follow-ups: Cv, Cp, w, τ and δ as derivative variables; the conformance kit's `identities` and `part_additivity`; the intra-doc link check; the nightly report: [M20 Follow-ups](#m20-follow-ups) | Each step's checks; G1-G8 |
 | M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19, mutation testing of the site's code, picking states on the diagrams, phase regions, how a property is calculated; ten steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
 | M22 | `phasekit-mix`, core `batch` | After M13 closes (user decision ML2) | Mixtures in lanes: α^r and α⁰ batches at fixed z through the components' lane kernels with the departures in lanes, hinted DT batches, the `simd128` build, then a time-boxed spike putting a flash's two phases and its stability test's trial phases in lanes; core runs a family's kernels over `Real` in its private lanes (user decisions ML1, ML3), eight steps: [M22 Mixture lanes](#m22-mixture-lanes) | Each kernel ships if faster than the scalar path (ML4); `policy_equivalence` bitwise at every dispatch level; G1-G9, and G1-G8 with `--features simd` |
+| M24 | compat, capi, wasm, mix, core | The user's word, 2026-10-18, before `v0.1.0` (user decision PH1) | Panics at the facades (issue #219): fault injection along every C export's path, the browser package's panic hook, and clippy's `indexing_slicing` and `arithmetic_side_effects` denied in the crates it reaches: [M24 Panics at the facades](#m24-panics-at-the-facades) | The fault-injection tests; clippy clean with both lints; `gates perf` |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
@@ -750,6 +751,44 @@ dispatch level of the i7-8700K, the CI runners (x86-64, aarch64) and wasip2 with
 results unchanged by the spike; each kernel faster than the scalar path or taken out (ML4). **ROT rows.** None. **User
 decisions implemented.** ML1-ML4.
 
+### M24 Panics at the facades
+
+**Goal.** No panic reaches a caller unannounced (issue #219; ROT-150). At the C boundary every panic on a call's path is
+caught, and that is shown along the real path, not only for a panic handed to the catch. The browser package cannot
+catch one, so the code it reaches is held to lints that refuse implicit panics, and a panic that happens anyway reaches
+JavaScript as an error naming it, the module then refusing every later call. **Entry.** The user's word, 2026-10-18,
+before `v0.1.0` (user decision PH1), after M13's close, so phasekit-core is no longer frozen; the steps merge in order
+when green. M24 does not move `MILESTONE`.
+
+| Step | Landed |
+|---|---|
+| M24.1 | `phasekit_compat::fault`, behind the test-only `fault-injection` feature that no shipped build turns on: `with_faults`, a resolver whose four names panic on purpose where a call reaches the registry or a model: `fault::resolve` in the resolver, `fault::info`, `fault::flash` and `fault::drop` in a model's `info`, flash and drop (the registry's Water otherwise). phasekit-capi's tests turn it on (a dev-dependency), and both its registries, the handles' and the shim's, read the names there (`named`, under `#[cfg(test)]`). Every export a fluid name or handle reaches returns its failure value with its error set: `pk_props_si`, `pk_props1_si`, `pk_phase_si`, `pk_fluid_new`, `pk_registry_with_reference`, `pk_fluid_name`, `pk_batch` and `pk_fluid_free` return `PK_PANIC` with the last error naming the catch; the shim's `PropsSI` and `Props1SI` return `_HUGE` and `PhaseSI` and `get_fluid_param_string` 0, with the `errstring`; the next call succeeds. The other exports reach no model a test can fault (`pk_registry_new`, `pk_registry_free`, the shim's seven others); they run under the same catch, which `gates abi` checks, and `pk_last_error` only copies a string |
+
+- **M24.2 The browser package's panics.** A panic hook in phasekit-wasm, installed by the package's start function: it
+  keeps the first panic's message in a `OnceLock` (D8's one-shot form) and throws it to JavaScript as an `Error` that
+  names it and says the module must be rebuilt, in place of `RuntimeError: unreachable`. Every export that computes
+  (the `Registry` constructor and methods, `Fluid.flash` and `evaluate`, `State.get`) then refuses with that message,
+  and `panicked()` returns it (`undefined` before). phasekit-wasm's `fault-injection` feature turns on compat's and
+  gives `new Registry()` its names; CI's `wasm-browser` job runs the package's panic test, a test binary of its own, on
+  both builds. *Red:* `tests/panics.rs` under Node: `PropsSI` on `fault::flash` throws an `Error` whose message holds
+  the injected panic's, `panicked()` returns it, and `PropsSI` on Water then throws the rebuild message, against the
+  package without the hook (`RuntimeError: unreachable`, no `panicked`).
+- **M24.3 Implicit panics refused in compat, capi and wasm.** `clippy::indexing_slicing` and
+  `clippy::arithmetic_side_effects` denied in phasekit-compat, phasekit-capi and phasekit-wasm (`gates lints` admitting
+  the tables): each index a `get` with a typed refusal or an iterator, each integer operation checked, saturating or
+  bounded, an `allow` naming why where the bound is a type's. *Red:* clippy with the two lints denied, on `main`.
+- **M24.4 Implicit panics refused in phasekit-mix.** The same, about 215 indexing and 100 integer-arithmetic sites
+  (counted 2026-10-18); `gates perf` within its +5 %.
+- **M24.5 Implicit panics refused in phasekit-core.** The same, about 228 and 177 sites; the hot kernels by iterators
+  rather than checks, `gates perf`'s instruction counts within +5 %.
+- **M24.6 M24 closed.** ROT-150's proof cites M24.1 to M24.5; issue #219 is closed; ARCHITECTURE.md (D17) and
+  VERIFICATION.md say what holds; the reference machine records the benches after M24.5. Tag `m24` with the user's
+  approval.
+
+**Exit gate.** G1-G8; the fault-injection tests (the C ABI, the shim, and the browser package on both builds); clippy
+clean with both lints denied in compat, capi, wasm, mix and core; `gates perf` within +5 %. **ROT rows.** ROT-150 (its
+proof widened). **User decisions implemented.** PH1.
+
 ## 5. Cross-cutting tracks
 
 ### 5.1 Performance recording
@@ -814,9 +853,6 @@ arrives its fluid stays oracle-only, labelled provisional; nothing waits on it.
 measurement: #143, PT + h ≤ 3 µs (the target is PF2's); #144, α^r ≤ 0.3 µs and properties at (T, ρ) ≤ 0.5 µs (PF3);
 #146, the superancillary ≤ 25 KiB and all 136 loaded ≤ 8 MiB RSS (MB1); #170, the `libm` backend's known differences
 (LB1); #171, α^r ≤ 0.1 µs/state on AVX2 (M12.7).
-
-**Unscheduled hardening.** #219: panic injection at every C export, and the browser package's panics, which wasm
-cannot catch (asked at M13.14, whose `gates abi` and fuzz test cover the cheaper half). Each needs a plan step.
 
 **Waiting for a paper.** Each item moves when a copy reaches `reference/papers/`.
 

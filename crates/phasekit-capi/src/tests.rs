@@ -174,6 +174,56 @@ fn panics_never_cross_the_boundary() {
     assert_eq!(last(), "", "success clears the last error");
 }
 
+/// `status` is `PK_PANIC` with the thread's last error naming the caught panic.
+fn caught(status: i32) -> bool {
+    status == PK_PANIC && last().contains("a panic was caught")
+}
+
+/// PLAN.md M24.1 (issue #219): a panic where a call reaches the registry or a model, for one of
+/// `phasekit_compat::fault`'s names, unwinds through compat and the registry to the export's catch. Every export a
+/// fluid name or a fluid handle reaches returns `PK_PANIC` with the last error set: the registry's resolver panics for
+/// `fault::resolve`, the model's `info` for `fault::info`, its flash for `fault::flash` and its drop for `fault::drop`.
+/// The thread's next call succeeds, and a fluid freed by a panicking drop is gone.
+#[cfg(panic = "unwind")]
+#[test]
+fn a_panic_on_the_call_path_is_pk_panic() {
+    use phasekit_compat::fault::{DROP, FLASH, INFO, RESOLVE};
+    let registry = new_registry_handle();
+    for name in [RESOLVE, FLASH] {
+        assert!(caught(props(registry, "Hmass", ("T", 300.0), ("P", 1e5), name).0), "pk_props_si {name}: {}", last());
+    }
+    let ((r, rl), (i, il), (f, fl)) = (s(RESOLVE), s(INFO), s(FLASH));
+    let (mut buf, mut needed, mut value, mut handle) = ([0 as c_char; 64], 0, 0.0, 0);
+    // SAFETY (each): every string is its own length's bytes; every output is writable for what the call writes.
+    unsafe {
+        assert!(caught(pk_props1_si(registry, s("Tcrit").0, 5, r, rl, &mut value)), "pk_props1_si");
+        let phase =
+            pk_phase_si(registry, s("T").0, 1, 300.0, s("P").0, 1, 1e5, f, fl, buf.as_mut_ptr(), 64, &mut needed);
+        assert!(caught(phase), "pk_phase_si");
+        assert!(caught(pk_fluid_new(registry, r, rl, &mut handle)), "pk_fluid_new");
+        assert!(caught(pk_registry_with_reference(registry, i, il, s("IIR").0, 3, &mut handle)), "with_reference");
+    }
+    let (info, flash, drop) =
+        (fluid_handle(registry, INFO), fluid_handle(registry, FLASH), fluid_handle(registry, DROP));
+    let ((keys, lens), (t, p), (mut out, mut cells)) = (([s("Hmass").0], [5]), ([300.0], [1e5]), ([0.0], [0]));
+    // SAFETY (each): every string and array is its own length's; every output is writable for what the call writes.
+    unsafe {
+        assert!(caught(pk_fluid_name(info, buf.as_mut_ptr(), 64, &mut needed)), "pk_fluid_name");
+        let (o, st) = (out.as_mut_ptr(), cells.as_mut_ptr());
+        let (tk, pk) = (s("T").0, s("P").0);
+        let batch = pk_batch(flash, keys.as_ptr(), lens.as_ptr(), 1, tk, 1, t.as_ptr(), pk, 1, p.as_ptr(), 1, o, st, 1);
+        assert!(caught(batch), "pk_batch");
+    }
+    assert!(caught(pk_fluid_free(drop)), "pk_fluid_free");
+    assert_eq!(pk_fluid_free(drop), PK_STALE_HANDLE, "the handle was freed before the drop panicked");
+    assert_eq!(props(registry, "T", ("P", 101_325.0), ("Q", 0.0), "Water").0, PK_OK);
+    assert_eq!(last(), "", "the next call succeeds");
+    for handle in [info, flash] {
+        assert_eq!(pk_fluid_free(handle), PK_OK);
+    }
+    assert_eq!(pk_registry_free(registry), PK_OK);
+}
+
 /// Rot: ROT-148 (map 11 F5; CoolProp's process-wide errstring reports or swallows another thread's message). The last
 /// error is per thread: a failure on one thread leaves another's empty, and each reads its own.
 #[cfg(not(target_family = "wasm"))]
