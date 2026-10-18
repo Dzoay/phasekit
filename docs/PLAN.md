@@ -712,15 +712,17 @@ runner.
 - **M22.2 Core runs a family's kernels in lanes (ML3).** In `batch`, beside `ExecPolicy`: a public trait whose one
   method is generic over `R: Real`, a pure function from inputs to outputs whose counts each kernel value gives (M22.5's
   Taylor arithmetic has one variable per component, known at run time), and a function that runs it over columns of
-  `f64` under an `ExecPolicy`, at `Lanes<W>` inside core under `Simd`; unequal columns are `Error::Shape`. `Lanes<W>`,
-  the executors and the lane `exp`, `ln` and `expm1` stay crate-private. The runner's docs say that a kernel is
-  `#[inline(always)]` down to its `Real` operations, as core's are, so that `run_simd`'s target features reach it;
-  M22.3's and M22.5's kernels are. ARCHITECTURE.md §3 (the seam table, the public generic types, the count of
-  traits), §3.1 and §7 say what is public; if a release tag exists, `cargo semver-checks` against it is clean for a
-  minor version. *Red:* `real_kernels_are_scalar_bitwise` in `phasekit-verify` (outside core, through the public path
-  only): a test kernel that uses every `Real` method, its counts set at run time, over batches of 1 to 65 points (a
-  short last group at every width, SL6), bitwise equal under `Reference`, `Parallel` and `Simd` to the kernel on `f64`
-  point by point, against a stub returning `Error::Unsupported`.
+  `f64` under an `ExecPolicy`, at `Lanes<W>` inside core under `Simd`; unequal columns are `Error::Shape`. The runner
+  allocates its working columns once per call, not per group of lanes: counts known at run time must not put an
+  allocation inside the loop, where ML4 would measure it as the kernel's cost. `Lanes<W>`, the executors and the lane
+  `exp`, `ln` and `expm1` stay crate-private. The runner's docs say that a kernel is `#[inline(always)]` down to its
+  `Real` operations, as core's are, so that `run_simd`'s target features reach it; M22.3's and M22.5's kernels are.
+  ARCHITECTURE.md §3 (the seam table, the public generic types, the count of traits), §3.1 and §7 say what is public; if
+  a release tag exists, `cargo semver-checks` against it is clean for a minor version. *Red:*
+  `real_kernels_are_scalar_bitwise` in `phasekit-verify` (outside core, through the public path only): a test kernel
+  that uses every `Real` method, its counts set at run time, over batches of 1 to 65 points (a short last group at every
+  width, SL6), bitwise equal under `Reference`, `Parallel` and `Simd` to the kernel on `f64` point by point, against a
+  stub returning `Error::Unsupported`.
 - **M22.3 Departures in lanes.** `phasekit-mix`'s departure kernel moves from its own `Scalar` trait (M13.7) onto
   `Real`: `Series` over `R: Real`, its test for the variable in `compose` a flag rather than a comparison (`Real` has
   none); `MultiFluid`'s batch runs the departures through M22.2's runner, and GERG-2008's components (`gerg::Pure`),
@@ -730,14 +732,18 @@ runner.
   to the scalar kernel point by point, δ → 0 included. Bench `mixture_alphar_batch/simd` again; kept if faster than
   M22.1's (ML4).
 - **M22.4 Hinted DT batches (ML5).** `ThermoModel` gains a provided method, named at this step: the flash of a group of
-  points that core's batch has validated (validation, basis, gauge), by default each point's `flash`. Under
-  `ExecPolicy::Simd` core's batch calls it for every model, in place of its `PureFluid` downcast (`batch.rs`);
-  `PureFluid`'s is its M12 lane path for DT, QT and PQ. `Mixture`'s takes a DT group under a phase hint
-  (`Strategy::Direct`): the bundles through its `residual_batch` and `ideal_batch`, then each point's state from its
-  bundle by the function its scalar hinted DT calls. Unhinted DT keeps the stability test (M13.10), and it and the
-  other pairs run point by point. ARCHITECTURE.md §3 (the seam table) and §7 say what is public. *Red:*
-  `policy_equivalence` over hinted DT batches of the bench mixtures (bitwise against per-point `Fluid::flash`), against
-  a `Mixture` hook stubbed to return `Error::Unsupported`. Bench `mixture_dt_batch/{scalar,simd}`.
+  points that core's batch has validated (validation, basis, gauge), by default each point's `flash`. Core gives the
+  hook only the points its gate passed, in order, and writes each result back to its point's row, so a refused point
+  keeps its refusal and no family fills a lane for it (core's lane path copies the group's first passing point into it
+  today). The hook's docs say that an override returns each point's `flash` bit for bit (K17), which the conformance
+  kit's `policy_equivalence` checks for any family. Under `ExecPolicy::Simd` core's batch calls it for every model, in
+  place of its `PureFluid` downcast (`batch.rs`); `PureFluid`'s is its M12 lane path for DT, QT and PQ. `Mixture`'s
+  takes a DT group under a phase hint (`Strategy::Direct`): the bundles through its `residual_batch` and `ideal_batch`,
+  then each point's state from its bundle by the function its scalar hinted DT calls. Unhinted DT keeps the stability
+  test (M13.10), and it and the other pairs run point by point. ARCHITECTURE.md §3 (the seam table) and §7 say what is
+  public. *Red:* `policy_equivalence` over hinted DT batches of the bench mixtures, points the gate refuses among them
+  (bitwise against per-point `Fluid::flash`), against a `Mixture` hook stubbed to return `Error::Unsupported`. Bench
+  `mixture_dt_batch/{scalar,simd}`.
 - **M22.5 The spike: a flash's two phases in lanes.** Where a flash evaluates its liquid and its vapour at one T (the
   split's Newton, the bubble and dew Newton, the isochoric search), the two phases' composition derivatives as a batch
   of two: the components' jets through `residual_batch` at both points, the departures and the Taylor arithmetic as
