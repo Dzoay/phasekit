@@ -8,6 +8,7 @@ mod complexity;
 mod core_frozen;
 pub(crate) mod counts;
 mod datagen;
+mod decisions;
 mod deps;
 mod doc_excerpts;
 mod features;
@@ -32,13 +33,14 @@ type Verdict = Result<String, Vec<String>>;
 type Gate = fn(&Repo, &[String]) -> Verdict;
 
 /// The gates in force, in the order `gates all` runs them (VERIFICATION.md §11.2).
-const GATES: [(&str, Gate); 16] = [
+const GATES: [(&str, Gate); 17] = [
     ("deps", deps::run),
     ("lints", lints::run),
     ("counts", counts::run),
     ("ignores", ignores::run),
     ("doc-excerpts", doc_excerpts::run),
     ("rot", rot::run),
+    ("decisions", decisions::run),
     ("fixtures", fixtures::run),
     ("register", register::run),
     ("datagen", datagen::run),

@@ -126,7 +126,7 @@ that changes a fact changes its home.
 | Fact | Its one home |
 |---|---|
 | The user's requirements | BRIEF.md §1 |
-| The user's decisions | [DECISIONS.md](DECISIONS.md), each by its id |
+| The user's decisions | [decisions/](decisions/), each by its id ([DECISIONS.md](DECISIONS.md) says how) |
 | The design: decisions D1-D17, seams, invariants, performance targets | ARCHITECTURE.md (§4, §2-§3, §7) |
 | Types, signatures, what is built | the code in `crates/` (rustdoc) |
 | Steps, exit gates, G1-G9, what is still open | this plan (§3, §2.4, §6) |
@@ -148,9 +148,9 @@ that changes a fact changes its home.
 - "map NN §X", "map NN R#" (or another item id: F#, U#, X#, C#, Q#) = `docs/coolprop-map/NN-*.md`.
 - K# = `docs/research/kernel-performance.md`; R# and T# = `dependencies.md`; P# = `prior-art.md`; "materials R#/S#" =
   `materials-extensibility.md`; "dependencies §N" and the like name the research file.
-- D1-D17 = ARCHITECTURE.md §4. "User decision X" = the row with id X in DECISIONS.md (the first pass numbered its rows
-  1-13 and D14; later ids carry a prefix: TQ1, MS1, DL4). ROT-NNN = ROT-REGISTER.md rows. DIV-NNNN = `register.rs`
-  entries. S-## and E## = critic issues in [history/03-decision-log.md](history/03-decision-log.md).
+- D1-D17 = ARCHITECTURE.md §4. "User decision X" = the row with id X in a file of `decisions/` (the first pass numbered
+  its rows 1-13 and D14; later ids carry a prefix: TQ1, MS1, DL4). ROT-NNN = ROT-REGISTER.md rows. DIV-NNNN =
+  `register.rs` entries. S-## and E## = critic issues in [history/03-decision-log.md](history/03-decision-log.md).
 - A bare "§N" or "section N" is the citing document's own, except in ROT-REGISTER.md, where it is ARCHITECTURE.md's.
 - *(inference)* marks a claim grounded in none of these; *(decision)* a choice the citing document settles.
 
@@ -694,9 +694,9 @@ path (K17; user decision SL1), so no result changes (user decisions ML1, ML4). *
 tag; user decision ML2), on the i7-8700K; the steps merge in order when green. **Prerequisites.** User decisions
 ML1-ML5; M12's lanes and executors; M13's `phasekit-mix`. M22 does not move `MILESTONE`.
 
-What DECISIONS.md "Mixtures in lanes" measured decides the order. A batch at fixed z computes the reducing state once
-and runs each component through its own lane kernel (M12), so it needs no core change; the departures need core to run
-them in its lanes, as a kernel over `Real` (ML3), and core's batch reaches a mixture only through a hook on
+What `decisions/2026-10-16-mixtures-in-lanes.md` measured decides the order. A batch at fixed z computes the reducing
+state once and runs each component through its own lane kernel (M12), so it needs no core change; the departures need
+core to run them in its lanes, as a kernel over `Real` (ML3), and core's batch reaches a mixture only through a hook on
 `ThermoModel` (ML5). A flash's time goes to the composition derivatives, so the spike targets those, through the same
 runner.
 
@@ -897,18 +897,8 @@ M24.5 rewrite the exclusions it moves. M25.1-M25.3 land in one PR, a commit and 
 |---|---|
 | M25.1 | `cargo xtask merge-counts <base> <ours> <theirs>` (`gates::counts::merge`), git's merge driver for `ci/test-counts.txt` through `scripts/merge-counts.sh`, which `.gitattributes` names (`merge=phasekit-counts`) and CONTRIBUTING.md "Merging the test counts" defines in the repo-local config (LM3). It matches an entry by target and binary and any other line by its text: a minimum both sides kept takes the larger, unless one side lowered it, which stands where the other left it as the base had it; a line one side added joins after its predecessor on that side; a line one side removed leaves where the other left it as it was. Anything else, a version that does not parse, or an xtask that does not build mid-rebase falls back to `git merge-file`, with conflict markers. It reads and writes only the paths git passes. Tests `merge_counts_keeps_both_raises`, `merge_counts_leaves_what_it_cannot_decide_to_git` |
 | M25.2 | `gates rot` refuses a ROT id on two rows, naming both lines (`a_rot_id_on_two_rows_is_rejected`); `.gitattributes` merges `docs/ROT-REGISTER.md` by union, and its §1 "Merging" says what that keeps: two rows added at one place both stay, one id on two rows (the same next id taken twice, or a row both sides edited) is the gate's to refuse, and prose both sides changed at one place keeps both versions, which only the diff shows (LM5). VERIFICATION.md §6.1 says that `check_register` already refuses a duplicate DIV id |
+| M25.3 | `docs/DECISIONS.md`'s first pass and 56 sections in 56 files, `docs/decisions/<date>-<slug>.md`, named for the date their heading ends with (the first pass and its follow-ups in `2026-10-05-first-pass.md`), each heading promoted to `#` and each relative link one directory up, and otherwise unchanged: the old file rebuilds from the new ones byte for byte. `docs/DECISIONS.md` keeps its preamble and says how decisions are filed (LM4); AGENTS.md, section 2.1 and M22's text point at the folder. `gates decisions` checks the names and headings, that no id is in two rows, that `docs/DECISIONS.md` holds no decision, and that each id cited as "user decision(s) …" in a tracked file outside the frozen records is one (545 citations in 473 files) |
 
-- **M25.3 One file per decision section (LM4).** Each `##` section of `docs/DECISIONS.md` moves unchanged to
-  `docs/decisions/<date>-<slug>.md`, dated by its heading (the first pass and its follow-ups in
-  `2026-10-05-first-pass.md`). `docs/DECISIONS.md` keeps its preamble, which now says where decisions live, how a new
-  file is named and that a later decision overrides older text; no index lists the files. `gates decisions` checks that
-  a file's name carries its heading's date, that no id (a decision table's first column) is in two files, and that each
-  id cited as "user decision(s) …" in `docs/` (`docs/history/` and the frozen evidence aside), AGENTS.md,
-  CONTRIBUTING.md, `scripts/` and `crates/` is one, numbered ids and ranges such as MX1-MX7 included. AGENTS.md,
-  CONTRIBUTING.md, section 2.1 and `scripts/release/notes.sh` point at the folder, and AGENTS.md's rule that
-  DECISIONS.md changes only when the user decides becomes the folder's. *Red:* unit tests of `gates decisions` on an
-  id in two files, a citation of an unknown id and a file named for another date; against a gate that reads one file.
-  The PR shows each moved section byte for byte equal to the old file's.
 - **M25.4 Mutant exclusions in the code (LM2).** A marker `// equivalent mutant: <mutation>`, with `<mutation>` as
   cargo-mutants names it up to " in <function>" (`replace + with *`), ends a comment that says why no test can catch
   the mutant, and excludes that mutation's mutants on the next line that is not a comment; `#k` after it picks the k-th

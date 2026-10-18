@@ -10,7 +10,8 @@ with no `Plan-Step:` commit on `main` (`git log --oneline --grep '^Plan-Step:'`)
 ## Sources of truth, in order
 
 1. [docs/BRIEF.md](docs/BRIEF.md) §1: the user's requirements, verbatim. They are the contract.
-2. [docs/DECISIONS.md](docs/DECISIONS.md): the user's decisions, each by its id. They override anything older.
+2. [docs/decisions/](docs/decisions/): the user's decisions, a file each time the user answers, each decision by its id
+   ([docs/DECISIONS.md](docs/DECISIONS.md) says how). They override anything older.
 3. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the design, decisions D1-D17, seams and invariants. For what is
    built, the code in `crates/` is the truth.
 4. [docs/PLAN.md](docs/PLAN.md): the steps, gates and what is open. [docs/VERIFICATION.md](docs/VERIFICATION.md):
@@ -75,10 +76,10 @@ The rules are defined in [CONTRIBUTING.md](CONTRIBUTING.md). The ones agents get
   enters default features.
 - **Do not edit `docs/history/`.** It is the frozen record of how the design was chosen, the type sketch included
   ([its README](docs/history/README.md)); it uses the old placeholder names `cprs-*`/`cp_*` on purpose.
-  `docs/DECISIONS.md` changes only when the user decides something, with the date.
+  A file joins `docs/decisions/` only when the user decides something, named for that date (`<date>-<slug>.md`).
 - **Decisions that belong to the user** stop the step: naming, licensing, publishing, accounts, scope changes, and
   anything [PLAN.md §6](docs/PLAN.md#6-resolved-follow-ups-and-remaining-user-decisions) lists as open. Ask, then
-  record the answer in `docs/DECISIONS.md`.
+  record the answer in a new file under `docs/decisions/`, never in `docs/DECISIONS.md` (`gates decisions`).
 
 ## Repository map
 
