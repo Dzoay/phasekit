@@ -3,7 +3,7 @@
 //! at its "(Mk)" if it has one, otherwise at the row's first milestone. Every test a Proof cell names is a function
 //! under `crates/` unless it is marked new, and one marked new is not yet one (the step that writes it ticks it).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Verdict, no_args};
 use crate::repo::Repo;
@@ -21,9 +21,10 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
 }
 
 /// Checks the register text against the first open milestone and the workspace's function names; returns how many
-/// register rows it read.
+/// register rows it read. A ROT id is one row's (user decision LM5).
 fn check(register: &str, milestone: u8, fns: &BTreeSet<&str>) -> Result<usize, Vec<String>> {
     let (mut rows, mut errors) = (0, Vec::new());
+    let mut lines_of: BTreeMap<&str, usize> = BTreeMap::new();
     for (i, line) in register.lines().enumerate().filter(|(_, line)| line.starts_with("| ROT-")) {
         let cells: Vec<&str> = match line.trim_end().strip_prefix("| ").and_then(|l| l.strip_suffix(" |")) {
             Some(inner) => inner.split(" | ").map(str::trim).collect(),
@@ -32,6 +33,9 @@ fn check(register: &str, milestone: u8, fns: &BTreeSet<&str>) -> Result<usize, V
         if cells.len() != 7 {
             errors.push(format!("{REGISTER}:{}: a ROT row with {} cells, expected 7", i + 1, cells.len()));
             continue;
+        }
+        if let Some(first) = lines_of.insert(cells[0], i + 1) {
+            errors.push(format!("{REGISTER}:{}: {} is also on line {first}", i + 1, cells[0]));
         }
         rows += 1;
         check_row(&cells, milestone, &mut errors);
@@ -182,6 +186,20 @@ mod tests {
         assert!(check(&format!("{HEAD}| ROT-901 | too | few |\n"), 0).is_err());
         assert!(check(&register("`a`", "soon", "Test-guarded"), 0).is_err());
         assert!(check(HEAD, 0).is_err());
+    }
+
+    /// A ROT id is one row's (PLAN.md M25.2; user decision LM5): two sessions that both took the next free number, or a
+    /// row both sides of a union merge edited, show as one id on two rows, and the gate names both lines.
+    #[test]
+    fn a_rot_id_on_two_rows_is_rejected() {
+        let none = BTreeSet::new();
+        let row = register("`a`", "M2", "Test-guarded");
+        assert_eq!(check(&row, 2, &none), Ok(1));
+        let twice = format!("{row}{}", row.trim_start_matches(HEAD).replace("a problem", "another problem"));
+        let errors = check(&twice, 2, &none).unwrap_err();
+        assert_eq!(errors, [format!("{REGISTER}:4: ROT-900 is also on line 3")]);
+        let other = format!("{row}{}", row.trim_start_matches(HEAD).replace("ROT-900", "ROT-901"));
+        assert_eq!(check(&other, 2, &none), Ok(2));
     }
 
     /// The code is the truth (user decision DL4): a Proof cell may not name a test that does not exist, and a test it

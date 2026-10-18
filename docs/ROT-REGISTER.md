@@ -32,10 +32,15 @@ The evidence (CoolProp's file and line, the measurement) is the map item the row
 **Workflow.** PLAN.md assigns each row to the step that writes its proof (each milestone's **ROT rows** line), and that
 step's PR ticks it ([PLAN.md §2.1](PLAN.md#21-ids-and-references)). `cargo xtask gates rot` fails when a row of a
 closed milestone is GAP or still has a due proof marked new, when a proof names a test that does not exist, and when a
-proof marked new already exists. Write the proof first (red), then the mechanism; a proof that cannot be written as
+proof marked new already exists, and when one ID is on two rows. Write the proof first (red), then the mechanism; a proof that cannot be written as
 described makes the row GAP. New rot, in CoolProp or in phasekit, gets a row with the next ID and a Source such as
 "found M7" or an issue id. A rot row records a defect class; a divergence entry (DIV-nnnn, VERIFICATION.md §6) records
 one numeric difference from the oracle, and a row may cite one as its proof.
+
+**Merging.** Git merges this file by union (`.gitattributes`; user decision LM5): where two branches changed it at one
+place, the result keeps both sides' lines. Two rows added there both stay; two sessions that took the same next ID, or
+a row both sides edited, show as one ID on two rows, which `gates rot` refuses, so fix those by hand. Union keeps both
+versions of prose too, and no gate sees that, so read the register's diff after a rebase that merged it.
 
 ## 2. Register (one ### subsection per theme)
 

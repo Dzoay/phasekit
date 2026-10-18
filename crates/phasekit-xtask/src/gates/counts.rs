@@ -32,6 +32,22 @@ struct Entry {
     min: usize,
 }
 
+/// What [`merge`] matches a manifest line by across the three versions: an entry by its target and binary, any other
+/// line by its text and how many lines of that text come before it.
+#[derive(Clone, PartialEq)]
+enum Key<'a> {
+    Entry(&'a str, &'a str),
+    Other(&'a str, usize),
+}
+
+/// A manifest line for [`merge`]: its key, its minimum if it is an entry, and its text as written.
+#[derive(Clone)]
+struct Line<'a> {
+    key: Key<'a>,
+    min: Option<usize>,
+    text: &'a str,
+}
+
 pub fn run(repo: &Repo, args: &[String]) -> Verdict {
     let update_manifest = match args {
         [] => false,
@@ -261,6 +277,79 @@ fn update(text: &str, target: &str, executed: &[(String, usize)]) -> String {
     out
 }
 
+/// The manifest merged from three versions, as git's merge driver for it (`scripts/merge-counts.sh`, PLAN.md M25.1):
+/// a line both sides kept by [`pick`]; a line one side added, after its predecessor on that side; a line one side
+/// removed leaves where the other left it as the base had it. `None` where that does not decide (a line removed on one
+/// side and changed on the other, or what [`pick`] refuses) or a version does not parse: git then merges the text.
+pub fn merge(base: &str, ours: &str, theirs: &str) -> Option<String> {
+    let (base, ours, theirs) = (lines(base)?, lines(ours)?, lines(theirs)?);
+    let mut merged = Vec::new();
+    for line in &ours {
+        match (find(&base, &line.key), find(&theirs, &line.key)) {
+            (was, Some(other)) => merged.push(pick(was.as_ref(), line, &other)?),
+            (None, None) => merged.push(line.clone()),
+            (Some(was), None) if was.min == line.min => {}
+            (Some(_), None) => return None,
+        }
+    }
+    let mut at = 0;
+    for line in &theirs {
+        if let Some(i) = merged.iter().position(|kept| kept.key == line.key) {
+            at = i + 1;
+            continue;
+        }
+        match find(&base, &line.key) {
+            None => {
+                merged.insert(at, line.clone());
+                at += 1;
+            }
+            Some(was) if was.min == line.min => {}
+            Some(_) => return None,
+        }
+    }
+    Some(merged.iter().map(|line| format!("{}\n", line.text)).collect())
+}
+
+/// The line of `side` that `key` matches.
+fn find<'a>(side: &[Line<'a>], key: &Key<'_>) -> Option<Line<'a>> {
+    side.iter().find(|line| line.key == *key).cloned()
+}
+
+/// The line both sides kept: the larger minimum where neither side lowered it (or the base had no such line), the
+/// lowered one where the other side left it as the base had it, and `None` where both changed it and one lowered it.
+fn pick<'a>(base: Option<&Line<'a>>, ours: &Line<'a>, theirs: &Line<'a>) -> Option<Line<'a>> {
+    let larger = [ours, theirs].into_iter().max_by_key(|line| line.min)?;
+    let (Some(b), Some(o), Some(t)) = (base.and_then(|line| line.min), ours.min, theirs.min) else {
+        return Some(larger.clone());
+    };
+    match (o < b, t < b) {
+        (false, false) => Some(larger.clone()),
+        (true, false) if t == b => Some(ours.clone()),
+        (false, true) if o == b => Some(theirs.clone()),
+        _ => None,
+    }
+}
+
+/// A manifest's lines as [`merge`] matches them, or `None` if it does not parse.
+fn lines(text: &str) -> Option<Vec<Line<'_>>> {
+    parse_manifest(text).ok()?;
+    let mut lines: Vec<Line<'_>> = Vec::new();
+    for text in text.lines() {
+        let fields: Vec<&str> = text.split_whitespace().collect();
+        let line = match fields.as_slice() {
+            &[target, binary, min] if !text.trim_start().starts_with('#') => {
+                Line { key: Key::Entry(target, binary), min: min.parse().ok(), text }
+            }
+            _ => {
+                let before = lines.iter().filter(|line| line.text == text).count();
+                Line { key: Key::Other(text, before), min: None, text }
+            }
+        };
+        lines.push(line);
+    }
+    Some(lines)
+}
+
 /// `# pending M<n>.<k>:` lines whose milestone n has closed.
 fn pending_due(text: &str, milestone: u8) -> Vec<String> {
     text.lines()
@@ -414,6 +503,133 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
             "# header\n{HOST} phasekit-core::lib 30\n# pending M5.9: x\n{HOST} phasekit-verify::lazy_load 8\n{kept}\n{HOST} phasekit-xtask::main 2\n"
         );
         assert_eq!(update(&text, HOST, &now), want);
+    }
+
+    /// Builds a manifest from `<binary> <min>` lines on the host and comment lines as they are.
+    fn manifest(lines: &[&str]) -> String {
+        lines
+            .iter()
+            .map(|line| if line.starts_with('#') { format!("{line}\n") } else { format!("{HOST} {line}\n") })
+            .collect()
+    }
+
+    /// Rot: ROT-127's manifest, merged (PLAN.md M25.1; user decision LM3). Two sides that raise adjacent minimums, which
+    /// git's text merge calls a conflict, give both raised; a minimum both raised takes the larger; a binary or a line
+    /// one side added joins, after its predecessor on that side.
+    #[test]
+    fn merge_counts_keeps_both_raises() {
+        let base = manifest(&["# header", "phasekit-core::lib 10", "phasekit-verify::eos 20"]);
+        let ours = manifest(&["# header", "phasekit-core::lib 12", "phasekit-verify::eos 20"]);
+        let theirs = manifest(&["# header", "phasekit-core::lib 10", "phasekit-verify::eos 25"]);
+        let want = manifest(&["# header", "phasekit-core::lib 12", "phasekit-verify::eos 25"]);
+        assert_eq!(merge(&base, &ours, &theirs), Some(want.clone()));
+        assert_eq!(merge(&base, &theirs, &ours), Some(want));
+
+        let both = manifest(&["# header", "phasekit-core::lib 15", "phasekit-verify::eos 20"]);
+        let want = manifest(&["# header", "phasekit-core::lib 15", "phasekit-verify::eos 20"]);
+        assert_eq!(merge(&base, &ours, &both), Some(want.clone()), "15 over ours' 12");
+        assert_eq!(merge(&base, &both, &ours), Some(want), "15 over theirs' 12");
+
+        // Each side appends a binary and theirs adds a pending line in the middle: all join, theirs' after its own
+        // predecessor and in their order.
+        let ours = manifest(&["# header", "phasekit-core::lib 12", "phasekit-verify::eos 20", "phasekit-mix::lib 3"]);
+        let theirs = manifest(&[
+            "# header",
+            "phasekit-core::lib 10",
+            "# pending M25.9: x",
+            "phasekit-verify::eos 20",
+            "phasekit-wasm::lib 4",
+            "phasekit-capi::lib 5",
+        ]);
+        let want = manifest(&[
+            "# header",
+            "phasekit-core::lib 12",
+            "# pending M25.9: x",
+            "phasekit-verify::eos 20",
+            "phasekit-wasm::lib 4",
+            "phasekit-capi::lib 5",
+            "phasekit-mix::lib 3",
+        ]);
+        assert_eq!(merge(&base, &ours, &theirs), Some(want));
+
+        // A comment is matched by its whole text, however many words it has, and lines added above it on either side
+        // leave it one line: two `# lowered:` comments stay two, and a shared comment is not doubled.
+        let base = manifest(&["# header", "phasekit-core::lib 10", "# lowered: a", "phasekit-verify::eos 20"]);
+        let ours = manifest(&[
+            "phasekit-mix::lib 1",
+            "phasekit-capi::lib 2",
+            "# header",
+            "phasekit-core::lib 10",
+            "# lowered: a",
+            "phasekit-verify::eos 20",
+        ]);
+        let theirs = manifest(&[
+            "phasekit-wasm::lib 3",
+            "# header",
+            "# lowered: b",
+            "phasekit-core::lib 9",
+            "# lowered: a",
+            "phasekit-verify::eos 20",
+        ]);
+        let want = manifest(&[
+            "phasekit-wasm::lib 3",
+            "phasekit-mix::lib 1",
+            "phasekit-capi::lib 2",
+            "# header",
+            "# lowered: b",
+            "phasekit-core::lib 9",
+            "# lowered: a",
+            "phasekit-verify::eos 20",
+        ]);
+        assert_eq!(merge(&base, &ours, &theirs), Some(want));
+
+        // The same binary added on both sides takes the larger minimum.
+        let ours = manifest(&["# header", "phasekit-core::lib 10", "phasekit-verify::eos 20", "phasekit-mix::lib 3"]);
+        let theirs = manifest(&["# header", "phasekit-core::lib 10", "phasekit-verify::eos 20", "phasekit-mix::lib 7"]);
+        assert_eq!(merge(&base, &ours, &theirs), Some(theirs.clone()));
+        assert_eq!(merge(&base, &theirs, &ours), Some(theirs));
+    }
+
+    /// A minimum lowered by hand stays lowered where the other side left it as the base had it; a line one side
+    /// removed leaves where the other left it as it was. Anything else is git's to merge as text: `None`.
+    #[test]
+    fn merge_counts_leaves_what_it_cannot_decide_to_git() {
+        let base = manifest(&["# header", "# pending M5.9: x", "phasekit-core::lib 10", "phasekit-verify::eos 20"]);
+        let lowered = manifest(&[
+            "# header",
+            "# pending M5.9: x",
+            "# lowered: why",
+            "phasekit-core::lib 8",
+            "phasekit-verify::eos 20",
+        ]);
+        assert_eq!(merge(&base, &lowered, &base), Some(lowered.clone()));
+        assert_eq!(merge(&base, &base, &lowered), Some(lowered.clone()));
+        let raised = manifest(&["# header", "# pending M5.9: x", "phasekit-core::lib 12", "phasekit-verify::eos 20"]);
+        assert_eq!(merge(&base, &lowered, &raised), None, "lowered against raised");
+        assert_eq!(merge(&base, &raised, &lowered), None, "raised against lowered");
+        let lower = manifest(&["# header", "# pending M5.9: x", "phasekit-core::lib 9", "phasekit-verify::eos 20"]);
+        assert_eq!(merge(&base, &lowered, &lower), None, "both lowered");
+
+        // The pending test came back on one side, and a binary went on the other.
+        let back = manifest(&["# header", "phasekit-core::lib 10", "phasekit-verify::eos 20"]);
+        let gone = manifest(&["# header", "# pending M5.9: x", "phasekit-core::lib 10"]);
+        let want = manifest(&["# header", "phasekit-core::lib 10"]);
+        assert_eq!(merge(&base, &back, &gone), Some(want.clone()));
+        assert_eq!(merge(&base, &gone, &back), Some(want));
+        // A binary removed on one side and raised on the other.
+        let raised_eos =
+            manifest(&["# header", "# pending M5.9: x", "phasekit-core::lib 10", "phasekit-verify::eos 21"]);
+        assert_eq!(merge(&base, &gone, &raised_eos), None);
+        assert_eq!(merge(&base, &raised_eos, &gone), None);
+
+        assert_eq!(merge(&base, &base, &base), Some(base.clone()));
+        assert_eq!(
+            merge(&base, &format!("{base}{HOST} phasekit-core 3\n"), &base),
+            None,
+            "a version that does not parse"
+        );
+        assert_eq!(merge(&format!("{HOST} x::lib 0\n"), &base, &base), None, "a base that does not parse");
+        assert_eq!(merge(&base, &base, "phasekit-core::lib 1\n"), None, "theirs that does not parse");
     }
 
     #[test]
