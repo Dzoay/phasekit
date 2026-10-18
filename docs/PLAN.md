@@ -839,11 +839,13 @@ std's, lane by lane, as now. Each step re-commits `fixtures/hash/libm.txt` once 
   in-house functions take Arm's FMA forms (`log`'s and `pow`'s r = fma(z, invc, −1) without the second table, `exp`'s
   polynomial), and the α^r and α⁰ term sums and the polynomial and Clenshaw evaluations take the method. CI runs G1-G8
   with `--features fast`. `fixtures/hash/fast.txt` is committed once the four targets agree (wasm32-wasip2 fuses in
-  software); `policy_equivalence` is bitwise under `--features fast,simd` at every dispatch level; M23.1's values stay
-  under 1 ulp; the K1/K2 paper rows and the oracle classes pass unchanged. Benches: the six scalar benches and the α^r
-  lanes, `fast` against M23.6's default, at `-C target-cpu=x86-64-v3` and at the x86-64 baseline, recorded; the crate
-  docs say that `fast` pays only on a target with FMA. The browser builds do not enable it. *Red:* `fast_fuses`: under
-  `fast`, the method gives the correctly rounded a·b + c where one rounding and two differ, against the unfused method.
+  software); `policy_equivalence` is bitwise under `--features fast,simd` at every dispatch level; if M22.2 has landed,
+  the kernel of its `real_kernels_are_scalar_bitwise` uses the method, and the test runs under `--features fast,simd`
+  too; M23.1's values stay under 1 ulp; the K1/K2 paper rows and the oracle classes pass unchanged. Benches: the six
+  scalar benches and the α^r lanes, `fast` against M23.6's default, at `-C target-cpu=x86-64-v3` and at the x86-64
+  baseline, recorded; the crate docs say that `fast` pays only on a target with FMA. The browser builds do not enable
+  it. *Red:* `fast_fuses`: under `fast`, the method gives the correctly rounded a·b + c where one rounding and two
+  differ, against the unfused method.
 - **M23.8 M23 closed.** The browser package's two builds re-measured under Node (both run the in-house functions if
   M23.6 passed), each `.wasm` within its budget or re-budgeted at its size + 10 % (SL8); ARCHITECTURE.md §7 and
   VERIFICATION.md §12 say what landed; the i7-8700K's M23 record. Tag `m23` with the user's approval.
