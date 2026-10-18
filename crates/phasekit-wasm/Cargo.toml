@@ -32,6 +32,14 @@ wasm-bindgen-test = "0.3.79"
 # cargo tree see the crates it adds.
 [features]
 simd = ["phasekit-core/simd"]
+# Test builds only: `new Registry()` also reads compat's fault-injection names, which panic on purpose (PLAN.md M24.2).
+# No build that ships turns it on; CI's wasm-browser job runs tests/panics.rs with it.
+fault-injection = ["phasekit-compat/fault-injection"]
+
+# A panic leaves the module unusable, so the panic test is a binary of its own, built with the faults.
+[[test]]
+name = "panics"
+required-features = ["fault-injection"]
 
 [lints]
 workspace = true
