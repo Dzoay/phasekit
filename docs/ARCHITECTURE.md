@@ -530,6 +530,12 @@ checked further). Constraints it meets *(inference)*:
   "forbid"`, `missing_docs`, the panic and print lints, the length bar) and `clippy.toml`'s bans (locks, cells,
   atomics, `thread_local!`, environment and filesystem access, every transcendental `f64` method). The probe crate
   test `clippy_bans_fire` proves each entry fires.
+- Implicit panics: the crates the facades reach (core, compat, mix, capi, wasm) deny clippy's `indexing_slicing` and
+  `arithmetic_side_effects` in their library code (PLAN.md M24; `gates lints`): an index is a `get`, an iterator or a
+  constant, an integer step checked, saturating or wrapping where it cannot overflow, and generic `Real` arithmetic
+  allows the lint where it computes, each allow naming why. A panic that remains (a bug) is caught at every C export
+  (`PK_PANIC`, or the shim's failure value), and in the browser package, which cannot catch it, reaches JavaScript as
+  an `Error` naming it and retires the module (`panicked()`).
 - Unsafe: only `phasekit-capi`, under `deny` with per-item `allow` and a SAFETY comment; its FFI-state modules (the
   thread-local last error, the handle table, the shim's `errstring`) allow the banned types (D11, E13). A future
   `simd` feature starts under `forbid` on fearless_simd's safe loads and stores (T1b).
