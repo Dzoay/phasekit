@@ -277,9 +277,9 @@ pub(crate) fn ethane_higher(x: &TransportInputs<'_>) -> f64 {
     let g = [0.47177003, -0.23950311, 0.39808301, -0.27343335, 0.35192260, -0.21101308, -0.00478579, 0.07378129];
     let g = [g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7], -0.030435255, -0.30435286, 0.001215675];
     let (tau, delta) = (305.33 / x.t(), x.rho() / 6870.0);
-    let term = |i: usize| g[i] * math::powf(delta, r[i]) * math::powf(tau, s[i]);
-    let sum1 = (0..9).fold(0.0, |s, i| s + term(i));
-    let sum2 = (9..11).fold(0.0, |s, i| s + term(i));
+    let terms = g.iter().zip(&r).zip(&s).map(|((g, r), s)| g * math::powf(delta, *r) * math::powf(tau, *s));
+    let sum1 = terms.clone().take(9).fold(0.0, |s, term| s + term);
+    let sum2 = terms.skip(9).fold(0.0, |s, term| s + term);
     15.977 * sum1 / (1.0 + sum2) / 1e6
 }
 
@@ -312,7 +312,10 @@ pub(crate) fn chung(data: &Chung, x: &TransportInputs<'_>) -> ViscosityStages {
     let (omega, m, tc, mu_d, kappa) =
         (data.acentric, data.molar_mass * 1000.0, data.t_c, data.dipole_moment, data.kappa);
     let mu_r = 131.3 * mu_d / math::sqrt(vc * tc);
-    let a: [f64; 10] = core::array::from_fn(|i| a0[i] + a1[i] * omega + a2[i] * pow_n(mu_r, 4) + a3[i] * kappa);
+    let mut a = [0.0; 10];
+    for ((((a, a0), a1), a2), a3) in a.iter_mut().zip(&a0).zip(&a1).zip(&a2).zip(&a3) {
+        *a = a0 + a1 * omega + a2 * pow_n(mu_r, 4) + a3 * kappa;
+    }
     let f_c = 1.0 - 0.2756 * omega + 0.059035 * pow_n(mu_r, 4) + kappa;
     let epsilon_over_k = tc / 1.2593;
     let (rho_molcm3, t) = (x.rho() / 1e6, x.t());

@@ -142,14 +142,15 @@ pub fn evaluate(
     let chunk = chunk_points(req.exec, n);
     #[cfg(feature = "rayon")]
     if chunk < n {
-        let (points, outs) = (req.x.par_chunks(chunk).zip(req.y.par_chunks(chunk)), out.par_chunks_mut(chunk * m));
-        let chunks = points.zip(outs.zip(status.par_chunks_mut(chunk * m)));
+        let (points, outs) =
+            (req.x.par_chunks(chunk).zip(req.y.par_chunks(chunk)), out.par_chunks_mut(chunk.saturating_mul(m)));
+        let chunks = points.zip(outs.zip(status.par_chunks_mut(chunk.saturating_mul(m))));
         let failed = chunks.map(|((xs, ys), (out, status))| run_chunk(fluid, req, xs, ys, out, status)).sum();
         return Ok(BatchSummary { points: n, failed_cells: failed });
     }
     // One chunk, or no rayon: the chunks in turn on the calling thread, with the boundaries rayon's would have.
-    let (points, outs) = (req.x.chunks(chunk).zip(req.y.chunks(chunk)), out.chunks_mut(chunk * m));
-    let chunks = points.zip(outs.zip(status.chunks_mut(chunk * m)));
+    let (points, outs) = (req.x.chunks(chunk).zip(req.y.chunks(chunk)), out.chunks_mut(chunk.saturating_mul(m)));
+    let chunks = points.zip(outs.zip(status.chunks_mut(chunk.saturating_mul(m))));
     let failed = chunks.map(|((xs, ys), (out, status))| run_chunk(fluid, req, xs, ys, out, status)).sum();
     Ok(BatchSummary { points: n, failed_cells: failed })
 }
@@ -172,12 +173,12 @@ fn run_chunk(
         return run_lanes(fluid, pure, req, (xs, ys), out, status);
     }
     let m = req.outputs.len();
-    let mut failed = 0;
+    let mut failed = 0_usize;
     let rows = out.chunks_exact_mut(m).zip(status.chunks_exact_mut(m));
     for ((x, y), (out, status)) in xs.iter().zip(ys).zip(rows) {
         // The single gate (validation, basis, gauge), then the model: exactly the scalar path.
         let state = req.input(*x, *y).and_then(|input| fluid.flash(input, &req.flash));
-        failed += write_row(fluid, req, &state, out, status);
+        failed = failed.saturating_add(write_row(fluid, req, &state, out, status));
     }
     failed
 }
@@ -196,9 +197,11 @@ fn run_lanes(
     status: &mut [Status],
 ) -> usize {
     let m = req.outputs.len();
-    let mut failed = 0;
-    let groups =
-        xs.chunks(GROUP).zip(ys.chunks(GROUP)).zip(out.chunks_mut(GROUP * m).zip(status.chunks_mut(GROUP * m)));
+    let mut failed = 0_usize;
+    let groups = xs
+        .chunks(GROUP)
+        .zip(ys.chunks(GROUP))
+        .zip(out.chunks_mut(GROUP.saturating_mul(m)).zip(status.chunks_mut(GROUP.saturating_mul(m))));
     for ((xs, ys), (out, status)) in groups {
         // Each point the gate passes, native, molar and in pair order.
         let points: [Result<(f64, f64), Error>; GROUP] = core::array::from_fn(|k| {
@@ -219,7 +222,7 @@ fn run_lanes(
         let rows = out.chunks_exact_mut(m).zip(status.chunks_exact_mut(m));
         for ((point, state), (out, status)) in points.into_iter().zip(states).zip(rows) {
             let state = point.and(state).map(|state| state.with_gauge(fluid.gauge()));
-            failed += write_row(fluid, req, &state, out, status);
+            failed = failed.saturating_add(write_row(fluid, req, &state, out, status));
         }
     }
     failed
@@ -233,7 +236,7 @@ fn write_row(
     out: &mut [f64],
     status: &mut [Status],
 ) -> usize {
-    let mut failed = 0;
+    let mut failed = 0_usize;
     let ok = if state.as_ref().is_ok_and(State::is_extrapolated) { Status::Extrapolated } else { Status::Ok };
     for ((o, s), prop) in out.iter_mut().zip(status.iter_mut()).zip(req.outputs) {
         let value = state.as_ref().map_err(Clone::clone).and_then(|st| fluid.prop(st, *prop));
@@ -241,7 +244,7 @@ fn write_row(
             Ok(v) => (v, ok),
             Err(e) => (f64::NAN, Status::from(&e)),
         };
-        failed += usize::from(!matches!(*s, Status::Ok | Status::Extrapolated));
+        failed = failed.saturating_add(usize::from(!matches!(*s, Status::Ok | Status::Extrapolated)));
     }
     failed
 }

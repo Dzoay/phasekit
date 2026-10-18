@@ -428,7 +428,7 @@ fn bundles_at(
         let Ok((sat, q)) = point else { continue };
         let rho = if vapour { sat.dew.rho } else { sat.bubble.rho };
         if let Some(slot) = at.get_mut(n).filter(|_| phase_order(*q) == order) {
-            (*slot, n) = ((i, sat.bubble.t, rho), n + 1);
+            (*slot, n) = ((i, sat.bubble.t, rho), n.saturating_add(1));
         }
     }
     let (t, rho) = (at.map(|(_, t, _)| t), at.map(|(_, _, rho)| rho));

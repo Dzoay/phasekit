@@ -160,9 +160,9 @@ pub(crate) fn friend_methane(m: &FriendMethane, x: &TransportInputs<'_>) -> Resu
     let se = [0.0, 1.0, 0.0, 1.0, 1.5, 0.0, 2.0, 0.0, 1.0, 0.0, 1.0];
     let ge = [0.41250137, -0.14390912, 0.10366993, 0.40287464, -0.24903524, -0.12953131, 0.06575776, 0.02566628];
     let ge = [ge[0], ge[1], ge[2], ge[3], ge[4], ge[5], ge[6], ge[7], -0.03716526, -0.38798341, 0.03533815];
-    let term = |i: usize| ge[i] * pw(delta, re[i]) * pw(tau, se[i]);
-    let summer1 = (0..9).fold(0.0, |s, i| s + term(i));
-    let summer2 = (9..11).fold(0.0, |s, i| s + term(i));
+    let terms = ge.iter().zip(&re).zip(&se).map(|((g, r), s)| g * pw(delta, *r) * pw(tau, *s));
+    let summer1 = terms.clone().take(9).fold(0.0, |s, term| s + term);
+    let summer2 = terms.skip(9).fold(0.0, |s, term| s + term);
     let eta = 12.149 * summer1 / (1.0 + summer2) + eta_dilute;
     // λ₀, mW/(m K).
     let f_int = 1.458850 - 0.4377162 / t_star;
@@ -171,7 +171,7 @@ pub(crate) fn friend_methane(m: &FriendMethane, x: &TransportInputs<'_>) -> Resu
     let rl = [1.0, 3.0, 4.0, 4.0, 5.0, 5.0];
     let sl = [0.0, 0.0, 0.0, 1.0, 0.0, 1.0];
     let jl = [2.4149207, 0.55166331, -0.52837734, 0.073809553, 0.24465507, -0.047613626];
-    let summer = (0..6).fold(0.0, |s, i| s + jl[i] * pw(delta, rl[i]) * pw(tau, sl[i]));
+    let summer = jl.iter().zip(&rl).zip(&sl).fold(0.0, |s, ((j, r), l)| s + j * pw(delta, *r) * pw(tau, *l));
     let delta_sigma = if t < m.t_c && rho < m.rho_c { m.rho_v.at(t) / m.rho_c } else { 1.0 };
     let lambda_residual = 6.29638 * (summer + 1.5554612 * (delta * delta) / delta_sigma);
     // Δλ_c.

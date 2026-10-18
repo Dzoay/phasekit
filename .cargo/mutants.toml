@@ -267,10 +267,10 @@ exclude_re = [
     "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace < with <= in friend_methane",
     "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace < with <= in friend_chi",
     "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace >= with > in friend_chi",
-    # Equivalent (CI, M8.6): Friend's θ test (line 201) T* < −|ρ*|^(−1/β)/s holds at every state that reaches it, since |ρ*| < 0.03
+    # Equivalent (CI, M8.6): Friend's θ test T* < −|ρ*|^(−1/β)/s holds at every state that reaches it, since |ρ*| < 0.03
     # puts the bound above 3000, and so does the mutant's −|ρ*|^(−1/β)·s; and the Olchowy-Sengers cut-off at ε/10
     # instead of 10ε changes only numerators below 2.2e-15, where the enhancement is about 1e-20 W/(m K).
-    "transport/conductivity\\.rs:201:36: replace / with \\* in friend_chi",
+    "transport/conductivity\\.rs:204:36: replace / with \\* in friend_chi",
     "transport/conductivity\\.rs:[0-9]+:[0-9]+: replace \\* with /$",
     # Equivalent (M8.7): the IAPWS water forms' comparisons are CoolProp's strict ones, and differ from `<=` or `>=` only
     # at equality, where both sides give the same value: Δχ̄ = 0 is clamped to 0 either way; R12-08's two Y(ξ) branches
@@ -288,24 +288,24 @@ exclude_re = [
     # Equivalent (M8.9): Chung's association factor κ is 0 in both v8.0.0 Chung blocks (Cyclopentane, Isopentane), so
     # the signs of the a₃ row, which κ multiplies, and of κ in Aᵢ and F_c change no value (pinned to their columns).
     "transport/hardcoded\\.rs:310:(71|92|111): delete - in chung",
-    "transport/hardcoded\\.rs:(315:96|316:64): replace \\+ with - in chung",
+    "transport/hardcoded\\.rs:(317:52|319:64): replace \\+ with - in chung",
     # Equivalent (M8.9): the hard-coded forms' comparisons are CoolProp's strict ones, and differ from `<=` only at
     # equality, where both sides give the same value: Tufeu's ammonia term at its floor (the reduced temperature is the
     # floor either way) and at ρ = 0.6 ρ_c (its two density branches are one expression there); helium's critical term
     # at 12 K, where exp(−18.66 ΔT²) puts it 1e-15 below λ, under `TransportDirect`, and at W = 1, where the blend
     # W κ_T + (1 − W) κ_T' is κ_T. The probes sit on 3.5 K, where the term is not, and 12 K, and either side of W = 1.
     "transport/hardcoded\\.rs:[0-9]+:[0-9]+: replace < with <= in ammonia_critical",
-    "transport/hardcoded\\.rs:363:36: replace < with <= in helium_conductivity",
+    "transport/hardcoded\\.rs:366:36: replace < with <= in helium_conductivity",
     "transport/hardcoded\\.rs:[0-9]+:[0-9]+: replace > with >= in helium_critical",
     # Equivalent (M8.11): a melting curve's searches past its segments differ from their `>=` and `<=` only at a bound,
     # and a pressure or temperature on a segment's bound is held by that segment first: the curve's highest p, a gap's
     # ends, the curve's lowest T (pinned to their lines and columns).
     "melting\\.rs:114:14: replace > with >= in MeltingCurve::locate",
-    "melting\\.rs:118:(68|77): replace < with <= in MeltingCurve::locate",
-    "melting\\.rs:158:26: replace < with <= in MeltingCurve::pressure",
+    "melting\\.rs:119:(37|46): replace < with <= in MeltingCurve::locate",
+    "melting\\.rs:163:26: replace < with <= in MeltingCurve::pressure",
     # Equivalent (M8.11): the flash refuses T < T_melt·(1 − AT_BOUND); `<=` differs only at that product exactly, which
     # no solved state reaches (T_melt is read at the state's own p).
-    "flash\\.rs:168:87: replace < with <= in above_melting_line",
+    "flash\\.rs:174:87: replace < with <= in above_melting_line",
     # Equivalent (M9.1): a batch of one chunk skips rayon, `chunk < n`; with `<=` that one chunk goes to rayon, whose
     # parallel iterator runs a single piece inline on the calling thread, the same thread and bits.
     "batch\\.rs:[0-9]+:[0-9]+: replace < with <= in evaluate",

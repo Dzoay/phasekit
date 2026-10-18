@@ -243,8 +243,11 @@ impl Registry {
         }
         keys.sort();
         keys.dedup();
-        if let Some(w) = keys.windows(2).find(|w| w[0].0 == w[1].0) {
-            return Err(LoadError::DuplicateName(w[0].0.clone()).into());
+        if let Some(name) = keys.windows(2).find_map(|w| match w {
+            [a, b] if a.0 == b.0 => Some(&a.0),
+            _ => None,
+        }) {
+            return Err(LoadError::DuplicateName(name.clone()).into());
         }
         if let Some((taken, _)) = keys.iter().find(|(k, _)| self.canonical_name(k).is_some()) {
             return Err(LoadError::DuplicateName(taken.clone()).into());
@@ -269,24 +272,40 @@ impl Registry {
         let mut progress = true;
         while progress {
             progress = false;
-            for i in 0..names.len() {
-                if slots[i].is_some() {
-                    continue;
-                }
-                let deps = self.deps_of(&refs[i], keys, &slots, &canonical[i])?;
-                if deps.len() == refs[i].len() {
-                    let (name, id) = (canonical[i].clone(), FluidId(i as u32));
-                    let deps = deps.into_boxed_slice();
-                    let slot = Slot { cell: OnceLock::new(), name, id, source: Arc::clone(source), data_set, deps };
-                    slots[i] = Some(Arc::new(slot));
+            for (i, (references, name)) in refs.iter().zip(&canonical).enumerate() {
+                let free = slots.get(i).is_some_and(Option::is_none);
+                if free
+                    && let Some(slot) = self.ready_slot((source, data_set), (i, name, references), keys, &slots)?
+                    && let Some(entry) = slots.get_mut(i)
+                {
+                    *entry = Some(Arc::new(slot));
                     progress = true;
                 }
             }
         }
         if let Some(stuck) = slots.iter().position(Option::is_none) {
-            return Err(LoadError::ReferenceCycle(canonical[stuck].clone()).into());
+            return Err(LoadError::ReferenceCycle(canonical.get(stuck).cloned().unwrap_or_default()).into());
         }
         Ok(slots.into_iter().flatten().collect())
+    }
+
+    /// The slot of a new source's fluid `i` (`name`, its `references`) once every slot it needs is in `slots`, else none.
+    fn ready_slot(
+        &self,
+        (source, data_set): (&Arc<dyn DataSource>, DataSet),
+        (i, name, references): (usize, &str, &[String]),
+        keys: &[(Box<str>, u32)],
+        slots: &[Option<Arc<Slot>>],
+    ) -> Result<Option<Slot>, Error> {
+        let deps = self.deps_of(references, keys, slots, name)?;
+        Ok((deps.len() == references.len()).then(|| Slot {
+            cell: OnceLock::new(),
+            name: name.into(),
+            id: FluidId(i as u32),
+            source: Arc::clone(source),
+            data_set,
+            deps: deps.into_boxed_slice(),
+        }))
     }
 
     /// The dependencies of a new source's `fluid` on its references `refs` that are ready: one of the source's own
@@ -301,9 +320,10 @@ impl Registry {
     ) -> Result<Vec<Dep>, Error> {
         let mut deps = Vec::new();
         for r in refs {
-            let local = keys.binary_search_by(|(k, _)| cmp_folded(k, r)).ok().map(|j| keys[j].1 as usize);
+            let found = keys.binary_search_by(|(k, _)| cmp_folded(k, r)).ok();
+            let local = found.and_then(|j| keys.get(j)).map(|(_, id)| *id as usize);
             let dep = match local {
-                Some(j) => slots[j].clone().map(Dep::Slot),
+                Some(j) => slots.get(j).cloned().flatten().map(Dep::Slot),
                 None => Some(self.dep(r).ok_or_else(|| LoadError::MissingReference {
                     fluid: fluid.into(),
                     reference: r.as_str().into(),

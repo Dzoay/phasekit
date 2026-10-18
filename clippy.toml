@@ -106,7 +106,14 @@ disallowed-methods = [
     { path = "f64::atanh", reason = "use math:: (D12)" },
 ]
 
-# PLAN.md M24.4 (issue #219): `arithmetic_side_effects` passes core's `Derivs`, whose operators are IEEE floating-point
-# arithmetic on bundles of derivatives and never panic. The list matches no type of the crate being linted nor an
-# operator on references, so phasekit-mix's series kernels allow the lint where they compute, each naming why.
-arithmetic-side-effects-allowed = ["phasekit_core::Derivs"]
+# PLAN.md M24.4, M24.5 (issue #219): `arithmetic_side_effects` passes these types' operators, IEEE floating-point
+# arithmetic on bundles of derivatives, jets and SIMD lanes, which never panics. A type of the crate being linted is
+# named by its path inside that crate. Generic code over `Real`, which no list can name, allows the lint where it
+# computes, each allow naming why; so do phasekit-mix's series kernels.
+arithmetic-side-effects-allowed = [
+    "phasekit_core::Derivs",
+    "derivs::Derivs",
+    "num::jet::Jet2",
+    "num::jet::Jet4",
+    "num::lanes::Lanes",
+]

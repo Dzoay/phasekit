@@ -166,13 +166,15 @@ impl Roots {
     pub fn new(roots: &[f64]) -> Self {
         let mut values = [f64::NAN; 4];
         let len = roots.len().min(4);
-        values[..len].copy_from_slice(&roots[..len]);
+        for (value, root) in values.iter_mut().zip(roots) {
+            *value = *root;
+        }
         Self { values, len: len as u8 }
     }
 
     /// The roots, in ascending order of the solved variable.
     pub fn as_slice(&self) -> &[f64] {
-        &self.values[..usize::from(self.len)]
+        self.values.get(..usize::from(self.len)).unwrap_or_default()
     }
 }
 

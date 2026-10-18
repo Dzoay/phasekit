@@ -194,7 +194,7 @@ pub(crate) fn run_simd<K: LaneKernel>(level: Level, kernel: &K, x: &[f64], y: &[
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
 #[inline(always)]
 fn run_wide<K: LaneKernel, const W: usize, const V: usize>(kernel: &K, x: &[f64], y: &[f64], out: &mut [K::Out]) {
-    let whole = x.len() - x.len() % W;
+    let whole = x.len().saturating_sub(x.len().checked_rem(W).unwrap_or(0));
     let (Some((xw, xr)), Some((yw, yr)), Some((ow, or))) =
         (x.split_at_checked(whole), y.split_at_checked(whole), out.split_at_mut_checked(whole))
     else {

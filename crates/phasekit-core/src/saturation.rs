@@ -129,7 +129,7 @@ pub fn chebyshev_derivative(coef: &[f64]) -> Vec<f64> {
     let (mut next, mut after) = (0.0, 0.0); // d_k and d_(k+1) while d_(k−1) is formed
     for (k, &c) in coef.iter().enumerate().skip(1).rev() {
         let value = after + 2.0 * k as f64 * c;
-        if let Some(slot) = d.get_mut(k - 1) {
+        if let Some(slot) = k.checked_sub(1).and_then(|below| d.get_mut(below)) {
             *slot = value;
         }
         (after, next) = (next, value);
@@ -149,7 +149,7 @@ pub fn piece(breaks: &[f64], x: f64) -> Option<usize> {
     if breaks.len() < 2 || !(first <= x && x <= last) {
         return None;
     }
-    Some((breaks.partition_point(|&b| b <= x) - 1).min(breaks.len() - 2))
+    Some(breaks.partition_point(|&b| b <= x).saturating_sub(1).min(breaks.len().saturating_sub(2)))
 }
 
 /// x mapped from [a, b] to [−1, 1] as CoolProp maps it: (2x − (b + a))/(b − a).
@@ -197,7 +197,8 @@ impl SuperancillaryCurve {
     fn raw(&self, k: usize, t: f64) -> f64 {
         let breaks = &self.data.breaks;
         let Some(i) = piece(breaks, t) else { return f64::NAN };
-        let (a, b) = (breaks.get(i).copied().unwrap_or(f64::NAN), breaks.get(i + 1).copied().unwrap_or(f64::NAN));
+        let (a, b) =
+            (breaks.get(i).copied().unwrap_or(f64::NAN), breaks.get(i.saturating_add(1)).copied().unwrap_or(f64::NAN));
         self.data.curves.get(k).and_then(|curve| curve.get(i)).map_or(f64::NAN, |c| clenshaw(c, scaled(t, a, b)))
     }
 }
@@ -265,7 +266,7 @@ impl SuperancillaryCurve {
             return Err(DomainError::BelowMinPressure { p, p_min: lowest * self.p }.into());
         }
         let t_max = self.t_range().1;
-        let (mut roots, mut found) = ([f64::NAN; 4], 0);
+        let (mut roots, mut found) = ([f64::NAN; 4], 0_usize);
         for pair in self.p_ends.windows(2) {
             let &[(a, pa), (b, pb)] = pair else { continue };
             let last = b == t_max;
@@ -275,9 +276,9 @@ impl SuperancillaryCurve {
                 continue;
             };
             // A p at an extremum is found at the end of both segments.
-            let seen = found > 0 && roots.get(found - 1) == Some(&t);
+            let seen = found.checked_sub(1).is_some_and(|last| roots.get(last) == Some(&t));
             if !seen && let Some(slot) = roots.get_mut(found) {
-                (*slot, found) = (t, found + 1);
+                (*slot, found) = (t, found.saturating_add(1));
             }
         }
         match roots.get(..found) {
@@ -297,7 +298,7 @@ impl SuperancillaryCurve {
     fn inverse_fit(&self, ln_p: f64) -> Option<(&[f64; 13], f64)> {
         let breaks = &self.data.ln_p_breaks;
         let i = piece(breaks, ln_p)?;
-        Some((self.data.t_of_ln_p.get(i)?, scaled(ln_p, *breaks.get(i)?, *breaks.get(i + 1)?)))
+        Some((self.data.t_of_ln_p.get(i)?, scaled(ln_p, *breaks.get(i)?, *breaks.get(i.saturating_add(1))?)))
     }
 
     /// The fit's piece at T, the three curves' coefficients (NaN for a curve the data gives no row) and T mapped to the
@@ -308,7 +309,7 @@ impl SuperancillaryCurve {
         let breaks = &self.data.breaks;
         let i = piece(breaks, t)?;
         let rows = self.data.curves.each_ref().map(|curve| curve.get(i).unwrap_or(&NAN_PIECE));
-        Some((rows, scaled(t, *breaks.get(i)?, *breaks.get(i + 1)?)))
+        Some((rows, scaled(t, *breaks.get(i)?, *breaks.get(i.saturating_add(1))?)))
     }
 
     /// Why [`SaturationCurve::at_t`] refuses a T that [`Self::fit`] has no piece for: below or above the fitted range,

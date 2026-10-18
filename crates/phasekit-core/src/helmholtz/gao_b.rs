@@ -10,6 +10,7 @@ use crate::num::{Real, math};
 /// `(v, [τ v', τ² v'', τ³ v''', τ⁴ v''''])` for `v = 1/(β(τ − γ)² + b)`: with `r = 1/q`, `v' = −q' r²`,
 /// `v'' = (2q'² r − q'') r²`, `v''' = 6q'(q'' − q'² r) r³`, `v'''' = (6q''² − 36q'² q'' r + 24q'⁴ r²) r³`.
 #[inline(always)]
+#[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
 fn gao_b_tau_side<R: Real>(tau: R, beta: f64, gamma: f64, b: f64) -> (R, [R; 4]) {
     let w = tau + -gamma;
     let r = R::from_f64(1.0) / (w * w * beta + b);

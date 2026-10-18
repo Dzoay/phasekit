@@ -32,6 +32,10 @@
 //! # Ok(()) }
 //! ```
 
+// PLAN.md M24.5 (issue #219): no implicit panic, an index out of bounds or an integer overflow, in the library's code
+// (`gates lints` checks this line); its tests are exempt.
+#![cfg_attr(not(test), deny(clippy::indexing_slicing, clippy::arithmetic_side_effects))]
+
 mod blob;
 mod crit;
 mod data;

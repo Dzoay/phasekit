@@ -24,6 +24,7 @@ const BINOMIAL: [[f64; 5]; 5] = [
 /// The scaled derivatives `z^j ∂^j (z^p e^u) / (z^p e^u)`, j ≤ ORD, from the falling factorials of p and
 /// `h_k = z^k u⁽ᵏ⁾`: Leibniz's rule over the complete Bell polynomials `B_m(h_1, …, h_m) = z^m ∂^m e^u / e^u`.
 #[inline(always)]
+#[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
 pub(super) fn leibniz<R: Real, const ORD: usize>(falling: &[f64; 5], h: [R; 4]) -> [R; 5] {
     let [h1, h2, h3, h4] = h;
     let h11 = h1 * h1;
@@ -36,10 +37,14 @@ pub(super) fn leibniz<R: Real, const ORD: usize>(falling: &[f64; 5], h: [R; 4]) 
         h11 * h11 + h11 * h2 * 6.0 + h2 * h2 * 3.0 + h1 * h3 * 4.0 + h4,
     ];
     let mut b = [one; 5];
-    for (j, slot) in b.iter_mut().enumerate().take(ORD + 1).skip(1) {
-        let mut sum = R::from_f64(falling[j]);
-        for m in 1..=j {
-            sum = sum + bell[m] * (BINOMIAL[j][m] * falling[j - m]);
+    for ((j, slot), (&fj, row)) in
+        b.iter_mut().enumerate().zip(falling.iter().zip(&BINOMIAL)).take(ORD.saturating_add(1)).skip(1)
+    {
+        let mut sum = R::from_f64(fj);
+        // m = 1..=j: B_m C(j, m) (p)_(j−m), the falling factorials read from j down.
+        let terms = bell.iter().zip(row).zip(falling.get(..=j).unwrap_or_default().iter().rev());
+        for ((&bm, &c), &f) in terms.take(j.saturating_add(1)).skip(1) {
+            sum = sum + bm * (c * f);
         }
         *slot = sum;
     }
@@ -48,6 +53,7 @@ pub(super) fn leibniz<R: Real, const ORD: usize>(falling: &[f64; 5], h: [R; 4]) 
 
 /// `[z u', z² u'', 0, 0]` for `u = −η(z − ε)²`, and u itself.
 #[inline(always)]
+#[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
 pub(super) fn gaussian_side<R: Real>(z: R, eta: f64, epsilon: f64) -> (R, [R; 4]) {
     let w = z + -epsilon;
     let zero = R::from_f64(0.0);
@@ -142,7 +148,7 @@ impl<S: TauSide> GaussianBlock<S> {
                 return Err(bad(why));
             }
         }
-        let column = |i: usize| parts.iter().map(|(shared, _, _)| shared[i]).collect();
+        let column = |i: usize| parts.iter().map(|(shared, _, _)| shared.get(i).copied().unwrap_or(f64::NAN)).collect();
         Ok(Self {
             n: column(0),
             t: column(1),
@@ -157,13 +163,18 @@ impl<S: TauSide> GaussianBlock<S> {
 
     /// `A_ij += φ·B^τ_i·B^δ_j` for every term, `i + j ≤ ORD`.
     #[inline(always)]
+    #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
     pub(crate) fn accumulate<R: Real, const ORD: usize>(&self, v: &Vars<R>, acc: &mut Derivs<R>) {
         let delta = v.delta_pow[1];
-        for k in 0..self.n.len() {
-            let (ut, ht) = self.side[k].jet(v.tau);
-            let (ud, hd) = gaussian_side(delta, self.eta[k], self.epsilon[k]);
-            let phi = (v.ln_tau * self.t[k] + ut + ud).exp() * v.delta_pow[usize::from(self.d[k])] * self.n[k];
-            acc.add_separable::<ORD>(phi, &leibniz::<R, ORD>(&self.ft[k], ht), &leibniz::<R, ORD>(&self.fd[k], hd));
+        let terms = self.n.iter().zip(&self.t).zip(&self.d).zip(&self.eta).zip(&self.epsilon);
+        for (((((&n, &t), &d), &eta), &epsilon), (side, (ft, fd))) in
+            terms.zip(self.side.iter().zip(self.ft.iter().zip(&self.fd)))
+        {
+            let (ut, ht) = side.jet(v.tau);
+            let (ud, hd) = gaussian_side(delta, eta, epsilon);
+            let power = v.delta_pow.get(usize::from(d)).copied().unwrap_or_else(|| R::from_f64(f64::NAN));
+            let phi = (v.ln_tau * t + ut + ud).exp() * power * n;
+            acc.add_separable::<ORD>(phi, &leibniz::<R, ORD>(ft, ht), &leibniz::<R, ORD>(fd, hd));
         }
     }
 
@@ -171,13 +182,13 @@ impl<S: TauSide> GaussianBlock<S> {
     /// (2η²ε² − η) δ² + …)`, times the τ-factor `f = n τ^t e^u` and `τ f'` ([`TauSide::series`]).
     pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 2]; 3] {
         let mut out = [[0.0; 2]; 3];
-        for k in 0..self.n.len() {
-            let (eta, eps) = (self.eta[k], self.epsilon[k]);
-            let (log_f, scaled) = self.side[k].series(self.t[k], tau);
-            let f = self.n[k] * math::exp(log_f - eta * eps * eps);
+        let terms = self.n.iter().zip(&self.t).zip(&self.d).zip(&self.eta).zip(&self.epsilon).zip(self.side.iter());
+        for (((((&n, &t), &d), &eta), &eps), side) in terms {
+            let (log_f, scaled) = side.series(t, tau);
+            let f = n * math::exp(log_f - eta * eps * eps);
             let tf = f * scaled;
             for (q, c) in delta_series(eta, eps).into_iter().enumerate() {
-                if let Some(slot) = out.get_mut(usize::from(self.d[k]) + q) {
+                if let Some(slot) = out.get_mut(usize::from(d).saturating_add(q)) {
                     slot[0] += c * f;
                     slot[1] += c * tf;
                 }

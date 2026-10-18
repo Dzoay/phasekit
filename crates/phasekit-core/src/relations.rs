@@ -171,7 +171,7 @@ impl Lin {
         for (i, j) in ORDER_3 {
             let c = self.coef(i, j);
             out.add(i, j, -f64::from(i) * c);
-            out.add(i + 1, j, -c);
+            out.add(i.saturating_add(1), j, -c);
         }
         out
     }
@@ -182,7 +182,7 @@ impl Lin {
         for (i, j) in ORDER_3 {
             let c = self.coef(i, j);
             out.add(i, j, f64::from(j) * c);
-            out.add(i, j + 1, c);
+            out.add(i, j.saturating_add(1), c);
         }
         out
     }

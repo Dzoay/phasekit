@@ -126,6 +126,7 @@ impl IdealGas {
     /// lane `k` is, bit for bit, the `f64` bundle at state `k` (PLAN.md M12.8), as the formulas differ from their
     /// `f64` forms only by commuting a product or a sum.
     #[inline(always)]
+    #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
     pub(crate) fn eval<R: IdealReal>(&self, t: R, rho: R, order: Order) -> Derivs<R> {
         let tau = R::from_f64(self.t_r) / t;
         let mut a = [R::from_f64(0.0); 5]; // τ^k d^k/dτ^k of the τ-part, k = 0..4
@@ -158,7 +159,7 @@ impl IdealGas {
         let ln_delta = (rho / R::from_f64(self.rho_r)).ln();
         Derivs::from_fn(order, |i, j| match (i, j) {
             (0, 0) => a[0] + ln_delta,
-            (i, 0) => a[i],
+            (i, 0) => a.get(i).copied().unwrap_or_else(|| R::from_f64(f64::NAN)),
             (0, j) => R::from_f64(Derivs::IDEAL_DELTA.get(0, j).unwrap_or(0.0)),
             _ => R::from_f64(0.0),
         })
@@ -198,6 +199,7 @@ impl<const W: usize> IdealReal for Lanes<W> {
 /// f' = nθw, f'' = −nθ²w(1+w), f''' = nθ³w(1+w)(1+2w), f'''' = −nθ⁴w(1+w)(1+6w+6w²);
 /// f = n·ln(−expm1(−θτ)) stays accurate for small θτ (map 02 §9).
 #[inline(always)]
+#[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
 fn planck_einstein<R: Real>(n: f64, theta: f64, tau: R) -> [R; 5] {
     let x = tau * theta;
     let w = R::from_f64(1.0) / x.expm1();
@@ -240,6 +242,7 @@ fn planck_einstein_generalized(n: f64, theta: f64, c: f64, d: f64, tau: f64) -> 
 /// limits `c(1 − τ/τ₀ + ln(τ/τ₀))` and `(c/tc)(τ ln(τ₀/τ) + τ − τ₀)`. The fourth derivative of the t = −1 form is
 /// −2c/(τ³ tc), where CoolProp writes −3c (map 02 §6, ROT-060).
 #[inline(always)]
+#[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
 fn cp0_power<R: Real>(c: f64, t: f64, tc: f64, t0: f64, tau: R) -> [R; 5] {
     let (tau0, real) = (tc / t0, R::from_f64);
     if t == 0.0 {

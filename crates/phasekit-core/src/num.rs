@@ -181,6 +181,37 @@ pub mod math {
 /// first row is taken. The test is relative to the row, so multiplying a row by any factor changes neither the pivots
 /// chosen nor the verdict, where CoolProp's `linsolve` compares the pivot with an absolute
 /// 10ε and `MatInv_2` has no zero-determinant guard (map 03 §3.4; ROT-067).
+/// Entry `i` of `v`, or NaN where it has none (PLAN.md M24.5): the indices the kernels compute cannot leave their
+/// arrays, and if one did, the NaN would reach their checks for a finite result instead of a panic.
+pub(crate) fn at(v: &[f64], i: usize) -> f64 {
+    v.get(i).copied().unwrap_or(f64::NAN)
+}
+
+/// Entry (`r`, `c`) of the matrix `a`, or NaN where it has none.
+pub(crate) fn at2<R: AsRef<[f64]>>(a: &[R], r: usize, c: usize) -> f64 {
+    a.get(r).map_or(f64::NAN, |row| at(row.as_ref(), c))
+}
+
+/// Sets entry `i` of `v` to `value`, where it has one.
+pub(crate) fn set(v: &mut [f64], i: usize, value: f64) {
+    if let Some(x) = v.get_mut(i) {
+        *x = value;
+    }
+}
+
+/// Subtracts row `k` of (a, b), scaled, from the rows below it, to zero column `k` there; false if `a` has no row `k`.
+fn eliminate_below<const N: usize>(a: &mut [[f64; N]; N], b: &mut [f64; N], k: usize) -> bool {
+    let (Some(&pivot), bk) = (a.get(k), at(b, k)) else { return false };
+    for (row, bi) in a.iter_mut().zip(b.iter_mut()).skip(k.saturating_add(1)) {
+        let m = at(row, k) / at(&pivot, k);
+        for (aij, akj) in row.iter_mut().zip(&pivot).skip(k) {
+            *aij -= m * akj;
+        }
+        *bi -= m * bk;
+    }
+    true
+}
+
 pub(crate) fn solve_small<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N]) -> Result<[f64; N], crate::Error> {
     const { assert!(N >= 1 && N <= 4, "solve_small solves 1 to 4 equations") };
     let singular = crate::Error::InvalidState { reason: "a singular linear system (a pivot within rounding of zero)" };
@@ -189,7 +220,7 @@ pub(crate) fn solve_small<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N])
     let mut scale = a.map(|row| row.iter().fold(0.0_f64, |m, v| m.max(v.abs())));
     let tol = 64.0 * f64::EPSILON * N as f64;
     for k in 0..N {
-        let size = |i: usize| a[i][k].abs() / scale[i];
+        let size = |i: usize| at2(&a, i, k).abs() / at(&scale, i);
         let p = (k..N).fold(k, |best, i| if size(i) > size(best) { i } else { best });
         // A NaN size compares false: singular too.
         let pivot_is_sound = size(p) > tol;
@@ -199,19 +230,16 @@ pub(crate) fn solve_small<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N])
         a.swap(k, p);
         b.swap(k, p);
         scale.swap(k, p);
-        let pivot = a[k];
-        for i in k + 1..N {
-            let m = a[i][k] / pivot[k];
-            for (aij, akj) in a[i][k..].iter_mut().zip(&pivot[k..]) {
-                *aij -= m * akj;
-            }
-            b[i] -= m * b[k];
+        if !eliminate_below(&mut a, &mut b, k) {
+            return Err(singular);
         }
     }
     // NaN until solved: back substitution reads only the x[j] it has solved.
     let mut x = [f64::NAN; N];
     for k in (0..N).rev() {
-        x[k] = (k + 1..N).fold(b[k], |sum, j| sum - a[k][j] * x[j]) / a[k][k];
+        let row = a.get(k).map_or(&[][..], |row| row.as_slice());
+        let solved = (k.saturating_add(1)..N).fold(at(&b, k), |sum, j| sum - at(row, j) * at(&x, j)) / at(row, k);
+        set(&mut x, k, solved);
     }
     if x.iter().all(|v| v.is_finite()) { Ok(x) } else { Err(singular) }
 }

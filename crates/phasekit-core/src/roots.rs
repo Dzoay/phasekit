@@ -342,7 +342,7 @@ fn bracketed(
     let mut x = interior(lo, hi, x0);
     let (mut fx, mut step) = f(x);
     for iteration in 1..=max_iter {
-        if let Some(root) = settled(x, fx, iteration - 1) {
+        if let Some(root) = settled(x, fx, iteration.saturating_sub(1)) {
             return root;
         }
         let previous = x;

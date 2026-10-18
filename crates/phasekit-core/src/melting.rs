@@ -115,8 +115,11 @@ impl MeltingCurve {
             return Err(DomainError::AboveMaxPressure { p, p_max: hi });
         }
         // Between two segments: at the bound they share (datagen checks every neighbour has one); else below the curve.
-        let gap = self.pieces.windows(2).find(|w| w[0].p_range().1 < p && p < w[1].p_range().0);
-        match gap.map(|w| (w[0].segment.shared_bound(&w[1].segment), w[1].p_range().0)) {
+        let gap = self.pieces.windows(2).find_map(|w| match w {
+            [a, b] if a.p_range().1 < p && p < b.p_range().0 => Some((a, b)),
+            _ => None,
+        });
+        match gap.map(|(a, b)| (a.segment.shared_bound(&b.segment), b.p_range().0)) {
             Some((Some(t), _)) => Ok(Located::Join(t)),
             Some((None, p_min)) => Err(DomainError::BelowMinPressure { p, p_min }),
             None => Err(DomainError::BelowMinPressure { p, p_min: lo }),
@@ -137,18 +140,20 @@ impl MeltingCurve {
     /// `BelowMinTemperature`, above it `AboveMaxTemperature`.
     pub(crate) fn pressure(&self, t: f64) -> Result<f64, Error> {
         let (mut found, mut n) = ([f64::NAN; 4], 0);
-        for (i, piece) in self.pieces.iter().enumerate() {
+        let mut previous = None;
+        for piece in self.pieces.iter() {
             let s = &piece.segment;
-            let joined = i > 0 && self.pieces[i - 1].segment.shared_bound(s) == Some(t);
+            let joined = previous.is_some_and(|q: &Piece| q.segment.shared_bound(s) == Some(t));
+            previous = Some(piece);
             if s.holds(t)
                 && !joined
                 && let Some(slot) = found.get_mut(n)
             {
                 *slot = s.p(t);
-                n += 1;
+                n = n.saturating_add(1);
             }
         }
-        let found = &mut found[..n];
+        let found = found.get_mut(..n).unwrap_or_default();
         found.sort_by(f64::total_cmp);
         match found {
             [p] => Ok(*p),
