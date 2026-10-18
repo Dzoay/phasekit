@@ -6,7 +6,7 @@
 
 use core::ops::{Add, Div, Mul, Neg, Sub};
 
-use super::{Real, math, sealed};
+use super::{Real, at, math, sealed};
 use crate::derivs::{Derivs, Order, idx};
 
 /// `n!` for n ≤ 4.
@@ -14,6 +14,15 @@ const FACTORIAL: [f64; 5] = [1.0, 1.0, 2.0, 6.0, 24.0];
 
 /// The 70 slot triples `(k, a, b)` of a product: `c_k += x_a · y_b` whenever the exponents of a and b add up to k's.
 /// Ordered by k's total order, so a jet of order n reads a prefix: 15 triples for n = 2, all 70 for n = 4.
+/// The slots of the variables' first derivatives, as constants, so that indexing them is checked when built.
+const TAU: usize = idx(1, 0);
+const DELTA: usize = idx(0, 1);
+
+#[allow(
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects,
+    reason = "evaluated when compiled: an index out of range or an overflow is a compile error, not a panic"
+)]
 const PRODUCT: [(u8, u8, u8); 70] = {
     let mut table = [(0u8, 0u8, 0u8); 70];
     let mut n = 0;
@@ -55,6 +64,22 @@ macro_rules! jet {
             c: [f64; $slots],
         }
 
+        // Every product triple this jet reads lies below its slot count, checked when the crate is built, so its
+        // products index without a check that could fail (PLAN.md M24.5).
+        #[allow(
+            clippy::indexing_slicing,
+            clippy::arithmetic_side_effects,
+            reason = "evaluated when compiled: an index out of range or an overflow is a compile error, not a panic"
+        )]
+        const _: () = {
+            let mut n = 0;
+            while n < $triples {
+                let (k, a, b) = PRODUCT[n];
+                assert!((k as usize) < $slots && (a as usize) < $slots && (b as usize) < $slots);
+                n += 1;
+            }
+        };
+
         $($(#[$imeta])+)?
         impl $name {
             /// A constant.
@@ -67,14 +92,14 @@ macro_rules! jet {
             /// The first variable at `tau`: `τ₀ + h`.
             pub const fn tau(tau: f64) -> Self {
                 let mut c = [0.0; $slots];
-                (c[0], c[idx(1, 0)]) = (tau, 1.0);
+                (c[0], c[TAU]) = (tau, 1.0);
                 Self { c }
             }
 
             /// The second variable at `delta`: `δ₀ + k`.
             pub const fn delta(delta: f64) -> Self {
                 let mut c = [0.0; $slots];
-                (c[0], c[idx(0, 1)]) = (delta, 1.0);
+                (c[0], c[DELTA]) = (delta, 1.0);
                 Self { c }
             }
 
@@ -85,16 +110,16 @@ macro_rules! jet {
 
             /// `∂^(i+j)f / ∂τ^i ∂δ^j` at the expansion point, or `None` beyond the jet's total order.
             pub fn derivative(&self, i: usize, j: usize) -> Option<f64> {
-                (i + j <= $ord).then(|| self.c[idx(i, j)] * FACTORIAL[i] * FACTORIAL[j])
+                (i.saturating_add(j) <= $ord).then(|| at(&self.c, idx(i, j)) * at(&FACTORIAL, i) * at(&FACTORIAL, j))
             }
 
             /// The scaled derivatives `A_ij = τ^i δ^j ∂^(i+j)f/∂τ^i∂δ^j` of [`Derivs`] to the jet's order, with
             /// `(tau, delta)` the expansion point this jet was built at.
             pub fn derivs(&self, tau: f64, delta: f64) -> Derivs {
                 Derivs::from_fn($order, |i, j| {
-                    self.c[idx(i, j)]
-                        * FACTORIAL[i]
-                        * FACTORIAL[j]
+                    at(&self.c, idx(i, j))
+                        * at(&FACTORIAL, i)
+                        * at(&FACTORIAL, j)
                         * math::powi(tau, i as i32)
                         * math::powi(delta, j as i32)
                 })
@@ -105,6 +130,7 @@ macro_rules! jet {
             /// skips a zero factor, so an infinite derivative reaches only the slots its power of ε fills:
             /// `|δ − 1|^(10/3)` at δ = 1 has f⁗ = ∞ and ε⁴ = k⁴, and only `c_04` is infinite, where 0 · ∞ would have
             /// made every slot NaN (M4.6). Finite results are bitwise those of the plain product.
+            #[allow(clippy::indexing_slicing, reason = "n < $ord ≤ 4 indexes arrays of 5; the loop unrolls to constants")]
             fn compose(self, d: [f64; 5]) -> Self {
                 let mut eps = self;
                 eps.c[0] = 0.0;
@@ -117,6 +143,7 @@ macro_rules! jet {
             }
 
             /// `self · eps` for an `eps` whose value is zero, every product with an exact zero factor skipped.
+            #[allow(clippy::indexing_slicing, reason = "PRODUCT's triples, each below the slot count: checked when built")]
             fn times_nilpotent(self, eps: Self) -> Self {
                 let mut c = [0.0; $slots];
                 for &(k, a, b) in &PRODUCT[1..$triples] {
@@ -159,6 +186,7 @@ macro_rules! jet {
 
         impl Mul for $name {
             type Output = Self;
+            #[allow(clippy::indexing_slicing, reason = "PRODUCT's triples, each below the slot count: checked when built")]
             fn mul(self, o: Self) -> Self {
                 let mut c = [0.0; $slots];
                 c[0] = self.c[0] * o.c[0];

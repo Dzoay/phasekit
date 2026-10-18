@@ -12,6 +12,7 @@ use crate::error::{Error, LoadError};
 use crate::num::{Jet2, Jet4, Real};
 
 /// One term's `f = n Δ^b ψ` at (τ, δ), as jets: α = δ·f is the paper formula.
+#[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
 fn f<R: Real>(p: &NonAnalyticTerm, tau: R, delta: R) -> R {
     let (w, u) = (delta + -1.0, tau + -1.0);
     let aw = w.abs();
@@ -62,6 +63,7 @@ impl NonAnalyticBlock {
     }
 
     /// `Σ f` over the terms at (τ, δ).
+    #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
     fn sum<R: Real>(&self, tau: R, delta: R) -> R {
         self.terms.iter().fold(R::from_f64(0.0), |sum, p| sum + f(p, tau, delta))
     }
@@ -77,7 +79,7 @@ impl NonAnalyticBlock {
         let n: f64 = self.terms.iter().filter(|p| p.b == least).map(|p| p.n).sum();
         Derivs::from_fn(order, |i, j| match (i, j) {
             (2, 0) => n * f64::INFINITY,
-            _ if i + j <= 2 => 0.0,
+            _ if i.saturating_add(j) <= 2 => 0.0,
             _ => f64::NAN,
         })
     }

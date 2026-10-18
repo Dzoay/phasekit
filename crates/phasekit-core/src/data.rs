@@ -277,61 +277,40 @@ impl EosRecord {
     /// The term of `tag` from its values `v` ([`arity`] of them, in [`EosRecord::encode_shape`]'s order), stored in its
     /// list (tag 0: T_r); an exponent or offset reference that is not one is an error.
     fn push_term(&mut self, tag: u8, v: &[f64]) -> Result<(), LoadError> {
-        match tag {
-            0 => self.t_reducing = v[0],
-            1 => self.power.push(PowerTerm::new(v[0], v[1], exponent(v[2], "d")?, exponent(v[3], "l")?, v[4])),
-            2 => self.lemmon2005.push(Lemmon2005Term {
-                n: v[0],
-                t: v[1],
-                d: exponent(v[2], "d")?,
-                l: exponent(v[3], "l")?,
-                m: v[4],
+        match (tag, v) {
+            (0, &[t_r]) => self.t_reducing = t_r,
+            (1, &[n, t, d, l, c]) => self.power.push(PowerTerm::new(n, t, exponent(d, "d")?, exponent(l, "l")?, c)),
+            (2, &[n, t, d, l, m]) => {
+                self.lemmon2005.push(Lemmon2005Term { n, t, d: exponent(d, "d")?, l: exponent(l, "l")?, m });
+            }
+            (3, &[n, t, d, gd, ld, gt, lt]) => self.double_exponential.push(DoubleExponentialTerm {
+                n,
+                t,
+                d: exponent(d, "d")?,
+                gd,
+                ld: exponent(ld, "ld")?,
+                gt,
+                lt,
             }),
-            3 => self.double_exponential.push(DoubleExponentialTerm {
-                n: v[0],
-                t: v[1],
-                d: exponent(v[2], "d")?,
-                gd: v[3],
-                ld: exponent(v[4], "ld")?,
-                gt: v[5],
-                lt: v[6],
-            }),
-            4 => self.gaussian.push(GaussianTerm {
-                n: v[0],
-                t: v[1],
-                d: exponent(v[2], "d")?,
-                eta: v[3],
-                epsilon: v[4],
-                beta: v[5],
-                gamma: v[6],
-            }),
-            5 => self.gao_b.push(GaoBTerm {
-                n: v[0],
-                t: v[1],
-                d: exponent(v[2], "d")?,
-                eta: v[3],
-                epsilon: v[4],
-                beta: v[5],
-                gamma: v[6],
-                b: v[7],
-            }),
-            6 => self.non_analytic.push(NonAnalyticTerm {
-                n: v[0],
-                a: v[1],
-                b: v[2],
-                beta: v[3],
-                big_a: v[4],
-                big_b: v[5],
-                big_c: v[6],
-                big_d: v[7],
-            }),
-            10 => self.ideal.push(IdealTerm::Lead { a1: v[0], a2: v[1] }),
-            11 => self.ideal.push(IdealTerm::LogTau { a: v[0] }),
-            12 => self.ideal.push(IdealTerm::Power { n: v[0], t: v[1] }),
-            13 => self.ideal.push(IdealTerm::PlanckEinstein { n: v[0], theta: v[1] }),
-            14 => self.ideal.push(IdealTerm::PlanckEinsteinGeneralized { n: v[0], theta: v[1], c: v[2], d: v[3] }),
-            15 => self.ideal.push(IdealTerm::Cp0Power { c: v[0], t: v[1], tc: v[2], t0: v[3] }),
-            _ => self.ideal.push(IdealTerm::Offset { a1: v[0], a2: v[1], reference: offset_reference(v[2])? }),
+            (4, &[n, t, d, eta, epsilon, beta, gamma]) => {
+                self.gaussian.push(GaussianTerm { n, t, d: exponent(d, "d")?, eta, epsilon, beta, gamma });
+            }
+            (5, &[n, t, d, eta, epsilon, beta, gamma, b]) => {
+                self.gao_b.push(GaoBTerm { n, t, d: exponent(d, "d")?, eta, epsilon, beta, gamma, b });
+            }
+            (6, &[n, a, b, beta, big_a, big_b, big_c, big_d]) => {
+                self.non_analytic.push(NonAnalyticTerm { n, a, b, beta, big_a, big_b, big_c, big_d });
+            }
+            (10, &[a1, a2]) => self.ideal.push(IdealTerm::Lead { a1, a2 }),
+            (11, &[a]) => self.ideal.push(IdealTerm::LogTau { a }),
+            (12, &[n, t]) => self.ideal.push(IdealTerm::Power { n, t }),
+            (13, &[n, theta]) => self.ideal.push(IdealTerm::PlanckEinstein { n, theta }),
+            (14, &[n, theta, c, d]) => self.ideal.push(IdealTerm::PlanckEinsteinGeneralized { n, theta, c, d }),
+            (15, &[c, t, tc, t0]) => self.ideal.push(IdealTerm::Cp0Power { c, t, tc, t0 }),
+            (16, &[a1, a2, reference]) => {
+                self.ideal.push(IdealTerm::Offset { a1, a2, reference: offset_reference(reference)? });
+            }
+            _ => return Err(eos_error(format!("tag {tag} with {} values", v.len()))),
         }
         Ok(())
     }
@@ -366,7 +345,8 @@ fn eos_error(m: String) -> LoadError {
 
 /// The next `n` little-endian f64 of an EOS section, `values` moved past them; too few bytes are an error.
 fn eos_f64s(values: &mut &[u8], n: usize) -> Result<Vec<f64>, LoadError> {
-    let (head, rest) = values.split_at_checked(8 * n).ok_or_else(|| eos_error("truncated".into()))?;
+    let truncated = || eos_error("truncated".into());
+    let (head, rest) = values.split_at_checked(n.checked_mul(8).ok_or_else(truncated)?).ok_or_else(truncated)?;
     *values = rest;
     Ok(head.as_chunks::<8>().0.iter().map(|c| f64::from_le_bytes(*c)).collect())
 }
@@ -557,12 +537,14 @@ impl Superancillary {
     /// increasing boundaries, one coefficient row per piece, finite coefficients, extrema inside the range.
     pub fn check(&self) -> Result<(), LoadError> {
         let bad = |m: String| LoadError::Format(format!("superancillary: {m}").into());
-        let increasing =
-            |b: &[f64]| b.len() >= 2 && b.windows(2).all(|w| w[0].is_finite() && w[0] < w[1] && w[1].is_finite());
+        let increasing = |breaks: &[f64]| {
+            breaks.len() >= 2
+                && breaks.windows(2).all(|w| matches!(*w, [a, b] if a.is_finite() && a < b && b.is_finite()))
+        };
         if !increasing(&self.breaks) || !increasing(&self.ln_p_breaks) {
             return Err(bad("boundaries must be finite and strictly increasing, at least two".into()));
         }
-        let rows = |curve: &[[f64; 13]], breaks: &[f64]| curve.len() + 1 == breaks.len();
+        let rows = |curve: &[[f64; 13]], breaks: &[f64]| curve.len().checked_add(1) == Some(breaks.len());
         let finite = |curve: &[[f64; 13]]| curve.iter().flatten().all(|c| c.is_finite());
         for (name, curve) in ["rho'", "rho''", "p"].iter().zip(&self.curves) {
             if !rows(curve, &self.breaks) || !finite(curve) {
@@ -572,7 +554,8 @@ impl Superancillary {
         if !rows(&self.t_of_ln_p, &self.ln_p_breaks) || !finite(&self.t_of_ln_p) {
             return Err(bad("T(ln p) needs one row of finite coefficients per piece".into()));
         }
-        let (lo, hi) = (self.breaks[0], self.breaks[self.breaks.len() - 1]);
+        let (lo, hi) =
+            (self.breaks.first().copied().unwrap_or(f64::NAN), self.breaks.last().copied().unwrap_or(f64::NAN));
         if self.extrema.iter().flatten().any(|t| !(lo < *t && *t < hi)) || !self.extrema.iter().all(|e| e.is_sorted()) {
             return Err(bad("extrema must lie inside the range, increasing".into()));
         }
@@ -619,7 +602,9 @@ impl CaloricCurves {
     pub fn check(&self) -> Result<(), LoadError> {
         let bad = |m: String| LoadError::Format(format!("caloric curves: {m}").into());
         let pieces = self.breaks.len().saturating_sub(1);
-        if pieces == 0 || !self.breaks.windows(2).all(|w| w[0].is_finite() && w[0] < w[1] && w[1].is_finite()) {
+        let increasing =
+            self.breaks.windows(2).all(|w| matches!(*w, [a, b] if a.is_finite() && a < b && b.is_finite()));
+        if pieces == 0 || !increasing {
             return Err(bad("boundaries must be finite and strictly increasing, at least two".into()));
         }
         for (name, curve) in ["h'", "h''", "s'", "s''", "u'", "u''"].iter().zip(&self.curves) {
@@ -642,7 +627,7 @@ impl CaloricCurves {
     /// Evaluation only: nothing is built on first use (ROT-027).
     pub fn at(&self, t: f64) -> Option<[f64; 6]> {
         let i = crate::saturation::piece(&self.breaks, t)?;
-        let (a, b) = (*self.breaks.get(i)?, *self.breaks.get(i + 1)?);
+        let (a, b) = (*self.breaks.get(i)?, *self.breaks.get(i.checked_add(1)?)?);
         let x = (2.0 * t - (b + a)) / (b - a);
         Some(self.curves.each_ref().map(|curve| curve.get(i).map_or(f64::NAN, |c| crate::saturation::clenshaw(c, x))))
     }

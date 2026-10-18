@@ -28,11 +28,22 @@ impl Order {
 /// Number of `(i, j)` slots with `i + j ≤ 4`.
 pub(crate) const SLOTS: usize = 15;
 
-/// Triangular index of `(i, j)`, ordered by total order, then by `i`.
+/// Triangular index of `(i, j)`, ordered by total order, then by `i`. The arithmetic saturates (PLAN.md M24.5): an index
+/// past the slots stays past them, where `get` finds nothing. In the unrolled kernels it folds to constants.
 pub(crate) const fn idx(i: usize, j: usize) -> usize {
-    let n = i + j;
-    n * (n + 1) / 2 + i
+    let n = i.saturating_add(j);
+    (n.saturating_mul(n.saturating_add(1)) / 2).saturating_add(i)
 }
+
+/// The slots of the order-2 entries and of `A_0j`, j = 1..4, as constants, so that indexing them is checked when built.
+const A00: usize = idx(0, 0);
+const A10: usize = idx(1, 0);
+const A01: usize = idx(0, 1);
+const A20: usize = idx(2, 0);
+const A11: usize = idx(1, 1);
+const A02: usize = idx(0, 2);
+const A03: usize = idx(0, 3);
+const A04: usize = idx(0, 4);
 
 /// `A_ij = τ^i δ^j ∂^(i+j)α / ∂τ^i ∂δ^j` for `i + j ≤ order ≤ 4`. Because `τ∂/∂τ = −T∂/∂T` and
 /// `δ∂/∂δ = ρ∂/∂ρ`, the values do not depend on the reducing constants: bundles of different models, or the
@@ -55,7 +66,11 @@ impl<R: Real> Derivs<R> {
         let mut d = Self::zero(order);
         for n in 0..=order.get() {
             for i in 0..=n {
-                d.a[idx(i, n - i)] = f(i, n - i);
+                let j = n.saturating_sub(i);
+                let value = f(i, j);
+                if let Some(slot) = d.a.get_mut(idx(i, j)) {
+                    *slot = value;
+                }
             }
         }
         d
@@ -68,29 +83,33 @@ impl<R: Real> Derivs<R> {
 
     /// `A_ij`, or `None` above the computed order.
     pub fn get(&self, i: usize, j: usize) -> Option<R> {
-        (i + j <= self.order.get()).then(|| self.a[idx(i, j)])
+        if i.saturating_add(j) <= self.order.get() { self.a.get(idx(i, j)).copied() } else { None }
     }
 
     /// `A_ij += φ · bt[i] · bd[j]` for `i + j ≤ ORD`: the outer product of separable τ- and δ-factors.
     #[inline(always)]
+    #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
     pub(crate) fn add_outer<const ORD: usize>(&mut self, phi: R, bt: &[f64; 5], bd: &[R; 5]) {
-        for (i, &bti) in bt.iter().enumerate().take(ORD + 1) {
+        for (i, &bti) in bt.iter().enumerate().take(ORD.saturating_add(1)) {
             let e = phi * bti;
-            for (j, &bdj) in bd.iter().enumerate().take(ORD + 1 - i) {
-                let k = idx(i, j);
-                self.a[k] = self.a[k] + e * bdj;
+            for (j, &bdj) in bd.iter().enumerate().take(ORD.saturating_add(1).saturating_sub(i)) {
+                if let Some(a) = self.a.get_mut(idx(i, j)) {
+                    *a = *a + e * bdj;
+                }
             }
         }
     }
     /// `A_ij += φ · bt[i] · bd[j]` for `i + j ≤ ORD`, with state-dependent τ-factors (terms with an exponential
     /// on the τ-side too).
     #[inline(always)]
+    #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
     pub(crate) fn add_separable<const ORD: usize>(&mut self, phi: R, bt: &[R; 5], bd: &[R; 5]) {
-        for (i, &bti) in bt.iter().enumerate().take(ORD + 1) {
+        for (i, &bti) in bt.iter().enumerate().take(ORD.saturating_add(1)) {
             let e = phi * bti;
-            for (j, &bdj) in bd.iter().enumerate().take(ORD + 1 - i) {
-                let k = idx(i, j);
-                self.a[k] = self.a[k] + e * bdj;
+            for (j, &bdj) in bd.iter().enumerate().take(ORD.saturating_add(1).saturating_sub(i)) {
+                if let Some(a) = self.a.get_mut(idx(i, j)) {
+                    *a = *a + e * bdj;
+                }
             }
         }
     }
@@ -127,22 +146,22 @@ impl Derivs<f64> {
     /// never evaluate α⁰. `A00` and every `A_ij` with `i ≥ 1` of the sum are NOT the total ones.
     pub const IDEAL_DELTA: Derivs = {
         let mut a = [0.0; SLOTS];
-        a[idx(0, 1)] = 1.0;
-        a[idx(0, 2)] = -1.0;
-        a[idx(0, 3)] = 2.0;
-        a[idx(0, 4)] = -6.0;
+        a[A01] = 1.0;
+        a[A02] = -1.0;
+        a[A03] = 2.0;
+        a[A04] = -6.0;
         Derivs { a, order: Order::Four }
     };
 
     /// The order-2 slice a `State` stores, or `None` if this bundle stops at order 1.
     pub fn bundle(&self) -> Option<Bundle> {
         (self.order >= Order::Two).then(|| Bundle {
-            a00: self.a[idx(0, 0)],
-            a10: self.a[idx(1, 0)],
-            a01: self.a[idx(0, 1)],
-            a20: self.a[idx(2, 0)],
-            a11: self.a[idx(1, 1)],
-            a02: self.a[idx(0, 2)],
+            a00: self.a[A00],
+            a10: self.a[A10],
+            a01: self.a[A01],
+            a20: self.a[A20],
+            a11: self.a[A11],
+            a02: self.a[A02],
         })
     }
 }

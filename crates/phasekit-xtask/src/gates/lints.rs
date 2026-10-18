@@ -13,13 +13,14 @@ const CAPI: &str = "phasekit-capi";
 /// phasekit-capi allows it there and this gate keeps it to this file (D8, E13; M10.4).
 const PER_THREAD: &str = "crates/phasekit-capi/src/last_error.rs";
 
-/// The roots of the crates whose library code denies implicit panics (PLAN.md M24.3, M24.4): the C ABI, the browser
-/// package, the strings they share and the mixtures they serve. M24.5 adds phasekit-core.
-const HARDENED: [&str; 4] = [
+/// The roots of the crates whose library code denies implicit panics (PLAN.md M24.3 to M24.5): every crate the C ABI
+/// and the browser package reach, the kernel included.
+const HARDENED: [&str; 5] = [
     "crates/phasekit-compat/src/lib.rs",
     "crates/phasekit-capi/src/lib.rs",
     "crates/phasekit-wasm/src/lib.rs",
     "crates/phasekit-mix/src/lib.rs",
+    "crates/phasekit-core/src/lib.rs",
 ];
 
 /// The line each [`HARDENED`] root carries: an index out of bounds and an integer overflow refused, its tests exempt.

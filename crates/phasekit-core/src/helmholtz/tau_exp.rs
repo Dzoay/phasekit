@@ -60,12 +60,15 @@ impl TauExpBlock {
 
     /// `A_ij += φ·B^τ_i(y)·B^δ_j(x)` for every term, `y = aτ^m`, `x = cδ^l`, `i + j ≤ ORD`.
     #[inline(always)]
+    #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
     pub(crate) fn accumulate<R: Real, const ORD: usize>(&self, v: &Vars<R>, acc: &mut Derivs<R>) {
-        for k in 0..self.n.len() {
-            let y = if self.a[k] == 0.0 { R::from_f64(0.0) } else { (v.ln_tau * self.m[k]).exp() * self.a[k] };
-            let x = v.delta_pow[usize::from(self.l[k])] * self.c[k];
-            let phi = (v.ln_tau * self.t[k] - y - x).exp() * v.delta_pow[usize::from(self.d[k])] * self.n[k];
-            acc.add_separable::<ORD>(phi, &horner::<R, ORD>(&self.bt[k], y), &horner::<R, ORD>(&self.bd[k], x));
+        let pow = |e: u8| v.delta_pow.get(usize::from(e)).copied().unwrap_or_else(|| R::from_f64(f64::NAN));
+        let terms = self.n.iter().zip(&self.t).zip(&self.a).zip(&self.m).zip(&self.d).zip(&self.l).zip(&self.c);
+        for (((((((&n, &t), &a), &m), &d), &l), &c), (bt, bd)) in terms.zip(self.bt.iter().zip(&self.bd)) {
+            let y = if a == 0.0 { R::from_f64(0.0) } else { (v.ln_tau * m).exp() * a };
+            let x = pow(l) * c;
+            let phi = (v.ln_tau * t - y - x).exp() * pow(d) * n;
+            acc.add_separable::<ORD>(phi, &horner::<R, ORD>(bt, y), &horner::<R, ORD>(bd, x));
         }
     }
 
@@ -73,11 +76,12 @@ impl TauExpBlock {
     /// `f = n τ^t e^(−aτ^m)` has `τ f' = f·(t − a m τ^m)`.
     pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 2]; 3] {
         let mut out = [[0.0; 2]; 3];
-        for k in 0..self.n.len() {
-            let y = if self.a[k] == 0.0 { 0.0 } else { self.a[k] * math::powf(tau, self.m[k]) };
-            let f = self.n[k] * math::powf(tau, self.t[k]) * math::exp(-y);
-            let tf = f * (self.t[k] - self.m[k] * y);
-            exp_series(&mut out, (self.d[k], self.l[k], self.c[k]), |slot, coef| {
+        let terms = self.n.iter().zip(&self.t).zip(&self.a).zip(&self.m).zip(&self.d).zip(&self.l).zip(&self.c);
+        for ((((((&n, &t), &a), &m), &d), &l), &c) in terms {
+            let y = if a == 0.0 { 0.0 } else { a * math::powf(tau, m) };
+            let f = n * math::powf(tau, t) * math::exp(-y);
+            let tf = f * (t - m * y);
+            exp_series(&mut out, (d, l, c), |slot, coef| {
                 slot[0] += coef * f;
                 slot[1] += coef * tf;
             });

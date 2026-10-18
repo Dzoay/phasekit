@@ -29,10 +29,13 @@ pub(crate) struct Vars<R> {
 impl<R: Real> Vars<R> {
     /// Precomputes the per-state table.
     #[inline(always)]
+    #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
     pub(crate) fn new(tau: R, delta: R) -> Self {
         let mut delta_pow = [R::from_f64(1.0); MAX_POW + 1];
-        for k in 1..=MAX_POW {
-            delta_pow[k] = delta_pow[k - 1] * delta;
+        let mut power = R::from_f64(1.0);
+        for slot in delta_pow.iter_mut().skip(1) {
+            power = power * delta;
+            *slot = power;
         }
         Self { tau, ln_tau: tau.ln(), delta_pow }
     }
@@ -64,8 +67,8 @@ pub(super) type Poly = [f64; 5];
 fn poly_mul(a: Poly, b: Poly) -> Poly {
     let mut r = [0.0; 5];
     for (i, ai) in a.iter().enumerate() {
-        for (j, bj) in b.iter().enumerate().take(5 - i) {
-            r[i + j] += ai * bj;
+        for (rij, bj) in r.iter_mut().skip(i).zip(&b) {
+            *rij += ai * bj;
         }
     }
     r
@@ -113,10 +116,12 @@ pub(super) fn exp_poly(p: f64, q: f64) -> [Poly; 5] {
 /// `[1, B_1(x), …, B_ORD(x)]` from the polynomials of [`exp_poly`], by Horner: exact coefficients, no cancellation
 /// as x → 0.
 #[inline(always)]
+#[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
 pub(super) fn horner<R: Real, const ORD: usize>(polys: &[Poly; 5], x: R) -> [R; 5] {
     let mut b = [R::from_f64(1.0); 5];
-    for (j, (b, poly)) in b.iter_mut().zip(polys).enumerate().take(ORD + 1).skip(1) {
-        *b = poly[..j].iter().rev().fold(R::from_f64(poly[j]), |acc, &ck| acc * x + ck);
+    for (j, (b, poly)) in b.iter_mut().zip(polys).enumerate().take(ORD.saturating_add(1)).skip(1) {
+        let lead = R::from_f64(poly.get(j).copied().unwrap_or(f64::NAN));
+        *b = poly.get(..j).unwrap_or_default().iter().rev().fold(lead, |acc, &ck| acc * x + ck);
     }
     b
 }
@@ -132,10 +137,10 @@ pub(super) fn exp_series(out: &mut [[f64; 2]; 3], (d, l, c): (u8, u8, f64), mut 
     let (d, l) = (usize::from(d), usize::from(l));
     let mut coef = 1.0; // (−c)^q / q!
     for q in 0..if l == 0 { 1u8 } else { 3 } {
-        if let Some(slot) = out.get_mut(d + usize::from(q) * l) {
+        if let Some(slot) = out.get_mut(usize::from(q).saturating_mul(l).saturating_add(d)) {
             add(slot, coef);
         }
-        coef *= -c / f64::from(q + 1);
+        coef *= -c / (f64::from(q) + 1.0);
     }
 }
 
@@ -174,21 +179,17 @@ impl PowerBlock {
         })
     }
 
-    /// The contribution of term `k` at one state: `φ = n τ^t δ^d e^(−cδ^l)` and its δ-side factors.
+    /// Hot path for one state: per term `φ = n τ^t δ^d e^(−cδ^l)`, one `exp`, and its δ-side factors, then
+    /// `A_ij += φ·B^τ_i·B^δ_j` for `i + j ≤ ORD`. Generic over `R`, so `Jet4` and lanes run this same code.
     #[inline(always)]
-    fn term<R: Real, const ORD: usize>(&self, k: usize, v: &Vars<R>) -> (R, [R; 5]) {
-        let x = v.delta_pow[usize::from(self.l[k])] * self.c[k]; // c δ^l (0 for polynomial terms)
-        let phi = (v.ln_tau * self.t[k] - x).exp() * v.delta_pow[usize::from(self.d[k])] * self.n[k];
-        (phi, horner::<R, ORD>(&self.bd[k], x))
-    }
-
-    /// Hot path for one state: one `exp` per term, then `A_ij += φ·B^τ_i·B^δ_j` for `i + j ≤ ORD`.
-    /// Generic over `R`, so `Jet4` (and lanes, if the SIMD gate fires) run this same code.
-    #[inline(always)]
+    #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
     pub(crate) fn accumulate<R: Real, const ORD: usize>(&self, v: &Vars<R>, acc: &mut Derivs<R>) {
-        for k in 0..self.n.len() {
-            let (phi, bd) = self.term::<R, ORD>(k, v);
-            acc.add_outer::<ORD>(phi, &self.bt[k], &bd);
+        let pow = |e: u8| v.delta_pow.get(usize::from(e)).copied().unwrap_or_else(|| R::from_f64(f64::NAN));
+        let terms = self.n.iter().zip(&self.t).zip(&self.d).zip(&self.l).zip(&self.c);
+        for (((((&n, &t), &d), &l), &c), (bt, bd)) in terms.zip(self.bt.iter().zip(&self.bd)) {
+            let x = pow(l) * c; // c δ^l (0 for polynomial terms)
+            let phi = (v.ln_tau * t - x).exp() * pow(d) * n;
+            acc.add_outer::<ORD>(phi, bt, &horner::<R, ORD>(bd, x));
         }
     }
 
@@ -196,9 +197,9 @@ impl PowerBlock {
     /// `δ^d e^(−cδ^l) = Σ_m (−c)^m δ^(d+ml) / m!` (E4).
     pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 2]; 3] {
         let mut a = [[0.0; 2]; 3];
-        for k in 0..self.n.len() {
-            let (f, t) = (self.n[k] * crate::num::math::powf(tau, self.t[k]), self.t[k]);
-            exp_series(&mut a, (self.d[k], self.l[k], self.c[k]), |slot, coef| {
+        for ((((&n, &t), &d), &l), &c) in self.n.iter().zip(&self.t).zip(&self.d).zip(&self.l).zip(&self.c) {
+            let f = n * crate::num::math::powf(tau, t);
+            exp_series(&mut a, (d, l, c), |slot, coef| {
                 slot[0] += coef * f;
                 slot[1] += coef * f * t;
             });

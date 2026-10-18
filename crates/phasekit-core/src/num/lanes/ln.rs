@@ -29,9 +29,10 @@ const TWO52: f64 = f64::from_bits(0x4330_0000_0000_0000);
 fn reduced(x: f64, k0: f64) -> f64 {
     let ui = x.to_bits();
     // hx += 0x3ff00000 - 0x3fe6a09e; k += (hx >> 20) - 0x3ff; hx = (hx & 0x000fffff) + 0x3fe6a09e
-    let hx = (ui >> 32) + (0x3ff0_0000 - 0x3fe6_a09e);
+    // libm's uint32 arithmetic: no carry reaches bit 32, so wrapping and plain addition agree.
+    let hx = (ui >> 32).wrapping_add(0x3ff0_0000 - 0x3fe6_a09e);
     let dk = (f64::from_bits(TWO52.to_bits() | (hx >> 20)) - TWO52 - 1023.0) + k0;
-    let hx = (hx & 0x000f_ffff) + 0x3fe6_a09e;
+    let hx = (hx & 0x000f_ffff).wrapping_add(0x3fe6_a09e);
     let x = f64::from_bits((hx << 32) | (ui & 0xffff_ffff));
     let f = x - 1.0;
     let hfsq = 0.5 * f * f;

@@ -76,7 +76,7 @@ impl<'a> Reader<'a> {
         let end = self.at.checked_add(N).filter(|&end| end <= self.bytes.len());
         let chunk = end.and_then(|end| self.bytes.get(self.at..end)).and_then(|c| <[u8; N]>::try_from(c).ok());
         let chunk = chunk.ok_or_else(|| bad(format!("{} section is truncated", self.section)))?;
-        self.at += N;
+        self.at = self.at.saturating_add(N);
         Ok(chunk)
     }
 
@@ -103,7 +103,7 @@ impl<'a> Reader<'a> {
         let bytes = bytes.ok_or_else(|| bad(format!("{} section is truncated", self.section)))?;
         let text =
             core::str::from_utf8(bytes).map_err(|_| bad(format!("{} section: a string is not UTF-8", self.section)))?;
-        self.at += len;
+        self.at = self.at.saturating_add(len);
         Ok(text.to_string())
     }
 
@@ -120,7 +120,11 @@ impl<'a> Reader<'a> {
         if self.at == self.bytes.len() {
             Ok(())
         } else {
-            Err(bad(format!("{} section has bytes left over ({})", self.section, self.bytes.len() - self.at)))
+            Err(bad(format!(
+                "{} section has bytes left over ({})",
+                self.section,
+                self.bytes.len().saturating_sub(self.at)
+            )))
         }
     }
 }
@@ -387,7 +391,7 @@ fn read_ancillaries(bytes: &[u8]) -> Result<Option<PseudoPure>, LoadError> {
     let (p_l, p_v, rho_l, rho_v) = (one()?, one()?, one()?, one()?);
     let t_range = (r.f64()?, r.f64()?);
     if r.at != bytes.len() {
-        return Err(bad(format!("ancillaries: {} bytes after the last field", bytes.len() - r.at)));
+        return Err(bad(format!("ancillaries: {} bytes after the last field", bytes.len().saturating_sub(r.at))));
     }
     Ok(Some(PseudoPure { p_l, p_v, rho_l, rho_v, t_range }))
 }
@@ -635,19 +639,19 @@ pub(crate) fn sections(record: &FluidRecord) -> [Vec<u8>; SECTION_COUNT] {
 
 /// A v1 blob holding `bodies` as its sections, in id order.
 pub(crate) fn assemble(bodies: &[Vec<u8>; SECTION_COUNT]) -> Vec<u8> {
-    let mut offset = HEADER + ENTRY * SECTIONS.len();
+    let mut offset = ENTRY.saturating_mul(SECTIONS.len()).saturating_add(HEADER);
     let mut table = Vec::new();
     let mut body = Vec::new();
     for ((id, ..), bytes) in SECTIONS.iter().zip(bodies) {
-        let padding = offset.next_multiple_of(8) - offset;
-        body.resize(body.len() + padding, 0);
-        offset += padding;
+        let padding = offset.next_multiple_of(8).saturating_sub(offset);
+        body.resize(body.len().saturating_add(padding), 0);
+        offset = offset.saturating_add(padding);
         put_u32(&mut table, *id);
         put_u32(&mut table, 0);
         table.extend_from_slice(&(offset as u64).to_le_bytes());
         table.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
         body.extend_from_slice(bytes);
-        offset += bytes.len();
+        offset = offset.saturating_add(bytes.len());
     }
     let checked: Vec<u8> = table.into_iter().chain(body).collect();
     BLOB.wrap(SECTIONS.len(), &checked)
@@ -673,11 +677,12 @@ const PACK: Frame = Frame { magic: PACK_MAGIC, version: PACK_VERSION, what: "pac
 impl Frame {
     /// `body` behind this frame's header, which counts `count` items.
     fn wrap(&self, count: usize, body: &[u8]) -> Vec<u8> {
-        let mut out = Vec::with_capacity(HEADER + body.len());
+        let total = body.len().saturating_add(HEADER);
+        let mut out = Vec::with_capacity(total);
         out.extend_from_slice(self.magic);
         put_u32(&mut out, self.version);
         put_u32(&mut out, count as u32);
-        out.extend_from_slice(&((HEADER + body.len()) as u64).to_le_bytes());
+        out.extend_from_slice(&(total as u64).to_le_bytes());
         out.extend_from_slice(&ModelKey::from_content(body).get().to_le_bytes());
         out.extend_from_slice(body);
         out
@@ -712,13 +717,13 @@ impl Frame {
 }
 
 /// The header, checksum and section table of a v1 blob, checked whole: its sections, in id order.
-fn validated_sections(bytes: &[u8]) -> Result<Vec<&[u8]>, LoadError> {
+fn validated_sections(bytes: &[u8]) -> Result<[&[u8]; SECTION_COUNT], LoadError> {
     let (count, _) = BLOB.open(bytes)?;
     if count != SECTIONS.len() {
         return Err(bad(format!("blob lists {count} sections; version {VERSION} has {}", SECTIONS.len())));
     }
-    let mut table = Reader::new(bytes.get(HEADER..HEADER + ENTRY * count).unwrap_or_default(), "section table");
-    let mut next = HEADER + ENTRY * count;
+    let mut next = ENTRY.saturating_mul(count).saturating_add(HEADER);
+    let mut table = Reader::new(bytes.get(HEADER..next).unwrap_or_default(), "section table");
     let mut sections: Vec<&[u8]> = Vec::with_capacity(count);
     for &(id, name, lands_at) in &SECTIONS {
         let (got, zero, offset, len) = (table.u32()?, table.u32()?, table.u64()?, table.u64()?);
@@ -733,13 +738,13 @@ fn validated_sections(bytes: &[u8]) -> Result<Vec<&[u8]>, LoadError> {
         if let (Some(step), false) = (lands_at, section.is_empty()) {
             return Err(bad(format!("the {name} section lands at {step}")));
         }
-        next = start + section.len();
+        next = start.saturating_add(section.len());
         sections.push(section);
     }
     if next != bytes.len() {
-        return Err(bad(format!("blob has {} bytes after its last section", bytes.len() - next)));
+        return Err(bad(format!("blob has {} bytes after its last section", bytes.len().saturating_sub(next))));
     }
-    Ok(sections)
+    sections.try_into().map_err(|_| bad(format!("blob has not {SECTION_COUNT} sections")))
 }
 
 /// Validates a v1 blob whole (header, checksum, section table), then decodes every section.
@@ -805,8 +810,8 @@ pub(crate) fn pack(fluids: &[PackFluid]) -> Vec<u8> {
             list.iter().for_each(|n| put_str(&mut body, n));
         }
         body.extend_from_slice(&(blob.len() as u64).to_le_bytes());
-        let padding = (HEADER + body.len()).next_multiple_of(8) - (HEADER + body.len());
-        body.resize(body.len() + padding, 0);
+        let at = body.len().saturating_add(HEADER);
+        body.resize(body.len().saturating_add(at.next_multiple_of(8).saturating_sub(at)), 0);
         body.extend_from_slice(blob);
     }
     PACK.wrap(fluids.len(), &body)
@@ -823,14 +828,14 @@ pub(crate) fn unpack(bytes: &[u8]) -> Result<Vec<PackFluid>, LoadError> {
             *list = (0..r.u32()?).map(|_| r.str()).collect::<Result<_, _>>()?;
         }
         let len = usize::try_from(r.u64()?).map_err(|_| bad("pack: a blob length overflows".into()))?;
-        let padding = (HEADER + r.at).next_multiple_of(8) - (HEADER + r.at);
-        let start = r.at + padding;
+        let at = r.at.saturating_add(HEADER);
+        let start = r.at.saturating_add(at.next_multiple_of(8).saturating_sub(at));
         let blob = start.checked_add(len).and_then(|end| body.get(start..end));
         let blob = blob.ok_or_else(|| bad("pack is truncated".into()))?;
         if body.get(r.at..start).is_some_and(|pad| pad.iter().any(|&b| b != 0)) {
             return Err(bad("pack: nonzero padding".into()));
         }
-        r.at = start + len;
+        r.at = start.saturating_add(len);
         validated_sections(blob)?;
         let [names, requires] = lists;
         if names.is_empty() {

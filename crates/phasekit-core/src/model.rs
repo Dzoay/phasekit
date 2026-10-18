@@ -23,11 +23,11 @@ impl ModelKey {
     /// FNV-1a 64 of `bytes`.
     pub const fn from_content(bytes: &[u8]) -> Self {
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-        let mut i = 0;
-        while i < bytes.len() {
-            h ^= bytes[i] as u64;
+        let mut rest = bytes;
+        while let [byte, tail @ ..] = rest {
+            h ^= *byte as u64;
             h = h.wrapping_mul(0x0000_0100_0000_01b3);
-            i += 1;
+            rest = tail;
         }
         Self(h)
     }
