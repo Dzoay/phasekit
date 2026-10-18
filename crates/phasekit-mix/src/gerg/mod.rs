@@ -188,23 +188,25 @@ pub fn with_gerg2008(registry: &Registry) -> Result<Registry, Error> {
 /// the last four 0 for its polynomial terms.
 pub(crate) fn aga8_entries() -> Vec<(&'static str, Vec<usize>, f64)> {
     let mut out = Vec::new();
-    for (i, c) in COMPONENTS.iter().enumerate().map(|(i, c)| (i + 1, c)) {
+    // AGA8 numbers components, terms and binaries from 1.
+    let one = |k: usize| k.saturating_add(1);
+    for (i, c) in COMPONENTS.iter().enumerate().map(|(i, c)| (one(i), c)) {
         let polynomial = c.residual.iter().take_while(|t| t.l == 0.0).count();
         for (name, value) in [("MMiGERG", c.molar_mass), ("Dc", c.rho_c), ("Tc", c.t_c)] {
             out.push((name, vec![i], value));
         }
         out.push(("kpol", vec![i], polynomial as f64));
-        out.push(("kexp", vec![i], (c.residual.len() - polynomial) as f64));
-        for (k, t) in c.residual.iter().enumerate().map(|(k, t)| (k + 1, t)) {
+        out.push(("kexp", vec![i], c.residual.len().saturating_sub(polynomial) as f64));
+        for (k, t) in c.residual.iter().enumerate().map(|(k, t)| (one(k), t)) {
             for (name, value) in [("noik", t.n), ("doik", t.d), ("toik", t.t), ("coik", t.l)] {
                 out.push((name, vec![i, k], value));
             }
         }
-        out.extend(c.n0.iter().enumerate().map(|(j, n)| ("n0i", vec![i, j + 1], *n)));
-        out.extend(c.theta.iter().enumerate().map(|(j, theta)| ("th0i", vec![i, j + 4], *theta)));
+        out.extend(c.n0.iter().enumerate().map(|(j, n)| ("n0i", vec![i, one(j)], *n)));
+        out.extend(c.theta.iter().enumerate().map(|(j, theta)| ("th0i", vec![i, j.saturating_add(4)], *theta)));
     }
     for b in &BINARIES {
-        let (i, j) = (b.i + 1, b.j + 1);
+        let (i, j) = (one(b.i), one(b.j));
         let model = b.model.map_or(-1.0, |m| m as f64);
         for (name, value) in [
             ("bvij", b.beta_v),
@@ -219,8 +221,8 @@ pub(crate) fn aga8_entries() -> Vec<(&'static str, Vec<usize>, f64)> {
     }
     for (m, f) in &DEPARTURES {
         out.push(("kpolij", vec![*m], f.power as f64));
-        out.push(("kexpij", vec![*m], (f.terms.len() - f.power) as f64));
-        for (k, t) in f.terms.iter().enumerate().map(|(k, t)| (k + 1, t)) {
+        out.push(("kexpij", vec![*m], f.terms.len().saturating_sub(f.power) as f64));
+        for (k, t) in f.terms.iter().enumerate().map(|(k, t)| (one(k), t)) {
             let arrays = [
                 ("nijk", t.n),
                 ("dijk", t.d),

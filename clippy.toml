@@ -105,3 +105,8 @@ disallowed-methods = [
     { path = "f64::acosh", reason = "use math:: (D12)" },
     { path = "f64::atanh", reason = "use math:: (D12)" },
 ]
+
+# PLAN.md M24.4 (issue #219): `arithmetic_side_effects` passes core's `Derivs`, whose operators are IEEE floating-point
+# arithmetic on bundles of derivatives and never panic. The list matches no type of the crate being linted nor an
+# operator on references, so phasekit-mix's series kernels allow the lint where they compute, each naming why.
+arithmetic-side-effects-allowed = ["phasekit_core::Derivs"]

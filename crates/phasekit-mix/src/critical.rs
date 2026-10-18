@@ -15,6 +15,7 @@
 
 use phasekit_core::{Error, Order, math};
 
+use crate::slot::{at, at2, set};
 use crate::{Composition, MixtureModel, MultiFluid, Var};
 
 /// A critical point at the mixture's composition: T (K), ρ (mol/m³) and p (Pa).
@@ -57,7 +58,7 @@ impl Conditions {
         let mut q = vec![vec![0.0; n]; n];
         for (i, row) in q.iter_mut().enumerate() {
             for (j, cell) in row.iter_mut().enumerate() {
-                let ideal = 1.0 - w[i] - w[j] + w_bar + if i == j { w[i] / x[i] } else { 0.0 };
+                let ideal = 1.0 - at(w, i) - at(w, j) + w_bar + if i == j { at(w, i) / at(x, i) } else { 0.0 };
                 *cell = c.psi(&[Var::N(i), Var::N(j)]) + ideal;
             }
         }
@@ -69,7 +70,9 @@ impl Conditions {
         self.q
             .iter()
             .enumerate()
-            .map(|(i, row)| row.iter().enumerate().map(|(j, q)| q * math::sqrt(self.x[i] * self.x[j])).collect())
+            .map(|(i, row)| {
+                row.iter().enumerate().map(|(j, q)| q * math::sqrt(at(&self.x, i) * at(&self.x, j))).collect()
+            })
             .collect()
     }
 
@@ -91,9 +94,9 @@ impl Conditions {
         let n = self.x.len();
         let mut a = self.scaled();
         let mut cols: Vec<usize> = (0..n).collect();
-        for k in 0..n - 1 {
+        for k in 0..n.saturating_sub(1) {
             let (r, c) = largest(&a, k);
-            if a[r][c] == 0.0 {
+            if at2(&a, r, c) == 0.0 {
                 return None;
             }
             a.swap(r, k);
@@ -105,15 +108,18 @@ impl Conditions {
         }
         // Back-substitution of the first N − 1 pivots' rows with the free column's entry 1.
         let mut y = vec![0.0; n];
-        y[n - 1] = 1.0;
-        for r in (0..n - 1).rev() {
-            let s: f64 = (r + 1..n).map(|c| a[r][c] * y[c]).sum();
-            y[r] = -s / a[r][r];
+        if let Some(free) = y.last_mut() {
+            *free = 1.0;
+        }
+        for r in (0..n.saturating_sub(1)).rev() {
+            let row = a.get(r).map_or(&[][..], Vec::as_slice);
+            let s: f64 = row.iter().zip(&y).skip(r.saturating_add(1)).map(|(a, y)| a * y).sum();
+            set(&mut y, r, -s / at(row, r));
         }
         // y is D Q D's null vector in permuted order; Δn = D y.
         let mut v = vec![0.0; n];
-        for (k, &c) in cols.iter().enumerate() {
-            v[c] = y[k] * math::sqrt(self.x[c]);
+        for (&y, &c) in y.iter().zip(&cols) {
+            set(&mut v, c, y * math::sqrt(at(&self.x, c)));
         }
         let norm = math::sqrt(v.iter().zip(&self.x).map(|(v, x)| v * v / x).sum());
         norm.is_finite().then(|| v.iter().map(|v| v / norm).collect())
@@ -140,11 +146,10 @@ impl Conditions {
         let (mut sum, mut scale) = (0.0, 0.0);
         let triples = (0..n).flat_map(|i| (0..n).flat_map(move |j| (0..n).map(move |k| (i, j, k))));
         for (i, j, k) in triples {
-            let ideal = self.w[i] + self.w[j] + self.w[k]
-                - 2.0 * w_bar
-                - 1.0
-                - if i == j && j == k { self.w[i] / (self.x[i] * self.x[i]) } else { 0.0 };
-            let term = (c.psi(&[Var::N(i), Var::N(j), Var::N(k)]) + ideal) * dn[i] * dn[j] * dn[k];
+            let (w, x) = (|i| at(&self.w, i), |i| at(&self.x, i));
+            let ideal =
+                w(i) + w(j) + w(k) - 2.0 * w_bar - 1.0 - if i == j && j == k { w(i) / (x(i) * x(i)) } else { 0.0 };
+            let term = (c.psi(&[Var::N(i), Var::N(j), Var::N(k)]) + ideal) * at(dn, i) * at(dn, j) * at(dn, k);
             (sum, scale) = (sum + term, scale + term.abs());
         }
         (sum, scale)
@@ -157,7 +162,7 @@ fn largest(a: &[Vec<f64>], k: usize) -> (usize, usize) {
     let mut best = (k, k);
     for i in k..n {
         for j in k..n {
-            if a[i][j].abs() > a[best.0][best.1].abs() {
+            if at2(a, i, j).abs() > at2(a, best.0, best.1).abs() {
                 best = (i, j);
             }
         }
@@ -170,15 +175,15 @@ fn determinant(mut a: Vec<Vec<f64>>) -> f64 {
     let n = a.len();
     let mut det = 1.0;
     for col in 0..n {
-        let pivot = (col..n).max_by(|&r, &s| a[r][col].abs().total_cmp(&a[s][col].abs())).unwrap_or(col);
-        if a[pivot][col] == 0.0 {
+        let pivot = (col..n).max_by(|&r, &s| at2(&a, r, col).abs().total_cmp(&at2(&a, s, col).abs())).unwrap_or(col);
+        if at2(&a, pivot, col) == 0.0 {
             return 0.0;
         }
         if pivot != col {
             a.swap(pivot, col);
             det = -det;
         }
-        det *= a[col][col];
+        det *= at2(&a, col, col);
         eliminate(&mut a, col);
     }
     det
@@ -186,11 +191,10 @@ fn determinant(mut a: Vec<Vec<f64>>) -> f64 {
 
 /// Subtracts row `col` from the rows below it to zero column `col`.
 fn eliminate(a: &mut [Vec<f64>], col: usize) {
-    let (top, rest) = a.split_at_mut(col + 1);
-    let pivot = &top[col];
+    let Some((pivot, rest)) = a.get_mut(col..).and_then(<[Vec<f64>]>::split_first_mut) else { return };
     for row in rest.iter_mut() {
-        let f = row[col] / pivot[col];
-        for (x, p) in row[col..].iter_mut().zip(&pivot[col..]) {
+        let f = at(row, col) / at(pivot, col);
+        for (x, p) in row.iter_mut().zip(pivot.iter()).skip(col) {
             *x -= f * p;
         }
     }
@@ -293,7 +297,9 @@ impl Search<'_> {
     fn crossings(&self, cell: &Cell) -> Vec<OnLimit> {
         Cell::EDGES
             .iter()
-            .filter_map(|&(a, b)| self.limit_between(cell.corner(a), cell.corner(b), (cell.det[a], cell.det[b])))
+            .filter_map(|&(a, b)| {
+                self.limit_between(cell.corner(a), cell.corner(b), (at(&cell.det, a), at(&cell.det, b)))
+            })
             .collect()
     }
 
@@ -323,7 +329,7 @@ impl Search<'_> {
         let mut roots = Vec::new();
         let mut doubtful = false;
         for (k, a) in on.iter().enumerate() {
-            for b in &on[k + 1..] {
+            for b in on.iter().skip(k.saturating_add(1)) {
                 let cb = b.cubic * self.along(&a.dn, &b.dn).signum();
                 if a.cubic.signum() != cb.signum() {
                     roots.extend(self.polish(a, b));
@@ -334,7 +340,7 @@ impl Search<'_> {
         }
         if doubtful && splits > 0 {
             for q in &cell.quarters(&|at| self.det_at(at)) {
-                roots.extend(self.roots(q, &self.crossings(q), splits - 1));
+                roots.extend(self.roots(q, &self.crossings(q), splits.saturating_sub(1)));
             }
         }
         roots
@@ -367,12 +373,14 @@ pub(crate) fn critical_points(
     let mut edges: std::collections::HashMap<(Node, Node), Option<OnLimit>> = std::collections::HashMap::new();
     let mut found: Vec<CriticalState> = Vec::new();
     for (i, j) in (1..DENSITIES).flat_map(|i| (1..TEMPERATURES).map(move |j| (i, j))) {
-        let nodes = [(i - 1, j - 1), (i - 1, j), (i, j - 1), (i, j)];
-        let cell =
-            Cell { u: (ln_t[j - 1], ln_t[j]), v: (ln_rho[i - 1], ln_rho[i]), det: nodes.map(|(a, b)| det[a][b]) };
+        let (i0, j0) = (i.saturating_sub(1), j.saturating_sub(1));
+        let nodes = [(i0, j0), (i0, j), (i, j0), (i, j)];
+        let (u, v) = ((at(&ln_t, j0), at(&ln_t, j)), (at(&ln_rho, i0), at(&ln_rho, i)));
+        let cell = Cell { u, v, det: nodes.map(|(a, b)| at2(&det, a, b)) };
         let mut crossing = |(a, b): (usize, usize)| {
-            let between = || search.limit_between(cell.corner(a), cell.corner(b), (cell.det[a], cell.det[b]));
-            edges.entry((nodes[a], nodes[b])).or_insert_with(between).clone()
+            let between = || search.limit_between(cell.corner(a), cell.corner(b), (at(&cell.det, a), at(&cell.det, b)));
+            let (&na, &nb) = (nodes.get(a)?, nodes.get(b)?);
+            edges.entry((na, nb)).or_insert_with(between).clone()
         };
         let on: Vec<OnLimit> = Cell::EDGES.iter().filter_map(|&edge| crossing(edge)).collect();
         for c in search.roots(&cell, &on, SPLITS) {
@@ -393,7 +401,7 @@ fn fresh(c: &CriticalState, found: &[CriticalState], (t_min, t_max): (f64, f64))
 
 /// `n` ≥ 2 points evenly spaced in ln from ln `lo` to ln `hi`, both included.
 fn log_axis(lo: f64, hi: f64, n: usize) -> Vec<f64> {
-    (0..n).map(|k| math::ln(lo) + (math::ln(hi) - math::ln(lo)) * k as f64 / (n - 1) as f64).collect()
+    (0..n).map(|k| math::ln(lo) + (math::ln(hi) - math::ln(lo)) * k as f64 / n.saturating_sub(1) as f64).collect()
 }
 
 /// A root in (0, 1) of `f`, whose values at 0 and 1 are `ends` (of opposite signs), by the Illinois variant of the
@@ -438,7 +446,7 @@ fn newton(f: &dyn Fn(f64, f64) -> [f64; 2], (t, rho): (f64, f64)) -> Option<(f64
     let size = |r: [f64; 2]| r[0].abs() + r[1].abs();
     let (mut u, mut v) = (math::ln(t), math::ln(rho));
     let mut r = at(u, v);
-    let (mut best, mut stalled) = ((u, v, size(r)), 0);
+    let (mut best, mut stalled) = ((u, v, size(r)), 0_u32);
     for _ in 0..60 {
         if !(r[0].is_finite() && r[1].is_finite()) {
             return None;
@@ -449,7 +457,7 @@ fn newton(f: &dyn Fn(f64, f64) -> [f64; 2], (t, rho): (f64, f64)) -> Option<(f64
         if size(r) < best.2 {
             (best, stalled) = ((u, v, size(r)), 0);
         } else {
-            stalled += 1;
+            stalled = stalled.saturating_add(1);
         }
         if stalled >= 3 || size(r) == 0.0 {
             break;

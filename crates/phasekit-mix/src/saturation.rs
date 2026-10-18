@@ -27,6 +27,7 @@ use phasekit_core::{Error, Order, Strategy, ThermoModel, math};
 
 use crate::equilibrium::{AtTp, FUGACITY_GATE, Phase, branch_root, normalised, polished, solve, square, wilson_parts};
 use crate::illinois::{End, illinois};
+use crate::slot;
 use crate::{Equilibrium, Mixture};
 
 /// The bubble point (the feed liquid, a vapour incipient) or the dew point (the feed vapour, a liquid incipient).
@@ -489,7 +490,8 @@ impl<'a> Solver<'a> {
     fn equations(&mut self, t: f64, p: f64, ln_k: &[f64]) -> Result<(Vec<f64>, Phases), Error> {
         let at = self.phases(t, p, ln_k)?;
         let (liquid, vapour) = (at.liquid.ln_phi(), at.vapour.ln_phi());
-        let mut f: Vec<f64> = (0..self.z.len()).map(|i| ln_k[i] + vapour[i] - liquid[i]).collect();
+        let terms = ln_k.iter().zip(&vapour).zip(&liquid).take(self.z.len());
+        let mut f: Vec<f64> = terms.map(|((ln_k, v), l)| ln_k + v - l).collect();
         f.push(at.y.iter().zip(&at.x).map(|(y, x)| y - x).sum());
         Ok((f, at))
     }
@@ -523,7 +525,7 @@ impl<'a> Solver<'a> {
             for (l, s) in ln_k.iter_mut().zip(&step) {
                 *l += cut(*s, 0.5);
             }
-            let dx = cut(step[n], 0.1);
+            let dx = cut(slot::at(&step, n), 0.1);
             match given {
                 Given::T(_) => p *= math::exp(dx),
                 Given::P(_) => t *= math::exp(dx),
@@ -537,7 +539,7 @@ impl<'a> Solver<'a> {
         let (n, beta) = (self.z.len(), self.beta);
         // ∂x_k/∂ln K_k = −β x_k y_k/z_k and ∂y_k/∂ln K_k = (1 − β) x_k y_k/z_k. ln φ depends on the fractions alone, so
         // its derivative in a phase's amounts at x (or y) is Φ/Σx (Φ/Σy): both sums are 1 where Rachford–Rice holds.
-        let moves: Vec<f64> = (0..n).map(|k| at.x[k] * at.y[k] / self.z[k]).collect();
+        let moves: Vec<f64> = at.x.iter().zip(&at.y).zip(self.z.iter()).map(|((x, y), z)| x * y / z).collect();
         let (sum_x, sum_y) = (at.x.iter().sum::<f64>(), at.y.iter().sum::<f64>());
         let phi = |i: usize, k: usize| {
             (1.0 - beta) * at.vapour.c.n_dln_phi_dn(i, k) / sum_y + beta * at.liquid.c.n_dln_phi_dn(i, k) / sum_x
@@ -546,10 +548,10 @@ impl<'a> Solver<'a> {
             Given::T(_) => p * a.c.dln_phi_dp(i),
             Given::P(_) => t * a.c.dln_phi_dt(i),
         };
-        square(n + 1, |i, k| match (i < n, k < n) {
-            (true, true) => (if i == k { 1.0 } else { 0.0 }) + moves[k] * phi(i, k),
+        square(n.saturating_add(1), |i, k| match (i < n, k < n) {
+            (true, true) => (if i == k { 1.0 } else { 0.0 }) + slot::at(&moves, k) * phi(i, k),
             (true, false) => d_ln_x(&at.vapour, i) - d_ln_x(&at.liquid, i),
-            (false, true) => moves[k],
+            (false, true) => slot::at(&moves, k),
             (false, false) => 0.0,
         })
     }

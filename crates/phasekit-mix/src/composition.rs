@@ -57,8 +57,32 @@ fn degree(order: Order) -> Result<usize, Error> {
 
 /// 1/(a! b!) for a + b ≤ 3.
 fn inverse_factorials(a: usize, b: usize) -> f64 {
-    let f = |k: usize| [1.0, 1.0, 2.0, 6.0][k.min(3)];
+    let f = |k: usize| match k {
+        0 | 1 => 1.0,
+        2 => 2.0,
+        _ => 6.0,
+    };
     1.0 / (f(a) * f(b))
+}
+
+/// Δτ^a Δδ^b for a + b ≤ `k`, shared by every part: row a holds b = 0 ..= k − a, from `one` and the increments
+/// (Δτ, Δδ).
+#[allow(clippy::arithmetic_side_effects, reason = "multivariate series (&Taylor): IEEE arithmetic, no panic")]
+fn increments(one: &Taylor, k: usize, (dt, dd): (&Taylor, &Taylor)) -> Vec<Vec<Taylor>> {
+    let mut powers = vec![vec![one.clone()]];
+    for _ in 1..=k {
+        let Some(last) = powers.last().and_then(|row| row.first()) else { break };
+        let next = last * dt;
+        powers.push(vec![next]);
+    }
+    for (a, row) in powers.iter_mut().enumerate() {
+        for _ in 0..k.saturating_sub(a) {
+            let Some(last) = row.last() else { break };
+            let next = last * dd;
+            row.push(next);
+        }
+    }
+    powers
 }
 
 impl MixtureModel for MultiFluid {
@@ -66,6 +90,7 @@ impl MixtureModel for MultiFluid {
         self.len()
     }
 
+    #[allow(clippy::arithmetic_side_effects, reason = "multivariate series (&Taylor): IEEE arithmetic, no panic")]
     fn composition(&self, t: f64, rho: f64, x: &[f64], order: Order) -> Result<Composition, Error> {
         let n = self.len();
         if x.len() != n {
@@ -74,9 +99,10 @@ impl MixtureModel for MultiFluid {
         if !(t > 0.0 && rho > 0.0 && t.is_finite() && rho.is_finite()) {
             return Err(Error::InvalidInput { quantity: "density for composition derivatives", value: rho });
         }
-        let (m, k) = (n + 2, degree(order)?);
+        let (m, k) = (n.saturating_add(2), degree(order)?);
         let moles: Vec<Taylor> = x.iter().enumerate().map(|(i, xi)| Taylor::variable(m, k, i, *xi)).collect();
-        let (temperature, volume) = (Taylor::variable(m, k, n, t), Taylor::variable(m, k, n + 1, 1.0 / rho));
+        let (temperature, volume) =
+            (Taylor::variable(m, k, n, t), Taylor::variable(m, k, n.saturating_add(1), 1.0 / rho));
         let mut total = Taylor::constant(m, k, 0.0);
         for ni in &moles {
             total.add_scaled(1.0, ni);
@@ -87,18 +113,7 @@ impl MixtureModel for MultiFluid {
         let tau = t_r.divide(&temperature);
         let delta = (&total * &v_r).divide(&volume);
         let (tau0, delta0) = (tau.value(), delta.value());
-        // Δτ^a Δδ^b for a + b ≤ 3, shared by every part.
-        let (dt, dd) = (tau.increment(), delta.increment());
-        let mut powers = vec![vec![Taylor::constant(m, k, 1.0)]];
-        for a in 1..=k {
-            powers.push(vec![&powers[a - 1][0] * &dt]);
-        }
-        for (a, row) in powers.iter_mut().enumerate() {
-            for b in 1..=(k - a) {
-                let next = &row[b - 1] * &dd;
-                row.push(next);
-            }
-        }
+        let powers = increments(&Taylor::constant(m, k, 1.0), k, (&tau.increment(), &delta.increment()));
         let compose = |jet: &dyn Fn(usize, usize) -> f64| {
             let mut sum = Taylor::constant(m, k, 0.0);
             for (a, row) in powers.iter().enumerate() {
@@ -125,7 +140,9 @@ impl MixtureModel for MultiFluid {
         for d in self.departures.iter() {
             let jet = departure::jet(d.function, tau0, delta0, k);
             let part = compose(&|a, b| jet.derivative(a, b).unwrap_or(f64::NAN));
-            alpha = &alpha + &(&(&fractions[d.i] * &fractions[d.j]) * &part.scale(d.f));
+            let absent = || Error::InvalidInput { quantity: "a departure's component", value: d.i as f64 };
+            let (xi, xj) = (fractions.get(d.i).ok_or_else(absent)?, fractions.get(d.j).ok_or_else(absent)?);
+            alpha = &alpha + &(&(xi * xj) * &part.scale(d.f));
         }
         let psi = &total * &alpha;
         Ok(Composition { psi, components: n, t, rho, r: self.gas_constant() })
@@ -138,7 +155,7 @@ impl Composition {
         match var {
             Var::N(i) => i,
             Var::T => self.components,
-            Var::V => self.components + 1,
+            Var::V => self.components.saturating_add(1),
         }
     }
 

@@ -5,6 +5,10 @@
 //! Its milestone holds phasekit-core unchanged from `m13-start` (`cargo xtask gates core-frozen`), after M13.1 added
 //! the seams a mixture needs (user decision MX2).
 
+// PLAN.md M24.4 (issue #219): no implicit panic, an index out of bounds or an integer overflow, in the library's code
+// (`gates lints` checks this line); its tests are exempt.
+#![cfg_attr(not(test), deny(clippy::indexing_slicing, clippy::arithmetic_side_effects))]
+
 mod composition;
 mod corrections;
 mod critical;
@@ -21,6 +25,7 @@ mod multifluid;
 mod names;
 mod reducing;
 mod saturation;
+mod slot;
 mod taylor;
 
 pub use composition::{Composition, MixtureModel, Var};

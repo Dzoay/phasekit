@@ -30,7 +30,7 @@ pub(crate) fn illinois<E>(
     (width, iterations): (f64, usize),
 ) -> Result<End<E>, Error> {
     let mut ends = [a, b];
-    // The end the last step replaced: 0 for a, 1 for b.
+    // The end the last step replaced: false for a, true for b.
     let mut replaced = None;
     for _ in 0..iterations {
         let [a, b] = &ends;
@@ -42,12 +42,14 @@ pub(crate) fn illinois<E>(
         if at.value == 0.0 {
             return Ok(at);
         }
-        let k = usize::from(at.value.signum() != a.value.signum());
-        if replaced == Some(k) {
-            ends[1 - k].weight /= 2.0;
+        let replace_b = at.value.signum() != a.value.signum();
+        let [a, b] = &mut ends;
+        let (this, other) = if replace_b { (b, a) } else { (a, b) };
+        if replaced == Some(replace_b) {
+            other.weight /= 2.0;
         }
-        ends[k] = at;
-        replaced = Some(k);
+        *this = at;
+        replaced = Some(replace_b);
     }
     let [a, b] = ends;
     Ok(if a.value.abs() <= b.value.abs() { a } else { b })

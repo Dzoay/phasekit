@@ -15,6 +15,7 @@
 use phasekit_core::density::{self, Branch};
 use phasekit_core::{Constant, Derivs, Error, HelmholtzModel, Order, Reducing, Strategy, Virials, math};
 
+use crate::slot::{self, at2, set};
 use crate::{Composition, Mixture, MixtureModel, Var};
 
 /// Successive substitutions of the tangent-plane test before its Newton stage, and that stage's steps.
@@ -412,13 +413,13 @@ impl Tpd<'_> {
             let at = self.at(&w, Order::Two)?;
             let (ln_phi, phi_n) = (at.ln_phi(), at.hessian());
             let total: f64 = w.iter().sum();
-            let g: Vec<f64> =
-                (0..w.len()).map(|i| math::sqrt(w[i]) * (math::ln(w[i]) + ln_phi[i] - self.d[i])).collect();
+            let terms = w.iter().zip(&ln_phi).zip(self.d.iter());
+            let g: Vec<f64> = terms.map(|((w, phi), d)| math::sqrt(*w) * (math::ln(*w) + phi - d)).collect();
             if g.iter().all(|g| g.abs() <= 1e-12) {
                 return Ok((w, step));
             }
-            let root = |i: usize, j: usize| math::sqrt(w[i] * w[j]);
-            let h = square(w.len(), |i, j| if i == j { 1.0 } else { 0.0 } + root(i, j) * phi_n[i][j] / total);
+            let root = |i: usize, j: usize| math::sqrt(slot::at(&w, i) * slot::at(&w, j));
+            let h = square(w.len(), |i, j| if i == j { 1.0 } else { 0.0 } + root(i, j) * at2(&phi_n, i, j) / total);
             let Some(delta) = solve(h, g.iter().map(|g| -g).collect()) else { return Ok((w, step)) };
             let Some(next) = self.line_search(&w, &delta, self.tm(&w, &ln_phi)) else { return Ok((w, step)) };
             w = next;
@@ -526,7 +527,8 @@ fn newton(mixture: &Mixture, t: f64, p: f64, z: &[f64], ln_k: &[f64]) -> Result<
         let (beta, x, y) = from_minority(z, &minor, vapour_minor);
         let (liquid, vapour) = (at_t_p(mixture, t, p, &x, Order::Two)?, at_t_p(mixture, t, p, &y, Order::Two)?);
         let (phi_l, phi_v) = (liquid.ln_phi(), vapour.ln_phi());
-        let f: Vec<f64> = (0..z.len()).map(|i| math::ln(y[i]) + phi_v[i] - math::ln(x[i]) - phi_l[i]).collect();
+        let terms = y.iter().zip(&phi_v).zip(&x).zip(&phi_l).take(z.len());
+        let f: Vec<f64> = terms.map(|(((y, pv), x), pl)| math::ln(*y) + pv - math::ln(*x) - pl).collect();
         if f.iter().all(|f| f.abs() <= FUGACITY_GATE) {
             return Ok(Split { beta, x, y, liquid, vapour });
         }
@@ -544,7 +546,8 @@ fn newton(mixture: &Mixture, t: f64, p: f64, z: &[f64], ln_k: &[f64]) -> Result<
 fn split_jacobian(beta: f64, (x, hl): (&[f64], &[Vec<f64>]), (y, hv): (&[f64], &[Vec<f64>])) -> Vec<Vec<f64>> {
     square(x.len(), |i, j| {
         let delta = if i == j { 1.0 } else { 0.0 };
-        (delta / y[i] - 1.0 + hv[i][j]) / beta + (delta / x[i] - 1.0 + hl[i][j]) / (1.0 - beta)
+        let (x, y) = (slot::at(x, i), slot::at(y, i));
+        (delta / y - 1.0 + at2(hv, i, j)) / beta + (delta / x - 1.0 + at2(hl, i, j)) / (1.0 - beta)
     })
 }
 
@@ -565,22 +568,26 @@ fn shortened(minor: &[f64], step: &[f64], z: &[f64]) -> f64 {
 /// pivot leaves x not finite).
 pub(crate) fn solve(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
     let n = b.len();
+    if a.len() != n {
+        return None;
+    }
     for col in 0..n {
-        let pivot = (col..n).max_by(|&r, &s| a[r][col].abs().total_cmp(&a[s][col].abs()))?;
+        let pivot = (col..n).max_by(|&r, &s| at2(&a, r, col).abs().total_cmp(&at2(&a, s, col).abs()))?;
         a.swap(pivot, col);
         b.swap(pivot, col);
-        let (top, rest) = a.split_at_mut(col + 1);
-        let pivot = &top[col];
-        for (offset, row) in rest.iter_mut().enumerate() {
-            let f = row[col] / pivot[col];
-            row[col..].iter_mut().zip(&pivot[col..]).for_each(|(x, p)| *x -= f * p);
-            b[col + 1 + offset] -= f * b[col];
+        let (pivot, rest) = a.get_mut(col..)?.split_first_mut()?;
+        let (b_col, b_rest) = b.get_mut(col..)?.split_first_mut()?;
+        for (row, bi) in rest.iter_mut().zip(b_rest.iter_mut()) {
+            let f = slot::at(row, col) / slot::at(pivot, col);
+            row.iter_mut().zip(pivot.iter()).skip(col).for_each(|(x, p)| *x -= f * p);
+            *bi -= f * *b_col;
         }
     }
     let mut x = vec![0.0; n];
     for r in (0..n).rev() {
-        let s: f64 = (r + 1..n).map(|c| a[r][c] * x[c]).sum();
-        x[r] = (b[r] - s) / a[r][r];
+        let row = a.get(r)?;
+        let s: f64 = row.iter().zip(&x).skip(r.saturating_add(1)).map(|(a, x)| a * x).sum();
+        set(&mut x, r, (slot::at(&b, r) - s) / slot::at(row, r));
     }
     x.iter().all(|x| x.is_finite()).then_some(x)
 }

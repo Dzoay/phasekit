@@ -84,27 +84,19 @@ exclude_re = [
     # A multi-fluid model has two or more components (PLAN.md M13.3: `MultiFluid::new` refuses fewer), so `is_empty` is
     # always false; clippy's `len_without_is_empty` asks for it beside `len`.
     "multifluid\\.rs:[0-9]+:[0-9]+: replace MultiFluid::is_empty -> bool with false",
-    # Equivalent (PLAN.md M13.6): a MultiFluid has two components or more, so composition's n * 2 Taylor variables are
-    # n + 2 or more: T and V keep their indices n and n + 1, and the extra ones are never seeded or read.
-    "composition\\.rs:77:25: replace \\+ with \\* in <impl MixtureModel for MultiFluid>::composition",
-    # Equivalent (PLAN.md M13.7): the critical search's null vector back-substitutes row r from column r + 1 on, where y_r is
-    # still 0, so starting at column r adds a_rr · 0; a tie for the largest pivot picks another as large; an end of a grid
+    # Equivalent (PLAN.md M13.7): a tie for the largest pivot picks another as large; an end of a grid
     # edge that is not finite leads to no crossing either way (the regula falsi's NaN reaches `conditions`, which
     # refuses it); a crossing paired with itself has one sign; and a cubic form divided by its orientation's ±1 is
     # multiplied by it.
-    "critical\\.rs:110:29: replace \\+ with \\* in Conditions::null_vector",
     "critical\\.rs:[0-9]+:[0-9]+: replace > with >= in largest",
     "critical\\.rs:[0-9]+:[0-9]+: replace && with \\|\\| in Search<'_>::limit_between",
     "critical\\.rs:[0-9]+:[0-9]+: replace \\+ with \\* in Search<'_>::roots",
     "critical\\.rs:[0-9]+:[0-9]+: replace \\* with / in Search<'_>::roots",
     # Equivalent (PLAN.md M13.7): `<=` for `<` differs only at a tie, a point exactly 1e-8 from a kept one, a bracket
-    # exactly 1e-3 wide, a Newton step exactly 0.1 long (where 0.1/step is 1). The grid's edge cache keys an edge by its
-    # nodes for reuse alone: read as (i, j), the node (i − 1, j) keys no other cell's edge, so its edges miss the cache
-    # and recompute the same crossings.
+    # exactly 1e-3 wide, a Newton step exactly 0.1 long (where 0.1/step is 1).
     "critical\\.rs:[0-9]+:[0-9]+: replace < with <= in fresh",
     "critical\\.rs:[0-9]+:[0-9]+: replace < with <= in regula_falsi",
     "critical\\.rs:[0-9]+:[0-9]+: replace > with >= in newton_step",
-    "critical\\.rs:370:41: replace - with / in critical_points",
     # Equivalent (PLAN.md M13.8): `<=` for `<` (or `>=` for `>`) differs only at a tie, which no solve meets: two roots of
     # equal Gibbs energy, Rachford–Rice's g exactly 0 (returned before) or a Newton step exactly on its bracket's end, a
     # distance exactly −1e-10, a trial exactly 1e-10 from the feed, a substitution changing exactly 1e-10, a trial's W
@@ -112,70 +104,67 @@ exclude_re = [
     # step then 0), a trial phase as dense as the feed, a split's lighter phase exactly at ρ_c, a slope exactly 0 on a
     # branch. GDEM every fifth step is a schedule, its other schedules converging to the same split in more steps. In the
     # back substitution x_r is still 0 when its own row is summed, so summing from r adds a_rr · 0.
-    "equilibrium\\.rs:224:43: replace < with <= in stable_root",
-    "equilibrium\\.rs:139:31: replace > with >= in rising",
-    "equilibrium\\.rs:275:14: replace > with >= in rachford_rice_steps",
-    "equilibrium\\.rs:281:30: replace > with >= in rachford_rice_steps",
-    "equilibrium\\.rs:281:45: replace < with <= in rachford_rice_steps",
-    "equilibrium\\.rs:351:33: replace < with <= in most_unstable",
-    "equilibrium\\.rs:371:87: replace < with <= in Tpd<'_>::trivial",
-    "equilibrium\\.rs:401:23: replace < with <= in Tpd<'_>::substitute",
-    "equilibrium\\.rs:435:48: replace > with >= in Tpd<'_>::line_search",
-    "equilibrium\\.rs:494:45: replace < with <= in collapsed",
-    "equilibrium\\.rs:478:40: replace < with <= in split",
-    "equilibrium\\.rs:479:68: replace > with >= in split",
-    "equilibrium\\.rs:479:79: replace < with <= in split",
-    "equilibrium\\.rs:483:26: replace % with \\+ in split",
-    "equilibrium\\.rs:483:26: replace % with / in split",
-    "equilibrium\\.rs:509:15: replace > with >= in accelerate",
-    "equilibrium\\.rs:522:29: replace < with <= in newton",
-    "equilibrium\\.rs:582:25: replace \\+ with \\* in solve",
+    "equilibrium\\.rs:225:43: replace < with <= in stable_root",
+    "equilibrium\\.rs:140:31: replace > with >= in rising",
+    "equilibrium\\.rs:276:14: replace > with >= in rachford_rice_steps",
+    "equilibrium\\.rs:282:30: replace > with >= in rachford_rice_steps",
+    "equilibrium\\.rs:282:45: replace < with <= in rachford_rice_steps",
+    "equilibrium\\.rs:352:33: replace < with <= in most_unstable",
+    "equilibrium\\.rs:372:87: replace < with <= in Tpd<'_>::trivial",
+    "equilibrium\\.rs:402:23: replace < with <= in Tpd<'_>::substitute",
+    "equilibrium\\.rs:436:48: replace > with >= in Tpd<'_>::line_search",
+    "equilibrium\\.rs:495:45: replace < with <= in collapsed",
+    "equilibrium\\.rs:479:40: replace < with <= in split",
+    "equilibrium\\.rs:480:68: replace > with >= in split",
+    "equilibrium\\.rs:480:79: replace < with <= in split",
+    "equilibrium\\.rs:484:26: replace % with \\+ in split",
+    "equilibrium\\.rs:484:26: replace % with / in split",
+    "equilibrium\\.rs:510:15: replace > with >= in accelerate",
+    "equilibrium\\.rs:523:29: replace < with <= in newton",
     "mixture\\.rs:206:76: replace < with <= in Mixture::equilibrium",
     "mixture\\.rs:351:85: replace > with >= in Mixture::equilibrium_state",
     # Equivalent (PLAN.md M13.9): ties no solve meets. The gated Newton's slope exactly 0; two branch roots exactly
     # SAME_ROOT apart in ln ρ; ln(ρ′/ρ″) exactly 1e-3 at the trivial-solution check; Wilson's p exactly p, or his
     # Rachford–Rice exactly 0, at a bisection midpoint, where either half keeps the root.
-    "equilibrium\\.rs:179:44: replace > with >= in gated",
-    "equilibrium\\.rs:198:65: replace > with >= in roots",
-    "saturation\\.rs:149:89: replace < with <= in trivial",
-    "saturation\\.rs:197:41: replace < with <= in wilson_t",
-    "saturation\\.rs:182:61: replace > with >= in wilson_p",
+    "equilibrium\\.rs:180:44: replace > with >= in gated",
+    "equilibrium\\.rs:199:65: replace > with >= in roots",
+    "saturation\\.rs:150:89: replace < with <= in trivial",
+    "saturation\\.rs:198:41: replace < with <= in wilson_t",
+    "saturation\\.rs:183:61: replace > with >= in wilson_p",
     # Equivalent (PLAN.md M13.10): a split in β needs g strictly below 0 at the bubble point and above at the dew point;
     # g exactly 0 there is that point itself, which the search then returns at once.
-    "saturation\\.rs:293:19: replace < with <= in in_beta",
-    "saturation\\.rs:293:37: replace > with >= in in_beta",
+    "saturation\\.rs:294:19: replace < with <= in in_beta",
+    "saturation\\.rs:294:37: replace > with >= in in_beta",
     # Seeds only (PLAN.md M13.10): a β of 0 or 1 through the general path reaches the same point (Wilson's seed at β is
     # `at_side`'s; failing that, the seed between the bubble and dew points is the point itself); a seed between known
     # points that is not taken falls back to `coexisting`'s own seeds, which reach the same split; and a p-isochoric
     # point not continued from the last split's K is the PT flash's own split there. Each costs steps, not bits beyond
     # the solves' gates.
-    "saturation\\.rs:249:20: replace \\|\\| with && in coexisting",
-    "saturation\\.rs:302:13: delete match arm Some\\(Ok\\(c\\)\\) in in_beta",
+    "saturation\\.rs:250:20: replace \\|\\| with && in coexisting",
+    "saturation\\.rs:303:13: delete match arm Some\\(Ok\\(c\\)\\) in in_beta",
     "mixture\\.rs:326:17: delete match arm Some\\(Ok\\(Some\\(s\\)\\)\\) in Mixture::isochoric",
     # Equivalent (PLAN.md M13.11): two ends at one x leave a bracket of no width, which the regula falsi returns at once
     # as the end of smaller |value| in either order; only a tie in |value| as well would tell them apart.
-    "pairs\\.rs:159:12: replace < with <= in falsi",
+    "pairs\\.rs:160:12: replace < with <= in falsi",
     # Equivalent (PLAN.md M13.11): a turn has (here − before)(after − here) < 0, so here ≠ before, where `>=` and `>`
     # agree on which way the line rises.
-    "pairs\\.rs:210:61: replace > with >= in cut_turns",
+    "pairs\\.rs:213:42: replace > with >= in cut_turns",
     # Seeds only (PLAN.md M13.12): within a trace each phase's density solve starts from its root at the last point,
     # and the branch it names decides only where that seed lies in the unstable region, which no trace meets: which
     # phase is the denser after a step, the check that a converged point crossed as its phases were chosen, and the
     # side the refinement toward the critical point takes before the crossing.
-    "envelope\\.rs:426:36: replace != with == in Tracer<'a>::advance",
-    "envelope\\.rs:428:29: replace match guard self\\.swaps\\(point, &next\\.v\\) == swapped with true in Tracer<'a>::advance",
-    "envelope\\.rs:472:50: delete ! in Tracer<'a>::cross_critical",
+    "envelope\\.rs:441:36: replace != with == in Tracer<'a>::advance",
+    "envelope\\.rs:443:29: replace match guard self\\.swaps\\(point, &next\\.v\\) == swapped with true in Tracer<'a>::advance",
+    "envelope\\.rs:487:50: delete ! in Tracer<'a>::cross_critical",
     # Equivalent (PLAN.md M13.12): ties no trace meets (phases exactly `NEAR_CRITICAL` apart, a step exactly
-    # `MIN_STEP`, a highest pressure exactly the start's); dividing the direction by a sign of ±1 is multiplying by it;
-    # and the first step specified in ln T instead of ln p, which rise together from a bubble or dew point at the start.
-    "envelope\\.rs:407:70: replace < with <= in Tracer<'a>::swaps",
-    "envelope\\.rs:437:18: replace < with <= in Tracer<'a>::advance",
-    "envelope\\.rs:541:54: replace > with >= in Tracer<'a>::trace",
-    "envelope\\.rs:527:23: replace \\*= with /= in Tracer<'a>::trace",
-    "envelope\\.rs:518:69: replace \\+ with \\* in Tracer<'a>::trace",
+    # `MIN_STEP`, a highest pressure exactly the start's); dividing the direction by a sign of ±1 is multiplying by it.
+    "envelope\\.rs:422:70: replace < with <= in Tracer<'a>::swaps",
+    "envelope\\.rs:452:18: replace < with <= in Tracer<'a>::advance",
+    "envelope\\.rs:559:44: replace > with >= in Tracer<'a>::trace",
+    "envelope\\.rs:544:23: replace \\*= with /= in Tracer<'a>::trace",
     # Equivalent (PLAN.md M13.7): the departure kernel's fast paths give the general path's bits (`truncation_keeps_the_
     # lower_orders`, `the_value_is_the_jet_s`), so taking the general path instead changes nothing.
-    "departure\\.rs:63:62: replace == with != in Series::compose",
+    "departure\\.rs:65:62: replace == with != in Series::compose",
     "departure\\.rs:95:28: replace \\|\\| with && in Series::product",
     # Equivalent (PLAN.md M13.7): no critical point the search keeps has p exactly 0.
     "mixture\\.rs:[0-9]+:[0-9]+: replace > with >= in <impl ThermoModel for Mixture>::critical_point",

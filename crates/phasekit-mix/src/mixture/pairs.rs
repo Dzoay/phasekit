@@ -34,6 +34,7 @@ use super::{Equilibrium, Mixture, pressure};
 use crate::equilibrium;
 use crate::illinois::{End, illinois};
 use crate::saturation::{self, Coexisting, Given, ln_k};
+use crate::slot;
 
 /// Regula falsi steps of a search, and its bracket's width: relative in T and in ln ρ's ρ, absolute in β.
 const STEPS: usize = 100;
@@ -142,8 +143,8 @@ fn choose(mut states: Vec<State>, key: fn(&State) -> f64, policy: RootPolicy, no
         (1, _) => Ok(states.remove(0)),
         (_, RootPolicy::Nearest(x)) => {
             let distance = |k: &f64| (k - x).abs();
-            let nearest = (0..keys.len()).min_by(|a, b| distance(&keys[*a]).total_cmp(&distance(&keys[*b])));
-            Ok(states.remove(nearest.unwrap_or(0)))
+            let nearest = keys.iter().enumerate().min_by(|a, b| distance(a.1).total_cmp(&distance(b.1)));
+            Ok(states.remove(nearest.map_or(0, |(k, _)| k)))
         }
         _ => Err(Error::Ambiguous { roots: Roots::new(&keys) }),
     }
@@ -205,9 +206,14 @@ fn cut_turns<E>(
     mut turn: impl FnMut(&End<E>, &End<E>, bool) -> Result<End<E>, Error>,
 ) -> Result<(), Error> {
     for k in 1..line.len().saturating_sub(1) {
-        let (before, here, after) = (line[k - 1].value, line[k].value, line[k + 1].value);
+        let (prev, next) = (k.saturating_sub(1), k.saturating_add(1));
+        let (Some(b), Some(h), Some(a)) = (line.get(prev), line.get(k), line.get(next)) else { continue };
+        let (before, here, after) = (b.value, h.value, a.value);
         if (here - before) * (after - here) < 0.0 {
-            line[k] = turn(&line[k - 1], &line[k + 1], here > before)?;
+            let turned = turn(b, a, here > before)?;
+            if let Some(node) = line.get_mut(k) {
+                *node = turned;
+            }
         }
     }
     Ok(())
@@ -553,13 +559,15 @@ impl Mixture {
         for k in 1..=cells as usize {
             let b = node(k as f64);
             let at_b = at(b)?;
-            let mut pieces = vec![(End::new(a, (at_a.0, ())), End::new(b, (at_b.0, ())))];
-            if turns_between(at_a.1, at_b.1) {
+            let (lo, hi) = (End::new(a, (at_a.0, ())), End::new(b, (at_b.0, ())));
+            let pieces = if turns_between(at_a.1, at_b.1) {
                 let mut turn = |u: f64| at(u).map(|v| (v.1, ()));
                 let u = falsi(End::new(a, (at_a.1, ())), End::new(b, (at_b.1, ())), &mut turn)?.x;
                 let at_turn = End::new(u, (at(u)?.0, ()));
-                pieces = vec![(pieces[0].0.clone(), at_turn.clone()), (at_turn, pieces[0].1.clone())];
-            }
+                vec![(lo, at_turn.clone()), (at_turn, hi)]
+            } else {
+                vec![(lo, hi)]
+            };
             for (lo, hi) in pieces {
                 if holds_root(lo.value, hi.value) {
                     let mut residual = |u: f64| at(u).map(|v| (v.0, ()));
@@ -613,12 +621,14 @@ impl Mixture {
             let u = math::ln(if by_t { c.t } else { c.p });
             let db = beta_step(c.beta);
             let (fu, fb) = (residuals(&at(u + DOME_DIFF, c.beta, &c)?)?, residuals(&at(u, c.beta + db, &c)?)?);
-            let jacobian = (0..2).map(|i| vec![(fu[i] - f[i]) / DOME_DIFF, (fb[i] - f[i]) / db]).collect();
+            let rows = f.iter().zip(&fu).zip(&fb).take(2);
+            let jacobian = rows.map(|((f, fu), fb)| vec![(fu - f) / DOME_DIFF, (fb - f) / db]).collect();
             let Some(step) = equilibrium::solve(jacobian, f.iter().map(|f| -f).collect()) else {
                 return Err(failed(iteration));
             };
-            let Some(share) = inside_share(c.beta, step[1]) else { return Err(failed(iteration)) };
-            c = at(u + (share * step[0]).clamp(-DOME_STEP, DOME_STEP), c.beta + share * step[1], &c)?;
+            let (du, dbeta) = (slot::at(&step, 0), slot::at(&step, 1));
+            let Some(share) = inside_share(c.beta, dbeta) else { return Err(failed(iteration)) };
+            c = at(u + (share * du).clamp(-DOME_STEP, DOME_STEP), c.beta + share * dbeta, &c)?;
         }
         Err(failed(DOME_STEPS as u16))
     }
@@ -650,7 +660,8 @@ impl Mixture {
         cut_turns(&mut line, |a, b, rising| self.turn((a, b), rising, &refined, &at))?;
         let mut roots: Vec<Coexisting> = Vec::new();
         for pair in line.windows(2) {
-            let (lo, hi) = (pair[0].clone(), pair[1].clone());
+            let [lo, hi] = pair else { continue };
+            let (lo, hi) = (lo.clone(), hi.clone());
             if holds_root(lo.value, hi.value) {
                 let mut near = lo.at.clone();
                 let mut f = |t: f64| -> Result<(f64, Coexisting), Error> {
