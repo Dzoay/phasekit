@@ -886,23 +886,17 @@ proof widened). **User decisions implemented.** PH1.
 
 ### M25 Lists that merge
 
-**Goal.** Sessions working at once stop clashing over the repository's lists (user decisions LM1-LM6). Every list stays
+**Goal.** Sessions working at once stop clashing over the repository's lists (user decisions LM1-LM7). Every list stays
 text in git (LM1), in a form that merges: a tool's list merges itself, a register refuses an id on two rows, a decision
 takes a file of its own, and a mutant exclusion sits in the code it excludes, where an edit elsewhere never moves it.
 **Entry.** The user's word, 2026-10-18 (LM6): M25.1-M25.3 beside M24, M25.4 after `m24` is tagged, because M24.4 and
 M24.5 rewrite the exclusions it moves. M25.1-M25.3 land in one PR, a commit and a `Plan-Step:` footer each
 (LM7); M25.4 in a PR of its own. M25 does not move `MILESTONE`.
 
-- **M25.1 `ci/test-counts.txt` merges itself (LM3).** `cargo xtask merge-counts <base> <ours> <theirs>`, a git merge
-  driver over `gates counts`' manifest: for each `<target> <package>::<binary>`, a minimum both sides kept takes the
-  larger, a binary one side added joins after ours' lines, and one that a side removed while the other left it as the
-  base had it leaves; `# pending` lines likewise, by test. Anything else (a minimum lowered on one side, a comment both
-  sides changed) goes to `git merge-file`, which leaves conflict markers, and the driver exits 1. It reads and writes
-  only the paths git passes, so the repository root built into the xtask binary does not matter. `.gitattributes`
-  gives `ci/test-counts.txt` `merge=phasekit-counts`; CONTRIBUTING.md adds `git config merge.phasekit-counts.driver
-  'cargo xtask merge-counts %O %A %B'` beside signing's lines and says that without it git merges the file as text.
-  *Red:* `merge_counts_keeps_both_raises`: two sides raising adjacent minimums give both raised, a raise and a new
-  binary give both, a lowering exits 1 with markers; against a driver that returns ours.
+| Step | Landed |
+|---|---|
+| M25.1 | `cargo xtask merge-counts <base> <ours> <theirs>` (`gates::counts::merge`), git's merge driver for `ci/test-counts.txt` through `scripts/merge-counts.sh`, which `.gitattributes` names (`merge=phasekit-counts`) and CONTRIBUTING.md "Merging the test counts" defines in the repo-local config (LM3). It matches an entry by target and binary and any other line by its text: a minimum both sides kept takes the larger, unless one side lowered it, which stands where the other left it as the base had it; a line one side added joins after its predecessor on that side; a line one side removed leaves where the other left it as it was. Anything else, a version that does not parse, or an xtask that does not build mid-rebase falls back to `git merge-file`, with conflict markers. It reads and writes only the paths git passes. Tests `merge_counts_keeps_both_raises`, `merge_counts_leaves_what_it_cannot_decide_to_git` |
+
 - **M25.2 ROT ids unique, the register merged by union (LM5).** `gates rot` refuses a ROT id on two rows, naming both
   lines. `.gitattributes` gives `docs/ROT-REGISTER.md` `merge=union`, and ROT-REGISTER.md §1 says what that does: two
   rows added at one place both stay, a row both sides edited appears twice and the gate refuses it, and prose both
@@ -933,7 +927,7 @@ M24.5 rewrite the exclusions it moves. M25.1-M25.3 land in one PR, a commit and 
   fails, a marker with no reason fails; against a resolver that resolves nothing. Tag `m25` with the user's approval.
 
 **Exit gate.** G1-G8; each step's red tests; `actionlint` clean after M25.4. **ROT rows.** None. **User decisions
-implemented.** LM1-LM6.
+implemented.** LM1-LM7.
 
 ## 5. Cross-cutting tracks
 

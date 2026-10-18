@@ -4,3 +4,6 @@
 *.pdf binary
 # Fixtures are hashed byte for byte (VERIFICATION.md §3.3): no line-ending conversion on any platform.
 crates/phasekit-verify/fixtures/** -text
+# Merged per test binary by scripts/merge-counts.sh where the repo-local config defines the driver (CONTRIBUTING.md
+# "Merging the test counts"); without it, as text.
+ci/test-counts.txt merge=phasekit-counts

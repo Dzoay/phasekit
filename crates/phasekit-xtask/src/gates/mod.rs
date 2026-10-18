@@ -6,7 +6,7 @@ mod abi;
 mod assertions;
 mod complexity;
 mod core_frozen;
-mod counts;
+pub(crate) mod counts;
 mod datagen;
 mod deps;
 mod doc_excerpts;

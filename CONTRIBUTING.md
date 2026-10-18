@@ -99,6 +99,21 @@ git config tag.gpgsign true
 Add the same public key on GitHub (Settings → SSH and GPG keys → New SSH key, key type **Signing key**). Release tags
 `vX.Y.Z` are always signed.
 
+### Merging the test counts
+
+Almost every PR raises minimums in `ci/test-counts.txt`, so two branches often change neighbouring lines, which git's
+text merge calls a conflict. A merge driver merges the file per test binary instead: a minimum both sides raised takes
+the larger, and a binary either side added joins (PLAN.md M25.1). Define it per repository:
+
+```sh
+git config merge.phasekit-counts.name "ci/test-counts.txt, per test binary"
+git config merge.phasekit-counts.driver "scripts/merge-counts.sh %O %A %B"
+```
+
+Where the driver cannot decide (a minimum lowered on one side and changed on the other), and without this config, git
+merges the file as text and leaves conflict markers. Never resolve them by hand: take either side, then run
+`cargo xtask gates counts --update`.
+
 ## Toolchain and generated files
 
 - No `rust-toolchain.toml` (D17). Develop on the latest stable; CI installs the version named once, as the default of
