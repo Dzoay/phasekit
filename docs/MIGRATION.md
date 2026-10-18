@@ -43,14 +43,44 @@ registry.free();
 ## Where phasekit differs from CoolProp 8.0.0
 
 - **The grammar is strict** (map 01 R7, R17-R20): no output is echoed from an input, a key is its name or its
-  all-uppercase form only, a fluid string is one name (`HEOS::` optional), and a derivative string has nothing around
-  it. CoolProp's lax forms are unknown keys here.
+  all-uppercase form only, a fluid string is one name (`HEOS::` optional) or a mixture name (below), and a derivative
+  string has nothing around it. CoolProp's lax forms are unknown keys here.
 - **Numbers.** Each deliberate difference from CoolProp 8.0.0's values (a corrected coefficient, another solver
   branch, a property CoolProp gets wrong) is an entry of the divergence register,
   [`crates/phasekit-verify/src/register.rs`](../crates/phasekit-verify/src/register.rs), with its evidence and the
   test that proves it ([VERIFICATION.md §6](VERIFICATION.md#6-divergence-register)). `DataSet::Parity` reproduces
   CoolProp's data without the corrections.
 - **CoolProp's problems designed out**, each with its test: [ROT-REGISTER.md](ROT-REGISTER.md).
+
+## Mixtures
+
+A registry made by `phasekit_mix::with_mixtures(&registry, data_set)` reads CoolProp's mixture names, and so do
+`pk_registry_new`'s registries, the shim and the browser package's `Registry` (PLAN.md M13.13, M13.14):
+
+- `HEOS::R32[0.697615]&R125[0.302385]`, the `HEOS::` optional: CoolProp 8.0.0's library, its 888 binary pairs. Each
+  name is a registry name, alias or CAS number. Each fraction is a decimal number (digits, a sign, a point, an
+  exponent); a comma, padding, `nan` or `inf` makes the name malformed (`LoadError::Format`, ROT-166). A fraction
+  outside [0, 1], or fractions whose sum is more than 1e-10 from 1, are `InvalidInput`: they are refused, not
+  normalised, so a ternary written to six digits needs its last fraction as 1 minus the others (ROT-193). Zero
+  fractions are dropped, and a name left with one component is that component's pure fluid, bit for bit (ROT-192).
+- `R410A.mix`, any case: one of CoolProp 8.0.0's predefined mixtures. `DataSet::Parity` takes v8.0.0's stored mole
+  fractions; `Corrected` takes those ASHRAE 34's mass fractions give with the registry's molar masses (DIV-0064). The
+  pseudo-pure `R410A` stays the pseudo-pure fluid (user decision 4).
+- `GERG2008::Methane[0.9]&Ethane[0.1]`: GERG-2008 (user decision MX6), its 21 components; `GERG2008::Methane` alone is
+  GERG-2008's methane.
+
+Where phasekit differs from v8.0.0 on mixtures:
+
+- A pair the library lacks is `UnknownName("binary pair A&B")`. v8.0.0 builds 116 of its predefined mixtures and fails
+  on the other 31; phasekit refuses the same 31 (ROT-200).
+- Every one of the 19 input pairs works on a mixture, DP, DQ, HQ and QS included (ROT-293); a mixture's range is the
+  intersection of its components' (ROT-197), so R410A.mix ends at R32's 435 K.
+- DT is the homogeneous state where it is stable, else the split inside the dome; v8.0.0 returns one phase there
+  (DIV-0061). A liquid-liquid split is refused as `Unsupported` (user decision MX4).
+- A mixture name's model is built on its first use and kept, the last 64 names (user decision MX9): a repeated
+  `PropsSI` at (T, p) on `R410A.mix` takes 0.77 ms, where v8.0.0 takes 4.4 ms.
+- A pair's parameters change by building a new model (`MultiFluid::with_binary`, ROT-196), never by a setter on a
+  live one. There is no other backend (`REFPROP::`, a cubic mixture), and no mixture transport property (`NoModel`).
 
 ## The CoolPropLib.h shim
 
@@ -88,12 +118,12 @@ The default `pk_*` library exports none of these names, so it can share a proces
 
 - **`HAPropsSI`** is a stub until humid air is added: it returns +inf and sets the `errstring` to "HAPropsSI is not
   available in this version of phasekit". It exists so that hosts that bind every symbol at load time still load.
-- **Strings** follow phasekit's strict grammar: one fluid, `HEOS::` optional; no mixtures, fractions or other backends.
-  Messages are phasekit's, not CoolProp's.
+- **Strings** follow phasekit's strict grammar: one fluid, `HEOS::` optional, or a mixture name ([Mixtures](#mixtures));
+  no other backends. Messages are phasekit's, not CoolProp's.
 - **`get_global_param_string`** has `version` (phasekit's), `errstring`, `warnstring` (always empty), `FluidsList` (also
-  `fluids_list`, `fluidslist`), `parameter_list` (the 85 output names and their 24 aliases, comma-separated), and
-  `incompressible_list_pure`, `incompressible_list_solution`, `mixture_binary_pairs_list` and `predefined_mixtures`,
-  which are empty. Every other parameter is refused.
+  `fluids_list`, `fluidslist`), `parameter_list` (the 85 output names and their 24 aliases, comma-separated),
+  `mixture_binary_pairs_list` and `predefined_mixtures` (v8.0.0's strings: 888 pairs and 294 names), and
+  `incompressible_list_pure` and `incompressible_list_solution`, which are empty. Every other parameter is refused.
 - **`get_fluid_param_string`** has `name`, `aliases` and `BibTeX-EOS`. `ASHRAE34` is refused for every fluid: phasekit's
   data carry no safety class, so no fluid gets CoolProp's "UNKNOWN" or "?". Every other parameter is refused.
 

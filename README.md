@@ -25,8 +25,8 @@ binding, verified against CoolProp 8.0.0 and the published literature.
 
 ## Where it stands
 
-The work follows a test-first plan, one step per pull request. Finished milestones are tagged in git (`m0` to `m12`
-so far); the open ones, and their steps, are in [docs/PLAN.md](docs/PLAN.md). The workspace's version already reads
+The work follows a test-first plan, one step per pull request. Finished milestones are tagged in git (`m0` onwards;
+`git tag` lists them); the open ones, and their steps, are in [docs/PLAN.md](docs/PLAN.md). The workspace's version already reads
 0.1.0 and [CHANGELOG.md](CHANGELOG.md) has a 0.1.0 section written ahead of the tag, but `v0.1.0` is tagged only when
 the maintainer decides ([DECISIONS.md](docs/DECISIONS.md) RL4), and the crates and the npm package are published after
 that.
@@ -36,6 +36,7 @@ that.
 | Area | What works |
 |---|---|
 | Fluids | All 136 CoolProp 8.0.0 pure and pseudo-pure fluids on their Helmholtz equations of state; van der Waals, SRK and Peng-Robinson cubics of each pure fluid (`phasekit-cubic`) |
+| Mixtures | Multi-fluid Helmholtz mixtures with CoolProp 8.0.0's binary pairs and predefined mixtures, and GERG-2008 (`phasekit-mix`): vapour-liquid equilibrium (a PT flash with a stability test, bubble and dew points, any quality), critical points, phase envelopes and all 19 input pairs; CoolProp's mixture strings (`HEOS::R32[0.7]&R125[0.3]`, `R410A.mix`) in `PropsSI`, the C ABI and the browser package |
 | Inputs | All 19 input pairs, below the triple point refused unless a call asks to extrapolate |
 | Outputs | Thermodynamic properties with first and second partial derivatives, exact virials, transport properties and surface tension where models exist, melting lines, reference states |
 | Batches | Point-major batches with a status per cell; parallel (`rayon`) and SIMD-lane (`simd`) execution, bit for bit equal to the scalar path |
@@ -43,11 +44,6 @@ that.
 
 **In progress:**
 
-- **Mixtures** (milestone M13, the crate `phasekit-mix`): multi-fluid Helmholtz mixtures and GERG-2008, with
-  vapour-liquid equilibrium, critical points and phase envelopes, reaching the `PropsSI` strings, the C ABI and the
-  browser package. On `main`: the multi-fluid residual, a mixture at a fixed composition, GERG-2008 and composition
-  derivatives. Being built: critical points, stability, bubble and dew points, phase envelopes, then the names, C and
-  the browser.
 - **The site** (M21): a single page at <https://dzoay.github.io/phasekit/>, deployed from `main`, that runs the browser
   package in your browser. The calculator and the diagrams (p–h, T–s, p–T, T–ρ and h–s, with phase regions and a
   state picked under the cursor) are there; sweeps, an in-browser benchmark, all 136 fluids and mixtures follow.
