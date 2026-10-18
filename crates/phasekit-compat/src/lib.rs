@@ -8,6 +8,10 @@
 //! (`A[0.5]&B[0.5]`, post-0.1) resolve to handles registered with `Registry::with_model`, never to a
 //! hidden LRU.
 
+// PLAN.md M24.3 (issue #219): no implicit panic, an index out of bounds or an integer overflow, in the library's code
+// (`gates lints` checks this line); its tests are exempt.
+#![cfg_attr(not(test), deny(clippy::indexing_slicing, clippy::arithmetic_side_effects))]
+
 use core::fmt;
 
 use phasekit_core::batch::{self, BatchRequest, BatchSummary, ExecPolicy, Status};

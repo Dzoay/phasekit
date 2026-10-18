@@ -16,6 +16,9 @@
 // clippy's `disallowed_macros` honours an allow only at the crate root, so this one is here; `gates lints` keeps
 // `thread_local` to last_error.rs, the C ABI's one piece of per-thread state (D8, D11, E13).
 #![allow(clippy::disallowed_macros, reason = "the per-thread last error, in last_error.rs alone (gates lints)")]
+// PLAN.md M24.3 (issue #219): no implicit panic, an index out of bounds or an integer overflow, in the library's code
+// (`gates lints` checks this line); its tests are exempt.
+#![cfg_attr(not(test), deny(clippy::indexing_slicing, clippy::arithmetic_side_effects))]
 // The shim's build (`coolproplib-shim`) exports CoolProp's Tier A names and none of `pk_*`, whose code it then leaves
 // unused (D11).
 #![cfg_attr(
@@ -241,7 +244,7 @@ unsafe fn put<T>(out: *mut T, value: T, what: &str) -> Result<(), Fail> {
 /// `buf` is null or points to `len` writable bytes; `needed` is null or points to writable memory for one `size_t`.
 #[allow(unsafe_code)]
 unsafe fn put_text(s: &str, (buf, len): (*mut c_char, usize), needed: *mut usize) -> Result<(), Fail> {
-    let n = s.len() + 1;
+    let n = s.len().saturating_add(1); // a string's length is at most isize::MAX
     if !needed.is_null() {
         // SAFETY: non-null and writable for one `size_t` by the caller's contract.
         unsafe { needed.write(n) };
@@ -259,10 +262,10 @@ unsafe fn put_text(s: &str, (buf, len): (*mut c_char, usize), needed: *mut usize
         }
         return Err(Fail::new(PK_BUFFER_TOO_SMALL, format!("the output needs {n} bytes, the buffer has {len}")));
     }
-    // SAFETY: `buf` is non-null and writable for `len` ≥ n bytes; `s` is `n - 1` readable bytes that do not overlap it.
+    // SAFETY: `buf` is non-null and writable for `len` ≥ n = s.len() + 1 bytes; `s` is readable and does not overlap it.
     unsafe {
-        std::ptr::copy_nonoverlapping(s.as_ptr(), buf.cast::<u8>(), n - 1);
-        buf.add(n - 1).write(0);
+        std::ptr::copy_nonoverlapping(s.as_ptr(), buf.cast::<u8>(), s.len());
+        buf.add(s.len()).write(0);
     }
     Ok(())
 }
@@ -305,7 +308,7 @@ pub unsafe extern "C" fn pk_last_error(buf: *mut c_char, len: usize) -> usize {
     let message = last_error::get();
     // SAFETY: the caller's contract; a null `needed` is allowed.
     let _ = unsafe { put_text(&message, (buf, len), std::ptr::null_mut()) };
-    message.len() + 1
+    message.len().saturating_add(1)
 }
 
 /// A new registry of the embedded fluids under `data_set` (`PK_DATASET_CORRECTED` or `PK_DATASET_PARITY`), into
