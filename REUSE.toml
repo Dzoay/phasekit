@@ -52,6 +52,23 @@ precedence = "override"
 SPDX-FileCopyrightText = "NIST (AGA8 and teqp authors)"
 SPDX-License-Identifier = "LicenseRef-NIST-GERG"
 
+# M12's lane exp, ln and expm1 port the `libm` crate's (0.2.16, MIT) operation for operation, constants included, which
+# ported FreeBSD's msun under Sun Microsystems' notices, which LICENSE-THIRD-PARTY reproduces with the crate's
+# (user decision LC1).
+[[annotations]]
+path = [
+    "crates/phasekit-core/src/num/lanes/exp.rs",
+    "crates/phasekit-core/src/num/lanes/expm1.rs",
+    "crates/phasekit-core/src/num/lanes/ln.rs",
+]
+precedence = "override"
+SPDX-FileCopyrightText = [
+    "2026 The phasekit contributors",
+    "The rust-lang/libm contributors",
+    "1993, 2004 Sun Microsystems, Inc.",
+]
+SPDX-License-Identifier = "(MIT OR Apache-2.0) AND MIT AND SunPro"
+
 # Check values transcribed from papers: the transcription is the project's; the cells are numerical facts, each file
 # citing its source in its header (VERIFICATION.md §3.7).
 [[annotations]]
