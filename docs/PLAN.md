@@ -487,6 +487,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M20 | core, compat, verify, CI | M12 landed (user decision PL1) | Four follow-ups: Cv, Cp, w, τ and δ as derivative variables; the conformance kit's `identities` and `part_additivity`; the intra-doc link check; the nightly report: [M20 Follow-ups](#m20-follow-ups) | Each step's checks; G1-G8 |
 | M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19, mutation testing of the site's code, picking states on the diagrams, phase regions, how a property is calculated; ten steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
 | M22 | `phasekit-mix`, core `batch` | After M13 closes (user decision ML2) | Mixtures in lanes: α^r and α⁰ batches at fixed z through the components' lane kernels with the departures in lanes, hinted DT batches, the `simd128` build, then a time-boxed spike putting a flash's two phases and its stability test's trial phases in lanes; core runs a family's kernels over `Real` in its private lanes (user decisions ML1, ML3), eight steps: [M22 Mixture lanes](#m22-mixture-lanes) | Each kernel ships if faster than the scalar path (ML4); `policy_equivalence` bitwise at every dispatch level; G1-G9, and G1-G8 with `--features simd` |
+| M23 | core `math` | After M13 closes (the core is frozen until `m13`, MX2); independent of M22 | In-house `exp`, `ln`, `pow` and `expm1` under 1 ulp, ported from Arm's optimized-routines, one code for the scalar path and the lanes; every build's maths if they pass M9.5's rule, so `simd` leaves `libm`; then an opt-in `fast` feature with FMA on every target (user decisions IM1-IM5), eight steps: [M23 In-house maths](#m23-in-house-maths) | Under 1 ulp on the reference values (IM3); lanes bitwise at every dispatch level; each committed hash one across the four targets; M9.5's rule applied and recorded (IM1); G1-G9, and G1-G8 with `--features simd` and with `--features fast` |
 | M24 | compat, capi, wasm, mix, core | The user's word, 2026-10-18, before `v0.1.0` (user decision PH1) | Panics at the facades (issue #219): fault injection along every C export's path, the browser package's panic hook, and clippy's `indexing_slicing` and `arithmetic_side_effects` denied in the crates it reaches: [M24 Panics at the facades](#m24-panics-at-the-facades) | The fault-injection tests; clippy clean with both lints; `gates perf` |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
@@ -750,6 +751,92 @@ targets those, through the same runner.
 dispatch level of the i7-8700K, the CI runners (x86-64, aarch64) and wasip2 with `simd128`; the flash fixtures'
 results unchanged by the spike; each kernel faster than the scalar path or taken out (ML4). **ROT rows.** None. **User
 decisions implemented.** ML1-ML4.
+
+### M23 In-house maths
+
+**Goal.** `exp`, `ln`, `pow` and `expm1` written in core: under 1 ulp, the same bits on every target, one code for the
+scalar path and the lanes, and as fast as std's. They become every build's maths if they pass M9.5's rule (D12), so a
+`simd` build's single queries no longer pay the `libm` crate's cost; an opt-in `fast` feature then adds FMA on every
+target (user decisions IM1-IM5). **Entry.** After M13 closes (the `m13` tag; the core is frozen until then, MX2), on
+the i7-8700K. It is independent of M22, so either may start first; the steps merge in order when green.
+**Prerequisites.** User decisions IM1-IM5 and LC1; M9.4's hash on the four targets; M12's lanes; mpmath for the
+reference values (`uv run --no-project --python 3.12 --with mpmath==1.3.0`). M23 does not move `MILESTONE`.
+
+Each function is one scalar function in a private module of `num` (named at M23.2), built as M12.5's ports are: a main
+path without branches or divisions, a test for whether a value takes it, and selects for the special cases. `math`
+calls it at a point and `Lanes` maps it across lanes, a group whose lanes all take the main path skipping the special
+cases, so each lane is the scalar path's bits by construction (K17). A table is indexed by the reduced argument's low
+bits, which LLVM gathers or loads lane by lane. Until M23.6 the in-house functions replace only the `libm` crate's, in
+the `libm` and `simd` builds, which get them under either outcome of IM1; without `libm`, `math` and `Lanes` keep
+std's, lane by lane, as now. Each step re-commits `fixtures/hash/libm.txt` once the four CI targets agree on it.
+
+- **M23.1 Reference values and the baseline.** `scripts/math/reference.py` (mpmath at 256 bits) writes
+  `fixtures/math/`. Each function has about 4096 inputs: VERIFICATION.md §9.2's edges, the EOS argument ranges (`exp`'s
+  −60 to 5, `ln`'s τ and δ, `pow`'s bases and exponents from the fluids' terms, `expm1`'s −θτ) and values uniform over
+  every exponent. Each value is stored as its correctly rounded double and the residual, so a test measures an error
+  in fractions of an ulp. Arm's directed test cases for the four (`math/test/testcases/directed/*.tst`, under IM5's
+  notice) join them. Together they stay within 1 MB (MX8's headroom is about 3 MB). `phasekit-verify` gains the ulp
+  measure and a report of std's and the `libm` crate's worst errors on this target. The lane ports' heads and core's
+  NOTICE take their notices (LC1), unless an earlier PR did. Bench `math_per_call/{exp,ln,pow,expm1}` (throughput, and
+  a chain of dependent calls, over the EOS ranges) for std and the `libm` crate; it and the six scalar benches of D12's
+  rule, under std and under `libm`, are recorded on the quiet i7-8700K (§5.1) as M23's baseline. *Red:*
+  `ulp_error_is_exact` on hand-worked cases (0 at the reference, ½ at a midpoint, 1 an ulp away, across a binade and in
+  the subnormals), against a stub returning 0.
+- **M23.2 `exp`.** Arm's `math/exp.c` without FMA (128-entry table, degree-5 polynomial; k rounded by the shift, never
+  by an `as` conversion), its table as `u64` words, under IM5's notice (`REUSE.toml`, `LICENSES/LLVM-exception.txt`,
+  `LICENSE-THIRD-PARTY`, core's NOTICE). Under `libm`, `math::exp` and `Lanes::exp` run it; M12.5's port of the `libm`
+  crate's `exp` goes. *Red:* `exp_is_faithful` in `phasekit-verify` (through `phasekit_core::internal`, so in every
+  build): under 1 ulp on M23.1's values, Arm's cases bit for bit (NaN canonical), against a stub returning NaN; with
+  core's `lane_exp_is_scalar_bitwise` (M12.5's test, now against the in-house scalar function, in every build and at
+  every dispatch level). *Done when:* green, the worst error recorded, the `libm` hash re-committed, and
+  `math_per_call/exp` and the α^r benches (the `libm` scalar path and the lanes) recorded against M23.1's.
+- **M23.3 `ln`.** Arm's `math/log.c` without FMA: the 128-entry table with the second table that stands in for FMA,
+  and the degree-12 polynomial near 1. As M23.2: M12.6's port goes; *Red:* `ln_is_faithful` and
+  `lane_ln_is_scalar_bitwise`.
+- **M23.4 `pow`.** Arm's `math/pow.c` without FMA: its `log` to about 68 bits (its own 128-entry table) and its `exp`
+  with the tail, and every special case of C99 Annex F (zero, infinite and NaN arguments, a negative base with an
+  integer exponent, subnormal bases, overflow and underflow). Under `libm`, `Lanes::powf` runs it across lanes, where
+  M12.8 called `math::powf` lane by lane, a group of positive normal bases with a finite exponent taking the main path.
+  *Red:* `pow_is_faithful` on M23.1's pairs and Annex F's cases, and `lane_pow_is_scalar_bitwise`. Benches: the DT and
+  PH of Water and R134a (their non-analytic and α⁰ Power terms) under `libm` and `simd`.
+- **M23.5 `expm1`.** M12.8's port of the `libm` crate's `expm1` (under 1 ulp, already without branches) becomes the
+  scalar path's function too, in M23.2's module. A table form built on M23.2's replaces it only if it stays under 1 ulp
+  on M23.1's values and is faster on `math_per_call/expm1`; the record says which. *Red:* `expm1_is_faithful` and
+  `lane_expm1_is_scalar_bitwise`.
+- **M23.6 M9.5's rule, and the default.** The six scalar benches of D12's rule over VERIFICATION.md §12's bench fluids,
+  in three interleaved rounds on the quiet i7-8700K: the `libm` build (the four in-house functions; the benches reach no
+  other, IM2) against the default build (std). If the geometric mean of the median-time ratios is ≤ 1.05 and none is
+  above 1.10, every build runs the four in-house functions and:
+  - `simd` no longer enables `libm`, and `gates features`' `simd128` tree loses `libm`;
+  - `tests/cross_target.rs` asserts one hash for the std and `libm` builds, `fixtures/hash/libm.txt` renamed for it;
+  - `math::BACKEND` names the backend of the remaining functions;
+  - LB1's known differences (`backend::LIBM_KNOWN`) are re-measured for the default build, any new cell taken by LB1's
+    route and never by a wider tolerance;
+  - `gates perf`'s instruction baseline is updated, with the counts in the PR;
+  - D12, ARCHITECTURE.md §7 and §9, VERIFICATION.md §9.2 and §9.4, and DEPENDENCIES.md (the `libm` crate's role) say
+    what holds.
+
+  If the rule fails, the measurements go into D12, the default keeps std, and `simd` keeps enabling `libm`. *Red (if it
+  passes):* `cross_target`'s std build asserting the committed hash, which std's maths fails.
+- **M23.7 The `fast` feature (IM4).** `Real` gains a·b + c as a method (`Real` is sealed, so not a break): two roundings
+  by default, `f64::mul_add` under `fast` on every target, through one helper exempt from clippy's ban. Under `fast` the
+  in-house functions take Arm's FMA forms (`log`'s and `pow`'s r = fma(z, invc, −1) without the second table, `exp`'s
+  polynomial), and the α^r and α⁰ term sums and the polynomial and Clenshaw evaluations take the method. CI runs G1-G8
+  with `--features fast`. `fixtures/hash/fast.txt` is committed once the four targets agree (wasm32-wasip2 fuses in
+  software); `policy_equivalence` is bitwise under `--features fast,simd` at every dispatch level; M23.1's values stay
+  under 1 ulp; the K1/K2 paper rows and the oracle classes pass unchanged. Benches: the six scalar benches and the α^r
+  lanes, `fast` against M23.6's default, at `-C target-cpu=x86-64-v3` and at the x86-64 baseline, recorded; the crate
+  docs say that `fast` pays only on a target with FMA. The browser builds do not enable it. *Red:* `fast_fuses`: under
+  `fast`, the method gives the correctly rounded a·b + c where one rounding and two differ, against the unfused method.
+- **M23.8 M23 closed.** The browser package's two builds re-measured under Node (both run the in-house functions if
+  M23.6 passed), each `.wasm` within its budget or re-budgeted at its size + 10 % (SL8); ARCHITECTURE.md §7 and
+  VERIFICATION.md §12 say what landed; the i7-8700K's M23 record. Tag `m23` with the user's approval.
+
+**Exit gate.** G1-G9, and G1-G8 with `--features simd` and with `--features fast`; each function under 1 ulp on
+M23.1's values (IM3); the lanes bitwise equal to the scalar path at every dispatch level of the i7-8700K, the CI
+runners (x86-64, aarch64) and wasip2 with `simd128`; each committed hash reproduced on the four targets (the `libm`
+build's, every build's if M23.6 passed, and `fast`'s); M9.5's rule applied and recorded (IM1). **ROT rows.** None.
+**User decisions implemented.** IM1-IM5, and LC1's notices in core.
 
 ### M24 Panics at the facades
 
