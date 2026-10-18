@@ -89,10 +89,10 @@ unsafe fn str2buf(s: &str, buf: *mut c_char, n: c_int) -> Result<(), String> {
     Ok(())
 }
 
-/// The shim's only registry: the embedded one (`Corrected`), which also reads CoolProp's mixture names (PLAN.md
-/// M13.14), built on first use.
+/// The shim's only registry: the embedded one (`Corrected`), named as the handles' are ([`crate::named`]), built on
+/// first use.
 static REGISTRY: LazyLock<Result<Registry, Error>> =
-    LazyLock::new(|| Registry::embedded().map(|r| phasekit_mix::with_mixtures(r, DataSet::Corrected)));
+    LazyLock::new(|| Registry::embedded().map(|r| crate::named(r, DataSet::Corrected)));
 
 /// [`REGISTRY`], or why the embedded data would not load.
 fn registry() -> Result<&'static Registry, String> {

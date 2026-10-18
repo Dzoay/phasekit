@@ -277,6 +277,15 @@ fn fluid(h: pk_fluid) -> Result<Arc<Fluid>, Fail> {
     lock(fluids()).get(h).ok_or_else(|| Fail::new(PK_STALE_HANDLE, format!("fluid handle {h:#x} is stale")))
 }
 
+/// The registry the handles and the shim read: `embedded`, which also reads CoolProp's mixture names on `set`'s library
+/// (PLAN.md M13.14) and, in the ABI's own tests, the names that inject a panic (`phasekit_compat::fault`, M24.1).
+fn named(embedded: &Registry, set: DataSet) -> Registry {
+    let named = phasekit_mix::with_mixtures(embedded, set);
+    #[cfg(test)]
+    let named = phasekit_compat::fault::with_faults(&named);
+    named
+}
+
 /// A new handle for `registry`.
 fn new_registry(registry: Registry) -> Result<pk_registry, Fail> {
     lock(registries()).insert(registry).ok_or_else(|| Fail::new(PK_OTHER, "every registry handle is in use"))
@@ -315,7 +324,7 @@ pub unsafe extern "C" fn pk_registry_new(data_set: i32, out: *mut pk_registry) -
             PK_DATASET_PARITY => DataSet::Parity,
             other => return Err(Fail::new(PK_INVALID_INPUT, format!("data set {other} is not PK_DATASET_*"))),
         };
-        let handle = new_registry(phasekit_mix::with_mixtures(&Registry::from_embedded(set)?, set))?;
+        let handle = new_registry(named(&Registry::from_embedded(set)?, set))?;
         // SAFETY: the caller's contract.
         unsafe { put(out, handle, "out") }
     })

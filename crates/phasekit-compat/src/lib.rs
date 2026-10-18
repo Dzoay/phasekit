@@ -13,6 +13,8 @@ use core::fmt;
 use phasekit_core::batch::{self, BatchRequest, BatchSummary, ExecPolicy, Status};
 use phasekit_core::{Basis, Error, FlashOptions, Fluid, Input, LoadError, Pair, Prop, Registry, State};
 
+#[cfg(feature = "fault-injection")]
+pub mod fault;
 mod keys;
 
 pub use keys::{

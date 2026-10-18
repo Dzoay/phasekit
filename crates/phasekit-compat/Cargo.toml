@@ -19,6 +19,9 @@ default = ["fluids-all"]
 embedded = ["phasekit-core/embedded"]
 fluids-all = ["embedded", "phasekit-core/fluids-all"]
 fluids-core = ["embedded", "phasekit-core/fluids-core"]
+# Test builds only: `fault`, a resolver that panics on purpose for four names (PLAN.md M24.1). No build that ships
+# turns it on; phasekit-capi's tests and phasekit-wasm's `fault-injection` build do.
+fault-injection = []
 
 [dependencies]
 phasekit-core.workspace = true
