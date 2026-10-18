@@ -91,9 +91,10 @@ fn next_index(len: usize) -> Option<u32> {
     u32::try_from(len).ok().filter(|i| *i < u32::MAX)
 }
 
-/// The handle of a slot's generation: the generation in the high 32 bits, index + 1 (at most `u32::MAX`) in the low.
+/// The handle of a slot's generation: the generation in the high 32 bits, index + 1 (at most `u32::MAX`, as
+/// [`next_index`] never issues `u32::MAX`) in the low.
 fn handle(index: u32, generation: u32) -> u64 {
-    (u64::from(generation) << 32) + u64::from(index) + 1
+    (u64::from(generation) << 32).saturating_add(u64::from(index)).saturating_add(1)
 }
 
 fn split(h: u64) -> Option<(u32, u32)> {

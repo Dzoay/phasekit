@@ -79,7 +79,7 @@ unsafe fn str2buf(s: &str, buf: *mut c_char, n: c_int) -> Result<(), String> {
         return Err("the output buffer is null".to_string());
     }
     if !usize::try_from(n).is_ok_and(|n| s.len() < n) {
-        return Err(format!("the output needs {} bytes, the buffer has {n}", s.len() + 1));
+        return Err(format!("the output needs {} bytes, the buffer has {n}", s.len().saturating_add(1)));
     }
     // SAFETY: `buf` is non-null and writable for `n` > s.len() bytes; `s` does not overlap it.
     unsafe {

@@ -17,6 +17,9 @@
 //! elsewhere the crate is empty.
 
 #![cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+// PLAN.md M24.3 (issue #219): no implicit panic, an index out of bounds or an integer overflow, in the library's code
+// (`gates lints` checks this line); its tests are exempt.
+#![cfg_attr(not(test), deny(clippy::indexing_slicing, clippy::arithmetic_side_effects))]
 
 use core::fmt::Display;
 use std::sync::OnceLock;
