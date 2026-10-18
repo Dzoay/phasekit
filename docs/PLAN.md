@@ -890,7 +890,8 @@ proof widened). **User decisions implemented.** PH1.
 text in git (LM1), in a form that merges: a tool's list merges itself, a register refuses an id on two rows, a decision
 takes a file of its own, and a mutant exclusion sits in the code it excludes, where an edit elsewhere never moves it.
 **Entry.** The user's word, 2026-10-18 (LM6): M25.1-M25.3 beside M24, M25.4 after `m24` is tagged, because M24.4 and
-M24.5 rewrite the exclusions it moves. The steps merge in order when green. M25 does not move `MILESTONE`.
+M24.5 rewrite the exclusions it moves. M25.1-M25.3 land in one PR, a commit and a `Plan-Step:` footer each
+(LM7); M25.4 in a PR of its own. M25 does not move `MILESTONE`.
 
 - **M25.1 `ci/test-counts.txt` merges itself (LM3).** `cargo xtask merge-counts <base> <ours> <theirs>`, a git merge
   driver over `gates counts`' manifest: for each `<target> <package>::<binary>`, a minimum both sides kept takes the
