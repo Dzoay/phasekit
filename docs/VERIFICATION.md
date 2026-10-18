@@ -768,7 +768,8 @@ The milestone starts by tagging `m11-start` (or `m13-start`, `m14-start`); `carg
 m11-start` fails if any file under `crates/phasekit-core/` differs from the tag (zero lines: `git diff --name-only` and
 untracked files). A failure means the seam was insufficient: stop, record why in the decision log, land the seam change
 as its own core PR, re-tag and restart the family series (Extensible graft, D3). M11 held it: `crates/phasekit-core/` is
-unchanged from `m11-start` to M11.8 (PLAN.md M11), and `ci/core-frozen.txt` names no tag between family milestones.
+unchanged from `m11-start` to M11.8 (PLAN.md M11). M13 held it from `m13-start`, after M13.1's seams, to M13.16, and
+`ci/core-frozen.txt` names no tag between family milestones.
 
 Family arbiters are papers. CoolProp 8.0.0 cubic and PC-SAFT values are not arbiters (map 10 U14: no provenance;
 DIV-0010); teqp and Clapeyron are `OtherImplementation`, differential only (GERG vectors and the multi-fluid model

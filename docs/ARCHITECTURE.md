@@ -87,6 +87,7 @@ Each crate's dependencies are its `Cargo.toml`; their tiers, [DEPENDENCIES.md](D
 | `phasekit-compat` | `props_si_in(&Registry, ..)`, CoolProp names and keys, `FillPolicy`, legacy policies | `fluids-all` (default), `fluids-core`, `embedded` (forwarded) | No |
 | `phasekit-capi` (M10) | `extern "C"` facade: `pk_*` symbols, registry handles, string keys, status codes, thread-local error; the Tier A CoolPropLib.h shim (v8.0.0 codes, process-wide errstring; D11) | forwards `fluids-*`; `coolproplib-shim` | No |
 | `phasekit-cubic` (M11) | vdW, SRK and PR cubics on a borrowed HEOS ideal gas (one R, user decision CB1): `fluid`, `with_cubics` (`VDW::`, `SRK::`, `PR::` names), Soave, Mathias-Copeman and Twu alphas, Bell and Deiters' SRK and PR superancillary; on `phasekit-core`'s public API alone | none | No |
+| `phasekit-mix` (M13) | Multi-fluid Helmholtz mixtures on `phasekit-core`'s public API alone: CoolProp 8.0.0's library (888 binary pairs, its predefined mixtures) and GERG-2008 (21 components, from NIST's AGA8; user decision MX7); a `Mixture` at a fixed composition (`mixture`, `gerg2008`, `predefined`) with its critical points, a PT flash with Michelsen's stability test, bubble, dew and interior points, every input pair by outer solves, and phase envelopes; `with_mixtures`, the resolver of CoolProp's mixture names, keeping the last 64 models (user decision MX9) | none | No |
 | `phasekit-wasm` (M10) | wasm-bindgen browser package, baseline and `+simd128` builds | `simd` (the `simd128` build's: core's `simd`, M12.10) | No |
 | `phasekit-py` (after 0.1) | pyo3 abi3 wheels: import name `phasekit`, plus `phasekit.compat` for migration (D11) | forwards `fluids-*`; `numpy` | No |
 | `phasekit-verify` | Verification kit + conformance corpus + fixtures + benches; reusable by any family crate | none | No |
@@ -878,7 +879,7 @@ divergence register (its policies, statuses and three-part proofs), §6, with th
 | Two-phase states from a family (IF97 QT/PQ, mixture splits, sublimation) | `State::from_split` | 0 | `gibbs_seam.rs` ice + vapour through registry, batch and compat |
 | Order ≥ 3 and part-wise outputs for any family | `ThermoModel::derivs` (default via `helmholtz()`) | 0 | Cp0 on vdW; `NoModel` on the solid |
 | Reference states for any family | `Fluid::with_reference`, `Registry::with_reference`, `ReferenceState::Custom { at: Input, .. }` | 0 | gauge tests on vdW and the solid; strings reach the gauged handle |
-| Mixtures, GERG | `HelmholtzModel` at fixed z + own `ThermoModel` package (`phasekit-mix`) using `from_split`; `MixtureModel` trait there; true-mixture variants of the pseudo-pure blends registered alongside them (D4) | M13.1's seams (user decision MX2): phase molar masses in a split, the public `density` solve, `Registry::with_resolver`, `HelmholtzModel::reducing`; then 0 from `m13-start`; compat passes `A[x]&B[y]` to the registry | x = [1, 0] invariant (map 04, map 15) |
+| Mixtures, GERG | `HelmholtzModel` at fixed z + own `ThermoModel` package (`phasekit-mix`) using `from_split`; `MixtureModel` trait there; true-mixture variants of the pseudo-pure blends registered alongside them (D4) | M13.1's seams (user decision MX2): phase molar masses in a split, the public `density` solve, `Registry::with_resolver`, `HelmholtzModel::reducing`; then 0 from `m13-start` to M13's close (`gates core-frozen`); compat passes `A[x]&B[y]` to the registry | `tests/mixture_family.rs`: the conformance kit on four mixtures in both datasets, and x = [1, 0] the pure fluid under IIR, ASHRAE and NBP (map 04, map 15) |
 | INCOMP correlations, humid air | `ThermoModel` (own flash); HA takes water/air/ice `Fluid`s at construction (map 07 H3) | 0; HA string API lives in compat | after M14; the shim's `HAPropsSI` stub becomes real (D11) |
 | Phase coexistence (ice + water, sublimation) | `ThermoModel::flash(PT)` + `from_split` + `State` g = h − Ts | 0 expected: `Substance` + min-Gibbs selector in a new crate when triggered | materials R1 trigger |
 | New transport form | closed enum in `transport` (validated data, like term kinds) | 1 module, by design | a family with exotic transport wraps its `PureFluid` in its own `ThermoModel` |
@@ -894,7 +895,8 @@ VTPR/UNIFAC, mixture transport (map 05 U14), an expression DSL (map 05 U11).
 
 | CoolProp | phasekit | Notes |
 |---|---|---|
-| `PropsSI(out, n1, v1, n2, v2, fluid)` | `phasekit_compat::props_si(..)`, or `props_si_in(&registry, ..)` | Strict grammar; no echo shortcut (map 01 R7); `HEOS::` prefix accepted |
+| `PropsSI(out, n1, v1, n2, v2, fluid)` | `phasekit_compat::props_si(..)`, or `props_si_in(&registry, ..)` | Strict grammar; no echo shortcut (map 01 R7); `HEOS::` prefix accepted; mixture names on a registry made by `phasekit_mix::with_mixtures` (M13) |
+| `AbstractState("HEOS", "R32&R125")` + `set_mole_fractions`; `HEOS::R32[0.7]&R125[0.3]`, `R410A.mix`, `GERG2008::` | `phasekit_mix::mixture(&registry, &[("R32", 0.7), ("R125", 0.3)], data_set)`, `gerg2008`, `predefined`; the strings through `with_mixtures` | A mixture's composition is fixed per handle, a value, not a setter; fractions read strictly (ROT-166); the pseudo-pure `R410A` stays, `R410A.mix` is the mixture (user decision 4) |
 | `AbstractState::update(pair, a, b)` + getters | `Fluid::flash(Input, &FlashOptions) -> State` + typed getters | Transactional by construction (map 14) |
 | `specify_phase` | `FlashOptions::with_phase` | Per call, never sticky (map 01 R12) |
 | `set_reference_state` (global) | `Fluid::with_reference` → new handle; `Registry::with_reference(name, ..)` → new registry | Value, not mutation (map 15); reaches strings, `pk_registry_with_reference` and JS `withReference` |
@@ -910,7 +912,7 @@ VTPR/UNIFAC, mixture transport (map 05 U14), an expression DSL (map 05 U11).
 Legacy policies stay in compat (map 14): PropsSI fills +inf, HAPropsSI raises on the first bad point, and
 PropsSImulti returns `[]`. `FillPolicy::{Error, Inf, Nan}` selects one; the kernel never has a legacy mode. Compat has
 no model cache: the registry is the cache, bounded by the named fluids and released by dropping the registry value
-(map 01 Q8, decided). Fluid names, aliases and CAS numbers come from the registry, so a third-party model registered as
+(map 01 Q8, decided), and a mixture name's model is kept by phasekit-mix's resolver, the last 64 (user decision MX9). Fluid names, aliases and CAS numbers come from the registry, so a third-party model registered as
 `PR::Water` is reachable as a string with no compat edit. Rust enum discriminants never cross the ABI (map 01 R1):
 `pk_*` uses string keys, and the shim's v8.0.0 integer codes are a pinned table, not discriminants.
 
