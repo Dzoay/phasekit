@@ -276,7 +276,7 @@ All three fixture kinds may be committed (user decision 3b; D14), each with prov
 | `coolprop-8.0.0/**`, `mp/check-points.csv`, `oracle.lock` | `MIT` | CoolProp's copyright line, verbatim from its v8.0.0 LICENSE | header `oracle:` line |
 | `paper/**` | `MIT OR Apache-2.0` (the transcription) | phasekit contributors | header `citation:` (DOI or report, table, page); the cells are numerical facts *(inference: facts are not copyrightable; not legal advice)* |
 | `mp/fastchebpure-*/**`, `mp/fastchebpure.lock` | `LicenseRef-fastchebpure`; its `LICENSES/` text records the user-decision-3a fact (no upstream licence file; NIST work generally not under US copyright, *inference*) and the NIST disclaimer | NIST (fastchebpure authors) | `source: mp:fastchebpure@2026.06.02-v2` + the superancillary paper in NOTICE |
-| `aga8/**`, `teqp-0.23.2/**` (and phasekit-mix's `src/gerg/tables.rs`) | `LicenseRef-NIST-GERG`; its `LICENSES/` text records the provenance and NIST's notice, which AGA8 and teqp both carry (works of NIST employees, 17 U.S.C. 105) | NIST (AGA8 and teqp authors) | `source: aga8:<path>@<git>` or `teqp:0.23.2`, and LICENSE-THIRD-PARTY |
+| `aga8/**`, `teqp-0.23.2/**` (and phasekit-mix's `src/gerg/tables.rs` and `LICENSE-NIST-GERG`) | `LicenseRef-NIST-GERG`; its `LICENSES/` text records the provenance and NIST's notice, which AGA8 and teqp both carry (works of NIST employees, 17 U.S.C. 105) | NIST (AGA8 and teqp authors) | `source: aga8:<path>@<git>` or `teqp:0.23.2`, and LICENSE-THIRD-PARTY |
 
 ### 3.8 The GERG-2008 generator: teqp.py
 

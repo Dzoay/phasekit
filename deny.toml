@@ -25,7 +25,8 @@ allow = [
 confidence-threshold = 0.93
 # The list is policy for dependencies to come: an entry no current dependency uses is not a finding.
 unused-allowed-license = "allow"
-exceptions = []
+# phasekit-mix also carries NIST's notice for GERG-2008's coefficients (user decision MX10); no other crate may.
+exceptions = [{ crate = "phasekit-mix", allow = ["LicenseRef-NIST-GERG"] }]
 
 [bans]
 multiple-versions = "warn"

@@ -14,3 +14,19 @@ accepted = [
 ]
 ignore-build-dependencies = true
 ignore-dev-dependencies = true
+
+# phasekit-mix also carries NIST's notice for GERG-2008's coefficients (user decision MX10), its text the crate's
+# LICENSE-NIST-GERG: LICENSES/LicenseRef-NIST-GERG.txt, byte for byte, at the checksum below (phasekit-verify's
+# tests/notices.rs holds the three together). cargo-about 0.9.2 leaves that text out of the listing: its LicenseRef arm
+# (src/generate.rs) skips a clarified file whose licence names the LicenseRef, the opposite of its SPDX arm, and warns
+# "has no license file". The artefacts carry the notice anyway, in the LICENSE-THIRD-PARTY that ships beside the listing.
+[phasekit-mix]
+accepted = ["LicenseRef-NIST-GERG"]
+
+[phasekit-mix.clarify]
+license = "(MIT OR Apache-2.0) AND LicenseRef-NIST-GERG"
+
+[[phasekit-mix.clarify.files]]
+path = "LICENSE-NIST-GERG"
+license = "LicenseRef-NIST-GERG"
+checksum = "da937572bb780178ce90648135bb1e61b740e4251c06a24cbbb0136e4fcaa6a9"

@@ -4,7 +4,9 @@ description = "Multi-fluid Helmholtz mixtures (Kunz-Wagner, GERG-2008) as a phas
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+# The workspace's licence and NIST's notice for GERG-2008's coefficients, transcribed from NIST's AGA8 code
+# (src/gerg/tables.rs; user decisions MX7, MX10); the crate ships the notice as LICENSE-NIST-GERG.
+license = "(MIT OR Apache-2.0) AND LicenseRef-NIST-GERG"
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
