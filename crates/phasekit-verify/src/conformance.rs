@@ -160,6 +160,41 @@ pub fn policy_equivalence(fluid: &Fluid, req: &BatchRequest<'_>, candidate: Exec
     Ok(())
 }
 
+/// VERIFICATION.md §10 (Threads): `threads` threads share one fluid fresh from `make`, released together into its first
+/// use (so into whatever it computes once, as a mixture's critical points), and each flashes `inputs` to the bits of p,
+/// h and Q, or of the refusal, that a lone fluid from `make` gives on the calling thread (class `Exact`). The first
+/// input that differs on any thread is the mismatch, its p (NaN for a refusal); a thread that panics is `"panic"`.
+#[cfg(not(target_family = "wasm"))] // wasip2 has no thread spawning
+pub fn thread_invariance(make: impl Fn() -> Fluid, inputs: &[Input], threads: usize) -> Result<(), Mismatch> {
+    let m = Basis::Molar;
+    let bits = |fluid: &Fluid| -> Vec<Result<[u64; 3], Error>> {
+        let of = |s: State| [s.p(), s.h(m), s.quality().unwrap_or(f64::NAN)].map(f64::to_bits);
+        inputs.iter().map(|&input| fluid.state(input).map(of)).collect()
+    };
+    let want = bits(&make());
+    let shared = make();
+    let barrier = std::sync::Barrier::new(threads);
+    let got: Vec<_> = std::thread::scope(|s| {
+        let racing: Vec<_> = (0..threads)
+            .map(|_| {
+                s.spawn(|| {
+                    barrier.wait();
+                    bits(&shared)
+                })
+            })
+            .collect();
+        racing.into_iter().map(std::thread::ScopedJoinHandle::join).collect()
+    });
+    let p = |cell: &Result<[u64; 3], Error>| cell.as_ref().map_or(f64::NAN, |b| f64::from_bits(b[0]));
+    for thread in got {
+        let thread = thread.map_err(|_| Mismatch { what: "panic", at: 0, got: f64::NAN, want: 0.0 })?;
+        if let Some(at) = thread.iter().zip(&want).position(|(g, w)| g != w) {
+            return Err(Mismatch { what: "thread", at, got: p(&thread[at]), want: p(&want[at]) });
+        }
+    }
+    Ok(())
+}
+
 /// One cell of the capability matrix (VERIFICATION.md §8.5): a pair's inputs read off a truth state, flashed with the
 /// default options.
 #[derive(Clone, Debug, PartialEq)]
@@ -269,6 +304,47 @@ mod tests {
         let state = registry.get("Water").unwrap().with_reference(reference).unwrap().state(at).unwrap();
         assert_eq!(state.h(Basis::Molar), 0.0, "exactly 0 at the anchor");
         assert_eq!(gauged_pair(&state, &state, 0.0, 0.0), Ok(()));
+    }
+
+    /// The toy fluid, refusing every flash off the thread that built it, so that a lone fluid and threads disagree.
+    #[cfg(not(target_family = "wasm"))]
+    #[derive(Debug)]
+    struct HomeOnly(Fluid, std::thread::ThreadId);
+
+    #[cfg(not(target_family = "wasm"))]
+    impl phasekit_core::ThermoModel for HomeOnly {
+        fn info(&self) -> &phasekit_core::FluidInfo {
+            self.0.model().info()
+        }
+        fn capabilities(&self) -> phasekit_core::Capabilities {
+            self.0.model().capabilities()
+        }
+        fn flash(&self, input: phasekit_core::NativeInput, opts: &FlashOptions) -> Result<State, Error> {
+            if std::thread::current().id() == self.1 {
+                self.0.model().flash(input, opts)
+            } else {
+                Err(Error::Unsupported { pair: input.pair() })
+            }
+        }
+    }
+
+    /// VERIFICATION.md §10 (Threads): Water's states and refusal (above its p_max) on 4 threads sharing one handle are
+    /// a lone handle's; a fluid that refuses off its own thread fails at its first input, naming the input and both p.
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn threads_give_the_lone_fluids_bits() {
+        let registry = phasekit_core::Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+        let water = registry.get("Water").unwrap();
+        let pt = |p: f64, t: f64| Input::new(Pair::PT, p, t, Basis::Molar).unwrap();
+        let inputs = [pt(1e5, 300.0), pt(1e5, 500.0), pt(1e10, 300.0)];
+        assert!(water.state(inputs[2]).is_err());
+        assert_eq!(thread_invariance(|| water.clone(), &inputs, 4), Ok(()));
+        let home = || Fluid::new(Arc::new(HomeOnly(water.clone(), std::thread::current().id())));
+        let mismatch = thread_invariance(home, &inputs, 4).unwrap_err();
+        let want = water.state(inputs[0]).unwrap().p();
+        assert!(mismatch.got.is_nan() && mismatch.want == want, "{mismatch:?}");
+        assert_eq!((mismatch.what, mismatch.at), ("thread", 0));
+        assert_eq!(thread_invariance(home, &inputs, 0), Ok(()), "no thread, nothing to compare");
     }
 
     /// The index of the first input whose pair fails reaches the mismatch: Water above its critical temperature at

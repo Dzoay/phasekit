@@ -661,8 +661,9 @@ the other dome's cells hold that dome's state or a typed refusal, and QT and the
 (`InvalidInput`). The 14 core fluids run in G3; all 136 run nightly (`tests/sweeps.rs`, as every nightly test), where
 SES36's departures are listed with their reason (its ancillaries and EOS disagree beyond the other pseudo-pure fluids').
 
-Mixtures, as built at M13.11 (`tests/mixture_pairs.rs`): R410A.mix, Air.mix and a five-component GERG-2008 natural gas,
-each with two DT truths from its model's critical point, a single phase at (0.6 ρ_c, 1.2 T_c) and the dome at
+Mixtures, as built at M13.11 and run by the kit at M13.15 (`tests/mixture_family.rs`): R410A.mix, Air.mix, a
+five-component GERG-2008 natural gas and a ternary, read by name through `with_mixtures` in both datasets, each with two
+DT truths from its model's critical point, a single phase at (0.6 ρ_c, 1.2 T_c) and the dome at
 (ρ_c, 0.8 T_c). Every cell passes in class `Flash`, phase included, but a quality pair at the single-phase truth
 (`Undefined { Q }`). A mixture's PT in the dome is one state, so it passes there.
 
@@ -752,7 +753,10 @@ so it needs no oracle (`crates/phasekit-verify/src/conformance.rs`).
 | Part additivity | `part_additivity` | `ThermoModel::derivs`: total = ideal + residual | `Identity` | M20.2 |
 | Entropy | `entropy_identity(fluid, inputs)` | T (∂s/∂T)_p = c_p, the derivative from entropies flashed along the isobar, not from the bundle (catches an α⁰ chain rule dropped, DIV-0010) | 1e-7 relative | M11.7 |
 | Capability | `capability_matrix` | 8.5 | `Flash` | M7 |
-| Threads | `thread_invariance` | 1..N threads and racing first use, bitwise | `Exact` | M9 |
+| Threads | `thread_invariance(make, inputs, threads)` | N threads racing into one fresh fluid's first use give a lone fluid's bits | `Exact` | M13.15; M9's tests wrote their own |
+
+**Families that run it:** the cubics (`tests/cubic_family.rs`, M11.6) and the mixtures (`tests/mixture_family.rs`,
+M13.15).
 
 **Proof that the seams suffice** (from M5): `tests/new_family.rs`, an out-of-tree van der Waals family (registry, flash
 including a subcritical point, derivative outputs, exact virials, gauge, batch, compat strings, 16 threads), and
@@ -872,6 +876,10 @@ This section is the one definition of the bench harness, the C++ baseline and th
   (M12.10) is timed by hand under Node, not by a bench: n-Propane's workloads (2), (3) and (4) plus h, 4096 points of
   a grid of their own as one `Fluid.evaluate` call, the median of 25 calls, on the release baseline and `simd128`
   modules (ARCHITECTURE.md §7 item 5).
+- **Mixture workloads (M13, phasekit only, no §7 target):** `benches/mixture.rs`, whose module comment defines them:
+  `mixture_alphar` (workload (1) at a mixture's composition, R32/R125 at 50/50 and a five-component GERG-2008 gas),
+  `mixture_dt` (direct, stable, dome; M13.10), `mixture_pt` (single, dome) and `mixture_qt` (bubble, dew, interior) on
+  R32/R125.
 - **C++ baseline (M1.15):** CoolProp v8.0.0 built Release, no `-march`, like the wheels (kernel-performance §2.9), from
   a throwaway clone of `reference/CoolProp` in a scratch directory, because CoolProp's configure writes generated
   headers and data into its own source tree (`CMakeLists.txt:557-559`, `dev/generate_headers.py`). The harness
