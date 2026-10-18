@@ -7,3 +7,6 @@ crates/phasekit-verify/fixtures/** -text
 # Merged per test binary by scripts/merge-counts.sh where the repo-local config defines the driver (CONTRIBUTING.md
 # "Merging the test counts"); without it, as text.
 ci/test-counts.txt merge=phasekit-counts
+# Both sides' lines where two branches changed one place; `gates rot` refuses an ID on two rows (ROT-REGISTER.md §1
+# "Merging"; user decision LM5).
+docs/ROT-REGISTER.md merge=union

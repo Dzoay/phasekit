@@ -896,13 +896,8 @@ M24.5 rewrite the exclusions it moves. M25.1-M25.3 land in one PR, a commit and 
 | Step | Landed |
 |---|---|
 | M25.1 | `cargo xtask merge-counts <base> <ours> <theirs>` (`gates::counts::merge`), git's merge driver for `ci/test-counts.txt` through `scripts/merge-counts.sh`, which `.gitattributes` names (`merge=phasekit-counts`) and CONTRIBUTING.md "Merging the test counts" defines in the repo-local config (LM3). It matches an entry by target and binary and any other line by its text: a minimum both sides kept takes the larger, unless one side lowered it, which stands where the other left it as the base had it; a line one side added joins after its predecessor on that side; a line one side removed leaves where the other left it as it was. Anything else, a version that does not parse, or an xtask that does not build mid-rebase falls back to `git merge-file`, with conflict markers. It reads and writes only the paths git passes. Tests `merge_counts_keeps_both_raises`, `merge_counts_leaves_what_it_cannot_decide_to_git` |
+| M25.2 | `gates rot` refuses a ROT id on two rows, naming both lines (`a_rot_id_on_two_rows_is_rejected`); `.gitattributes` merges `docs/ROT-REGISTER.md` by union, and its §1 "Merging" says what that keeps: two rows added at one place both stay, one id on two rows (the same next id taken twice, or a row both sides edited) is the gate's to refuse, and prose both sides changed at one place keeps both versions, which only the diff shows (LM5). VERIFICATION.md §6.1 says that `check_register` already refuses a duplicate DIV id |
 
-- **M25.2 ROT ids unique, the register merged by union (LM5).** `gates rot` refuses a ROT id on two rows, naming both
-  lines. `.gitattributes` gives `docs/ROT-REGISTER.md` `merge=union`, and ROT-REGISTER.md §1 says what that does: two
-  rows added at one place both stay, a row both sides edited appears twice and the gate refuses it, and prose both
-  sides changed at one place keeps both versions, so a rebase that merged the register is read in its diff.
-  VERIFICATION.md §6.1 says `check_register` refuses a duplicate DIV id (`RegisterError::DuplicateId`). *Red:* a
-  `gates rot` unit test on a register with one id on two rows; against the gate on `main`, which passes it.
 - **M25.3 One file per decision section (LM4).** Each `##` section of `docs/DECISIONS.md` moves unchanged to
   `docs/decisions/<date>-<slug>.md`, dated by its heading (the first pass and its follow-ups in
   `2026-10-05-first-pass.md`). `docs/DECISIONS.md` keeps its preamble, which now says where decisions live, how a new

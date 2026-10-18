@@ -482,7 +482,9 @@ An entry is a `Divergence` in `crates/phasekit-verify/src/register.rs`, each fie
 fluids, the part, the policy and fix, the status, the arbiter, the evidence, the exempt rows or cells, the tolerances
 (per table where one entry covers several, user decision H4) and the milestones of its proof's parts. `fluids` is a list so that one entry covers one defect in several fluids (the q_D and ECS-LJ
 entries, 6.6); `proof` is a list because several entries are proved in parts at different milestones. The register is
-a compiled `static DIVERGENCES`, not TOML (no parser dependency; proposal D rejected TOML overrides).
+a compiled `static DIVERGENCES`, not TOML (no parser dependency; proposal D rejected TOML overrides). An id is one
+entry's: `check_register` refuses a duplicate (`RegisterError::DuplicateId`), so two branches that both took the next
+free id fail `tests/register.rs` after the second rebase.
 
 ### 6.2 Policies and statuses
 
