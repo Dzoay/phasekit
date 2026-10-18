@@ -763,16 +763,8 @@ when green. M24 does not move `MILESTONE`.
 | Step | Landed |
 |---|---|
 | M24.1 | `phasekit_compat::fault`, behind the test-only `fault-injection` feature that no shipped build turns on: `with_faults`, a resolver whose four names panic on purpose where a call reaches the registry or a model: `fault::resolve` in the resolver, `fault::info`, `fault::flash` and `fault::drop` in a model's `info`, flash and drop (the registry's Water otherwise). phasekit-capi's tests turn it on (a dev-dependency), and both its registries, the handles' and the shim's, read the names there (`named`, under `#[cfg(test)]`). Every export a fluid name or handle reaches returns its failure value with its error set: `pk_props_si`, `pk_props1_si`, `pk_phase_si`, `pk_fluid_new`, `pk_registry_with_reference`, `pk_fluid_name`, `pk_batch` and `pk_fluid_free` return `PK_PANIC` with the last error naming the catch; the shim's `PropsSI` and `Props1SI` return `_HUGE` and `PhaseSI` and `get_fluid_param_string` 0, with the `errstring`; the next call succeeds. The other exports reach no model a test can fault (`pk_registry_new`, `pk_registry_free`, the shim's seven others); they run under the same catch, which `gates abi` checks, and `pk_last_error` only copies a string |
+| M24.2 | phasekit-wasm's panic hook, installed by the first call that computes (`alive`): it runs the hook before it, keeps the first panic's message in a `OnceLock` (D8's one-shot form) and throws it to JavaScript as an `Error` (`phasekit panicked: <message>. This module cannot be used again: load it anew`) in place of `RuntimeError: unreachable`; `panicked()` returns the message (`undefined` before), and every call that computes (the `Registry` constructor, `withPack`, `withReference`, `PropsSI`, `Props1SI` and `fluid`, `Fluid.flash` and `evaluate`, `State.get`) then refuses with it, while `names`, `loaded` and the getters, which only read, stay as they were. The `fault-injection` feature turns on compat's and gives `new Registry()` its names; `tests/panics.rs`, a test binary of its own, runs on both builds in CI's `wasm-browser` job; the npm package's README says what a panic does |
 
-- **M24.2 The browser package's panics.** A panic hook in phasekit-wasm, installed by the package's start function: it
-  keeps the first panic's message in a `OnceLock` (D8's one-shot form) and throws it to JavaScript as an `Error` that
-  names it and says the module must be rebuilt, in place of `RuntimeError: unreachable`. Every export that computes
-  (the `Registry` constructor and methods, `Fluid.flash` and `evaluate`, `State.get`) then refuses with that message,
-  and `panicked()` returns it (`undefined` before). phasekit-wasm's `fault-injection` feature turns on compat's and
-  gives `new Registry()` its names; CI's `wasm-browser` job runs the package's panic test, a test binary of its own, on
-  both builds. *Red:* `tests/panics.rs` under Node: `PropsSI` on `fault::flash` throws an `Error` whose message holds
-  the injected panic's, `panicked()` returns it, and `PropsSI` on Water then throws the rebuild message, against the
-  package without the hook (`RuntimeError: unreachable`, no `panicked`).
 - **M24.3 Implicit panics refused in compat, capi and wasm.** `clippy::indexing_slicing` and
   `clippy::arithmetic_side_effects` denied in phasekit-compat, phasekit-capi and phasekit-wasm (`gates lints` admitting
   the tables): each index a `get` with a typed refusal or an iterator, each integer operation checked, saturating or

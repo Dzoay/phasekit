@@ -25,7 +25,9 @@ const t = registry.PropsSI("T", "P", 101325, "Q", 0, "Water");
 registry.free();
 \`\`\`
 
-Free the handle objects (\`Registry\`, \`Fluid\`) with \`free()\`. Documentation: https://github.com/Dzoay/phasekit.
+Free the handle objects (\`Registry\`, \`Fluid\`) with \`free()\`. A panic, a bug, ends the module: its call throws an
+\`Error\` naming it, \`panicked()\` then returns its message, and every later call refuses; load the module anew.
+Documentation: https://github.com/Dzoay/phasekit.
 EOF
 cat > "$out/package.json" <<EOF
 {

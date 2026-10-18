@@ -450,6 +450,14 @@ jobs:
           node --version
           cargo test -p phasekit-wasm --target wasm32-unknown-unknown
           RUSTFLAGS="-C target-feature=+simd128" cargo test -p phasekit-wasm --features simd --target wasm32-unknown-unknown
+      # A panic retires the module it happens in, so the panic test is a binary of its own, with the faults (PLAN.md M24.2).
+      - name: The browser package's panic test, baseline and simd128 (PLAN.md M24.2)
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+          WASM_BINDGEN_WEAKREF: "1"
+        run: |
+          cargo test -p phasekit-wasm --features fault-injection --target wasm32-unknown-unknown --test panics
+          RUSTFLAGS="-C target-feature=+simd128" cargo test -p phasekit-wasm --features simd,fault-injection --target wasm32-unknown-unknown --test panics
       # The modules the npm package ships, with their crates' notices, for the `site` job (PLAN.md M21.1).
       - name: The release modules for the site
         run: scripts/release/wasm-modules.sh site-modules
