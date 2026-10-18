@@ -85,5 +85,10 @@ opt-level = 2
 [profile.dev.package.phasekit-xtask]
 opt-level = 2
 
+# User decision SP2 (2026-10-18): phasekit-mix too, whose debug mixture tests took 50-106 s each at opt-level 0 (the GERG
+# gas's stability tests and critical-point searches; tests/mixture_family.rs).
+[profile.dev.package.phasekit-mix]
+opt-level = 2
+
 [profile.dev.package."*"]
 opt-level = 2
