@@ -1,19 +1,15 @@
-//! Every input pair on a mixture (PLAN.md M13.11): the conformance kit's capability matrix on R410A.mix, Air.mix and a
-//! GERG-2008 natural gas (ROT-293, ROT-009), the near-dew HP, PS and PU band of ROT-184's five components, and the mass
-//! quality in and out (ROT-201).
+//! Input pairs on a mixture (PLAN.md M13.11): the near-dew HP, PS and PU band of ROT-184's five components, and the
+//! mass quality in and out (ROT-201). The capability matrix of every pair (ROT-293, ROT-009) is the conformance kit's,
+//! in `tests/mixture_family.rs` (M13.15).
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::{Basis, DataSet, Error, Fluid, Input, Pair, Registry, State, Var};
+use phasekit_core::{Basis, DataSet, Input, Pair, Registry};
 use phasekit_mix::{Equilibrium, Given, Side};
 use phasekit_verify::ToleranceClass;
-use phasekit_verify::conformance::{Outcome, capability_matrix};
 
 #[path = "common/mix_flash.rs"]
 mod mix_flash;
-#[path = "common/mix_sat.rs"]
-mod mix_sat;
 use mix_flash::{binary, mixture};
-use mix_sat::row_fluid;
 
 fn registry() -> Registry {
     Registry::from_embedded(DataSet::Parity).unwrap()
@@ -26,69 +22,6 @@ fn molar(pair: Pair, x: f64, y: f64) -> Input {
 /// `got` is `want` within class `Flash`.
 fn within(got: f64, want: f64) -> bool {
     (got - want).abs() <= ToleranceClass::Flash.bound(want.abs()).unwrap()
-}
-
-/// The two truths, DT states of `fluid`: one phase at (0.6 ρ_c, 1.2 T_c) and the dome at (ρ_c, 0.8 T_c), c the model's
-/// critical point (`ThermoModel::critical_point`).
-fn truths(fluid: &Fluid) -> [State; 2] {
-    let c = fluid.model().critical_point().unwrap();
-    [molar(Pair::DT, 0.6 * c.rho, 1.2 * c.t), molar(Pair::DT, c.rho, 0.8 * c.t)]
-        .map(|input| fluid.state(input).unwrap())
-}
-
-/// Whether one cell of the matrix is as expected: a pass, or for a quality pair `Undefined` from the single-phase truth,
-/// which has no quality. A mixture's PT is one state in the dome too, so it passes there (a pure fluid's is
-/// `Ambiguous`).
-fn expected(outcome: &Outcome, pair: Pair, single_phase: bool) -> bool {
-    let q_pair = matches!(pair.vars(), (Var::Q, _) | (_, Var::Q));
-    match outcome {
-        Outcome::Pass => true,
-        Outcome::Refused(Error::Undefined { .. }) => single_phase && q_pair,
-        _ => false,
-    }
-}
-
-/// The matrix's cells that are not as [`expected`]: (pair, which truth, outcome).
-fn unexpected(fluid: &Fluid) -> Vec<(Pair, &'static str, Outcome)> {
-    let [single, two] = truths(fluid);
-    assert!(single.quality().is_none(), "{single:?}");
-    assert!(two.quality().is_some_and(|q| 0.0 < q && q < 1.0), "{two:?}");
-    let mut wrong = Vec::new();
-    for (pair, [one_phase, dome]) in capability_matrix(fluid, [&single, &two]) {
-        if !expected(&one_phase, pair, true) {
-            wrong.push((pair, "one phase", one_phase));
-        }
-        if !expected(&dome, pair, false) {
-            wrong.push((pair, "dome", dome));
-        }
-    }
-    wrong
-}
-
-/// VERIFICATION.md §8.5 and ROT-293 (v8.0.0 lacks DP, DQ, HQ and QS for mixtures): all 19 pairs round-trip through both
-/// truths of R410A.mix within `Flash`, the phase label included (ROT-009).
-#[test]
-fn r410a_capability_matrix() {
-    let fluid = row_fluid(&registry(), "R410A.mix", f64::NAN);
-    let wrong = unexpected(&fluid);
-    assert!(wrong.is_empty(), "{wrong:#?}");
-}
-
-/// As [`r410a_capability_matrix`], on Air.mix's three components.
-#[test]
-fn air_capability_matrix() {
-    let fluid = row_fluid(&registry(), "Air.mix", f64::NAN);
-    let wrong = unexpected(&fluid);
-    assert!(wrong.is_empty(), "{wrong:#?}");
-}
-
-/// As [`r410a_capability_matrix`], on a GERG-2008 natural gas of five components.
-#[test]
-fn natural_gas_capability_matrix() {
-    let gas = [("Methane", 0.85), ("Ethane", 0.07), ("n-Propane", 0.03), ("Nitrogen", 0.03), ("CarbonDioxide", 0.02)];
-    let fluid = phasekit_mix::gerg2008(&registry(), &gas).unwrap();
-    let wrong = unexpected(&fluid);
-    assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
 /// bd:ft05's five components (ROT-183, ROT-184).
