@@ -703,21 +703,8 @@ runner.
 | Step | Landed |
 |---|---|
 | M22.1 | `Mixture` overrides `residual_batch` and `ideal_batch` (`phasekit-mix`'s `batch` module): the reducing state once per batch, each component's own hook over blocks of 64 points under the batch's policy (at its scaled (T_i, ρ_i) for α^r, at the mixture's (T, ρ) for α⁰), the departures point by point, and each point summed by the code that sums a single point's (`summed`, `ideal_sum`), so a batch is its points' `residual` and `ideal` bit for bit by construction (`mixture_batch_is_residual_per_point`, in `tests/batch.rs`, which CI's lane step runs at every dispatch level). GERG-2008's components take the default hook. M22's bench mixtures are `phasekit_verify::mixtures` (R32/R125 and Methane/Ethane at 50/50 and a five-component natural gas on the library, AGA8's 21-component check gas on GERG-2008). Benches `mixture_alphar_batch/{scalar,simd}` and their breakdown `mixture_alphar_parts` (VERIFICATION.md §12), recorded on the i7-8700K as M22's baseline (`benches/results/M22-intel-core-i7-8700k.csv`): under `Simd` the library mixtures' batches take 0.70-0.84× the same build's scalar time, their components 0.24-0.48×, and the departures 81-88 % of what remains; GERG-2008's gas is unchanged (ML4) |
+| M22.2 | `batch::RealKernel`, whose one method `eval<R: Real>(&self, inputs: &[R], outputs: &mut [R])` is a family's pure function, its counts those of the columns it runs on, and `batch::run_kernel(kernel, inputs, outputs, exec)`: `Reference` and `Parallel` on `f64` point by point (fixed chunks, on rayon's pool), `Simd` in `Lanes<W>` a group at a time, a short last group padded with its first point; the working columns allocated once per call; unequal columns are `Error::Shape`. Core's match on the CPU's level became `exec::dispatch` over a crate-private `Widths` batch, which `run_simd`'s lane kernels and `run_kernel`'s columns share; `Lanes<W>`, the executors and the lane maths stay crate-private. ARCHITECTURE.md §3 (the seam table, the generic API, six traits), §3.1 and §7 say what is public. `real_kernels_are_scalar_bitwise` (`tests/batch.rs`, through the public path: a kernel using every `Real` method, 1 in and 1 out, 2 and 3, 3 and 15, over 1 to 65 points), `real_kernel_chunks_run_on_the_rayon_pool` and `real_kernels_run_whole_groups_then_the_rest`. No release tag exists, so `cargo semver-checks` had nothing to check |
 
-- **M22.2 Core runs a family's kernels in lanes (ML3).** In `batch`, beside `ExecPolicy`: a public trait whose one
-  method is generic over `R: Real`, a pure function from inputs to outputs whose counts each kernel value gives (M22.5's
-  Taylor arithmetic has one variable per component, known at run time), and a function that runs it over columns of
-  `f64` under an `ExecPolicy`, at `Lanes<W>` inside core under `Simd`; unequal columns are `Error::Shape`. The runner
-  allocates its working columns once per call, not per group of lanes: counts known at run time must not put an
-  allocation inside the loop, where ML4 would measure it as the kernel's cost. `Lanes<W>`, the executors and the lane
-  `exp`, `ln` and `expm1` stay crate-private. The runner's docs say that a kernel is `#[inline(always)]` down to its
-  `Real` operations, as core's are, so that `run_simd`'s target features reach it; M22.3's and M22.5's kernels are.
-  ARCHITECTURE.md §3 (the seam table, the public generic types, the count of traits), §3.1 and §7 say what is public; if
-  a release tag exists, `cargo semver-checks` against it is clean for a minor version. *Red:*
-  `real_kernels_are_scalar_bitwise` in `phasekit-verify` (outside core, through the public path only): a test kernel
-  that uses every `Real` method, its counts set at run time, over batches of 1 to 65 points (a short last group at every
-  width, SL6), bitwise equal under `Reference`, `Parallel` and `Simd` to the kernel on `f64` point by point, against a
-  stub returning `Error::Unsupported`.
 - **M22.3 Departures in lanes.** `phasekit-mix`'s departure kernel moves from its own `Scalar` trait (M13.7) onto
   `Real`: `Series` over `R: Real`, its test for the variable in `compose` a flag rather than a comparison (`Real` has
   none); `MultiFluid`'s batch runs the departures through M22.2's runner, and GERG-2008's components (`gerg::Pure`),

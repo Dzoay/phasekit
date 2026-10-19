@@ -1,15 +1,15 @@
 //! Batch on real fluids (PLAN.md M5.8, M9.1, M12, M22; VERIFICATION.md §9.1, §9.2; ARCHITECTURE.md §7): the batch
 //! driver is the scalar path cell by cell, bit for bit, into point-major buffers, every executor and thread count gives
-//! the same bits, and so do a mixture's batch hooks.
+//! the same bits, and so do a mixture's batch hooks and a family's kernels over `Real`.
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use std::num::NonZeroUsize;
 
-use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
+use phasekit_core::batch::{self, BatchRequest, ExecPolicy, RealKernel, Status};
 use phasekit_core::{
     Basis, DataSet, Density, Derivs, DomainPolicy, Error, FlashOptions, Fluid, HelmholtzModel, Input, Order, Pair,
-    Phase, Pressure, Prop, Quality, Registry, RootPolicy, Temperature, math,
+    Phase, Pressure, Prop, Quality, Real, Registry, RootPolicy, Temperature, math,
 };
 use phasekit_verify::mixtures::{BENCH_MIXTURES, BenchMixture, MixtureModel};
 use phasekit_verify::{SplitMix64, policy_equivalence};
@@ -339,6 +339,35 @@ mod parallel {
         }
         assert_eq!(pools, 4 * n);
     }
+
+    /// A kernel over `Real` whose outputs are its inputs on a rayon worker and NaN on any other thread.
+    struct OnThePool;
+
+    impl RealKernel for OnThePool {
+        fn eval<R: Real>(&self, inputs: &[R], outputs: &mut [R]) {
+            let on_the_pool = rayon::current_thread_index().is_some();
+            for (out, x) in outputs.iter_mut().zip(inputs) {
+                *out = if on_the_pool { *x } else { R::from_f64(f64::NAN) };
+            }
+        }
+    }
+
+    /// PLAN.md M22.2 (K6): `batch::run_kernel` places its chunks as the batch driver does. A `Parallel` batch of
+    /// several chunks runs them on rayon's workers, and `Reference` and `Simd` run on the calling thread, where
+    /// [`OnThePool`] writes NaN.
+    #[test]
+    fn real_kernel_chunks_run_on_the_rayon_pool() {
+        let x: Vec<f64> = (1..=64).map(f64::from).collect();
+        let run = |exec| {
+            let mut y = vec![0.0; x.len()];
+            batch::run_kernel(&OnThePool, &[&x], &mut [&mut y], exec).unwrap();
+            y
+        };
+        assert_eq!(run(parallel(16)), x, "four chunks of 16 off the pool");
+        for exec in [ExecPolicy::Reference, ExecPolicy::Simd] {
+            assert!(run(exec).iter().all(|y| y.is_nan()), "{exec:?} ran on the pool");
+        }
+    }
 }
 
 /// PLAN.md M12.1 and M12.8 (VERIFICATION.md §9.1, class `Exact`): `HelmholtzModel::residual_batch` is `residual` and
@@ -486,6 +515,86 @@ fn assert_shapes_are_refused(name: &str, eos: &dyn HelmholtzModel, (t, rho): (&[
     }
     assert!(eos.residual_batch(&[], &[], Order::Two, &mut [], parallel).is_ok(), "{name}: empty batch");
     assert!(eos.ideal_batch(&[], &[], Order::Two, &mut [], ExecPolicy::Simd).is_ok(), "{name}: empty α⁰ batch");
+}
+
+/// A kernel over `Real` that uses every method and operator of `Real`, its counts set at run time: output j combines
+/// inputs j and j + 1 (cyclically), scaled by j + 1. The inputs are positive, for `ln` and `sqrt`.
+struct EveryMethod;
+
+impl RealKernel for EveryMethod {
+    #[inline(always)]
+    fn eval<R: Real>(&self, inputs: &[R], outputs: &mut [R]) {
+        let input = |k: usize| inputs.get(k % inputs.len().max(1)).copied().unwrap_or(R::from_f64(1.0));
+        for (j, out) in outputs.iter_mut().enumerate() {
+            let (a, b) = (input(j), input(j + 1));
+            let growth = a.exp() + b.expm1() * a.ln() - b.ln_1p() / a.sqrt();
+            let powers = a.powi(3) + b.powf(1.7);
+            let hyperbolic = (a * 0.1).sinh() * (b * 0.1).cosh() + (-a).atan() - (-b).abs();
+            *out = (growth + powers + hyperbolic + R::from_f64(0.5)) * (j as f64 + 1.0) + 0.25;
+        }
+    }
+}
+
+/// PLAN.md M22.2 (VERIFICATION.md §9.2, class `Exact`; user decision ML3): a family's kernel over `Real` runs through
+/// `batch::run_kernel` bitwise its `f64` evaluation point by point, under `Reference`, `Parallel` (16-point chunks) and
+/// `Simd`, through the public path only. The kernel uses every `Real` method, at counts set at run time (1 in and 1 out,
+/// 2 in and 3 out, 3 in and 15 out), over batches of 1 to 65 points, so a short last group at every lane width. Unequal
+/// columns are a `Shape` error, and an empty batch runs.
+#[test]
+fn real_kernels_are_scalar_bitwise() {
+    let mut rng = SplitMix64::new(15);
+    let columns: Vec<Vec<f64>> = (0..3).map(|_| (0..65).map(|_| rng.uniform(0.1, 3.0)).collect()).collect();
+    let parallel = ExecPolicy::Parallel { chunk: NonZeroUsize::new(16).unwrap() };
+    for (inputs, outputs) in [(1, 1), (2, 3), (3, 15)] {
+        for n in 1..=65 {
+            let ins: Vec<&[f64]> = columns[..inputs].iter().map(|c| &c[..n]).collect();
+            let want = kernel_per_point(&ins, outputs, n);
+            for exec in [ExecPolicy::Reference, parallel, ExecPolicy::Simd] {
+                let mut got = vec![vec![f64::NAN; n]; outputs];
+                let mut outs: Vec<&mut [f64]> = got.iter_mut().map(Vec::as_mut_slice).collect();
+                let ran = batch::run_kernel(&EveryMethod, &ins, &mut outs, exec);
+                assert!(ran.is_ok(), "{inputs} in, {outputs} out, {n} points, {exec:?}: {ran:?}");
+                assert_eq!(column_bits(&got), column_bits(&want), "{inputs} in, {outputs} out, {n} points, {exec:?}");
+            }
+        }
+    }
+    assert_kernel_shapes_are_refused(&columns);
+}
+
+/// `EveryMethod` on `f64` at each of `n` points of the input columns `ins`: `outputs` columns.
+fn kernel_per_point(ins: &[&[f64]], outputs: usize, n: usize) -> Vec<Vec<f64>> {
+    let mut want = vec![vec![0.0; n]; outputs];
+    for k in 0..n {
+        let x: Vec<f64> = ins.iter().map(|c| c[k]).collect();
+        let mut y = vec![0.0; outputs];
+        EveryMethod.eval(&x, &mut y);
+        for (column, value) in want.iter_mut().zip(y) {
+            column[k] = value;
+        }
+    }
+    want
+}
+
+/// Every value's bits, NaN canonical (VERIFICATION.md §9.4).
+fn column_bits(columns: &[Vec<f64>]) -> Vec<Vec<u64>> {
+    let canonical = |v: &f64| if v.is_nan() { f64::NAN.to_bits() } else { v.to_bits() };
+    columns.iter().map(|c| c.iter().map(canonical).collect()).collect()
+}
+
+/// `batch::run_kernel` refuses an input or output column of another length with a `Shape` error under every policy,
+/// and runs an empty batch.
+fn assert_kernel_shapes_are_refused(columns: &[Vec<f64>]) {
+    let parallel = ExecPolicy::Parallel { chunk: NonZeroUsize::new(16).unwrap() };
+    for exec in [ExecPolicy::Reference, parallel, ExecPolicy::Simd] {
+        let mut out = vec![0.0; 65];
+        let short_input = batch::run_kernel(&EveryMethod, &[&columns[0], &columns[1][1..]], &mut [&mut out], exec);
+        assert!(matches!(short_input, Err(Error::Shape { expected: 65, found: 64 })), "{exec:?}: {short_input:?}");
+        let mut short = vec![0.0; 64];
+        let short_output = batch::run_kernel(&EveryMethod, &[&columns[0]], &mut [&mut out, &mut short], exec);
+        assert!(matches!(short_output, Err(Error::Shape { expected: 65, found: 64 })), "{exec:?}: {short_output:?}");
+        let empty = batch::run_kernel(&EveryMethod, &[&[]], &mut [&mut []], exec);
+        assert!(empty.is_ok(), "{exec:?}: empty batch {empty:?}");
+    }
 }
 
 /// The part of α a Helmholtz batch hook evaluates.
