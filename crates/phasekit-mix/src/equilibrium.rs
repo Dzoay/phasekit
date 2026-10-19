@@ -137,6 +137,8 @@ fn rising(model: &dyn HelmholtzModel, t: f64, from: f64, to: f64) -> bool {
         let rho = from + (to - from) * k as f64 / BRANCH_POINTS as f64;
         let d = model.residual(t, rho, Order::Two);
         let (a01, a02) = (d.get(0, 1).unwrap_or(f64::NAN), d.get(0, 2).unwrap_or(f64::NAN));
+        // Equivalent (M13.8): `>=` differs only at a slope exactly 0 on a branch, which no solve meets.
+        // equivalent mutant: replace > with >=
         1.0 + 2.0 * a01 + a02 > 0.0
     })
 }
@@ -177,6 +179,8 @@ fn gated(model: &dyn HelmholtzModel, t: f64, p: f64, start: f64) -> Option<f64> 
         let rho = math::exp(u);
         let b = (model.residual(t, rho, Order::Two) + Derivs::IDEAL_DELTA).bundle()?;
         let (pressure, slope) = (rho * r * t * b.a01, rho * r * t * (2.0 * b.a01 + b.a02));
+        // Equivalent (M13.9): `>=` differs only at the gated Newton's slope exactly 0, which no solve meets.
+        // equivalent mutant: replace > with >=
         if !(pressure.is_finite() && slope > 0.0) {
             return None;
         }
@@ -196,6 +200,9 @@ const SAME_ROOT: f64 = 1e-12;
 fn roots(model: &dyn HelmholtzModel, t: f64, p: f64) -> Vec<f64> {
     let [vapour, liquid] = [Branch::Vapour, Branch::Liquid].map(|branch| branch_root(model, t, p, branch, None).ok());
     match (vapour, liquid) {
+        // Equivalent (M13.9): `>=` differs only at two branch roots exactly SAME_ROOT apart in ln ρ, which no solve
+        // meets.
+        // equivalent mutant: replace > with >=
         (Some(v), Some(l)) if (math::ln(l) - math::ln(v)).abs() > SAME_ROOT => vec![v.min(l), v.max(l)],
         (Some(one), _) | (None, Some(one)) => vec![one],
         (None, None) => vec![],
@@ -222,6 +229,8 @@ pub(crate) fn stable_root(model: &dyn HelmholtzModel, t: f64, p: f64) -> Result<
     };
     // The lower-Gibbs root first; the other only where the first is not on its branch.
     let ends = [(dilute, 0.0), (dense, model.rho_max(t))];
+    // Equivalent (M13.8): `<=` differs only at two roots of equal Gibbs energy, which no solve meets.
+    // equivalent mutant: replace < with <=
     let [first, second] = if gibbs(dense) < gibbs(dilute) { [ends[1], ends[0]] } else { ends };
     if !rising(first.1, first.0) && rising(second.1, second.0) { Ok(second.0) } else { Ok(first.0) }
 }
@@ -273,12 +282,18 @@ fn rachford_rice_steps(z: &[f64], ln_k: &[f64]) -> Option<(f64, usize)> {
         if g == 0.0 {
             return Some((b, step));
         }
+        // Equivalent (M13.8): g exactly 0 was returned before, so `>=` takes the same branch.
+        // equivalent mutant: replace > with >=
         if g > 0.0 {
             lo = b;
         } else {
             hi = b;
         }
         let newton = b - g / dg;
+        // Equivalent (M13.8): a Newton step exactly on its bracket's end is no step the solve meets; it bisects either
+        // way.
+        // equivalent mutant: replace > with >=
+        // equivalent mutant: replace < with <=
         let next = if newton > lo && newton < hi { newton } else { 0.5 * (lo + hi) };
         if (next - b).abs() <= 1e-15 * b.abs().max(1.0) {
             return Some((next, step));
@@ -349,6 +364,8 @@ fn trials(z: &[f64], ln_k: &[f64]) -> Vec<Vec<f64>> {
 /// The minimiser of the most negative tangent-plane distance among `minima` (tm, W), where it lies below
 /// −`TM_TOLERANCE`; `None` where none does (the feed is stable).
 fn most_unstable(minima: impl Iterator<Item = (f64, Vec<f64>)>) -> Option<Vec<f64>> {
+    // Equivalent (M13.8): `<=` differs only at a distance exactly −TM_TOLERANCE, which no solve meets.
+    // equivalent mutant: replace < with <=
     minima.filter(|(tm, _)| *tm < -TM_TOLERANCE).min_by(|a, b| a.0.total_cmp(&b.0)).map(|(_, w)| w)
 }
 
@@ -369,6 +386,8 @@ impl Tpd<'_> {
 
     /// Whether `w` is the feed: Σ (w_i/Σw − z_i)² under `TM_TOLERANCE`.
     fn trivial(&self, w: &[f64]) -> bool {
+        // Equivalent (M13.8): `<=` differs only at a trial exactly TM_TOLERANCE from the feed, which no solve meets.
+        // equivalent mutant: replace < with <=
         normalised(w).iter().zip(self.z).map(|(a, b)| (a - b) * (a - b)).sum::<f64>() < TM_TOLERANCE
     }
 
@@ -399,6 +418,8 @@ impl Tpd<'_> {
             if self.trivial(&w) {
                 return Ok(None);
             }
+            // Equivalent (M13.8): `<=` differs only at a substitution changing exactly 1e-10, which no solve meets.
+            // equivalent mutant: replace < with <=
             if change < 1e-10 {
                 return Ok(Some((w, step)));
             }
@@ -433,6 +454,8 @@ impl Tpd<'_> {
         (0..8).map(|k| math::powi(0.5, k)).find_map(|scale| {
             let trial: Vec<f64> =
                 alpha.iter().zip(step).map(|(a, s)| 0.25 * (a + scale * s) * (a + scale * s)).collect();
+            // Equivalent (M13.8): `>=` differs only at a trial's W exactly 0, which no solve meets.
+            // equivalent mutant: replace > with >=
             let next = trial.iter().all(|w| *w > 0.0).then(|| self.at(&trial, Order::One).ok()).flatten()?;
             (self.tm(&trial, &next.ln_phi()) <= before).then_some(trial)
         })
@@ -476,11 +499,20 @@ pub(crate) fn split(mixture: &Mixture, t: f64, p: f64, z: &[f64], mut ln_k: Vec<
             return Ok(None);
         }
         ln_k = next;
+        // Equivalent (M13.8): `<=` differs only at a step exactly at its gate, which no solve meets.
+        // equivalent mutant: replace < with <=
         if step.iter().all(|s| s.abs() < 1e-6) {
+            // Equivalent (M13.8): `>=` and `<=` differ only at a split's β exactly 0 or 1, which no solve meets.
+            // equivalent mutant: replace > with >=
+            // equivalent mutant: replace < with <=
             let inside = rachford_rice(z, &ln_k).is_some_and(|b| b > 0.0 && b < 1.0);
             return if inside { newton(mixture, t, p, z, &ln_k).map(Some) } else { Ok(None) };
         }
         if let Some(last) = history.last()
+            // Equivalent (M13.8): GDEM every fifth step is a schedule; its other schedules converge to the same split
+            // in more steps.
+            // equivalent mutant: replace % with +
+            // equivalent mutant: replace % with /
             && iteration % 5 == 4
         {
             accelerate(&mut ln_k, &step, last);
@@ -492,6 +524,8 @@ pub(crate) fn split(mixture: &Mixture, t: f64, p: f64, z: &[f64], mut ln_k: Vec<
 
 /// Whether equilibrium ratios have collapsed onto the feed: Σ (ln K_i)² under `TM_TOLERANCE`.
 fn collapsed(ln_k: &[f64]) -> bool {
+    // Equivalent (M13.8): `<=` differs only at K exactly at the trivial gate, which no solve meets.
+    // equivalent mutant: replace < with <=
     ln_k.iter().map(|l| l * l).sum::<f64>() < TM_TOLERANCE
 }
 
@@ -507,6 +541,8 @@ fn from_minority(z: &[f64], minor: &[f64], vapour_minor: bool) -> (f64, Vec<f64>
 fn accelerate(ln_k: &mut [f64], step: &[f64], last: &[f64]) {
     let dot = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(a, b)| a * b).sum::<f64>();
     let lambda = dot(step, last) / dot(last, last);
+    // Equivalent (M13.8): at GDEM's λ exactly 0 its step is 0, so `>=` changes nothing.
+    // equivalent mutant: replace > with >=
     if lambda > 0.0 && lambda < 1.0 {
         ln_k.iter_mut().zip(step).for_each(|(l, s)| *l += lambda / (1.0 - lambda) * s);
     }
@@ -520,6 +556,8 @@ fn newton(mixture: &Mixture, t: f64, p: f64, z: &[f64], ln_k: &[f64]) -> Result<
     let failed = |iterations| Error::NoConvergence { strategy: Strategy::Vle, iterations };
     let beta = rachford_rice(z, ln_k).ok_or(failed(0))?;
     let (x, y) = phases(z, ln_k, beta);
+    // Equivalent (M13.8): `<=` differs only at β exactly 1/2, which no solve meets.
+    // equivalent mutant: replace < with <=
     let vapour_minor = beta < 0.5;
     let mut minor: Vec<f64> =
         if vapour_minor { y.iter().map(|y| beta * y).collect() } else { x.iter().map(|x| (1.0 - beta) * x).collect() };

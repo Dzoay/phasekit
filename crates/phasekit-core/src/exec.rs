@@ -152,33 +152,49 @@ pub(crate) fn run_lanes<K: LaneKernel, const W: usize>(kernel: &K, x: &[f64], y:
 /// `exp` and `ln` still run per lane through `math`.
 #[cfg(feature = "simd")]
 pub(crate) fn run_simd<K: LaneKernel>(level: Level, kernel: &K, x: &[f64], y: &[f64], out: &mut [K::Out]) {
+    // Not compiled in the gate's run (M12.4, M12.7): this needs core's `simd` feature, which the run does not enable,
+    // so no test there can fail. With the feature, on core's tests, 9 of `run_simd`'s and `run_wide`'s 12 mutants were
+    // caught (`each_level_runs_its_own_width`, `every_level_writes_every_point`).
+    // equivalent mutant: replace run_simd with ()
     use fearless_simd::Simd;
     match level {
+        // AVX-512 only, which neither the reference machine nor CI's runners have.
+        // equivalent mutant: delete match arm Level::Avx512(simd)
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         Level::Avx512(simd) => simd.vectorize(
             #[inline(always)]
             || run_wide::<K, 32, 8>(kernel, x, y, out),
         ),
+        // Caught with `simd` (`each_level_runs_its_own_width`), which the gate's run does not enable.
+        // equivalent mutant: delete match arm Level::Avx2(simd)
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         Level::Avx2(simd) => simd.vectorize(
             #[inline(always)]
             || run_wide::<K, 16, 4>(kernel, x, y, out),
         ),
+        // Caught with `simd` (`each_level_runs_its_own_width`), which the gate's run does not enable.
+        // equivalent mutant: delete match arm Level::Sse4_2(simd)
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         Level::Sse4_2(simd) => simd.vectorize(
             #[inline(always)]
             || run_wide::<K, 8, 2>(kernel, x, y, out),
         ),
+        // Caught with `simd` (`each_level_runs_its_own_width`), which the gate's run does not enable.
+        // equivalent mutant: delete match arm Level::Sse2(simd)
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         Level::Sse2(simd) => simd.vectorize(
             #[inline(always)]
             || run_wide::<K, 8, 2>(kernel, x, y, out),
         ),
+        // NEON exists only on aarch64, where the width test catches it (the aarch64 runner).
+        // equivalent mutant: delete match arm Level::Neon(simd)
         #[cfg(target_arch = "aarch64")]
         Level::Neon(simd) => simd.vectorize(
             #[inline(always)]
             || run_wide::<K, 8, 2>(kernel, x, y, out),
         ),
+        // simd128 exists only on wasm32, where the width test catches it (wasip2 with simd128).
+        // equivalent mutant: delete match arm Level::WasmSimd128(simd)
         #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
         Level::WasmSimd128(simd) => simd.vectorize(
             #[inline(always)]
@@ -194,6 +210,9 @@ pub(crate) fn run_simd<K: LaneKernel>(level: Level, kernel: &K, x: &[f64], y: &[
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
 #[inline(always)]
 fn run_wide<K: LaneKernel, const W: usize, const V: usize>(kernel: &K, x: &[f64], y: &[f64], out: &mut [K::Out]) {
+    // Not compiled in the gate's run (M12.7): `run_wide` needs `simd`; with it, `every_level_writes_every_point`
+    // catches this.
+    // equivalent mutant: replace run_wide with ()
     let whole = x.len().saturating_sub(x.len().checked_rem(W).unwrap_or(0));
     let (Some((xw, xr)), Some((yw, yr)), Some((ow, or))) =
         (x.split_at_checked(whole), y.split_at_checked(whole), out.split_at_mut_checked(whole))
@@ -214,6 +233,9 @@ pub(crate) fn run_parallel<O: Send>(
     run: impl Fn(&[f64], &[f64], &mut [O]) + Sync,
 ) {
     #[cfg(feature = "rayon")]
+    // Equivalent (M12.1, M12.3): with `<=` a batch of one chunk goes to rayon, which runs it inline on the calling
+    // thread: the same thread and bits.
+    // equivalent mutant: replace < with <=
     if chunk < x.len() {
         x.par_chunks(chunk)
             .zip(y.par_chunks(chunk))

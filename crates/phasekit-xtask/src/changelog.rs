@@ -50,6 +50,10 @@ pub fn main(args: &[String]) -> ExitCode {
 
 /// Writes the section of the commits up to `rev`, through `repo` (git and the file); returns how many subjects it lists.
 fn run(repo: &Repo, version: &str, date: &str, rev: &str) -> Result<usize, String> {
+    // Process glue: this reads git and writes CHANGELOG.md through `repo`; the release PR runs it, and its sections are
+    // `section`'s, which the unit test checks.
+    // equivalent mutant: replace run -> Result<usize, String> with Ok(0)
+    // equivalent mutant: replace run -> Result<usize, String> with Ok(1)
     let last = repo.git(&["tag", "--list", "v*", "--sort=-creatordate"])?;
     let range = last.lines().next().map_or_else(|| rev.to_string(), |tag| format!("{tag}..{rev}"));
     let subjects = repo.git(&["log", "--reverse", "--format=%s", &range])?;

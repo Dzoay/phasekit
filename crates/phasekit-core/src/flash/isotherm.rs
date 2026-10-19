@@ -50,6 +50,9 @@ pub(super) fn tx(fluid: &PureFluid, t: f64, x: f64, var: Caloric, opts: &FlashOp
         _ if single_hint => None,
         // A pseudo-pure fluid's VLE fails just below its published Tc, above its EOS's own: no dome (`isochore_x`).
         _ => match saturation_at_t(fluid, curve, crit, t) {
+            // Equivalent (M7.5): a fluid whose saturation at T fails with `NoConvergence` from the VLE is a pseudo-pure
+            // one; a pure fluid's below its curve's top comes from the curve.
+            // equivalent mutant: replace match guard pseudo_pure with true
             Err(Error::NoConvergence { strategy: Strategy::Vle, .. }) if pseudo_pure => None,
             sat => Some(sat?.0),
         },
@@ -119,6 +122,11 @@ fn cell_roots(
     (b, at_b): (f64, (f64, f64)),
 ) -> Result<Vec<(f64, u16)>, Error> {
     let mut pieces = vec![(a, at_a.0, b, at_b.0)];
+    // Equivalent (M7.5): a cell is cut at a turn where its ends' slopes have opposite signs; `a/b < 0` is the same
+    // test, and `<= 0` differs only where a slope is exactly 0 at a node, where the cut falls on that node and the
+    // pieces hold the same roots.
+    // equivalent mutant: replace * with /
+    // equivalent mutant: replace < with <=
     if at_a.1 * at_b.1 < 0.0 {
         let turn = toms748(|u| point(u).map_or(f64::NAN, |p| p.1), a, b, Tol::Absolute(T_TOL), T_ITER);
         let turn = turn.converged(Strategy::Isotherm)?.x;
@@ -127,6 +135,9 @@ fn cell_roots(
     }
     let mut roots = Vec::new();
     for (lo, at_lo, hi, at_hi) in pieces {
+        // Equivalent (M7.5): with `&&` for an `||`, a root exactly on a node is still found from a cell that it ends,
+        // unless x only touches the value there.
+        // equivalent mutant: replace || with &&
         if at_lo == 0.0 || at_hi == 0.0 || at_lo.is_sign_negative() != at_hi.is_sign_negative() {
             let root = toms748(|u| point(u).map_or(f64::NAN, |p| p.0), lo, hi, Tol::Absolute(T_TOL), T_ITER);
             let root = root.converged(Strategy::Isotherm)?;

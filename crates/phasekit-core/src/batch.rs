@@ -141,6 +141,9 @@ pub fn evaluate(
     // At most `n` points per chunk, so `chunk * m` is at most `cells`.
     let chunk = chunk_points(req.exec, n);
     #[cfg(feature = "rayon")]
+    // Equivalent (M9.1): with `<=` a batch of one chunk goes to rayon, whose parallel iterator runs a single piece
+    // inline on the calling thread: the same thread and bits.
+    // equivalent mutant: replace < with <=
     if chunk < n {
         let (points, outs) =
             (req.x.par_chunks(chunk).zip(req.y.par_chunks(chunk)), out.par_chunks_mut(chunk.saturating_mul(m)));

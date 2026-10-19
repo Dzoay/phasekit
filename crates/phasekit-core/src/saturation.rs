@@ -461,6 +461,9 @@ impl SaturationCurve for PseudoPureCurve {
         let side = |pa: &Ancillary, rho: &Ancillary| -> Result<SatSide, Error> {
             let Some(t) = pa.invert(p) else {
                 let p_max = pa.at(pa.t_max);
+                // Equivalent: a PQ is refused only when the pressure ancillary has no root in its range, which it has
+                // at its own value at Tmax, so p equal to that bound never reaches this; above and below are tested.
+                // equivalent mutant: replace > with >=
                 return Err(if p > p_max {
                     DomainError::AboveMaxPressure { p, p_max }
                 } else {

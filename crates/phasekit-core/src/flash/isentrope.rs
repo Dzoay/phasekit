@@ -81,6 +81,9 @@ fn isentrope_bracket(
 ) -> Result<(Point, Point), Error> {
     let (above, below, refused) = (descent.above, descent.below, descent.refused);
     let found = match (above, below) {
+        // Equivalent (M7.8): a bracket of two decades with a refusal between them, taken as if none were there, meets
+        // that refusal inside TOMS 748, which splits the bracket around it, as the guarded arm's bisection does.
+        // equivalent mutant: replace match guard refused.is_none() with true
         (Some(above), Some(below)) if refused.is_none() => Some((below, above)),
         (_, Some(below)) if below.1 == 0.0 => Some((below, below)),
         (_, Some(below)) => {

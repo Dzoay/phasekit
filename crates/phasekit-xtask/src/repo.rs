@@ -313,6 +313,20 @@ impl Repo {
     /// progress on the terminal. Builds happen in cargo-mutants' own copy of the tree outside the repository, so an
     /// inherited `CARGO_TARGET_DIR` is dropped and `reference/` is named through `PHASEKIT_REFERENCE_DIR`. The output
     /// is removed after a successful run and kept after a failed one.
+    /// `cargo mutants --list --json --no-config <args>` in the root: the tree's mutants, none excluded, as JSON.
+    pub fn mutants_list(&self, args: &[&str]) -> Result<String, String> {
+        let output = Command::new(env!("CARGO"))
+            .args(["mutants", "--list", "--json", "--no-config"])
+            .args(args)
+            .current_dir(&self.root)
+            .output()
+            .map_err(|e| format!("cannot run cargo mutants --list (scripts/check-toolchain.sh): {e}"))?;
+        if !output.status.success() {
+            return Err(format!("cargo mutants --list failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
     pub fn cargo_mutants(&self, pass: &str, diff: &str, args: &[&str]) -> Result<MutantsRun, String> {
         let dir = std::env::temp_dir().join(format!("phasekit-mutants-{}-{pass}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

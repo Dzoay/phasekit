@@ -359,6 +359,8 @@ fn ancillaries(pseudo_pure: Option<&PseudoPure>) -> Vec<u8> {
     let mut out = Vec::new();
     let Some(pp) = pseudo_pure else { return out };
     for a in [&pp.p_l, &pp.p_v, &pp.rho_l, &pp.rho_v] {
+        // Equivalent: the flags are two disjoint bits (exponential, τ_r), so `|` and `^` give one byte.
+        // equivalent mutant: replace | with ^
         out.push(u8::from(a.exponential) | u8::from(a.tau_r) << 1);
         [a.t_r, a.reducing, a.t_min, a.t_max].into_iter().for_each(|x| put_f64(&mut out, x));
         put_u32(&mut out, a.n.len() as u32);
@@ -792,6 +794,9 @@ pub(crate) fn decode_superancillary(bytes: &[u8]) -> Result<Option<Superancillar
 /// The caloric curves of a blob, sampled on the superancillary `fit`, which a compiled fluid decodes on first use by a
 /// Q-pair (M7.7).
 pub(crate) fn decode_caloric(bytes: &[u8], fit: Option<SaStamp>) -> Result<Option<CaloricCurves>, LoadError> {
+    // Equivalent (M7.7): without its caloric curves a Q-pair scans QT's own state, as a pseudo-pure fluid's does, and
+    // finds the same roots; the curves only make the scan cheaper (user decision CC2).
+    // equivalent mutant: replace decode_caloric -> Result<Option<CaloricCurves>, LoadError> with Ok(None)
     read_caloric(validated_sections(bytes)?[4], fit)
 }
 

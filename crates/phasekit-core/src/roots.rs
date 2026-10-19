@@ -202,8 +202,13 @@ impl Bracket {
     /// The double-length secant step from the end u with the smaller |f|: u − 2·f(u)·(b − a)/(f(b) − f(a)), or the
     /// midpoint if that moves more than half the bracket.
     fn doubled_secant(&self) -> f64 {
+        // Equivalent: on a tie |f(a)| = |f(b)| (so f(a) = −f(b)) the doubled secant moves from a to b or from b to a,
+        // more than half the bracket either way, so both choices of u give the midpoint.
+        // equivalent mutant: replace < with <=
         let (u, fu) = if self.fa.abs() < self.fb.abs() { (self.a, self.fa) } else { (self.b, self.fb) };
         let c = u - 2.0 * (fu / (self.fb - self.fa)) * (self.b - self.a);
+        // Equivalent: a move of exactly half the bracket lands on the midpoint, so `>` and `>=` choose the same point.
+        // equivalent mutant: replace > with >=
         if (c - u).abs() > 0.5 * (self.b - self.a) { self.mid() } else { c }
     }
 }

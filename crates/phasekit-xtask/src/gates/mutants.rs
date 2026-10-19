@@ -11,7 +11,7 @@
 //! `--shard k/n` runs the k-th of n slices of both passes, so CI spreads one PR's mutants over n jobs (user decision
 //! CI6); together the n shards test every mutant once.
 
-use super::Verdict;
+use super::{Verdict, exclusions};
 use crate::repo::Repo;
 
 /// The branch every PR is squash-merged into.
@@ -33,19 +33,25 @@ struct Outcomes<'a> {
 
 pub fn run(repo: &Repo, args: &[String]) -> Verdict {
     let shard = shard(args)?;
+    // The markers and the toml's patterns are checked on every run, Rust changes or none (user decision LM2).
+    let toml = repo.read(exclusions::TOML).map_err(|e| vec![e])?;
+    let sources = repo.files("crates", ".rs", true).map_err(|e| vec![e])?;
+    let (config, marked, excluded) = exclusions::generate(&toml, &sources, |args| repo.mutants_list(args))?;
+    let config = repo.write_target("mutants.toml", config.as_bytes()).map_err(|e| vec![e])?;
     let base = repo.git(&["merge-base", "HEAD", BASE]).map_err(|e| vec![e])?;
-    let mut diff = repo.git(&["diff", base.trim(), "--", "*.rs"]).map_err(|e| vec![e])?;
+    let mut diff = code_hunks(&repo.git(&["diff", "-U0", base.trim(), "--", "*.rs"]).map_err(|e| vec![e])?);
     // `git diff` leaves out files git does not track yet; a run before the first commit must mutate them too.
     for path in repo.git(&["ls-files", "--others", "--exclude-standard", "--", "*.rs"]).map_err(|e| vec![e])?.lines() {
         diff.push_str(&new_file_diff(path, &repo.read(path).map_err(|e| vec![e])?));
     }
     if diff.trim().is_empty() {
-        return Ok(format!("no Rust changes since {BASE}"));
+        return Ok(format!("no Rust code changes since {BASE}; {marked} markers exclude {excluded} mutants"));
     }
     let mut summary = format!("mutants of the changes since {BASE}:");
     let mut hung = Vec::new();
     for (pass, mutants, selection) in PASSES {
-        let args: Vec<&str> = selection.iter().copied().chain(shard.iter().map(String::as_str)).collect();
+        let args: Vec<&str> =
+            selection.iter().copied().chain(shard.iter().map(String::as_str)).chain(["--config", &config]).collect();
         let run = repo.cargo_mutants(pass, &diff, &args).map_err(|e| vec![e])?;
         let [caught, missed, timeout, unviable] = run.outcomes.each_ref().map(String::as_str);
         let (caught, timeouts) = check(run.success, &Outcomes { caught, missed, timeout }).map_err(|errors| {
@@ -59,6 +65,7 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
         hung.extend(timeouts.into_iter().map(str::to_string));
     }
     summary.pop();
+    summary.push_str(&format!("; {marked} markers exclude {excluded} mutants"));
     for mutant in hung {
         summary.push_str("\n  timeout: ");
         summary.push_str(&mutant);
@@ -95,6 +102,40 @@ fn check<'a>(success: bool, outcomes: &Outcomes<'a>) -> Result<(usize, Vec<&'a s
         return Err(vec!["cargo mutants failed without naming a mutant; did the unmutated tests pass?".to_string()]);
     }
     Ok((lines(outcomes.caught).count() + hung.len(), hung))
+}
+
+/// The diff without its hunks that only add or remove comments and blank lines (`git diff -U0`'s hunks, so each is one
+/// change): a comment changes no mutant, yet cargo-mutants tests every whole-function mutant of a function a changed
+/// line falls in, and a marker (PLAN.md M25.4) is such a comment. A file whose hunks all leave leaves with its header.
+fn code_hunks(diff: &str) -> String {
+    let (mut out, mut header, mut hunk, mut code) = (String::new(), String::new(), String::new(), false);
+    let mut finish = |header: &mut String, hunk: &mut String, code: bool| {
+        if code && !hunk.is_empty() {
+            out.push_str(&std::mem::take(header));
+            out.push_str(hunk);
+        }
+        hunk.clear();
+    };
+    for line in diff.lines() {
+        if line.starts_with("diff --git ") {
+            finish(&mut header, &mut hunk, code);
+            header = format!("{line}\n");
+        } else if line.starts_with("@@") {
+            finish(&mut header, &mut hunk, code);
+            hunk = format!("{line}\n");
+            code = false;
+        } else if hunk.is_empty() {
+            header.push_str(line);
+            header.push('\n');
+        } else {
+            hunk.push_str(line);
+            hunk.push('\n');
+            let changed = line.strip_prefix(['+', '-']).map(str::trim);
+            code |= changed.is_some_and(|text| !text.is_empty() && !text.starts_with("//"));
+        }
+    }
+    finish(&mut header, &mut hunk, code);
+    out
 }
 
 /// A unified diff that adds `path` with `text`, as `git diff` would show a new file.
@@ -159,6 +200,21 @@ mod tests {
         ] {
             assert!(shard(&args(bad)).is_err(), "{bad:?}");
         }
+    }
+
+    /// A comment changes no mutant (PLAN.md M25.4): a hunk that only adds or removes comments and blank lines leaves
+    /// the diff, with its file's header when it was the file's only hunk; a hunk that changes code stays whole.
+    #[test]
+    fn comment_only_hunks_leave_the_diff() {
+        let header =
+            |path: &str| format!("diff --git a/{path} b/{path}\nindex 1..2 100644\n--- a/{path}\n+++ b/{path}\n");
+        let comments = "@@ -3,0 +4,2 @@ fn f() {\n+    // Why.\n+    // equivalent mutant: replace < with <=\n";
+        let blank = "@@ -9,1 +11,1 @@ fn g() {\n-    // old\n+\n";
+        let code = "@@ -20,1 +22,2 @@ fn h() {\n-    a < b\n+    // Why.\n+    a <= b\n";
+        let diff = format!("{}{comments}{blank}{code}{}{comments}", header("a.rs"), header("b.rs"));
+        assert_eq!(code_hunks(&diff), format!("{}{code}", header("a.rs")));
+        assert_eq!(code_hunks(&format!("{}{comments}", header("b.rs"))), "");
+        assert_eq!(code_hunks(""), "");
     }
 
     #[test]

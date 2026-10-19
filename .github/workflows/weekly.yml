@@ -117,13 +117,17 @@ jobs:
       - name: Fetch CoolProp (anonymous clone of the pinned commit)
         if: steps.coolprop.outputs.cache-hit != 'true'
         run: scripts/fetch-coolprop.sh
+      # The configuration `gates mutants` runs with: .cargo/mutants.toml and the mutants the code's markers exclude
+      # (PLAN.md M25.4). A stale marker or pattern fails this step.
+      - name: Exclusions (cargo xtask mutants-config)
+        run: cargo xtask mutants-config "$RUNNER_TEMP/mutants.toml"
       # Two passes, as `gates mutants` runs them (user decision CI5): phasekit-xtask's mutants on its own tests, every
       # other mutant on the workspace's.
       - name: cargo mutants, the other crates, one shard (report only)
-        run: cargo mutants --workspace --exclude 'crates/phasekit-xtask/**' --shard "${{ matrix.shard }}/8" --output "$RUNNER_TEMP/workspace" || true
+        run: cargo mutants --workspace --exclude 'crates/phasekit-xtask/**' --config "$RUNNER_TEMP/mutants.toml" --shard "${{ matrix.shard }}/8" --output "$RUNNER_TEMP/workspace" || true
       - name: cargo mutants, phasekit-xtask, one shard (report only)
         if: always()
-        run: cargo mutants --package phasekit-xtask --test-workspace false --shard "${{ matrix.shard }}/8" --output "$RUNNER_TEMP/xtask" || true
+        run: cargo mutants --package phasekit-xtask --test-workspace false --config "$RUNNER_TEMP/mutants.toml" --shard "${{ matrix.shard }}/8" --output "$RUNNER_TEMP/xtask" || true
       - name: Surviving mutants (job summary)
         if: always()
         run: |

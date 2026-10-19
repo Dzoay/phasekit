@@ -192,6 +192,9 @@ impl MultiFluid {
 
     /// Never: a multi-fluid model has at least two components.
     pub fn is_empty(&self) -> bool {
+        // A multi-fluid model has two or more components (M13.3: `MultiFluid::new` refuses fewer), so this is always
+        // false; clippy's `len_without_is_empty` asks for it beside `len`.
+        // equivalent mutant: replace MultiFluid::is_empty -> bool with false
         self.components.is_empty()
     }
 

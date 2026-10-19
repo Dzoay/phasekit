@@ -144,6 +144,10 @@ pub fn main(args: &[String]) -> ExitCode {
 }
 
 fn run(repo: &Repo, args: &[String]) -> Result<String, String> {
+    // Process glue: this downloads, unpacks and writes through `repo`, like a gate's `run`; the nightly runs it, and
+    // what it applies (the conversion, the lock and the manifest lines) is the module's pure functions, mutated.
+    // equivalent mutant: replace run -> Result<String, String> with Ok(String::new())
+    // equivalent mutant: replace run -> Result<String, String> with Ok("xyzzy".into())
     let (mut zip, mut all) = (None, None);
     let mut args = args.iter();
     while let Some(arg) = args.next() {

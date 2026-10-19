@@ -89,6 +89,8 @@ fn correlation_length(x: &TransportInputs<'_>) -> f64 {
     // (∂ρ/∂p)_T in mass units: M over the molar (∂p/∂ρ)_T.
     let zeta = |t: f64| P_STAR / RHO_STAR * (x.molar_mass() / x.dp_drho_at(t));
     let delta_chi = rho_bar * (zeta(t) - zeta(T_BAR_R * T_STAR) * T_BAR_R / (t / T_STAR));
+    // Equivalent (M8.7): CoolProp's strict comparison; at Δχ̄ = 0 it is clamped to 0 either way.
+    // equivalent mutant: replace < with <=
     let delta_chi = if delta_chi < 0.0 { 0.0 } else { delta_chi };
     XI_0 * math::powf(delta_chi / GAMMA_0, NU / GAMMA)
 }
@@ -126,11 +128,16 @@ pub(crate) fn water_viscosity(x: &TransportInputs<'_>) -> WaterViscosity {
 fn y_of_xi(xi: f64) -> f64 {
     let (qc, qd) = (1.0 / 1.9, 1.0 / 1.1);
     let (c, d) = (qc * xi, qd * xi);
+    // Equivalent (M8.7): CoolProp's strict comparison; R12-08's two Y(ξ) branches meet at ξ = 0.3817016416 nm, the
+    // release's switch point. Either side is reached by the release tables.
+    // equivalent mutant: replace < with <=
     if xi < 0.3817016416 {
         return 1.0 / 5.0 * c * math::powi(d, 5) * (1.0 - c + math::powi(c, 2) - 765.0 / 504.0 * math::powi(d, 2));
     }
     let psi = math::acos(math::powf(1.0 + math::powi(d, 2), -1.0 / 2.0));
     let w = math::sqrt(((c - 1.0) / (c + 1.0)).abs()) * math::tan(psi / 2.0);
+    // Equivalent (M8.7): at q_C ξ = 1, w = 0 and both forms of L are 0, so `>=` gives the same value.
+    // equivalent mutant: replace > with >=
     let l = if c > 1.0 { math::ln((1.0 + w) / (1.0 - w)) } else { 2.0 * math::atan(w.abs()) };
     1.0 / 12.0 * math::sin(3.0 * psi) - 1.0 / (4.0 * c) * math::sin(2.0 * psi)
         + 1.0 / math::powi(c, 2) * (1.0 - 5.0 / 4.0 * math::powi(c, 2)) * math::sin(psi)
@@ -157,6 +164,8 @@ pub(crate) fn water_conductivity(x: &TransportInputs<'_>, mu: f64) -> Result<Wat
     let lambda1 = math::exp(rho_bar * double_sum(&L, t_bar, rho_bar));
     let y = 1.0 / 0.40 * correlation_length(x);
     // Z(y) is 0 below 1.2e-7, where its closed form would cancel (Eq. (21)): no c_p, c_v or η is read there.
+    // Equivalent (M8.7): at y = 1.2e-7 Z(y) is 0 to rounding either way (R15-11 Eq. (21)).
+    // equivalent mutant: replace < with <=
     if y < 1.2e-7 {
         return Ok(WaterConductivity { lambda0, lambda1, lambda2: 0.0 });
     }

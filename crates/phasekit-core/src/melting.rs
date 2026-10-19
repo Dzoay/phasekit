@@ -111,11 +111,15 @@ impl MeltingCurve {
             return Ok(Located::On(piece));
         }
         let (lo, hi) = self.p_bounds();
+        // Equivalent (M8.11): `>=` differs only at the curve's highest p, which its last segment holds first.
+        // equivalent mutant: replace > with >=
         if p > hi {
             return Err(DomainError::AboveMaxPressure { p, p_max: hi });
         }
         // Between two segments: at the bound they share (datagen checks every neighbour has one); else below the curve.
         let gap = self.pieces.windows(2).find_map(|w| match w {
+            // Equivalent (M8.11): `<=` differs only at a gap's ends, which their segments hold first.
+            // equivalent mutant: replace < with <=
             [a, b] if a.p_range().1 < p && p < b.p_range().0 => Some((a, b)),
             _ => None,
         });
@@ -160,6 +164,8 @@ impl MeltingCurve {
             [] => {
                 let t_min = self.pieces.iter().map(|p| p.segment.t_min).fold(f64::INFINITY, f64::min);
                 let t_max = self.pieces.iter().map(|p| p.segment.t_max).fold(f64::NEG_INFINITY, f64::max);
+                // Equivalent (M8.11): `<=` differs only at the curve's lowest T, which its first segment holds first.
+                // equivalent mutant: replace < with <=
                 Err(if t < t_min {
                     DomainError::BelowMinTemperature { t, t_min }
                 } else {

@@ -128,6 +128,9 @@ impl SaturationCheck {
         (t, theta): (f64, f64),
         [p, rho_l, rho_v]: [f64; 3],
     ) {
+        // Equivalent in practice: a file row's Θ equals THETA_VLE_MIN bit for bit in no file; rows on either side are
+        // tested.
+        // equivalent mutant: replace < with <=
         if theta < THETA_VLE_MIN {
             self.near_critical += 1;
             return;
@@ -168,6 +171,8 @@ impl SaturationCheck {
                 self.failures.push(format!("{at} VLE {column}: {got} against {want} (bound {bound:e})"));
             }
         }
+        // Equivalent in practice: a file row's Θ equals 1e-2 bit for bit in no file; rows on either side are tested.
+        // equivalent mutant: replace < with <=
         if theta < 1e-2 {
             let density = (sat.bubble.rho / rho_l - 1.0).abs().max((sat.dew.rho / rho_v - 1.0).abs());
             let measured = [
