@@ -6,13 +6,12 @@
 
 /// `(test, fluid, column or pair, cells)`: the cells of `test` that the `libm` backend moves, logged in issue #170.
 /// Ammonia's η and its initial-density term at 8 states (both fixture tiers) and Methanol's η at one fall outside
-/// `transport_direct`, 1.4e-12 relative at most; Water's HP round trip of its liquid at its lowest temperature returns
-/// `BelowMinTemperature`.
-pub const LIBM_KNOWN: [(&str, &str, &str, usize); 4] = [
+/// `transport_direct`, 1.4e-12 relative at most. Water's HP round trip of its liquid at its lowest temperature, which
+/// returned `BelowMinTemperature` on the `libm` crate's `exp`, round-trips on core's own (PLAN.md M23.2).
+pub const LIBM_KNOWN: [(&str, &str, &str, usize); 3] = [
     ("viscosity_stages_match_contributions", "Ammonia", "eta", 8),
     ("viscosity_stages_match_contributions", "Ammonia", "eta_initial_density", 8),
     ("hardcoded_models_match_oracle", "Methanol", "eta", 1),
-    ("caloric_pairs_round_trip_on_the_domain_bounds", "Water", "HP", 1),
 ];
 
 /// Whether, on `backend`, a mismatch of `test` in `fluid`'s `column` (or pair) is one of [`LIBM_KNOWN`]: never on std's
@@ -48,7 +47,7 @@ mod tests {
         assert!(!known("libm", test, "Methanol", "eta"));
         assert!(!known("libm", "hardcoded_models_match_oracle", "Ammonia", "eta"));
         assert_eq!((known_cells("libm", test), known_cells("std", test)), (16, 0));
-        assert_eq!(known_cells("libm", "caloric_pairs_round_trip_on_the_domain_bounds"), 1);
+        assert_eq!(known_cells("libm", "hardcoded_models_match_oracle"), 1);
         assert_eq!(known_cells("libm", "conductivity_stages_match_contributions"), 0);
     }
 

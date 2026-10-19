@@ -8,8 +8,6 @@ use core::ops::{Add, Div, Mul, Neg, Sub};
 use super::{Real, math, sealed};
 
 #[cfg(feature = "libm")]
-mod exp;
-#[cfg(feature = "libm")]
 mod expm1;
 #[cfg(feature = "libm")]
 mod ln;
@@ -101,11 +99,11 @@ impl<const W: usize> Real for Lanes<W> {
     fn from_f64(x: f64) -> Self {
         Self([x; W])
     }
-    /// The `libm` crate's `exp` ported to lanes with the `libm` backend (PLAN.md M12.5); std's, per lane, without it.
+    /// Core's own `exp` on every lane with the `libm` backend (PLAN.md M23.2); std's, per lane, without it.
     #[inline(always)]
     fn exp(self) -> Self {
         #[cfg(feature = "libm")]
-        return exp::exp(self);
+        return super::elementary::exp_lanes(self);
         #[cfg(not(feature = "libm"))]
         self.map(math::exp)
     }
@@ -159,9 +157,8 @@ impl<const W: usize> Real for Lanes<W> {
     }
 }
 
-/// What the lane tests share (PLAN.md M12.5, M12.6, M12.8). `cfg(test)` stands alone, so cargo-mutants sees test code.
+/// What the lane tests share (PLAN.md M12.6, M12.8, M23.2). `cfg(test)` stands alone, so cargo-mutants sees test code.
 #[cfg(test)]
-#[cfg(feature = "libm")]
 pub(crate) mod tests {
     /// A SplitMix64 stream.
     pub(crate) struct Rng(pub(crate) u64);

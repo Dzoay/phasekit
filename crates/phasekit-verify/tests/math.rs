@@ -1,13 +1,14 @@
 //! The maths backend against the reference values of `fixtures/math/` (PLAN.md M23.1; VERIFICATION.md §5, class
 //! `Faithful`): core's `math::exp`, `ln`, `powf` and `expm1` on this build's backend, std's by default and the `libm`
 //! crate's with `--features phasekit-core/libm`, each value's error in ulps by `phasekit_verify::ulp`. The worst error
-//! of each fixture's sets is this target's report, read with `--no-capture`; core's in-house functions (M23.2-M23.5)
-//! are measured against the same values.
+//! of each fixture's sets is this target's report, read with `--no-capture`. Core's own functions (M23.2-M23.5), in
+//! every build through `phasekit_core::internal`, must be faithful on the same values and Arm's results at Arm's cases.
 
-use phasekit_core::math;
+use phasekit_core::{internal, math};
 use phasekit_verify::{Cell, Fixture, FixtureError, Row, fixture, ulp};
 
-/// The reference values: the generator's sets (`edge`, `eos`, `binade`) and Arm's directed cases.
+/// The reference values: the generator's sets (`edge`, `eos`, `binade`, and exp's `subnormal`) and Arm's directed
+/// cases.
 const FIXTURES: [(&str, &str); 8] = [
     fixture!("math/exp.csv"),
     fixture!("math/ln.csv"),
@@ -62,14 +63,31 @@ fn values(row: &Row<'static>, inputs: usize) -> (Vec<f64>, f64, f64, &'static st
     ((0..inputs).map(num).collect(), num(inputs), num(inputs + 1), set)
 }
 
-/// The worst error of each set of a fixture on this build's backend, in the order the sets first appear.
-fn worst_by_set(name: &'static str, text: &'static str) -> Result<Vec<(&'static str, Worst)>, FixtureError> {
+/// The number of inputs of the function a fixture is named for.
+fn inputs(name: &str) -> usize {
+    if name.ends_with("pow.csv") { 2 } else { 1 }
+}
+
+/// The sets of a fixture, in order: Arm's cases, or the generator's three, with exp's `subnormal` after them.
+fn sets_of(name: &str) -> &'static [&'static str] {
+    match name {
+        "math/exp.csv" => &["edge", "eos", "binade", "subnormal"],
+        _ if name.contains("/arm/") => &["arm"],
+        _ => &["edge", "eos", "binade"],
+    }
+}
+
+/// The worst error of `f` over each set of a fixture, in the order the sets first appear.
+fn worst_by_set(
+    name: &'static str,
+    text: &'static str,
+    f: impl Fn(&[f64]) -> f64,
+) -> Result<Vec<(&'static str, Worst)>, FixtureError> {
     let fixture = Fixture::parse(name, text)?;
-    let inputs = if name.ends_with("pow.csv") { 2 } else { 1 };
     let mut sets: Vec<(&'static str, Worst)> = Vec::new();
     for row in fixture.rows() {
-        let (x, want, tail, set) = values(row, inputs);
-        let error = ulp::error(backend(name, &x), want, tail);
+        let (x, want, tail, set) = values(row, inputs(name));
+        let error = ulp::error(f(&x), want, tail);
         assert!(!error.is_nan(), "{name}:{}: no error measured at {x:?}", row.line);
         if sets.last().is_none_or(|(s, _)| *s != set) {
             sets.push((set, Worst::default()));
@@ -83,25 +101,84 @@ fn worst_by_set(name: &'static str, text: &'static str) -> Result<Vec<(&'static 
 
 /// PLAN.md M23.1: every reference value is measured on this build's backend and the worst error of each set reported
 /// (the report is printed; it asserts no bound, since std's maths is each platform's own). Asserted: each fixture has
-/// its sets, about 4096 values for each function from the generator, and every error is a number.
+/// its sets, about 4096 values for each function in the generator's three (exp's `subnormal` besides), and every error
+/// is a number.
 #[test]
 fn backend_errors_are_reported() {
     let os = if cfg!(target_family = "wasm") { "wasi" } else { std::env::consts::OS }; // empty under wasip2
     let target = format!("{}-{os}", std::env::consts::ARCH);
     let mut report = Vec::new();
     for (name, text) in FIXTURES {
-        let sets = worst_by_set(name, text).unwrap();
-        let rows: usize = sets.iter().map(|(_, w)| w.rows).sum();
-        let want: &[&str] = if name.contains("/arm/") { &["arm"] } else { &["edge", "eos", "binade"] };
-        assert_eq!(sets.iter().map(|(s, _)| *s).collect::<Vec<_>>(), want, "{name}: each set once, in order");
+        let sets = worst_by_set(name, text, |x| backend(name, x)).unwrap();
+        let rows: usize = sets.iter().filter(|(s, _)| *s != "subnormal").map(|(_, w)| w.rows).sum();
+        assert_eq!(sets.iter().map(|(s, _)| *s).collect::<Vec<_>>(), sets_of(name), "{name}: each set once, in order");
         assert!(name.contains("/arm/") || (3900..4300).contains(&rows), "{name}: {rows} values");
         report
             .extend(sets.iter().map(|(set, w)| {
-                format!("{name:18} {set:6} {:5} rows  worst {:.4} ulp at {:?}", w.rows, w.error, w.at)
+                format!("{name:18} {set:9} {:5} rows  worst {:.4} ulp at {:?}", w.rows, w.error, w.at)
             }));
     }
     #[allow(clippy::print_stdout, reason = "the report is this test's record, read with --no-capture")]
     {
         println!("\nmath={} target={target}\n{}", math::BACKEND, report.join("\n"));
     }
+}
+
+/// The rows of a fixture where `f` is not the reference value bit for bit (NaN canonical), as `x → got, want`.
+fn not_bitwise(name: &'static str, text: &'static str, f: impl Fn(&[f64]) -> f64) -> Result<Vec<String>, FixtureError> {
+    let canonical = |v: f64| if v.is_nan() { f64::NAN.to_bits() } else { v.to_bits() };
+    let fixture = Fixture::parse(name, text)?;
+    let differ = |row: &Row<'static>| {
+        let (x, want, ..) = values(row, inputs(name));
+        let got = f(&x);
+        (canonical(got) != canonical(want)).then(|| format!("{name}:{}: {x:?} → {got:e}, want {want:e}", row.line))
+    };
+    Ok(fixture.rows().iter().filter_map(differ).collect())
+}
+
+/// Core's own `function` (`f`) against M23.1's values: its worst error over both of its fixtures, and Arm's cases where
+/// it is not Arm's result bit for bit. Its worst error per set is printed.
+fn own(function: &str, f: impl Fn(&[f64]) -> f64 + Copy) -> Result<(Worst, Vec<String>), FixtureError> {
+    let ours = FIXTURES.iter().filter(|(name, _)| name.ends_with(&format!("/{function}.csv")));
+    let (mut worst, mut report) = (Worst::default(), Vec::new());
+    for &(name, text) in ours {
+        for (set, w) in worst_by_set(name, text, f)? {
+            report.push(format!("{name:18} {set:9} {:5} rows  worst {:.4} ulp at {:?}", w.rows, w.error, w.at));
+            worst.add(w.error, w.at);
+        }
+    }
+    let (name, text) = fixture_named(&format!("math/arm/{function}.csv"));
+    let differ = not_bitwise(name, text, f)?;
+    #[allow(clippy::print_stdout, reason = "the worst errors are this test's record, read with --no-capture")]
+    {
+        println!("\nphasekit's own {function}\n{}", report.join("\n"));
+    }
+    Ok((worst, differ))
+}
+
+/// The fixture of [`FIXTURES`] at `path`.
+fn fixture_named(path: &str) -> (&'static str, &'static str) {
+    FIXTURES.into_iter().find(|(name, _)| *name == path).unwrap_or(("", ""))
+}
+
+/// PLAN.md M23.2 (VERIFICATION.md §5, class `Faithful`; user decision IM3): core's own `exp`, Arm's without FMA, is
+/// under 1 ulp at every value of `fixtures/math/exp.csv` and `math/arm/exp.csv`, and Arm's result bit for bit at
+/// Arm's cases (NaN canonical), in every build.
+#[test]
+fn exp_is_faithful() {
+    let (worst, differ) = own("exp", |x| internal::exp(x[0])).unwrap();
+    assert!(worst.error < ulp::FAITHFUL, "{} ulp at {:?}", worst.error, worst.at);
+    assert!(differ.is_empty(), "not Arm's result:\n{}", differ.join("\n"));
+}
+
+/// PLAN.md M23.2: at subnormal results core's `exp` rounds once, as Arm's `specialcase` does: under 0.51 ulp at the
+/// `subnormal` set of `fixtures/math/exp.csv`. Before that rounding its value errs by at most 0.011 of a double's ulp
+/// (Arm's 0.511 less the rounding's 0.5), at most 0.0055 of the subnormals' spacing. Rounded to a double first and then
+/// to that spacing, it would err by up to 0.76 ulp, which `exp_is_faithful`'s bound of 1 ulp lets through.
+#[test]
+fn exp_rounds_once_in_the_subnormals() {
+    let (name, text) = fixture_named("math/exp.csv");
+    let sets = worst_by_set(name, text, |x| internal::exp(x[0])).unwrap();
+    let subnormal = sets.iter().find(|(set, _)| *set == "subnormal").map(|(_, worst)| worst);
+    assert!(subnormal.is_some_and(|w| w.rows == 512 && w.error < 0.51), "{subnormal:?}");
 }

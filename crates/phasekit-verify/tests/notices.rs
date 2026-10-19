@@ -17,27 +17,33 @@ fn phasekit_mix_carries_nists_notice() {
     assert!(include_str!("../../../about.toml").lines().any(|l| l == checksum), "{checksum}");
 }
 
-/// LC1 (PLAN.md M23.1): core's lane `exp`, `ln` and `expm1`, ports of the `libm` crate's from FreeBSD's msun, each
-/// carry their msun file's notice at their head, and core's NOTICE, which its package ships, reproduces the crate's MIT
-/// notice and the three msun notices, as LICENSE-THIRD-PARTY does.
+/// LC1 (PLAN.md M23.1) and IM5 (M23.2): core's lane `ln` and `expm1`, ports of the `libm` crate's from FreeBSD's msun,
+/// each carry their msun file's notice at their head, and its own `exp`, a port of Arm's optimized-routines, names
+/// Arm's files and licence at its head; core's NOTICE, which its package ships, reproduces LICENSE-THIRD-PARTY's
+/// sections for both.
 #[test]
-fn phasekit_core_carries_the_lane_ports_notices() {
+fn phasekit_core_carries_its_ports_notices() {
     let notice = include_str!("../../phasekit-core/NOTICE");
     let third_party = include_str!("../../../LICENSE-THIRD-PARTY");
     let heads = [
-        ("e_exp.c", include_str!("../../phasekit-core/src/num/lanes/exp.rs"), "Copyright (C) 2004"),
         ("e_log.c", include_str!("../../phasekit-core/src/num/lanes/ln.rs"), "Developed at SunSoft"),
         ("s_expm1.c", include_str!("../../phasekit-core/src/num/lanes/expm1.rs"), "Developed at SunPro"),
+        ("math/exp.c", include_str!("../../phasekit-core/src/num/elementary/exp.rs"), "Arm Limited"),
     ];
     for (origin, file, line) in heads {
         let head: Vec<&str> = file.lines().take_while(|l| l.starts_with("//") && !l.starts_with("//!")).collect();
         assert!(head.first().is_some_and(|l| l.contains(origin)), "{origin}: the head names its origin");
-        assert!(head.iter().any(|l| l.contains(line)) && head.iter().any(|l| l.ends_with("is preserved.")), "{origin}");
+        assert!(head.iter().any(|l| l.contains(line)), "{origin}: its head carries `{line}`");
     }
-    // The section runs from its title to the next 80-column rule, or to the end of the file.
+    // A section runs from its title to the next 80-column rule, or to the end of the file.
     let rule = format!("\n{}\n", "-".repeat(80));
-    let title = "The libm crate (0.2.16) and FreeBSD's msun (Sun Microsystems)";
-    let section = |text: &'static str| text.split_once(title).and_then(|(_, rest)| rest.split(&rule).nth(1));
-    let ours = section(notice).map(str::trim_end);
-    assert!(ours.is_some_and(|text| text.contains("is preserved.")) && ours == section(third_party).map(str::trim_end));
+    for title in ["The libm crate (0.2.16) and FreeBSD's msun (Sun Microsystems)", "Arm's optimized-routines (v26.07)"]
+    {
+        let section = |text: &'static str| text.split_once(title).and_then(|(_, rest)| rest.split(&rule).nth(1));
+        let ours = section(notice).map(str::trim_end);
+        assert!(
+            ours.is_some_and(|text| text.len() > 500) && ours == section(third_party).map(str::trim_end),
+            "{title}"
+        );
+    }
 }

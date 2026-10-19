@@ -8,7 +8,7 @@
 // saturation curve into liquid, liquid + vapour and gas. T runs from the plotted lowest to T_max and p from below the
 // saturation pressure at that lowest T (so every fluid's regions have one shape) to P_max.
 import type { Limits } from "./ranges";
-import { domeTemperatures, linGrid, logGrid, ranges } from "./ranges";
+import { awayFrom, domeTemperatures, linGrid, logGrid, ranges } from "./ranges";
 import { rows, type Batch, type Row } from "./lines";
 
 /** The keys every edge vertex carries: each diagram's axes. */
@@ -67,6 +67,10 @@ export async function sampleRegions(l: Limits, batch: Batch, phaseAt: PhaseAt, n
   // An isotherm over pressures, an isobar over temperatures, each from `a` to `b`.
   const isotherm = (T: number, a: number, b: number) => states("T", repeat(T, n), "P", logGrid(a, b, n));
   const isobar = (p: number, a: number, b: number) => states("T", linGrid(a, b, n), "P", repeat(p, n));
+  // The critical isobar from T_c to `b`, closing in on T_c: there c_p grows without bound and the isobar lies flat on
+  // T–s, so a first leg a hundred and sixtieth of the range long cut across its bend, and Nitrogen's supercritical gas
+  // took in states above p_c (PLAN.md M23.2).
+  const criticalIsobar = (b: number) => states("T", awayFrom(Tc, b, n), "P", repeat(pc, n));
   const kept = (s: readonly (Corner | null)[]) => s.filter((c): c is Corner => c !== null);
   // A leg from the critical point leaves out its first cell, the critical point by (T, p), which the package's
   // critical point by (T, ρ) replaces; a leg onto the saturation curve leaves out its last.
@@ -109,8 +113,8 @@ export async function sampleRegions(l: Limits, batch: Batch, phaseAt: PhaseAt, n
 
   const tcDown = fromCritical(await isotherm(Tc, pc, floor));
   const tcUp = fromCritical(await isotherm(Tc, pc, top));
-  const pcLeft = fromCritical(await isobar(pc, Tc, low));
-  const pcRight = fromCritical(await isobar(pc, Tc, high));
+  const pcLeft = fromCritical(await criticalIsobar(low));
+  const pcRight = fromCritical(await criticalIsobar(high));
   const hotDown = await isotherm(high, pc, floor);
   const hotUp = await isotherm(high, pc, top);
   const topLeft = await isobar(top, Tc, low);

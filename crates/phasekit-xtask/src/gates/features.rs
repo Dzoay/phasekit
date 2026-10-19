@@ -3,8 +3,8 @@
 //! `embedded` and `fluids-core` only (no `rayon`, `libm` or `simd`, PLAN.md M12.4), and `phasekit-data` with `core` and
 //! exactly the fluids its `core` list names.
 //! The browser package's build resolves the same (beside wasm-bindgen's own crates, and phasekit-mix with no feature for
-//! its mixture names, M13.14), except that its `simd128` build, with the package's `simd` feature, enables core's `simd`
-//! (M12.10, user decision SL8), and its release `.wasm`,
+//! its mixture names, M13.14), except that core enables `libm` in both its builds (user decision IM6) and its `simd128`
+//! build, with the package's `simd` feature, core's `simd` too (M12.10, user decision SL8), and its release `.wasm`,
 //! baseline and `simd128`, stays within its budget in `crates/phasekit-wasm/size-budget.txt` (PLAN.md M10.8).
 
 use super::{Verdict, no_args, table};
@@ -102,6 +102,7 @@ fn wanted<'a>(name: &str, core: &'a [String], root: &str, simd: bool) -> Option<
         "phasekit-wasm" if root == "phasekit-wasm" => simd.then_some("simd").into_iter().collect(),
         "phasekit-mix" if root == "phasekit-wasm" => Vec::new(),
         "phasekit-core" if simd => vec!["embedded", "fluids-core", "libm", "simd"],
+        "phasekit-core" if root == "phasekit-wasm" => vec!["embedded", "fluids-core", "libm"],
         "phasekit-compat" | "phasekit-core" => vec!["embedded", "fluids-core"],
         "phasekit-data" => {
             let mut want: Vec<&str> = core.iter().map(String::as_str).chain(["core"]).collect();
@@ -167,9 +168,10 @@ pub(crate) fn core_list(manifest: &str) -> Result<Vec<String>, Vec<String>> {
     if fluids.is_empty() { Err(missing()) } else { Ok(fluids) }
 }
 
-/// Checks `cargo tree` output in the [`TREE`] format, of the build of `root`, against the `core` list; with `simd`, the
-/// browser package's `simd128` build, the package enables `simd` and core `libm` and `simd`. The browser package's build may pull in
-/// third-party crates (wasm-bindgen's, fearless_simd); a repeated crate is marked `(*)`.
+/// Checks `cargo tree` output in the [`TREE`] format, of the build of `root`, against the `core` list; in the browser
+/// package's builds core enables `libm` (IM6), and with `simd`, its `simd128` build, the package enables `simd` and
+/// core `simd` too. The browser package's build may pull in third-party crates (wasm-bindgen's, fearless_simd); a
+/// repeated crate is marked `(*)`.
 fn check(tree: &str, core: &[String], root: &str, simd: bool) -> Result<(), Vec<String>> {
     if simd && root != "phasekit-wasm" {
         return Err(vec![format!("{root} has no simd128 build")]);
@@ -199,7 +201,11 @@ fn check_line(line: &str, core: &[String], root: &str, simd: bool) -> Vec<String
     let features = line.split_once(" [").and_then(|(_, rest)| rest.split_once(']')).map(|(features, _)| features);
     let mut features: Vec<&str> = features.unwrap_or_default().split(',').filter(|f| !f.is_empty()).collect();
     features.sort_unstable();
-    let set = if simd { "the simd128 build's set (SL8)" } else { "the fluids-core set" };
+    let set = match (simd, root) {
+        (true, _) => "the simd128 build's set (SL8)",
+        (false, "phasekit-wasm") => "the browser build's set (IM6)",
+        _ => "the fluids-core set",
+    };
     let extra: Vec<&str> = features.iter().filter(|f| !want.contains(f)).copied().collect();
     let absent: Vec<&str> = want.iter().filter(|f| !features.contains(f)).copied().collect();
     let mut errors = Vec::new();
@@ -285,19 +291,28 @@ mod tests {
         );
     }
 
-    /// PLAN.md M10.8: the browser package's build embeds the same set; wasm-bindgen's crates, phasekit-mix without a
-    /// feature (M13.14) and a repeated crate's `(*)` line pass, another workspace crate or an extra fluid does not, nor
-    /// phasekit-mix in compat's build; the budget is one byte count.
+    /// PLAN.md M10.8: the browser package's build embeds the same set, with core's `libm` (user decision IM6);
+    /// wasm-bindgen's crates, phasekit-mix without a feature (M13.14) and a repeated crate's `(*)` line pass, another
+    /// workspace crate, an extra fluid or core without `libm` does not, nor phasekit-mix in compat's build; the budget is
+    /// one byte count.
     #[test]
     fn wasm_feature_tree_has_no_extra_fluids() {
         let core = core_list(DATA).unwrap();
-        let wasm = format!(
+        let std = format!(
             "phasekit-wasm v0.0.0 (/w/crates/phasekit-wasm) []\n{}phasekit-core v0.0.0 (/w/crates/phasekit-core) \
              [embedded,fluids-core] (*)\nphasekit-mix v0.0.0 (/w/crates/phasekit-mix) []\nwasm-bindgen v0.2.129 \
              [default,std]\n",
             tree("core,fluid-nitrogen,fluid-water")
         );
+        let wasm = std.replace(
+            "(/w/crates/phasekit-core) [embedded,fluids-core]",
+            "(/w/crates/phasekit-core) [embedded,fluids-core,libm]",
+        );
         assert_eq!(check(&wasm, &core, "phasekit-wasm", false), Ok(()));
+        assert_eq!(
+            check(&std, &core, "phasekit-wasm", false).unwrap_err(),
+            ["phasekit-core lacks libm of the browser build's set (IM6)"; 2]
+        );
         assert!(check(&wasm, &core, "phasekit-compat", false).unwrap_err()[0].contains("pulls in phasekit-wasm"));
         let mixed =
             format!("{}phasekit-mix v0.0.0 (/w/crates/phasekit-mix) []\n", tree("core,fluid-nitrogen,fluid-water"));
@@ -305,7 +320,7 @@ mod tests {
         let extra = wasm.replace("core,fluid-nitrogen,fluid-water", "core,fluid-air,fluid-nitrogen,fluid-water");
         assert_eq!(
             check(&extra, &core, "phasekit-wasm", false).unwrap_err(),
-            ["phasekit-data enables fluid-air beyond the fluids-core set (E7)"]
+            ["phasekit-data enables fluid-air beyond the browser build's set (IM6) (E7)"]
         );
         let verify = format!("{wasm}phasekit-verify v0.0.0 (/w/crates/phasekit-verify) []\n");
         assert!(check(&verify, &core, "phasekit-wasm", false).unwrap_err()[0].contains("pulls in phasekit-verify"));
@@ -317,8 +332,8 @@ mod tests {
     }
 
     /// M12.10 (user decision SL8): the browser package's simd128 build enables core's `simd`, and so `libm`, and
-    /// fearless_simd comes with it; the baseline build does not. `simd` in the baseline's tree, or a simd128 tree
-    /// without it, fails the gate by name.
+    /// fearless_simd comes with it; the baseline build enables `libm` only (IM6). `simd` in the baseline's tree, or a
+    /// simd128 tree without it, fails the gate by name.
     #[test]
     fn only_the_simd128_browser_build_enables_simd() {
         let core = core_list(DATA).unwrap();
@@ -335,8 +350,8 @@ mod tests {
         assert_eq!(
             check(&simd, &core, "phasekit-wasm", false).unwrap_err(),
             [
-                "phasekit-wasm enables simd beyond the fluids-core set (E7)",
-                "phasekit-core enables libm, simd beyond the fluids-core set (E7)"
+                "phasekit-wasm enables simd beyond the browser build's set (IM6) (E7)",
+                "phasekit-core enables simd beyond the browser build's set (IM6) (E7)"
             ]
         );
         let unasked = simd.replacen("[simd]", "[]", 1);

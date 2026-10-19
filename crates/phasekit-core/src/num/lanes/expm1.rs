@@ -9,15 +9,34 @@
 // ====================================================
 
 //! `expm1` on every lane (PLAN.md M12.8): the `libm` crate's (0.2.16, `src/math/expm1.rs` from FreeBSD's `s_expm1.c`),
-//! operation for operation, so each lane is the `libm` path's bits. Built only with `libm`, as `exp` is.
+//! operation for operation, so each lane is the `libm` path's bits. Built only with `libm`, as `ln` is.
 //!
 //! libm branches on the high word of |x| and then on k. Here every lane takes every path and the result is selected,
-//! so the lanes vectorise, as in `exp`: k is truncated in floating point, and read back from the low bits of 1.5·2⁵² + k
+//! so the lanes vectorise: k is truncated in floating point, and read back from the low bits of 1.5·2⁵² + k
 //! only for 2ᵏ and 2⁻ᵏ. libm's reduction at k = ±1 (x ∓ ln2_hi, ±ln2_lo) is the general one's at k = ±1 exactly, and
 //! at k = 0 the general one leaves x as it is, so one reduction serves every lane.
 
 use super::Lanes;
-use super::exp::{INVLN2, LN2HI, LN2LO, OVERFLOW, abs_bits, pow2};
+
+// libm's constants by the words its comments give (its decimals carry more digits than an f64 holds): ln 2 split in
+// two, 1/ln 2, and the overflow threshold 709.782712893383973096.
+const LN2HI: f64 = f64::from_bits(0x3fe6_2e42_fee0_0000);
+const LN2LO: f64 = f64::from_bits(0x3dea_39ef_3579_3c76);
+const INVLN2: f64 = f64::from_bits(0x3ff7_1547_652b_82fe);
+const OVERFLOW: f64 = f64::from_bits(0x4086_2e42_fefa_39ef);
+
+/// |x|'s bits. libm compares the high word of |x| with `h`; on all 64 bits that is `> h·2³² + 2³² − 1` for its `>`
+/// and `>= h·2³²` for its `>=`.
+#[inline(always)]
+fn abs_bits(x: f64) -> u64 {
+    x.to_bits() & 0x7fff_ffff_ffff_ffff
+}
+
+/// 2ⁿ for n in [−1022, 1023].
+#[inline(always)]
+fn pow2(n: i64) -> f64 {
+    f64::from_bits((n.wrapping_add(1023) as u64).wrapping_shl(52))
+}
 
 // libm's constants by the words its comments give (its decimals carry more digits than an f64 holds); the scaled Qs of
 // R(2z) with z = x²/2.
@@ -96,7 +115,6 @@ pub(super) fn expm1<const W: usize>(x: Lanes<W>) -> Lanes<W> {
 mod tests {
     use super::*;
     use crate::exec::{LaneKernel, run_lanes};
-    use crate::num::lanes::exp::{LN2HI, LN2LO, OVERFLOW};
     use crate::num::lanes::tests::{Rng, canonical};
     use crate::num::{Real, math};
 

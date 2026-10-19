@@ -41,14 +41,8 @@ exclude_globs = [
     # The browser package (PLAN.md M10.8): it compiles only for wasm32-unknown-unknown, never where the mutants job runs;
     # the wasm-browser job runs its tests under Node.
     "crates/phasekit-wasm/src/**",
-    # The lanes' `exp` (PLAN.md M12.5) compiles only with core's `libm` feature, which the gate's run does not enable; the
-    # lane tests CI runs with `--features simd` cover it. By hand, with `--features phasekit-core/libm` on phasekit-core's
-    # tests, each job with its own target directory (M12.8's PR): 101 caught, 4 unviable, 5 equivalent. `plain` → false
-    # sends every group down the full path, with the same bits. Four move a boundary by one value, where both sides give
-    # libm's bits: k = 0 or ±1 at 0.5 ln 2; k = 1023 prescaled by 2¹⁰²³ then 2⁰; k = −1022 by 2⁻⁹⁶⁹ then 2⁻⁵³, one
-    # rounding either way; 1 + x just above 2⁻²⁸. `lane_exp_is_libm_bitwise` checks each of those inputs.
-    "crates/phasekit-core/src/num/lanes/exp.rs",
-    # The lanes' `ln` (M12.6) likewise. By hand, the same way (M12.8's PR): 100 caught, 4 unviable, 5 equivalent. `plain`
+    # The lanes' `ln` (M12.6) compiles only with core's `libm` feature, which the gate's run does not enable; the lane
+    # tests CI runs with `--features simd` cover it. By hand, the same way (M12.8's PR): 100 caught, 4 unviable, 5 equivalent. `plain`
     # → false sends every group down the full path, with the same bits. `|` → `^` twice joins disjoint bits (2⁵²'s low
     # bits are zero; the high and low words do not overlap). `<` → `<=` scales the smallest normal by 2⁵⁴ with k −54,
     # which is exact and reduces to the same x and k. `/` → `%` makes NaN from (x − x) at a negative x either way, and NaN

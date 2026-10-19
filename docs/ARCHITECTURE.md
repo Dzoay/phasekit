@@ -89,7 +89,7 @@ Each crate's dependencies are its `Cargo.toml`; their tiers, [DEPENDENCIES.md](D
 | `phasekit-capi` (M10) | `extern "C"` facade: `pk_*` symbols, registry handles, string keys, status codes, thread-local error; the Tier A CoolPropLib.h shim (v8.0.0 codes, process-wide errstring; D11) | forwards `fluids-*`; `coolproplib-shim` | No |
 | `phasekit-cubic` (M11) | vdW, SRK and PR cubics on a borrowed HEOS ideal gas (one R, user decision CB1): `fluid`, `with_cubics` (`VDW::`, `SRK::`, `PR::` names), Soave, Mathias-Copeman and Twu alphas, Bell and Deiters' SRK and PR superancillary; on `phasekit-core`'s public API alone | none | No |
 | `phasekit-mix` (M13) | Multi-fluid Helmholtz mixtures on `phasekit-core`'s public API alone: CoolProp 8.0.0's library (888 binary pairs, its predefined mixtures) and GERG-2008 (21 components, from NIST's AGA8; user decision MX7); a `Mixture` at a fixed composition (`mixture`, `gerg2008`, `predefined`) with its critical points, a PT flash with Michelsen's stability test, bubble, dew and interior points, every input pair by outer solves, and phase envelopes; `with_mixtures`, the resolver of CoolProp's mixture names, keeping the last 64 models (user decision MX9) | none | No |
-| `phasekit-wasm` (M10) | wasm-bindgen browser package, baseline and `+simd128` builds; a panic reaches JavaScript as an `Error` and retires the module (M24.2) | `simd` (the `simd128` build's: core's `simd`, M12.10); `fault-injection` (tests only, M24.2) | No |
+| `phasekit-wasm` (M10) | wasm-bindgen browser package, baseline and `+simd128` builds, both on core's `libm` maths (user decision IM6); a panic reaches JavaScript as an `Error` and retires the module (M24.2) | `simd` (the `simd128` build's: core's `simd`, M12.10); `fault-injection` (tests only, M24.2) | No |
 | `phasekit-py` (after 0.1) | pyo3 abi3 wheels: import name `phasekit`, plus `phasekit.compat` for migration (D11) | forwards `fluids-*`; `numpy` | No |
 | `phasekit-verify` | Verification kit + conformance corpus + fixtures + benches; reusable by any family crate | none | No |
 | `phasekit-xtask` | `datagen`, `oracle`, `gates` | none | No |
@@ -674,8 +674,9 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      ("how"); it sits at L0 with `ExecPolicy`, as its executors hold no physics, so L2's batch hook can take a policy
      (D1). The batch hooks and an `ExecPolicy` variant return with it. WASM `simd128` is a second build (K11, K15).
   3. `simd` enables `libm` (user decision SL1), so its lanes are bitwise equal to the `libm` scalar path. The vector
-     `exp`, `expm1` and `ln` are ports of the locked `libm` crate's, operation for operation (fearless_simd has none;
-     dependencies §4); any other transcendental a laned kernel needs is ported the same way or called per lane through
+     `expm1` and `ln` are ports of the locked `libm` crate's, operation for operation (fearless_simd has none;
+     dependencies §4); `exp` is core's own since M23.2 (Arm's, `num::elementary`), one function for the scalar path
+     and the lanes, which the `libm` build's `math::exp` runs too; any other transcendental a laned kernel needs is ported the same way or called per lane through
      `math`. `expm1` was ported at M12.8 (user decision SL7): per lane it took about 89 ns of n-Propane's 129 ns of α⁰
      in lanes on the i7-8700K (11.1 ns a call with `libm`; four Planck-Einstein terms, which 114 of the 136 fluids
      have), and with the port α⁰ takes 83 ns. `powf` still runs per lane (48.7 ns a call): R134a's two α⁰ Power terms
