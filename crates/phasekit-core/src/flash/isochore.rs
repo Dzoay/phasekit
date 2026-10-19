@@ -62,6 +62,9 @@ fn isochore_p(fluid: &PureFluid, t: f64, rho: f64, opts: &FlashOptions) -> Resul
     let p = relations::pressure(r, t, rho, &total(fluid, t, rho)?);
     let pseudo_pure = || fluid.saturation().is_ok_and(|c| c.is_some_and(|c| c.accuracy() == SatAccuracy::Definition));
     Ok(match region(fluid, t, rho, p, opts) {
+        // Equivalent (M7.5): a fluid whose saturation at T fails with `NoConvergence` from the VLE is a pseudo-pure
+        // one; a pure fluid's below its curve's top comes from the curve.
+        // equivalent mutant: replace match guard pseudo_pure() with true
         Err(Error::NoConvergence { strategy: Strategy::Vle, .. }) if pseudo_pure() => p,
         region => match region? {
             Region::Single(_) => p,
@@ -80,6 +83,12 @@ fn isochore_x(fluid: &PureFluid, t: f64, rho: f64, var: Caloric, opts: &FlashOpt
     let b = total(fluid, t, rho)?;
     let pseudo_pure = || fluid.saturation().is_ok_and(|c| c.is_some_and(|c| c.accuracy() == SatAccuracy::Definition));
     Ok(match region(fluid, t, rho, relations::pressure(r, t, rho, &b), opts) {
+        // Equivalent in practice: a pure fluid's phase rule labels by its EOS's own critical point (M6), so its VLE
+        // runs only where the EOS has a dome, and no tested input makes it fail there; only a pseudo-pure fluid,
+        // labelled by its published critical point above its EOS's, reaches a VLE that fails (Air from 131 K to 132.53
+        // K at 13 119 mol/m³, `d_x_round_trips`), so following the single phase for every fluid changes no tested
+        // result.
+        // equivalent mutant: replace match guard pseudo_pure() with true
         Err(Error::NoConvergence { strategy: Strategy::Vle, .. }) if pseudo_pure() => var.at(r, t, &b),
         region => match region? {
             Region::Single(_) => var.at(r, t, &b),

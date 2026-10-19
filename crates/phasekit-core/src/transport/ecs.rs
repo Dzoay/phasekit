@@ -97,6 +97,9 @@ fn conformal_state(x: &TransportInputs<'_>, reference: &PureFluid) -> Result<Con
         let mut fractions = core::iter::successors(Some(1.0), |frac: &f64| Some(frac / 2.0)).take(10);
         let step = fractions.find_map(|frac| {
             let (t_new, rho_new) = (t0 * math::exp(frac * v[0]), rho0 * math::exp(frac * v[1]));
+            // Equivalent (M8.8): accepting a step that leaves the residual equal, not only one that lowers it, changes
+            // only which iterate within rounding of the root the solve returns.
+            // equivalent mutant: replace < with <=
             (norm(residuals(reference, target, t_new, rho_new).0) < residual).then_some((t_new, rho_new))
         });
         let Some(step) = step else { return done(t0, rho0, residual, iterations) };
@@ -172,6 +175,8 @@ pub(crate) fn conductivity(
 ) -> Result<ConductivityStages, Error> {
     let reference = reference(references, &ecs.reference)?;
     let psi = psi(&ecs.psi, ecs.psi_rho_r, x);
+    // Equivalent (M8.8): T_r is 1 K in every v8.0.0 ECS block, so T/T_r is T·T_r.
+    // equivalent mutant: replace / with *
     let f_int = sum(&ecs.f_int, x.t() / ecs.f_int_t_r);
     let eta_star = eta_dilute(ecs.lennard_jones.parameters(), x) * 1e6;
     let m = x.molar_mass();

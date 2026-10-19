@@ -24,9 +24,15 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
         let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
         for (k, wi) in K.iter().zip(w) {
             let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            // Equivalent: Ch as FIPS 180-4 writes it; its two terms are bitwise disjoint, so `^` and `|` give the same
+            // bits. The NIST vectors test everything else.
+            // equivalent mutant: replace ^ with |
             let ch = (e & f) ^ (!e & g);
             let t1 = hh.wrapping_add(s1).wrapping_add(ch).wrapping_add(*k).wrapping_add(wi);
             let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            // Equivalent: Maj as FIPS 180-4 writes it; any two set terms are covered by the third, so `^` and `|` give
+            // the same bits.
+            // equivalent mutant: replace ^ with |
             let maj = (a & b) ^ (a & c) ^ (b & c);
             (hh, g, f, e, d, c, b, a) = (g, f, e, d.wrapping_add(t1), c, b, a, t1.wrapping_add(s0.wrapping_add(maj)));
         }

@@ -409,7 +409,12 @@ fn predefined_mixtures(
     }
     for entry in seen.values() {
         let sum: f64 = entry.mole_fractions.iter().sum();
+        // Equivalent in practice (M13.2): `>=` admits a fraction of exactly 0, which no entry of the library has.
+        // equivalent mutant: replace > with >=
         let positive = entry.mole_fractions.iter().all(|x| x.is_finite() && *x > 0.0);
+        // Equivalent in practice (M13.2): `>=` differs only at a sum exactly 1e-10 from 1, which no entry of the
+        // library is.
+        // equivalent mutant: replace > with >=
         if entry.fluids.len() != entry.mole_fractions.len() || !positive || (sum - 1.0).abs() > 1e-10 {
             errors.push(format!("predefined {}: fractions {:?} (sum {sum})", entry.name, entry.mole_fractions));
         }

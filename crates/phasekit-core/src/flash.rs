@@ -171,6 +171,9 @@ fn above_melting_line(fluid: &PureFluid, state: State, opts: &FlashOptions) -> R
         return Ok(state);
     }
     let curve = fluid.melting_curve();
+    // Equivalent (M8.11): `<=` differs only at T exactly T_melt·(1 − AT_BOUND), which no solved state reaches (T_melt
+    // is read at the state's own p).
+    // equivalent mutant: replace < with <=
     match curve.and_then(|c| c.below(state.t(), state.p())).filter(|t_melt| state.t() < t_melt * (1.0 - AT_BOUND)) {
         None => Ok(state),
         Some(t_melt) if opts.domain() == DomainPolicy::Enforce => {

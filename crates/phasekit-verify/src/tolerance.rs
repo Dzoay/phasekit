@@ -60,6 +60,9 @@ pub enum Window {
 impl Window {
     /// The window of (T, ρ) for a fluid whose published critical point is (Tc, ρc).
     pub fn at(t: f64, rho: f64, tc: f64, rhoc: f64) -> Window {
+        // Equivalent: for a double q >= 0.5, q - 1 is exact (Sterbenz) and |q - 1| a multiple of 2^-53, which neither
+        // fl(1e-3) nor fl(0.1) is; below 0.5, |q - 1| > 0.5. So `<` and `<=` agree on every input.
+        // equivalent mutant: replace < with <=
         if (t / tc - 1.0).abs() < 1e-3 && (rho / rhoc - 1.0).abs() < 0.1 {
             Window::NearCritical
         } else {

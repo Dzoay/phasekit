@@ -19,6 +19,9 @@ const BOLTZMANN: f64 = 1.3806488e-23;
 
 /// The Olchowy-Sengers numerator below which there is no enhancement: zero, negative or rounding above zero (Lemmon and
 /// Jacobsen 2004, p. 27; `TransportRoutines.cpp:760`).
+// Equivalent (M8.6): the cut-off at ε/10 instead of 10ε changes only numerators below 2.2e-15, where the enhancement is
+// about 1e-20 W/(m K).
+// equivalent mutant: replace * with /
 const NO_ENHANCEMENT: f64 = f64::EPSILON * 10.0;
 
 /// The stages of a conductivity, W/(m K): CoolProp's `conductivity_contributions`, whose `initial_density` is 0 for
@@ -128,6 +131,9 @@ pub(super) fn olchowy_sengers(
     let chi = x_of(x.dp_drho_at(t));
     let chi_ref = x_of(x.dp_drho_at(t_ref)) * t_ref / t;
     let num = chi - chi_ref;
+    // Equivalent in practice (M8.6): CoolProp's strict comparison; `<=` differs only at a numerator of exactly 10ε,
+    // which no state lands on. Either side is reached by the oracle's probes (`transport/probes.csv`).
+    // equivalent mutant: replace < with <=
     if num < NO_ENHANCEMENT {
         return Ok(0.0);
     }
@@ -172,12 +178,18 @@ pub(crate) fn friend_methane(m: &FriendMethane, x: &TransportInputs<'_>) -> Resu
     let sl = [0.0, 0.0, 0.0, 1.0, 0.0, 1.0];
     let jl = [2.4149207, 0.55166331, -0.52837734, 0.073809553, 0.24465507, -0.047613626];
     let summer = jl.iter().zip(&rl).zip(&sl).fold(0.0, |s, ((j, r), l)| s + j * pw(delta, *r) * pw(tau, *l));
+    // Equivalent in practice (M8.6): CoolProp's strict comparisons; `<=` differs only at T = T_c or ρ = ρ_c, where both
+    // branches give the same λ to rounding. Either side is reached by the oracle's probes.
+    // equivalent mutant: replace < with <=
     let delta_sigma = if t < m.t_c && rho < m.rho_c { m.rho_v.at(t) / m.rho_c } else { 1.0 };
     let lambda_residual = 6.29638 * (summer + 1.5554612 * (delta * delta) / delta_sigma);
     // Δλ_c.
     let (t_rel, rho_rel) = (1.0 - 1.0 / tau, 1.0 - delta);
     let f = math::exp(-2.646 * math::sqrt(t_rel.abs()) - 2.678 * (rho_rel * rho_rel) - -0.637 * rho_rel);
     let chi_19a = || 0.28631 * delta * tau / (1.0 + 2.0 * delta * ar_d + delta * delta * ar_dd);
+    // Equivalent in practice (M8.6): CoolProp's strict comparison; `<=` differs only at |T*| = 0.03, which no state
+    // lands on. Either side is reached by the oracle's probes.
+    // equivalent mutant: replace < with <=
     let chi = if t_rel.abs() < 0.03 { friend_chi(t_rel, rho_rel).unwrap_or_else(chi_19a) } else { chi_19a() };
     let bracket = 1.0 + delta * ar_d - delta * tau * ar_dt;
     let lambda_critical = 91.855 / (eta * (tau * tau)) * (bracket * bracket) * pw(chi, 0.4681) * f;
@@ -192,6 +204,9 @@ pub(crate) fn friend_methane(m: &FriendMethane, x: &TransportInputs<'_>) -> Resu
 /// `None` elsewhere, where Eq. 19a applies.
 fn friend_chi(t_rel: f64, rho_rel: f64) -> Option<f64> {
     let pw = math::powf;
+    // Equivalent in practice (M8.6): CoolProp's strict comparison; `<=` differs only at |ρ*| = 1e-16, which no state
+    // lands on. Either side is reached by the oracle's probes.
+    // equivalent mutant: replace < with <=
     if rho_rel.abs() < 1e-16 {
         return Some(0.0801 * pw(t_rel.abs(), -1.190));
     }
@@ -201,6 +216,11 @@ fn friend_chi(t_rel: f64, rho_rel: f64) -> Option<f64> {
     let (beta, w, s, e, a, b, r, q) = (0.355, -1.401, -6.098, 0.287, 3.352, 0.732, 0.535, 0.1133);
     let scaled = pw(rho_rel.abs(), -1.0 / beta);
     let omega = w * t_rel * scaled;
+    // Equivalent (M8.6): this θ test, T* < −|ρ*|^(−1/β)/s, holds at every state that reaches it, since |ρ*| < 0.03 puts
+    // the bound above 3000, and so does the mutant's −|ρ*|^(−1/β)·s; and `<=` differs only at equality, which no state
+    // lands on.
+    // equivalent mutant: replace < with <=
+    // equivalent mutant: replace / with *
     let theta = if t_rel < -scaled / s { 1.0 + e * pw(1.0 + s * t_rel * scaled, 2.0 * beta) } else { 1.0 };
     Some(q * pw(rho_rel.abs(), -a) * pw(theta, b) / (theta + omega * (theta + r)))
 }

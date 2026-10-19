@@ -11,6 +11,7 @@ mod datagen;
 mod decisions;
 mod deps;
 mod doc_excerpts;
+pub(crate) mod exclusions;
 mod features;
 #[cfg(test)]
 pub(crate) use features::core_list;

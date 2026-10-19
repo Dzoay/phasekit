@@ -128,6 +128,9 @@ fn generic_sat_p(fluid: &PureFluid, p: f64, t_low: f64) -> Result<Option<(SatPai
     // TOMS 748 evaluates T_low again: no end is given.
     let at_low = gap(t_low)?;
     let Some((root, failure)) =
+        // Equivalent in practice: the generic VLE's pressure at T_low equals a P+X input's p bit for bit only by
+        // chance; pressures below and above it are tested (`p_x_without_a_curve_uses_the_eos_vle`).
+        // equivalent mutant: replace < with <=
         (at_low < 0.0).then(|| toms748_kept(&gap, (t_low, None), (t_c, None), Tol::Relative(T_TOL)))
     else {
         return Ok(None);

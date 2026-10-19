@@ -307,6 +307,9 @@ pub(crate) fn chung(data: &Chung, x: &TransportInputs<'_>) -> ViscosityStages {
     let a1 = [50.41190, -0.11536e-2, 254.20900, 38.09570, 7.63034, -12.53670, 3.44945, 1.11764, 0.67695e-1, 0.34793];
     let a2 =
         [-51.68010, -0.62571e-2, -168.48100, -8.46414, -14.35440, 4.98529, -11.29130, 0.12348e-1, -0.81630, 0.59256];
+    // Equivalent (M8.9): Chung's association factor κ is 0 in both v8.0.0 Chung blocks (Cyclopentane, Isopentane), so
+    // the signs of this row, which κ multiplies, change no value.
+    // equivalent mutant: delete -
     let a3 = [1189.02000, 0.37283e-1, 3898.27000, 31.41780, 31.52670, -18.15070, 69.34660, -4.11661, 4.02528, -0.72663];
     let vc = 1.0 / (data.rho_c / 1e6);
     let (omega, m, tc, mu_d, kappa) =
@@ -314,8 +317,12 @@ pub(crate) fn chung(data: &Chung, x: &TransportInputs<'_>) -> ViscosityStages {
     let mu_r = 131.3 * mu_d / math::sqrt(vc * tc);
     let mut a = [0.0; 10];
     for ((((a, a0), a1), a2), a3) in a.iter_mut().zip(&a0).zip(&a1).zip(&a2).zip(&a3) {
+        // Equivalent (M8.9): κ is 0 in both v8.0.0 Chung blocks, so the sign of its term changes no value.
+        // equivalent mutant: replace + with - #3
         *a = a0 + a1 * omega + a2 * pow_n(mu_r, 4) + a3 * kappa;
     }
+    // Equivalent (M8.9): κ is 0 in both v8.0.0 Chung blocks, so the sign of its term in F_c changes no value.
+    // equivalent mutant: replace + with - #2
     let f_c = 1.0 - 0.2756 * omega + 0.059035 * pow_n(mu_r, 4) + kappa;
     let epsilon_over_k = tc / 1.2593;
     let (rho_molcm3, t) = (x.rho() / 1e6, x.t());
@@ -363,6 +370,9 @@ pub(crate) fn helium_conductivity(x: &TransportInputs<'_>, eta: f64) -> Result<C
     let lambda_e = (c[0] + c[1] * t + c[2] * t13 + c[3] * t23) * rho
         + (c[4] + c[5] * t13 + c[6] * t23) * rho * rho * rho
         + (c[7] + c[8] * t13 + c[9] * t23 + c[10] / t) * rho * rho * math::ln(rho / rhoc);
+    // Equivalent (M8.9): CoolProp's strict comparison; at 12 K exp(−18.66 ΔT²) puts helium's critical term 1e-15 below
+    // λ, under `TransportDirect`. The probes sit on 3.5 K, where the term is not, and on 12 K.
+    // equivalent mutant: replace < with <= #2
     let critical = if 3.5 < t && t < 12.0 { helium_critical(x, eta, rho)? } else { 0.0 };
     Ok(ConductivityStages { dilute: lambda_0, residual: lambda_e, critical })
 }
@@ -379,6 +389,9 @@ fn helium_critical(x: &TransportInputs<'_>, eta: f64, rho: f64) -> Result<f64, E
     let k_t = x.isothermal_compressibility()?;
     let dpdt = x.dp_dt()?;
     let w = pow_n(delta_t / 0.2, 2) + pow_n(delta_rho / 0.25, 2);
+    // Equivalent (M8.9): at W = 1 the blend W κ_T + (1 − W) κ_T' is κ_T, so `>=` gives the same value; the probes sit
+    // either side of W = 1.
+    // equivalent mutant: replace > with >=
     let k_t_bar = if w > 1.0 {
         k_t
     } else {
@@ -491,6 +504,8 @@ pub(crate) fn ammonia_critical(x: &TransportInputs<'_>) -> f64 {
     let (lambda, nu, gamma, delta_exp, zeta_0, a_zeta, gamma_0) = (1.2, 0.63, 1.24, 0.50, 1.34e-10, 1.0, 0.423e-8);
     let (pi, k_b) = (PI_COOLPROP, 1.3806504e-23);
     let tt = ((t - tc) / tc).abs();
+    // Equivalent (M8.9): at the floor the reduced temperature is the floor either way.
+    // equivalent mutant: replace < with <=
     let tt = if tt < AMMONIA_T_FLOOR { AMMONIA_T_FLOOR } else { tt };
     let a_chi = a_zeta / 0.7;
     let eta_b = (2.60 + 1.6 * tt) * 1e-5;
@@ -504,6 +519,8 @@ pub(crate) fn ammonia_critical(x: &TransportInputs<'_>) -> f64 {
         * math::powf(tt, -gamma)
         * (1.0 + a_chi * math::powf(tt, delta_exp));
     let isochore = isochore * math::exp(-36.0 * tt * tt);
+    // Equivalent (M8.9): at ρ = 0.6 ρ_c Tufeu's two density branches are one expression.
+    // equivalent mutant: replace < with <=
     if rho < 0.6 * rhoc {
         isochore * (x_t * x_t) / (x_t * x_t + math::powi(0.6 * rhoc - 0.96 * rhoc, 2)) * math::powi(rho, 2)
             / math::powi(0.6 * rhoc, 2)

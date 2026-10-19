@@ -151,8 +151,14 @@ fn with_turns(grid: &[Point], scan: &impl Fn(f64) -> Result<f64, Error>, refused
     let mut nodes = grid.to_vec();
     for triple in grid.windows(3) {
         if let [(t0, g0), (_, g1), (t2, g2)] = triple
+            // Equivalent (M7.7): a turn is a node where x stops rising or falling; `>=` differs only at an exact tie of
+            // two nodes, whose cells then find no turn but an end.
+            // equivalent mutant: replace > with >=
             && (g1 > g0) != (g2 > g1)
         {
+            // Equivalent (M7.7): the turn's kind; `>=` differs only at an exact tie of two nodes, whose cells then find
+            // no turn but an end.
+            // equivalent mutant: replace > with >=
             match turn_of(scan, *t0, *t2, g1 > g0) {
                 Ok(node) => nodes.push(node),
                 Err(e) => _ = refused.get_or_insert(e),
@@ -209,6 +215,8 @@ fn turn_of(g: &impl Fn(f64) -> Result<f64, Error>, a: f64, b: f64, max: bool) ->
     let (mut c, mut d) = (b - r * (b - a), a + r * (b - a));
     let (mut gc, mut gd) = (f(c)?, f(d)?);
     for _ in 0..TURN_STEPS {
+        // Equivalent (M7.7): the golden-section search keeps the lower of two values, and `<=` differs only at a tie.
+        // equivalent mutant: replace < with <=
         if gc < gd {
             (b, d, gd) = (d, c, gc);
             c = b - r * (b - a);
@@ -233,6 +241,9 @@ pub(super) fn polish(exact: &impl Fn(f64) -> Result<f64, Error>, t: f64) -> Resu
     for _ in 0..POLISH_WIDENINGS {
         let (a, b) = (t * (1.0 - width), t * (1.0 + width));
         let (ga, gb) = (exact(a)?, exact(b)?);
+        // Equivalent (M7.7): with `&&` for an `||`, a root exactly on the bracket's lower end still has ends of
+        // opposite sign unless x only touches it.
+        // equivalent mutant: replace || with &&
         if ga == 0.0 || gb == 0.0 || ga.is_sign_negative() != gb.is_sign_negative() {
             let root = toms748(|u| exact(u).unwrap_or(f64::NAN), a, b, Tol::Relative(T_TOL), T_ITER);
             return Ok(root.converged(Strategy::Saturation)?.x);

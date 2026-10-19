@@ -121,6 +121,9 @@ fn answer(r: f64, t: f64, liquid: Point, vapour: Point, iterations: u16) -> Resu
 
 /// Whether the two phases are distinct, ln(ρ′/ρ″) > 1e-6: the trivial solution ρ′ = ρ″ satisfies both equations.
 fn distinct(liquid: &Point, vapour: &Point) -> bool {
+    // Equivalent in practice: `>=` differs only when the logarithm equals 1e-6 bit for bit, which no state built from
+    // double densities reaches reliably on every target; 2e-6 and 5e-7 are tested on either side.
+    // equivalent mutant: replace > with >=
     math::ln(liquid.rho / vapour.rho) > 1e-6
 }
 

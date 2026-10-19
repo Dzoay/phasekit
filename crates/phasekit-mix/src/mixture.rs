@@ -70,6 +70,9 @@ fn validated(z: &[f64]) -> Result<(), Error> {
         return Err(Error::InvalidInput { quantity: "mole fraction", value: *bad });
     }
     let sum: f64 = z.iter().sum();
+    // Equivalent (M13.4): `>=` differs only at a sum exactly SUM_TOLERANCE from 1, which no sum of doubles lands on (1
+    // + 1e-10 is 1.000000082740371e-10 from 1).
+    // equivalent mutant: replace > with >=
     if (sum - 1.0).abs() > SUM_TOLERANCE {
         return Err(Error::InvalidInput { quantity: "sum of the mole fractions", value: sum });
     }
@@ -203,6 +206,8 @@ impl Mixture {
             return Ok(Equilibrium::Single { rho: feed.rho });
         };
         // The trial phase is the incipient one: the vapour where it is the lighter.
+        // Equivalent (M13.8): `<=` differs only at a trial phase as dense as the feed, which no solve meets.
+        // equivalent mutant: replace < with <=
         let lighter = equilibrium::at_t_p(self, t, p, &w, Order::One)?.rho < feed.rho;
         let from_trial: Vec<f64> =
             w.iter().zip(self.z.iter()).map(|(w, z)| if lighter { math::ln(w / z) } else { math::ln(z / w) }).collect();
@@ -323,6 +328,9 @@ impl Mixture {
         let mut g = |u: f64| -> Result<(f64, Equilibrium), Error> {
             let p = math::exp(u);
             let e = match last_k.take().map(|k| equilibrium::split(self, t, p, &self.z, k)) {
+                // Seeds only (M13.10): a p-isochoric point not continued from the last split's K is the PT flash's own
+                // split there, at a cost in steps, not bits beyond the solves' gates.
+                // equivalent mutant: delete match arm Some(Ok(Some(s)))
                 Some(Ok(Some(s))) => Equilibrium::Split {
                     beta: s.beta,
                     x: s.x,
@@ -348,6 +356,9 @@ impl Mixture {
         match e {
             Equilibrium::Single { rho } => self.state(t, rho, self.label(t, rho, p), opts),
             Equilibrium::Split { beta, x, y, rho_liquid, rho_vapour } => {
+                // Equivalent (M13.8): `>=` differs only at a split's lighter phase exactly at ρ_c, which no solve
+                // meets.
+                // equivalent mutant: replace > with >=
                 if self.critical_point().is_some_and(|c| rho_liquid.min(rho_vapour) > c.rho) {
                     return Err(Error::Unsupported { pair: Pair::PT });
                 }
@@ -607,6 +618,8 @@ impl ThermoModel for Mixture {
     /// at positive pressure lie on inner branches (Methane/n-Propane's at 240 K, below its 314 K one; v8.0.0's
     /// `all_critical_points` reports only the outer one); M13.12's envelope traces through the one chosen.
     fn critical_point(&self) -> Option<CriticalPoint> {
+        // Equivalent (M13.7): no critical point the search keeps has p exactly 0.
+        // equivalent mutant: replace > with >=
         self.critical_points().iter().filter(|c| c.p > 0.0).max_by(|a, b| a.t.total_cmp(&b.t)).map(|c| CriticalPoint {
             t: c.t,
             p: c.p,

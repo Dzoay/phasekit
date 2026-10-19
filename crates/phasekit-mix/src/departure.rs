@@ -65,6 +65,9 @@ impl Series {
     /// (ε the unit monomial) the coefficients d_n/n! directly, which is what Horner's products with it give exactly.
     #[allow(clippy::arithmetic_side_effects, reason = "Series products: IEEE arithmetic on truncated series, no panic")]
     fn compose(self, d: [f64; 5]) -> Series {
+        // Equivalent (M13.7): the fast path gives the general path's bits (`truncation_keeps_the_lower_orders`,
+        // `the_value_is_the_jet_s`), so taking the general path instead changes nothing.
+        // equivalent mutant: replace == with != #2
         if self.c[1] == 1.0 && self.c[2..].iter().all(|c| *c == 0.0) {
             let mut c = [0.0; 5];
             for ((c, d), f) in c.iter_mut().zip(&d).zip(&FACTORIAL).take(self.order.saturating_add(1)) {
@@ -99,6 +102,9 @@ impl Series {
         let last = order.min(LAST);
         let mut c = [0.0; 5];
         c[0] = self.c[0] * other.c[0];
+        // Equivalent (M13.7): the fast path gives the general path's bits (`truncation_keeps_the_lower_orders`,
+        // `the_value_is_the_jet_s`), so taking the general path instead changes nothing.
+        // equivalent mutant: replace || with &&
         if self.order == 0 || other.order == 0 {
             let (series, k0) = if self.order == 0 { (other, self.c[0]) } else { (self, other.c[0]) };
             let mut k = 1;

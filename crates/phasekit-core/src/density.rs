@@ -77,11 +77,16 @@ pub(crate) fn bracketed(
         if pressure == p {
             return Ok((rho, iteration));
         }
+        // Equivalent (PLAN.md M7.1): this follows a return on `pressure == p`, so `<=` takes the same branch.
+        // equivalent mutant: replace < with <=
         bracket.take(u, pressure < p);
         if let Some(closed) = bracket.closed(iteration) {
             return closed;
         }
         let next = u + (p - pressure) / slope;
+        // Equivalent (M7.1): a zero slope gives a step of ±∞ or NaN, which the bracket refuses, so the solve bisects
+        // whether the guard says `> 0` or `>= 0`.
+        // equivalent mutant: replace > with >=
         if !(slope > 0.0 && bracket.holds(next)) {
             (u, previous) = (bracket.middle(), f64::INFINITY);
             continue;
@@ -185,6 +190,9 @@ pub(crate) fn liquid_above(eos: &dyn HelmholtzModel, t: f64, p: f64, lo: f64) ->
     for _ in 0..GROWTH {
         hi *= 1.05;
         let b = (eos.residual(t, hi, Order::Two) + Derivs::IDEAL_DELTA).bundle();
+        // Equivalent (M7.1): `>=` differs only where p(T, ρ) equals p exactly, where the solve this hands the bracket
+        // to returns that very ρ.
+        // equivalent mutant: replace > with >=
         if b.is_some_and(|b| hi * rt * b.a01 > p) {
             return bracketed(eos, t, p, (lo, hi), lo);
         }
@@ -225,6 +233,9 @@ const SAME_ROOT: f64 = 1e-12;
 pub fn roots(eos: &dyn HelmholtzModel, t: f64, p: f64) -> Roots {
     let [vapour, liquid] = [Branch::Vapour, Branch::Liquid].map(|branch| solve(eos, t, p, branch, None).ok());
     match (vapour, liquid) {
+        // Equivalent (M13.1): `>=` differs only at two roots exactly SAME_ROOT apart in ln ρ, between two converged
+        // Newton solves, which no state reaches.
+        // equivalent mutant: replace > with >=
         (Some(v), Some(l)) if (math::ln(l) - math::ln(v)).abs() > SAME_ROOT => Roots::new(&[v.min(l), v.max(l)]),
         (Some(one), _) | (None, Some(one)) => Roots::new(&[one]),
         (None, None) => Roots::new(&[]),
@@ -283,6 +294,9 @@ fn newton(eos: &dyn HelmholtzModel, t: f64, p: f64, seed: f64) -> Result<(f64, u
         let d = eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two);
         let b = d.bundle().ok_or(failed(iteration))?;
         let (pressure, slope) = (rho * rt * b.a01, rho * rt * (2.0 * b.a01 + b.a02));
+        // Equivalent in practice: a slope (∂p/∂ln ρ)_T exactly 0 from double arithmetic at an iterate never occurs, so
+        // `>` and `>=` agree; slopes of either sign are tested.
+        // equivalent mutant: replace > with >=
         if !(pressure.is_finite() && slope > 0.0) {
             return Err(failed(iteration));
         }

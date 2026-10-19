@@ -157,6 +157,9 @@ fn falsi<E: Clone>(a: End<E>, b: End<E>, f: &mut impl FnMut(f64) -> Result<(f64,
         return Ok(if a.value == 0.0 { a } else { b });
     }
     let width = WIDTH * a.x.abs().max(b.x.abs());
+    // Equivalent (M13.11): two ends at one x leave a bracket of no width, which the regula falsi returns at once as the
+    // end of smaller |value| in either order; only a tie in |value| as well would tell them apart.
+    // equivalent mutant: replace < with <=
     if a.x < b.x { illinois(a, b, f, (width, STEPS)) } else { illinois(b, a, f, (width, STEPS)) }
 }
 
@@ -210,6 +213,9 @@ fn cut_turns<E>(
         let (Some(b), Some(h), Some(a)) = (line.get(prev), line.get(k), line.get(next)) else { continue };
         let (before, here, after) = (b.value, h.value, a.value);
         if (here - before) * (after - here) < 0.0 {
+            // Equivalent (M13.11): a turn has (here − before)(after − here) < 0, so here ≠ before, where `>=` and `>`
+            // agree on which way the line rises.
+            // equivalent mutant: replace > with >=
             let turned = turn(b, a, here > before)?;
             if let Some(node) = line.get_mut(k) {
                 *node = turned;

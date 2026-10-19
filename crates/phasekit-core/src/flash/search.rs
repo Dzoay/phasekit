@@ -15,6 +15,9 @@ pub(super) type Point = (f64, f64);
 
 /// Whether a residual lies above zero, on the far side of the root from a descent's end; NaN does not.
 pub(super) fn positive(at: f64) -> bool {
+    // Equivalent (M7.8, M7.9e): a residual exactly 0 (within the nested solve's noise) is the root whether a test reads
+    // it as above or not: TOMS 748 returns a bracket's end whose residual is 0.
+    // equivalent mutant: replace > with >=
     at > 0.0
 }
 
@@ -232,5 +235,8 @@ fn stepped(
         return residual(t);
     }
     let at = at_lo.map_or_else(|| residual(t), Ok)?;
+    // Equivalent in practice (M7.3, M7.4): `>=` differs only where x is met bit for bit at a scan step's T, which no
+    // input reaches reliably; either side is tested.
+    // equivalent mutant: replace > with >=
     Ok(if at > tiny { at } else { at.min(0.0) })
 }

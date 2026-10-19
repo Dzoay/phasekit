@@ -85,6 +85,9 @@ impl CubicSaturation {
         }
         for _ in 0..200 {
             let mid = 0.5 * (lo + hi);
+            // Equivalent (M11.5): the bisection stops once its ends are adjacent doubles, where the midpoint is one of
+            // them and further halvings move neither end.
+            // equivalent mutant: replace || with &&
             if mid <= lo || mid >= hi {
                 break;
             }
@@ -180,6 +183,10 @@ impl Bracket {
     /// Replaces the end whose value has `fc`'s sign by (c, fc), halving the other end's value when the same end moved
     /// twice running (Illinois).
     fn update(&mut self, c: f64, fc: f64) {
+        // Equivalent (M11.5): a value of exactly 0 goes to either end alike: no end holds 0 at an update (an end at 0
+        // is the root before the next step), and a step whose value is 0 is the root at the next check whichever end it
+        // replaced.
+        // equivalent mutant: replace > with >=
         if (fc > 0.0) == (self.b.1 > 0.0) {
             self.b = (c, fc);
             if self.side == -1 {

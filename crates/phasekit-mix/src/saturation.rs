@@ -147,6 +147,8 @@ pub(crate) fn meets_gate(f: &[f64]) -> bool {
 
 /// Whether an iterate is the trivial solution (`TRIVIAL`): every |ln K_i| and |ln(ρ′/ρ″)| small.
 pub(crate) fn trivial(ln_k: &[f64], rho_liquid: f64, rho_vapour: f64) -> bool {
+    // Equivalent (M13.9): `<=` differs only at ln(ρ′/ρ″) exactly TRIVIAL.1, which no solve meets.
+    // equivalent mutant: replace < with <= #2
     ln_k.iter().all(|l| l.abs() < TRIVIAL.0) && math::ln(rho_liquid / rho_vapour).abs() < TRIVIAL.1
 }
 
@@ -180,6 +182,9 @@ fn wilson_p(mixture: &Mixture, beta: f64, t: f64) -> f64 {
     let (mut lo, mut hi) = (math::ln(dew), math::ln(bubble));
     for _ in 0..WILSON_BISECTIONS {
         let mid = (lo + hi) / 2.0;
+        // Equivalent (M13.9): Wilson's Rachford–Rice exactly 0 at a bisection midpoint is the root, which either half
+        // keeps.
+        // equivalent mutant: replace > with >=
         if wilson_balance(mixture, beta, t, math::exp(mid)) > 0.0 {
             lo = mid;
         } else {
@@ -195,6 +200,8 @@ fn wilson_t(mixture: &Mixture, beta: f64, p: f64) -> f64 {
     let (mut lo, mut hi) = mixture.limits().map_or((1.0, 1e4), |l| (l.t_min(), l.t_max()));
     for _ in 0..WILSON_BISECTIONS {
         let mid = 2.0 / (1.0 / lo + 1.0 / hi);
+        // Equivalent (M13.9): Wilson's p exactly p at a bisection midpoint is the root, which either half keeps.
+        // equivalent mutant: replace < with <=
         if wilson_p(mixture, beta, mid) < p {
             lo = mid;
         } else {
@@ -247,6 +254,10 @@ fn at_side(mixture: &Mixture, side: Side, given: Given) -> Result<Coexisting, Er
 /// The two phases of `mixture` at vapour fraction `beta` in [0, 1] and `given` T or p: from Wilson's seed at β; else,
 /// inside the dome, from the bubble and dew points there, ln X and ln K interpolated in β.
 pub(crate) fn coexisting(mixture: &Mixture, beta: f64, given: Given) -> Result<Coexisting, Error> {
+    // Seeds only (M13.10): a β of 0 or 1 through the general path reaches the same point (Wilson's seed at β is
+    // `at_side`'s; failing that, the seed between the bubble and dew points is the point itself), at a cost in steps,
+    // not bits beyond the solves' gates.
+    // equivalent mutant: replace || with &&
     if beta == 0.0 || beta == 1.0 {
         return at_side(mixture, if beta == 0.0 { Side::Bubble } else { Side::Dew }, given);
     }
@@ -291,6 +302,10 @@ pub(crate) fn in_beta(
 ) -> Result<Option<Coexisting>, Error> {
     let z = mixture.composition().to_vec();
     let (lo, hi) = (End::new(0.0, (g(&bubble)?, bubble.clone())), End::new(1.0, (g(&dew)?, dew.clone())));
+    // Equivalent (M13.10): a split in β needs g strictly below 0 at the bubble point and above at the dew point; g
+    // exactly 0 there is that point itself, which the search then returns at once.
+    // equivalent mutant: replace < with <=
+    // equivalent mutant: replace > with >=
     if !(lo.value < 0.0 && hi.value > 0.0) {
         return Ok(None);
     }
@@ -300,6 +315,9 @@ pub(crate) fn in_beta(
         let seed = neighbours(&known, beta).map(|(a, b)| between(given, a, b, beta));
         let solved = seed.map(|seed| Solver::new(mixture, beta, &z).newton(given, seed));
         let c = match solved {
+            // Seeds only (M13.10): a seed between known points that is not taken falls back to `coexisting`'s own
+            // seeds, which reach the same split, at a cost in steps, not bits beyond the solves' gates.
+            // equivalent mutant: delete match arm Some(Ok(c))
             Some(Ok(c)) => c,
             _ => coexisting(mixture, beta, given)?,
         };

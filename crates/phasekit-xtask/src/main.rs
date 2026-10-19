@@ -14,6 +14,8 @@
 //!   scrubbed `COOLPROP_*`/`PXFLASH_*`, all 38 config keys recorded and `oracle.lock` checked.
 //! - `teqp`: runs scripts/oracle/teqp.py the same way under `teqp.lock`: GERG-2008's teqp vectors and AGA8's test data
 //!   (M13.5).
+//! - `mutants-config <path>`: the configuration `gates mutants` runs cargo-mutants with, for the weekly run (PLAN.md
+//!   M25.4).
 //! - `merge-counts <base> <ours> <theirs>`: git's merge driver for `ci/test-counts.txt` (PLAN.md M25.1).
 //! - `packs <dir>`: one pack per fluid and `index.json`, which the site fetches (PLAN.md M21.4).
 //! - `gates`: gate G8 (VERIFICATION.md §11.2). From M0.4 the zero-dependency guard, workspace lints, executed-test
@@ -33,6 +35,7 @@ mod fastchebpure;
 mod fluid;
 mod gates;
 mod merge_counts;
+mod mutants_config;
 mod oracle;
 mod packs;
 mod repo;
@@ -54,9 +57,10 @@ fn main() -> ExitCode {
         Some((task, rest)) if task == "fetch-fastchebpure" => fastchebpure::main(rest),
         Some((task, rest)) if task == "packs" => packs::main(rest),
         Some((task, rest)) if task == "merge-counts" => merge_counts::main(rest),
+        Some((task, rest)) if task == "mutants-config" => mutants_config::main(rest),
         _ => {
             eprintln!(
-                "usage: cargo xtask <baseline|bench|changelog|datagen|fetch-fastchebpure|fluid|merge-counts|oracle|packs|teqp|gates>"
+                "usage: cargo xtask <baseline|bench|changelog|datagen|fetch-fastchebpure|fluid|merge-counts|mutants-config|oracle|packs|teqp|gates>"
             );
             ExitCode::FAILURE
         }

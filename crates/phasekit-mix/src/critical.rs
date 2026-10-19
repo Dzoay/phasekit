@@ -162,6 +162,8 @@ fn largest(a: &[Vec<f64>], k: usize) -> (usize, usize) {
     let mut best = (k, k);
     for i in k..n {
         for j in k..n {
+            // Equivalent (M13.7): a tie for the largest pivot picks another as large.
+            // equivalent mutant: replace > with >=
             if at2(a, i, j).abs() > at2(a, best.0, best.1).abs() {
                 best = (i, j);
             }
@@ -281,6 +283,9 @@ impl Search<'_> {
 
     /// The limit's point on the segment from `p` to `q` in (ln T, ln ρ), where det is `ends`, of opposite signs.
     fn limit_between(&self, p: (f64, f64), q: (f64, f64), ends: (f64, f64)) -> Option<OnLimit> {
+        // Equivalent (M13.7): an end of a grid edge that is not finite leads to no crossing either way, since the
+        // regula falsi's NaN reaches `conditions`, which refuses it.
+        // equivalent mutant: replace && with ||
         if !(ends.0.is_finite() && ends.1.is_finite()) || ends.0.signum() == ends.1.signum() {
             return None;
         }
@@ -330,6 +335,9 @@ impl Search<'_> {
         let mut doubtful = false;
         for (k, a) in on.iter().enumerate() {
             for b in on.iter().skip(k.saturating_add(1)) {
+                // Equivalent (M13.7): the cubic form divided by its orientation's sign, ±1, is the form multiplied by
+                // it.
+                // equivalent mutant: replace * with /
                 let cb = b.cubic * self.along(&a.dn, &b.dn).signum();
                 if a.cubic.signum() != cb.signum() {
                     roots.extend(self.polish(a, b));
@@ -395,6 +403,8 @@ pub(crate) fn critical_points(
 
 /// Whether `c` lies in [t_min, t_max] and is none of `found`: no point there within 1e-8 of it in both T and ρ.
 fn fresh(c: &CriticalState, found: &[CriticalState], (t_min, t_max): (f64, f64)) -> bool {
+    // Equivalent (M13.7): `<=` differs only at a point exactly 1e-8 from a kept one, relatively, which no search meets.
+    // equivalent mutant: replace < with <=
     let known = found.iter().any(|f| (f.t / c.t - 1.0).abs() < 1e-8 && (f.rho / c.rho - 1.0).abs() < 1e-8);
     !known && (t_min..=t_max).contains(&c.t)
 }
@@ -414,6 +424,8 @@ fn regula_falsi(f: &dyn Fn(f64) -> f64, (mut fa, mut fb): (f64, f64)) -> f64 {
     let mut side = 0;
     for _ in 0..12 {
         let s = (a * fb - b * fa) / (fb - fa);
+        // Equivalent (M13.7): `<=` differs only at a bracket exactly 1e-3 wide.
+        // equivalent mutant: replace < with <=
         if !s.is_finite() || b - a < 1e-3 {
             return s;
         }
@@ -478,6 +490,8 @@ fn newton_step(f: &dyn Fn(f64, f64) -> [f64; 2], (u, v): (f64, f64), r: [f64; 2]
     }
     let (du, dv) = ((r[0] * j[1][1] - r[1] * j[0][1]) / det, (r[1] * j[0][0] - r[0] * j[1][0]) / det);
     let step = math::sqrt(du * du + dv * dv);
+    // Equivalent (M13.7): at a step exactly 0.1 long, 0.1/step is 1, so `>=` scales by 1.
+    // equivalent mutant: replace > with >=
     let scale = if step > 0.1 { 0.1 / step } else { 1.0 };
     Some((scale * du, scale * dv))
 }

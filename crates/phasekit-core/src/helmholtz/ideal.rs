@@ -223,6 +223,9 @@ fn planck_einstein_generalized(n: f64, theta: f64, c: f64, d: f64, tau: f64) -> 
     let x = theta * tau;
     // s and its complement 1 − s are each computed from their own expression: near s = 1 (Air above θτ ≈ 36) the
     // subtraction 1 − s would keep none of the tail's digits.
+    // Equivalent: at x = θτ = 0 both branches evaluate c + d, d/(c + d) and c/(c + d) bit for bit, so moving 0 from one
+    // branch to the other changes nothing.
+    // equivalent mutant: replace > with >=
     let (value, s, sc) = if x > 0.0 {
         let e = math::exp(-x);
         let den = c * e + d;

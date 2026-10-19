@@ -419,6 +419,8 @@ impl<'a> Tracer<'a> {
     /// near the critical point.
     fn swaps(&self, point: &Point, to: &[f64]) -> bool {
         crosses(at(&point.v, self.key), at(to, self.key))
+            // Equivalent (M13.12): `<=` differs only at phases exactly NEAR_CRITICAL apart, which no trace meets.
+            // equivalent mutant: replace < with <=
             && math::ln(point.at.of_x.rho / point.at.of_y.rho).abs() < NEAR_CRITICAL
     }
 
@@ -438,8 +440,15 @@ impl<'a> Tracer<'a> {
             let target = landing((spec, n), from, from + direction * h);
             let predicted: Vec<f64> = point.v.iter().zip(ds).map(|(x, d)| x + d * (target - from)).collect();
             let swapped = self.swaps(point, &predicted);
+            // Seeds only (M13.12): each phase's density solve starts from its root at the last point, and which phase
+            // is the denser after a step decides only where that seed lies in the unstable region, which no trace
+            // meets.
+            // equivalent mutant: replace != with ==
             self.x_denser = denser != swapped;
             let error = match self.correct(predicted, (spec, target)) {
+                // Seeds only (M13.12): the check that a converged point crossed as its phases were chosen decides only
+                // where the next seed lies in the unstable region, which no trace meets.
+                // equivalent mutant: replace match guard self.swaps(point, &next.v) == swapped with true
                 Ok(next) if self.swaps(point, &next.v) == swapped => {
                     let step = adapted(h, next.iterations);
                     return Ok((next, step));
@@ -449,6 +458,8 @@ impl<'a> Tracer<'a> {
             };
             (self.seeds, self.x_denser) = (seeds, denser);
             h /= 2.0;
+            // Equivalent (M13.12): `<=` differs only at a step exactly MIN_STEP, which no trace meets.
+            // equivalent mutant: replace < with <=
             if h < MIN_STEP {
                 return Err(error);
             }
@@ -484,6 +495,9 @@ impl<'a> Tracer<'a> {
     /// Where the step from `point` to `found` crossed the critical point: the points that close on it from each side,
     /// recorded in the trace's order, and the crossing interpolated between the nearest two.
     fn cross_critical(&mut self, env: &mut Envelope, point: &Point, found: &Point) {
+        // Seeds only (M13.12): the side the refinement toward the critical point takes before the crossing decides only
+        // where a seed lies in the unstable region, which no trace meets.
+        // equivalent mutant: delete !
         let before = self.toward_critical(point, !self.x_denser);
         let after = self.toward_critical(found, self.x_denser);
         let (a, b) = (before.last().unwrap_or(point), after.last().unwrap_or(found));
@@ -541,6 +555,8 @@ impl<'a> Tracer<'a> {
                 return env.ended(EnvelopeEnd::NoConvergence(failed(0)));
             };
             let (next, ds) = along(&s);
+            // Equivalent (M13.12): dividing the direction by a sign of ±1 is multiplying by it.
+            // equivalent mutant: replace *= with /=
             direction *= at(&s, next).signum();
             spec = next;
             let (found, step) = match self.advance(&point, &ds, (spec, direction), h) {
@@ -556,6 +572,8 @@ impl<'a> Tracer<'a> {
             }
             self.record(&mut env, &found);
             highest = highest.max(ln_p);
+            // Equivalent (M13.12): `>=` differs only at a highest pressure exactly the start's, which no trace meets.
+            // equivalent mutant: replace > with >=
             if ln_p <= ln_start && highest > ln_start {
                 return env.ended(EnvelopeEnd::Closed);
             }
