@@ -2,7 +2,8 @@
 //! allocation on success, fixed chunks. "What" is the model's flash; "how" is [`ExecPolicy`] (D9). Every
 //! point goes through `Fluid::flash`, so batch and scalar results are the same code path; under `ExecPolicy::Simd` a DT,
 //! QT or PQ batch of a Helmholtz fluid evaluates its points' bundles, and a QT or PQ batch its saturations, in lanes
-//! first (PLAN.md M12.8, M12.9).
+//! first (PLAN.md M12.8, M12.9). [`run_kernel`] runs a family's [`RealKernel`] over columns under the same policies
+//! (M22.2).
 #![deny(clippy::indexing_slicing)] // E12: no panicking index on the batch path
 
 use core::any::Any;
@@ -13,8 +14,8 @@ use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::slice::{ParallelSlice, ParallelSliceMut};
 
 use crate::error::Error;
-pub use crate::exec::ExecPolicy;
 use crate::exec::chunk_points;
+pub use crate::exec::{ExecPolicy, RealKernel, run_kernel};
 use crate::flash::{self, FlashOptions, GROUP};
 use crate::fluid::{Fluid, PureFluid};
 use crate::input::{Input, Pair};
