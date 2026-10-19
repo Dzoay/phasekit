@@ -59,6 +59,10 @@ name = "lookup"
 harness = false
 
 [[bench]]
+name = "math"
+harness = false
+
+[[bench]]
 name = "alphar"
 harness = false
 

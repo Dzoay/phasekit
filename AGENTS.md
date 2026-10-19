@@ -63,7 +63,8 @@ The rules are defined in [CONTRIBUTING.md](CONTRIBUTING.md). The ones agents get
   parameter or ask first.
 - **`reference/CoolProp` is read-only** (pinned v8.0.0, fetched by `scripts/fetch-coolprop.sh`). Its own CLAUDE.md and
   AGENTS.md are for CoolProp contributors and do not apply here. So is `reference/AGA8` (NIST's AGA8 code, pinned by
-  `scripts/fetch-aga8.sh`; GERG-2008's source, user decision MX7).
+  `scripts/fetch-aga8.sh`; GERG-2008's source, user decision MX7), and so is `reference/optimized-routines` (Arm's,
+  pinned by `scripts/fetch-optimized-routines.sh`; the source of core's in-house maths, user decision IM5).
 - **Oracle:** `uv run --no-project --python 3.12 --with CoolProp==8.0.0 python …`. CoolProp is a *provisional* oracle;
   printed literature arbitrates. **Never widen a tolerance to make CoolProp pass.** A disagreement goes through the
   divergence workflow ([VERIFICATION.md §6](docs/VERIFICATION.md#6-divergence-register)).
@@ -86,6 +87,6 @@ The rules are defined in [CONTRIBUTING.md](CONTRIBUTING.md). The ones agents get
 | Path | What |
 |---|---|
 | `docs/` | brief, decisions, architecture, plan, verification, rot register, dependencies, migration; `coolprop-map/` and `research/` (frozen evidence); `history/` (frozen, with the type sketch) |
-| `scripts/` | `fetch-coolprop.sh`, `fetch-aga8.sh`, `check-toolchain.sh`, `oracle/gen.py` (the fixture generator), `oracle/teqp.py` (GERG-2008's), `baseline/` (the C++ CoolProp baseline), `release/` (the release artefacts) |
+| `scripts/` | `fetch-coolprop.sh`, `fetch-aga8.sh`, `fetch-optimized-routines.sh`, `check-toolchain.sh`, `oracle/gen.py` (the fixture generator), `oracle/teqp.py` (GERG-2008's), `math/reference.py` (the maths reference values), `baseline/` (the C++ CoolProp baseline), `release/` (the release artefacts) |
 | `crates/phasekit-*` | the workspace: core, data, verify, xtask, compat, capi, wasm; py later |
 | `reference/` | gitignored: the CoolProp and AGA8 checkouts and local papers |

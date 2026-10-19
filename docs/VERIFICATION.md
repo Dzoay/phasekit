@@ -161,7 +161,7 @@ Rules, all enforced by `phasekit_verify::fixture` (a violation is an error):
 - `.gitattributes` marks `crates/phasekit-verify/fixtures/** -text`, so Windows checkouts keep the hashed bytes
   *(inference: autocrlf would rewrite them)*.
 - `source:` → `Provenance`: `coolprop` → `Oracle`; `paper:<bibkey>/<table>` → `Paper`; `iapws:<release>/<table>` →
-  `Iapws`; `mp:coolprop-json`, `mp:fastchebpure@<tag>` → `MultiPrecision`; `coolprop-source:<path>@<git>` (names
+  `Iapws`; `mp:coolprop-json`, `mp:fastchebpure@<tag>`, `mp:mpmath-<version>` → `MultiPrecision`; `coolprop-source:<path>@<git>` (names
   and codes read from the reference sources, e.g. the pair-name table of `src/DataStructures.cpp`) → `Oracle`;
   `aga8:<path>@<git>` (NIST's AGA8 code's GERG-2008 test data, 3.8) and `teqp:<version>` (teqp's vectors, 3.8) →
   `OtherImplementation`, which never arbitrates against the oracle (GERG-2008 is not in it, map 06 G1).
@@ -182,6 +182,8 @@ crates/phasekit-verify/
     mp/fastchebpure.lock                      release tag, zip sha256, per-file sha256 (PLAN.md M6.1)
     mp/fastchebpure-2026.06.02-v2/<Fluid>.csv dense outputcheck data, core fluids
     hash/                                     cross-target hashes (9.4)
+    math/<f>.csv                              exp, ln, pow, expm1: about 4096 inputs each, mpmath at 256 bits (M23.1)
+    math/arm/<f>.csv                          the same at the inputs of Arm's directed test cases (optimized-routines)
     teqp.lock                                 the GERG-2008 generator's environment (3.8)
     aga8/<name>.csv                           AGA8's GERG-2008 test data: check state, binary set, natural gases (3.8)
     teqp-0.23.2/gerg/<name>.csv               teqp's GERG-2008 vectors: pure components, binaries, natural gases (3.8)
@@ -276,6 +278,8 @@ All three fixture kinds may be committed (user decision 3b; D14), each with prov
 | `coolprop-8.0.0/**`, `mp/check-points.csv`, `oracle.lock` | `MIT` | CoolProp's copyright line, verbatim from its v8.0.0 LICENSE | header `oracle:` line |
 | `paper/**` | `MIT OR Apache-2.0` (the transcription) | phasekit contributors | header `citation:` (DOI or report, table, page); the cells are numerical facts *(inference: facts are not copyrightable; not legal advice)* |
 | `mp/fastchebpure-*/**`, `mp/fastchebpure.lock` | `LicenseRef-fastchebpure`; its `LICENSES/` text records the user-decision-3a fact (no upstream licence file; NIST work generally not under US copyright, *inference*) and the NIST disclaimer | NIST (fastchebpure authors) | `source: mp:fastchebpure@2026.06.02-v2` + the superancillary paper in NOTICE |
+| `math/**` | `MIT OR Apache-2.0` | phasekit contributors | `source: mp:mpmath-1.3.0`, and `generator:` (`scripts/math/reference.py`, PLAN.md M23.1) |
+| `math/arm/**` | `(MIT OR Apache-2.0) AND (MIT OR Apache-2.0 WITH LLVM-exception)`: the inputs are those of Arm's directed test cases (user decision IM5) | phasekit contributors; Arm Limited | `fluid:` names Arm's file at optimized-routines v26.07 and its sha256 |
 | `aga8/**`, `teqp-0.23.2/**` (and phasekit-mix's `src/gerg/tables.rs` and `LICENSE-NIST-GERG`) | `LicenseRef-NIST-GERG`; its `LICENSES/` text records the provenance and NIST's notice, which AGA8 and teqp both carry (works of NIST employees, 17 U.S.C. 105) | NIST (AGA8 and teqp authors) | `source: aga8:<path>@<git>` or `teqp:0.23.2`, and LICENSE-THIRD-PARTY |
 
 ### 3.8 The GERG-2008 generator: teqp.py
@@ -450,6 +454,7 @@ and 99 % lie within 15× of it).
 | Class | Bound | Applies to | Derivation |
 |---|---|---|---|
 | `Exact` | bitwise (`to_bits`), statuses equal | executors, threads, batch vs scalar; gauge-invariant outputs; data constants (M, R, published Tc); fixture parse (`bits:`); `libm` cross-target hash | same code path, same operations; Rust neither contracts nor reorders (K12, map 10 R16) |
+| `Faithful` | under 1 ulp of want, the exact value rounded to nearest (`phasekit_verify::ulp`) | core's in-house `exp`, `ln`, `pow` and `expm1` against `fixtures/math/` (M23) | user decision IM3: faithfully rounded, as glibc's and musl's functions are. The error is \|got − exact\| in units of want's binade, Arm's convention (optimized-routines' `math/test/ulp.h`), in which its `exp`, `log` and `pow` err by at most 0.511, 0.532 and 0.54 ulp without FMA; the reference values are mpmath's at 256 bits (`scripts/math/reference.py`). Measured not absolutely but in ulps, so `Fixture::check` refuses the class and `ulp::error` applies it |
 | `Term` | 1e-13 · Σ_k abs(φ_k), floor 1e-300 | α terms and A_ij vs oracle block isolation; `accumulate` vs `Jet4`/num-dual | sum-of-blocks vs total ≤ 2.2e-13 near critical (map 10 §8.2); 1-3 ulp FMA/libm (map 10 R16); 1e-13 is about 450 ulp of the expansion scale above; core-subset blocks vs the oracle (M3.1-M3.5): headroom ≤ 0.04 for every kind but Gaussian, 0.36 there, from contributions near 1e-141 whose exponent (\|u\| ≈ 320) rounds to \|u\|·ulp; α^r totals of 134 fluids 0.02 (M3.6); non-analytic blocks 0.006 (M4.1) |
 | `Prop` | 1e-12; nc 1e-8; or `Term` carried through the relation, if larger | properties at (T, ρ), ancillaries, σ, melting vs oracle | cancellation near critical in c_p, w (map 10 §8.3); where a relation cancels, two evaluations agree only as far as their α derivatives do (principle 4, measured conditioning). M5.1: 7 of 80,880 per-PR entries and 584 of 13.5 M nightly ones (Z ≈ 1e-4, next to a spinodal, deep metastable liquid such as R22 at 130 K and −138 MPa) missed 1e-12 by up to 127×; with the carried `Term` bound none fails, headroom 0.036 |
 | `SaCoeff` | 1e-14 | Rust Clenshaw vs oracle SA at the same input | same Chebyshev coefficients (map 10 §8.3) |
@@ -467,7 +472,7 @@ and 99 % lie within 15× of it).
 | `Smoke` | finite value or a documented error class | robustness corpus | must-not-crash inputs (map 10 §8.1) |
 
 Rules: classes live in `phasekit_verify::tolerance` and in fixture `tol:` lines; `ToleranceClass` is
-`#[non_exhaustive]` and this document adds `SaFit`, `CaloricFit`, `Measured`, `Identity`, `Fd`, `RefAnchor` to the sketch's list.
+`#[non_exhaustive]` and this document adds `Faithful`, `SaFit`, `CaloricFit`, `Measured`, `Identity`, `Fd`, `RefAnchor` to the sketch's list.
 `tolerance_classes_match_verification_md` (PLAN.md M1.5) keeps the code and this table equal. A class value changes
 only in a PR that edits this table with a derivation; making CoolProp pass is never one. Fast policies
 (across-terms SIMD, FMA) get their own class when they exist, |Δ| ≤ n·u·Σ|φ_k| (kernel-performance §2.9). A failure
@@ -885,6 +890,13 @@ This section is the one definition of the bench harness, the C++ baseline and th
   `mixture_alphar` (workload (1) at a mixture's composition, R32/R125 at 50/50 and a five-component GERG-2008 gas),
   `mixture_dt` (direct, stable, dome; M13.10), `mixture_pt` (single, dome) and `mixture_qt` (bubble, dew, interior) on
   R32/R125.
+- **Maths workloads (M23.1, phasekit only, no §7 target):** `benches/math.rs`, `math_per_call/{exp,ln,pow,expm1}`:
+  core's `math` functions per call on each function's EOS arguments in `fixtures/math/` (its `eos` set), as independent
+  calls (`throughput`) and as a chain in which each call waits for the one before (`chain`). The case is the function on
+  std's maths and `<f>_libm` on the `libm` crate's. So are the cases of the six scalar benches of D12's rule
+  (`alphar_order2`, `properties_at_t_rho`, `qt_superancillary`, `pq_superancillary`, `pt_flash`, `ph_flash`) built with
+  `--features phasekit-core/libm` (`phasekit_verify::backend::case`), so one results file holds both builds: the `libm`
+  build's benches run first, then `cargo xtask bench --record`.
 - **C++ baseline (M1.15):** CoolProp v8.0.0 built Release, no `-march`, like the wheels (kernel-performance §2.9), from
   a throwaway clone of `reference/CoolProp` in a scratch directory, because CoolProp's configure writes generated
   headers and data into its own source tree (`CMakeLists.txt:557-559`, `dev/generate_headers.py`). The harness

@@ -1,3 +1,13 @@
+// origin: FreeBSD /usr/src/lib/msun/src/e_log.c, through the libm crate 0.2.16 (MIT); see the crate's NOTICE.
+// ====================================================
+// Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+//
+// Developed at SunSoft, a Sun Microsystems, Inc. business.
+// Permission to use, copy, modify, and distribute this
+// software is freely granted, provided that this notice
+// is preserved.
+// ====================================================
+
 //! `ln` on every lane (PLAN.md M12.6): the `libm` crate's `log` (0.2.16, `src/math/log.rs` from FreeBSD's `e_log.c`),
 //! operation for operation, so each lane is the `libm` path's bits. Built only with `libm`, as `exp` is.
 //!

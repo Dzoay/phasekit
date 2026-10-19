@@ -86,6 +86,7 @@ pub enum Tolerance {
 #[allow(missing_docs)] // values are defined in docs/VERIFICATION.md
 pub enum ToleranceClass {
     Exact,
+    Faithful,
     Term,
     Prop,
     SaCoeff,
@@ -105,8 +106,9 @@ pub enum ToleranceClass {
 
 impl ToleranceClass {
     /// Every class with its name in fixture `tol:` lines (VERIFICATION.md §3.3, §5).
-    const NAMES: [(ToleranceClass, &'static str); 16] = [
+    const NAMES: [(ToleranceClass, &'static str); 17] = [
         (ToleranceClass::Exact, "exact"),
+        (ToleranceClass::Faithful, "faithful"),
         (ToleranceClass::Term, "term"),
         (ToleranceClass::Prop, "prop"),
         (ToleranceClass::SaCoeff, "sa_coeff"),
@@ -212,8 +214,9 @@ impl ToleranceClass {
     }
 
     /// VERIFICATION.md §5, the "Bound" column verbatim: a class changes here and there together.
-    const BOUNDS: [(ToleranceClass, &'static str); 16] = [
+    const BOUNDS: [(ToleranceClass, &'static str); 17] = [
         (ToleranceClass::Exact, "bitwise (`to_bits`), statuses equal"),
+        (ToleranceClass::Faithful, "under 1 ulp of want, the exact value rounded to nearest (`phasekit_verify::ulp`)"),
         (ToleranceClass::Term, "1e-13 · Σ_k abs(φ_k), floor 1e-300"),
         (ToleranceClass::Prop, "1e-12; nc 1e-8; or `Term` carried through the relation, if larger"),
         (ToleranceClass::SaCoeff, "1e-14"),
@@ -281,7 +284,7 @@ mod tests {
             .map(|(class, bound)| (format!("{class:?}"), bound.to_string()))
             .collect();
         assert_eq!(code, documented());
-        assert_eq!(code.len(), 16);
+        assert_eq!(code.len(), 17);
         for (class, _) in ToleranceClass::table() {
             assert_eq!(ToleranceClass::from_name(class.name()), Some(class), "{class:?} has a tol: name");
         }

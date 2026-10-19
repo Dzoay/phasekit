@@ -1,0 +1,22 @@
+# fixture: math/v1
+# generator: reference.py sha256=387c719cd2b31289d8acdfae4ae79c6034ef71659daa4ee9ffccdca488da9752 mpmath=1.3.0 prec=256 python=3.12.14
+# env: LC_ALL=C
+# fluid: optimized-routines v26.07 math/test/testcases/directed/log.tst sha256=0836356b0bed1a3a77ac1c0bba610d8dede82edec7b066e2c9700db003251055
+# source: mp:mpmath-1.3.0
+# columns: x,want,tail
+# units: -,-,ulp
+# tol: in,faithful,in
+# bits: fnv1a64=e644ebdfbc07b188
+nan,nan,0.0
+inf,inf,0.0
+-inf,nan,0.0
+1.7976931348623157e+308,709.782712893384,0.2079
+-1.7976931348623157e+308,nan,0.0
+1.0,0.0,0.0
+-1.0,nan,0.0
+0.0,-inf,0.0
+-0.0,-inf,0.0
+5e-324,-744.4400719213812,-0.389
+-5e-324,nan,0.0
+2.0,0.6931471805599453,0.2089
+0.5,-0.6931471805599453,-0.2089

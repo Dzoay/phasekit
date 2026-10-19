@@ -69,6 +69,21 @@ SPDX-FileCopyrightText = [
 ]
 SPDX-License-Identifier = "(MIT OR Apache-2.0) AND MIT AND SunPro"
 
+# Reference values for core's in-house exp, ln, pow and expm1, computed with mpmath by scripts/math/reference.py
+# (PLAN.md M23.1): the project's own. The inputs of math/arm/ are those of Arm's directed test cases in
+# optimized-routines v26.07 (math/test/testcases/directed/*.tst), under Arm's licence (user decision IM5).
+[[annotations]]
+path = "crates/phasekit-verify/fixtures/math/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 The phasekit contributors"
+SPDX-License-Identifier = "MIT OR Apache-2.0"
+
+[[annotations]]
+path = "crates/phasekit-verify/fixtures/math/arm/**"
+precedence = "override"
+SPDX-FileCopyrightText = ["2026 The phasekit contributors", "2009-2025 Arm Limited"]
+SPDX-License-Identifier = "(MIT OR Apache-2.0) AND (MIT OR Apache-2.0 WITH LLVM-exception)"
+
 # Check values transcribed from papers: the transcription is the project's; the cells are numerical facts, each file
 # citing its source in its header (VERIFICATION.md §3.7).
 [[annotations]]

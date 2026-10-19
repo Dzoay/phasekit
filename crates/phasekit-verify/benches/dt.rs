@@ -8,6 +8,8 @@
 //! per state: `scalar` under `ExecPolicy::Reference` (`scalar_libm` built with `--features phasekit-core/libm`), and
 //! `simd`, built with `--features simd`, under `ExecPolicy::Simd`, the total bundles in lanes at the CPU's widest level.
 //! Recorded by `cargo xtask bench --record`.
+//! Built with `--features phasekit-core/libm`, `properties_at_t_rho`'s case is `dt_h_cp_libm` (`backend::case`;
+//! PLAN.md M23.1).
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
@@ -16,8 +18,10 @@ mod bench {
     use criterion::{BenchmarkId, Criterion, criterion_group};
     use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
     use phasekit_core::internal::FluidRecord;
+    use phasekit_core::math::BACKEND;
     use phasekit_core::{Basis, DataSet, Density, Fluid, Input, Pair, Prop, Registry, Temperature};
     use phasekit_verify::SplitMix64;
+    use phasekit_verify::backend::case;
 
     /// The bench fluids (VERIFICATION.md §12).
     const FLUIDS: [&str; 5] = ["Water", "Methane", "R134a", "n-Propane", "n-Heptane"];
@@ -100,7 +104,7 @@ mod bench {
             };
             let Some(states) = single(&record) else { return };
             let h_cp = |input| fluid.state(input).map(|s| (s.h(Basis::Molar), s.cp(Basis::Molar)));
-            run(c, ("properties_at_t_rho", name, "dt_h_cp"), &states, h_cp);
+            run(c, ("properties_at_t_rho", name, &case(BACKEND, "dt_h_cp")), &states, h_cp);
             run_batch(c, name, fluid, &states);
         }
     }

@@ -9,6 +9,7 @@
 //! `scalar_libm` built with `--features phasekit-core/libm`; M12's SIMD gate is measured against `scalar` (user decision
 //! SL3). `simd` (PLAN.md M12.4), built with `--features simd`, times the same call under `ExecPolicy::Simd` with core's
 //! `simd` feature: the lanes at the CPU's widest level. Recorded by `cargo xtask bench --record`.
+//! Built with `--features phasekit-core/libm`, `alphar_order2`'s is `residual_libm` (`backend::case`; PLAN.md M23.1).
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
@@ -17,7 +18,9 @@ mod bench {
     use criterion::{BenchmarkId, Criterion, criterion_group};
     use phasekit_core::batch::ExecPolicy;
     use phasekit_core::internal::EosRecord;
+    use phasekit_core::math::BACKEND;
     use phasekit_core::{Derivs, HelmholtzModel, Order, Registry};
+    use phasekit_verify::backend::case;
     use phasekit_verify::{SplitMix64, term};
 
     /// The bench fluids (VERIFICATION.md §12).
@@ -35,7 +38,7 @@ mod bench {
 
     fn run(c: &mut Criterion, group: &str, label: &str, model: &dyn HelmholtzModel, states: &[(f64, f64)]) {
         let mut g = c.benchmark_group(group);
-        g.bench_function(BenchmarkId::new(label, "residual"), |b| {
+        g.bench_function(BenchmarkId::new(label, case(BACKEND, "residual")), |b| {
             let mut k = 0;
             b.iter(|| {
                 k = (k + 1) % states.len();

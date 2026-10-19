@@ -1,3 +1,12 @@
+// origin: FreeBSD /usr/src/lib/msun/src/e_exp.c, through the libm crate 0.2.16 (MIT); see the crate's NOTICE.
+// ====================================================
+// Copyright (C) 2004 by Sun Microsystems, Inc. All rights reserved.
+//
+// Permission to use, copy, modify, and distribute this
+// software is freely granted, provided that this notice
+// is preserved.
+// ====================================================
+
 //! `exp` on every lane (PLAN.md M12.5): the `libm` crate's (0.2.16, `src/math/exp.rs` from FreeBSD's `e_exp.c`, and
 //! its generic `scalbn`), operation for operation, so each lane is the `libm` path's bits. Built only with `libm`:
 //! std's `exp` is the platform's, which no lane code can reproduce.
