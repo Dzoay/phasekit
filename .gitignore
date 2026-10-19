@@ -1,4 +1,5 @@
-# Pinned read-only reference checkouts (scripts/fetch-coolprop.sh, scripts/fetch-aga8.sh) and local papers
+# Pinned read-only reference checkouts (scripts/fetch-coolprop.sh, fetch-aga8.sh, fetch-optimized-routines.sh) and
+# local papers
 /reference/
 
 # Rust build output

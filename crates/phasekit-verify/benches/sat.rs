@@ -6,6 +6,8 @@
 //! (`scalar_libm` built with `--features phasekit-core/libm`), and `simd`, built with `--features simd`, under
 //! `ExecPolicy::Simd`, the curve's Clenshaw sums and both phases' bundles in lanes at the CPU's widest level. Recorded by
 //! `cargo xtask bench --record`.
+//! Built with `--features phasekit-core/libm`, the cases are `qt_h_libm` and `pq_h_libm` (`backend::case`; PLAN.md
+//! M23.1).
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
@@ -14,8 +16,10 @@ mod bench {
     use criterion::{BenchmarkId, Criterion, criterion_group};
     use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
     use phasekit_core::internal::FluidRecord;
+    use phasekit_core::math::BACKEND;
     use phasekit_core::{Basis, DataSet, Fluid, Input, Pressure, Prop, Quality, Registry, Temperature};
     use phasekit_verify::SplitMix64;
+    use phasekit_verify::backend::case;
 
     /// The bench fluids (VERIFICATION.md §12).
     const FLUIDS: [&str; 5] = ["Water", "Methane", "R134a", "n-Propane", "n-Heptane"];
@@ -89,8 +93,8 @@ mod bench {
             };
             let Some((qt, pq)) = grid(&record) else { return };
             let flash_h = |input| Fluid::state(fluid, input).map(|state| state.h(Basis::Molar));
-            run(c, ("qt_superancillary", name, "qt_h"), &qt, flash_h);
-            run(c, ("pq_superancillary", name, "pq_h"), &pq, flash_h);
+            run(c, ("qt_superancillary", name, &case(BACKEND, "qt_h")), &qt, flash_h);
+            run(c, ("pq_superancillary", name, &case(BACKEND, "pq_h")), &pq, flash_h);
             run_batch(c, ("qt_superancillary_batch", name), fluid, &qt);
             run_batch(c, ("pq_superancillary_batch", name), fluid, &pq);
         }

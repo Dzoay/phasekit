@@ -1,3 +1,13 @@
+// origin: FreeBSD /usr/src/lib/msun/src/s_expm1.c, through the libm crate 0.2.16 (MIT); see the crate's NOTICE.
+// ====================================================
+// Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+//
+// Developed at SunPro, a Sun Microsystems, Inc. business.
+// Permission to use, copy, modify, and distribute this
+// software is freely granted, provided that this notice
+// is preserved.
+// ====================================================
+
 //! `expm1` on every lane (PLAN.md M12.8): the `libm` crate's (0.2.16, `src/math/expm1.rs` from FreeBSD's `s_expm1.c`),
 //! operation for operation, so each lane is the `libm` path's bits. Built only with `libm`, as `exp` is.
 //!

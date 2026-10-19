@@ -15,6 +15,7 @@ pub mod saturation;
 pub mod sha256;
 pub mod term;
 pub mod tolerance;
+pub mod ulp;
 
 pub use arbiters::{ARBITERS, Arbiter, ArbiterPart, ArbiterStatus};
 pub use conformance::{

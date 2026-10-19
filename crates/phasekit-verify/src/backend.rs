@@ -21,6 +21,12 @@ pub fn known(backend: &str, test: &str, fluid: &str, column: &str) -> bool {
     backend == "libm" && LIBM_KNOWN.iter().any(|&(t, f, c, _)| (t, f, c) == (test, fluid, column))
 }
 
+/// A single-state bench's case on `backend` (PLAN.md M23.1; VERIFICATION.md §12): `case` on std's maths, `<case>_libm`
+/// on the `libm` crate's, so that one results file holds both builds' rows of D12's rule.
+pub fn case(backend: &str, case: &str) -> String {
+    if backend == "libm" { format!("{case}_libm") } else { case.to_string() }
+}
+
 /// The cells of `test` that [`LIBM_KNOWN`] lists on `backend`: none on std's maths.
 pub fn known_cells(backend: &str, test: &str) -> usize {
     let cells = LIBM_KNOWN.iter().filter(|&&(t, ..)| t == test).map(|&(.., cells)| cells).sum();
@@ -44,5 +50,11 @@ mod tests {
         assert_eq!((known_cells("libm", test), known_cells("std", test)), (16, 0));
         assert_eq!(known_cells("libm", "caloric_pairs_round_trip_on_the_domain_bounds"), 1);
         assert_eq!(known_cells("libm", "conductivity_stages_match_contributions"), 0);
+    }
+
+    /// PLAN.md M23.1: a single-state bench's case names the `libm` backend and leaves std's as it was.
+    #[test]
+    fn bench_cases_name_their_backend() {
+        assert_eq!((case("std", "pt_h"), case("libm", "pt_h")), ("pt_h".to_string(), "pt_h_libm".to_string()));
     }
 }

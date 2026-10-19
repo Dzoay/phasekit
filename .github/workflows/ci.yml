@@ -121,6 +121,12 @@ jobs:
           name: hash-linux
           path: hash.txt
           if-no-files-found: error
+      - name: The maths report, std's and the libm crate's errors in ulps against mpmath (PLAN.md M23.1)
+        run: |
+          for features in "" "--features phasekit-core/libm"; do
+            # shellcheck disable=SC2086 # an empty or two-word feature list
+            cargo nextest run -p phasekit-verify --test math --profile ci --no-capture $features
+          done
       - name: phasekit-core's tests on the libm backend (PLAN.md M9.3; the ulp report in the log)
         run: |
           cargo nextest run -p phasekit-core --features libm --profile ci -E 'not test(std_vs_libm_ulp_report)'

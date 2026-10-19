@@ -2,13 +2,16 @@
 //! SplitMix64 seed 1, T ~ U[1.05·T_c, min(1.5·T_c, T_max)], ρ ~ U[0.1, 2]·ρ_c (published critical point), p from
 //! each (T, ρ) before the clock. Target ≤ 3 µs (ARCHITECTURE.md §7); CoolProp 19-27 µs through Python, its C++
 //! 3.4-25 µs. Recorded by `cargo xtask bench --record`.
+//! Built with `--features phasekit-core/libm`, the case is `pt_h_libm` (`backend::case`; PLAN.md M23.1).
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
     use criterion::{BenchmarkId, Criterion, criterion_group};
     use phasekit_core::internal::FluidRecord;
+    use phasekit_core::math::BACKEND;
     use phasekit_core::{Basis, Density, Fluid, Input, Pressure, Registry, Temperature};
     use phasekit_verify::SplitMix64;
+    use phasekit_verify::backend::case;
 
     /// The bench fluids (VERIFICATION.md §12).
     const FLUIDS: [&str; 5] = ["Water", "Methane", "R134a", "n-Propane", "n-Heptane"];
@@ -38,7 +41,7 @@ mod bench {
             };
             let Some(states) = single(fluid, &record) else { return };
             let mut g = c.benchmark_group("pt_flash");
-            g.bench_function(BenchmarkId::new(name, "pt_h"), |b| {
+            g.bench_function(BenchmarkId::new(name, case(BACKEND, "pt_h")), |b| {
                 let mut k = 0;
                 b.iter(|| {
                     k = (k + 1) % states.len();

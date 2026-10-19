@@ -188,7 +188,7 @@ Where things live, and the section that defines each. VERIFICATION.md uses the s
 | Crates | `crates/phasekit-*` (`members = ["crates/*"]`) | ARCHITECTURE.md §2 |
 | Unit tests | `#[cfg(test)] mod tests` in the module they test | — |
 | Corpus (integration) tests | `crates/phasekit-verify/tests/<area>.rs` (`divergences.rs`, `arbiters.rs`, `eos.rs`, `sat.rs`, `flash.rs`, `transport.rs`, `new_family.rs`, `gibbs_seam.rs`, `lazy_load.rs`, `sweeps.rs`, ...) | VERIFICATION.md §2 |
-| Fixtures: the oracle lock, the manifest, oracle kinds, papers, multiprecision points, hashes | `crates/phasekit-verify/fixtures/` | VERIFICATION.md §3.4 |
+| Fixtures: the oracle lock, the manifest, oracle kinds, papers, multiprecision points, hashes, maths reference values | `crates/phasekit-verify/fixtures/` | VERIFICATION.md §3.4 |
 | Nightly full set | `crates/phasekit-verify/fixtures-full/` (gitignored) | VERIFICATION.md §3.6 |
 | Divergence register and proofs | `crates/phasekit-verify/src/register.rs` (`DIVERGENCES`, `check_register`); `tests/divergences.rs`; `phasekit_verify::MILESTONE` | VERIFICATION.md §6 |
 | Arbiter records | `phasekit_verify::arbiters::ARBITERS`; `tests/arbiters.rs` | VERIFICATION.md §4.3 |
@@ -780,33 +780,32 @@ the i7-8700K. It is independent of M22, so either may start first; the steps mer
 reference values (`uv run --no-project --python 3.12 --with mpmath==1.3.0`). M23 does not move `MILESTONE`.
 
 Each function is one scalar function in a private module of `num` (named at M23.2), built as M12.5's ports are: a main
-path without branches or divisions, a test for whether a value takes it, and selects for the special cases. `math`
-calls it at a point and `Lanes` maps it across lanes, a group whose lanes all take the main path skipping the special
-cases, so each lane is the scalar path's bits by construction (K17). A table is indexed by the reduced argument's low
-bits, which LLVM gathers or loads lane by lane. Until M23.6 the in-house functions replace only the `libm` crate's, in
-the `libm` and `simd` builds, which get them under either outcome of IM1; without `libm`, `math` and `Lanes` keep
-std's, lane by lane, as now. Each step re-commits `fixtures/hash/libm.txt` once the four CI targets agree on it.
+path without branches or divisions, a test for whether a value takes it, and selects for the special cases. `math` calls
+it at a point and `Lanes` maps it across lanes, a group whose lanes all take the main path skipping the special cases,
+so each lane is the scalar path's bits by construction (K17). A table is indexed by the reduced argument's low bits,
+which LLVM gathers or loads lane by lane. Core denies `clippy::indexing_slicing` and `clippy::arithmetic_side_effects`
+in its library code (M24.5), and the ports keep to both without an `allow`: a table is a fixed-size array of words read
+by `get` at an index masked to its length, so the compiler drops the bounds check and the fallback never runs, and the
+integer arithmetic on exponents, shifts and table indices is wrapping (`wrapping_add`, `wrapping_shl`), as M12.5's
+reduction has been since M24.5. Only if a bench shows `get` slower than plain indexing does a lookup keep plain
+indexing, under an `allow` that names the mask, as the jets' product loops do (M24.5). Until M23.6 the in-house
+functions replace only the `libm` crate's, in the `libm` and `simd` builds, which get them under either outcome of IM1;
+without `libm`, `math` and `Lanes` keep std's, lane by lane, as now. Each step re-commits `fixtures/hash/libm.txt` once
+the four CI targets agree on it.
 
-- **M23.1 Reference values and the baseline.** `scripts/math/reference.py` (mpmath at 256 bits) writes
-  `fixtures/math/`. Each function has about 4096 inputs: VERIFICATION.md §9.2's edges, the EOS argument ranges (`exp`'s
-  −60 to 5, `ln`'s τ and δ, `pow`'s bases and exponents from the fluids' terms, `expm1`'s −θτ) and values uniform over
-  every exponent. Each value is stored as its correctly rounded double and the residual, so a test measures an error
-  in fractions of an ulp. Arm's directed test cases for the four (`math/test/testcases/directed/*.tst`, under IM5's
-  notice) join them. Together they stay within 1 MB (MX8's headroom is about 3 MB). `phasekit-verify` gains the ulp
-  measure and a report of std's and the `libm` crate's worst errors on this target. The lane ports' heads and core's
-  NOTICE take their notices (LC1), unless an earlier PR did. Bench `math_per_call/{exp,ln,pow,expm1}` (throughput, and
-  a chain of dependent calls, over the EOS ranges) for std and the `libm` crate; it and the six scalar benches of D12's
-  rule, under std and under `libm`, are recorded on the quiet i7-8700K (§5.1) as M23's baseline. *Red:*
-  `ulp_error_is_exact` on hand-worked cases (0 at the reference, ½ at a midpoint, 1 an ulp away, across a binade and in
-  the subnormals), against a stub returning 0.
+| Step | Landed |
+|---|---|
+| M23.1 | `scripts/math/reference.py` (mpmath 1.3.0 at 256 bits) writes `fixtures/math/{exp,ln,pow,expm1}.csv`, 3940 to 4131 values each in three sets: `edge` (VERIFICATION.md §9.2's edges and the thresholds of the `libm` crate's and Arm's code paths, each ±1 ulp), `eos` (1950: exp's −60 to 5; ln's τ in [0.0026, 5.27] and δ in [1e-12, 3.83], the 136 fluids' ranges; pow's bases τ, δ, θ, Δ and (δ − 1)² with the fluids' non-integer exponents; expm1's −θ_k τ of the Planck-Einstein terms) and `binade` (1950, uniform over every exponent of the domain); and `fixtures/math/arm/` at the inputs of Arm's directed cases (optimized-routines v26.07, pinned by `scripts/fetch-optimized-routines.sh`; `log.tst` for ln; a case with a signalling NaN operand is left out, as the format writes every NaN `nan`), each value checked against Arm's result. A value is its correctly rounded double and its residual in ulps to four digits; 979 kB together. Class `Faithful` (VERIFICATION.md §5): under 1 ulp in Arm's convention, `phasekit_verify::ulp`. `tests/math.rs` reports the backend's worst error per set (`--no-capture`; CI's linux job prints both backends'): glibc 0.72 ulp (expm1) and the `libm` crate 0.76 (exp) on x86-64 Linux. Core's lane `exp`, `ln` and `expm1` carry their msun notices at their heads and `crates/phasekit-core/NOTICE` both notices (LC1, `tests/notices.rs`); `LICENSES/LLVM-exception.txt` came with `fixtures/math/arm/`. `benches/math.rs`: `math_per_call/{exp,ln,pow,expm1}`, `throughput` and `chain`; it and the six scalar benches of D12's rule are named `<case>_libm` on the `libm` crate's maths (`backend::case`), and both builds are recorded on the i7-8700K as M23's baseline (`benches/results/M23-intel-core-i7-8700k.csv`) |
+
 - **M23.2 `exp`.** Arm's `math/exp.c` without FMA (128-entry table, degree-5 polynomial; k rounded by the shift, never
-  by an `as` conversion), its table as `u64` words, under IM5's notice (`REUSE.toml`, `LICENSES/LLVM-exception.txt`,
-  `LICENSE-THIRD-PARTY`, core's NOTICE). Under `libm`, `math::exp` and `Lanes::exp` run it; M12.5's port of the `libm`
-  crate's `exp` goes. *Red:* `exp_is_faithful` in `phasekit-verify` (through `phasekit_core::internal`, so in every
-  build): under 1 ulp on M23.1's values, Arm's cases bit for bit (NaN canonical), against a stub returning NaN; with
-  core's `lane_exp_is_scalar_bitwise` (M12.5's test, now against the in-house scalar function, in every build and at
-  every dispatch level). *Done when:* green, the worst error recorded, the `libm` hash re-committed, and
-  `math_per_call/exp` and the α^r benches (the `libm` scalar path and the lanes) recorded against M23.1's.
+  by an `as` conversion), its table as `u64` words, under IM5's notice (`REUSE.toml`, `LICENSE-THIRD-PARTY`, core's
+  NOTICE; `LICENSES/LLVM-exception.txt` came with M23.1). Under `libm`, `math::exp` and `Lanes::exp` run it; M12.5's
+  port of the `libm` crate's `exp` goes. *Red:* `exp_is_faithful` in `phasekit-verify` (through
+  `phasekit_core::internal`, so in every build): under 1 ulp on M23.1's values (class `Faithful`), Arm's cases
+  (`fixtures/math/arm/`) bit for bit (NaN canonical), against a stub returning NaN; with core's
+  `lane_exp_is_scalar_bitwise` (M12.5's test, now against the in-house scalar function, in every build and at every
+  dispatch level). *Done when:* green, the worst error recorded, the `libm` hash re-committed, and `math_per_call/exp`
+  and the α^r benches (the `libm` scalar path and the lanes) recorded against M23.1's.
 - **M23.3 `ln`.** Arm's `math/log.c` without FMA: the 128-entry table with the second table that stands in for FMA,
   and the degree-12 polynomial near 1. As M23.2: M12.6's port goes; *Red:* `ln_is_faithful` and
   `lane_ln_is_scalar_bitwise`.
