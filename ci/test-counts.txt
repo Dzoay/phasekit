@@ -131,5 +131,5 @@ x86_64-unknown-linux-gnu phasekit-verify::mixture_family 11
 wasm32-wasip2 phasekit-verify::mixture_family 10
 x86_64-unknown-linux-gnu phasekit-verify::notices 2
 wasm32-wasip2 phasekit-verify::notices 2
-x86_64-unknown-linux-gnu phasekit-verify::math 1
-wasm32-wasip2 phasekit-verify::math 1
+x86_64-unknown-linux-gnu phasekit-verify::math 3
+wasm32-wasip2 phasekit-verify::math 3

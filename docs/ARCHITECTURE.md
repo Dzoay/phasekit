@@ -674,8 +674,9 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      ("how"); it sits at L0 with `ExecPolicy`, as its executors hold no physics, so L2's batch hook can take a policy
      (D1). The batch hooks and an `ExecPolicy` variant return with it. WASM `simd128` is a second build (K11, K15).
   3. `simd` enables `libm` (user decision SL1), so its lanes are bitwise equal to the `libm` scalar path. The vector
-     `exp`, `expm1` and `ln` are ports of the locked `libm` crate's, operation for operation (fearless_simd has none;
-     dependencies §4); any other transcendental a laned kernel needs is ported the same way or called per lane through
+     `expm1` and `ln` are ports of the locked `libm` crate's, operation for operation (fearless_simd has none;
+     dependencies §4); `exp` is core's own since M23.2 (Arm's, `num::elementary`), one function for the scalar path
+     and the lanes, which the `libm` build's `math::exp` runs too; any other transcendental a laned kernel needs is ported the same way or called per lane through
      `math`. `expm1` was ported at M12.8 (user decision SL7): per lane it took about 89 ns of n-Propane's 129 ns of α⁰
      in lanes on the i7-8700K (11.1 ns a call with `libm`; four Planck-Einstein terms, which 114 of the 136 fluids
      have), and with the port α⁰ takes 83 ns. `powf` still runs per lane (48.7 ns a call): R134a's two α⁰ Power terms

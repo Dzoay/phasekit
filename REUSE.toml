@@ -52,12 +52,11 @@ precedence = "override"
 SPDX-FileCopyrightText = "NIST (AGA8 and teqp authors)"
 SPDX-License-Identifier = "LicenseRef-NIST-GERG"
 
-# M12's lane exp, ln and expm1 port the `libm` crate's (0.2.16, MIT) operation for operation, constants included, which
+# M12's lane ln and expm1 port the `libm` crate's (0.2.16, MIT) operation for operation, constants included, which
 # ported FreeBSD's msun under Sun Microsystems' notices, which LICENSE-THIRD-PARTY reproduces with the crate's
 # (user decision LC1).
 [[annotations]]
 path = [
-    "crates/phasekit-core/src/num/lanes/exp.rs",
     "crates/phasekit-core/src/num/lanes/expm1.rs",
     "crates/phasekit-core/src/num/lanes/ln.rs",
 ]
@@ -68,6 +67,14 @@ SPDX-FileCopyrightText = [
     "1993, 2004 Sun Microsystems, Inc.",
 ]
 SPDX-License-Identifier = "(MIT OR Apache-2.0) AND MIT AND SunPro"
+
+# Core's own elementary functions port Arm's optimized-routines v26.07 (math/exp.c and exp_data.c; PLAN.md M23.2),
+# under Arm's licence (user decision IM5), whose MIT notice LICENSE-THIRD-PARTY and core's NOTICE reproduce.
+[[annotations]]
+path = "crates/phasekit-core/src/num/elementary/exp.rs"
+precedence = "override"
+SPDX-FileCopyrightText = ["2026 The phasekit contributors", "2018-2025 Arm Limited"]
+SPDX-License-Identifier = "(MIT OR Apache-2.0) AND (MIT OR Apache-2.0 WITH LLVM-exception)"
 
 # Reference values for core's in-house exp, ln, pow and expm1, computed with mpmath by scripts/math/reference.py
 # (PLAN.md M23.1): the project's own. The inputs of math/arm/ are those of Arm's directed test cases in

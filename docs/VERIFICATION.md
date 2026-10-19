@@ -182,7 +182,8 @@ crates/phasekit-verify/
     mp/fastchebpure.lock                      release tag, zip sha256, per-file sha256 (PLAN.md M6.1)
     mp/fastchebpure-2026.06.02-v2/<Fluid>.csv dense outputcheck data, core fluids
     hash/                                     cross-target hashes (9.4)
-    math/<f>.csv                              exp, ln, pow, expm1: about 4096 inputs each, mpmath at 256 bits (M23.1)
+    math/<f>.csv                              exp, ln, pow, expm1: about 4096 inputs each, mpmath at 256 bits (M23.1),
+                                              and exp's 512 subnormal results (M23.2)
     math/arm/<f>.csv                          the same at the inputs of Arm's directed test cases (optimized-routines)
     teqp.lock                                 the GERG-2008 generator's environment (3.8)
     aga8/<name>.csv                           AGA8's GERG-2008 test data: check state, binary set, natural gases (3.8)
@@ -717,9 +718,10 @@ DT truths from its model's critical point, a single phase at (0.6 ρ_c, 1.2 T_c)
 ### 9.2 SIMD lanes (M12, only if the gate fires)
 
 Lanes across states vs scalar: bitwise, remainder lanes padded by duplicating a valid lane (K9, K17, kernel-performance
-§4). `simd` enables `libm` (user decision SL1), so the scalar path they match is the `libm` one. The vector `exp`,
-`expm1` and `ln` match the locked `libm` crate's bitwise on random inputs and on the edges: subnormal results, the
-overflow thresholds near ±709.78, NaN and ±∞ (kernel-performance §3.3); a difference is a porting bug. CI forces every
+§4). `simd` enables `libm` (user decision SL1), so the scalar path they match is the `libm` one. The vector `expm1`
+and `ln` match the locked `libm` crate's bitwise on random inputs and on the edges: subnormal results, the overflow
+thresholds near ±709.78, NaN and ±∞ (kernel-performance §3.3); a difference is a porting bug. Core's own `exp` (PLAN.md
+M23.2) is one scalar function that the lanes map, bitwise in every build (`lane_exp_is_scalar_bitwise`). CI forces every
 dispatch level (scalar, AVX2, AVX-512 where present, NEON, the `simd128` build). Accelerated kernels must also pass the
 K1/K2 paper rows (map 13 §7). Across-terms or FMA variants exist only as a separate `Fast` policy with its own class
 (section 5).

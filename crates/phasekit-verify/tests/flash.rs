@@ -278,8 +278,9 @@ fn su_round_trips() {
 /// 1e-14 under it is that liquid. M8.11: CO₂'s and Nitrogen's melting lines rise from their triple points, so their
 /// compressed liquid at the lowest temperature is solid; theirs is on the melting line at its pressure, the bound
 /// there, and a DH 1e-10 under it is `BelowMeltingLine`. Nitrogen's state at pmax and 1.2 Tc is solid too (it melts
-/// at 283.8 K there), so its state at pmax is on the line. On the `libm` backend, Water's HP round trip of its liquid
-/// at the lowest temperature is counted, not asserted (user decision LB1, issue #170).
+/// at 283.8 K there), so its state at pmax is on the line. A round trip that [`backend::LIBM_KNOWN`] lists is counted on
+/// the `libm` backend, not asserted (user decision LB1, issue #170); since core's own `exp` (PLAN.md M23.2) it lists
+/// none.
 #[test]
 fn caloric_pairs_round_trip_on_the_domain_bounds() {
     let registry = Registry::from_embedded(DataSet::Parity).unwrap();

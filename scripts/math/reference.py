@@ -13,7 +13,9 @@ Special values follow C99 Annex F, with residual 0.
   thresholds of the libm crate's and Arm's code paths, each with its neighbours one ulp either side; `eos`, the
   arguments the EOS evaluates, from the 136 fluids of reference/CoolProp (exp's -60 to 5, ln's tau and delta, pow's
   bases and exponents from the fluids' terms and ancillaries, expm1's -theta*tau of the Planck-Einstein terms);
-  `binade`, values uniform over every exponent of the function's domain, with a uniform mantissa.
+  `binade`, values uniform over every exponent of the function's domain, with a uniform mantissa; and exp's
+  `subnormal`, x uniform over the subnormal results (-745.13 to -708.40), where Arm's exp rounds once and rounding
+  twice would err by up to 0.76 ulp (PLAN.md M23.2).
 - `math/arm/<f>.csv`: the inputs of Arm's directed test cases (math/test/testcases/directed/<f>.tst at the pin of
   scripts/fetch-optimized-routines.sh; `log.tst` for ln), evaluated as above. Each value is checked against Arm's
   result, which is its magnitude truncated, with 12 bits more where Arm gives them: the same double after rounding where
@@ -53,6 +55,7 @@ ARM_FILES = {"exp": "exp.tst", "ln": "log.tst", "pow": "pow.tst", "expm1": "expm
 SEEDS = {"exp": 1, "ln": 2, "pow": 3, "expm1": 4}
 EOS_ROWS = 1950
 BINADE_ROWS = 1950
+SUBNORMAL_ROWS = 512
 MAX = sys.float_info.max
 INF = math.inf
 NAN = math.nan
@@ -311,7 +314,8 @@ def exp_inputs(draw, ranges, pools, planck):
     edges = [v for e in signed(edges) for v in neighbours(e)]
     eos = [draw.uniform(-60.0, 5.0) for _ in range(EOS_ROWS)]
     binade = [draw.sign() * draw.binade(-60, 9) for _ in range(BINADE_ROWS)]
-    return edges, eos, binade
+    subnormal = [draw.uniform(-745.13321910194110842, math.log(2.0**-1022)) for _ in range(SUBNORMAL_ROWS)]
+    return edges, eos, binade, subnormal
 
 
 def ln_inputs(draw, ranges, pools, planck):
@@ -468,9 +472,9 @@ def key(inputs):
 
 def ours(f, ranges, pools, planck):
     """math/<f>.csv's text."""
-    edges, eos, binade = INPUTS[f](Draw(SEEDS[f]), ranges, pools, planck)
+    sets = INPUTS[f](Draw(SEEDS[f]), ranges, pools, planck)
     rows, seen = [], set()
-    for label, values in (("edge", edges), ("eos", eos), ("binade", binade)):
+    for label, values in zip(("edge", "eos", "binade", "subnormal"), sets):
         for value in values:
             inputs = value if isinstance(value, tuple) else (value,)
             if key(inputs) in seen:
@@ -480,7 +484,8 @@ def ours(f, ranges, pools, planck):
             rows.append((*inputs, want, residual(tail), label))
     lo, hi = ranges["tau"]
     dlo, dhi = ranges["delta"]
-    grid = (f"seed={SEEDS[f]} edge=edges and thresholds +-1 ulp eos={EOS_ROWS} binade={BINADE_ROWS} "
+    subnormal = f"subnormal={SUBNORMAL_ROWS} " if len(sets) > 3 else ""
+    grid = (f"seed={SEEDS[f]} edge=edges and thresholds +-1 ulp eos={EOS_ROWS} binade={BINADE_ROWS} {subnormal}"
             f"fluids=136 (data/fluids.lock) tau=[{lo:.6g},{hi:.6g}] delta=[{dlo:.6g},{dhi:.6g}]")
     return fixture(f, rows, grid=grid)
 

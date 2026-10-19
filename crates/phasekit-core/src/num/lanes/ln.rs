@@ -9,7 +9,7 @@
 // ====================================================
 
 //! `ln` on every lane (PLAN.md M12.6): the `libm` crate's `log` (0.2.16, `src/math/log.rs` from FreeBSD's `e_log.c`),
-//! operation for operation, so each lane is the `libm` path's bits. Built only with `libm`, as `exp` is.
+//! operation for operation, so each lane is the `libm` path's bits. Built only with `libm`, as `expm1` is.
 //!
 //! libm reduces x into [√2/2, √2) with integer operations on its high word; here they run on all 64 bits, which
 //! leaves the low word as libm does. Every lane takes every path and the result is selected: k becomes a float through

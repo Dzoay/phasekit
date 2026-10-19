@@ -73,9 +73,13 @@ pub fn mixture(fluid: &Fluid) -> &Mixture {
     (fluid.model() as &dyn std::any::Any).downcast_ref::<Mixture>().unwrap()
 }
 
-/// A saturation point's liquid and vapour: (fractions, density) each.
+/// A saturation point's liquid and vapour: (fractions, density) each. The feed's fractions are divided by their sum, as
+/// the solve evaluated them: a dense liquid's ln φ moves by 1e-12 when its fractions move by an ulp (R418A's bubble point
+/// at 258.27 K, whose z sums to 1 within an ulp).
 pub fn phases(mixture: &Mixture, side: Side, s: &Saturation) -> ((Vec<f64>, f64), (Vec<f64>, f64)) {
-    let feed = (mixture.composition().to_vec(), s.rho);
+    let z = mixture.composition();
+    let total: f64 = z.iter().sum();
+    let feed = (z.iter().map(|z| z / total).collect(), s.rho);
     let incipient = (s.incipient.clone(), s.rho_incipient);
     if side == Side::Bubble { (feed, incipient) } else { (incipient, feed) }
 }

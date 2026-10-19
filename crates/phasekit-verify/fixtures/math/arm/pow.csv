@@ -1,5 +1,5 @@
 # fixture: math/v1
-# generator: reference.py sha256=387c719cd2b31289d8acdfae4ae79c6034ef71659daa4ee9ffccdca488da9752 mpmath=1.3.0 prec=256 python=3.12.14
+# generator: reference.py sha256=cad8ff67ef905c483fef3a71583f2828cdac5a52f999bb8cf9ca3e3429552b53 mpmath=1.3.0 prec=256 python=3.12.14
 # env: LC_ALL=C
 # fluid: optimized-routines v26.07 math/test/testcases/directed/pow.tst sha256=4cb8bb6af6317bdf58fa4e5e517459ce151ae34d9d26318699988ec384532f19
 # source: mp:mpmath-1.3.0

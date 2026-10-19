@@ -4,6 +4,7 @@
 use core::fmt::Debug;
 use core::ops::{Add, Div, Mul, Neg, Sub};
 
+pub(crate) mod elementary;
 mod jet;
 mod lanes;
 
@@ -102,10 +103,10 @@ impl Real for f64 {
 }
 
 /// The only place the library calls a transcendental function (D12, dependencies R14). Default: `std`, the
-/// platform's maths library; the opt-in `libm` feature (M9.3) swaps in the `libm` crate, the one feature that changes
-/// numerics (docs/DEPENDENCIES.md T1). With it, results are bit-identical on Linux, Windows, aarch64 and WASM, as the
-/// M9.4 cross-target hash proves; it stays opt-in for its cost (ARCHITECTURE.md D12). clippy's `disallowed-methods`
-/// rejects every `f64` transcendental elsewhere (E16).
+/// platform's maths library; the opt-in `libm` feature (M9.3) swaps in the `libm` crate and core's own `exp` (PLAN.md
+/// M23.2), the one feature that changes numerics (docs/DEPENDENCIES.md T1). With it, results are bit-identical on
+/// Linux, Windows, aarch64 and WASM, as the M9.4 cross-target hash proves; it stays opt-in for its cost
+/// (ARCHITECTURE.md D12). clippy's `disallowed-methods` rejects every `f64` transcendental elsewhere (E16).
 pub mod math {
     /// The backend this build's transcendentals run on: `"libm"` with the `libm` feature, else `"std"`.
     pub const BACKEND: &str = if cfg!(feature = "libm") { "libm" } else { "std" };
@@ -123,9 +124,16 @@ pub mod math {
         )*};
     }
 
+    /// e^x: core's own with the `libm` feature (PLAN.md M23.2), else std's.
+    #[allow(clippy::disallowed_methods)]
+    pub fn exp(x: f64) -> f64 {
+        #[cfg(feature = "libm")]
+        return super::elementary::exp(x);
+        #[cfg(not(feature = "libm"))]
+        x.exp()
+    }
+
     choke! {
-        /// e^x.
-        exp => exp, exp;
         /// e^x − 1.
         expm1 => exp_m1, expm1;
         /// Natural logarithm.
@@ -248,11 +256,11 @@ pub(crate) fn solve_small<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N])
 mod tests {
     use super::*;
 
-    /// Every one-argument function of [`math`] with its `libm` and `std` counterparts.
+    /// Every one-argument function of [`math`] that the `libm` crate gives, with its `libm` and `std` counterparts.
+    /// `exp` is core's own (PLAN.md M23.2), measured against mpmath by `phasekit-verify`'s `exp_is_faithful`.
     #[cfg(feature = "libm")]
     #[allow(clippy::disallowed_methods, clippy::type_complexity)]
-    const UNARY: [(&str, fn(f64) -> f64, fn(f64) -> f64, fn(f64) -> f64); 12] = [
-        ("exp", math::exp, libm::exp, f64::exp),
+    const UNARY: [(&str, fn(f64) -> f64, fn(f64) -> f64, fn(f64) -> f64); 11] = [
         ("expm1", math::expm1, libm::expm1, f64::exp_m1),
         ("ln", math::ln, libm::log, f64::ln),
         ("ln_1p", math::ln_1p, libm::log1p, f64::ln_1p),
