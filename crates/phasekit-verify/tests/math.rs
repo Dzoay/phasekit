@@ -124,21 +124,32 @@ fn backend_errors_are_reported() {
     }
 }
 
-/// The rows of a fixture where `f` is not the reference value bit for bit (NaN canonical), as `x → got, want`.
-fn not_bitwise(name: &'static str, text: &'static str, f: impl Fn(&[f64]) -> f64) -> Result<Vec<String>, FixtureError> {
+/// The rows of a fixture where `f` is not the reference value bit for bit (NaN canonical), as `x → got, want` and the
+/// reference's tail.
+fn not_bitwise(
+    name: &'static str,
+    text: &'static str,
+    f: impl Fn(&[f64]) -> f64,
+) -> Result<Vec<(String, f64)>, FixtureError> {
     let canonical = |v: f64| if v.is_nan() { f64::NAN.to_bits() } else { v.to_bits() };
     let fixture = Fixture::parse(name, text)?;
     let differ = |row: &Row<'static>| {
-        let (x, want, ..) = values(row, inputs(name));
+        let (x, want, tail, _) = values(row, inputs(name));
         let got = f(&x);
-        (canonical(got) != canonical(want)).then(|| format!("{name}:{}: {x:?} → {got:e}, want {want:e}", row.line))
+        let what = || (format!("{name}:{}: {x:?} → {got:e}, want {want:e}", row.line), tail);
+        (canonical(got) != canonical(want)).then(what)
     };
     Ok(fixture.rows().iter().filter_map(differ).collect())
 }
 
+/// The rows of [`not_bitwise`], a line each.
+fn lines(differ: &[(String, f64)]) -> String {
+    differ.iter().map(|(what, _)| what.as_str()).collect::<Vec<_>>().join("\n")
+}
+
 /// Core's own `function` (`f`) against M23.1's values: its worst error over both of its fixtures, and Arm's cases where
 /// it is not Arm's result bit for bit. Its worst error per set is printed.
-fn own(function: &str, f: impl Fn(&[f64]) -> f64 + Copy) -> Result<(Worst, Vec<String>), FixtureError> {
+fn own(function: &str, f: impl Fn(&[f64]) -> f64 + Copy) -> Result<(Worst, Vec<(String, f64)>), FixtureError> {
     let ours = FIXTURES.iter().filter(|(name, _)| name.ends_with(&format!("/{function}.csv")));
     let (mut worst, mut report) = (Worst::default(), Vec::new());
     for &(name, text) in ours {
@@ -168,7 +179,7 @@ fn fixture_named(path: &str) -> (&'static str, &'static str) {
 fn exp_is_faithful() {
     let (worst, differ) = own("exp", |x| internal::exp(x[0])).unwrap();
     assert!(worst.error < ulp::FAITHFUL, "{} ulp at {:?}", worst.error, worst.at);
-    assert!(differ.is_empty(), "not Arm's result:\n{}", differ.join("\n"));
+    assert!(differ.is_empty(), "not Arm's result:\n{}", lines(&differ));
 }
 
 /// PLAN.md M23.2: at subnormal results core's `exp` rounds once, as Arm's `specialcase` does: under 0.51 ulp at the
@@ -190,5 +201,20 @@ fn exp_rounds_once_in_the_subnormals() {
 fn ln_is_faithful() {
     let (worst, differ) = own("ln", |x| internal::ln(x[0])).unwrap();
     assert!(worst.error < ulp::FAITHFUL, "{} ulp at {:?}", worst.error, worst.at);
-    assert!(differ.is_empty(), "not Arm's result:\n{}", differ.join("\n"));
+    assert!(differ.is_empty(), "not Arm's result:\n{}", lines(&differ));
+}
+
+/// PLAN.md M23.4 (VERIFICATION.md §5, class `Faithful`; user decision IM3): core's own `pow`, Arm's without FMA, is
+/// under 1 ulp at every pair of `fixtures/math/pow.csv` (C99 Annex F's cases among its edges) and `math/arm/pow.csv`,
+/// in every build, and Arm's result bit for bit at Arm's cases (NaN canonical, signed zeros kept) but its near-ties.
+/// There, at nine of them, the exact value lies at the midpoint of two doubles to four digits (a tail of ±½), and Arm's
+/// own `pow` without FMA rounds to the other neighbour as core's does, ½ ulp off either way: Arm's results are the
+/// correctly rounded ones, which its FMA build gives.
+#[test]
+fn pow_is_faithful() {
+    let (worst, differ) = own("pow", |x| internal::pow(x[0], x[1])).unwrap();
+    assert!(worst.error < ulp::FAITHFUL, "{} ulp at {:?}", worst.error, worst.at);
+    let (ties, differ): (Vec<_>, Vec<_>) = differ.into_iter().partition(|(_, tail)| tail.abs() == 0.5);
+    assert!(differ.is_empty(), "not Arm's result:\n{}", lines(&differ));
+    assert!(ties.len() == 9, "Arm's near-ties rounded the other way:\n{}", lines(&ties));
 }

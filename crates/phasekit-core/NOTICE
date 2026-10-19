@@ -4,7 +4,7 @@ phasekit-core: notices
 phasekit-core is licensed under MIT OR Apache-2.0 (the repository's LICENSE-MIT and LICENSE-APACHE). The lane expm1
 of its `simd` feature (src/num/lanes/) is a port of the libm crate's
 (https://github.com/rust-lang/compiler-builtins, MIT), which ported FreeBSD's msun under Sun Microsystems' notice
-(user decision LC1). Its own exp and ln (src/num/elementary/) are ports of Arm's optimized-routines
+(user decision LC1). Its own exp, ln and pow (src/num/elementary/) are ports of Arm's optimized-routines
 (https://github.com/ARM-software/optimized-routines, MIT OR Apache-2.0 WITH LLVM-exception; user decision IM5). Their
 notices are reproduced below, as in the repository's LICENSE-THIRD-PARTY, and each file names its origin at its head.
 
@@ -53,10 +53,11 @@ Arm's optimized-routines (v26.07)
 --------------------------------------------------------------------------------
 
 crates/phasekit-core/src/num/elementary/exp.rs ports math/exp.c with its table
-and coefficients from math/exp_data.c, and ln.rs math/log.c with its tables and
-coefficients from math/log_data.c, both without FMA (PLAN.md M23.2, M23.3; user
-decision IM5). optimized-routines is licensed under MIT OR Apache-2.0 WITH
-LLVM-exception; phasekit takes it under the MIT License:
+and coefficients from math/exp_data.c, ln.rs math/log.c with its tables and
+coefficients from math/log_data.c, and pow.rs math/pow.c and math/pow_common.h
+with its table and coefficients from math/pow_log_data.c, all without FMA
+(PLAN.md M23.2-M23.4; user decision IM5). optimized-routines is licensed under
+MIT OR Apache-2.0 WITH LLVM-exception; phasekit takes it under the MIT License:
 
 MIT License
 

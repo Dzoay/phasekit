@@ -103,10 +103,11 @@ impl Real for f64 {
 }
 
 /// The only place the library calls a transcendental function (D12, dependencies R14). Default: `std`, the
-/// platform's maths library; the opt-in `libm` feature (M9.3) swaps in the `libm` crate and core's own `exp` and
-/// `ln` (PLAN.md M23.2, M23.3), the one feature that changes numerics (docs/DEPENDENCIES.md T1). With it, results are
-/// bit-identical on Linux, Windows, aarch64 and WASM, as the M9.4 cross-target hash proves; it stays opt-in for its
-/// cost (ARCHITECTURE.md D12). clippy's `disallowed-methods` rejects every `f64` transcendental elsewhere (E16).
+/// platform's maths library; the opt-in `libm` feature (M9.3) swaps in the `libm` crate and core's own `exp`, `ln`
+/// and `powf` (PLAN.md M23.2-M23.4), the one feature that changes numerics (docs/DEPENDENCIES.md T1). With it,
+/// results are bit-identical on Linux, Windows, aarch64 and WASM, as the M9.4 cross-target hash proves; it stays
+/// opt-in for its cost (ARCHITECTURE.md D12). clippy's `disallowed-methods` rejects every `f64` transcendental
+/// elsewhere (E16).
 pub mod math {
     /// The backend this build's transcendentals run on: `"libm"` with the `libm` feature, else `"std"`.
     pub const BACKEND: &str = if cfg!(feature = "libm") { "libm" } else { "std" };
@@ -165,11 +166,11 @@ pub mod math {
         cos => cos, cos;
     }
 
-    /// x^y.
+    /// x^y: core's own with the `libm` feature (PLAN.md M23.4), else std's.
     #[allow(clippy::disallowed_methods)]
     pub fn powf(x: f64, y: f64) -> f64 {
         #[cfg(feature = "libm")]
-        return libm::pow(x, y);
+        return super::elementary::pow(x, y);
         #[cfg(not(feature = "libm"))]
         x.powf(y)
     }
@@ -264,8 +265,8 @@ mod tests {
     use super::*;
 
     /// Every one-argument function of [`math`] that the `libm` crate gives, with its `libm` and `std` counterparts.
-    /// `exp` and `ln` are core's own (PLAN.md M23.2, M23.3), measured against mpmath by `phasekit-verify`'s
-    /// `exp_is_faithful` and `ln_is_faithful`.
+    /// `exp`, `ln` and `powf` are core's own (PLAN.md M23.2-M23.4), measured against mpmath by `phasekit-verify`'s
+    /// `exp_is_faithful`, `ln_is_faithful` and `pow_is_faithful`.
     #[cfg(feature = "libm")]
     #[allow(clippy::disallowed_methods, clippy::type_complexity)]
     const UNARY: [(&str, fn(f64) -> f64, fn(f64) -> f64, fn(f64) -> f64); 10] = [
@@ -318,9 +319,8 @@ mod tests {
         xs
     }
 
-    /// PLAN.md M9.3 (dependencies R14): with the `libm` feature every function of [`math`] is the `libm` crate's, bit
-    /// for bit, on 10⁶ inputs and edges; `powf` on each input against the next as exponent, and against 0.5, 2, −1,
-    /// ±∞ and NaN. `powi` stays the in-house chain.
+    /// PLAN.md M9.3 (dependencies R14): with the `libm` feature every function of [`math`] in [`UNARY`] is the `libm`
+    /// crate's, bit for bit, on 10⁶ inputs and edges. `powi` stays the in-house chain.
     #[cfg(feature = "libm")]
     #[test]
     fn libm_backend_matches_the_libm_crate_bitwise() {
@@ -328,12 +328,6 @@ mod tests {
         for (name, ours, theirs, _) in UNARY {
             for &x in &xs {
                 assert_eq!(ours(x).to_bits(), theirs(x).to_bits(), "{name}({x:e})");
-            }
-        }
-        let exponents = [0.5, 2.0, -1.0, f64::INFINITY, f64::NEG_INFINITY, f64::NAN];
-        for (k, &x) in xs.iter().enumerate() {
-            for y in exponents.into_iter().chain(xs.get(k + 1).copied()) {
-                assert_eq!(math::powf(x, y).to_bits(), libm::pow(x, y).to_bits(), "powf({x:e}, {y:e})");
             }
         }
     }

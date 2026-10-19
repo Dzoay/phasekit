@@ -66,8 +66,8 @@ SPDX-FileCopyrightText = [
 SPDX-License-Identifier = "(MIT OR Apache-2.0) AND MIT AND SunPro"
 
 # Core's own elementary functions port Arm's optimized-routines v26.07 (math/exp.c and exp_data.c, PLAN.md M23.2;
-# math/log.c and log_data.c, M23.3), under Arm's licence (user decision IM5), whose MIT notice LICENSE-THIRD-PARTY and
-# core's NOTICE reproduce.
+# math/log.c and log_data.c, M23.3; math/pow.c, pow_common.h and pow_log_data.c, M23.4, whose files Arm dates to
+# 2026), under Arm's licence (user decision IM5), whose MIT notice LICENSE-THIRD-PARTY and core's NOTICE reproduce.
 [[annotations]]
 path = [
     "crates/phasekit-core/src/num/elementary/exp.rs",
@@ -75,6 +75,12 @@ path = [
 ]
 precedence = "override"
 SPDX-FileCopyrightText = ["2026 The phasekit contributors", "2018-2025 Arm Limited"]
+SPDX-License-Identifier = "(MIT OR Apache-2.0) AND (MIT OR Apache-2.0 WITH LLVM-exception)"
+
+[[annotations]]
+path = "crates/phasekit-core/src/num/elementary/pow.rs"
+precedence = "override"
+SPDX-FileCopyrightText = ["2026 The phasekit contributors", "2018-2026 Arm Limited"]
 SPDX-License-Identifier = "(MIT OR Apache-2.0) AND (MIT OR Apache-2.0 WITH LLVM-exception)"
 
 # Reference values for core's in-house exp, ln, pow and expm1, computed with mpmath by scripts/math/reference.py
