@@ -16,6 +16,7 @@ import {
 } from "../../src/sample/lines";
 import {
   LIMIT_KEYS,
+  awayFrom,
   domeTemperatures,
   limits,
   linGrid,
@@ -209,6 +210,11 @@ describe("ranges", () => {
       [143.47, 469.6999998711195],
     ] as const)
       expect(domeTemperatures(low, tc, 120)[0]).toBe(low);
+    // From exactly a to exactly b, which a + (b − a) misses by a rounding here, its steps growing from (b − a)/(n − 1)².
+    const away = awayFrom(1, 0.1, 4);
+    expect([away.length, away[0], away[3]]).toEqual([4, 1, 0.1]);
+    expect([away[1], away[2]].map((v) => (v as number).toFixed(12))).toEqual(["0.900000000000", "0.600000000000"]);
+    expect(1 + (0.1 - 1)).not.toBe(0.1);
   });
 
   test("isoline values strictly inside: nice ticks; 1-2-5 per decade for log quantities, decades past 12 lines; tenths of quality", () => {

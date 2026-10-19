@@ -56,6 +56,11 @@ export function logGrid(a: number, b: number, n: number): number[] {
   return Array.from({ length: n }, (_, i) => (i === n - 1 ? b : a * (b / a) ** (i / (n - 1))));
 }
 
+/** n values from exactly `a` to exactly `b`, closing in on `a`: a + (b − a)·(i/(n − 1))². */
+export function awayFrom(a: number, b: number, n: number): number[] {
+  return Array.from({ length: n }, (_, i) => (i === n - 1 ? b : a + (b - a) * (i / (n - 1)) ** 2));
+}
+
 /** n temperatures from exactly `low` up to just below T_c, closing in on it, where the dome narrows fastest. */
 export function domeTemperatures(low: number, tc: number, n: number): number[] {
   return Array.from({ length: n }, (_, i) => (i === 0 ? low : tc - (tc - low) * (1 - i / n) ** 2));

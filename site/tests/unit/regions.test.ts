@@ -318,10 +318,14 @@ describe("a region's edges", () => {
     const { batch, l } = await engine("Water");
     const refused = await sampleRegions(l, batch, (n1, v1, n2) => Promise.resolve(n2 === "Q" ? null : "x"));
     expect(refused.regions.map((g) => g.phase)).toEqual(["x", "x", "x", "x", "x"]);
-    // Nitrogen's critical point by (T_c, ρ_c) is mechanically unstable to the package: its regions join across it,
-    // its critical lines break there, and they keep the constants' T_c and p_c.
+    // A critical point by (T_c, ρ_c) that the package refuses, as it refused Nitrogen's until core's own exp (PLAN.md
+    // M23.2): the regions join across it, the critical lines break there, and they keep the constants' T_c and p_c.
     const n2 = await engine("Nitrogen");
-    const nitrogen = await sampleRegions(n2.l, n2.batch, n2.phaseAt);
+    const unstable: Batch = async (outputs, name1, values1, name2, values2) => {
+      const answer = await n2.batch(outputs, name1, values1, name2, values2);
+      return name2 === "Dmass" ? { ...answer, status: answer.status.map(() => 4) } : answer;
+    };
+    const nitrogen = await sampleRegions(n2.l, unstable, n2.phaseAt);
     expect(nitrogen.critical).toBeNull();
     expect(nitrogen.regions.map((g) => g.phase).sort()).toEqual([...ALL].sort());
     expect([nitrogen.isotherm.length, nitrogen.isobar.length]).toEqual([2, 2]);
