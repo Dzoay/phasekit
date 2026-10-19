@@ -184,15 +184,73 @@ impl Mixture {
         phase: Phase,
         opts: &FlashOptions,
     ) -> Result<State, Error> {
+        let derivs = || self.ideal_at(x, t, rho, Order::Two) + self.fluid.residual_at(x, t, rho, Order::Two);
+        self.state_from(molar_mass, (t, rho), phase, opts, derivs)
+    }
+
+    /// The state at (T, ρ) of molar mass `molar_mass` from its order-2 total derivatives, which `derivs` evaluates once
+    /// the domain check has passed: [`state_of`](Self::state_of), and each point of a hinted DT group from its batch
+    /// (PLAN.md M22.4).
+    fn state_from(
+        &self,
+        molar_mass: f64,
+        (t, rho): (f64, f64),
+        phase: Phase,
+        opts: &FlashOptions,
+        derivs: impl FnOnce() -> Derivs,
+    ) -> Result<State, Error> {
         let inside = self.limits.check_t(t).is_ok();
         if !inside && opts.domain() == DomainPolicy::Enforce {
             self.limits.check_t(t)?;
         }
-        let derivs = self.ideal_at(x, t, rho, Order::Two) + self.fluid.residual_at(x, t, rho, Order::Two);
-        let total = derivs.bundle().ok_or(Error::InvalidInput { quantity: "density", value: rho })?;
+        let total = derivs().bundle().ok_or(Error::InvalidInput { quantity: "density", value: rho })?;
         let r = self.fluid.gas_constant();
         let state = State::from_total(self.info.key(), t, rho, r, molar_mass, phase, &total)?;
         Ok(if inside { state } else { state.mark_extrapolated() })
+    }
+
+    /// [`ThermoModel::flash_many`] on a DT group under the hint `phase`: the bundles of the points the domain admits in
+    /// lanes, then each point's state from its own, the bits of its hinted DT flash. A point the domain refuses is
+    /// refused before any evaluation, as its flash refuses it.
+    fn hinted_dt_many(
+        &self,
+        inputs: &[NativeInput],
+        phase: Phase,
+        opts: &FlashOptions,
+        out: &mut [Result<State, Error>],
+    ) {
+        let admitted = inputs.iter().map(NativeInput::values).filter(|(_, t)| self.admits(*t, opts));
+        let (rho, t): (Vec<f64>, Vec<f64>) = admitted.unzip();
+        let (mut ideal, mut residual) =
+            (vec![Derivs::zero(Order::Two); t.len()], vec![Derivs::zero(Order::Two); t.len()]);
+        let evaluated = self.ideal_batch(&t, &rho, Order::Two, &mut ideal, ExecPolicy::Simd).and(self.residual_batch(
+            &t,
+            &rho,
+            Order::Two,
+            &mut residual,
+            ExecPolicy::Simd,
+        ));
+        let mut bundles = ideal.iter().zip(&residual);
+        let molar_mass = self.info.molar_mass();
+        for (input, out) in inputs.iter().zip(out.iter_mut()) {
+            let (rho, t) = input.values();
+            let bundle = if self.admits(t, opts) { bundles.next() } else { None };
+            *out = match bundle {
+                Some((ideal, residual)) => evaluated
+                    .clone()
+                    .and_then(|()| self.state_from(molar_mass, (t, rho), phase, opts, || *ideal + *residual)),
+                None => self.state_from(molar_mass, (t, rho), phase, opts, || not_a_number(Order::Two)),
+            };
+        }
+    }
+
+    /// Whether the domain admits T: inside the limits, or anywhere under `DomainPolicy::Extrapolate`; where it does
+    /// not, [`state_from`](Self::state_from) refuses before it evaluates.
+    fn admits(&self, t: f64, opts: &FlashOptions) -> bool {
+        // Equivalent (M22.4): `state_from` refuses a point outside the domain before it reads the point's bundle, so
+        // evaluating that point too changes only the time (the first record's 1.68× for R32/R125).
+        // equivalent mutant: replace Mixture::admits -> bool with true
+        self.limits.check_t(t).is_ok() || opts.domain() != DomainPolicy::Enforce
     }
 
     /// The molar mass of mole fractions `x`, kg/mol.
@@ -652,6 +710,19 @@ impl ThermoModel for Mixture {
                 self.state(y, equilibrium::branch_root(self, y, x, branch, guess)?, phase, opts)
             }
             _ => Err(Error::Unsupported { pair }),
+        }
+    }
+
+    /// A DT group under a phase hint (`Strategy::Direct`) side by side (PLAN.md M22.4; user decision ML5): its points'
+    /// α⁰ and α^r through [`ideal_batch`](HelmholtzModel::ideal_batch) and
+    /// [`residual_batch`](HelmholtzModel::residual_batch) under `ExecPolicy::Simd`, then each point's state from its
+    /// bundle as the hinted DT flash builds it. Every other group, unhinted DT's stability test included, runs point by
+    /// point.
+    fn flash_many(&self, inputs: &[NativeInput], opts: &FlashOptions, out: &mut [Result<State, Error>]) {
+        let hinted_dt = inputs.iter().all(|input| input.pair() == Pair::DT);
+        match opts.phase_hint().filter(|_| hinted_dt) {
+            Some(phase) => self.hinted_dt_many(inputs, phase, opts, out),
+            None => inputs.iter().zip(out.iter_mut()).for_each(|(input, out)| *out = self.flash(*input, opts)),
         }
     }
 

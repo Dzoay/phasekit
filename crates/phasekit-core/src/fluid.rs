@@ -268,6 +268,13 @@ impl PureFluid {
     }
 }
 
+/// The pair of a group that runs in lanes: DT, QT or PQ, the same for every point.
+fn laned_pair(inputs: &[NativeInput]) -> Option<Pair> {
+    let pair = inputs.first()?.pair();
+    let laned = matches!(pair, Pair::DT | Pair::QT | Pair::PQ) && inputs.iter().all(|i| i.pair() == pair);
+    laned.then_some(pair)
+}
+
 impl ThermoModel for PureFluid {
     fn info(&self) -> &FluidInfo {
         &self.info
@@ -277,6 +284,23 @@ impl ThermoModel for PureFluid {
     }
     fn flash(&self, input: NativeInput, opts: &FlashOptions) -> Result<State, Error> {
         flash::flash(self, input, opts)
+    }
+    /// DT, QT and PQ in core's lanes, [`flash::GROUP`] points at a time ([`flash::lanes`]; PLAN.md M12.8, M12.9, M22.4):
+    /// the points' bundles, and a QT or PQ point's saturation, side by side, then each point's flash on its own. A
+    /// group of another pair, or of mixed pairs, runs point by point. A pure fluid's phases share one molar mass, so a
+    /// quality's basis changes nothing.
+    fn flash_many(&self, inputs: &[NativeInput], opts: &FlashOptions, out: &mut [Result<State, Error>]) {
+        for (inputs, out) in inputs.chunks(flash::GROUP).zip(out.chunks_mut(flash::GROUP)) {
+            let n = inputs.len().min(out.len());
+            let column = |value: fn(&NativeInput) -> f64| -> [f64; flash::GROUP] {
+                core::array::from_fn(|k| inputs.get(k).map_or(f64::NAN, value))
+            };
+            let (x, y) = (column(|i| i.values().0), column(|i| i.values().1));
+            match (laned_pair(inputs), x.get(..n), y.get(..n), out.get_mut(..n)) {
+                (Some(pair), Some(x), Some(y), Some(out)) => flash::lanes(self, pair, (x, y), opts, out),
+                _ => inputs.iter().zip(out.iter_mut()).for_each(|(input, out)| *out = self.flash(*input, opts)),
+            }
+        }
     }
     /// The model's own critical point (map 03 §6; ROT-084): one given with origin `Model`; else, for a fluid with a
     /// saturation curve, the EOS's own, solved from the curve's top ([`crate::crit`]; CoolProp's with superancillaries

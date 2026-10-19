@@ -1,12 +1,11 @@
 //! L6 batch: one driver for every facade (map 11 U4). Caller-owned buffers, one status per cell, no
 //! allocation on success, fixed chunks. "What" is the model's flash; "how" is [`ExecPolicy`] (D9). Every
-//! point goes through `Fluid::flash`, so batch and scalar results are the same code path; under `ExecPolicy::Simd` a DT,
-//! QT or PQ batch of a Helmholtz fluid evaluates its points' bundles, and a QT or PQ batch its saturations, in lanes
-//! first (PLAN.md M12.8, M12.9). [`run_kernel`] runs a family's [`RealKernel`] over columns under the same policies
-//! (M22.2).
+//! point goes through `Fluid::flash`'s gate, so batch and scalar results are the same code path; under
+//! `ExecPolicy::Simd` the points it passes go to the model a group at a time (`ThermoModel::flash_many`, PLAN.md M22.4),
+//! where a Helmholtz fluid's DT, QT or PQ evaluates its points' bundles, and a QT or PQ batch its saturations, in lanes
+//! first (M12.8, M12.9), and a mixture its hinted DT's. [`run_kernel`] runs a family's [`RealKernel`] over columns under
+//! the same policies (M22.2).
 #![deny(clippy::indexing_slicing)] // E12: no panicking index on the batch path
-
-use core::any::Any;
 
 #[cfg(feature = "rayon")]
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
@@ -16,9 +15,9 @@ use rayon::slice::{ParallelSlice, ParallelSliceMut};
 use crate::error::Error;
 use crate::exec::chunk_points;
 pub use crate::exec::{ExecPolicy, RealKernel, run_kernel};
-use crate::flash::{self, FlashOptions, GROUP};
-use crate::fluid::{Fluid, PureFluid};
-use crate::input::{Input, Pair};
+use crate::flash::FlashOptions;
+use crate::fluid::Fluid;
+use crate::input::{Input, NativeInput, Pair};
 use crate::prop::Prop;
 use crate::state::State;
 use crate::units::Basis;
@@ -159,8 +158,8 @@ pub fn evaluate(
     Ok(BatchSummary { points: n, failed_cells: failed })
 }
 
-/// One chunk, point by point, or, under `ExecPolicy::Simd`, a DT, QT or PQ chunk of a Helmholtz fluid through
-/// [`run_lanes`]. Returns the failed-cell count.
+/// One chunk, point by point, or, under `ExecPolicy::Simd`, through the model's group hook ([`run_groups`]). Returns
+/// the failed-cell count.
 fn run_chunk(
     fluid: &Fluid,
     req: &BatchRequest<'_>,
@@ -169,12 +168,8 @@ fn run_chunk(
     out: &mut [f64],
     status: &mut [Status],
 ) -> usize {
-    let model: &dyn Any = fluid.model();
-    if let Some(pure) = model.downcast_ref::<PureFluid>()
-        && req.exec == ExecPolicy::Simd
-        && matches!(req.pair, Pair::DT | Pair::QT | Pair::PQ)
-    {
-        return run_lanes(fluid, pure, req, (xs, ys), out, status);
+    if req.exec == ExecPolicy::Simd {
+        return run_groups(fluid, req, (xs, ys), out, status);
     }
     let m = req.outputs.len();
     let mut failed = 0_usize;
@@ -187,14 +182,20 @@ fn run_chunk(
     failed
 }
 
-/// A DT, QT or PQ chunk of `pure`, `fluid`'s model, [`GROUP`] points at a time: each point through the single gate as
-/// `Fluid::flash` takes it (validation, basis, gauge), then [`flash::lanes`] on the group, whose results are the
-/// model's flash at each point, stamped with the handle's gauge as `Fluid::flash` stamps them. A point the gate refuses
-/// keeps its refusal; its lane holds a copy of the group's first point the gate passes (K17). Returns the failed-cell
-/// count.
-fn run_lanes(
+/// Points the batch hands a model's group hook at a time (PLAN.md M22.4). A hook pays for each call as well as for each
+/// point: a mixture's evaluates its group's bundles through several lane kernels, whose code and set-up come afresh
+/// each call. At 64 points a group (one point in two refused by the domain) R32/R125's DT batch under a phase hint
+/// took 1.15× its scalar path's time in the default build, at 256 0.93×, at 1024 no less. A pure fluid's hook runs its
+/// lanes `flash::GROUP` points at a time inside it.
+const HOOK_GROUP: usize = 256;
+
+/// A chunk [`HOOK_GROUP`] points at a time: each point through the single gate as `Fluid::flash` takes it (validation,
+/// basis, gauge), then the points it passes, in order, through the model's `ThermoModel::flash_many` (PLAN.md M22.4;
+/// user decision ML5), whose results are the model's flash at each point, stamped with the handle's gauge as
+/// `Fluid::flash` stamps them. A point the gate refuses keeps its refusal and is not handed to the model. Returns the
+/// failed-cell count.
+fn run_groups(
     fluid: &Fluid,
-    pure: &PureFluid,
     req: &BatchRequest<'_>,
     (xs, ys): (&[f64], &[f64]),
     out: &mut [f64],
@@ -202,34 +203,57 @@ fn run_lanes(
 ) -> usize {
     let m = req.outputs.len();
     let mut failed = 0_usize;
+    // The hook writes each group's states here and the rows read them in place: one array for the chunk, so that no
+    // group moves an array of states (moving them cost a mixture's DT batch up to 17 % in the default build's record).
+    let mut states: [Result<State, Error>; HOOK_GROUP] =
+        core::array::from_fn(|_| Err(Error::Shape { expected: 0, found: 0 }));
     let groups = xs
-        .chunks(GROUP)
-        .zip(ys.chunks(GROUP))
-        .zip(out.chunks_mut(GROUP.saturating_mul(m)).zip(status.chunks_mut(GROUP.saturating_mul(m))));
+        .chunks(HOOK_GROUP)
+        .zip(ys.chunks(HOOK_GROUP))
+        .zip(out.chunks_mut(HOOK_GROUP.saturating_mul(m)).zip(status.chunks_mut(HOOK_GROUP.saturating_mul(m))));
     for ((xs, ys), (out, status)) in groups {
-        // Each point the gate passes, native, molar and in pair order.
-        let points: [Result<(f64, f64), Error>; GROUP] = core::array::from_fn(|k| {
-            let (x, y) = xs.get(k).zip(ys.get(k)).ok_or(Error::Shape { expected: GROUP, found: k })?;
-            Ok(fluid.native(req.input(*x, *y)?)?.values())
+        let points: [Result<NativeInput, Error>; HOOK_GROUP] = core::array::from_fn(|k| {
+            let (x, y) = xs.get(k).zip(ys.get(k)).ok_or(Error::Shape { expected: HOOK_GROUP, found: k })?;
+            fluid.native(req.input(*x, *y)?)
         });
-        let mut states: [Result<State, Error>; GROUP] =
-            core::array::from_fn(|_| Err(Error::Shape { expected: 0, found: 0 }));
-        let first = points.iter().find_map(|p| p.as_ref().ok().copied());
-        if let (Some(first), Some(states)) = (first, states.get_mut(..xs.len())) {
-            let lane = |k: usize| points.get(k).and_then(|p| p.as_ref().ok().copied()).unwrap_or(first);
-            let (x, y): ([f64; GROUP], [f64; GROUP]) =
-                (core::array::from_fn(|k| lane(k).0), core::array::from_fn(|k| lane(k).1));
-            if let (Some(x), Some(y)) = (x.get(..xs.len()), y.get(..xs.len())) {
-                flash::lanes(pure, req.pair, (x, y), &req.flash, states);
-            }
-        }
+        flash_passed(fluid, req, &points, &mut states);
+        let mut states = states.iter();
         let rows = out.chunks_exact_mut(m).zip(status.chunks_exact_mut(m));
-        for ((point, state), (out, status)) in points.into_iter().zip(states).zip(rows) {
-            let state = point.and(state).map(|state| state.with_gauge(fluid.gauge()));
+        for (point, (out, status)) in points.into_iter().zip(rows) {
+            let state = point.and_then(|_| gauged(fluid, states.next()));
             failed = failed.saturating_add(write_row(fluid, req, &state, out, status));
         }
     }
     failed
+}
+
+/// A passed point's result from the group hook, its state stamped with the handle's gauge as `Fluid::flash` stamps it.
+fn gauged(fluid: &Fluid, state: Option<&Result<State, Error>>) -> Result<State, Error> {
+    match state {
+        Some(Ok(state)) => Ok(state.with_gauge(fluid.gauge())),
+        Some(Err(error)) => Err(error.clone()),
+        None => Err(Error::Shape { expected: HOOK_GROUP, found: 0 }),
+    }
+}
+
+/// The model's flash of the points of `points` the gate passed, in order, through its group hook, into the first of
+/// `states`; the rest keep what they held.
+fn flash_passed(
+    fluid: &Fluid,
+    req: &BatchRequest<'_>,
+    points: &[Result<NativeInput, Error>; HOOK_GROUP],
+    states: &mut [Result<State, Error>; HOOK_GROUP],
+) {
+    let Some(first) = points.iter().find_map(|p| p.as_ref().ok().copied()) else { return };
+    let mut passed = [first; HOOK_GROUP];
+    let mut n = 0_usize;
+    for (slot, input) in passed.iter_mut().zip(points.iter().filter_map(|p| p.as_ref().ok())) {
+        *slot = *input;
+        n = n.saturating_add(1);
+    }
+    if let (Some(passed), Some(out)) = (passed.get(..n), states.get_mut(..n)) {
+        fluid.model().flash_many(passed, &req.flash, out);
+    }
 }
 
 /// One point's row of cells from its flash: each output and its status. Returns the failed-cell count.
