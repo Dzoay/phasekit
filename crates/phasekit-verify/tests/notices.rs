@@ -17,18 +17,18 @@ fn phasekit_mix_carries_nists_notice() {
     assert!(include_str!("../../../about.toml").lines().any(|l| l == checksum), "{checksum}");
 }
 
-/// LC1 (PLAN.md M23.1) and IM5 (M23.2): core's lane `ln` and `expm1`, ports of the `libm` crate's from FreeBSD's msun,
-/// each carry their msun file's notice at their head, and its own `exp`, a port of Arm's optimized-routines, names
-/// Arm's files and licence at its head; core's NOTICE, which its package ships, reproduces LICENSE-THIRD-PARTY's
+/// LC1 (PLAN.md M23.1) and IM5 (M23.2, M23.3): core's lane `expm1`, a port of the `libm` crate's from FreeBSD's msun,
+/// carries its msun file's notice at its head, and its own `exp` and `ln`, ports of Arm's optimized-routines, name
+/// Arm's files and licence at theirs; core's NOTICE, which its package ships, reproduces LICENSE-THIRD-PARTY's
 /// sections for both.
 #[test]
 fn phasekit_core_carries_its_ports_notices() {
     let notice = include_str!("../../phasekit-core/NOTICE");
     let third_party = include_str!("../../../LICENSE-THIRD-PARTY");
     let heads = [
-        ("e_log.c", include_str!("../../phasekit-core/src/num/lanes/ln.rs"), "Developed at SunSoft"),
         ("s_expm1.c", include_str!("../../phasekit-core/src/num/lanes/expm1.rs"), "Developed at SunPro"),
         ("math/exp.c", include_str!("../../phasekit-core/src/num/elementary/exp.rs"), "Arm Limited"),
+        ("math/log.c", include_str!("../../phasekit-core/src/num/elementary/ln.rs"), "Arm Limited"),
     ];
     for (origin, file, line) in heads {
         let head: Vec<&str> = file.lines().take_while(|l| l.starts_with("//") && !l.starts_with("//!")).collect();

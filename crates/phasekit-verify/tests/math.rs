@@ -182,3 +182,13 @@ fn exp_rounds_once_in_the_subnormals() {
     let subnormal = sets.iter().find(|(set, _)| *set == "subnormal").map(|(_, worst)| worst);
     assert!(subnormal.is_some_and(|w| w.rows == 512 && w.error < 0.51), "{subnormal:?}");
 }
+
+/// PLAN.md M23.3 (VERIFICATION.md §5, class `Faithful`; user decision IM3): core's own `ln`, Arm's `log` without FMA,
+/// is under 1 ulp at every value of `fixtures/math/ln.csv` and `math/arm/ln.csv`, and Arm's result bit for bit at
+/// Arm's cases (NaN canonical), in every build.
+#[test]
+fn ln_is_faithful() {
+    let (worst, differ) = own("ln", |x| internal::ln(x[0])).unwrap();
+    assert!(worst.error < ulp::FAITHFUL, "{} ulp at {:?}", worst.error, worst.at);
+    assert!(differ.is_empty(), "not Arm's result:\n{}", differ.join("\n"));
+}
