@@ -928,7 +928,8 @@ each bench recorded is in `benches/results/`, and CoolProp's numbers are in `ben
 
 **Enforcement from M9 (E9):** (1) on Linux PRs, gungraun instruction counts of the tracked benches may not regress by
 more than 5 % against the baseline committed at M9 *(decision)*: `gates perf` (11.2) over `benches/instructions.rs`,
-the §7 workloads on the bench fluids, 16 states each; (2) allocation counts stay 0 (a test, from M5); (3) the
+the §7 workloads on the bench fluids, 16 states each, and the mixture benches' α^r (R32/R125 and the GERG-2008 gas),
+PT and QT (R32/R125) on their states (user decision PG1); (2) allocation counts stay 0 (a test, from M5); (3) the
 §7 targets are checked on the reference machine at each milestone close (`gates perf --targets` on its results file; user
 decision RM2: the user runs it on the i7-8700K). The targets are desirable, not gates (user decision TG1): a miss is
 logged with its measurement in a `future-work` issue named in `ci/perf-exemptions.txt`, and a target changes only by a

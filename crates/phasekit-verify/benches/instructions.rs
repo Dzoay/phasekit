@@ -1,7 +1,9 @@
 //! Instruction counts of the scalar gate workloads (PLAN.md M9.6; VERIFICATION.md §12 enforcement item 1): gungraun
 //! runs each workload once under Callgrind, its setup excluded. The workloads are the §7 rows on the bench fluids, each
 //! over 16 states of the criterion benches' grids: the order-2 α^r bundle, properties at (T, ρ) (DT + h + c_p), QT
-//! and PQ on the superancillary, PT + h and PH + T single phase, and a lookup by name. `cargo xtask gates perf` builds
+//! and PQ on the superancillary, PT + h and PH + T single phase, and a lookup by name. The mixture benches' workloads
+//! join them (user decision PG1): α^r on R32/R125 and the GERG-2008 gas, PT and QT on R32/R125, on the states of
+//! `benches/mixture.rs`. `cargo xtask gates perf` builds
 //! this for `x86_64-unknown-linux-musl` with `--features phasekit-core/libm`, a static binary with no glibc, so the
 //! counts do not depend on the machine's maths library or loader (glibc picks its exp by CPU and version), and fails on
 //! a count more than 5 % over `benches/baseline/instructions.csv`.
@@ -182,6 +184,84 @@ mod bench {
         states.into_iter().filter_map(|input| black_box(fluid.state(black_box(input))).ok()).map(|s| s.t()).sum()
     }
 
+    /// The temperature of the mixture's PT states (`benches/mixture.rs`).
+    const T_MIXTURE: f64 = 250.0;
+
+    /// A mixture of the mixture benches, kept for the process like the registry's fluids: R32/R125 at 50/50 on the
+    /// `Parity` library, or the GERG-2008 natural gas of five components.
+    fn mixture(name: &str) -> &'static Fluid {
+        let registry = Registry::from_embedded(DataSet::Parity).unwrap_or_else(|_| std::process::abort());
+        let gas =
+            [("Methane", 0.85), ("Ethane", 0.07), ("n-Propane", 0.03), ("Nitrogen", 0.03), ("CarbonDioxide", 0.02)];
+        let fluid = match name {
+            "NaturalGas5" => phasekit_mix::gerg2008(&registry, &gas),
+            _ => phasekit_mix::mixture(&registry, &[("R32", 0.5), ("R125", 0.5)], DataSet::Parity),
+        };
+        Box::leak(Box::new(fluid.unwrap_or_else(|_| std::process::abort())))
+    }
+
+    /// The mixtures' critical points (T_c in K, ρ_c in mol/m³) as `critical_point` finds them on the std build, fixed:
+    /// under Callgrind the search takes 15 s for R32/R125 and three minutes for the gas, and fixed points keep the
+    /// states where they are when the search changes.
+    const CRITICAL: [(&str, f64, f64); 2] =
+        [("R32&R125", 342.4290286011709, 5821.974221295246), ("NaturalGas5", 215.69585315585653, 11170.23118590118)];
+
+    /// The mixture α^r bench's grid about the mixture's critical point: SplitMix64 seed 1, T ~ U[1.05·T_c, 1.5·T_c],
+    /// ρ ~ U[0.1, 2]·ρ_c, as (ρ, T).
+    fn mixture_alphar_setup(name: &str) -> (&'static Fluid, Vec<(f64, f64)>) {
+        let Some(&(_, t_c, rho_c)) = CRITICAL.iter().find(|(n, ..)| *n == name) else { std::process::abort() };
+        let mut rng = SplitMix64::new(1);
+        let grid = (0..STATES).map(|_| {
+            let t = rng.uniform(1.05 * t_c, 1.5 * t_c);
+            (rng.uniform(0.1 * rho_c, 2.0 * rho_c), t)
+        });
+        (mixture(name), grid.collect())
+    }
+
+    /// R32/R125's PT states at `T_MIXTURE` either side of its dome (1, 2, 10 and 20 bar, the single-phase ones).
+    fn mixture_pt_setup(name: &str) -> (&'static Fluid, Vec<Input>) {
+        let fluid = mixture(name);
+        let input = |p: f64| Some(Input::pt(Pressure::new(p).ok()?, Temperature::new(T_MIXTURE).ok()?));
+        let single = |input: &Input| fluid.state(*input).is_ok_and(|s| s.quality().is_none());
+        let states: Vec<Input> = [1e5, 2e5, 1e6, 2e6].into_iter().filter_map(input).filter(single).collect();
+        if states.is_empty() {
+            std::process::abort();
+        }
+        warmed((fluid, states))
+    }
+
+    /// R32/R125's bubble points from 230 to 270 K in steps of 5 K.
+    fn mixture_qt_setup(name: &str) -> (&'static Fluid, Vec<Input>) {
+        let input =
+            |k: u32| Some(Input::qt(Quality::new(0.0).ok()?, Temperature::new(230.0 + 5.0 * f64::from(k)).ok()?));
+        let states = (0..9).map(input).collect::<Option<Vec<_>>>();
+        warmed((mixture(name), states.unwrap_or_else(|| std::process::abort())))
+    }
+
+    #[library_benchmark]
+    #[bench::r32_r125(args = ("R32&R125",), setup = mixture_alphar_setup)]
+    #[bench::natural_gas(args = ("NaturalGas5",), setup = mixture_alphar_setup)]
+    fn mixture_alphar(work: (&'static Fluid, Vec<(f64, f64)>)) -> f64 {
+        let (fluid, states) = work;
+        let Some(model) = fluid.model().helmholtz() else { return 0.0 };
+        states.iter().filter_map(|&(rho, t)| black_box(model.residual(black_box(t), rho, Order::Two)).get(0, 0)).sum()
+    }
+
+    #[library_benchmark]
+    #[bench::r32_r125(args = ("R32&R125",), setup = mixture_pt_setup)]
+    fn mixture_pt(work: (&'static Fluid, Vec<Input>)) -> f64 {
+        let (fluid, states) = work;
+        let h = |input| fluid.state(input).map(|s| s.h(Basis::Molar));
+        states.into_iter().filter_map(|input| black_box(h(black_box(input))).ok()).sum()
+    }
+
+    #[library_benchmark]
+    #[bench::r32_r125(args = ("R32&R125",), setup = mixture_qt_setup)]
+    fn mixture_qt(work: (&'static Fluid, Vec<Input>)) -> f64 {
+        let (fluid, states) = work;
+        states.into_iter().filter_map(|input| black_box(fluid.state(black_box(input))).ok()).map(|s| s.p()).sum()
+    }
+
     /// The criterion bench's keys: R134a's name, an alias and its CAS number.
     const KEYS: [&str; 3] = ["R134a", "r134A", "811-97-2"];
 
@@ -207,7 +287,10 @@ mod bench {
             pq_superancillary,
             pt_flash,
             ph_flash,
-            lookup_by_name
+            lookup_by_name,
+            mixture_alphar,
+            mixture_pt,
+            mixture_qt
         ]
     );
 }
