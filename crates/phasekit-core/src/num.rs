@@ -103,10 +103,10 @@ impl Real for f64 {
 }
 
 /// The only place the library calls a transcendental function (D12, dependencies R14). Default: `std`, the
-/// platform's maths library; the opt-in `libm` feature (M9.3) swaps in the `libm` crate and core's own `exp` (PLAN.md
-/// M23.2), the one feature that changes numerics (docs/DEPENDENCIES.md T1). With it, results are bit-identical on
-/// Linux, Windows, aarch64 and WASM, as the M9.4 cross-target hash proves; it stays opt-in for its cost
-/// (ARCHITECTURE.md D12). clippy's `disallowed-methods` rejects every `f64` transcendental elsewhere (E16).
+/// platform's maths library; the opt-in `libm` feature (M9.3) swaps in the `libm` crate and core's own `exp` and
+/// `ln` (PLAN.md M23.2, M23.3), the one feature that changes numerics (docs/DEPENDENCIES.md T1). With it, results are
+/// bit-identical on Linux, Windows, aarch64 and WASM, as the M9.4 cross-target hash proves; it stays opt-in for its
+/// cost (ARCHITECTURE.md D12). clippy's `disallowed-methods` rejects every `f64` transcendental elsewhere (E16).
 pub mod math {
     /// The backend this build's transcendentals run on: `"libm"` with the `libm` feature, else `"std"`.
     pub const BACKEND: &str = if cfg!(feature = "libm") { "libm" } else { "std" };
@@ -133,11 +133,18 @@ pub mod math {
         x.exp()
     }
 
+    /// Natural logarithm: core's own with the `libm` feature (PLAN.md M23.3), else std's.
+    #[allow(clippy::disallowed_methods)]
+    pub fn ln(x: f64) -> f64 {
+        #[cfg(feature = "libm")]
+        return super::elementary::ln(x);
+        #[cfg(not(feature = "libm"))]
+        x.ln()
+    }
+
     choke! {
         /// e^x − 1.
         expm1 => exp_m1, expm1;
-        /// Natural logarithm.
-        ln => ln, log;
         /// ln(1 + x).
         ln_1p => ln_1p, log1p;
         /// Square root.
@@ -257,12 +264,12 @@ mod tests {
     use super::*;
 
     /// Every one-argument function of [`math`] that the `libm` crate gives, with its `libm` and `std` counterparts.
-    /// `exp` is core's own (PLAN.md M23.2), measured against mpmath by `phasekit-verify`'s `exp_is_faithful`.
+    /// `exp` and `ln` are core's own (PLAN.md M23.2, M23.3), measured against mpmath by `phasekit-verify`'s
+    /// `exp_is_faithful` and `ln_is_faithful`.
     #[cfg(feature = "libm")]
     #[allow(clippy::disallowed_methods, clippy::type_complexity)]
-    const UNARY: [(&str, fn(f64) -> f64, fn(f64) -> f64, fn(f64) -> f64); 11] = [
+    const UNARY: [(&str, fn(f64) -> f64, fn(f64) -> f64, fn(f64) -> f64); 10] = [
         ("expm1", math::expm1, libm::expm1, f64::exp_m1),
-        ("ln", math::ln, libm::log, f64::ln),
         ("ln_1p", math::ln_1p, libm::log1p, f64::ln_1p),
         ("sqrt", math::sqrt, libm::sqrt, f64::sqrt),
         ("sinh", math::sinh, libm::sinh, f64::sinh),

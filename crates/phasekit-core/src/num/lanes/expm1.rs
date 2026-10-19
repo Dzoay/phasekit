@@ -9,7 +9,7 @@
 // ====================================================
 
 //! `expm1` on every lane (PLAN.md M12.8): the `libm` crate's (0.2.16, `src/math/expm1.rs` from FreeBSD's `s_expm1.c`),
-//! operation for operation, so each lane is the `libm` path's bits. Built only with `libm`, as `ln` is.
+//! operation for operation, so each lane is the `libm` path's bits. Built only with `libm`.
 //!
 //! libm branches on the high word of |x| and then on k. Here every lane takes every path and the result is selected,
 //! so the lanes vectorise: k is truncated in floating point, and read back from the low bits of 1.5·2⁵² + k

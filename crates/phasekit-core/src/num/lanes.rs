@@ -9,8 +9,6 @@ use super::{Real, math, sealed};
 
 #[cfg(feature = "libm")]
 mod expm1;
-#[cfg(feature = "libm")]
-mod ln;
 
 /// W states side by side; crate-private, like the executors that use it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -115,11 +113,11 @@ impl<const W: usize> Real for Lanes<W> {
         #[cfg(not(feature = "libm"))]
         self.map(math::expm1)
     }
-    /// The `libm` crate's `log` ported to lanes with the `libm` backend (PLAN.md M12.6); std's, per lane, without it.
+    /// Core's own `ln` on every lane with the `libm` backend (PLAN.md M23.3); std's, per lane, without it.
     #[inline(always)]
     fn ln(self) -> Self {
         #[cfg(feature = "libm")]
-        return ln::ln(self);
+        return super::elementary::ln_lanes(self);
         #[cfg(not(feature = "libm"))]
         self.map(math::ln)
     }
@@ -157,7 +155,7 @@ impl<const W: usize> Real for Lanes<W> {
     }
 }
 
-/// What the lane tests share (PLAN.md M12.6, M12.8, M23.2). `cfg(test)` stands alone, so cargo-mutants sees test code.
+/// What the lane tests share (PLAN.md M12.8, M23.2, M23.3). `cfg(test)` stands alone, so cargo-mutants sees test code.
 #[cfg(test)]
 pub(crate) mod tests {
     /// A SplitMix64 stream.
