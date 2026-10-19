@@ -1,5 +1,5 @@
-//! A binary pair's departure function α^r_ij(τ, δ) in one kernel over [`Scalar`] (f64, and [`Series`] for its τ, δ
-//! derivatives; ROT-218's pattern), its terms as CoolProp 8.0.0 evaluates them (`ExcessHEFunction.h:104-196`,
+//! A binary pair's departure function α^r_ij(τ, δ) in one kernel on [`Series`] over any `Real` (its τ, δ derivatives;
+//! ROT-218's pattern; f64, or core's lanes through `batch::run_kernel`, PLAN.md M22.3), its terms as CoolProp 8.0.0 evaluates them (`ExcessHEFunction.h:104-196`,
 //! `Helmholtz.h:377-457`; PLAN.md M13.3):
 //! - Exponential: Σ n δ^d τ^t exp(−δ^l), without the exponential where l = 0;
 //! - GERG-2008: `power` terms n δ^d τ^t, then n δ^d τ^t exp(−η(δ − ε)² − β(δ − γ)): β multiplies δ − γ, not its square;
@@ -11,7 +11,8 @@
 
 use core::ops::{Mul, Sub};
 
-use phasekit_core::{Derivs, Order, math};
+use phasekit_core::batch::RealKernel;
+use phasekit_core::{Derivs, Order, Real};
 
 use crate::data::{DepartureData, Kind, Term};
 use crate::slot::at;
@@ -22,72 +23,61 @@ const FACTORIAL: [f64; 5] = [1.0, 1.0, 2.0, 6.0, 24.0];
 /// A series' last slot: its coefficients up to the fourth order.
 const LAST: usize = 4;
 
-/// What the kernel computes on: a number, or a univariate series.
-pub(crate) trait Scalar: Copy + Sub<Output = Self> + Mul<Output = Self> {
-    fn from_f64(x: f64) -> Self;
-    fn powi(self, n: i32) -> Self;
-    fn powf(self, t: f64) -> Self;
-    fn exp(self) -> Self;
-}
-
-impl Scalar for f64 {
-    fn from_f64(x: f64) -> f64 {
-        x
-    }
-    fn powi(self, n: i32) -> f64 {
-        math::powi(self, n)
-    }
-    fn powf(self, t: f64) -> f64 {
-        math::powf(self, t)
-    }
-    fn exp(self) -> f64 {
-        math::exp(self)
-    }
-}
-
 /// A univariate Taylor series truncated at `order` ≤ 4: `c[k]` is the k-th derivative over k!. Its value slot is
-/// computed as the f64 kernel computes it, so a jet's value is the plain evaluation's, bit for bit.
+/// computed as the plain kernel computes it, so a jet's value is the plain evaluation's, bit for bit. `variable` marks
+/// the variable itself, whose composition takes the derivatives directly: `Real` has no comparisons to find it by its
+/// coefficients (PLAN.md M22.3).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Series {
+pub(crate) struct Series<R> {
     order: usize,
-    c: [f64; 5],
+    c: [R; 5],
+    variable: bool,
 }
 
-impl Series {
+impl<R: Real> Series<R> {
     /// The variable at `x`.
-    fn variable(x: f64, order: usize) -> Series {
-        let mut c = [0.0; 5];
-        (c[0], c[1]) = (x, if order >= 1 { 1.0 } else { 0.0 });
-        Series { order, c }
+    #[inline(always)]
+    fn variable(x: R, order: usize) -> Series<R> {
+        let mut c = [R::from_f64(0.0); 5];
+        (c[0], c[1]) = (x, R::from_f64(if order >= 1 { 1.0 } else { 0.0 }));
+        Series { order, c, variable: true }
+    }
+
+    /// The constant `x`, of order 0: an operand of any order raises it.
+    #[inline(always)]
+    fn constant(x: R) -> Series<R> {
+        let mut c = [R::from_f64(0.0); 5];
+        c[0] = x;
+        Series { order: 0, c, variable: false }
     }
 
     /// f(self) from f's derivatives `d` at the value: Σ_n d_n/n! εⁿ by Horner, ε = self − value; for the variable itself
     /// (ε the unit monomial) the coefficients d_n/n! directly, which is what Horner's products with it give exactly.
+    #[inline(always)]
     #[allow(clippy::arithmetic_side_effects, reason = "Series products: IEEE arithmetic on truncated series, no panic")]
-    fn compose(self, d: [f64; 5]) -> Series {
-        // Equivalent (M13.7): the fast path gives the general path's bits (`truncation_keeps_the_lower_orders`,
-        // `the_value_is_the_jet_s`), so taking the general path instead changes nothing.
-        // equivalent mutant: replace == with != #2
-        if self.c[1] == 1.0 && self.c[2..].iter().all(|c| *c == 0.0) {
-            let mut c = [0.0; 5];
+    fn compose(self, d: [R; 5]) -> Series<R> {
+        if self.variable {
+            let mut c = [R::from_f64(0.0); 5];
             for ((c, d), f) in c.iter_mut().zip(&d).zip(&FACTORIAL).take(self.order.saturating_add(1)) {
-                *c = d / f;
+                *c = *d / R::from_f64(*f);
             }
-            return Series { order: self.order, c };
+            return Series { order: self.order, c, variable: false };
         }
         let mut eps = self;
-        eps.c[0] = 0.0;
-        let mut r = Series::from_f64(at(&d, self.order) / at(&FACTORIAL, self.order)).with_order(self.order);
+        eps.c[0] = R::from_f64(0.0);
+        let last = |d: &[R; 5]| d.get(self.order).copied().unwrap_or(R::from_f64(f64::NAN));
+        let mut r = Series::constant(last(&d) / R::from_f64(at(&FACTORIAL, self.order))).with_order(self.order);
         let below = self.order.min(d.len());
         for (d, f) in d.get(..below).unwrap_or_default().iter().zip(FACTORIAL.get(..below).unwrap_or_default()).rev() {
             r = r * eps;
-            r.c[0] = d / f;
+            r.c[0] = *d / R::from_f64(*f);
         }
         r.c[0] = d[0];
         r
     }
 
-    fn with_order(mut self, order: usize) -> Series {
+    #[inline(always)]
+    fn with_order(mut self, order: usize) -> Series<R> {
         self.order = order;
         self
     }
@@ -96,11 +86,12 @@ impl Series {
     /// sum's terms with its zero slots being exact zeros. Each slot sums its terms in index order, from 0. Plain index
     /// loops, up to the order or the last slot if that is lower, so every index lies in the five slots: an iterator
     /// chain here cost the GERG gas's α^r a fifth more instructions (PLAN.md M24.4).
+    #[inline(always)]
     #[allow(clippy::indexing_slicing, clippy::arithmetic_side_effects, reason = "k ≤ last ≤ 4 and a ≤ k: in the slots")]
-    fn product(&self, other: &Series) -> Series {
+    fn product(&self, other: &Series<R>) -> Series<R> {
         let order = self.order.max(other.order);
         let last = order.min(LAST);
-        let mut c = [0.0; 5];
+        let mut c = [R::from_f64(0.0); 5];
         c[0] = self.c[0] * other.c[0];
         // Equivalent (M13.7): the fast path gives the general path's bits (`truncation_keeps_the_lower_orders`,
         // `the_value_is_the_jet_s`), so taking the general path instead changes nothing.
@@ -112,92 +103,103 @@ impl Series {
                 c[k] = k0 * series.c[k];
                 k += 1;
             }
-            return Series { order, c };
+            return Series { order, c, variable: false };
         }
         let mut k = 1;
         while k <= last {
-            let (mut sum, mut a) = (0.0, 0);
+            let (mut sum, mut a) = (R::from_f64(0.0), 0);
             while a <= k {
-                sum += self.c[a] * other.c[k - a];
+                sum = sum + self.c[a] * other.c[k - a];
                 a += 1;
             }
             c[k] = sum;
             k += 1;
         }
-        Series { order, c }
+        Series { order, c, variable: false }
     }
 }
 
-impl Sub for Series {
-    type Output = Series;
-    fn sub(mut self, other: Series) -> Series {
+impl<R: Real> Sub for Series<R> {
+    type Output = Series<R>;
+    #[inline(always)]
+    #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
+    fn sub(mut self, other: Series<R>) -> Series<R> {
         self.order = self.order.max(other.order);
+        self.variable = false;
         for (x, y) in self.c.iter_mut().zip(other.c) {
-            *x -= y;
+            *x = *x - y;
         }
         self
     }
 }
 
-impl Mul for Series {
-    type Output = Series;
-    fn mul(self, other: Series) -> Series {
+impl<R: Real> Mul for Series<R> {
+    type Output = Series<R>;
+    #[inline(always)]
+    fn mul(self, other: Series<R>) -> Series<R> {
         self.product(&other)
     }
 }
 
-impl Scalar for Series {
-    /// A constant, of order 0: an operand of any order raises it.
-    fn from_f64(x: f64) -> Series {
-        let mut c = [0.0; 5];
-        c[0] = x;
-        Series { order: 0, c }
+impl<R: Real> Series<R> {
+    /// The constant `x`, of order 0.
+    #[inline(always)]
+    fn from_f64(x: f64) -> Series<R> {
+        Series::constant(R::from_f64(x))
     }
 
     /// x^n's derivatives n (n − 1) ... (n − k + 1) x^(n − k), 0 where the falling factorial is (x = 0 at δ = 0).
-    fn powi(self, n: i32) -> Series {
-        let mut d = [0.0; 5];
+    #[inline(always)]
+    #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
+    fn powi(self, n: i32) -> Series<R> {
+        let mut d = [R::from_f64(0.0); 5];
         let mut falling = 1.0;
         for (k, slot) in d.iter_mut().enumerate().take(self.order.saturating_add(1)) {
-            *slot = if falling == 0.0 { 0.0 } else { falling * math::powi(self.c[0], n.saturating_sub(k as i32)) };
+            *slot =
+                if falling == 0.0 { R::from_f64(0.0) } else { self.c[0].powi(n.saturating_sub(k as i32)) * falling };
             falling *= f64::from(n) - k as f64;
         }
         self.compose(d)
     }
 
-    fn powf(self, t: f64) -> Series {
-        let mut d = [0.0; 5];
+    #[inline(always)]
+    #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
+    fn powf(self, t: f64) -> Series<R> {
+        let mut d = [R::from_f64(0.0); 5];
         let mut falling = 1.0;
         for (k, slot) in d.iter_mut().enumerate().take(self.order.saturating_add(1)) {
-            *slot = falling * math::powf(self.c[0], t - k as f64);
+            *slot = self.c[0].powf(t - k as f64) * falling;
             falling *= t - k as f64;
         }
         self.compose(d)
     }
 
-    fn exp(self) -> Series {
-        self.compose([math::exp(self.c[0]); 5])
+    #[inline(always)]
+    fn exp(self) -> Series<R> {
+        self.compose([self.c[0].exp(); 5])
     }
 }
 
 /// A term's τ part: τ^t, times exp(−β(τ − γ)²) for a Gaussian + Exponential function's Gaussian terms.
-#[allow(clippy::arithmetic_side_effects, reason = "on the kernel's scalars, f64 or Series: IEEE arithmetic, no panic")]
-fn tau_part<S: Scalar>(kind: Kind, gaussian: bool, term: &Term, tau: S) -> S {
+#[inline(always)]
+#[allow(clippy::arithmetic_side_effects, reason = "Series arithmetic on any Real: IEEE or lane arithmetic, no panic")]
+fn tau_part<R: Real>(kind: Kind, gaussian: bool, term: &Term, tau: Series<R>) -> Series<R> {
     let power = tau.powf(term.t);
     match (kind, gaussian) {
         (Kind::GaussianExponential, true) => {
-            let t = tau - S::from_f64(term.gamma);
-            power * (S::from_f64(0.0) - S::from_f64(term.beta) * t * t).exp()
+            let t = tau - Series::from_f64(term.gamma);
+            power * (Series::from_f64(0.0) - Series::from_f64(term.beta) * t * t).exp()
         }
         _ => power,
     }
 }
 
 /// A term's δ part: δ^d times its exponential in δ, if it has one.
-#[allow(clippy::arithmetic_side_effects, reason = "on the kernel's scalars, f64 or Series: IEEE arithmetic, no panic")]
-fn delta_part<S: Scalar>(kind: Kind, gaussian: bool, term: &Term, delta: S) -> S {
+#[inline(always)]
+#[allow(clippy::arithmetic_side_effects, reason = "Series arithmetic on any Real: IEEE or lane arithmetic, no panic")]
+fn delta_part<R: Real>(kind: Kind, gaussian: bool, term: &Term, delta: Series<R>) -> Series<R> {
     let power = delta.powi(term.d as i32);
-    let c = S::from_f64;
+    let c = Series::from_f64;
     let exponent = match (kind, gaussian) {
         (Kind::Gerg2008, false) => return power,
         (Kind::Exponential, _) | (Kind::GaussianExponential, false) if term.l == 0.0 => return power,
@@ -214,45 +216,55 @@ fn delta_part<S: Scalar>(kind: Kind, gaussian: bool, term: &Term, delta: S) -> S
     power * exponent.exp()
 }
 
-/// α^r_ij at (τ, δ): Σ (n T(τ)) D(δ), the plain evaluation a jet's value is checked against.
+/// α^r_ij at (τ, δ): Σ (n T(τ)) D(δ), the plain evaluation a jet's value is checked against, on series of order 0
+/// (which carry the values alone).
 #[cfg(test)]
 fn alpha(f: &DepartureData, tau: f64, delta: f64) -> f64 {
+    let (tau, delta) = (Series::variable(tau, 0), Series::variable(delta, 0));
     let mut sum = 0.0;
     for (k, term) in f.terms.iter().enumerate() {
         let gaussian = k >= f.power;
-        sum += term.n * tau_part(f.kind, gaussian, term, tau) * delta_part(f.kind, gaussian, term, delta);
+        sum += term.n * tau_part(f.kind, gaussian, term, tau).c[0] * delta_part(f.kind, gaussian, term, delta).c[0];
     }
     sum
 }
 
 /// α^r_ij's Taylor coefficients at (τ, δ) to total order `order` ≤ 4: `c[i][j]` is ∂^(i+j)α^r_ij/∂τ^i∂δ^j over i! j!.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Jet {
+pub(crate) struct Jet<R = f64> {
     order: usize,
-    c: [[f64; 5]; 5],
+    c: [[R; 5]; 5],
 }
 
-impl Jet {
+impl<R: Real> Jet<R> {
     /// ∂^(i+j)α^r_ij/∂τ^i∂δ^j, or `None` beyond the order kept.
-    pub(crate) fn derivative(&self, i: usize, j: usize) -> Option<f64> {
+    #[inline(always)]
+    #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
+    pub(crate) fn derivative(&self, i: usize, j: usize) -> Option<R> {
         let c = self.c.get(i).and_then(|row| row.get(j))?;
-        (i.saturating_add(j) <= self.order).then(|| c * at(&FACTORIAL, i) * at(&FACTORIAL, j))
+        (i.saturating_add(j) <= self.order).then(|| *c * at(&FACTORIAL, i) * at(&FACTORIAL, j))
     }
 }
 
-/// α^r_ij's jet at (τ, δ) to total order `order` (≤ 4), finite at δ = 0 (the virials): each term's two univariate
-/// series multiplied out, the value slot summed as [`alpha`] sums it.
+/// α^r_ij's jet at (τ, δ) to total order `order` (≤ 4), finite at δ = 0 (the virials).
 pub(crate) fn jet(f: &DepartureData, tau: f64, delta: f64, order: usize) -> Jet {
+    jet_on(f, tau, delta, order)
+}
+
+/// [`jet`] on any `Real`: each term's two univariate series multiplied out, the value slot summed as [`alpha`] sums it.
+#[inline(always)]
+#[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
+fn jet_on<R: Real>(f: &DepartureData, tau: R, delta: R, order: usize) -> Jet<R> {
     let order = order.min(4);
-    let mut c = [[0.0; 5]; 5];
+    let mut c = [[R::from_f64(0.0); 5]; 5];
     let (t0, d0) = (Series::variable(tau, order), Series::variable(delta, order));
     for (k, term) in f.terms.iter().enumerate() {
         let gaussian = k >= f.power;
         let (t, d) = (tau_part(f.kind, gaussian, term, t0), delta_part(f.kind, gaussian, term, d0));
         for (i, (row, ti)) in c.iter_mut().zip(t.c).enumerate().take(order.saturating_add(1)) {
-            let nt = term.n * ti;
+            let nt = ti * term.n;
             for (cell, dj) in row.iter_mut().zip(d.c).take(order.saturating_add(1).saturating_sub(i)) {
-                *cell += nt * dj;
+                *cell = *cell + nt * dj;
             }
         }
     }
@@ -261,16 +273,66 @@ pub(crate) fn jet(f: &DepartureData, tau: f64, delta: f64, order: usize) -> Jet 
 
 /// α^r_ij's scaled derivatives A_ij = τ^i δ^j ∂^(i+j)α^r_ij/∂τ^i∂δ^j at (τ, δ), to `order`.
 pub(crate) fn derivs(f: &DepartureData, tau: f64, delta: f64, order: Order) -> Derivs {
-    let jet = jet(f, tau, delta, order.get());
+    derivs_on(f, tau, delta, order)
+}
+
+/// [`derivs`] on any `Real`.
+#[inline(always)]
+#[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
+fn derivs_on<R: Real>(f: &DepartureData, tau: R, delta: R, order: Order) -> Derivs<R> {
+    let jet = jet_on(f, tau, delta, order.get());
     Derivs::from_fn(order, |i, j| {
-        jet.derivative(i, j).unwrap_or(f64::NAN) * math::powi(tau, i as i32) * math::powi(delta, j as i32)
+        jet.derivative(i, j).unwrap_or(R::from_f64(f64::NAN)) * tau.powi(i as i32) * delta.powi(j as i32)
     })
+}
+
+/// Departure functions as one kernel over `Real` for core's runner (PLAN.md M22.3; user decision ML3): (τ, δ) in, and
+/// out each function's A_ij to `order`, in [`Derivs::from_fn`]'s order (`slots(order)` of them a function).
+pub(crate) struct Departures<'a> {
+    pub(crate) functions: Vec<&'a DepartureData>,
+    pub(crate) order: Order,
+}
+
+/// The A_ij of a bundle to `order`: (order + 1)(order + 2)/2.
+pub(crate) fn slots(order: Order) -> usize {
+    let n = order.get().saturating_add(1);
+    n.saturating_mul(n.saturating_add(1)) / 2
+}
+
+/// Each A_ij of `d` with i + j ≤ `order`, in [`Derivs::from_fn`]'s order.
+#[inline(always)]
+fn entries<R: Real>(d: &Derivs<R>, order: Order) -> impl Iterator<Item = R> + '_ {
+    (0..=order.get())
+        .flat_map(|n| (0..=n).map(move |i| (i, n.saturating_sub(i))))
+        .map(|(i, j)| d.get(i, j).unwrap_or(R::from_f64(f64::NAN)))
+}
+
+impl RealKernel for Departures<'_> {
+    #[inline(always)]
+    fn eval<R: Real>(&self, inputs: &[R], outputs: &mut [R]) {
+        let nan = R::from_f64(f64::NAN);
+        let (tau, delta) = (inputs.first().copied().unwrap_or(nan), inputs.get(1).copied().unwrap_or(nan));
+        for (f, out) in self.functions.iter().zip(outputs.chunks_mut(slots(self.order))) {
+            let d = derivs_on(f, tau, delta, self.order);
+            for (o, v) in out.iter_mut().zip(entries(&d, self.order)) {
+                *o = v;
+            }
+        }
+    }
+}
+
+/// The bundle of function `f` (its index) at point `k` from [`Departures`]' output columns, as [`derivs`] builds it.
+pub(crate) fn from_columns(columns: &[Vec<f64>], f: usize, k: usize, order: Order) -> Derivs {
+    let first = f.saturating_mul(slots(order));
+    let mut values = columns.iter().skip(first).map(|c| c.get(k).copied().unwrap_or(f64::NAN));
+    Derivs::from_fn(order, |_, _| values.next().unwrap_or(f64::NAN))
 }
 
 #[cfg(test)]
 mod tests {
     use num_dual::{DualNum, HyperDual};
-    use phasekit_core::{Order, math};
+    use phasekit_core::batch::{ExecPolicy, run_kernel};
+    use phasekit_core::{HelmholtzModel, Order, math};
 
     use super::*;
     use crate::generated::DEPARTURES;
@@ -353,6 +415,97 @@ mod tests {
                 assert_eq!(alpha(f, 0.9, 1.1).to_bits(), value.to_bits(), "{} at order {order}", f.name);
             }
         }
+    }
+
+    /// τ and δ for [`departure_lanes_are_scalar_bitwise`]: 65 points of τ in [0.5, 2] and δ in [0, 3], δ → 0 among them
+    /// (0, 1e-300, 1e-12 and 1e-6 lead).
+    fn lane_states() -> (Vec<f64>, Vec<f64>) {
+        let tau = (0..65).map(|k| 0.5 + 1.5 * f64::from(k * 37 % 65) / 64.0).collect();
+        let small = [0.0, 1e-300, 1e-12, 1e-6];
+        let delta = (0..65).map(|k| small.get(k).copied().unwrap_or(3.0 * (k * 29 % 65) as f64 / 64.0)).collect();
+        (tau, delta)
+    }
+
+    /// Every entry's bits, NaN canonical.
+    fn bits(d: &Derivs) -> Vec<Option<u64>> {
+        let canonical = |v: f64| if v.is_nan() { f64::NAN.to_bits() } else { v.to_bits() };
+        (0..=4).flat_map(|n| (0..=n).map(move |i| (i, n - i))).map(|(i, j)| d.get(i, j).map(canonical)).collect()
+    }
+
+    /// `functions` as one [`Departures`] kernel through core's runner under `Simd` at the states, against [`derivs`]
+    /// point by point, bit for bit; returns the bundles compared.
+    fn assert_lanes_are_scalar(functions: &[&DepartureData], order: Order, (tau, delta): (&[f64], &[f64])) -> usize {
+        let kernel = Departures { functions: functions.to_vec(), order };
+        let mut columns = vec![vec![f64::NAN; tau.len()]; functions.len() * slots(order)];
+        let mut outputs: Vec<&mut [f64]> = columns.iter_mut().map(Vec::as_mut_slice).collect();
+        let ran = run_kernel(&kernel, &[tau, delta], &mut outputs, ExecPolicy::Simd);
+        assert!(ran.is_ok(), "{order:?}, {} points: {ran:?}", tau.len());
+        for (f, function) in functions.iter().enumerate() {
+            for (k, (t, d)) in tau.iter().zip(delta).enumerate() {
+                let (got, want) = (from_columns(&columns, f, k, order), derivs(function, *t, *d, order));
+                assert_eq!(
+                    bits(&got),
+                    bits(&want),
+                    "{} {order:?} at τ {t}, δ {d}, {} points",
+                    function.name,
+                    tau.len()
+                );
+            }
+        }
+        functions.len() * tau.len()
+    }
+
+    /// PLAN.md M22.3 (K17; user decision ML3): every library and GERG-2008 departure function, as one kernel each set,
+    /// through core's runner under `Simd` at every order over batches of 1 to 65 points (so a short last group at every
+    /// width), is its scalar kernel point by point, bit for bit, δ → 0 included; and so is each GERG-2008 component's
+    /// `residual_batch`, the same kernel on its own equation.
+    #[test]
+    fn departure_lanes_are_scalar_bitwise() {
+        let (tau, delta) = lane_states();
+        let library: Vec<&DepartureData> = DEPARTURES.iter().collect();
+        let gerg: Vec<&DepartureData> = crate::gerg::DEPARTURES.iter().map(|(_, f)| f).collect();
+        let mut compared = 0;
+        for order in [Order::One, Order::Two, Order::Three, Order::Four] {
+            for n in 1..=65 {
+                compared += assert_lanes_are_scalar(&library, order, (&tau[..n], &delta[..n]));
+                compared += assert_lanes_are_scalar(&gerg, order, (&tau[..n], &delta[..n]));
+            }
+        }
+        // Every function at every order, over batches of 1 to 65 points (2145 points in all).
+        assert_eq!(compared, (library.len() + gerg.len()) * 4 * 2145);
+        assert_eq!(assert_gerg_components_are_scalar(&tau, &delta), 21 * 4 * 65);
+    }
+
+    /// Each GERG-2008 component's `residual_batch` under `Simd` at every order, at (T_c/τ, δ ρ_c), against its
+    /// `residual` point by point, bit for bit; returns the bundles compared.
+    fn assert_gerg_components_are_scalar(tau: &[f64], delta: &[f64]) -> usize {
+        let mut compared = 0;
+        let registry = phasekit_core::Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+        let bound = registry.get("Methane").unwrap();
+        for c in &crate::gerg::COMPONENTS {
+            let eos = crate::gerg::Pure::new(c, bound.clone());
+            let reducing = eos.reducing().unwrap();
+            let t: Vec<f64> = tau.iter().map(|tau| reducing.t / tau).collect();
+            let rho: Vec<f64> = delta.iter().map(|delta| delta * reducing.rho).collect();
+            for order in [Order::One, Order::Two, Order::Three, Order::Four] {
+                let mut out = vec![Derivs::zero(order); t.len()];
+                eos.residual_batch(&t, &rho, order, &mut out, ExecPolicy::Simd).unwrap();
+                for (k, got) in out.iter().enumerate() {
+                    let want = eos.residual(t[k], rho[k], order);
+                    assert_eq!(bits(got), bits(&want), "{} {order:?} at T {}, ρ {}", c.name, t[k], rho[k]);
+                }
+                compared += out.len();
+            }
+        }
+        compared
+    }
+
+    /// A bundle to order k has (k + 1)(k + 2)/2 entries, the columns [`Departures`] writes for each function.
+    #[test]
+    fn slots_count_a_bundle_s_entries() {
+        let orders = [Order::One, Order::Two, Order::Three, Order::Four];
+        assert_eq!(orders.map(slots), [3, 6, 10, 15]);
+        assert!(orders.iter().all(|&o| slots(o) == entries(&Derivs::<f64>::zero(o), o).count()));
     }
 
     /// A shorter jet's derivatives are the longer one's, bit for bit.

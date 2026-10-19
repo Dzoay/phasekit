@@ -10,7 +10,8 @@
 //! h = s = 0 for the ideal gas at T₀ = 298.15 K and p₀ = 101.325 kPa; AGA8 prints them to ten digits and here they are
 //! computed exactly, as AGA8's own commented-out code computes them (`GERG2008.cpp`, `SetupGERG`, after `return`).
 
-use phasekit_core::{Derivs, Fluid, Jet4, Order, Real, Reducing, Virials, math};
+use phasekit_core::batch::ExecPolicy;
+use phasekit_core::{Derivs, Error, Fluid, Jet4, Order, Real, Reducing, Virials, math};
 
 use crate::data::{DepartureData, Kind};
 use crate::departure;
@@ -43,6 +44,16 @@ pub(crate) struct Pure {
 }
 
 impl Pure {
+    /// Its critical temperature and density, the state its residual reduces by (K, mol/m³).
+    pub(crate) fn critical(&self) -> (f64, f64) {
+        (self.t_c, self.rho_c)
+    }
+
+    /// Its residual as a departure function, the kernel it shares with the mixtures' departures.
+    pub(crate) fn residual_function(&self) -> &DepartureData {
+        &self.residual
+    }
+
     /// `component`'s equation, its density bound `bound`'s.
     pub(crate) fn new(component: &'static Component, bound: Fluid) -> Pure {
         let residual = DepartureData {
@@ -120,6 +131,19 @@ impl phasekit_core::HelmholtzModel for Pure {
 
     fn residual(&self, t: f64, rho: f64, order: Order) -> Derivs {
         departure::derivs(&self.residual, self.t_c / t, rho / self.rho_c, order)
+    }
+
+    /// The residual's kernel through core's runner, in lanes under `ExecPolicy::Simd` (PLAN.md M22.3); each point the
+    /// bits of [`residual`](Self::residual).
+    fn residual_batch(
+        &self,
+        t: &[f64],
+        rho: &[f64],
+        order: Order,
+        out: &mut [Derivs],
+        exec: ExecPolicy,
+    ) -> Result<(), Error> {
+        self.residual_batch_at((t, rho), order, out, exec)
     }
 
     /// The τ-part in u = 1/T: u^i ∂^i/∂u^i is τ^i ∂^i/∂τ^i, whatever T_r is.
