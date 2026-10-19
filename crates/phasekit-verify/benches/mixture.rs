@@ -13,13 +13,34 @@
 //! - `mixture_pt` (PLAN.md M13.8): PT at 250 K on the same single-phase states (`single`: the stability test, then one
 //!   root) and between the bubble and dew pressures there (`dome`: the test, then the split).
 //! - `mixture_qt` (PLAN.md M13.9-M13.10): QT from 230 to 270 K at Q = 0 (`bubble`), 1 (`dew`) and 0.5 (`interior`).
+//! - `mixture_alphar_batch` (PLAN.md M22.1): workload 1 as one `HelmholtzModel::residual_batch` call over 1024 states,
+//!   reported per state, for M22's bench mixtures (`phasekit_verify::mixtures`). The grid is workload 1's with the
+//!   mixture's reducing state in place of its critical point: SplitMix64 seed 1, T ~ U[1.05·T_r, 1.5·T_r], ρ ~ U[0.1,
+//!   2]·ρ_r. `scalar` runs under `ExecPolicy::Reference`; `simd`, built with `--features simd`, under
+//!   `ExecPolicy::Simd`, where the built-in components run core's lanes.
+//! - `mixture_alphar_parts` (PLAN.md M22.1): where that time goes, per state on the same grid. `residual`: the order-2
+//!   bundle point by point, the path before M22.1. `reducing`: the reducing state at z, which the point pays each time
+//!   and the batch once. `components` and `components_simd`: every component's own `residual_batch` over its scaled
+//!   states. `no_departures` and `no_departures_simd`: the batch with every F set to 0, so the departures' share is the
+//!   batch's time less this one's.
+//!
+//! In the `libm` build, and so in the `simd` build, a case that is not `simd` is named `<case>_libm`
+//! (`backend::case`).
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
+    use std::time::{Duration, Instant};
+
     use criterion::{BenchmarkId, Criterion, criterion_group};
-    use phasekit_core::{Basis, DataSet, Derivs, FlashOptions, Fluid, Input, Order, Pair, Phase, Registry};
-    use phasekit_mix::{Given, Mixture, Side};
+    use phasekit_core::batch::ExecPolicy;
+    use phasekit_core::math::BACKEND;
+    use phasekit_core::{
+        Basis, DataSet, Derivs, FlashOptions, Fluid, HelmholtzModel, Input, Order, Pair, Phase, Registry,
+    };
+    use phasekit_mix::{Binary, Given, Mixture, MultiFluid, Side};
     use phasekit_verify::SplitMix64;
+    use phasekit_verify::backend::case;
+    use phasekit_verify::mixtures::{BENCH_MIXTURES, BenchMixture, MixtureModel};
 
     /// The bench mixture's label.
     const LABEL: &str = "R32&R125";
@@ -147,7 +168,157 @@ mod bench {
         g.finish();
     }
 
-    criterion_group!(benches, mixture_alphar, mixture_dt, mixture_pt, mixture_qt);
+    /// States of the batch benches' grid.
+    const STATES: usize = 1024;
+
+    /// M22's bench mixtures, each with its label, on the `Parity` library.
+    fn bench_mixtures() -> Vec<(&'static str, Fluid)> {
+        let Ok(registry) = Registry::from_embedded(DataSet::Parity) else { return Vec::new() };
+        let build = |m: &BenchMixture| match m.model {
+            MixtureModel::Library => phasekit_mix::mixture(&registry, m.components, DataSet::Parity),
+            MixtureModel::Gerg2008 => phasekit_mix::gerg2008(&registry, m.components),
+        };
+        BENCH_MIXTURES.iter().filter_map(|m| Some((m.label, build(m).ok()?))).collect()
+    }
+
+    /// The batch benches' grid of `eos`: workload 1's at its reducing state, as columns of T and ρ.
+    fn reduced_grid(eos: &dyn HelmholtzModel) -> Option<(Vec<f64>, Vec<f64>)> {
+        let r = eos.reducing()?;
+        let mut rng = SplitMix64::new(1);
+        Some((0..STATES).map(|_| (rng.uniform(1.05 * r.t, 1.5 * r.t), rng.uniform(0.1 * r.rho, 2.0 * r.rho))).unzip())
+    }
+
+    /// Times `run` over the grid's `states` once per iteration, reported per state, as the group's `label`/`case`.
+    fn per_state(
+        g: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+        (label, case): (&str, &str),
+        states: usize,
+        mut run: impl FnMut(),
+    ) {
+        let states = u32::try_from(states).unwrap_or(u32::MAX);
+        g.bench_function(BenchmarkId::new(label, case), |b| {
+            b.iter_custom(|iters| {
+                let start = Instant::now();
+                for _ in 0..iters {
+                    run();
+                }
+                start.elapsed().checked_div(states).unwrap_or(Duration::ZERO)
+            });
+        });
+    }
+
+    /// The policies a batch bench runs under: `Reference` as `case` on this build's maths, and `Simd` as `<case>_simd`
+    /// (`simd` for the batch itself) in the `simd` build.
+    fn policies(case_name: &str) -> Vec<(ExecPolicy, String)> {
+        let simd = if case_name == "scalar" { "simd".to_string() } else { format!("{case_name}_simd") };
+        let simd = cfg!(feature = "simd").then_some((ExecPolicy::Simd, simd));
+        [(ExecPolicy::Reference, case(BACKEND, case_name))].into_iter().chain(simd).collect()
+    }
+
+    /// `eos`'s order-2 `residual_batch` over the grid under each policy, as `label`/`case_name`.
+    fn batch(
+        g: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+        (label, case_name): (&str, &str),
+        eos: &dyn HelmholtzModel,
+        (t, rho): (&[f64], &[f64]),
+    ) {
+        let mut out = vec![Derivs::zero(Order::Two); t.len()];
+        for (exec, case) in policies(case_name) {
+            per_state(g, (label, &case), t.len(), || {
+                let batch = eos.residual_batch(t, rho, Order::Two, &mut out, exec);
+                std::hint::black_box((batch.is_ok(), &mut out));
+            });
+        }
+    }
+
+    fn mixture_alphar_batch(c: &mut Criterion) {
+        let mut g = c.benchmark_group("mixture_alphar_batch");
+        for (label, fluid) in bench_mixtures() {
+            let Some(eos) = fluid.model().helmholtz() else { continue };
+            let Some((t, rho)) = reduced_grid(eos) else { continue };
+            batch(&mut g, (label, "scalar"), eos, (&t, &rho));
+        }
+        g.finish();
+    }
+
+    /// `mix` with every departure function's F set to 0, so that no pair evaluates one.
+    fn without_departures(mix: &Mixture) -> Option<Mixture> {
+        let n = mix.composition().len();
+        let mut model: MultiFluid = mix.model().clone();
+        for (i, j) in (0..n).flat_map(|i| (i + 1..n).map(move |j| (i, j))) {
+            let binary = model.binary(i, j).filter(|b| b.f != 0.0);
+            if let Some(binary) = binary {
+                model = model.with_binary(i, j, Binary { f: 0.0, ..binary }).ok()?;
+            }
+        }
+        Mixture::new(model, mix.composition()).ok()
+    }
+
+    /// Each component's own model and the grid scaled to its state: (T_r,i/τ, δ ρ_r,i), τ and δ the mixture's.
+    fn component_grids<'a>(
+        mix: &'a Mixture,
+        (t, rho): (&[f64], &[f64]),
+    ) -> Vec<(&'a dyn HelmholtzModel, Vec<f64>, Vec<f64>)> {
+        let (t_r, rho_r) = mix.model().reducing_state(mix.composition());
+        let scaled = |eos: &'a dyn HelmholtzModel| {
+            let r = eos.reducing()?;
+            let t_i = t.iter().map(|t| r.t / (t_r / t)).collect();
+            Some((eos, t_i, rho.iter().map(|rho| rho / rho_r * r.rho).collect()))
+        };
+        mix.model().fluids().filter_map(|f| scaled(f.model().helmholtz()?)).collect()
+    }
+
+    fn mixture_alphar_parts(c: &mut Criterion) {
+        let mut g = c.benchmark_group("mixture_alphar_parts");
+        for (label, fluid) in bench_mixtures() {
+            let (Some(mix), Some(eos)) = (mixture(&fluid), fluid.model().helmholtz()) else { continue };
+            let Some((t, rho)) = reduced_grid(eos) else { continue };
+            per_state(&mut g, (label, &case(BACKEND, "residual")), t.len(), || {
+                for (t, rho) in t.iter().zip(&rho) {
+                    std::hint::black_box(eos.residual(std::hint::black_box(*t), *rho, Order::Two));
+                }
+            });
+            per_state(&mut g, (label, &case(BACKEND, "reducing")), t.len(), || {
+                for _ in 0..t.len() {
+                    std::hint::black_box(mix.model().reducing_state(std::hint::black_box(mix.composition())));
+                }
+            });
+            components(&mut g, label, mix, (&t, &rho));
+            if let Some(plain) = without_departures(mix) {
+                batch(&mut g, (label, "no_departures"), &plain, (&t, &rho));
+            }
+        }
+        g.finish();
+    }
+
+    /// Every component's own order-2 `residual_batch` over its scaled grid, under each policy.
+    fn components(
+        g: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+        label: &str,
+        mix: &Mixture,
+        grid: (&[f64], &[f64]),
+    ) {
+        let grids = component_grids(mix, grid);
+        let mut out = vec![Derivs::zero(Order::Two); grid.0.len()];
+        for (exec, case) in policies("components") {
+            per_state(g, (label, &case), grid.0.len(), || {
+                for (eos, t, rho) in &grids {
+                    let batch = eos.residual_batch(t, rho, Order::Two, &mut out, exec);
+                    std::hint::black_box((batch.is_ok(), &mut out));
+                }
+            });
+        }
+    }
+
+    criterion_group!(
+        benches,
+        mixture_alphar,
+        mixture_alphar_batch,
+        mixture_alphar_parts,
+        mixture_dt,
+        mixture_pt,
+        mixture_qt
+    );
 }
 
 #[cfg(not(target_family = "wasm"))]

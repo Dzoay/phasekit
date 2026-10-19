@@ -27,6 +27,16 @@ pub(crate) struct Component {
     pub(crate) rho_r: f64,
 }
 
+impl Component {
+    /// Its residual at the mixture's τ and δ: its own model's at (T_r,i/τ, δ ρ_r,i).
+    pub(crate) fn residual(&self, tau: f64, delta: f64, order: Order) -> Derivs {
+        // `component` admitted only fluids with a Helmholtz model.
+        let part =
+            self.fluid.model().helmholtz().map(|model| model.residual(self.t_r / tau, delta * self.rho_r, order));
+        part.unwrap_or_else(|| not_a_number(order))
+    }
+}
+
 /// A pair with a departure function: its components, F and the function.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Departure {
@@ -34,6 +44,24 @@ pub(crate) struct Departure {
     pub(crate) j: usize,
     pub(crate) f: f64,
     pub(crate) function: &'static DepartureData,
+}
+
+impl Departure {
+    /// Its weight in α^r at mole fractions `x`: x_i x_j F.
+    pub(crate) fn weight(&self, x: &[f64]) -> f64 {
+        at(x, self.i) * at(x, self.j) * self.f
+    }
+}
+
+/// A bundle of NaN to `order`: the part of a component without a Helmholtz model, which `component` refuses.
+pub(crate) fn not_a_number(order: Order) -> Derivs {
+    Derivs::from_fn(order, |_, _| f64::NAN)
+}
+
+/// The multi-fluid sum Σ w·A_ij of weighted parts, entry by entry in the parts' order: one point's residual and each
+/// point of a batch (PLAN.md M22.1) sum through it, so their bits agree.
+pub(crate) fn summed<'a>(order: Order, parts: impl Iterator<Item = (f64, &'a Derivs)> + Clone) -> Derivs {
+    Derivs::from_fn(order, |i, j| parts.clone().map(|(w, part)| w * part.get(i, j).unwrap_or(f64::NAN)).sum())
 }
 
 /// Which multi-fluid model: CoolProp 8.0.0's library over the registry's fluids, or GERG-2008 over its own.
@@ -223,14 +251,12 @@ impl MultiFluid {
         let (tau, delta) = (t_r / t, rho / rho_r);
         let mut parts = Vec::with_capacity(self.components.len().saturating_add(self.departures.len()));
         for (c, xi) in self.components.iter().zip(x) {
-            // `component` admitted only fluids with a Helmholtz model.
-            let part = c.fluid.model().helmholtz().map(|model| model.residual(c.t_r / tau, delta * c.rho_r, order));
-            parts.push((*xi, part.unwrap_or_else(|| Derivs::from_fn(order, |_, _| f64::NAN))));
+            parts.push((*xi, c.residual(tau, delta, order)));
         }
         for d in self.departures.iter() {
-            parts.push((at(x, d.i) * at(x, d.j) * d.f, departure::derivs(d.function, tau, delta, order)));
+            parts.push((d.weight(x), departure::derivs(d.function, tau, delta, order)));
         }
-        Derivs::from_fn(order, |i, j| parts.iter().map(|(w, part)| w * part.get(i, j).unwrap_or(f64::NAN)).sum())
+        summed(order, parts.iter().map(|(w, part)| (*w, part)))
     }
 
     /// The exact virial coefficients at T and mole fractions `x` (E4): B = α^r_δ(τ, 0)/ρ_r and C = α^r_δδ(τ, 0)/ρ_r²,
@@ -248,7 +274,7 @@ impl MultiFluid {
         }
         let dtau_dt = -t_r / (t * t);
         for d in self.departures.iter() {
-            let (w, jet) = (at(x, d.i) * at(x, d.j) * d.f, departure::jet(d.function, tau, 0.0, 3));
+            let (w, jet) = (d.weight(x), departure::jet(d.function, tau, 0.0, 3));
             let at = |i, j| jet.derivative(i, j).unwrap_or(f64::NAN);
             (b, c) = (b + w * at(0, 1), c + w * at(0, 2));
             (db, dc) = (db + w * at(1, 1) * dtau_dt, dc + w * at(1, 2) * dtau_dt);

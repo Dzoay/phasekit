@@ -18,6 +18,7 @@
 
 use std::sync::{Arc, OnceLock};
 
+use phasekit_core::batch::ExecPolicy;
 use phasekit_core::density::Branch;
 use phasekit_core::{
     Basis, Bundle, Capabilities, Constant, CriticalOrigin, CriticalPoint, DataSet, DataTerms, Derivs, DomainPolicy,
@@ -28,6 +29,7 @@ use phasekit_core::{
 use crate::critical::{CriticalState, Criticality, critical_points};
 use crate::equilibrium::{self, Stability};
 use crate::illinois::{End, illinois};
+use crate::multifluid::not_a_number;
 use crate::saturation::{self, Coexisting, Given, Saturation, Side};
 use crate::{Composition, MixtureModel, MultiFluid, Var, gerg};
 
@@ -509,6 +511,26 @@ fn intersection(fluids: &[&Fluid]) -> Result<Limits, Error> {
     Limits::new(t_min.max(f64::MIN_POSITIVE), t_max, p_max)
 }
 
+/// α⁰ from its components' weighted parts at (T, ρ), each part's weight x_i R_i/R, its ln x_i and its α⁰_oi: ln ρ + Σ
+/// w_i (α⁰_oi − ln ρ + ln x_i), the δ-part ln δ's, and Σ w_i A_i0 in τ. One point's α⁰ and each point of a batch
+/// (PLAN.md M22.1) sum through it, so their bits agree.
+pub(crate) fn ideal_sum<'a>(
+    order: Order,
+    ln_rho: f64,
+    parts: impl Iterator<Item = (f64, f64, &'a Derivs)> + Clone,
+) -> Derivs {
+    Derivs::from_fn(order, |i, j| match (i, j) {
+        (0, 0) => {
+            let sum: f64 =
+                parts.clone().map(|(w, ln_z, d)| w * (d.get(0, 0).unwrap_or(f64::NAN) - ln_rho + ln_z)).sum();
+            ln_rho + sum
+        }
+        (0, j) => Derivs::IDEAL_DELTA.get(0, j).unwrap_or(0.0),
+        (i, 0) => parts.clone().map(|(w, _, d)| w * d.get(i, 0).unwrap_or(f64::NAN)).sum(),
+        _ => 0.0,
+    })
+}
+
 impl HelmholtzModel for Mixture {
     fn gas_constant(&self) -> f64 {
         self.fluid.gas_constant()
@@ -518,8 +540,35 @@ impl HelmholtzModel for Mixture {
         self.fluid.residual_at(&self.z, t, rho, order)
     }
 
+    /// The batch at z (PLAN.md M22.1): the reducing state once, each component's own `residual_batch` over its scaled
+    /// states under `exec` (core's lanes for a built-in component under `ExecPolicy::Simd`), the departures point by
+    /// point; each point the bits of [`residual`](Self::residual).
+    fn residual_batch(
+        &self,
+        t: &[f64],
+        rho: &[f64],
+        order: Order,
+        out: &mut [Derivs],
+        exec: ExecPolicy,
+    ) -> Result<(), Error> {
+        self.fluid.residual_batch_at(&self.z, (t, rho), order, out, exec)
+    }
+
     fn ideal(&self, t: f64, rho: f64, order: Order) -> Derivs {
         self.ideal_at(&self.z, t, rho, order)
+    }
+
+    /// The batch at z (PLAN.md M22.1): each component's own `ideal_batch` at (T, ρ) under `exec`, then each point's sum;
+    /// each point the bits of [`ideal`](Self::ideal).
+    fn ideal_batch(
+        &self,
+        t: &[f64],
+        rho: &[f64],
+        order: Order,
+        out: &mut [Derivs],
+        exec: ExecPolicy,
+    ) -> Result<(), Error> {
+        crate::batch::ideal_batch(&self.fluid, &self.ideal_weights(&self.z), (t, rho), order, out, exec)
     }
 
     /// The molar volume's lower bound at T, the components' z-weighted: 1/Σ z_i/ρ_max,i(T).
@@ -547,19 +596,16 @@ impl Mixture {
             .zip(x.iter().zip(self.r_ratio.iter()))
             .map(|(f, (z, r))| {
                 let d = f.model().helmholtz().map(|m| m.ideal(t, rho, order));
-                (*z * r, math::ln(*z), d.unwrap_or_else(|| Derivs::from_fn(order, |_, _| f64::NAN)))
+                (*z * r, math::ln(*z), d.unwrap_or_else(|| not_a_number(order)))
             })
             .collect();
-        Derivs::from_fn(order, |i, j| match (i, j) {
-            (0, 0) => {
-                let sum: f64 =
-                    parts.iter().map(|(w, ln_z, d)| w * (d.get(0, 0).unwrap_or(f64::NAN) - ln_rho + ln_z)).sum();
-                ln_rho + sum
-            }
-            (0, j) => Derivs::IDEAL_DELTA.get(0, j).unwrap_or(0.0),
-            (i, 0) => parts.iter().map(|(w, _, d)| w * d.get(i, 0).unwrap_or(f64::NAN)).sum(),
-            _ => 0.0,
-        })
+        ideal_sum(order, ln_rho, parts.iter().map(|(w, ln_z, d)| (*w, *ln_z, d)))
+    }
+
+    /// Each component's weight in α⁰ at mole fractions `x`: x_i R_i/R and ln x_i, as [`ideal_at`](Self::ideal_at)
+    /// computes them.
+    fn ideal_weights(&self, x: &[f64]) -> Vec<(f64, f64)> {
+        x.iter().zip(self.r_ratio.iter()).map(|(z, r)| (*z * r, math::ln(*z))).collect()
     }
 
     /// The molar volume's lower bound at T for mole fractions `x`, the components' x-weighted: 1/Σ x_i/ρ_max,i(T).

@@ -700,16 +700,10 @@ core to run them in its lanes, as a kernel over `Real` (ML3), and core's batch r
 `ThermoModel` (ML5). A flash's time goes to the composition derivatives, so the spike targets those, through the same
 runner.
 
-- **M22.1 The mixture batch and its scalar baseline.** `Mixture` overrides `residual_batch` and `ideal_batch`: the
-  reducing state once per batch (z is fixed), each component's own `residual_batch` over its scaled (T_i, ρ_i) and its
-  own `ideal_batch` at the mixture's (T, ρ), as `residual_at` and `ideal_at` evaluate them, so a built-in component
-  runs M12's lanes under `ExecPolicy::Simd`, and the departures point by point; the parts summed in the scalar order.
-  GERG-2008's components, the crate's own, run point by point until M22.3. Benches
-  `mixture_alphar_batch/{scalar,simd}` for R32/R125, Methane/Ethane, a five-component natural gas and AGA8's
-  21-component check gas (GERG-2008), recorded on the i7-8700K (§5.1) with the breakdown into components, reducing
-  functions and departures. *Red:* `mixture_batch_is_residual_per_point`, bitwise against per-point `residual` and
-  `ideal` for the bench mixtures at every order under `Reference`, `Parallel` and `Simd`, against a stub returning
-  `Error::Unsupported`. *Done when:* green, and the record holds both benches.
+| Step | Landed |
+|---|---|
+| M22.1 | `Mixture` overrides `residual_batch` and `ideal_batch` (`phasekit-mix`'s `batch` module): the reducing state once per batch, each component's own hook over blocks of 64 points under the batch's policy (at its scaled (T_i, ρ_i) for α^r, at the mixture's (T, ρ) for α⁰), the departures point by point, and each point summed by the code that sums a single point's (`summed`, `ideal_sum`), so a batch is its points' `residual` and `ideal` bit for bit by construction (`mixture_batch_is_residual_per_point`, in `tests/batch.rs`, which CI's lane step runs at every dispatch level). GERG-2008's components take the default hook. M22's bench mixtures are `phasekit_verify::mixtures` (R32/R125 and Methane/Ethane at 50/50 and a five-component natural gas on the library, AGA8's 21-component check gas on GERG-2008). Benches `mixture_alphar_batch/{scalar,simd}` and their breakdown `mixture_alphar_parts` (VERIFICATION.md §12), recorded on the i7-8700K as M22's baseline (`benches/results/M22-intel-core-i7-8700k.csv`): under `Simd` the library mixtures' batches take 0.70-0.84× the same build's scalar time, their components 0.24-0.48×, and the departures 81-88 % of what remains; GERG-2008's gas is unchanged (ML4) |
+
 - **M22.2 Core runs a family's kernels in lanes (ML3).** In `batch`, beside `ExecPolicy`: a public trait whose one
   method is generic over `R: Real`, a pure function from inputs to outputs whose counts each kernel value gives (M22.5's
   Taylor arithmetic has one variable per component, known at run time), and a function that runs it over columns of
