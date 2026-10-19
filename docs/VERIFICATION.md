@@ -886,10 +886,15 @@ This section is the one definition of the bench harness, the C++ baseline and th
   (M12.10) is timed by hand under Node, not by a bench: n-Propane's workloads (2), (3) and (4) plus h, 4096 points of
   a grid of their own as one `Fluid.evaluate` call, the median of 25 calls, on the release baseline and `simd128`
   modules (ARCHITECTURE.md §7 item 5).
-- **Mixture workloads (M13, phasekit only, no §7 target):** `benches/mixture.rs`, whose module comment defines them:
-  `mixture_alphar` (workload (1) at a mixture's composition, R32/R125 at 50/50 and a five-component GERG-2008 gas),
+- **Mixture workloads (M13, M22, phasekit only, no §7 target):** `benches/mixture.rs`, whose module comment defines
+  them: `mixture_alphar` (workload (1) at a mixture's composition, R32/R125 at 50/50 and a five-component GERG-2008 gas),
   `mixture_dt` (direct, stable, dome; M13.10), `mixture_pt` (single, dome) and `mixture_qt` (bubble, dew, interior) on
-  R32/R125.
+  R32/R125. M22's batches run on its bench mixtures (`phasekit_verify::mixtures`: R32/R125 and Methane/Ethane at 50/50
+  and a five-component natural gas on the library, AGA8's 21-component check gas on GERG-2008), on workload (1)'s grid
+  at the mixture's reducing state: `mixture_alphar_batch/{scalar,simd}`, one `residual_batch` call reported per state,
+  and its breakdown `mixture_alphar_parts` into the point-by-point residual, the reducing state, the components' own
+  batches and the batch without departures (M22.1). The `simd` cases are built with `--features simd`, and the others
+  are named `<case>_libm` in a `libm` or `simd` build.
 - **Maths workloads (M23.1, phasekit only, no §7 target):** `benches/math.rs`, `math_per_call/{exp,ln,pow,expm1}`:
   core's `math` functions per call on each function's EOS arguments in `fixtures/math/` (its `eos` set), as independent
   calls (`throughput`) and as a chain in which each call waits for the one before (`chain`). The case is the function on

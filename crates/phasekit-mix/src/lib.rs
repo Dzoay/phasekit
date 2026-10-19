@@ -9,6 +9,7 @@
 // (`gates lints` checks this line); its tests are exempt.
 #![cfg_attr(not(test), deny(clippy::indexing_slicing, clippy::arithmetic_side_effects))]
 
+mod batch;
 mod composition;
 mod corrections;
 mod critical;

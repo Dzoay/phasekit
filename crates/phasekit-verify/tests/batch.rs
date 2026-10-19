@@ -1,6 +1,6 @@
-//! Batch on real fluids (PLAN.md M5.8, M9.1, M12; VERIFICATION.md §9.1, §9.2; ARCHITECTURE.md §7): the batch driver is
-//! the scalar path cell by cell, bit for bit, into point-major buffers, and every executor and thread count gives the
-//! same bits.
+//! Batch on real fluids (PLAN.md M5.8, M9.1, M12, M22; VERIFICATION.md §9.1, §9.2; ARCHITECTURE.md §7): the batch
+//! driver is the scalar path cell by cell, bit for bit, into point-major buffers, every executor and thread count gives
+//! the same bits, and so do a mixture's batch hooks.
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
@@ -11,6 +11,7 @@ use phasekit_core::{
     Basis, DataSet, Density, Derivs, DomainPolicy, Error, FlashOptions, Fluid, HelmholtzModel, Input, Order, Pair,
     Phase, Pressure, Prop, Quality, Registry, RootPolicy, Temperature, math,
 };
+use phasekit_verify::mixtures::{BENCH_MIXTURES, BenchMixture, MixtureModel};
 use phasekit_verify::{SplitMix64, policy_equivalence};
 
 /// Outputs that cover single-phase and two-phase answers and refusals (cp, w and Q are undefined somewhere).
@@ -420,6 +421,73 @@ fn helmholtz_batches_policy_equivalence() {
     assert!(fluids >= 130, "{fluids} fluids");
 }
 
+/// M22's bench mixtures (`phasekit_verify::mixtures`), each as a fluid on the `Parity` library.
+fn bench_mixtures() -> Vec<(&'static str, Fluid)> {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let build = |m: &BenchMixture| match m.model {
+        MixtureModel::Library => phasekit_mix::mixture(&registry, m.components, DataSet::Parity),
+        MixtureModel::Gerg2008 => phasekit_mix::gerg2008(&registry, m.components),
+    };
+    BENCH_MIXTURES.iter().map(|m| (m.label, build(m).unwrap())).collect()
+}
+
+/// PLAN.md M22.1 (VERIFICATION.md §9.1, class `Exact`): a mixture's `residual_batch` and `ideal_batch` are its
+/// `residual` and `ideal` at every point, every entry bit for bit, for M22's bench mixtures at every order under
+/// `Reference`, `Parallel` (16-point chunks) and `Simd`. The points lie between half and twice each mixture's reducing
+/// temperature and up to 2.5 times its reducing density, with ρ = 0 and NaN inputs. Under `Simd`, batches of 0 to 17
+/// points take every remainder of the components' lanes, and the whole set of 130 spans three of the batch's blocks of
+/// 64. Unequal lengths are a `Shape` error.
+#[test]
+fn mixture_batch_is_residual_per_point() {
+    let mut rng = SplitMix64::new(14);
+    let mut mixtures = 0;
+    for (label, fluid) in bench_mixtures() {
+        let eos = fluid.model().helmholtz().unwrap();
+        let r = eos.reducing().unwrap();
+        let (mut t, mut rho): (Vec<f64>, Vec<f64>) =
+            (0..126).map(|_| (rng.uniform(0.5, 2.0) * r.t, rng.uniform(0.0, 2.5) * r.rho)).unzip();
+        t.extend([r.t, 2.0 * r.t, f64::NAN, r.t]);
+        rho.extend([0.0, r.rho, r.rho, f64::NAN]);
+        assert_batches_are_per_point(label, eos, (&t, &rho));
+        assert_shapes_are_refused(label, eos, (&t, &rho));
+        mixtures += 1;
+    }
+    assert_eq!(mixtures, BENCH_MIXTURES.len());
+}
+
+/// [`mixture_batch_is_residual_per_point`]'s checks of one model: both parts at every order, the whole set under
+/// `Reference` and `Parallel`, and under `Simd` its prefixes of 0 to 17 points and the whole set.
+fn assert_batches_are_per_point(name: &str, eos: &dyn HelmholtzModel, (t, rho): (&[f64], &[f64])) {
+    let parallel = ExecPolicy::Parallel { chunk: NonZeroUsize::new(16).unwrap() };
+    let orders = [Order::One, Order::Two, Order::Three, Order::Four];
+    for (order, part) in orders.into_iter().flat_map(|o| [(o, Part::Residual), (o, Part::Ideal)]) {
+        for exec in [ExecPolicy::Reference, parallel] {
+            assert_batch_is_per_point(name, eos, part, (t, rho), order, exec);
+        }
+        for n in (0..=17).chain([t.len()]) {
+            assert_batch_is_per_point(name, eos, part, (&t[..n], &rho[..n]), order, ExecPolicy::Simd);
+        }
+    }
+}
+
+/// A Helmholtz model's batch hooks refuse unequal lengths with a `Shape` error naming the batch's lengths (not a
+/// component's or a block's) under every policy, and run an empty batch.
+fn assert_shapes_are_refused(name: &str, eos: &dyn HelmholtzModel, (t, rho): (&[f64], &[f64])) {
+    let parallel = ExecPolicy::Parallel { chunk: NonZeroUsize::new(16).unwrap() };
+    let (mut short, mut out) = (vec![Derivs::zero(Order::Two); t.len() - 1], vec![Derivs::zero(Order::Two); t.len()]);
+    let (n, m) = (t.len(), t.len() - 1);
+    for (shape, (expected, found)) in [
+        (eos.residual_batch(t, rho, Order::Two, &mut short, ExecPolicy::Reference), (n, m)),
+        (eos.residual_batch(t, &rho[1..], Order::Two, &mut out, ExecPolicy::Simd), (n, m)),
+        (eos.ideal_batch(t, rho, Order::Two, &mut short, ExecPolicy::Simd), (n, m)),
+        (eos.ideal_batch(&t[1..], rho, Order::Two, &mut out, parallel), (m, n)),
+    ] {
+        assert_eq!(shape, Err(Error::Shape { expected, found }), "{name}");
+    }
+    assert!(eos.residual_batch(&[], &[], Order::Two, &mut [], parallel).is_ok(), "{name}: empty batch");
+    assert!(eos.ideal_batch(&[], &[], Order::Two, &mut [], ExecPolicy::Simd).is_ok(), "{name}: empty α⁰ batch");
+}
+
 /// The part of α a Helmholtz batch hook evaluates.
 #[derive(Clone, Copy, Debug)]
 enum Part {
@@ -440,11 +508,11 @@ fn assert_batch_is_per_point(
     exec: ExecPolicy,
 ) {
     let mut out = vec![Derivs::zero(order); t.len()];
-    match part {
+    let called = match part {
         Part::Residual => eos.residual_batch(t, rho, order, &mut out, exec),
         Part::Ideal => eos.ideal_batch(t, rho, order, &mut out, exec),
-    }
-    .unwrap();
+    };
+    assert!(called.is_ok(), "{name} {part:?} {order:?} {exec:?}, {} points: {called:?}", t.len());
     let bits = |d: &Derivs| {
         (0..=4)
             .flat_map(|n| (0..=n).map(move |i| (i, n - i)))

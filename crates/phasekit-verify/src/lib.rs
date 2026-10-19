@@ -9,6 +9,7 @@ pub mod fixture;
 pub mod flash;
 pub mod lock;
 pub mod majorant;
+pub mod mixtures;
 pub mod register;
 pub mod sample;
 pub mod saturation;
