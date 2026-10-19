@@ -7,6 +7,10 @@ instructions::kernel::alphar_order2.n_propane,79656
 instructions::kernel::alphar_order2.r134a,58022
 instructions::kernel::alphar_order2.water,269551
 instructions::kernel::lookup_by_name.name,1956
+instructions::kernel::mixture_alphar.natural_gas,3856189
+instructions::kernel::mixture_alphar.r32_r125,355967
+instructions::kernel::mixture_pt.r32_r125,37990180
+instructions::kernel::mixture_qt.r32_r125,73728896
 instructions::kernel::ph_flash.methane,1049207
 instructions::kernel::ph_flash.n_heptane,536586
 instructions::kernel::ph_flash.n_propane,777613
