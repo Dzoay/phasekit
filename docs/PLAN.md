@@ -99,8 +99,8 @@ reorder or split steps need a reviewer's. Once a step has been merged, its ID ne
 |---|---|---|
 | Cubic, PC-SAFT | New families must prove the zero-core-edit seam on a stable core first (D3) | M11, M15 |
 | Mixtures, GERG, true-mixture blends | Composition stays out of the core contract; mixtures are a family crate (D4) | M13 |
-| IF97, ice Ih, solids | Gibbs families arrive through the seam proved at M5 (D10) | M14 |
-| INCOMP, humid air (real `HAPropsSI`) | Own `ThermoModel`s; humid air needs water, air and ice models (map 07 §9) | M17, M18 |
+| IF97, ice Ih, solids | Gibbs families arrive through the seam proved at M5 (D10) | M14: ice and IF97 below 623.15 K, what humid air needs (user decisions HA1, HA4); M26: the rest of IF97 |
+| INCOMP, humid air (real `HAPropsSI`) | INCOMP its own `ThermoModel`; humid air its own type over water, air, IF97-water and ice models (map 07 §9; user decision HA4) | M17, M18 |
 | SIMD lanes | Investigated in a time-boxed spike, shipped if it is faster than the scalar path (D9; Kernel's fatal flaw; user decision TG1) | M12, which may land before the `v0.1.0` tag as an opt-in feature (user decision RL4) |
 | Python | After v0.1, own namespace + `compat` (user decision 7) | M16 |
 | Plotting | After the mixtures milestone (user decision 13); diagram geometry, drawn by the site (user decision WS4) | M19 |
@@ -468,8 +468,9 @@ conformance kit (VERIFICATION.md §10) and, where marked, a **zero-line core dif
 ```text
 v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
       ├─ M13 mixtures ────── M19 diagram geometry
-      ├─ M14 IAPWS, ice ──── M18 humid air
-      ├─ M21 site: M21.1, M21.7, M21.2, M21.8, M21.9, M21.3, M21.4, M21.10 landed, M21.5 after M13, M21.6 after M19
+      ├─ M14 ice, IF97 water ─ M18 humid air (its chart drawn at M21.11); M26 the rest of IF97 on demand
+      ├─ M21 site: M21.1, M21.7, M21.2, M21.8, M21.9, M21.3, M21.4, M21.10 landed, M21.5 after M13, M21.6 after M19,
+      │  M21.11 after M18
       └─ M12 SIMD spike, M16 Python, M17 INCOMP; on demand: Tier B shim, WIT, network service, materials
 ```
 
@@ -478,18 +479,19 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M11 | `phasekit-cubic` | The user's word, before `v0.1.0` (user decision CB2) | vdW/SRK/PR via Δ1/Δ2, Soave/MC/Twu alpha, parameters from the canonical fluid records, borrowed HEOS ideal gas, cubic superancillary (map 06 U1-U5), eight steps: [M11 Cubic family](#m11-cubic-family) | Zero-line core diff; `new_family` conformance; cubic-R register entry (below); DIV-0010 proof by the entropy identity (oracle PR propane 400 K, 1 bar: T(∂s/∂T)_p = 91.35 vs cp = 93.89 J/mol/K; map 12 §6.3); Z_c = 1/3 (SRK), 0.30740 (PR) (map 06 §8) |
 | M12 | core `simd` feature | Built from 2026-10-13 in a worktree; merged when green, before the `v0.1.0` tag if it is ready first (user decision RL4) | A time-boxed SIMD spike (the user's follow-up asks to investigate SIMD), ten steps: [M12 SIMD lanes](#m12-simd-lanes) | ≥ 2.5× α^r batch throughput on AVX2 over the scalar path is the target (user decisions SL3, TG1); the feature ships if it is faster than the scalar path, otherwise the spike's measurements are recorded and the stack closed (D9) |
 | M13 | `phasekit-mix` | The user's word, before `v0.1.0` (user decision MX1) | `Mixture: HelmholtzModel` at fixed z, own `ThermoModel` (stability, VLE, critical points, phase envelopes, `from_split`), `MixtureModel` with AD composition derivatives, GERG-2008 (`GERG2008::`, from NIST's AGA8 code), compat `A[x]&B[y]` in Rust, C and the browser, true-mixture variants (`R410A.mix`) registered beside the pseudo-pure names (D4, user decisions 4, MX2-MX7), sixteen steps: [M13 Mixtures](#m13-mixtures) | One core seam step (M13.1, MX2), then the core frozen from `m13-start`; x = [1, 0] is the pure fluid under any gauge (map 04 §8, map 15 §8); GERG teqp vectors and the AGA8 check state (map 06 U7); Bell 2023 Table XIII; DIV-0013 resolved |
-| M14 | `phasekit-iapws` | v0.1 + a water/steam or solid use case | IF97 regions 1-5 with backward equations, ice Ih (R10-06) and sublimation (R14-08) on `bundle_from_gibbs`, `from_split` for ice + vapour (map 07 §9) | **Zero-line core diff**; IAPWS tables first, oracle second; `gibbs_seam` conformance on real models |
+| M14 | `phasekit-iapws` | The user's word, 2026-10-20, as humid air's prerequisite (user decisions HA1, HA4) | What humid air takes from IAPWS: ice Ih (R10-06(2009)) and its sublimation curve (R14-08(2011)) on `bundle_from_gibbs` and `from_split`, and IF97's regions 1, 2 and 4 below 623.15 K as one `Fluid`, neither named in compat's strings yet (HA5); one core seam step first, the virials' second T-derivatives (HA6); five steps: [M14 Ice and IF97 water](#m14-ice-and-if97-water) | **Zero-line core diff** from `m14-start`; IAPWS tables first, oracle second (v8.0.0's `IF97::Water`; it has no ice to compare); the conformance kit on IF97 water; `gibbs_seam`'s checks on the real ice model |
 | M15 | `phasekit-pcsaft` | M11 done + demand | Hard chain, dispersion, association, polar terms on `Jet4` (map 06 U9-U11) | Zero-line core diff; teqp/FeOs cross-checks; oracle only where map 06 §8 says it is usable |
 | M16 | `phasekit-py` | v0.1 + demand | pyo3 abi3 wheels, import name `phasekit`, `phasekit.compat.PropsSI(...)`, GIL released around kernel calls, NumPy `(N, M)` point-major (user decisions 7, 11; R16) | map 14 U1 Python-contract fixtures for the compat surface; installs beside `CoolProp` |
 | M17 | `phasekit-incomp` | v0.1 + demand | INCOMP fits as a `ThermoModel`, placeholders rejected at datagen, `Example*` fluids excluded, restricted data off by default (map 07 §9; D14) | Source tables; known-bad register (map 07 I1-I14) |
-| M18 | `phasekit-humidair` | M14 done (ice) | RP-1485 humid air on injected Water, Air and ice `Fluid`s (map 07 H3); HA strings in compat; the shim's real `HAPropsSI` replaces the stub; `pk_*` gains humid-air symbols (D11) | RP-1485 tables (map 10 §8.1, ~120 values); `HAPropsSI("H","T",300,"P",1e5,"R",0) = 27013.112479771713` (map 11 §8) |
+| M18 | `phasekit-humidair` | M14 closed (user decision HA1) | RP-1485 humid air on injected Water, Air, IF97-water and ice `Fluid`s (map 07 H3) with its transport; compat's `HAPropsSI`, the `pk_*` humid-air symbols and the shim's real `HAPropsSI` (D11), the browser package, and a psychrometric chart's geometry in `phasekit-diagram`, drawn by the site at M21.11 (HA3); ten steps: [M18 Humid air](#m18-humid-air) | The authors' printed tables and IAPWS G7-04, G8-10 and G11-15 under `Corrected` (HA2); the oracle under `Parity`, `HAPropsSI("H","T",300,"P",1e5,"R",0) = 27013.112479771713` among it (map 11 §8); the core unchanged since `m14-start` |
 | M19 | `phasekit-diagram` (T1f; user decision DG1) | M13 done (user decision 13); the user's word, 2026-10-20 | Geometry, not drawing (user decision WS4): saturation domes, isolines of T, p, h, s, ρ and quality on the p–h, T–s, p–T, T–ρ and h–s planes, split at the dome and at failed cells, sampled more densely where a line bends, with labels and ranges; M13's phase envelopes, passed in as data (DG3); the phase regions (DG2); over saturation, `flash` and batch; the browser package serves it to the site (M21.6); six steps: [M19 Diagram geometry](#m19-diagram-geometry) | Every vertex reproduces its line's value within `Flash`; a line's dome crossings are the saturation states at its value (`Exact` against `QT` or `PQ`, and `QS`, `HQ` or `DQ`); M21.2's checks pass on its geometry; the site's screenshots re-approved at M21.6 |
 | M20 | core, compat, verify, CI | M12 landed (user decision PL1) | Four follow-ups: Cv, Cp, w, τ and δ as derivative variables; the conformance kit's `identities` and `part_additivity`; the intra-doc link check; the nightly report: [M20 Follow-ups](#m20-follow-ups) | Each step's checks; G1-G8 |
-| M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19, mutation testing of the site's code, picking states on the diagrams, phase regions, how a property is calculated; ten steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
+| M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19, mutation testing of the site's code, picking states on the diagrams, phase regions, how a property is calculated, a psychrometric chart after M18 (user decision HA3); eleven steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
 | M22 | `phasekit-mix`, core `batch` and `ThermoModel` | After M13 closes (user decision ML2) | Mixtures in lanes: α^r and α⁰ batches at fixed z through the components' lane kernels with the departures in lanes, hinted DT batches through a group hook on `ThermoModel`, the `simd128` build, then a time-boxed spike putting a flash's two phases and its stability test's trial phases in lanes; core runs a family's kernels over `Real` in its private lanes (user decisions ML1, ML3, ML5), eight steps: [M22 Mixture lanes](#m22-mixture-lanes) | Each kernel ships if faster than the scalar path (ML4); `policy_equivalence` bitwise at every dispatch level; G1-G9, and G1-G8 with `--features simd` |
 | M23 | core `math` | After M13 closes (the core is frozen until `m13`, MX2); independent of M22 | In-house `exp`, `ln`, `pow` and `expm1` under 1 ulp, ported from Arm's optimized-routines, one code for the scalar path and the lanes; every build's maths if they pass M9.5's rule, so `simd` leaves `libm`; then an opt-in `fast` feature with FMA on every target (user decisions IM1-IM5, IM7-IM11), nine steps: [M23 In-house maths](#m23-in-house-maths) | Under 1 ulp on the reference values (IM3); lanes bitwise at every dispatch level; each committed hash one across the four targets; M9.5's rule applied and recorded (IM1); G1-G9, and G1-G8 with `--features simd` and with `--features fast` |
 | M24 | compat, capi, wasm, mix, core | The user's word, 2026-10-18, before `v0.1.0` (user decision PH1) | Panics at the facades (issue #219): fault injection along every C export's path, the browser package's panic hook, and clippy's `indexing_slicing` and `arithmetic_side_effects` denied in the crates it reaches: [M24 Panics at the facades](#m24-panics-at-the-facades) | The fault-injection tests; clippy clean with both lints; `gates perf` |
 | M25 | xtask, `.gitattributes`, docs | The user's word, 2026-10-18, beside M24; its mutants step after `m24` (user decision LM6) | Lists that merge, kept as text (LM1): `ci/test-counts.txt` by a merge driver, ROT ids unique and the register merged by union, one file per decision section, mutant exclusions as markers in the code: [M25 Lists that merge](#m25-lists-that-merge) | Each step's red tests; G1-G8; `actionlint` clean |
+| M26 | `phasekit-iapws` | A steam use case (user decision HA1) | The rest of IF97: region 2 above 623.15 K with the B23 boundary, region 3 (SR3-03's backward v(T, p) refined by Newton, ROT-241) and region 5, the backward equations for HP, PS and HS, IF97's transport (R12-08, R15-11), and `IF97::Water` by name in compat, C and the browser package (HA5); map 07 §9's `if97-*` units | Zero-line core diff; R7-97(2012)'s other tables and SR3-03 Table 5; the `if97` oracle kind over all five regions |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
@@ -619,6 +621,185 @@ ROT-210 (M13.6); ROT-187 (M13.7); ROT-009, ROT-181, ROT-183, ROT-186 (M13.8); RO
 ROT-190 (M13.10); ROT-184, ROT-201, ROT-293 (M13.11); ROT-188, ROT-189 (M13.12); ROT-196, ROT-292 (M13.13). **User
 decisions implemented.** MX1-MX7; 4 (the `.mix` variants).
 
+### M14 Ice and IF97 water
+
+**Goal.** What humid air takes from IAPWS, as a family crate, `phasekit-iapws`, on core's public seams (D3, D10;
+ARCHITECTURE.md §11): ice Ih (IAPWS R10-06(2009)) with its sublimation curve (R14-08(2011)), and IF97's regions 1, 2
+and 4 below 623.15 K (R7-97(2012)) as one `Fluid`, liquid, vapour and saturation (user decisions HA1, HA4). Neither is
+named in compat's strings: they are Rust functions, `if97()` and `ice(water, data_set)`, reached from strings through
+humid air (HA5). IF97's region 2 above 623.15 K, regions 3 and 5, its backward equations and the name `IF97::Water` are
+M26's. **Entry.** The user's word, 2026-10-20, as M18's prerequisite (HA1). The steps merge in order when green, in
+three PRs, a commit and a `Plan-Step:` footer each (as LM7 bundled M25's): M14.1 alone, since it changes the core;
+M14.2 and M14.3; M14.4 and M14.5. **Prerequisites.** User decisions HA1, HA4-HA6; M14.1's core seam, after which
+`m14-start` is tagged and the core stays frozen to M18's close (HA6). **Arbiters**, all free from IAPWS (attribution
+required, so the crate's NOTICE carries it):
+- R7-97(2012) Table 5 (region 1: v, h, u, s, c_p and w at three states, 18 values), Table 15 (region 2, the same at
+  three states, 18), Tables 35 and 36 (p_s at 300, 500 and 600 K; T_s at 0.1, 1 and 10 MPa), nine digits.
+- R10-06(2009) Table 6: 16 quantities (g and its five derivatives, h, f, u, s, c_p, ρ, α, β, κ_T, κ_s) at the triple
+  point, the normal melting point and (100 K, 100 MPa), 48 values, mostly twelve digits.
+- R14-08(2011) Table 3's sublimation row, p = 8.94735 × 10⁻⁶ MPa at 230 K (transcribed at M8.2).
+
+The oracle is v8.0.0's `IF97::Water` backend, through `PropsSI`, for IF97 only: v8.0.0's ice (`src/Ice.cpp`) is reached
+only through humid air, so the ice model has the tables, the identities and its consistency with IAPWS-95's vapour.
+M14 closes by setting `MILESTONE` to 15.
+
+- **M14.1 Core's seam for humid air (HA6).** `Virials` gains `d2b_dt2` and `d2c_dt2`: each residual block's
+  zero-density series (power, τ-exponential, Gaussian, GaoB, non-analytic) is taken to its second τ-derivative, with
+  T²d²/dT² = τ²d²/dτ² + 2τd/dτ; every other `zero_density` in the workspace gives them too (`phasekit-cubic`'s,
+  `phasekit-mix`'s, the out-of-tree van der Waals of `tests/new_family.rs`). *Red:* `tests/virials.rs` on all 136 fluids, the cubic family and two
+  mixtures, against central differences of the exact dB/dT and dC/dT within `Fd`, and against num-dual's second
+  derivative of the series (`Identity`), on fields that are NaN until the series land.
+- **M14.2 The crate, IF97's region 1 and its saturation line.** `m14-start` on M14.1's merge commit, named in
+  `ci/core-frozen.txt`; `crates/phasekit-iapws` on `phasekit-core` alone (T1f, `gates deps`; a hardened root of
+  `gates lints`), PR scope `iapws` (`pr-title.yml`, CONTRIBUTING.md); the three releases' tables transcribed and
+  double-entered (`paper/Water/IAPWS-R7-97-2012.{5,15,35,36}.csv`, `IAPWS-R10-06-2009.6.csv`) with their
+  `ARBITERS` records. Region 1's γ(π, τ) (Table 2, 34 terms) and its six Gibbs derivatives in one pass over the terms
+  (ROT-243), as `GibbsDerivs`; region 4's p_s(T) and T_s(p) (Eqs. 30 and 31, Table 34); IF97's own R, 461.526 J/(kg K)
+  (Eq. 1), with IAPWS-95's molar mass. Oracle kind `if97`: v8.0.0's `IF97::Water` at PT states in region 1 and at QT
+  and PQ along region 4, within `Prop`. *Red:* Table 5's 18 values and Tables 35 and 36's six within their printed
+  digits (`Paper`), against region functions that return `Unsupported`.
+- **M14.3 Region 2, and IF97 water as a `Fluid` (HA4).** Region 2 below 623.15 K: γ⁰ (Table 10, nine terms) and γ^r
+  (Table 11, 43 terms). `if97()`: PT in region 1 where p ≥ p_s(T) and in region 2 where p ≤ p_s(T), from 273.15 to
+  623.15 K and to 100 MPa, region 2 down to 0 Pa (ROT-242's region-2 half), each state from `bundle_from_gibbs` and
+  `State::from_total`; QT and PQ at any Q along region 4, each side its region's state at (T, p_s), through
+  `State::from_split`, its curve `SatAccuracy::Definition`; every other pair `Unsupported`. The conformance kit
+  (VERIFICATION.md §10) on it: the capability matrix, `identities`, `gauge_invariance`, `policy_equivalence` on PT, QT
+  and PQ batches, `thread_invariance`; the `if97` rows extended to region 2 and both saturated sides. ROT-243's bench:
+  PT + h + c_p per state in regions 1 and 2, recorded beside map 07 R8's 750 ns for v8.0.0's `fast_evaluate`. *Red:*
+  Table 15's 18 values and the kit, against an `if97()` whose flash is `Unsupported`.
+- **M14.4 Ice Ih.** `ice(water, data_set)`: R10-06(2009)'s Gibbs function, Eqs. (1)-(4) with Table 2's coefficients,
+  its complex constants t₁, t₂ and r₁ and polynomial r₂ in a private complex type (std only), g and its five derivatives (ROT-248); PT to
+  `Phase::Solid` through `bundle_from_gibbs` and `State::from_total`, 0 < T ≤ 273.16 K and p ≤ 210 MPa (§5 of the
+  release). g₀₀ by data set: `Corrected` the 2009 revision's −632 020.233 335 886 J/kg, `Parity` v8.0.0's 2006 value,
+  1.1e-4 J/kg lower in g (map 15 §2), under a new `UsePaper` entry (ROT-247), its proof Table 6 under `Corrected` and
+  that offset under `Parity`. *Red:* Table 6's 48 values within their printed digits, and c_p, α and κ_T against the
+  identities, against an `ice()` whose PT is `Unsupported`.
+- **M14.5 Sublimation, and M14 closed.** The ice model's sublimation curve, R14-08(2011) Eq. (6) from 50 to 273.16 K,
+  its vapour side the borrowed IAPWS-95 water's state at (T, p_subl), evaluated through `fluid.model()` (ROT-104's
+  rule), its ice side its own: QT and PQ through `State::from_split`, ice the denser phase. `tests/gibbs_seam.rs`'s
+  registry (`with_model`), reference-state, batch and compat checks run on the real ice model beside `ToyIce`. M14
+  closed: `MILESTONE` = 15; the core unchanged since `m14-start`, whose tag `ci/core-frozen.txt` keeps naming through
+  M18 (HA6); every M14 proof due and present and every M14 ROT row ticked; ARCHITECTURE.md's crate table and §11,
+  VERIFICATION.md §10 and the README name the crate; tag `m14` with the user's approval. *Red:* Table 3's row at 230 K
+  within its printed digits; from 130 K (the release's lower bound for sublimation from IAPWS-95) to 273.16 K, ice's
+  Gibbs energy and IAPWS-95 vapour's are equal at a pressure within the release's estimated uncertainty of p_subl (its §6), the largest gap recorded in the test.
+
+**Exit gate.** G1-G8 at every step; `gates core-frozen` since `m14-start`; the IAPWS tables within their printed
+digits; the `if97` oracle within `Prop`; the conformance kit on IF97 water; `gibbs_seam`'s checks on the real ice
+model. **ROT rows.** M14.2: ROT-246. M14.3: ROT-242 (region 2's half), ROT-243. M14.4: ROT-247, ROT-248. M14.5:
+ROT-290, ROT-275 (its IF97 part). **User decisions implemented.** HA1, HA4, HA5, HA6.
+
+### M18 Humid air
+
+**Goal.** RP-1485's humid air (Herrmann, Kretzschmar and Gatley 2009; map 07 §3.3), a virial mixture of dry air and
+water vapour, as `phasekit-humidair` on core's public API alone (T1f), taking its four parts as `Fluid`s at
+construction (map 07 H3, ROT-263): IAPWS-95 water (its virials and ideal gas), Lemmon's dry air, M14's IF97 water (the
+saturation line and the liquid above 0 °C) and M14's ice (the sublimation curve and the solid below). `HumidAir` is
+its own type, not a `ThermoModel`: a state takes three inputs, one of them a humidity, which no `Pair` names, so
+ARCHITECTURE.md §11's row says so. It reaches compat's `HAPropsSI`, the `pk_*` ABI and the shim's real `HAPropsSI`
+(D11), the browser package, a psychrometric chart's geometry in `phasekit-diagram`, drawn by the site at M21.11, and
+the transport outputs μ and k (user decision HA3). **Entry.** M14 closed (HA1). The steps merge in order when green,
+in seven PRs, a commit and a `Plan-Step:` footer each: M18.1 and M18.2; M18.3; M18.4; M18.5 and M18.6; M18.7; M18.8;
+M18.9 and M18.10. **Prerequisites.** User decisions HA1-HA6; M14's models; core frozen since `m14-start`.
+**Arbiters** (HA2), free and transcribed, double-entered, under `paper/HumidAir/`:
+- The authors' tables (Herrmann, Kretzschmar and Gatley, *Tables of property values for moist air*, the supplement to
+  HVAC&R Research 15(5) 961-986, 2009, on their faculty's site): Tables 1 and 2, saturated moist air at 101.325 kPa
+  from −60 to 90 °C (W_s, v_s, h_s, s_s); Tables 5-14, at 200 and 320 °C and 0.101325 to 10 MPa (W, t_wb, v, h, s,
+  and φ at 200 °C from 2 MPa). 570 values in the SI tables, within their printed digits (`Paper`).
+- IAPWS G11-15 Table 7, the seven virials at 200, 300 and 400 K (21 values): B_aa, C_aaa, B_ww and C_www are the exact
+  virials of Lemmon's air and IAPWS-95, which RP-1485 takes "according to Feistel et al." (ASHRAE's LibHuAirProp
+  guide §1.3); IAPWS G8-10 Table 15, B_aw, C_aaw and C_aww with their first two T-derivatives (27 values).
+- IAPWS G7-04 Table 6, Henry's constants of N₂, O₂ and Ar at 300 to 600 K (12 values; Ar at 600 K is outside its fit).
+
+The full RP-1485 report (its equations and the appendix tables of virials, f, κ_T and Henry's constant), Nelson and
+Sauer (2002), whose C_aaw and C_aww RP-1485 takes, and Tsilingiris (2008), the transport's mixing rule, are not in hand
+(section 6). Where an equation is the report's, it is taken as v8.0.0's `HumidAirProp.cpp` writes it, and the authors'
+tables arbitrate the result. ASHRAE's LibHuAirProp guide is cited as evidence of which formulation each part takes; its
+licence is personal use, so none of its numbers is committed. The oracle is v8.0.0's `HAPropsSI` and `HAProps_Aux`
+under `Parity`, which keeps v8.0.0's choices (user decision 2): the IAPWS-95 saturation pressure in f, IAPWS-95's κ_T
+at IF97's density (map 07 H3), IF97's p_ws in Henry's constant, IAPWS-95's ideal gas with v8.0.0's offsets (map 15
+§2.1), the 2006 ice g₀₀. `Corrected` follows RP-1485 as ASHRAE's guide describes it, and the authors' tables decide:
+v8.0.0's h_s at 25 °C and 101.325 kPa is 76.5045 kJ/kg, Table 2's 76.503. M18 does not move `MILESTONE`: M15 stays
+the first open milestone.
+
+- **M18.1 The crate, its parts and the virials.** `crates/phasekit-humidair` on `phasekit-core` alone (T1f, `gates
+  deps`; a hardened root of `gates lints`), PR scope `humidair`; its dev-dependencies `phasekit-iapws` and Air's data.
+  `HumidAir::new(Parts { water, air, liquid, ice }, data_set)`, each part checked at construction with a typed error
+  naming it (no exact virials, not water's molar mass, no sublimation curve); options by value, no globals or
+  thread-locals (ROT-267, ROT-268). RP-1485's constants with their sources (ROT-264): R = 8.314472 J/(mol K), M_a =
+  28.966 g/mol (Gatley et al. 2008), M_w = 18.015268 g/mol, dry air's N₂, O₂ and Ar fractions. The seven virials with
+  two T-derivatives each: B_aa and C_aaa from the air part's exact virials, B_ww and C_www from the water part's
+  (HA6), B_aw (Harvey and Huang 2007), C_aaw and C_aww as v8.0.0 has them in both data sets, under a new `KeepOracle`
+  entry (ROT-271): RP-1485 takes both from Nelson and Sauer (2002), not in hand; G8-10's Table 4, Hyland and Wexler's
+  (1983), matches v8.0.0's C_aaw, and its C_aww differs by 7.3e-5 at 300 K (b₀ and b₁ in the sixth digit), measured
+  in the entry. Oracle kind `humidair_aux`: v8.0.0's `HAProps_Aux` virials from 200 to 450 K. *Red:* G11-15 Table 7
+  (C_aww within the entry's measured difference) and G8-10 Table 15 within their printed digits, against virials that
+  return `Unsupported`.
+- **M18.2 Saturation and the enhancement factor.** p_ws from the liquid part's saturation at T ≥ 273.16 K and the ice
+  part's sublimation below, one predicate for the side (ROT-263; v8.0.0 mixes `>` and `>=`); κ_T and the molar volume
+  of the condensed phase from its part's state at (T, p), a typed input (ROT-261), with no correlation inside IF97's
+  saturation band (ROT-270); Henry's constant of dry air from G7-04's Eq. (3) over its own vapour-pressure equation
+  (Eq. 4) under `Corrected`, and as v8.0.0 (IF97's p_ws, its 0.7812, 0.2095 and 0.0093 fractions) under `Parity`; f by
+  Newton on RP-1485's Eq. (3.25), with `NoConvergence` where it fails (ROT-265); ψ_w from W, φ and the dew or frost
+  point, and W_s. `humidair_aux` rows gain f, p_ws, β_H and v̄_ws (not κ_T: v8.0.0's passes density as pressure, map
+  07 H1). *Red:* G7-04 Table 6's 12 values within their printed digits; Tables 1 and 2's W_s (31 temperatures) under
+  `Corrected`; f and p_ws against the oracle under `Parity`.
+- **M18.3 The moist-air state.** At (T, p, ψ_w): the molar volume by Newton on the virial equation of state; h, s and
+  u per kilogram of dry air and of humid air, and c_p, c_v and w from the virials' derivatives (HA6), with no finite
+  differences (ROT-269); Z. Ideal-gas parts: dry air's from the air part's α⁰; water vapour's from IF97 region 2's γ⁰
+  at T ≥ 273.16 K and IAPWS-95's α⁰ below under `Corrected`, IAPWS-95's throughout with v8.0.0's offsets under
+  `Parity`; dry air's h and s zero at 273.15 K and 101.325 kPa, liquid water's u and s zero at the triple point. The
+  oracle kind `humidair`: v8.0.0's `HAPropsSI` at (T, P, R) and (T, P, W) grids from −60 to 350 °C and 0.01 kPa to 10
+  MPa, every output M18.3 serves. *Red:* Tables 1 and 2's v_s, h_s and s_s (93 values) and Tables 5-14's v, h and s at
+  their W within their printed digits under `Corrected`; `HAPropsSI("H","T",300,"P",1e5,"R",0) = 27013.112479771713`
+  (map 11 §8) and the `humidair` rows within `Prop` under `Parity`, each difference between the two a register entry.
+- **M18.4 Every input triple.** `HumidAir::state(p, a, b)`: the pressure and two of T, W, ψ_w, φ, T_dp, T_wb, h, s and
+  v, as v8.0.0's `HAPropsSI` takes them (map 07 §2.3): T and a humidity directly; T and h, s, v or T_wb by a bracketed
+  solve in W; a humidity and h, s, v or T_wb by one in T; any other pair a typed refusal. The dew or frost point by
+  Newton from the saturation temperature at p_w (ROT-266), refused for dry air (ROT-272); the wet or ice bulb by
+  adiabatic saturation, the condensed phase's h from its part through `fluid.model()` (ROT-104), the triple-point gap
+  reported. *Red:* Tables 5-14's t_wb (106 values) and φ (22) within their printed digits; `gauge_invariance` of every
+  output, T_wb included, with the water and IF97 parts under the NBP and IIR states; round trips through every triple
+  within `Flash`; the `humidair` rows across the input triples.
+- **M18.5 Transport (HA3).** μ and k by Tsilingiris's mixing as v8.0.0 has it (map 07 §3.3), dry air's from the air
+  part at (T, p) and water vapour's from the water part as saturated vapour at the total pressure (map 07 H2) in both
+  data sets, until the paper arrives (section 6; ROT-262 stays deferred): oracle only, labelled provisional. *Red:* the
+  `humidair` rows' M and K within `TransportDirect`.
+- **M18.6 Compat's `HAPropsSI`.** `phasekit_compat::HAPropsSI(output, name1, value1, name2, value2, name3, value3)`
+  with v8.0.0's names and aliases (`Name2Type`, map 07 §2.3), compat's `FillPolicy` and a batch; the four parts built
+  once from compat's registry and `phasekit-iapws` (`gates features` lets `phasekit-iapws` and `phasekit-humidair` into
+  compat's tree); no echo of an output equal to an input (ROT-165's rule). New `SkipOracle` entries for v8.0.0's echo
+  (`HAPropsSI("T","T",300,"P",101325,"R",5)` = 300, map 07 H10) and its dry-air dew point, 149.395 K (map 07 H14). *Red:* the
+  `humidair` rows through the strings, every name and alias, and the refusals.
+- **M18.7 The C ABI.** `pk_*`'s humid-air symbols (a handle on a registry, a state from three named inputs, the
+  outputs), its committed header and `gates abi`; the shim's `HAPropsSI` real, its `errstring` the typed error's, the
+  stub's message and test removed (D11); the FP guard on the new exports (M10.7); MIGRATION.md's `HAPropsSI` paragraph.
+  *Red:* the C smoke test on Linux and Windows through both entry points, against exports that return the stub's
+  failure.
+- **M18.8 The browser package.** `HAPropsSI` and a `HumidAir` handle (`state(p, a, b)`, every output), on a registry
+  with Air's pack, which the package does not embed; `gates features` and both size budgets re-measured (SL8). *Red:*
+  the Node tests on both builds, M18.4's checks through the exports, against exports that return the typed "not yet"
+  error.
+- **M18.9 The psychrometric chart.** `phasekit-diagram`'s chart at one pressure: dry-bulb T across, W up; the
+  saturation line, φ lines at its tenths, and lines of h, v and T_wb at 1-2-5 values, over a range a caller sets (by
+  default 0 to 50 °C and W to 0.03), refined as M19.3's lines. The crate keeps to core alone (DG3's rule): the chart
+  samples through a seam it defines, W at (T, p) and a held quantity in batches, which the browser package fills from
+  `phasekit-humidair` and the crate's tests through a dev-dependency; `psychrometric(p)` in the browser package as
+  typed arrays. *Red:* every vertex is humid air's at its inputs (`Exact`); where the saturation line passes a
+  temperature of Tables 1 and 2, its W is the table's within its printed digits; the Node tests on both builds.
+- **M18.10 M18 closed.** The core unchanged since `m14-start`, and `ci/core-frozen.txt` names no tag; every M18 proof
+  due and present and every M18 ROT row ticked; ARCHITECTURE.md's crate table, §11 and §12, VERIFICATION.md §3.5 and
+  §10, MIGRATION.md and the README name humid air; the M18 benches recorded (section 5.1) beside map 07's v8.0.0 costs
+  (H(T, R) 7.5 µs, T_dp 132 µs, T_wb 152 µs, T(H, R) 203 µs); tag `m18` with the user's approval. *Red:* `gates rot`
+  and `tests/divergences.rs` with M18's rows and entries due.
+
+**Exit gate.** G1-G9 at every step; `gates core-frozen` since `m14-start`; the authors' tables, G7-04, G8-10 and G11-15
+within their printed digits under `Corrected`; the oracle under `Parity`, each difference a register entry;
+`gauge_invariance` over every output; the C smoke test on Linux and Windows; the browser package on both builds within
+its budgets. **ROT rows.** M18.1: ROT-264, ROT-267, ROT-268, ROT-271. M18.2: ROT-261, ROT-263, ROT-265, ROT-270.
+M18.3: ROT-269. M18.4: ROT-104, ROT-266, ROT-272. M18.5: ROT-262 (deferred to the paper). M18.6: ROT-275 (its
+humid-air part). **User decisions implemented.** HA1-HA6, D11's real `HAPropsSI`.
+
 ### M19 Diagram geometry
 
 **Goal.** The geometry of the five diagrams, computed by the library so that the site's page adds no numerics and any
@@ -707,10 +888,15 @@ contrast ratio. M21 does not move `MILESTONE`.
   is deleted, its sweeps (M21.3) moved beside the page that draws them (user decision DG2). *Red:* M21.2's, M21.5's
   and M21.9's checks on the geometry the page draws, and a diagram or its regions drawn from one engine call and no
   batch, run first against the page's samplers. *Done when:* G1-G9; the screenshots re-approved in the PR.
+- **M21.11 The psychrometric chart (user decision HA3).** `#/psychrometric`: M18.9's chart at a pressure the visitor
+  sets, drawn from the browser package's `psychrometric(p)`, with the moist-air state under the cursor (T, W, φ, h, v,
+  T_wb and T_dp, the package's `HumidAir` at the cursor's T and W) and the cursor snapping as M21.8's; Air's pack
+  fetched on first use. *Red:* every vertex drawn is the package's (`Exact`); the readout is the package's state at
+  the cursor; the page's budget. *Done when:* G1-G9; its screenshots approved in the PR.
 
 **Exit gate.** G1-G9 at every step; the page deployed from `main` at each merge; every value on the page equals the
 package's (`Exact`); M21.1's budget and SL8's wasm budgets hold; `reuse lint` and `actionlint` clean. **ROT rows.**
-None. **User decisions implemented.** WS1, WS2, WS3, WS4, WS5.
+None. **User decisions implemented.** WS1, WS2, WS3, WS4, WS5, HA3 (M21.11).
 
 ### M22 Mixture lanes
 
@@ -906,3 +1092,6 @@ measurement: #143, PT + h ≤ 3 µs (the target is PF2's); #144, α^r ≤ 0.3 µ
 | The order-3 identities of Thorade and Saadat 2013 (user decision OD5) | not open | M7.10 checks the identities VERIFICATION.md §8.1 lists |
 | The Methane/Ethane critical locus (M13.7) | Bell and Jäger, Fluid Phase Equilib. 433 (2017) 159: free to read at the publisher, which refuses scripted downloads | the locus arbitrates M13.7's critical points; until then teqp's trace and the oracle check them |
 | The CoolProp rows of R1132(E) and VinylChloride | CC BY, but Springer refuses scripted downloads | re-check them against their papers |
+| RP-1485's C_aaw and C_aww (DIV for ROT-271, M18.1) | Nelson and Sauer (2002), which RP-1485 cites for both, or the RP-1485 report (ASHRAE) | the `KeepOracle` entry decides `Corrected` |
+| RP-1485's appendix tables: virials, f, κ_T and Henry's constant from −60 to 350 °C (user decision HA2) | the RP-1485 report (ASHRAE; the free copy is its first seven pages) | transcribe them; they then arbitrate M18.1 and M18.2 beside the IAPWS releases |
+| Humid air's transport (ROT-262, M18.5) | Tsilingiris, Energy Convers. Manag. 49 (2008) (map 07 §3.3; pages unverified) | check v8.0.0's water-vapour state (map 07 H2) and the mixing rule; `Corrected` then follows the paper |
