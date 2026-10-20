@@ -1,11 +1,12 @@
-//! A diagram: its plane's saturation dome and the ranges of its axes (PLAN.md M19.1), sampled by the batch. It adds
-//! no numerics: every vertex is the batch's value at the inputs it carries.
+//! A diagram: its plane's saturation dome, its isolines and the ranges of its axes (PLAN.md M19.1, M19.2), sampled by
+//! the batch. It adds no numerics: every vertex is the batch's value at the inputs it carries.
 
 use phasekit_core::{Error, Fluid};
 
 use crate::batch::{Batch, FluidBatch, Row, Vertex, along, vertex};
+use crate::lines::{Line, lines};
 use crate::plane::{Plane, Quantity};
-use crate::ranges::{Limits, Ranges, dome_temperatures, ranges};
+use crate::ranges::{Limits, Ranges, dome_temperatures, lin_grid, log_grid, ranges};
 
 /// The saturated liquid and vapour, each up to just below T_c, in order of temperature, and the critical point. A
 /// pseudo-pure fluid's liquid side is its bubble points, its vapour side its dew points.
@@ -26,6 +27,8 @@ pub struct Diagram {
     pub plane: Plane,
     /// The saturation dome.
     pub dome: Dome,
+    /// Each family's lines, family by family in the plane's order, each family's in order of value.
+    pub lines: Vec<Line>,
     /// The span of the horizontal axis.
     pub x: (f64, f64),
     /// The span of the vertical axis.
@@ -51,11 +54,19 @@ pub fn sample(batch: &impl Batch, plane: Plane, limits: &Limits) -> Result<Diagr
     let spans = Spans::of(r, &[&liquid, &vapour, &corners]);
     let dome =
         Dome { liquid: vertices(&liquid), vapour: vertices(&vapour), critical: critical.first().and_then(vertex) };
-    Ok(Diagram { plane, dome, x: spans.get(plane.x().quantity), y: spans.get(plane.y().quantity) })
+    let sweeps = |q: Quantity| match q {
+        Quantity::T => lin_grid(r.t.0, r.t.1, SWEEP_POINTS),
+        _ => log_grid(r.p.0, r.p.1, SWEEP_POINTS),
+    };
+    let lines = lines(batch, plane, &|q| spans.get(q), &sweeps, &temperatures)?;
+    Ok(Diagram { plane, dome, lines, x: spans.get(plane.x().quantity), y: spans.get(plane.y().quantity) })
 }
 
 /// The points a side of the dome takes.
 const DOME_POINTS: usize = 120;
+
+/// The points a line's sweep takes, linear in T and logarithmic in p, across the plotted range (M21.2's).
+const SWEEP_POINTS: usize = 160;
 
 /// Where the dome enters the plotted pressures: at the saturation temperature of the lowest, or at the lowest plotted
 /// temperature if that is higher or the batch has no such state.
