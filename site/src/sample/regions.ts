@@ -77,13 +77,13 @@ export async function sampleRegions(l: Limits, batch: Batch, phaseAt: PhaseAt, n
   const fromCritical = (s: (Corner | null)[]) => s.slice(1);
   // Pressures from `a` onto the saturation pressure `b`, short of it: a state there is on the curve, and either phase.
   const toSaturation = (a: number, b: number, rows: number) => logGrid(a, b, rows).slice(0, -1);
-  // The cold edge over `pressures`: on each isobar the lowest temperature at which the package has a state, to within
-  // (T_c − T)/2^HALVINGS: the isotherm at the lowest T where the package has it, the melting line where it does not.
-  // An isobar with no state below T_c has no vertex.
-  const cold = async (pressures: number[]): Promise<(Corner | null)[]> => {
+  // The cold edge over `pressures`: on each isobar the lowest temperature below its `tops` at which the package has a
+  // state, to within (top − T)/2^HALVINGS: the isotherm at the lowest T where the package has it, the melting line
+  // where it does not. An isobar with no state below its top has no vertex.
+  const cold = async (pressures: number[], tops: number[]): Promise<(Corner | null)[]> => {
     const found = await states("T", repeat(low, pressures.length), "P", pressures);
     const open = pressures.flatMap((_, i) => (found[i] ? [] : [i]));
-    const bounds = open.map(() => [low, Tc]);
+    const bounds = open.map((i) => [low, tops[i] as number]);
     // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: with no isobar open, a halving asks for nothing.
     for (let k = 0; k < HALVINGS && open.length > 0; k++) {
       const mids = bounds.map(([a, b]) => ((a as number) + (b as number)) / 2);
@@ -121,8 +121,15 @@ export async function sampleRegions(l: Limits, batch: Batch, phaseAt: PhaseAt, n
   const topRight = await isobar(top, Tc, high);
   const floorLeft = await isobar(floor, Tc, low);
   const floorRight = await isobar(floor, Tc, high);
-  const coldHigh = await cold(logGrid(top, pc, COLD_ROWS));
-  const coldLow = await cold(toSaturation(pc, saturated.P, COLD_ROWS));
+  const coldHigh = await cold(logGrid(top, pc, COLD_ROWS), repeat(Tc, COLD_ROWS));
+  // Below p_c an isobar is halved below its bubble temperature, T_c where the package has none: a pseudo-pure fluid has
+  // no state between its bubble and dew temperatures, and a halving that landed there would climb to the dew side.
+  const lowPressures = toSaturation(pc, saturated.P, COLD_ROWS);
+  const bubbles = await states("P", lowPressures, "Q", repeat(0, lowPressures.length));
+  const coldLow = await cold(
+    lowPressures,
+    bubbles.map((b) => b?.T ?? Tc),
+  );
   const coldGas = await states("T", repeat(low, n - 1), "P", toSaturation(floor, saturated.P, n));
 
   const outlines: [string, number, string, number, (Corner | null)[]][] = [];
