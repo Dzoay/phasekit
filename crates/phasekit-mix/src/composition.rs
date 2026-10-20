@@ -203,9 +203,9 @@ impl MultiFluid {
     /// The composition derivatives of `phases`, each a density and its mole fractions, at one temperature T, each
     /// [`MixtureModel::composition`]'s bit for bit (PLAN.md M22.5). Under `ExecPolicy::Simd` side by side: each
     /// phase's τ and δ, its components' derivatives there through each component's own `residual_batch`, then the rest
-    /// of Ψ as one kernel over `Real` ([`Phases`]) through `batch::run_kernel`. Under the other policies, for a single
-    /// phase, and where a fraction is not positive (the reducing functions then test a pair's denominator, which `Real`
-    /// cannot), point by point. The first refusal is the first phase's that `composition` refuses.
+    /// of Ψ as one kernel over `Real` ([`Phases`]) through `batch::run_kernel`. Under the other policies, and where a
+    /// fraction is not positive (the reducing functions then test a pair's denominator, which `Real` cannot), point by
+    /// point. The first refusal is the first phase's that `composition` refuses.
     pub(crate) fn compositions(
         &self,
         t: f64,
@@ -214,16 +214,11 @@ impl MultiFluid {
         exec: ExecPolicy,
     ) -> Result<Vec<Composition>, Error> {
         let point_by_point = || phases.iter().map(|(rho, x)| self.composition(t, *rho, x, order)).collect();
-        // Before the phases' τ and δ, which only the lanes use: the other policies, and one phase alone, which would
-        // fill a group of lanes with copies of itself, pay nothing for them.
-        // Equivalent (M22.5, M22.6): either path gives each phase's `composition` bit for bit (K17), so which one a
-        // batch takes changes only the time.
+        // Before the phases' τ and δ, which only the lanes use: the other policies pay nothing for them.
+        // Equivalent (M22.5): either path gives each phase's `composition` bit for bit (K17), so which one a policy
+        // takes changes only the time.
         // equivalent mutant: replace != with ==
-        // equivalent mutant: replace || with &&
-        // equivalent mutant: replace < with ==
-        // equivalent mutant: replace < with >
-        // equivalent mutant: replace < with <=
-        if exec != ExecPolicy::Simd || phases.len() < 2 {
+        if exec != ExecPolicy::Simd {
             return point_by_point();
         }
         let mut k = 0;
