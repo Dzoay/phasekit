@@ -8,7 +8,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use phasekit_core::batch::Status;
+use phasekit_core::batch::{ExecPolicy, Status};
 use phasekit_core::{DataSet, Pack};
 use phasekit_mix::{EnvelopeOptions, Given, Mixture, Side};
 use phasekit_verify::{Fixture, ToleranceClass};
@@ -186,6 +186,40 @@ fn the_batch_in_lanes_is_the_reference_paths() {
             assert_eq!(batch.status(), codes, "{name} {n1}{n2}");
             assert!(codes.contains(&0) && codes.iter().any(|c| *c > 1), "{name} {n1}{n2}: {codes:?}");
         }
+    }
+}
+
+/// PLAN.md M22.8 (user decision ML8): a mixture's batch is compat's `batch_si` on the same mixture rebuilt under
+/// `ExecPolicy::Reference`, bit for bit, on both builds: each point's flash evaluates its liquid and vapour side by side,
+/// in two lanes on the baseline (M22.5) and point by point on simd128. CO2/n-Propane at 40/60, two of the five fluids:
+/// QT and PQ at Q = 0, 0.5 and 1 from 230 to 270 K and from 0.5 to 2.5 MPa, and PT and DT about the dome.
+#[wasm_bindgen_test]
+fn a_mixtures_batch_is_its_reference_paths() {
+    let name = "CarbonDioxide[0.4]&n-Propane[0.6]";
+    let page = Registry::new().unwrap().fluid(name).unwrap();
+    let embedded = phasekit_core::Registry::from_embedded(DataSet::Corrected).unwrap();
+    let native = phasekit_mix::with_mixtures(&embedded, DataSet::Corrected);
+    let fluid = phasekit_compat::fluid_in(&native, name).unwrap();
+    let scalar = Mixture::new(mixture(&fluid).model().clone(), mixture(&fluid).composition()).unwrap();
+    let reference = phasekit_core::Fluid::new(Arc::new(scalar.with_exec(ExecPolicy::Reference)));
+    let ts: Vec<f64> = (0..15).map(|i| 230.0 + 10.0 * f64::from(i / 3)).collect();
+    let qs: Vec<f64> = (0..15).map(|i| f64::from(i % 3) / 2.0).collect();
+    let ps: Vec<f64> = (0..15).map(|i| 5e5 + 5e5 * f64::from(i / 3)).collect();
+    let ds: Vec<f64> = (0..15).map(|i| [50.0, 500.0, 2000.0, 8000.0, 12000.0][i as usize % 5]).collect();
+    for (outputs, (n1, v1), (n2, v2)) in [
+        (["Hmolar", "Dmolar", "P"], ("T", &ts), ("Q", &qs)),
+        (["Hmolar", "Dmolar", "T"], ("P", &ps), ("Q", &qs)),
+        (["Hmolar", "Dmolar", "Q"], ("P", &ps), ("T", &ts)),
+        (["Hmolar", "P", "Q"], ("Dmolar", &ds), ("T", &ts)),
+    ] {
+        let batch = page.evaluate(outputs.map(String::from).to_vec(), n1, v1, n2, v2).unwrap();
+        let (mut want, mut cells) = (vec![0.0; 3 * ts.len()], vec![Status::Ok; 3 * ts.len()]);
+        phasekit_compat::batch_si(&reference, &outputs, (n1, v1), (n2, v2), &mut want, &mut cells).unwrap();
+        let bits = |values: &[f64]| values.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+        assert_eq!(bits(&batch.values()), bits(&want), "{n1}{n2}");
+        let codes: Vec<u8> = cells.into_iter().map(phasekit_compat::status_code).collect();
+        assert_eq!(batch.status(), codes, "{n1}{n2}");
+        assert!(codes.iter().filter(|c| **c == 0).count() >= 30, "{n1}{n2}: {codes:?}");
     }
 }
 

@@ -711,29 +711,37 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      (2.85× and 1.91×); PQ + h n-Propane 742 ns (2.37× and 1.64×). As in DT, R134a (1.75× over `libm`), n-Heptane
      (1.42×) and Water (1.58×, 3044 ns against std's 2425) gain less. Inside one mixture flash (M22.5), where the
      split's Newton steps and the saturation solver evaluate a liquid and a vapour at one T, their composition
-     derivatives run side by side under the mixture's policy (`Mixture::with_exec`, `Simd` by default): each
-     component's derivatives at both phases' (τ, δ) through its own `residual_batch`, then the rest of Ψ (the
-     departures and the multivariate Taylor arithmetic, generic over `Real`) as one kernel through `batch::run_kernel`.
-     A phase with a zero mole fraction, whose reducing functions test a pair's denominator, runs point by point. On the
-     i7-8700K (M22.7's record) R32/R125's QT flash takes 364 µs under `Simd` in the default build, 0.93× `Reference`'s
-     391 µs, and its PQ flash 416 µs (0.94×); a PT flash, most of whose time is the stability test, 1.00×. In the `simd`
-     build (AVX2, core's maths) the lanes take 1.01× its scalar time on all three. The default build's measurement
-     decides (user decision ML6), so the kernel ships; the `Reference` path it shares is up to 3 % slower on QT than
-     before it (M22.4; user decision ML7). The stability test's trial phases stay scalar (M22.6, ML4): in lockstep,
-     their composition derivatives side by side, they left that PT flash at 1.00× M22.5's time, as each trial's density,
-     solved on its own, is most of the test's work.
+     derivatives run side by side under the mixture's policy (`Mixture::with_exec`, `Simd` by default): each component's
+     derivatives at both phases' (τ, δ) through its own `residual_batch`, then the rest of Ψ (the departures and the
+     multivariate Taylor arithmetic, generic over `Real`) as one kernel through `batch::run_kernel`. A phase with a zero
+     mole fraction, whose reducing functions test a pair's denominator, runs point by point. On the i7-8700K (M22.7's
+     record) R32/R125's QT flash takes 364 µs under `Simd` in the default build, 0.93× `Reference`'s 391 µs, and its PQ
+     flash 416 µs (0.94×); a PT flash, most of whose time is the stability test, 1.00×. In the `simd` build (AVX2,
+     core's maths) the lanes took 1.01× its scalar time on all three until M22.8: under `Simd` core now runs a batch of
+     at most two points, as these two phases, at two lanes, which AVX2 had padded to four, and that build's QT and PQ
+     flashes take 0.91× and 0.92× (a same-boot A/B; user decision ML8). The default build's measurement decides (user
+     decision ML6), so the kernel ships; the `Reference` path it shares is up to 3 % slower on QT than before it (M22.4;
+     user decision ML7). The stability test's trial phases stay scalar (M22.6, ML4): in lockstep, their composition
+     derivatives side by side, they left that PT flash at 1.00× M22.5's time, as each trial's density, solved on its
+     own, is most of the test's work.
   5. The browser package (M12.10, user decision SL8). WASM has no run-time detection, so `simd128` is a second build
      (K11, K15), with `phasekit-wasm`'s `simd` feature, which enables core's: a feature rather than a
      `cfg(target_feature = "simd128")` dependency, which cargo-about's notices cannot see. Its batch runs
      `ExecPolicy::Simd` on both builds. `simd128` runs 8 lanes with a short last group padded, not run one vector wide:
      under Node that module is 1 325 154 B against 1 402 513 B with the remainder, and faster. Under Node 26 on the
-     i7-8700K, n-Propane's DT + h + c_p, QT + h and PQ + h batches take 749, 1268 and 1485 ns per state on the
-     `simd128` build, 1.50×, 1.45× and 1.45× M12.9's (which ran the scalar path); the baseline build's two lanes gain
-     4-5 %. Since M23 both builds run core's own `exp`, `ln`, `pow` and `expm1` (user decision IM6): under Node 26 on
-     the i7-8700K, n-Propane's DT + h + c_p, QT + h and PQ + h batches (4096 points on 64 × 64 grids) take 1072, 1025
-     and 1300 ns per state on the baseline build and 956, 829 and 1105 ns on `simd128`, 0.58-0.66 and 0.71-0.76 times
-     main's before M23 (same boot, three alternating rounds; PLAN.md M23.8). Each build has its own size budget, its size
-     + 10 % (`crates/phasekit-wasm/size-budget.txt`), which both still meet.
+     i7-8700K, n-Propane's DT + h + c_p, QT + h and PQ + h batches take 749, 1268 and 1485 ns per state on the `simd128`
+     build, 1.50×, 1.45× and 1.45× M12.9's (which ran the scalar path); the baseline build's two lanes gain 4-5 %. Since
+     M23 both builds run core's own `exp`, `ln`, `pow` and `expm1` (user decision IM6): under Node 26 on the i7-8700K,
+     n-Propane's DT + h + c_p, QT + h and PQ + h batches (4096 points on 64 × 64 grids) take 1072, 1025 and 1300 ns per
+     state on the baseline build and 956, 829 and 1105 ns on `simd128`, 0.58-0.66 and 0.71-0.76 times main's before M23
+     (same boot, three alternating rounds; PLAN.md M23.8). Each build has its own size budget, its size + 10 %
+     (`crates/phasekit-wasm/size-budget.txt`), which both still meet. A mixture's flash (M22.5) evaluates its two phases
+     in two lanes on the baseline build and point by point on `simd128`, where M22.5's kernel padded them to 8 lanes and
+     took a CO2/n-Propane QT or PQ flash to 1.13-1.16× the scalar path's time under Node, and two lanes still to
+     1.04-1.08× (`MultiFluid::compositions`, and core's runners for any batch of at most two points; PLAN.md M22.8, user
+     decision ML8). Its QT and PQ flashes now take 0.95× `Reference`'s time on the baseline build and 0.99-1.01× on
+     `simd128`. The browser's batch takes no phase hint, so a mixture's DT batch runs each point's flash rather than
+     M22.4's lanes.
   - The target is ≥ 2.5× α^r batch throughput on AVX2 over the scalar path, on the reference machine; `simd` ships if
     it is faster than the scalar path (user decisions SL3, TG1).
 - **Dispatch.** `ExecPolicy` is a run-time value. Cargo features add executors but never change numerics (K13);

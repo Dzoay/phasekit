@@ -61,8 +61,11 @@ pub trait RealKernel: Sync {
 
 /// `kernel` at every point k of the columns: `inputs[i][k]` in, `outputs[j][k]` written, under `exec`. `Reference`
 /// evaluates it on `f64` point by point, `Parallel` the same in fixed chunks, and `Simd` in core's lanes at the CPU's
-/// widest level, a short last group padded with copies of its first point; the bits do not depend on the policy (K6,
-/// K17). The working columns are allocated once per call. Columns of unequal lengths are [`Error::Shape`].
+/// widest level, a short last group padded with copies of its first point. Under `Simd` a batch of at most two points,
+/// as a flash's liquid and vapour, runs two lanes, which the widest level would pad to a group of its own, and on
+/// simd128, where two lanes are slower than `f64`, point by point (PLAN.md M22.8, user decision ML8). The bits do not
+/// depend on the policy (K6, K17). The working columns are allocated once per call. Columns of unequal lengths are
+/// [`Error::Shape`].
 pub fn run_kernel<K: RealKernel>(
     kernel: &K,
     inputs: &[&[f64]],
@@ -75,10 +78,20 @@ pub fn run_kernel<K: RealKernel>(
     }
     let mut columns = Columns { kernel, inputs, outputs };
     match exec {
-        // As `run`: the CPU's best level with the `simd` feature, else two lanes at the target's baseline.
+        // As `run`: the CPU's best level with the `simd` feature, else two lanes at the target's baseline; with it, at
+        // most two points as without it, or on simd128 point by point (ML8).
         #[cfg(feature = "simd")]
-        ExecPolicy::Simd => dispatch(Level::new(), &mut columns),
-        #[cfg(not(feature = "simd"))]
+        // Not compiled in the gate's run (M22.8): it needs `simd`. With it, `one_or_two_points_run_two_lanes` catches
+        // these.
+        // equivalent mutant: replace > with ==
+        // equivalent mutant: replace > with <
+        // equivalent mutant: replace > with >=
+        // equivalent mutant: replace match guard n > 2 with true
+        // equivalent mutant: replace match guard n > 2 with false
+        ExecPolicy::Simd if n > 2 => dispatch(Level::new(), &mut columns),
+        #[cfg(all(feature = "simd", target_feature = "simd128"))]
+        ExecPolicy::Simd => columns.points(n),
+        #[cfg(not(all(feature = "simd", target_feature = "simd128")))]
         ExecPolicy::Simd => columns.padded::<2>(),
         ExecPolicy::Reference | ExecPolicy::Parallel { .. } => columns.points(chunk_points(exec, n)),
     }
@@ -253,10 +266,13 @@ pub(crate) fn run<K: LaneKernel>(
     }
     match exec {
         // With the `simd` feature, the CPU's best level, detected once per batch (PLAN.md M12.4); without it, two lanes
-        // at the target's baseline, a measured win over the scalar path (M12.3).
+        // at the target's baseline, a measured win over the scalar path (M12.3). With it, at most two points, as a
+        // flash's liquid and vapour, as without it, or on simd128 point by point (M22.8, user decision ML8).
         #[cfg(feature = "simd")]
-        ExecPolicy::Simd => run_simd(Level::new(), kernel, x, y, out),
-        #[cfg(not(feature = "simd"))]
+        ExecPolicy::Simd if x.len() > 2 => run_simd(Level::new(), kernel, x, y, out),
+        #[cfg(all(feature = "simd", target_feature = "simd128"))]
+        ExecPolicy::Simd => run_scalar(kernel, x, y, out),
+        #[cfg(not(all(feature = "simd", target_feature = "simd128")))]
         ExecPolicy::Simd => run_lanes::<K, 2>(kernel, x, y, out),
         ExecPolicy::Reference | ExecPolicy::Parallel { .. } => {
             run_parallel(chunk_points(exec, x.len()), x, y, out, |x, y, out| run_scalar(kernel, x, y, out));
@@ -556,10 +572,8 @@ pub(crate) mod tests {
     }
 
     /// A kernel whose result is the number of lanes it ran in.
-    #[cfg(feature = "simd")]
     struct Width;
 
-    #[cfg(feature = "simd")]
     impl LaneKernel for Width {
         type Out = usize;
         fn point(&self, _: f64, _: f64) -> usize {
@@ -640,6 +654,33 @@ pub(crate) mod tests {
             };
             assert_eq!(real_widths(|job| dispatch(level, job)), want(wide, vector), "{level:?}");
         }
+    }
+
+    /// PLAN.md M22.8 (user decision ML8): under `Simd` a batch of one or two points, as a flash's liquid and vapour
+    /// (M22.5), runs two lanes, as a build without `simd` runs every batch, where the CPU's best level would pad it to a
+    /// group of its own (4 lanes on AVX2, 8 on simd128); on simd128 it runs point by point. So do a lane kernel's
+    /// (`run`) and a family's kernel over `Real` (`run_kernel`).
+    #[test]
+    fn one_or_two_points_run_two_lanes() {
+        let short = if cfg!(all(feature = "simd", target_feature = "simd128")) { 1 } else { 2 };
+        for n in [1, 2] {
+            let (x, mut a, mut b) = (vec![1.0; n], vec![0.0; n], vec![0.0; n]);
+            run_kernel(&RealWidth, &[&x], &mut [&mut a, &mut b], ExecPolicy::Simd).unwrap();
+            let real = vec![f64::from(short); n];
+            assert_eq!((a.clone(), b), (real.clone(), real), "run_kernel, {n} points");
+            let mut out = vec![0; n];
+            run(ExecPolicy::Simd, &Width, &x, &x, &mut out).unwrap();
+            assert_eq!(out, vec![short as usize; n], "run, {n} points");
+        }
+        // Three points take the level's widths, as a larger batch does.
+        let (x, mut got, mut want) = ([1.0; 3], [0.0; 3], [0.0; 3]);
+        run_kernel(&RealWidth, &[&x], &mut [&mut got], ExecPolicy::Simd).unwrap();
+        let mut columns = Columns { kernel: &RealWidth, inputs: &[&x], outputs: &mut [&mut want] };
+        #[cfg(feature = "simd")]
+        dispatch(Level::new(), &mut columns);
+        #[cfg(not(feature = "simd"))]
+        columns.padded::<2>();
+        assert_eq!(got, want, "run_kernel, 3 points");
     }
 
     /// PLAN.md M12.3: `run` under each policy writes every point's own result, `Simd` as the others; unequal lengths are
