@@ -79,11 +79,13 @@ pub struct Coexisting {
     pub p: f64,
     /// The vapour's molar fraction of the whole.
     pub beta: f64,
-    /// The liquid's and the vapour's mole fractions.
+    /// The liquid's mole fractions.
     pub x: Vec<f64>,
+    /// The vapour's mole fractions.
     pub y: Vec<f64>,
-    /// The liquid's and the vapour's molar densities, mol/m³.
+    /// The liquid's molar density, mol/m³.
     pub rho_liquid: f64,
+    /// The vapour's molar density, mol/m³.
     pub rho_vapour: f64,
 }
 

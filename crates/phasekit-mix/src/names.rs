@@ -14,6 +14,7 @@ use phasekit_core::{
     NativeInput, Order, PointDerivs, Registry, Resolver, State, ThermoModel,
 };
 
+use crate::data::PredefinedData;
 use crate::generated::{PAIRS, PREDEFINED};
 use crate::mixture::{gerg2008_model, trimmed};
 use crate::{Mixture, MultiFluid, gerg};
@@ -49,6 +50,17 @@ pub fn predefined_names() -> impl Iterator<Item = &'static str> {
 /// The library's binary pairs, by their components' CAS numbers sorted as strings, in that order: v8.0.0's.
 pub fn binary_pairs() -> impl Iterator<Item = [&'static str; 2]> {
     PAIRS.iter().map(|p| p.cas)
+}
+
+/// The components of mixture name `name` (the module's grammar), so that a caller can make a registry serve them before
+/// it resolves the name (the site fetches their packs; PLAN.md M21.5): each as the name writes it, or, for a predefined
+/// mixture, as the library lists it (CoolProp's names, `R32`, `NITROGEN`), with any zero fraction kept. `None` where
+/// `name` is no mixture name; where it breaks the grammar or names no predefined mixture, the refusal resolving it gives.
+pub fn components(name: &str) -> Option<Result<Vec<&str>, Error>> {
+    Some(read(name)?.and_then(|read| match read {
+        Name::Library(parts) | Name::Gerg(parts) => Ok(parts.into_iter().map(|(c, _)| c).collect()),
+        Name::Predefined(stem) => predefined_data(stem).map(|data| data.components.to_vec()),
+    }))
 }
 
 /// The resolver [`with_mixtures`] registers: the data set its names are read on, and the models it built.
@@ -203,8 +215,7 @@ fn library(registry: &Registry, parts: &[(&str, f64)], data_set: DataSet) -> Res
 
 /// [`predefined`]'s model.
 fn predefined_model(registry: &Registry, name: &str, data_set: DataSet) -> Result<Arc<dyn ThermoModel>, Error> {
-    let unknown = || Error::Load(LoadError::UnknownName(format!("{name}.mix").into()));
-    let data = PREDEFINED.iter().find(|m| m.name.eq_ignore_ascii_case(name)).ok_or_else(unknown)?;
+    let data = predefined_data(name)?;
     let fractions = match (data_set, data.mass_fractions) {
         (DataSet::Parity, _) | (_, None) => data.mole_fractions.to_vec(),
         (_, Some(w)) => {
@@ -216,6 +227,12 @@ fn predefined_model(registry: &Registry, name: &str, data_set: DataSet) -> Resul
     };
     let parts: Vec<(&str, f64)> = data.components.iter().copied().zip(fractions).collect();
     library(registry, &parts, data_set)
+}
+
+/// The library's predefined mixture `name` (ASCII case-insensitive), else `UnknownName("<name>.mix")`.
+fn predefined_data(name: &str) -> Result<&'static PredefinedData, Error> {
+    let unknown = || Error::Load(LoadError::UnknownName(format!("{name}.mix").into()));
+    PREDEFINED.iter().find(|m| m.name.eq_ignore_ascii_case(name)).ok_or_else(unknown)
 }
 
 /// A mixture name that trims to one component (`R32[1.0]&R125[0.0]`, `Water[1.0]`): that component's fluid, each call
@@ -400,5 +417,27 @@ mod tests {
         assert_eq!(Some(composition(DataSet::Corrected, "Air")), stored("Air"));
         let unknown = Err(Error::Load(LoadError::UnknownName("R999.mix".into())));
         assert_eq!(predefined(&corrected, "R999", DataSet::Corrected).map(|f| f.info().molar_mass()), unknown);
+    }
+
+    /// A mixture name's components (PLAN.md M21.5) as it writes them, zeros kept, under either prefix; a predefined
+    /// mixture's as the library lists them; none for a name that is no mixture name; a malformed name and an unknown
+    /// predefined mixture refused as resolving them is.
+    #[test]
+    fn a_mixture_names_components() {
+        assert_eq!(components("HEOS::R32[0.697615]&R125[0.302385]"), Some(Ok(vec!["R32", "R125"])));
+        assert_eq!(components("GERG2008::Methane[0.9]&Ethane[0.1]"), Some(Ok(vec!["Methane", "Ethane"])));
+        assert_eq!(components("GERG2008::Methane"), Some(Ok(vec!["Methane"])));
+        assert_eq!(components("R32[1.0]&R125[0.0]"), Some(Ok(vec!["R32", "R125"])));
+        assert_eq!(components("r410a.MIX"), Some(Ok(vec!["R32", "R125"])));
+        assert_eq!(components("Air.mix"), Some(Ok(vec!["NITROGEN", "ARGON", "OXYGEN"])));
+        for none in ["Water", "R410A", "HEOS::Water"] {
+            assert_eq!(components(none), None, "{none}");
+        }
+        let names = with_mixtures(&registry(DataSet::Corrected), DataSet::Corrected);
+        for bad in ["R32[0.5]&R125", "R999.mix"] {
+            let refusal = names.resolve(bad).err();
+            assert!(refusal.is_some(), "{bad}");
+            assert_eq!(components(bad).and_then(Result::err), refusal, "{bad}");
+        }
     }
 }

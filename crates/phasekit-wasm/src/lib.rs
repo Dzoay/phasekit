@@ -6,6 +6,9 @@
 //! - [`Fluid`]: `flash(name1, value1, name2, value2)`, the typed flash, and `evaluate(outputs, name1, values1, name2,
 //!   values2)`, the one batch: point-major `Float64Array` values (N × M) and a `Uint8Array` of cell codes.
 //! - [`output_keys`]: `outputKeys()`, CoolProp's 85 output keys, which `PropsSI` and `State.get` take.
+//! - Mixtures (PLAN.md M13.14, M21.5): `fluid` and `PropsSI` read CoolProp's mixture names; [`predefined_mixtures`],
+//!   [`binary_pairs`] and [`mixture_components`] say what can be mixed and which fluids a name needs; a mixture's
+//!   [`Fluid`] has its components, composition and [`Envelope`], and its two-phase [`State`] its [`Phases`].
 //! - Errors are JS `Error`s. JS's garbage collector never frees wasm memory, so `Registry` and `Fluid`, the handle
 //!   objects, are freed with `free()`; the `State` and `Batch` a call returns are values, freed the same way.
 //! - A panic, a bug, cannot be caught on wasm32 and leaves the module unusable. It reaches JavaScript as an `Error` that
@@ -22,11 +25,13 @@
 #![cfg_attr(not(test), deny(clippy::indexing_slicing, clippy::arithmetic_side_effects))]
 
 use core::fmt::Display;
+use std::any::Any;
 use std::sync::OnceLock;
 
 use phasekit_compat as compat;
 use phasekit_core::batch::{ExecPolicy, Status};
-use phasekit_core::{DataSet, FlashOptions, Pack};
+use phasekit_core::{DataSet, FlashOptions, Pack, ThermoModel};
+use phasekit_mix::{EnvelopeEnd, EnvelopeOptions, Mixture, Side};
 use wasm_bindgen::prelude::*;
 
 /// A JS `Error` with `e`'s message.
@@ -74,6 +79,36 @@ fn alive() -> Result<(), JsError> {
 #[wasm_bindgen(js_name = outputKeys)]
 pub fn output_keys() -> Vec<String> {
     compat::output_names().take(compat::OUTPUT_COUNT).map(String::from).collect()
+}
+
+/// CoolProp 8.0.0's predefined mixtures, each as the name that reads it (`R410A.mix`), in byte order (PLAN.md M21.5):
+/// a page offers them, and fetches their components' packs first ([`mixture_components`]). A blend whose pairs the
+/// library lacks is listed and refused when read, as v8.0.0 refuses it (ROT-200).
+#[wasm_bindgen(js_name = predefinedMixtures)]
+pub fn predefined_mixtures() -> Vec<String> {
+    phasekit_mix::predefined_names().map(|name| format!("{name}.mix")).collect()
+}
+
+/// The library's binary pairs, each its two components' CAS numbers, sorted as strings and joined by `&`
+/// (`354-33-6&75-10-5`): the components of a mixture name must pair two by two (PLAN.md M21.5).
+#[wasm_bindgen(js_name = binaryPairs)]
+pub fn binary_pairs() -> Vec<String> {
+    phasekit_mix::binary_pairs().map(|[a, b]| format!("{a}&{b}")).collect()
+}
+
+/// The fluids a mixture name needs, each as the name writes it, or a predefined mixture's as the library lists them
+/// (CoolProp's names: `NITROGEN`), so that a page can add their packs before it reads the name (PLAN.md M21.5); none for
+/// a name that is no mixture name. A malformed mixture name, or an unknown predefined one, is refused as `fluid` refuses
+/// it.
+#[wasm_bindgen(js_name = mixtureComponents)]
+pub fn mixture_components(name: &str) -> Result<Vec<String>, JsError> {
+    let components = phasekit_mix::components(name).transpose().map_err(js)?;
+    Ok(components.unwrap_or_default().into_iter().map(String::from).collect())
+}
+
+/// The mixture model of `fluid`, where it is one.
+fn mixture_of(fluid: &phasekit_core::Fluid) -> Option<&Mixture> {
+    (fluid.model() as &dyn Any).downcast_ref()
 }
 
 /// A registry: the five core fluids, any fetched packs, any re-gauged fluids. A handle object: free it with `free()`.
@@ -172,6 +207,31 @@ impl Fluid {
         self.inner.info().name().to_string()
     }
 
+    /// Its components' canonical names: a mixture's in its name's order, a pure fluid's own name alone.
+    #[wasm_bindgen(getter)]
+    pub fn components(&self) -> Vec<String> {
+        match mixture_of(&self.inner) {
+            Some(mixture) => mixture.model().fluids().map(|f| f.info().name().to_string()).collect(),
+            None => vec![self.name()],
+        }
+    }
+
+    /// Its mole fractions, one per component: a pure fluid's `[1]`.
+    #[wasm_bindgen(getter)]
+    pub fn composition(&self) -> Vec<f64> {
+        mixture_of(&self.inner).map_or_else(|| vec![1.0], |mixture| mixture.composition().to_vec())
+    }
+
+    /// A mixture's phase envelope (PLAN.md M13.12, M21.5), traced from its bubble or dew point at 1 bar, else at its
+    /// lowest temperature, to where it closes or meets a bound of the model. A pure fluid has none and is refused.
+    pub fn envelope(&self) -> Result<Envelope, JsError> {
+        alive()?;
+        let mixture = mixture_of(&self.inner)
+            .ok_or_else(|| js(format!("{} is no mixture: it has no phase envelope", self.name())))?;
+        let molar_mass = mixture.info().molar_mass();
+        Ok(Envelope { inner: mixture.envelope(&EnvelopeOptions::new()).map_err(js)?, molar_mass })
+    }
+
     /// The typed flash: the state at the values of two input keys, in either order as `PropsSI`'s.
     pub fn flash(&self, name1: &str, value1: f64, name2: &str, value2: f64) -> Result<State, JsError> {
         alive()?;
@@ -234,6 +294,130 @@ impl State {
     pub fn get(&self, output: &str) -> Result<f64, JsError> {
         alive()?;
         compat::output_at(&self.fluid, &self.state, output).map_err(js)
+    }
+
+    /// Each phase's mole fractions, where this is a mixture's two-phase state (PLAN.md M21.5): phasekit-mix's
+    /// `Mixture::phases`, which solves them again at its quality, so a solve that fails refuses the call. Undefined for
+    /// a single phase or a pure fluid.
+    pub fn phases(&self) -> Result<Option<Phases>, JsError> {
+        alive()?;
+        let Some(mixture) = mixture_of(&self.fluid) else {
+            return Ok(None);
+        };
+        Ok(mixture.phases(&self.state).map_err(js)?.map(|c| Phases { liquid: c.x, vapour: c.y }))
+    }
+}
+
+/// The phases of a mixture's two-phase state, from [`State::phases`].
+#[wasm_bindgen]
+pub struct Phases {
+    liquid: Vec<f64>,
+    vapour: Vec<f64>,
+}
+
+#[wasm_bindgen]
+impl Phases {
+    /// The liquid's mole fractions, as a `Float64Array` in the mixture's components' order.
+    #[wasm_bindgen(getter)]
+    pub fn liquid(&self) -> Vec<f64> {
+        self.liquid.clone()
+    }
+
+    /// The vapour's mole fractions.
+    #[wasm_bindgen(getter)]
+    pub fn vapour(&self) -> Vec<f64> {
+        self.vapour.clone()
+    }
+}
+
+/// A mixture's phase envelope, from [`Fluid::envelope`]: one entry a point, in the trace's order, each a bubble or a dew
+/// point of the feed, and the critical point the trace passed.
+#[wasm_bindgen]
+pub struct Envelope {
+    inner: phasekit_mix::Envelope,
+    molar_mass: f64,
+}
+
+#[wasm_bindgen]
+impl Envelope {
+    /// Temperatures, K.
+    #[wasm_bindgen(getter, js_name = T)]
+    pub fn t(&self) -> Vec<f64> {
+        self.inner.t.clone()
+    }
+
+    /// Pressures, Pa.
+    #[wasm_bindgen(getter, js_name = P)]
+    pub fn p(&self) -> Vec<f64> {
+        self.inner.p.clone()
+    }
+
+    /// Each point's vapour quality, the feed's: 0 at a bubble point (the feed the denser phase, a lighter one incipient),
+    /// 1 at a dew point.
+    #[wasm_bindgen(getter, js_name = Q)]
+    pub fn q(&self) -> Vec<f64> {
+        self.inner.side.iter().map(|side| if *side == Side::Bubble { 0.0 } else { 1.0 }).collect()
+    }
+
+    /// The feed's molar density, mol/m³.
+    #[wasm_bindgen(getter, js_name = Dmolar)]
+    pub fn dmolar(&self) -> Vec<f64> {
+        self.inner.rho_bulk.clone()
+    }
+
+    /// The feed's mass density, kg/m³: its molar density times its molar mass.
+    #[wasm_bindgen(getter, js_name = Dmass)]
+    pub fn dmass(&self) -> Vec<f64> {
+        self.inner.rho_bulk.iter().map(|rho| rho * self.molar_mass).collect()
+    }
+
+    /// The incipient phase's molar density, mol/m³.
+    #[wasm_bindgen(getter, js_name = incipientDmolar)]
+    pub fn incipient_dmolar(&self) -> Vec<f64> {
+        self.inner.rho_incipient.clone()
+    }
+
+    /// The incipient phase's mole fractions, point-major: component i's at point k is `incipient[k * n + i]` for n
+    /// components.
+    #[wasm_bindgen(getter)]
+    pub fn incipient(&self) -> Vec<f64> {
+        let at = |k: usize| self.inner.incipient.iter().map(move |c| c.get(k).copied().unwrap_or(f64::NAN));
+        (0..self.inner.len()).flat_map(at).collect()
+    }
+
+    /// The critical point the trace passed, its temperature (K) interpolated where every ln K is 0; undefined where it
+    /// passed none.
+    #[wasm_bindgen(getter, js_name = criticalT)]
+    pub fn critical_t(&self) -> Option<f64> {
+        self.inner.critical.map(|(t, _)| t)
+    }
+
+    /// The critical point's pressure, Pa; undefined where the trace passed none.
+    #[wasm_bindgen(getter, js_name = criticalP)]
+    pub fn critical_p(&self) -> Option<f64> {
+        self.inner.critical.map(|(_, p)| p)
+    }
+
+    /// How the trace ended: `closed`, back at its starting pressure; `bound`, at the model's temperature range or
+    /// highest pressure; or `failed`, without convergence.
+    #[wasm_bindgen(getter)]
+    pub fn end(&self) -> String {
+        match &self.inner.end {
+            EnvelopeEnd::Closed => "closed",
+            EnvelopeEnd::Bound(_) => "bound",
+            _ => "failed",
+        }
+        .to_string()
+    }
+
+    /// Why the trace ended at a bound or failed, in the package's words; empty where it closed.
+    #[wasm_bindgen(getter)]
+    pub fn reason(&self) -> String {
+        match &self.inner.end {
+            EnvelopeEnd::Bound(e) => phasekit_core::Error::Domain(*e).to_string(),
+            EnvelopeEnd::NoConvergence(e) => e.to_string(),
+            _ => String::new(),
+        }
     }
 }
 

@@ -24,6 +24,7 @@ mod illinois;
 mod mixture;
 mod multifluid;
 mod names;
+mod phases;
 mod reducing;
 mod saturation;
 mod slot;
@@ -35,8 +36,8 @@ pub use envelope::{Envelope, EnvelopeEnd, EnvelopeOptions};
 pub use gerg::{PREFIX as GERG_PREFIX, R_GERG, with_gerg2008};
 pub use mixture::{Equilibrium, Mixture, R_CODATA, gerg2008, mixture};
 pub use multifluid::{Binary, MultiFluid};
-pub use names::{CACHED, binary_pairs, predefined, predefined_names, with_mixtures};
-pub use saturation::{Given, Saturation, Side};
+pub use names::{CACHED, binary_pairs, components, predefined, predefined_names, with_mixtures};
+pub use saturation::{Coexisting, Given, Saturation, Side};
 
 /// What `cargo xtask` and the verification kit read of the crate's data; not a stable API.
 #[doc(hidden)]
