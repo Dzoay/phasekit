@@ -45,6 +45,16 @@ export interface DiagramData {
   lines: Line[];
   x: [number, number];
   y: [number, number];
+  /** A mixture's (PLAN.md M21.5): its components, and how the package's trace of its envelope ended and why. */
+  envelope?: EnvelopeInfo;
+}
+
+export interface EnvelopeInfo {
+  components: string[];
+  /** The feed's mole fractions. */
+  feed: number[];
+  end: string;
+  reason: string;
 }
 
 /** The highest cell code that is a value: 0 success, 1 a flagged extrapolation (PLAN.md M10.8). */

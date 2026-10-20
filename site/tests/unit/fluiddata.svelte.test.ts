@@ -1,7 +1,8 @@
 // The page's fluid data (PLAN.md M21.4): a fluid's packs are fetched on its first use, each fluid it requires first,
 // once each, none for a fluid the registry serves; a failure refuses the call and is tried again; and the page says
-// where each fluid's data comes from and what it has fetched and decoded. Then the same on the real package, every
-// pack of packs/index.json.
+// where each fluid's data comes from and what it has fetched and decoded. A mixture's packs are its components', which
+// the engine names (PLAN.md M21.5), and the engine lists what can be mixed. Then the same on the real package, every
+// pack of packs/index.json, and R410A.mix's two.
 import { describe, expect, test } from "vitest";
 import { createHandler } from "../../src/engine/handler";
 import type { Request, Response } from "../../src/engine/protocol";
@@ -9,10 +10,10 @@ import { FluidData, type Registry, type Source } from "../../src/lib/fluiddata.s
 import type { PackEntry } from "../../src/lib/packs";
 import { embedded, loadPk, packBytes, packIndex } from "../pk";
 
-const entry = (name: string, bytes: number, requires: string[] = []): PackEntry => ({
+const entry = (name: string, bytes: number, requires: string[] = [], cas: string | null = null): PackEntry => ({
   name,
   aliases: [],
-  cas: null,
+  cas,
   requires,
   pack: `${name.toLowerCase()}.pack`,
   bytes,
@@ -21,14 +22,30 @@ const entry = (name: string, bytes: number, requires: string[] = []): PackEntry 
 const water = entry("Water", 70_000);
 const c = entry("C", 456);
 const b = entry("B", 2_000, ["C", "Water"]);
-const a = entry("A", 1_234, ["B"]);
-const d = entry("D", 5_000, ["B"]);
+const a = entry("A", 1_234, ["B"], "1-11-1");
+const d = entry("D", 5_000, ["B"], "2-22-2");
 const INDEX = [a, b, c, d, water];
+
+/** What the fake engine mixes: A with D, by their CAS numbers; AD.mix the one predefined mixture it builds, and AB.mix
+ *  one it lists but cannot build (B has no CAS number). */
+const MIXABLE = {
+  predefined: [
+    { name: "AB.mix", components: ["A", "B"] },
+    { name: "AD.mix", components: ["a", "D"] },
+  ],
+  pairs: ["1-11-1&2-22-2"],
+};
 
 /** A source and registry that log what they are asked, the registry serving Water to begin with. */
 function fakes() {
   const log: string[] = [];
-  const state = { names: ["Water"], loaded: [] as string[], failing: new Set<string>(), indexFailures: 0 };
+  const state = {
+    names: ["Water"],
+    loaded: [] as string[],
+    failing: new Set<string>(),
+    indexFailures: 0,
+    catalogueFailures: 0,
+  };
   const source: Source = {
     async index() {
       log.push("index");
@@ -54,6 +71,20 @@ function fakes() {
     async contents() {
       log.push("contents");
       return { names: state.names, loaded: state.loaded };
+    },
+    // AD.mix and A[0.5]&D[0.5] are mixtures of A and D; Bad.mix is refused; any other name names none.
+    async components(name) {
+      log.push(`components ${name}`);
+      if (name === "Bad.mix") throw new Error("unknown name Bad.mix");
+      return name === "AD.mix" || name === "A[0.5]&D[0.5]" ? ["a", "D"] : [];
+    },
+    async mixtures() {
+      log.push("mixtures");
+      if (state.catalogueFailures > 0) {
+        state.catalogueFailures -= 1;
+        throw new Error("the engine stopped");
+      }
+      return MIXABLE;
     },
   };
   return { data: new FluidData(source, registry), log, state };
@@ -122,10 +153,10 @@ describe("a fluid's packs", () => {
   test("are none for a name the index lacks, or while the index cannot be fetched, which is said and tried again", async () => {
     const { data, log } = fakes();
     await data.ensure("Unobtainium");
-    expect(log).toEqual(["contents", "index"]);
+    expect(log).toEqual(["contents", "index", "components Unobtainium"]);
     const other = new FluidData(
       { index: () => Promise.reject(new Error("offline")), pack: () => Promise.reject(new Error("no")) },
-      { add: () => Promise.reject(new Error("no")), contents: async () => ({ names: [], loaded: [] }) },
+      registryOf(),
     );
     await other.ensure("A");
     expect([other.error, other.fluids]).toEqual(["the fluid index could not be fetched: offline", []]);
@@ -143,6 +174,68 @@ describe("a fluid's packs", () => {
     await Promise.all([data.index(), data.index()]);
     await data.index();
     expect(log).toEqual(["index"]);
+  });
+});
+
+describe("a mixture's packs (PLAN.md M21.5)", () => {
+  test("are its components', in order, each fluid they require first; the engine names them once a name", async () => {
+    const { data, log } = fakes();
+    await data.ensure("AD.mix");
+    expect(log).toEqual([
+      "contents",
+      "index",
+      "components AD.mix",
+      "fetch c.pack",
+      "add c.pack",
+      "fetch b.pack",
+      "add b.pack",
+      "fetch a.pack",
+      "add a.pack",
+      "fetch d.pack",
+      "add d.pack",
+    ]);
+    expect(data.parts).toEqual(new Map([["AD.mix", ["a", "D"]]]));
+    await data.ensure("AD.mix");
+    expect(log.length).toBe(11);
+    await data.ensure("A[0.5]&D[0.5]");
+    expect(log.slice(11)).toEqual(["components A[0.5]&D[0.5]"]);
+    expect([...data.parts.keys()]).toEqual(["AD.mix", "A[0.5]&D[0.5]"]);
+  });
+
+  test("are none for a name the engine refuses or names no component of, and it is asked again", async () => {
+    const { data, log } = fakes();
+    await data.ensure("Bad.mix");
+    await data.ensure("Bad.mix");
+    expect(log).toEqual(["contents", "index", "components Bad.mix", "components Bad.mix"]);
+    expect(data.parts.size).toBe(0);
+  });
+
+  test("the predefined mixtures it builds, from the engine's list and the index, asked once", async () => {
+    const { data, log } = fakes();
+    expect([data.mixable, data.pairs.size, data.mixtures]).toEqual([{ predefined: [], pairs: [] }, 0, []]);
+    await Promise.all([data.catalogue(), data.catalogue()]);
+    expect(data.mixtures).toEqual([]);
+    await data.index();
+    expect(data.mixtures).toEqual([{ name: "AD.mix", components: [a, d] }]);
+    await data.catalogue();
+    expect(log).toEqual(["mixtures", "index"]);
+  });
+
+  test("a list the engine refuses is asked for again", async () => {
+    const { data, log, state } = fakes();
+    state.catalogueFailures = 1;
+    await expect(data.catalogue()).rejects.toThrow("the engine stopped");
+    await data.catalogue();
+    expect(data.mixable).toBe(MIXABLE);
+    expect(log).toEqual(["mixtures", "mixtures"]);
+  });
+
+  test("the page says where each component's data comes from", async () => {
+    const { data } = fakes();
+    await data.ensure("AD.mix");
+    expect(data.origin("AD.mix")).toBe("AD.mix: a mixture of A, fetched, 1.23 kB; D, fetched, 5.00 kB.");
+    data.parts = new Map([["AX.mix", ["A", "X"]]]);
+    expect(data.origin("AX.mix")).toBe("AX.mix: a mixture of A, fetched, 1.23 kB; X.");
   });
 });
 
@@ -174,7 +267,7 @@ describe("the registry", () => {
   test("that cannot be reached leaves a touch quiet", async () => {
     const data = new FluidData(
       { index: async () => ({ dataset: "", fluids: [] }), pack: () => Promise.reject(new Error("no")) },
-      { add: () => Promise.reject(new Error("no")), contents: () => Promise.reject(new Error("the engine stopped")) },
+      { ...registryOf(), contents: () => Promise.reject(new Error("the engine stopped")) },
     );
     data.touch();
     await settle();
@@ -220,7 +313,12 @@ function sourceOf(fluids: PackEntry[]): Source {
 }
 
 function registryOf(): Registry {
-  return { add: () => Promise.reject(new Error("no")), contents: async () => ({ names: [], loaded: [] }) };
+  return {
+    add: () => Promise.reject(new Error("no")),
+    contents: async () => ({ names: [], loaded: [] }),
+    components: async () => [],
+    mixtures: async () => ({ predefined: [], pairs: [] }),
+  };
 }
 
 describe("on the real package", () => {
@@ -238,6 +336,8 @@ describe("on the real package", () => {
         {
           add: async (bytes) => answer(call({ op: "pack", bytes })),
           contents: async () => answer(call({ op: "registry" })),
+          components: async () => [],
+          mixtures: async () => ({ predefined: [], pairs: [] }),
         },
       );
       await data.ensure("75-10-5");
@@ -277,6 +377,41 @@ describe("on the real package", () => {
       expect(failures).toEqual([]);
     },
   );
+
+  test("R410A.mix comes from R32's and R125's packs, which the engine names", async () => {
+    const handle = createHandler(await loadPk("simd"), "simd128");
+    let id = 0;
+    const call = (body: Record<string, unknown>): Response => handle({ ...body, id: ++id } as Request);
+    const value = <T>(r: Response): T =>
+      r.ok
+        ? (r.value as T)
+        : (() => {
+            throw new Error(r.error);
+          })();
+    const data = new FluidData(
+      { index: async () => packIndex(), pack: async (file) => packBytes(file) },
+      {
+        add: async (bytes) => value(call({ op: "pack", bytes })),
+        contents: async () => value(call({ op: "registry" })),
+        components: async (name) => value(call({ op: "components", name })),
+        mixtures: async () => value(call({ op: "mixtures" })),
+      },
+    );
+    await data.ensure("R410A.mix");
+    expect(data.fetched.map((f) => f.pack)).toEqual(["r32.pack", "r125.pack"]);
+    const state = call({
+      op: "state",
+      fluid: "R410A.mix",
+      name1: "T",
+      value1: 300,
+      name2: "P",
+      value2: 1e5,
+      outputs: [],
+    });
+    expect(state.ok, JSON.stringify(state)).toBe(true);
+    await data.catalogue();
+    expect(data.mixtures.map((m) => m.name)).toContain("R410A.mix");
+  });
 });
 
 const EMBEDDED = await embedded();

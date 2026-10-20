@@ -141,17 +141,49 @@ function fakePk() {
     freed: 0,
     evaluated: 0,
     batchesFreed: 0,
+    phasesFreed: 0,
+    envelopesFreed: 0,
   };
+  class Phases {
+    liquid = new Float64Array([0.75, 0.25]);
+    vapour = new Float64Array([0.25, 0.75]);
+    free(): void {
+      calls.phasesFreed += 1;
+    }
+  }
   class State {
     phase = "liquid";
+    #mixed: string;
+    constructor(mixed: string) {
+      this.#mixed = mixed;
+    }
     get(key: string): number {
       calls.reads += 1;
       if (key === "refused") throw new Error("not here");
       if (key === "odd") throw "a bare string";
       return 1;
     }
+    // A mixture's two-phase state has phases, its one-phase state none; the "Unsolved" mixture's refuses them.
+    phases(): Phases | undefined {
+      if (this.#mixed === "Unsolved") throw new Error("Vle did not converge in 60 iterations");
+      return this.#mixed === "Split" ? new Phases() : undefined;
+    }
     free(): void {
       calls.freed += 1;
+    }
+  }
+  class Envelope {
+    T = new Float64Array([200, 300]);
+    P = new Float64Array([1e5, 1e6]);
+    Q = new Float64Array([0, 1]);
+    Dmass = new Float64Array([1000, 50]);
+    incipient = new Float64Array([0.9, 0.1, 0.1, 0.9]);
+    criticalT = 250;
+    criticalP = 4e6;
+    end = "closed";
+    reason = "";
+    free(): void {
+      calls.envelopesFreed += 1;
     }
   }
   class Batch {
@@ -162,14 +194,28 @@ function fakePk() {
       calls.batchesFreed += 1;
     }
   }
+  // A fluid named "Split", "Single" or "Unsolved" is a mixture of two components; any other a pure fluid.
   class Fluid {
+    #name: string;
+    constructor(name: string) {
+      this.#name = name;
+    }
+    get components(): string[] {
+      return ["Split", "Single", "Unsolved"].includes(this.#name) ? ["A", "B"] : [this.#name];
+    }
+    get composition(): Float64Array {
+      return new Float64Array(this.components.length === 2 ? [0.5, 0.5] : [1]);
+    }
     evaluate(): Batch {
       calls.evaluated += 1;
       return new Batch();
     }
     flash(): State {
       calls.flashes += 1;
-      return new State();
+      return new State(this.#name);
+    }
+    envelope(): Envelope {
+      return new Envelope();
     }
   }
   class Registry {
@@ -179,7 +225,7 @@ function fakePk() {
     fluid(name: string): Fluid {
       calls.fluids += 1;
       if (name === "Nothing") throw new Error("unknown fluid Nothing");
-      return new Fluid();
+      return new Fluid(name);
     }
     PropsSI(): number {
       return 42;
@@ -221,7 +267,12 @@ describe("the engine's handles", () => {
       id: 1,
       ok: true,
       op: "state",
-      value: { phase: "liquid", values: [1, null, null], errors: [null, "not here", "a bare string"] },
+      value: {
+        phase: "liquid",
+        values: [1, null, null],
+        errors: [null, "not here", "a bare string"],
+        mixture: null,
+      },
     });
     expect([calls.flashes, calls.freed]).toEqual([1, 1]);
     const time = handle({ id: 2, op: "time", fluid: "Water", ...at, outputs: ["T", "refused"] });
@@ -390,5 +441,167 @@ describe("the engine's packs (PLAN.md M21.4)", () => {
       value: { names: await embedded(), loaded: [] },
     });
     expect(handle({ id: 4, ...state("Water") }).ok).toBe(true);
+  });
+});
+
+describe("the engine's mixtures (PLAN.md M21.5)", () => {
+  /** The engine on the real package with R32's and R125's packs: R410A.mix's components. */
+  async function r410a() {
+    const pk = await loadPk("simd");
+    const handle = createHandler(pk, "simd128");
+    for (const [id, file] of [
+      [1, "r32.pack"],
+      [2, "r125.pack"],
+    ] as const)
+      expect(handle({ id, op: "pack", bytes: packBytes(file) }).ok).toBe(true);
+    let registry = new pk.Registry();
+    for (const file of ["r32.pack", "r125.pack"]) {
+      const next = registry.withPack(packBytes(file));
+      registry.free();
+      registry = next;
+    }
+    return { pk, handle, registry };
+  }
+
+  test("a mixture's state has its composition and, two-phase, each phase's: the package's, bit for bit", async () => {
+    const { handle, registry } = await r410a();
+    const fluid = registry.fluid("R410A.mix");
+    const split = fluid.flash("Q", 0.5, "T", 280);
+    const phases = split.phases();
+    expect(phases).toBeDefined();
+    const got = handle({
+      id: 3,
+      op: "state",
+      fluid: "R410A.mix",
+      name1: "Q",
+      value1: 0.5,
+      name2: "T",
+      value2: 280,
+      outputs: ["P"],
+    });
+    expect(got.ok && got.op === "state" && got.value.mixture).toEqual({
+      components: ["R32", "R125"],
+      feed: [...fluid.composition],
+      liquid: [...(phases?.liquid ?? [])],
+      vapour: [...(phases?.vapour ?? [])],
+      error: null,
+    });
+    const gas = handle({ id: 4, op: "state", fluid: "R410A.mix", ...at, outputs: ["P"] });
+    expect(gas.ok && gas.op === "state" && gas.value.mixture).toEqual({
+      components: ["R32", "R125"],
+      feed: [...fluid.composition],
+      liquid: null,
+      vapour: null,
+      error: null,
+    });
+    const water = handle({
+      id: 5,
+      op: "state",
+      fluid: "Water",
+      name1: "Q",
+      value1: 0.5,
+      name2: "T",
+      value2: 373,
+      outputs: [],
+    });
+    expect(water.ok && water.op === "state" && water.value.mixture).toBeNull();
+    for (const handle of [phases, split, fluid, registry]) handle?.free();
+  });
+
+  test("lists the predefined mixtures with their components, and the binary pairs, as the package does", async () => {
+    const pk = await loadPk("simd");
+    const got = createHandler(pk, "simd128")({ id: 1, op: "mixtures" });
+    const predefined = pk.predefinedMixtures().map((name) => ({ name, components: pk.mixtureComponents(name) }));
+    expect(got).toEqual({ id: 1, ok: true, op: "mixtures", value: { predefined, pairs: pk.binaryPairs() } });
+    expect(predefined).toContainEqual({ name: "R410A.mix", components: ["R32", "R125"] });
+  });
+
+  test("names a mixture's components before its packs are added; none for a pure fluid; a malformed name refused", async () => {
+    const handle = createHandler(await loadPk("simd"), "simd128");
+    expect(handle({ id: 1, op: "components", name: "R410A.mix" })).toEqual({
+      id: 1,
+      ok: true,
+      op: "components",
+      value: ["R32", "R125"],
+    });
+    expect(handle({ id: 2, op: "components", name: "Water" })).toEqual({
+      id: 2,
+      ok: true,
+      op: "components",
+      value: [],
+    });
+    expect(handle({ id: 3, op: "components", name: "R999.mix" })).toEqual({
+      id: 3,
+      ok: false,
+      op: "components",
+      error: expect.stringContaining("R999.mix"),
+    });
+  });
+
+  test("traces a mixture's envelope as the package does, bit for bit; a pure fluid has none", async () => {
+    const { handle, registry } = await r410a();
+    const fluid = registry.fluid("R410A.mix");
+    const want = fluid.envelope();
+    const got = handle({ id: 3, op: "envelope", fluid: "R410A.mix" });
+    expect(got).toEqual({
+      id: 3,
+      ok: true,
+      op: "envelope",
+      value: {
+        T: want.T,
+        P: want.P,
+        Q: want.Q,
+        Dmass: want.Dmass,
+        incipient: want.incipient,
+        components: ["R32", "R125"],
+        feed: [...fluid.composition],
+        critical: [want.criticalT, want.criticalP],
+        end: "closed",
+        reason: "",
+      },
+    });
+    const bound = handle({ id: 4, op: "envelope", fluid: "CarbonDioxide[0.5]&Nitrogen[0.5]" });
+    expect(bound.ok && bound.op === "envelope" && [bound.value.critical, bound.value.end]).toEqual([null, "bound"]);
+    expect(bound.ok && bound.op === "envelope" && bound.value.reason).toContain("BelowMinTemperature");
+    const water = handle({ id: 5, op: "envelope", fluid: "Water" });
+    expect(water).toEqual({ id: 5, ok: false, op: "envelope", error: "Water is no mixture: it has no phase envelope" });
+    for (const handle of [want, fluid, registry]) handle.free();
+  });
+
+  test("frees each envelope and each state's phases; keeps a refusal of the phases in the package's words", () => {
+    const { pk, calls } = fakePk();
+    const handle = createHandler(pk, "baseline");
+    const split = handle({ id: 1, op: "state", fluid: "Split", ...at, outputs: [] });
+    expect(split.ok && split.op === "state" && split.value.mixture).toEqual({
+      components: ["A", "B"],
+      feed: [0.5, 0.5],
+      liquid: [0.75, 0.25],
+      vapour: [0.25, 0.75],
+      error: null,
+    });
+    const single = handle({ id: 2, op: "state", fluid: "Single", ...at, outputs: [] });
+    expect(single.ok && single.op === "state" && single.value.mixture?.liquid).toBeNull();
+    const unsolved = handle({ id: 3, op: "state", fluid: "Unsolved", ...at, outputs: ["T"] });
+    expect(unsolved).toEqual({
+      id: 3,
+      ok: true,
+      op: "state",
+      value: {
+        phase: "liquid",
+        values: [1],
+        errors: [null],
+        mixture: {
+          components: ["A", "B"],
+          feed: [0.5, 0.5],
+          liquid: null,
+          vapour: null,
+          error: "Vle did not converge in 60 iterations",
+        },
+      },
+    });
+    expect(calls.phasesFreed).toBe(1);
+    const envelope = handle({ id: 4, op: "envelope", fluid: "Split" });
+    expect(envelope.ok && envelope.op === "envelope" && envelope.value.critical).toEqual([250, 4e6]);
+    expect(calls.envelopesFreed).toBe(1);
   });
 });

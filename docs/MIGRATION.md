@@ -81,6 +81,12 @@ Where phasekit differs from v8.0.0 on mixtures:
   `PropsSI` at (T, p) on `R410A.mix` takes 0.77 ms, where v8.0.0 takes 4.4 ms.
 - A pair's parameters change by building a new model (`MultiFluid::with_binary`, ROT-196), never by a setter on a
   live one. There is no other backend (`REFPROP::`, a cubic mixture), and no mixture transport property (`NoModel`).
+- A two-phase state's liquid and vapour mole fractions (v8.0.0's `mole_fractions_liquid()` and
+  `mole_fractions_vapor()`) are `Mixture::phases(&state)`, in the browser package `State.phases()`. A `State` keeps no
+  compositions, so they are solved again at the state's molar quality, at its T and at its p, and the solve that lands
+  nearer the state is kept (PLAN.md M21.5). The phase envelope (`build_phase_envelope("")` and
+  `get_phase_envelope_data()`) is `Mixture::envelope`, in the browser package `Fluid.envelope()`, each point named by
+  side and its end typed (ROT-188, ROT-189).
 
 ## The CoolPropLib.h shim
 

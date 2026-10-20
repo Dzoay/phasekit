@@ -11,14 +11,17 @@
   import { baseScales, readoutAt, shownAt } from "../diagram/scales";
   import { CRITICAL_LINE, PHASES, styleOf, unitOfKey } from "../diagram/style";
   import { DiagramView, READOUT_KEYS } from "../diagram/view.svelte";
+  import Composition from "../components/Composition.svelte";
   import FluidOrigin from "../components/FluidOrigin.svelte";
   import FluidPicker from "../components/FluidPicker.svelte";
+  import MixtureEditor from "../components/MixtureEditor.svelte";
   import { getEngine } from "../engine/client";
   import { formatNumber } from "../lib/format";
   import { output } from "../lib/outputs";
   import { route, writeParams } from "../lib/route.svelte";
   import { SYSTEMS, fromSI } from "../lib/units";
   import { DIAGRAMS } from "../sample/diagrams";
+  import { MIXTURE_DIAGRAMS } from "../sample/envelope";
 
   const view = new DiagramView(getEngine());
   $effect(() => view.connect(route, (params) => writeParams("diagrams", params)));
@@ -281,8 +284,9 @@
 <section class="intro">
   <h1>Diagrams</h1>
   <p class="muted">
-    A fluid's saturation dome and isolines, every point computed by phasekit's WebAssembly package here in your browser.
-    Move over the plot to read the state under the cursor; scroll or drag to zoom and pan, double-click to start again.
+    A fluid's saturation dome and isolines, or a mixture's phase envelope, every point computed by phasekit's
+    WebAssembly package here in your browser. Move over the plot to read the state under the cursor; scroll or drag to
+    zoom and pan, double-click to start again.
   </p>
 </section>
 
@@ -295,8 +299,19 @@
     <legend>Diagram</legend>
     <div class="segmented">
       {#each DIAGRAMS as d (d.id)}
-        <label class:active={view.id === d.id}>
-          <input type="radio" name="diagram" checked={view.id === d.id} onchange={() => view.choose(d.id)} />
+        {@const off = view.mixture !== null && !MIXTURE_DIAGRAMS.includes(d.id)}
+        <label
+          class:active={view.id === d.id}
+          class:off
+          title={off ? "A mixture's diagrams are p–T and T–ρ" : undefined}
+        >
+          <input
+            type="radio"
+            name="diagram"
+            checked={view.id === d.id}
+            disabled={off}
+            onchange={() => view.choose(d.id)}
+          />
           {d.title}
         </label>
       {/each}
@@ -443,9 +458,17 @@
           {/each}
         </tbody>
       </table>
+      {#if view.mixture}
+        <Composition components={view.mixture.components} at={reading?.mixture ?? null} compact />
+      {/if}
       <a class="open" class:hidden={!link} href={link ?? undefined} data-testid="open-calculator"
         >Open in calculator →</a
       >
+    </section>
+
+    <section class="card mixture-card">
+      <h2>Mixture</h2>
+      <MixtureEditor id="diagram-mixture" bind:value={view.fluid} known={view.mixture} />
     </section>
 
     <section class="card legend">
@@ -453,9 +476,19 @@
       <ul>
         <li>
           <svg width="28" height="10" aria-hidden="true"><line x1="0" x2="28" y1="5" y2="5" class="swatch-dome" /></svg>
-          Saturation dome and critical point
+          {view.mixture ? "Bubble and dew curves and critical point" : "Saturation dome and critical point"}
         </li>
-        {#each view.diagram.families as f (f.held)}
+        {#if view.mixture}
+          <li class="trace" data-testid="envelope-end" data-end={view.mixture.end}>
+            {#if view.mixture.end === "closed"}
+              The package traced the envelope closed, from 1 bar.
+            {:else}
+              The package's trace ended {view.mixture.end === "bound" ? "at a bound" : "without converging"}:
+              <code>{view.mixture.reason}</code>
+            {/if}
+          </li>
+        {/if}
+        {#each view.mixture ? [] : view.diagram.families as f (f.held)}
           {@const s = styleOf(f.held)}
           <li>
             <label>
@@ -478,7 +511,7 @@
       </ul>
     </section>
 
-    <section class="card phases">
+    <section class="card phases" class:hidden={view.mixture !== null}>
       <h2>Phases</h2>
       <label class="check">
         <input type="checkbox" checked={view.regions} onchange={() => view.toggleRegions()} />
@@ -639,6 +672,16 @@
     outline: 2px solid var(--accent);
   }
 
+  /* A plane a mixture has not (PLAN.md M21.5). */
+  .segmented label.off {
+    opacity: 0.45;
+  }
+
+  .segmented label.off,
+  .segmented label.off input {
+    cursor: not-allowed;
+  }
+
   .layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 280px;
@@ -754,6 +797,25 @@
 
   .open.hidden {
     visibility: hidden;
+  }
+
+  .phases.hidden {
+    display: none;
+  }
+
+  .trace {
+    display: block;
+    font-size: 12.5px;
+    color: var(--fg-muted);
+  }
+
+  .trace code {
+    font-size: 11.5px;
+    word-break: break-word;
+  }
+
+  .readout :global(.composition) {
+    margin-top: 10px;
   }
 
   .loading {

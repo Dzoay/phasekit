@@ -26,7 +26,7 @@ test("a fluid's pack is fetched on its first use, and only its own: its referenc
   );
   const picker = page.getByRole("combobox", { name: "Fluid" });
   await picker.fill("75-10-5");
-  const option = page.getByRole("option", { name: /^R32\b/ });
+  const option = page.getByRole("listbox", { name: "Fluids" }).getByRole("option", { name: /^R32\b/ });
   await expect(option).toContainText("75-10-5");
   expect(packs).toEqual([]);
   await option.click();
@@ -49,7 +49,9 @@ test("an alias of an embedded fluid fetches nothing; the keys pick from the list
   await expect(T(page)).toHaveAttribute("data-value", "300");
   const picker = page.getByRole("combobox", { name: "Fluid" });
   await picker.fill("r744");
-  await expect(page.getByRole("option").first()).toContainText("CarbonDioxide");
+  await expect(page.getByRole("listbox", { name: "Fluids" }).getByRole("option").first()).toContainText(
+    "CarbonDioxide",
+  );
   await picker.press("Enter");
   await expect(page).toHaveURL(/fluid=CarbonDioxide/);
   await expect(picker).toHaveValue("CarbonDioxide");

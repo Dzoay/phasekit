@@ -1,12 +1,14 @@
 // The diagrams page's view (PLAN.md M21.2): a fluid, a diagram, the units and the families turned off, in the URL
-// (`fluid=Water&d=ph&units=engineering&hide=T,Q`); the diagram's geometry, sampled once per fluid and diagram; the
-// phase regions while they are shown (`regions=1`, M21.9), sampled once per fluid; and the readout, the package's
-// state at the cursor. The component binds to it; tests/unit/view.svelte.test.ts drives it.
+// (`fluid=Water&d=ph&units=engineering&hide=T,Q`); the diagram's geometry, sampled once per fluid and diagram, a
+// mixture's its phase envelope on p–T or T–ρ, its only planes (M21.5); the phase regions while they are shown
+// (`regions=1`, M21.9), sampled once per fluid; and the readout, the package's state at the cursor. The component binds
+// to it; tests/unit/view.svelte.test.ts drives it.
 import { untrack } from "svelte";
 import type { Engine, StateValue } from "../engine/protocol";
 import type { System } from "../lib/units";
 import { diagram, type Diagram, type DiagramId, type Key } from "../sample/diagrams";
-import { sampleDiagram, type Batch, type DiagramData } from "../sample/lines";
+import { MIXTURE_DIAGRAMS, MIXTURE_KEYS, sampleEnvelope } from "../sample/envelope";
+import { sampleDiagram, type Batch, type DiagramData, type EnvelopeInfo } from "../sample/lines";
 import { LIMIT_KEYS, limits, type Limits } from "../sample/ranges";
 import { sampleRegions, type PhaseAt, type Regions } from "../sample/regions";
 import { GRID_LEVELS } from "./grid";
@@ -51,6 +53,8 @@ export class DiagramView {
   // The geometry and the readout are replaced whole, never changed in place: raw state, which proxies neither its
   // thousands of vertices nor the cache's copies, so a cached diagram is the same object again.
   data = $state.raw<DiagramData | null>(null);
+  /** The last geometry's mixture: its components and how its envelope's trace ended; null for a pure fluid's. */
+  mixture = $state.raw<EnvelopeInfo | null>(null);
   refusal = $state<string | null>(null);
   busy = $state(true);
   readout = $state.raw<Readout | null>(null);
@@ -60,6 +64,7 @@ export class DiagramView {
   readonly #engine: Engine;
   readonly #cache = new Map<string, DiagramData>();
   readonly #regionCache = new Map<string, Regions>();
+  readonly #components = new Map<string, Promise<string[]>>();
   #sequence = 0;
   #regionSequence = 0;
   #pointer = 0;
@@ -188,30 +193,61 @@ export class DiagramView {
     });
   }
 
-  // The diagram's geometry: from the cache, or the fluid's limits and then its sampling; a late answer is dropped.
+  // The diagram's geometry: from the cache, or sampled; a late answer is dropped, and so is a mixture's on a plane it
+  // has not, which switches to p–T instead.
   #sample(fluid: string, id: DiagramId): void {
     const key = `${fluid}/${id}`;
     // Stryker disable next-line UpdateOperator: as the pointer's.
     const mine = ++this.#sequence;
     const cached = this.#cache.get(key);
     if (cached) {
-      [this.data, this.refusal, this.busy] = [cached, null, false];
+      [this.data, this.mixture, this.refusal, this.busy] = [cached, cached.envelope ?? null, null, false];
       return;
     }
     untrack(() => (this.busy = true));
-    const batch: Batch = (outputs, name1, values1, name2, values2) =>
-      this.#engine.call({ op: "batch", fluid, outputs, name1, values1, name2, values2 });
-    this.#limits(fluid)
-      .then((l) => sampleDiagram(diagram(id) as Diagram, l, batch))
-      .then(
-        (data) => {
-          this.#cache.set(key, data);
-          if (mine === this.#sequence) [this.data, this.refusal, this.busy] = [data, null, false];
-        },
-        (e: unknown) => {
-          if (mine === this.#sequence) [this.data, this.refusal, this.busy] = [null, message(e), false];
-        },
-      );
+    this.#geometry(fluid, id).then(
+      (data) => {
+        // A switch's null is late, the switch having started p–T's sample, so it could reach only the cache, where a
+        // null entry is a miss.
+        // Stryker disable next-line ConditionalExpression: equivalent, as above.
+        if (!data) return;
+        this.#cache.set(key, data);
+        if (mine === this.#sequence)
+          [this.data, this.mixture, this.refusal, this.busy] = [data, data.envelope ?? null, null, false];
+      },
+      (e: unknown) => {
+        if (mine === this.#sequence)
+          [this.data, this.mixture, this.refusal, this.busy] = [null, null, message(e), false];
+      },
+    );
+  }
+
+  // A pure fluid's dome and isolines from its limits; a mixture's envelope, or null where `id` is a plane the mixture
+  // has not and the view has switched to p–T.
+  async #geometry(fluid: string, id: DiagramId): Promise<DiagramData | null> {
+    if ((await this.#mixed(fluid)).length === 0) {
+      const batch: Batch = (outputs, name1, values1, name2, values2) =>
+        this.#engine.call({ op: "batch", fluid, outputs, name1, values1, name2, values2 });
+      return sampleDiagram(diagram(id) as Diagram, await this.#limits(fluid), batch);
+    }
+    if (!MIXTURE_DIAGRAMS.includes(id)) {
+      this.id = "pt";
+      return null;
+    }
+    const envelope = await this.#engine.call({ op: "envelope", fluid });
+    const constants = await this.#engine.call({ op: "constants", fluid, keys: [...MIXTURE_KEYS] });
+    return sampleEnvelope(diagram(id) as Diagram, envelope, constants);
+  }
+
+  // A mixture name's components, as the engine names them, asked once a name; none for a pure fluid, or a name the
+  // engine refuses, whose geometry then refuses in its words.
+  #mixed(fluid: string): Promise<string[]> {
+    let parts = this.#components.get(fluid);
+    if (!parts) {
+      parts = this.#engine.call({ op: "components", name: fluid }).catch(() => []);
+      this.#components.set(fluid, parts);
+    }
+    return parts;
   }
 
   #limits(fluid: string): Promise<Limits> {

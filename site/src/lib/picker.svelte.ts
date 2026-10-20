@@ -1,7 +1,9 @@
 // The fluid picker's view (PLAN.md M21.4): a combobox over every fluid of packs/index.json, searched by name, alias or
-// CAS number (src/lib/packs.ts), or, until the index has come, over the fluids the registry serves. Its value is the
-// chosen fluid's canonical name. FluidPicker.svelte binds to it; tests/unit/picker.svelte.test.ts drives it.
+// CAS number (src/lib/packs.ts), or, until the index has come, over the fluids the registry serves; and after them the
+// predefined mixtures the package builds (PLAN.md M21.5), searched by name or by a component's. Its value is the chosen
+// fluid's canonical name. FluidPicker.svelte binds to it; tests/unit/picker.svelte.test.ts drives it.
 import type { FluidData } from "./fluiddata.svelte";
+import type { Predefined } from "./mixtures";
 import { find, search, type PackEntry } from "./packs";
 
 /** The picker's value: the page's fluid, which it reads and sets. */
@@ -13,6 +15,12 @@ export interface Value {
 /** A fluid the registry serves, as an entry, until the index has come. */
 const bare = (name: string): PackEntry => ({ name, aliases: [], cas: null, requires: [], pack: "", bytes: 0 });
 
+/** A predefined mixture, as an entry: its components, which it requires, also as its alias (`R32 + R125`). */
+export function mixtureEntry(m: Predefined): PackEntry {
+  const names = m.components.map((c) => c.name);
+  return { name: m.name, aliases: [names.join(" + ")], cas: null, requires: names, pack: "", bytes: 0, mixture: true };
+}
+
 export class Picker {
   /** What is typed while the list is open. */
   query = $state("");
@@ -23,10 +31,12 @@ export class Picker {
   readonly #data: FluidData;
   readonly #value: Value;
 
-  /** The fluids to pick from. */
-  readonly entries: readonly PackEntry[] = $derived.by(() =>
-    this.#data.fluids.length > 0 ? this.#data.fluids : this.#data.names.map(bare),
-  );
+  /** The fluids to pick from, and the mixtures. */
+  readonly entries: readonly PackEntry[] = $derived.by(() => {
+    const [fluids, mixtures] = [this.#data.fluids, this.#data.mixtures];
+    if (fluids.length === 0) return this.#data.names.map(bare);
+    return mixtures.length === 0 ? fluids : [...fluids, ...mixtures.map(mixtureEntry)];
+  });
   readonly hits = $derived(search(this.entries, this.query));
   /** The input's text: the query while open, else the chosen fluid's canonical name, or the text that names no fluid. */
   readonly text = $derived.by(() => {

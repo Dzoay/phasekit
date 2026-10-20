@@ -1,12 +1,16 @@
 <script lang="ts">
-  // The calculator: a fluid, two inputs, and every output the package gives at that state. Its view and wiring are
-  // src/lib/calculator.svelte.ts; this component only binds to them.
+  // The calculator: a fluid or a mixture, two inputs, and every output the package gives at that state, with a
+  // mixture's composition and its phases' (PLAN.md M21.5). Its view and wiring are src/lib/calculator.svelte.ts; this
+  // component only binds to them.
+  import Composition from "../components/Composition.svelte";
   import FluidOrigin from "../components/FluidOrigin.svelte";
   import FluidPicker from "../components/FluidPicker.svelte";
-  import { getEngine } from "../engine/client";
+  import MixtureEditor from "../components/MixtureEditor.svelte";
+  import { fluidData, getEngine } from "../engine/client";
   import { Calculator, KEYS, invalid } from "../lib/calculator.svelte";
   import { PRESETS } from "../lib/fluids";
   import { formatNumber, formatTime } from "../lib/format";
+  import { liquidLiquid } from "../lib/mixtures";
   import { GROUPS, HEADLINE, INPUTS, output, type Output } from "../lib/outputs";
   import { route, writeParams } from "../lib/route.svelte";
   import { SYSTEMS, fromSI } from "../lib/units";
@@ -44,6 +48,7 @@
     <div class="field">
       <label for="fluid">Fluid</label>
       <FluidPicker id="fluid" bind:value={calc.fluid} />
+      <MixtureEditor id="mixture" bind:value={calc.fluid} known={calc.result?.mixture ?? null} />
       <FluidOrigin fluid={calc.fluid} />
     </div>
 
@@ -110,6 +115,12 @@
           )}.
         </p>
         <p class="message"><span class="muted">Its message, in SI:</span> <code>{calc.refusal}</code></p>
+        {#if fluidData.parts.has(calc.fluid) && liquidLiquid(calc.refusal)}
+          <p data-testid="liquid-liquid">
+            A mixture takes every input pair, so this is its refusal of two liquid phases, or of three phases: phasekit
+            computes the equilibrium of a vapour and a liquid only.
+          </p>
+        {/if}
       </div>
     {:else if calc.result}
       <div class="summary">
@@ -135,6 +146,13 @@
           </p>
         {/if}
       </div>
+
+      {#if calc.result.mixture}
+        <section class="card group composition" data-testid="mixture-composition">
+          <h2>Composition</h2>
+          <Composition components={calc.result.mixture.components} at={calc.result.mixture} />
+        </section>
+      {/if}
 
       <div class="groups">
         {#each GROUPS as group (group.title)}
@@ -415,6 +433,10 @@
     break-inside: avoid;
     margin: 0 0 20px;
     padding: 14px 16px 10px;
+  }
+
+  .composition {
+    margin: 0;
   }
 
   .group h2 {

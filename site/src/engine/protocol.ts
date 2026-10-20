@@ -15,6 +15,51 @@ export interface StateValue {
   values: (number | null)[];
   /** Output k's refusal in the package's words, or null. */
   errors: (string | null)[];
+  /** A mixture's composition and, at a two-phase state, its phases (PLAN.md M21.5); null for a pure fluid. */
+  mixture: StateMixture | null;
+}
+
+/** A mixture at a state: the package's `Fluid.components` and `composition`, and its `State.phases()`. */
+export interface StateMixture {
+  /** The components' canonical names. */
+  components: string[];
+  /** The feed's mole fractions, one per component. */
+  feed: number[];
+  /** The liquid's and the vapour's mole fractions at a two-phase state; null in one phase, or where the package
+   *  refused them. */
+  liquid: number[] | null;
+  vapour: number[] | null;
+  /** Why the package refused the phases, in its words; null where it did not. */
+  error: string | null;
+}
+
+/** What can be mixed (PLAN.md M21.5): the package's `predefinedMixtures()`, each with its `mixtureComponents`, and its
+ *  `binaryPairs()`. */
+export interface MixturesValue {
+  /** Each predefined mixture's name (`R410A.mix`) and its components as the library lists them (`R32`, `NITROGEN`). */
+  predefined: { name: string; components: string[] }[];
+  /** The binary pairs, each two CAS numbers sorted as strings and joined by `&`. */
+  pairs: string[];
+}
+
+/** A mixture's phase envelope (the package's `Fluid.envelope()`, PLAN.md M21.5): one entry a point, in the trace's order,
+ *  each a bubble point (Q = 0) or a dew point (Q = 1) of the feed. */
+export interface EnvelopeValue {
+  T: Float64Array;
+  P: Float64Array;
+  Q: Float64Array;
+  /** The feed's mass density. */
+  Dmass: Float64Array;
+  /** The incipient phase's mole fractions, point-major: component i's at point k at `k * components.length + i`. */
+  incipient: Float64Array;
+  /** The components' canonical names, and the feed's mole fractions. */
+  components: string[];
+  feed: number[];
+  /** The critical point the trace passed, (T, p) where every ln K is 0; null where it passed none. */
+  critical: [number, number] | null;
+  /** How the trace ended: `closed`, `bound` or `failed`; and why, in the package's words, where it did not close. */
+  end: string;
+  reason: string;
 }
 
 /** The mean time of one run, over `runs` runs repeated for a short budget. */
@@ -77,6 +122,10 @@ export type Request =
       outputs: string[];
     }
   | { id: number; op: "constants"; fluid: string; keys: string[] }
+  | { id: number; op: "mixtures" }
+  // A name, not a fluid: the engine answers it before any pack is added (src/engine/client.ts).
+  | { id: number; op: "components"; name: string }
+  | { id: number; op: "envelope"; fluid: string }
   | {
       id: number;
       op: "batch";
@@ -119,6 +168,10 @@ export interface Values {
   time: TimeValue;
   /** Each key's `Props1SI` value, or null where the package refused it. */
   constants: (number | null)[];
+  mixtures: MixturesValue;
+  /** The fluids a mixture name needs (the package's `mixtureComponents`); none for a pure fluid's name. */
+  components: string[];
+  envelope: EnvelopeValue;
   batch: BatchValue;
   bench: BenchValue;
 }

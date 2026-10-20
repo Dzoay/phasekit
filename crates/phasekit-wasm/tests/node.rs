@@ -5,11 +5,14 @@
 #![cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 #![allow(clippy::unwrap_used, reason = "test-crate helpers")]
 
+use std::any::Any;
 use std::sync::Arc;
 
 use phasekit_core::batch::Status;
+use phasekit_core::{DataSet, Pack};
+use phasekit_mix::{EnvelopeOptions, Given, Mixture, Side};
 use phasekit_verify::{Fixture, ToleranceClass};
-use phasekit_wasm::{Registry, output_keys};
+use phasekit_wasm::{Registry, binary_pairs, mixture_components, output_keys, predefined_mixtures};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -239,11 +242,35 @@ const TRANSPORT: (&str, &str) =
 
 /// R32's pack as `cargo xtask packs` writes it: its names and requirements from the index, its committed blob.
 fn r32_pack() -> Vec<u8> {
-    let r32 = phasekit_data::FLUIDS.iter().find(|f| f.name == "R32").unwrap();
-    let names = core::iter::once(r32.name).chain(r32.aliases.iter().copied()).map(String::from).collect();
-    let requires = r32.requires.iter().copied().map(String::from).collect();
-    let blob: Arc<[u8]> = Arc::from(&include_bytes!("../../phasekit-data/blobs/r32.bin")[..]);
-    phasekit_core::internal::pack(&[(names, requires, blob)])
+    pack("R32", include_bytes!("../../phasekit-data/blobs/r32.bin"))
+}
+
+/// R125's pack, R410A's other component (PLAN.md M21.5).
+fn r125_pack() -> Vec<u8> {
+    pack("R125", include_bytes!("../../phasekit-data/blobs/r125.bin"))
+}
+
+/// The pack of fluid `name`, its blob `blob`.
+fn pack(name: &str, blob: &[u8]) -> Vec<u8> {
+    let fluid = phasekit_data::FLUIDS.iter().find(|f| f.name == name).unwrap();
+    let names = core::iter::once(fluid.name).chain(fluid.aliases.iter().copied()).map(String::from).collect();
+    let requires = fluid.requires.iter().copied().map(String::from).collect();
+    phasekit_core::internal::pack(&[(names, requires, Arc::from(blob))])
+}
+
+/// R410A.mix as the page's registry reads it, with R32's and R125's packs; and the same mixture built here by
+/// phasekit-mix over the same fluids, the package's answers' oracle (`Exact`).
+fn r410a() -> (phasekit_wasm::Fluid, phasekit_core::Fluid) {
+    let page = Registry::new().unwrap().with_pack(&r32_pack()).unwrap().with_pack(&r125_pack()).unwrap();
+    let mut registry = phasekit_core::Registry::from_embedded(DataSet::Corrected).unwrap();
+    for bytes in [r32_pack(), r125_pack()] {
+        registry = registry.with_source(Box::new(Pack::new(bytes.into()).unwrap()), DataSet::Corrected).unwrap();
+    }
+    (page.fluid("R410A.mix").unwrap(), phasekit_mix::predefined(&registry, "R410A", DataSet::Corrected).unwrap())
+}
+
+fn mixture(fluid: &phasekit_core::Fluid) -> &Mixture {
+    (fluid.model() as &dyn Any).downcast_ref().unwrap()
 }
 
 /// PLAN.md M21.4: the registry names the five fluids the package embeds, and R32 once its pack is added, the pack's
@@ -325,4 +352,71 @@ fn mixture_strings_reach_the_browser() {
     let state = registry.fluid(mix).unwrap().flash("T", 300.0, "P", 1e5).unwrap();
     assert_eq!(state.get("Dmolar").unwrap(), got);
     assert!(registry.props_si("Dmolar", "T", 300.0, "P", 1e5, "R410A.mix").is_err());
+}
+
+/// PLAN.md M21.5: what a page needs to offer mixtures. The predefined mixtures are the library's, each named as a fluid
+/// string reads it; the binary pairs the library's, by CAS number; a mixture name's components as it writes them, a
+/// predefined mixture's as the library lists them, none for a pure fluid's name, and a malformed or unknown name
+/// refused as `fluid` refuses it.
+#[wasm_bindgen_test]
+fn the_mixture_lists_are_the_librarys() {
+    let predefined: Vec<String> = phasekit_mix::predefined_names().map(|n| format!("{n}.mix")).collect();
+    assert_eq!(predefined_mixtures(), predefined);
+    assert!(predefined.contains(&"R410A.mix".to_string()));
+    let pairs: Vec<String> = phasekit_mix::binary_pairs().map(|[a, b]| format!("{a}&{b}")).collect();
+    assert_eq!(binary_pairs(), pairs);
+    assert!(pairs.contains(&"354-33-6&75-10-5".to_string()), "R125 and R32 pair");
+    assert_eq!(mixture_components("R410A.mix").unwrap(), ["R32", "R125"]);
+    assert_eq!(mixture_components("Air.mix").unwrap(), ["NITROGEN", "ARGON", "OXYGEN"]);
+    assert_eq!(mixture_components("HEOS::CarbonDioxide[0.5]&Nitrogen[0.5]").unwrap(), ["CarbonDioxide", "Nitrogen"]);
+    assert_eq!(mixture_components("Water").unwrap(), Vec::<String>::new());
+    let registry = Registry::new().unwrap();
+    for bad in ["R999.mix", "R32[0.5]&R125"] {
+        assert!(mixture_components(bad).is_err(), "{bad}");
+        assert!(registry.fluid(bad).is_err(), "{bad}");
+    }
+}
+
+/// PLAN.md M21.5: a mixture's fluid has its components, composition and phase envelope, each phasekit-mix's bit for bit
+/// (`Exact`): R410A from R32's and R125's packs, its envelope closed through its critical point, the feed's mass density
+/// its molar density times its molar mass, its incipient phase point-major. A pure fluid is one component at 1 and has
+/// no envelope; CO₂/N₂'s trace, which starts at CO₂'s triple point, ends at that bound and says so.
+#[wasm_bindgen_test]
+fn a_mixture_has_its_components_composition_and_envelope() {
+    let (page, oracle) = r410a();
+    let model = mixture(&oracle);
+    assert_eq!(page.components(), ["R32", "R125"]);
+    assert_eq!(page.composition(), model.composition());
+    let (got, want) = (page.envelope().unwrap(), model.envelope(&EnvelopeOptions::new()).unwrap());
+    assert_eq!((got.t(), got.p(), got.dmolar()), (want.t.clone(), want.p.clone(), want.rho_bulk.clone()));
+    assert_eq!(got.incipient_dmolar(), want.rho_incipient);
+    let m = oracle.info().molar_mass();
+    assert_eq!(got.dmass(), want.rho_bulk.iter().map(|rho| rho * m).collect::<Vec<f64>>());
+    let q: Vec<f64> = want.side.iter().map(|s| if *s == Side::Bubble { 0.0 } else { 1.0 }).collect();
+    assert_eq!(got.q(), q);
+    assert!(q.contains(&0.0) && q.contains(&1.0), "both sides");
+    let incipient: Vec<f64> = (0..want.len()).flat_map(|k| [want.incipient[0][k], want.incipient[1][k]]).collect();
+    assert_eq!(got.incipient(), incipient);
+    let critical = want.critical.unwrap();
+    assert_eq!((got.critical_t(), got.critical_p()), (Some(critical.0), Some(critical.1)));
+    assert_eq!((got.end(), got.reason()), ("closed".to_string(), String::new()));
+    let water = Registry::new().unwrap().fluid("Water").unwrap();
+    assert_eq!((water.components(), water.composition()), (vec!["Water".to_string()], vec![1.0]));
+    assert!(water.envelope().is_err());
+    let bound = Registry::new().unwrap().fluid("CarbonDioxide[0.5]&Nitrogen[0.5]").unwrap().envelope().unwrap();
+    assert_eq!((bound.end(), bound.critical_t()), ("bound".to_string(), None));
+    assert!(bound.reason().contains("BelowMinTemperature"), "{}", bound.reason());
+}
+
+/// PLAN.md M21.5: a mixture's two-phase state has each phase's mole fractions, phasekit-mix's `Mixture::phases` bit for
+/// bit, the QT flash's own solve at a QT state; a single phase, and a pure fluid's two-phase state, have none.
+#[wasm_bindgen_test]
+fn a_mixtures_two_phase_state_has_its_phases() {
+    let (page, oracle) = r410a();
+    let want = mixture(&oracle).coexisting(0.5, Given::T(250.0)).unwrap();
+    let phases = page.flash("Q", 0.5, "T", 250.0).unwrap().phases().unwrap().unwrap();
+    assert_eq!((phases.liquid(), phases.vapour()), (want.x, want.y));
+    assert!(page.flash("T", 300.0, "P", 1e5).unwrap().phases().unwrap().is_none());
+    let water = Registry::new().unwrap().fluid("Water").unwrap();
+    assert!(water.flash("Q", 0.5, "T", 373.0).unwrap().phases().unwrap().is_none());
 }
