@@ -145,8 +145,8 @@ bits.
 cp, w and every first partial derivative. It is the family-neutral currency for states of matter. Beyond it,
 `PointDerivs::split(ideal, residual)` (Helmholtz families) or `from_total(total)` (a Gibbs solid's own order-3
 transform): order 3-4 and the ideal/residual split for Cp0, residual h/s/g, CoolProp's α-term outputs, second partial
-derivatives and the fundamental derivative (E1). `Virials { b, c, db_dt, dc_dt }` are exact zero-density
-coefficients (E4).
+derivatives and the fundamental derivative (E1). `Virials { b, c, db_dt, dc_dt, d2b_dt2, d2c_dt2 }` are exact
+zero-density coefficients and their first two T-derivatives (E4; the second for humid air, user decision HA6).
 
 ### 3.2 How derivatives are obtained: the power term
 

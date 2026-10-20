@@ -39,9 +39,16 @@ impl Residual {
 
     /// The attraction a(T) = Ω_a R²T_c²/p_c · α(T/T_c), Pa m⁶/mol², and da/dT.
     pub fn a(&self, t: f64) -> (f64, f64) {
+        let [a, da, _] = self.attraction(t);
+        (a, da)
+    }
+
+    /// a(T), da/dT and d²a/dT², from one `Jet4` of α at θ = T/T_c.
+    fn attraction(&self, t: f64) -> [f64; 3] {
         let a_c = self.omegas.a * R_CODATA * R_CODATA * self.t_c * self.t_c / self.p_c;
         let alpha = self.alpha.eval(Jet4::tau(t / self.t_c));
-        (a_c * alpha.value(), a_c * alpha.derivative(1, 0).unwrap_or(f64::NAN) / self.t_c)
+        let d = |i| alpha.derivative(i, 0).unwrap_or(f64::NAN);
+        [a_c * alpha.value(), a_c * d(1) / self.t_c, a_c * d(2) / (self.t_c * self.t_c)]
     }
 
     /// The `A_ij` of α^r at (T, ρ) to `order`, from `Jet4` at τ = T_c/T and δ = ρRT_c/p_c; the bundle is
@@ -60,15 +67,18 @@ impl Residual {
     }
 
     /// The exact virials of α^r = (b − a/RT)ρ + (b² + (Δ₁ + Δ₂)ab/RT)ρ²/2 + …: B = b − a/RT and
-    /// C = b² + (Δ₁ + Δ₂)ab/RT (E4).
+    /// C = b² + (Δ₁ + Δ₂)ab/RT (E4), and their T-derivatives, through d²(a/T)/dT² = (a'' − 2a'/T + 2a/T²)/T.
     pub fn virials(&self, t: f64) -> Virials {
-        let ((a, da), b, (d1, d2)) = (self.a(t), self.b(), self.kind.deltas());
+        let ([a, da, d2a], b, (d1, d2)) = (self.attraction(t), self.b(), self.kind.deltas());
         let rt = R_CODATA * t;
+        let curvature = (d2a - 2.0 * da / t + 2.0 * a / (t * t)) / rt;
         Virials {
             b: b - a / rt,
             c: b * b + (d1 + d2) * a * b / rt,
             db_dt: (a / t - da) / rt,
             dc_dt: (d1 + d2) * b * (da - a / t) / rt,
+            d2b_dt2: -curvature,
+            d2c_dt2: (d1 + d2) * b * curvature,
         }
     }
 }

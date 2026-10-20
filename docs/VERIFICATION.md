@@ -612,8 +612,9 @@ On every core fluid at eos-grid states (stable and imposed phase), on the out-of
 - (∂h/∂T)_p = c_p, (∂s/∂T)_p = c_p/T, (∂g/∂T)_p = −s, c_p − c_v = T(∂p/∂T)²_ρ/(ρ²(∂p/∂ρ)_T), w² = (∂p/∂ρ)_s, Maxwell
   relations (map 01 §8, map 02 §8, ARCHITECTURE.md §3.7). μ = g (pure); ln φ = α^r + δα^r_δ − ln(1 + δα^r_δ) once
   fugacity lands (map 02 §8).
-- Virials: `zero_density` B, C, dB/dT, dC/dT against hand derivations (sketch tests) and B = lim (Z − 1)/ρ at low
-  density (map 02 §8); never against the oracle's C (DIV-0011).
+- Virials: `zero_density` B, C and their first two T-derivatives against hand derivations (sketch tests), the δ → 0
+  extrapolation of α^r and central differences (M14.1), and B = lim (Z − 1)/ρ at low density (map 02 §8); never
+  against the oracle's C (DIV-0011).
 - M7 (user decisions OD1, OD5; the Thorade & Saadat paper is not openly available): the mixed second partial of p;
   Maxwell's (∂s/∂ρ)_T = −(∂p/∂T)_ρ/ρ² differentiated in T; (∂c_v/∂ρ)_T = −T(∂²p/∂T²)_ρ/ρ² and (∂c_p/∂p)_T =
   −T(∂²v/∂T²)_p from the second partials of s against those of p and ρ; β/κ_T = (∂p/∂T)_ρ, c_p − c_v = Tβ²/(ρκ_T) and

@@ -643,12 +643,10 @@ The oracle is v8.0.0's `IF97::Water` backend, through `PropsSI`, for IF97 only: 
 only through humid air, so the ice model has the tables, the identities and its consistency with IAPWS-95's vapour.
 M14 closes by setting `MILESTONE` to 15.
 
-- **M14.1 Core's seam for humid air (HA6).** `Virials` gains `d2b_dt2` and `d2c_dt2`: each residual block's
-  zero-density series (power, τ-exponential, Gaussian, GaoB, non-analytic) is taken to its second τ-derivative, with
-  T²d²/dT² = τ²d²/dτ² + 2τd/dτ; every other `zero_density` in the workspace gives them too (`phasekit-cubic`'s,
-  `phasekit-mix`'s, the out-of-tree van der Waals of `tests/new_family.rs`). *Red:* `tests/virials.rs` on all 136 fluids, the cubic family and two
-  mixtures, against central differences of the exact dB/dT and dC/dT within `Fd`, and against num-dual's second
-  derivative of the series (`Identity`), on fields that are NaN until the series land.
+| Step | Landed |
+|---|---|
+| M14.1 | Core's seam for humid air (user decision HA6): `Virials` gains `d2b_dt2` and `d2c_dt2`. Each residual block's zero-density series gives `[a_k, τa_k′, τ²a_k″]` (power: τ²f″ = t(t − 1)f; τ-exponential: f(s² − s − m²y) with s = t − my, y = aτ^m; Gaussian and GaoB through `TauSide::series`'s τ ds/dτ; non-analytic from its `Jet4` at δ = 0), and `HelmholtzEos::zero_density` takes T²d²/dT² = τ²d²/dτ² + 2τd/dτ; `phasekit-cubic`'s through a″(T) from α's `Jet4` (d²(a/T)/dT²), `phasekit-mix`'s multi-fluid and GERG-2008 pure fluids through their departure jets at order 4 and d²τ/dT² = 2T_r/T³, the out-of-tree van der Waals by hand. `tests/virials.rs`: for all 136 fluids at 0.8, 1 and 1.5 T_r both second derivatives equal the δ → 0 extrapolation of α^r's A21 and A22 (`Identity`; the extrapolation now three-point, O(δ³), since the two-point one left 3.6e-12 of Ethane's d²B/dT² at δ = 1e-7, shrinking as δ²), and against central differences of the exact dB/dT and dC/dT (`Fd`) for the 136, the vdW, SRK and PR fluids of n-Propane, Water and CO₂, and four mixtures; each block's series against its own A20 at small δ |
+
 - **M14.2 The crate, IF97's region 1 and its saturation line.** `m14-start` on M14.1's merge commit, named in
   `ci/core-frozen.txt`; `crates/phasekit-iapws` on `phasekit-core` alone (T1f, `gates deps`; a hardened root of
   `gates lints`), PR scope `iapws` (`pr-title.yml`, CONTRIBUTING.md); the three releases' tables transcribed and

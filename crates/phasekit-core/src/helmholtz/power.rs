@@ -133,7 +133,7 @@ pub(super) fn falling(p: f64) -> [f64; 5] {
 
 /// The δ → 0 series of `δ^d e^(−cδ^l) = Σ_q (−c)^q δ^(d+ql) / q!` (E4): `add(slot, (−c)^q / q!)` for the slot of each
 /// power `d + ql` up to δ², once if `l = 0`.
-pub(super) fn exp_series(out: &mut [[f64; 2]; 3], (d, l, c): (u8, u8, f64), mut add: impl FnMut(&mut [f64; 2], f64)) {
+pub(super) fn exp_series(out: &mut [[f64; 3]; 3], (d, l, c): (u8, u8, f64), mut add: impl FnMut(&mut [f64; 3], f64)) {
     let (d, l) = (usize::from(d), usize::from(l));
     let mut coef = 1.0; // (−c)^q / q!
     for q in 0..if l == 0 { 1u8 } else { 3 } {
@@ -193,15 +193,16 @@ impl PowerBlock {
         }
     }
 
-    /// Exact δ → 0 Taylor coefficients `[a_k(τ), τ·da_k/dτ]` of this block's α^r for k = 0, 1, 2, from
+    /// Exact δ → 0 Taylor coefficients `[a_k(τ), τ·da_k/dτ, τ²·d²a_k/dτ²]` of this block's α^r for k = 0, 1, 2, from
     /// `δ^d e^(−cδ^l) = Σ_m (−c)^m δ^(d+ml) / m!` (E4).
-    pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 2]; 3] {
-        let mut a = [[0.0; 2]; 3];
+    pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 3]; 3] {
+        let mut a = [[0.0; 3]; 3];
         for ((((&n, &t), &d), &l), &c) in self.n.iter().zip(&self.t).zip(&self.d).zip(&self.l).zip(&self.c) {
             let f = n * crate::num::math::powf(tau, t);
             exp_series(&mut a, (d, l, c), |slot, coef| {
                 slot[0] += coef * f;
                 slot[1] += coef * f * t;
+                slot[2] += coef * f * t * (t - 1.0);
             });
         }
         a
@@ -352,7 +353,8 @@ mod tests {
         let (n, t, tau) = (0.7, 1.5, 1.3);
         let f = n * math::powf(tau, t);
         let block = PowerBlock::new(&[PowerTerm::new(n, t, 1, 1, 1.0)]).unwrap();
-        assert_eq!(block.zero_density_series(tau), [[0.0, 0.0], [f, f * t], [-f, -f * t]]);
+        let ttf = f * t * (t - 1.0);
+        assert_eq!(block.zero_density_series(tau), [[0.0, 0.0, 0.0], [f, f * t, ttf], [-f, -f * t, -ttf]]);
         let mbwr = PowerBlock::new(&[PowerTerm::new(n, t, 0, 0, 0.0), PowerTerm::new(-n, t, 0, 1, 1.0)]).unwrap();
         let s = mbwr.zero_density_series(tau);
         assert_eq!((s[0][0], s[1][0], s[2][0]), (0.0, f, -0.5 * f));
