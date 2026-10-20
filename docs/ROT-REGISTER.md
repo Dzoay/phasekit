@@ -367,12 +367,12 @@ Rows within a theme run roughly from the broadest design defect to the narrowest
 
 | ID | Source | Problem | Mechanism | Proof | Milestone | Status |
 |---|---|---|---|---|---|---|
-| ROT-240 | map 07 R3 | IF97 HP/PS throws for every Region-3 state above p_crit | `phasekit-iapws` own `ThermoModel` flash (§11) | IAPWS SR3-03 Table 5 rows | M26 | Deferred: M26 phasekit-iapws |
-| ROT-241 | map 07 R6 | Region 3 density from backward v(T, p) without Newton refinement (~1e-6; documented trade-off) | Proposal only, in phasekit-iapws | R7-97 Table 33 | M26 | Deferred: M26 phasekit-iapws |
-| ROT-242 | map 07 R7 | IF97 refuses p < 611.213 Pa although R2 and R5 are defined for 0 < p | Private `Limits` can grow; domains with holes are a D10 deferred item | R7-97 low-p R2/R5 rows | M14 | Deferred: M14 phasekit-iapws (region 2), M26 (region 5) |
+| ROT-240 | map 07 R3 | IF97 HP/PS throws for every Region-3 state above p_crit | `phasekit-iapws` own `ThermoModel` flash (§11) | IAPWS SR3-03 Table 5 rows | M27 | Deferred: M27 phasekit-iapws |
+| ROT-241 | map 07 R6 | Region 3 density from backward v(T, p) without Newton refinement (~1e-6; documented trade-off) | Proposal only, in phasekit-iapws | R7-97 Table 33 | M27 | Deferred: M27 phasekit-iapws |
+| ROT-242 | map 07 R7 | IF97 refuses p < 611.213 Pa although R2 and R5 are defined for 0 < p | Private `Limits` can grow; domains with holes are a D10 deferred item | R7-97 low-p R2/R5 rows | M14 | Deferred: M14 phasekit-iapws (region 2), M27 (region 5) |
 | ROT-243 | map 07 R8 | IF97 kernels recompute: one term loop per derivative, repeated cp and psat, 3 `pow` per backward term | `bundle_from_gibbs` turns one order-2 Gibbs evaluation into the `Bundle` (§3.6) | phasekit-iapws bench vs `fast_evaluate` 750 ns/point | M14 | Deferred: M14 phasekit-iapws |
-| ROT-244 | map 07 R9 | A "testing purposes only" region routine runs 2-3× per HP/PS update | Proposal only, in phasekit-iapws | n/a | M26 | Deferred: M26 phasekit-iapws |
-| ROT-245 | map 07 R10 | Region-3 transport is a diverged copy of the base; `Region5::lambda2` hides the base | Proposal only, in phasekit-iapws | IAPWS R12-08 / R15-11 rows | M26 | Deferred: M26 phasekit-iapws |
+| ROT-244 | map 07 R9 | A "testing purposes only" region routine runs 2-3× per HP/PS update | Proposal only, in phasekit-iapws | n/a | M27 | Deferred: M27 phasekit-iapws |
+| ROT-245 | map 07 R10 | Region-3 transport is a diverged copy of the base; `Region5::lambda2` hides the base | Proposal only, in phasekit-iapws | IAPWS R12-08 / R15-11 rows | M27 | Deferred: M27 phasekit-iapws |
 | ROT-246 | map 07 §5 row 1 | Coefficient tables are header namespace `static const` vectors: one copy per translation unit (4 TUs) | Rust `static` tables exist once per crate *(inference)* | n/a | M14 | Designed-out |
 | ROT-247 | map 07 C1 | Ice g00 is the superseded 2006 value, not the 2009 revision | Divergence register `UsePaper` (D13) | IAPWS R10-06(2009) Table 6 | M14 | Deferred: M14 phasekit-iapws |
 | ROT-248 | map 07 C2 | Ice returns 1e99 on PowerPC; no domain checks; g_TT and g_Tp missing; no tests | `GibbsDerivs` requires all six Gibbs derivatives; `Limits`; no sentinels | `gibbs_seam.rs::solid_properties_come_from_the_shared_relations` (pattern) | M14 | Deferred: M14 phasekit-iapws |
@@ -402,7 +402,7 @@ Rows within a theme run roughly from the broadest design defect to the narrowest
 | ROT-272 | map 07 H14 | Dry-air dew-point guard inverted: W = 0 returns 149.4 K | Proposal only, in phasekit-humidair | n/a | M18 | Deferred: M18 phasekit-humidair |
 | ROT-273 | map 07 H7 | Ideal-gas-enthalpy correlation flag path prints "Not implemented" and uses s⁰ = 0 | No global model flags; a missing part is `NoModel` (D12) | n/a | n/a | Not-ported |
 | ROT-274 | map 07 H12 | Legacy surface: kSI `HAProps` scales dimensionless outputs ×1000; `strcpy` into an unsized buffer; global strcmp overloads | No kSI API; lengths on every C buffer (§12) | n/a | n/a | Not-ported |
-| ROT-275 | map 12 §6.2 row 12 | Humid-air, incompressible and IF97 bugs: density passed as pressure, 100x viscosity, Region 3 | Post-0.1 families through `ThermoModel` (§11) | M14 IF97 gates; HA and INCOMP gates when scheduled | M14 | Deferred: M14 phasekit-iapws (regions 1, 2, 4), M26 (region 3), M17 phasekit-incomp, M18 phasekit-humidair |
+| ROT-275 | map 12 §6.2 row 12 | Humid-air, incompressible and IF97 bugs: density passed as pressure, 100x viscosity, Region 3 | Post-0.1 families through `ThermoModel` (§11) | M14 IF97 gates; HA and INCOMP gates when scheduled | M14 | Deferred: M14 phasekit-iapws (regions 1, 2, 4), M27 (region 3), M17 phasekit-incomp, M18 phasekit-humidair |
 | ROT-276 | map 07 P1; map 07 P2; map 07 P3; map 07 P4; map 12 §6.2 row 11 (also map 11 F18) | REFPROP backend: two threads abort the process; DLL never unloaded; 'N/A' names taken literally; 5 % test gates | Proprietary, process-global; at most an out-of-process oracle mapping names itself (§1) | n/a | n/a | Not-ported |
 
 ### 2.17 Tabular and surrogates
