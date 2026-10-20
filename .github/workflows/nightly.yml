@@ -221,16 +221,13 @@ jobs:
             echo
             echo "Image: \`${{ needs.lock.outputs.image }}\`"
             echo
-            echo "| Fixture | Rows | Failed calls |"
-            echo "|---|---|---|"
-            for f in "$FIXTURES"/coolprop-8.0.0/{facts,crit,term,eos,flash,all}/*.csv "$FIXTURES"/mp/check-points.csv; do
-              rows=$(grep -vc '^#' "$f"); failed=$(grep -v '^#' "$f" | grep -c ',err:' || true)
-              echo "| ${f#"$FIXTURES"/} | $rows | $failed |"
-            done
-            echo
             echo "Generator: $(grep -m1 '^# generator:' "$FIXTURES/coolprop-8.0.0/facts/smoke.csv" | cut -c3-)"
             echo
             echo "Sweep: $(grep -E '^ *Summary' sweep.log 2>/dev/null | tr '\n' ' ' || echo 'not run')"
+            echo
+            # Per fluid and kind of each set: rows, failed calls and nan cells; the arbiters; the ignored tests (M20.4).
+            cargo xtask nightly-report "$FIXTURES/coolprop-8.0.0" "$FIXTURES/mp" crates/phasekit-verify/fixtures-full/coolprop-8.0.0 ||
+              echo "cargo xtask nightly-report failed"
           } >> "$GITHUB_STEP_SUMMARY"
 
   scaling:

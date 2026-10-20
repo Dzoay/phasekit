@@ -20,7 +20,7 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
 }
 
 /// Checks every `#[ignore]` in the (path, text) files; returns the ignored tests as `path:line: reason`.
-fn check(files: &[(String, String)], register: &[Divergence]) -> Result<Vec<String>, Vec<String>> {
+pub(crate) fn check(files: &[(String, String)], register: &[Divergence]) -> Result<Vec<String>, Vec<String>> {
     let (mut ignored, mut errors) = (Vec::new(), Vec::new());
     for (path, text) in files {
         for (i, line) in text.lines().enumerate() {
