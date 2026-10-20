@@ -3,9 +3,16 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
-use phasekit_core::{Basis, State};
+use std::num::NonZeroUsize;
+
+use phasekit_core::batch::{BatchRequest, ExecPolicy};
+use phasekit_core::{Basis, Error, Fluid, Gauge, Input, Pair, Phase, Prop, State, Var};
 use phasekit_iapws::if97;
-use phasekit_verify::{Cell, Fixture, ToleranceClass, fixture};
+use phasekit_verify::conformance::{
+    Outcome, capability_matrix, gauge_invariance, identities, policy_equivalence, thread_invariance,
+};
+use phasekit_verify::register::{RowKey, exempt_row};
+use phasekit_verify::{Cell, DIVERGENCES, Fixture, Kind, ToleranceClass, fixture};
 
 /// The table at `path`, parsed.
 fn table((path, text): (&'static str, &'static str)) -> Fixture<'static> {
@@ -129,4 +136,168 @@ fn region_1_and_the_saturation_line_match_the_oracle() {
     }
     assert_eq!(missed, Vec::<String>::new());
     assert_eq!(counts, [58, 20, 12, 2], "region 1's PT rows, QT rows, PQ rows, refusals");
+}
+
+/// Arbiter: IAPWS R7-97(2012) Table 15, region 2's v, h, u, s, c_p and w at (300 K, 3.5 kPa), (700 K, 3.5 kPa) and
+/// (700 K, 30 MPa) (PLAN.md M14.3): the region's function, which the `Fluid` uses only to 623.15 K.
+#[test]
+fn region_2_is_table_15() {
+    let table = table(fixture!("paper/Water/IAPWS-R7-97-2012.15.csv"));
+    let mut missed = Vec::new();
+    for row in 0..table.rows().len() {
+        let (t, p) = (table.value(row, "T").unwrap(), table.value(row, "p").unwrap() * 1e6);
+        match if97::region2(t, p) {
+            Ok(state) => missed.extend(misses(&table, row, &printed_properties(&state))),
+            Err(e) => missed.push(format!("row {row}: {e}")),
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+}
+
+/// IF97 water's `Fluid` (PLAN.md M14.3; user decision HA4).
+fn water() -> Fluid {
+    if97::water().unwrap()
+}
+
+/// The `if97` row's input for IF97 water's `Fluid`.
+fn if97_input(pair: &str, x: f64, y: f64) -> Input {
+    let pair = match pair {
+        "PT" => Pair::PT,
+        "QT" => Pair::QT,
+        _ => Pair::PQ,
+    };
+    Input::new(pair, x, y, Basis::Mass).unwrap()
+}
+
+/// Oracle: CoolProp 8.0.0's `IF97::Water`, `fixtures/coolprop-8.0.0/all/if97.csv` (PLAN.md M14.3). Every row through
+/// IF97 water's `Fluid`: T, p, ρ, h, s, u, c_p and w within `Prop` with §5's floors, region 2's PT rows and the
+/// saturated sides (Q 0 and 1: c_p and w the saturated phase's) among them, DIV-0065's saturated liquid at 623.15 K at
+/// its registered 5e-12 in w. The oracle refuses QT at 273.15 K, below its saturation line; the `Fluid` answers there
+/// (two oracle-gap rows).
+#[test]
+fn if97_water_matches_the_oracle() {
+    let (table, water) = (table(fixture!("coolprop-8.0.0/all/if97.csv")), water());
+    let (mut missed, mut asserted, mut gaps, mut exempt) = (Vec::new(), 0, 0, 0);
+    for row in 0..table.rows().len() {
+        let (pair, x, y) = if97_row(&table, row);
+        let state = water.state(if97_input(pair, x, y));
+        if table.printed(row, "status") != Some("ok") {
+            assert!(state.is_ok(), "row {row}: {state:?}");
+            gaps += 1;
+            continue;
+        }
+        let state = state.unwrap();
+        let t = state.t();
+        let (energy, entropy) = (if97::R * t, if97::R);
+        let values = [
+            (("T", t), 0.0),
+            (("p", state.p()), 0.0),
+            (("rhomass", state.rho(Basis::Mass)), 0.0),
+            (("hmass", state.h(Basis::Mass)), energy),
+            (("smass", state.s(Basis::Mass)), entropy),
+            (("umass", state.u(Basis::Mass)), energy),
+            (("cpmass", state.cp(Basis::Mass).unwrap_or(f64::NAN)), entropy),
+            (("speed_sound", state.speed_of_sound().unwrap_or(f64::NAN)), 0.0),
+        ];
+        for ((column, got), floor) in values {
+            let p = table.value(row, "p");
+            let key = RowKey { t, input: Some(pair), two_phase: false, p, balanced: true, near_critical: false };
+            if exempt_row(DIVERGENCES, "IF97 water", Kind::If97, column, key).is_some() {
+                let want = table.value(row, column).unwrap();
+                assert!((got / want - 1.0).abs() <= 5e-12, "DIV-0065: row {row} {column}: {got} against {want}");
+                exempt += 1;
+                continue;
+            }
+            missed.extend(prop_miss(&table, row, (column, got), floor));
+        }
+        asserted += 1;
+    }
+    assert_eq!(missed, Vec::<String>::new());
+    assert_eq!((asserted, gaps, exempt), (120, 2, 2), "rows asserted, oracle gaps, cells exempt (w at Q 0 and 1)");
+}
+
+/// The conformance kit (VERIFICATION.md §10) on IF97 water (PLAN.md M14.3): its two truths, a liquid at (300 K, 1 MPa)
+/// and the dome at (Q 0.4, 400 K), round-trip through PT, QT and PQ, the rest of the 19 pairs `Unsupported`; a
+/// single phase has no quality, so its quality pairs are refused before the model is asked, and PT on the line is
+/// `Ambiguous` between the two sides, neither of which is the dome.
+#[test]
+fn if97_water_capability_matrix() {
+    let water = water();
+    let single = water.state(if97_input("PT", 1e6, 300.0)).unwrap();
+    let dome = water.state(if97_input("QT", 0.4, 400.0)).unwrap();
+    for (pair, [one_phase, two_phase]) in capability_matrix(&water, [&single, &dome]) {
+        let declared = matches!(pair, Pair::PT | Pair::QT | Pair::PQ);
+        let q_pair = matches!(pair.vars(), (Var::Q, _) | (_, Var::Q));
+        let one_ok = match &one_phase {
+            Outcome::Pass => declared && !q_pair,
+            Outcome::Unsupported => !declared && !q_pair,
+            Outcome::Refused(Error::Undefined { .. }) => q_pair,
+            _ => false,
+        };
+        let two_ok = match &two_phase {
+            Outcome::Pass => declared && q_pair,
+            Outcome::Unsupported => !declared,
+            Outcome::Refused(Error::Ambiguous { .. }) => pair == Pair::PT,
+            _ => false,
+        };
+        assert!(one_ok && two_ok, "{pair:?}: {one_phase:?}, {two_phase:?}");
+    }
+}
+
+/// The states the kit's other checks run on: liquid and vapour from region 1 and 2 across the `Fluid`'s range, and
+/// both saturated sides and the dome at 450 K.
+fn kit_inputs() -> Vec<Input> {
+    let mut inputs = Vec::new();
+    for t in [273.16, 300.0, 400.0, 500.0, 600.0, 623.15] {
+        inputs.extend([if97_input("PT", 1e3, t), if97_input("PT", 50e6, t)]);
+    }
+    inputs.extend([0.0, 0.5, 1.0].map(|q| if97_input("QT", q, 450.0)));
+    inputs
+}
+
+/// The kit's identities (`Identity`), gauge invariance and thread invariance on IF97 water (PLAN.md M14.3).
+#[test]
+fn if97_water_passes_the_kit() {
+    let fluid = water();
+    let states: Vec<State> = kit_inputs().into_iter().map(|input| fluid.state(input).unwrap()).collect();
+    let checked = identities(&fluid, &states).unwrap();
+    assert!(checked >= 12 * 10, "the first-order identities at every single-phase state: {checked}");
+    let gauged = gauge_invariance(&fluid, Gauge::new(1234.5, -6.75).unwrap(), &kit_inputs());
+    assert!(gauged.is_ok(), "{gauged:?}");
+    let threads = thread_invariance(water, &kit_inputs(), 8);
+    assert!(threads.is_ok(), "{threads:?}");
+}
+
+/// K17: PT, QT and PQ batches of IF97 water under `Parallel` and `Simd` give `Reference`'s cells bit for bit, its
+/// refusals (below 273.15 K, above 623.15 K or 100 MPa) among them (PLAN.md M14.3).
+#[test]
+fn if97_water_batches_agree_under_every_policy() {
+    let water = water();
+    let outputs = [Prop::P, Prop::Hmass, Prop::Cpmass, Prop::Q];
+    let t: Vec<f64> = (0..37).map(|i| 270.0 + 10.0 * f64::from(i)).collect();
+    let p: Vec<f64> = (0..37).map(|i| 1e3 * 1.4_f64.powi(i)).collect();
+    let q: Vec<f64> = (0..37).map(|i| f64::from(i % 5) / 4.0).collect();
+    let requests = [
+        BatchRequest::new(Pair::PT, Basis::Mass, &p, &t, &outputs),
+        BatchRequest::new(Pair::QT, Basis::Mass, &q, &t, &outputs),
+        BatchRequest::new(Pair::PQ, Basis::Mass, &p, &q, &outputs),
+    ];
+    for exec in [ExecPolicy::Parallel { chunk: NonZeroUsize::new(16).unwrap() }, ExecPolicy::Simd] {
+        for req in &requests {
+            let result = policy_equivalence(&water, req, exec);
+            assert!(result.is_ok(), "{exec:?}: {result:?}");
+        }
+    }
+}
+
+/// ROT-242, region 2's half: v8.0.0's IF97 refuses p below 611.213 Pa (its PT rows start at 1 kPa), though region 2
+/// is defined for any p > 0 (R7-97(2012) §6.1); IF97 water's vapour at 300 K and 100 Pa is region 2's state, its
+/// compressibility factor 1 − 5.8e-5, the second virial's share there.
+#[test]
+fn if97_water_vapour_goes_below_611_pa() {
+    let state = water().state(if97_input("PT", 100.0, 300.0)).unwrap();
+    assert_eq!(state.phase(), Phase::Gas);
+    assert_eq!(state.rho(Basis::Mass).to_bits(), if97::region2(300.0, 100.0).unwrap().rho(Basis::Mass).to_bits());
+    let z = state.z();
+    assert!(-1e-4 < z - 1.0 && z < 1.0, "Z = {z}");
 }

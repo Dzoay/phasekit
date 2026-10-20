@@ -1,0 +1,52 @@
+"""DIV-0065's arbiter: the speed of sound of IAPWS-IF97's saturated liquid at 623.15 K, in 50-digit arithmetic.
+
+    LC_ALL=C uv run --no-project --python 3.12 --with mpmath==1.3.0 python -I scripts/math/if97.py
+
+Region 1's Gibbs function, IAPWS R7-97(2012) Eq. (7) with Table 2's coefficients, read from
+crates/phasekit-iapws/src/if97/region1.rs; the saturation pressure from Eq. (30) with Table 34's; w from Table 3's
+relation. Prints p_s and w to 20 significant digits (PLAN.md M14.3; crates/phasekit-verify/tests/divergences.rs).
+"""
+
+import re
+import sys
+from pathlib import Path
+
+from mpmath import mp, mpf, sqrt
+
+mp.dps = 50
+ROOT = Path(sys.argv[0]).resolve().parents[2]
+SOURCE = (ROOT / "crates/phasekit-iapws/src/if97/region1.rs").read_text()
+TERMS = [(int(i), int(j), mpf(n.replace("_", ""))) for i, j, n in
+         re.findall(r"^\s+\((-?\d+), (-?\d+), (-?[0-9._e-]+)\),$", SOURCE, re.M)]
+assert len(TERMS) == 34, len(TERMS)
+N = [mpf(x) for x in ["0.11670521452767e4", "-0.72421316703206e6", "-0.17073846940092e2", "0.12020824702470e5",
+                      "-0.32325550322333e7", "0.14915108613530e2", "-0.48232657361591e4", "0.40511340542057e6",
+                      "-0.23855557567849", "0.65017534844798e3"]]
+
+
+def saturation_pressure(t):
+    """Eq. (30)."""
+    n1, n2, n3, n4, n5, n6, n7, n8, n9, n10 = N
+    theta = t + n9 / (t - n10)
+    a, b, c = theta**2 + n1 * theta + n2, n3 * theta**2 + n4 * theta + n5, n6 * theta**2 + n7 * theta + n8
+    return mpf(10)**6 * (2 * c / (-b + sqrt(b * b - 4 * a * c)))**4
+
+
+def speed_of_sound(t, p):
+    """Table 3: w² = RT γ_π² / ((γ_π − τγ_πτ)²/(τ²γ_ττ) − γ_ππ), from Table 4's derivatives of Eq. (7)."""
+    pi, tau = p / mpf("16.53e6"), mpf(1386) / t
+    x, y = mpf("7.1") - pi, tau - mpf("1.222")
+    g_p = g_pp = g_tt = g_pt = mpf(0)
+    for i, j, n in TERMS:
+        term = n * x**i * y**j
+        g_p += -i * term / x
+        g_pp += i * (i - 1) * term / x**2
+        g_tt += j * (j - 1) * term / y**2
+        g_pt += -i * j * term / (x * y)
+    return sqrt(mpf("461.526") * t * g_p**2 / ((g_p - tau * g_pt)**2 / (tau**2 * g_tt) - g_pp))
+
+
+T = mpf("623.15")
+P = saturation_pressure(T)
+print("p_s", mp.nstr(P, 20))
+print("w", mp.nstr(speed_of_sound(T, P), 20))

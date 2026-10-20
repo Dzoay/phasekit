@@ -1599,6 +1599,28 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[13],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0065",
+        fluids: &["IF97 water"],
+        part: Part::Algorithm,
+        arbiter: Some("IAPWS R7-97(2012) Eq. (7) and Table 3 in 50-digit arithmetic (scripts/math/if97.py)"),
+        policy: Policy::SkipOracle,
+        fix: Fix::None,
+        evidence: "map 07 §8 (v8.0.0's IF97 within 3e-9 of the IAPWS tables' printed digits); M14.3: at the saturated \
+                   liquid at 623.15 K, 16.529 MPa, v8.0.0's IF97 w is 576.9149310395293 m/s, \
+                   Eq. (7)'s in 50 digits 576.91493103792562, 2.8e-12 off (its own rounding, where the liquid's \
+                   compressibility is largest); phasekit-iapws's, through bundle_from_gibbs, 576.9149310376191, \
+                   5.3e-13 off. The if97 kind's other 119 rows are phasekit's within Prop",
+        exempt: Some(Exempt {
+            kinds: &[Kind::If97],
+            columns: &["speed_sound"],
+            rows: Rows::AtTP(&[(623.15, 16_529_164.252_604_509)]),
+        }),
+        tolerance: Some(Tolerance::Relative(5e-12)),
+        table_tolerances: &[],
+        proof: &[14],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The output columns of the `cubic` and `cubic_sat` kinds (PLAN.md M11.4, M11.5).

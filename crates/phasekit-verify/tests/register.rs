@@ -609,6 +609,11 @@ fn div_0064(facts: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0064"]
 }
 
+/// DIV-0065: its oracle value is the `if97` kind's row, which `tests/divergences.rs` reads (PLAN.md M14.3).
+fn div_0065(_: &Fixture<'_>) -> Vec<&'static str> {
+    vec!["DIV-0065"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -641,6 +646,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0061_to_0062,
         div_0063,
         div_0064,
+        div_0065,
     ]
     .iter()
     .flat_map(|group| group(&facts))

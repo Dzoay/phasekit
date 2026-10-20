@@ -94,6 +94,10 @@ name = "transport"
 harness = false
 
 [[bench]]
+name = "iapws"
+harness = false
+
+[[bench]]
 name = "scaling"
 harness = false
 
