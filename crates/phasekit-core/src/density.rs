@@ -1,9 +1,9 @@
 //! The density of a Helmholtz model at a given (T, p) on a phase's branch.
 //!
-//! - [`bracketed`] (PLAN.md M7.1; map 03 §9 `flash::density`, CoolProp-uqvr "always-bracketed density solve"): the PT
+//! - `bracketed` (PLAN.md M7.1; map 03 §9 `flash::density`, CoolProp-uqvr "always-bracketed density solve"): the PT
 //!   flash's solve between two densities where p(T, ρ) − p changes sign once, so the root is unique by construction. Its
 //!   Newton evaluates `residual + IDEAL_DELTA` and never α⁰ (ARCHITECTURE.md D6, Lean graft).
-//! - [`at_t_p`] (PLAN.md M6.9): from a seed density, unbracketed, for the saturated phases of a pseudo-pure fluid and
+//! - `at_t_p` (PLAN.md M6.9): from a seed density, unbracketed, for the saturated phases of a pseudo-pure fluid and
 //!   an imposed phase, as CoolProp's `update_TP_guessrho` (`HelmholtzEOSMixtureBackend.cpp:1422-1434`) and
 //!   `solver_rho_Tp` (3036-3074). Every iterate must be mechanically stable, (∂p/∂ρ)_T > 0. A seed in the unstable
 //!   region (an ancillary's near the critical point) is replaced by the branch's far end, as CoolProp restarts: the

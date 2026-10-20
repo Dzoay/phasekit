@@ -285,7 +285,7 @@ impl ThermoModel for PureFluid {
     fn flash(&self, input: NativeInput, opts: &FlashOptions) -> Result<State, Error> {
         flash::flash(self, input, opts)
     }
-    /// DT, QT and PQ in core's lanes, [`flash::GROUP`] points at a time ([`flash::lanes`]; PLAN.md M12.8, M12.9, M22.4):
+    /// DT, QT and PQ in core's lanes, `flash::GROUP` points at a time (`flash::lanes`; PLAN.md M12.8, M12.9, M22.4):
     /// the points' bundles, and a QT or PQ point's saturation, side by side, then each point's flash on its own. A
     /// group of another pair, or of mixed pairs, runs point by point. A pure fluid's phases share one molar mass, so a
     /// quality's basis changes nothing.
@@ -303,7 +303,7 @@ impl ThermoModel for PureFluid {
         }
     }
     /// The model's own critical point (map 03 §6; ROT-084): one given with origin `Model`; else, for a fluid with a
-    /// saturation curve, the EOS's own, solved from the curve's top ([`crate::crit`]; CoolProp's with superancillaries
+    /// saturation curve, the EOS's own, solved from the curve's top (`crate::crit`; CoolProp's with superancillaries
     /// on, within `Flash`), or the exact curve's top where the solve cannot run (non-analytic terms at τ = δ = 1); else
     /// the published one, with that origin, as CoolProp has it (the pseudo-pure fluids). The published point stays in
     /// [`FluidInfo::published_critical`].
@@ -330,7 +330,7 @@ impl ThermoModel for PureFluid {
         let curve = self.melting.as_ref().ok_or(Error::NoModel { prop: Prop::MeltingTemperature })?;
         curve.temperature(Pressure::new(p)?.get())
     }
-    /// σ(T) over its fit's range, up to the model's own critical temperature ([`SurfaceTension`]'s rule).
+    /// σ(T) over its fit's range, up to the model's own critical temperature ([`crate::transport::SurfaceTension`]'s rule).
     fn surface_tension(&self, t: f64) -> Result<f64, Error> {
         let fit = self.transport()?.surface_tension.as_ref().ok_or(Error::NoModel { prop: Prop::SurfaceTension })?;
         let t_c = self.critical_point().map_or(f64::INFINITY, |c| c.t);

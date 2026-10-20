@@ -196,7 +196,7 @@ pub extern "C" fn HAPropsSI(
 /// A global parameter: `version`, `errstring` (read and cleared), `warnstring` (always empty), `FluidsList` (also
 /// `fluids_list`, `fluidslist`; the registry's names, joined by `LIST_STRING_DELIMITER`), `parameter_list` (the
 /// output names, joined by commas, as CoolProp's), the predefined mixtures and the binary pairs as v8.0.0 lists them
-/// (PLAN.md M13.14: [`predefined_mixtures`], [`binary_pairs`]), and the two incompressible lists, empty.
+/// (PLAN.md M13.14: `predefined_mixtures`, `binary_pairs`), and the two incompressible lists, empty.
 pub fn global_param(param: &str) -> Result<String, String> {
     Ok(match param {
         "version" => env!("CARGO_PKG_VERSION").to_string(),
@@ -259,7 +259,7 @@ fn fluid_param(fluid: &Fluid, param: &str) -> Result<String, String> {
     })
 }
 
-/// CoolProp's `get_fluid_param_string(fluid, param, Output, n)`: the parameter into `Output` ([`fluid_param`]). Returns
+/// CoolProp's `get_fluid_param_string(fluid, param, Output, n)`: the parameter into `Output` (`fluid_param`). Returns
 /// 1, or 0 with the `errstring` set.
 ///
 /// # Safety

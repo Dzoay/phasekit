@@ -160,7 +160,7 @@ pub const SECOND_VARIABLES: [DerivVar; 10] = [
     DerivVar::Umass,
 ];
 
-/// The 10 second partials of an `eos` fixture since M7.10: (∂/∂v[i+3] (∂v[i]/∂v[i+2])_v[i+5])_v[i+6] over
+/// The 10 second partials of an `eos` fixture since M7.10: `(∂/∂v[i+3] (∂v[i]/∂v[i+2])_v[i+5])_v[i+6]` over
 /// [`SECOND_VARIABLES`] (mod 10), so none holds the quantity it differentiates by, in either basis.
 pub fn second_partials() -> [SecondPartial; 10] {
     core::array::from_fn(|i| {

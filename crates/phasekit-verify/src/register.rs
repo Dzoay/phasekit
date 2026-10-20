@@ -146,7 +146,7 @@ pub struct Divergence {
     pub fluids: &'static [&'static str],
     /// GasConstant | Reducing | Melting | Transport | Algorithm.
     pub part: Part,
-    /// "<bibkey> <table>"; required for UsePaper.
+    /// `"<bibkey> <table>"`; required for UsePaper.
     pub arbiter: Option<&'static str>,
     /// UsePaper | SkipOracle | KeepOracle | Investigate.
     pub policy: Policy,

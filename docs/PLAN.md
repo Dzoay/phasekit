@@ -713,24 +713,22 @@ implemented.** WS4, DG1-DG4.
 ### M20 Follow-ups
 
 **Goal.** The four follow-ups PLAN.md §6 had left unplanned (user decision PL1). **Entry.** After M12 lands; the steps
-are independent and may be reordered. M20 does not move `MILESTONE`.
+are independent and may be reordered. M20.3 and M20.4 land in one PR, a commit and a `Plan-Step:` footer each (PL2).
+M20 does not move `MILESTONE`.
 
 | Step | Landed |
 |---|---|
 | M20.1 | `DerivVar` gains `Cvmolar`, `Cvmass`, `Cpmolar`, `Cpmass`, `SpeedOfSound` (`DerivVar::is_second_order`), `Tau` and `Delta` (user decision OD1). c_v's, c_p's and w's (T, ρ) derivatives come from the model's order-3 bundle (`ThermoModel::derivs`), forward through cv = −R·A20, cp = cv + R·x²/D and w² = RT·(D − x²/A20)/M, so `Fluid::prop` makes that call only for a partial that names one; τ's and δ's from the published reducing state (`FluidInfo::constants`). They are any variable of `d(X)/d(Y)\|Z`, and W or V of `d(d(X)/d(Y)\|Z)/d(W)\|V`, whose inner partial takes τ and δ but not c_v, c_p or w (differentiated twice they are order 4): compat's grammar reads them by name and alias and refuses those strings, and a `SecondPartial` with one inside is `NoModel`, as is `State::partial` of any of the seven and `State::second_partial` of τ or δ, which only the model can give. `derivative_variables_match_central_differences` (`tests/eos.rs`), at the 5,883 stable states of the core fluids' `eos` grids: each of the five differentiated in T and in ρ against its central differences in `Fd` (58,786 checks, headroom 0.93; 44 left to the identities where a central difference's own truncation, estimated from twice the step, exceeds the bound: (∂c_p/∂T)_ρ within a few kelvin of HFE143m's, Methanol's and Nitrogen's critical points), each differentiated by and held, τ and δ against the T and ρ derivatives scaled by the reducing state, and c_v, c_p and w as a second partial's outer variables, in `Identity` (176,490, headroom 0.12). No oracle: CoolProp's second derivatives refuse c_v, c_p and w |
 | M20.2 | The conformance kit's `identities(fluid, states)` and `part_additivity(fluid, states)` (`conformance.rs`), each the number of checks that held or the first `Mismatch`, at its state's index, in class `Identity` (its near-critical bound in the window of the model's critical point), states with a quality skipped. `identities` is `tests/eos.rs`'s two lists moved: the 10 first-order identities (c_p's three where c_p and c_v are defined) and, where the model gives order 3, M7.10's seven (c_p − c_v and κ_T·ρ·w² where c_p, c_v and w are). `part_additivity` holds the model's ideal and residual parts against the state's own bundle (`PointDerivs::split` makes `derivs`' own total their sum, so that sum could not fail): p, (∂p/∂ρ)_T, (∂p/∂T)_ρ and c_v from the summed A_ij, h = h⁰ + h^r and s = s⁰ + s^r through `Fluid::prop`. `tests/eos.rs`'s `identities_hold` and `parts_add_up_to_the_state` run them on every core fluid's `eos` grid and every fluid's in the all-fluid tier, 8,088 states: 137,074 identities and 48,528 sums; `tests/new_family.rs` on the van der Waals family, 17 identities and 6 sums at each of three states |
+| M20.3 | CI's linux job runs `cargo doc --workspace --no-deps` with `RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links -D rustdoc::private_intra_doc_links"`; section 5.2 and VERIFICATION.md §11.3 say so, and `actionlint` is clean. On `main` it failed on: phasekit-wasm's crate docs linking its exports, which exist only on wasm32 (now code spans); phasekit-core's `density` module, `Fluid::flash_many` and the critical point's docs linking private items, and an unresolved `SurfaceTension` (now `crate::transport::SurfaceTension`); phasekit-verify's `v[i]` read as a link to `i` and two links to the private `side`; and phasekit-capi's shim linking three private functions. Rustdoc's four warnings, unclosed HTML tags in phasekit-verify and xtask, are fixed too |
 
-- **M20.3 The intra-doc link check.** `cargo doc --workspace --no-deps` with `-D rustdoc::broken_intra_doc_links` and
-  `-D rustdoc::private_intra_doc_links` in CI's linux job, and section 5.2 says it runs. *Red:* the command, failing on
-  a branch whose doc comment links a missing item; then fix what it reports on `main`. *Done when:* CI runs it and
-  `actionlint` is clean.
 - **M20.4 The nightly report.** The nightly `oracle` job's summary gains, per fluid and kind, the rows, the cells
   asserted, the cells exempt per DIV id, the `nan` cells, the oracle-gap rows and the headroom (each column's largest
   error over its class bound), plus the ignored tests and each fluid's arbiter status, so oracle-only fluids stay
   visible. VERIFICATION.md §11.3's `nightly` row says what it lists. *Red:* an xtask unit test of the report over a
   small fixture set, against a report that lists rows and failed calls only.
 
-**Exit gate.** G1-G8; each step's checks. **ROT rows.** None. **User decisions implemented.** PL1, OD1.
+**Exit gate.** G1-G8; each step's checks. **ROT rows.** None. **User decisions implemented.** PL1, PL2, OD1.
 
 ### M21 The site
 
@@ -892,8 +890,9 @@ targets, a miss logged rather than blocking (user decision TG1).
 
 ### 5.2 Documentation
 
-- Rustdoc on every public item (`missing_docs`, enforced by G2); a `cargo doc --no-deps` check that denies broken intra-doc
-  links is planned (M20.3), but no workflow runs it yet; the crate-level doctest of `phasekit-core` executes (the seed's does).
+- Rustdoc on every public item (`missing_docs`, enforced by G2); CI's linux job runs `cargo doc --workspace --no-deps`
+  with `-D rustdoc::broken_intra_doc_links -D rustdoc::private_intra_doc_links` (M20.3); the crate-level doctest of
+  `phasekit-core` executes (the seed's does).
 - `docs/`: each fact stays in its one home (section 2.1); a step that changes one edits that home in the same PR (M9.5,
   for example, records the `libm` outcome in D12), and collapses its own step text (section 0.1 item 7). Rust code blocks in `docs/*.md` are either verbatim excerpts of the workspace or marked
   `<!-- excerpt: illustrative -->` (`gates doc-excerpts`, ROT-139); prefer a link to the file.
