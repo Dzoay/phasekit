@@ -110,11 +110,12 @@ impl Ledger {
         Ledger { at, window, held: 0 }
     }
 
-    /// `lhs = rhs` within `Identity` of the largest of the two and of `terms`, the magnitudes of its summands.
+    /// `lhs = rhs` within `Identity` of the largest of the two and of `terms`, the magnitudes of its summands. An
+    /// infinite side or term fails: its bound would be infinite too.
     fn hold(&mut self, what: &'static str, (lhs, rhs): (f64, f64), terms: &[f64]) -> Result<(), Mismatch> {
         let largest = terms.iter().fold(lhs.abs().max(rhs.abs()), |m, x| m.max(x.abs()));
         let bound = ToleranceClass::Identity.bound_in(largest, self.window).unwrap_or(0.0);
-        if (lhs - rhs).abs() <= bound {
+        if (lhs - rhs).abs() <= bound && bound.is_finite() {
             self.held += 1;
             Ok(())
         } else {
@@ -125,7 +126,7 @@ impl Ledger {
 
 /// [`identities`]' first-order list at one single-phase `state`.
 fn first_order_identities(ledger: &mut Ledger, fluid: &Fluid, state: &State) -> Result<(), Mismatch> {
-    use DerivVar::{Dmass, Dmolar, Gmolar, P, Smolar, T};
+    use DerivVar::{Dmass, Gmolar, P, Smolar, T};
     let molar = Basis::Molar;
     let (t, p, rho, r) = (state.t(), state.p(), state.rho(molar), state.gas_constant());
     let (h, s, u, g, a) = (state.h(molar), state.s(molar), state.u(molar), state.g(molar), state.a(molar));
@@ -138,10 +139,8 @@ fn first_order_identities(ledger: &mut Ledger, fluid: &Fluid, state: &State) -> 
     ledger.hold("Z = p/(ρRT)", (state.z(), p / (rho * r * t)), &[])?;
     ledger.hold("(∂g/∂T)_p = −s", (d(Gmolar, T, P), -s), &along_p(state, Gmolar))?;
     caloric_identities(ledger, state)?;
-    // (∂p/∂ρ)_s = (P_ρ − P_T·S_ρ/S_T)/M in mass density.
-    let m = fluid.info().molar_mass();
     let dpds = d(P, Dmass, Smolar);
-    let terms = [d(P, Dmolar, T) / m, d(P, T, Dmolar) * d(Smolar, Dmolar, T) / d(Smolar, T, Dmolar) / m];
+    let terms = along_s(state, fluid.info().molar_mass());
     match state.speed_of_sound() {
         Ok(w) => ledger.hold("w² = (∂p/∂ρ)_s", (w * w, dpds), &terms),
         Err(_) => ledger.hold("refused w: (∂p/∂ρ)_s ≤ 0", (dpds.max(0.0), 0.0), &terms),
@@ -153,6 +152,13 @@ fn along_p(state: &State, x: DerivVar) -> [f64; 2] {
     use DerivVar::{Dmolar, P, T};
     let d = |of, wrt, at| state.partial(Partial { of, wrt, at }).unwrap_or(f64::NAN);
     [d(x, T, Dmolar), d(x, Dmolar, T) * d(P, T, Dmolar) / d(P, Dmolar, T)]
+}
+
+/// The two terms of (∂p/∂ρ)_s = (p_ρ − p_T·s_ρ/s_T)/M in mass density at `state`, `m` the molar mass.
+fn along_s(state: &State, m: f64) -> [f64; 2] {
+    use DerivVar::{Dmolar, P, Smolar, T};
+    let d = |of, wrt, at| state.partial(Partial { of, wrt, at }).unwrap_or(f64::NAN);
+    [d(P, Dmolar, T) / m, d(P, T, Dmolar) * d(Smolar, Dmolar, T) / d(Smolar, T, Dmolar) / m]
 }
 
 /// c_p − c_v = T(∂p/∂T)²_ρ/(ρ²(∂p/∂ρ)_T), (∂h/∂T)_p = c_p and (∂s/∂T)_p = c_p/T, where c_p and c_v are defined.
@@ -188,7 +194,8 @@ fn order_three_identities(ledger: &mut Ledger, fluid: &Fluid, state: &State) -> 
     let (rho_t, rho_tt) = (d(Dmolar, T, P), d2(Dmolar, T, P, T, P));
     let v_tt = [-rho_tt / (rho * rho), 2.0 * rho_t * rho_t / (rho * rho * rho)];
     let cp_p = t * d2(Smolar, T, P, P, T);
-    ledger.hold("(∂cp/∂p)_T = −T(∂²v/∂T²)_p", (cp_p, -t * (v_tt[0] + v_tt[1])), &v_tt.map(|v| t * v))?;
+    let rhs = v_tt.map(|v| -t * v);
+    ledger.hold("(∂cp/∂p)_T = −T(∂²v/∂T²)_p", (cp_p, rhs[0] + rhs[1]), &rhs)?;
     let (kappa, beta) = (state.isothermal_compressibility(), state.isobaric_expansion());
     let (kappa, beta) = (kappa.unwrap_or(f64::NAN), beta.unwrap_or(f64::NAN));
     ledger.hold("β/κ_T = (∂p/∂T)_ρ", (beta / kappa, d(P, T, Dmolar)), &[])?;
@@ -476,6 +483,43 @@ mod tests {
         let state = registry.get("Water").unwrap().with_reference(reference).unwrap().state(at).unwrap();
         assert_eq!(state.h(Basis::Molar), 0.0, "exactly 0 at the anchor");
         assert_eq!(gauged_pair(&state, &state, 0.0, 0.0), Ok(()));
+    }
+
+    /// A miss within `Identity`'s 1e-12 of the largest side or term holds and counts; a larger miss, a NaN or an
+    /// infinite side or term fails by name at the ledger's state, so a term that divides by a zero entry cannot widen
+    /// its own bound to infinity. Water's liquid at 1 bar and 300 K, in the regular window.
+    #[test]
+    fn a_ledger_holds_within_its_class_and_never_with_an_infinity() {
+        let registry = phasekit_core::Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+        let water = registry.get("Water").unwrap();
+        let state = water.state(Input::new(Pair::PT, 1e5, 300.0, Basis::Molar).unwrap()).unwrap();
+        let mut ledger = Ledger::new(water, &state, 3);
+        assert_eq!(ledger.hold("x", (1.0, 1.0 + 1e-13), &[]), Ok(()));
+        assert_eq!(ledger.hold("x", (1.0, 1.0 + 1e-11), &[-100.0]), Ok(()), "the largest term's bound");
+        let fails = [(1.0 + 1e-11, 0.0), (f64::INFINITY, 0.0), (1.0, f64::INFINITY), (f64::NAN, 0.0)];
+        for (rhs, term) in fails {
+            let got = ledger.hold("y", (1.0, rhs), &[term]).map_err(|m| (m.what, m.at));
+            assert_eq!(got, Err(("y", 3)), "{rhs} against 1 with a term of {term}");
+        }
+        assert_eq!(ledger.held, 2);
+    }
+
+    /// A first partial's terms are the two summands of its Jacobian ratio, so the first less the second is the partial
+    /// in class `Identity`: (∂x/∂T)_p of g, h and s and (∂p/∂ρ)_s in mass density, at Water's liquid at 1 bar, 300 K.
+    #[test]
+    fn a_partials_two_terms_make_it_up() {
+        use DerivVar::{Dmass, Gmolar, Hmolar, P, Smolar, T};
+        let registry = phasekit_core::Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
+        let water = registry.get("Water").unwrap();
+        let state = water.state(Input::new(Pair::PT, 1e5, 300.0, Basis::Molar).unwrap()).unwrap();
+        let partial = |of, wrt, at| state.partial(Partial { of, wrt, at }).unwrap();
+        let mut ledger = Ledger::new(water, &state, 0);
+        for x in [Gmolar, Hmolar, Smolar] {
+            let terms = along_p(&state, x);
+            assert_eq!(ledger.hold("(∂x/∂T)_p", (terms[0] - terms[1], partial(x, T, P)), &terms), Ok(()), "{x:?}");
+        }
+        let terms = along_s(&state, water.info().molar_mass());
+        assert_eq!(ledger.hold("(∂p/∂ρ)_s", (terms[0] - terms[1], partial(P, Dmass, Smolar)), &terms), Ok(()));
     }
 
     /// The toy fluid, refusing every flash off the thread that built it, so that a lone fluid and threads disagree.
