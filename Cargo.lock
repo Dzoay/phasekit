@@ -545,6 +545,7 @@ dependencies = [
  "phasekit-compat",
  "phasekit-core",
  "phasekit-data",
+ "phasekit-diagram",
  "phasekit-mix",
  "phasekit-verify",
  "wasm-bindgen",

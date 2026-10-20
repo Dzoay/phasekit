@@ -2,10 +2,11 @@
 //! with `--no-default-features --features fluids-core` resolves to the three workspace crates, compat and core with
 //! `embedded` and `fluids-core` only (no `rayon`, `libm` or `simd`, PLAN.md M12.4), and `phasekit-data` with `core` and
 //! exactly the fluids its `core` list names.
-//! The browser package's build resolves the same (beside wasm-bindgen's own crates, and phasekit-mix with no feature for
-//! its mixture names, M13.14), except that core enables `libm` in both its builds (user decision IM6) and its `simd128`
-//! build, with the package's `simd` feature, core's `simd` too (M12.10, user decision SL8), and its release `.wasm`,
-//! baseline and `simd128`, stays within its budget in `crates/phasekit-wasm/size-budget.txt` (PLAN.md M10.8).
+//! The browser package's build resolves the same (beside wasm-bindgen's own crates, phasekit-mix with no feature for
+//! its mixture names, M13.14, and phasekit-diagram with none for the diagrams' geometry, M19.6), except that core
+//! enables `libm` in both its builds (user decision IM6) and its `simd128` build, with the package's `simd` feature,
+//! core's `simd` too (M12.10, user decision SL8), and its release `.wasm`, baseline and `simd128`, stays within its
+//! budget in `crates/phasekit-wasm/size-budget.txt` (PLAN.md M10.8).
 
 use super::{Verdict, no_args, table};
 use crate::repo::Repo;
@@ -100,7 +101,7 @@ pub fn run(repo: &Repo, args: &[String]) -> Verdict {
 fn wanted<'a>(name: &str, core: &'a [String], root: &str, simd: bool) -> Option<Vec<&'a str>> {
     let want = match name {
         "phasekit-wasm" if root == "phasekit-wasm" => simd.then_some("simd").into_iter().collect(),
-        "phasekit-mix" if root == "phasekit-wasm" => Vec::new(),
+        "phasekit-mix" | "phasekit-diagram" if root == "phasekit-wasm" => Vec::new(),
         "phasekit-core" if simd => vec!["embedded", "fluids-core", "libm", "simd"],
         "phasekit-core" if root == "phasekit-wasm" => vec!["embedded", "fluids-core", "libm"],
         "phasekit-compat" | "phasekit-core" => vec!["embedded", "fluids-core"],
@@ -292,16 +293,16 @@ mod tests {
     }
 
     /// PLAN.md M10.8: the browser package's build embeds the same set, with core's `libm` (user decision IM6);
-    /// wasm-bindgen's crates, phasekit-mix without a feature (M13.14) and a repeated crate's `(*)` line pass, another
-    /// workspace crate, an extra fluid or core without `libm` does not, nor phasekit-mix in compat's build; the budget is
-    /// one byte count.
+    /// wasm-bindgen's crates, phasekit-mix and phasekit-diagram without a feature (M13.14, M19.6) and a repeated
+    /// crate's `(*)` line pass, another workspace crate, an extra fluid or core without `libm` does not, nor
+    /// phasekit-mix or phasekit-diagram in compat's build; the budget is one byte count.
     #[test]
     fn wasm_feature_tree_has_no_extra_fluids() {
         let core = core_list(DATA).unwrap();
         let std = format!(
             "phasekit-wasm v0.0.0 (/w/crates/phasekit-wasm) []\n{}phasekit-core v0.0.0 (/w/crates/phasekit-core) \
-             [embedded,fluids-core] (*)\nphasekit-mix v0.0.0 (/w/crates/phasekit-mix) []\nwasm-bindgen v0.2.129 \
-             [default,std]\n",
+             [embedded,fluids-core] (*)\nphasekit-mix v0.0.0 (/w/crates/phasekit-mix) []\nphasekit-diagram v0.0.0 \
+             (/w/crates/phasekit-diagram) []\nwasm-bindgen v0.2.129 [default,std]\n",
             tree("core,fluid-nitrogen,fluid-water")
         );
         let wasm = std.replace(
@@ -317,6 +318,11 @@ mod tests {
         let mixed =
             format!("{}phasekit-mix v0.0.0 (/w/crates/phasekit-mix) []\n", tree("core,fluid-nitrogen,fluid-water"));
         assert!(check(&mixed, &core, "phasekit-compat", false).unwrap_err()[0].contains("pulls in phasekit-mix"));
+        let drawn = format!(
+            "{}phasekit-diagram v0.0.0 (/w/crates/phasekit-diagram) []\n",
+            tree("core,fluid-nitrogen,fluid-water")
+        );
+        assert!(check(&drawn, &core, "phasekit-compat", false).unwrap_err()[0].contains("pulls in phasekit-diagram"));
         let extra = wasm.replace("core,fluid-nitrogen,fluid-water", "core,fluid-air,fluid-nitrogen,fluid-water");
         assert_eq!(
             check(&extra, &core, "phasekit-wasm", false).unwrap_err(),
