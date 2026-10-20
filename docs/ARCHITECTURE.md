@@ -711,13 +711,13 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      component's derivatives at both phases' (τ, δ) through its own `residual_batch`, then the rest of Ψ (the
      departures and the multivariate Taylor arithmetic, generic over `Real`) as one kernel through `batch::run_kernel`.
      A phase with a zero mole fraction, whose reducing functions test a pair's denominator, runs point by point. On the
-     i7-8700K (M22.5's record) R32/R125's QT flash takes 366 µs under `Simd` in the default build, 0.92× `Reference`'s
-     399 µs, and its PQ flash 417 µs (0.92×); a PT flash, most of whose time is the stability test, 1.00×. In the `simd`
-     build (AVX2, core's maths) the three are unchanged within 1 %. The default build's measurement decides (user
-     decision ML6), so the kernel ships; the `Reference` path it shares is up to 3 % slower on QT than before it (M22.4;
-     user decision ML7). The stability test's trial phases stay scalar (M22.6, ML4): in lockstep, their composition
-     derivatives side by side, they left that PT flash at 1.00× M22.5's time, as each trial's density, solved on its
-     own, is most of the test's work.
+     i7-8700K (M22.7's record) R32/R125's QT flash takes 364 µs under `Simd` in the default build, 0.93× `Reference`'s
+     391 µs, and its PQ flash 416 µs (0.94×); a PT flash, most of whose time is the stability test, 1.00×. In the `simd`
+     build (AVX2, core's maths) the lanes take 1.01× its scalar time on all three. The default build's measurement
+     decides (user decision ML6), so the kernel ships; the `Reference` path it shares is up to 3 % slower on QT than
+     before it (M22.4; user decision ML7). The stability test's trial phases stay scalar (M22.6, ML4): in lockstep,
+     their composition derivatives side by side, they left that PT flash at 1.00× M22.5's time, as each trial's density,
+     solved on its own, is most of the test's work.
   5. The browser package (M12.10, user decision SL8). WASM has no run-time detection, so `simd128` is a second build
      (K11, K15), with `phasekit-wasm`'s `simd` feature, which enables core's: a feature rather than a
      `cfg(target_feature = "simd128")` dependency, which cargo-about's notices cannot see. Its batch runs
