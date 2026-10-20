@@ -646,28 +646,11 @@ coordinates, where they name one state (on p–T a two-phase state does not), it
 the crate's dev-dependencies). The ranges, the isoline values and the refinement's rule are definitions, checked as they
 are stated.
 
-- **M19.1 The crate, its planes and the dome.** `phasekit-diagram`, with a row in `gates deps` (it and core, nothing
-  else), a root in `gates lints`' hardened list (the browser package reaches it, M24) and a row in ARCHITECTURE.md §2's
-  crate table. The five planes, from `diagrams.ts`: p–h, T–s, p–T, T–ρ and h–s, their axes, which of them are
-  logarithmic (p and ρ), the isoline families each draws and the quantity each family sweeps. The ranges, from
-  `ranges.ts`: T from the greater of T_min and the triple point's to the lesser of T_max and 1.6 T_c, p from the greater
-  of the triple point's and p_c/10⁴ to the lesser of P_max and 10 p_c; each family's values strictly inside its range,
-  1-2-5 per decade for p and ρ while that is at most 12 lines and decades past that, nice linear ticks for the rest
-  (tenths for quality). The dome: the saturated liquid and vapour by the `QT` batch at Q = 0 and 1 (a pseudo-pure
-  fluid's bubble and dew sides) from the saturation temperature of the lowest plotted pressure, or the lowest T if that
-  is higher, to just below T_c, closing in on it; the critical point by (T_c, ρ_c); a failed cell left out. An axis of
-  h, s or ρ spans the dome's and the range's corners' values. *Red:* the site's `ranges` and `dome` tests in Rust, and
-  `dome_vertices_are_the_qt_batch` (`Exact`), against functions that return `Error::Unsupported`.
-- **M19.2 Isolines.** Each family's lines on M21.2's fixed grids (160 points a sweep, linear in T, logarithmic in p;
-  M19.3 replaces them). An isotherm or isobar is one-phase on either side of its `QT` or `PQ` saturation states, and
-  between them two-phase along Q, entered from the side its sweep comes from; above the critical point it crosses
-  nothing. An isentrope, isenthalp or isochore is swept by `PS`, `HT`, `DP` or `DT`, two-phase where the batch defines
-  Q, its dome edges the states `QS`, `HQ` or `DQ` give at Q = 0 and 1. A quality line runs across the dome's
-  temperatures. A failed cell ends a segment, a lone vertex draws nothing, and an edge vertex ends one segment and
-  starts the next, so a line runs on through the dome's edge and never joins across a gap. *Red:*
-  `a_vertex_gives_back_its_lines_value` (`Flash`), `dome_crossings_are_the_saturation_states_at_the_lines_value`
-  (`Exact`), and the site's `segments`, `cells` and `shapes` tests in Rust (an isotherm enters the dome from the vapour,
-  an isobar from the liquid; a saturation the batch only partly gives is no crossing).
+| Step | Landed |
+|---|---|
+| M19.1 | `phasekit-diagram` on core's public API alone (`gates deps`; a hardened root of `gates lints`): `Plane` (p–h, T–s, p–T, T–ρ and h–s: the axes, p and ρ logarithmic, the isoline families each draws), `Quantity`, `Limits::of` (the constants `Props1SI` reads), and `Batch`, the seam the geometry samples through, a fluid's `FluidBatch` under the caller's flash options and executor or a test's that fails cells, a cell a value where it is `Ok` or `Extrapolated`. The ranges: T from the greater of T_min and T_triple to the lesser of T_max and 1.6 T_c, p from the greater of p_triple and p_c/10⁴ to the lesser of P_max and 10 p_c; a family's values strictly inside, 1-2-5 per decade for p and ρ while that is at most 12 lines and decades past that, d3-array 3.2.4's `ticks(a, b, 8)` for the rest. The dome: 120 temperatures from the saturation T of the lowest plotted p, closing in on T_c, by the `QT` batch at Q = 0 and 1 (a pseudo-pure fluid's bubble and dew sides), and the critical point at (T_c, ρ_c), a failed cell left out; an axis of h, s or ρ spans the dome's and the range's corners' values. Every dome vertex of Water, n-Propane, CO₂, Nitrogen, R134a, Air and R410A on the five planes is the flash's at its inputs, bit for bit (`tests/dome.rs`) |
+| M19.2 | The isolines: each family's lines at its values on M21.2's fixed grids, 160 points a sweep (linear in T, logarithmic in p), and the quality lines across the dome's 120 temperatures; a `Line` names its held quantity and value, its label, and runs in `Segment`s, one-phase or two-phase. An isotherm or isobar is one-phase before and after the dome and two-phase inside it, along `QT` or `PQ` at the tenths of Q, entered from the vapour (an isotherm, swept up in p) or the liquid (an isobar, swept up in T); an isentrope, isenthalp or isochore is swept by `PS`, `HT`, `DP` or `DT`, two-phase where the batch defines Q, its edges the states `QS`, `HQ` or `DQ` give with their sweep values. A failed cell ends a segment, a lone vertex draws nothing, and an edge vertex ends one segment and starts the next. Re-planned in the step: a crossing needs only its two ends, the saturation states at Q = 0 and 1 with their sweep values, and a quality failed between them is a gap inside the dome, so a pseudo-pure fluid's line, whose qualities between the library refuses (user decision 4), meets the dome at its dew and bubble states (R410A at 250 K: 354.07 and 355.31 kPa) where the site's sampler stopped a grid step short. On eight fluids and planes, every vertex is the flash's at its inputs, bit for bit, and flashed again from its plane's coordinates is that state within `Flash` in T, ρ and Q, wherever they name one state (Water's liquid near its density maximum has three at one s and T), but for a pseudo-pure fluid's two-phase states, which follow CoolProp's ancillary rules pair by pair (R410A's `DP` and `HP` states at one ρ, h and p differ by 2e-4 in ρ); p, which follows from T and ρ, is not compared (`tests/lines.rs`) |
+
 - **M19.3 Sampled where a line bends.** Each piece of a line, and each side of the dome, starts on 32 points of its
   sweep and is refined: an interval is halved while its midpoint's vertex lies farther than 10⁻³ from the chord in the
   plane's unit square (each axis scaled to its range, a logarithmic one in its logarithm), at most 6 times *(decision)*;
