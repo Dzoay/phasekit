@@ -143,9 +143,8 @@ pub enum Constant {
     Odp,
 }
 
-/// A first-order state function a partial derivative can be taken of, with respect to, or at constant
-/// (CoolProp's 12 first-order derivative variables, map 01 §4a). Cv, Cp, w, τ and δ need order-3 bundles
-/// and join at M7 (additive).
+/// A state function a partial derivative can be taken of, with respect to, or at constant: CoolProp's 12 first-order
+/// derivative variables (map 01 §4a), c_v, c_p and w, and τ and δ (PLAN.md M20.1, user decision OD1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 #[allow(missing_docs)] // CoolProp's names
@@ -162,6 +161,31 @@ pub enum DerivVar {
     Umass,
     Gmolar,
     Gmass,
+    /// c_v, c_p and w, second-order state functions: their derivatives read the model's order-3 bundle
+    /// (`ThermoModel::derivs`), so [`crate::Fluid::prop`] gives a partial of them and a single phase's stored bundle does
+    /// not ([`crate::State::partial`]).
+    Cvmolar,
+    Cvmass,
+    Cpmolar,
+    Cpmass,
+    SpeedOfSound,
+    /// τ = T_r/T and δ = ρ/ρ_r at the published reducing state (`FluidInfo::constants`), which
+    /// [`crate::Fluid::prop`] reads.
+    Tau,
+    Delta,
+}
+
+impl DerivVar {
+    /// Whether this is c_v, c_p or w: a function of α's second derivatives, so its own derivatives are order 3 and a
+    /// second partial's inner partial, which is differentiated once more, cannot take it from an order-3 bundle.
+    pub const fn is_second_order(self) -> bool {
+        matches!(self, Self::Cvmolar | Self::Cvmass | Self::Cpmolar | Self::Cpmass | Self::SpeedOfSound)
+    }
+
+    /// Whether this is τ or δ, taken at the published reducing state.
+    pub(crate) const fn is_reduced(self) -> bool {
+        matches!(self, Self::Tau | Self::Delta)
+    }
 }
 
 /// A first-order variable is the property of the same name: what it means at a state is [`crate::Fluid::prop`]'s.
@@ -180,6 +204,13 @@ impl From<DerivVar> for Prop {
             DerivVar::Umass => Prop::Umass,
             DerivVar::Gmolar => Prop::Gmolar,
             DerivVar::Gmass => Prop::Gmass,
+            DerivVar::Cvmolar => Prop::Cvmolar,
+            DerivVar::Cvmass => Prop::Cvmass,
+            DerivVar::Cpmolar => Prop::Cpmolar,
+            DerivVar::Cpmass => Prop::Cpmass,
+            DerivVar::SpeedOfSound => Prop::SpeedOfSound,
+            DerivVar::Tau => Prop::Tau,
+            DerivVar::Delta => Prop::Delta,
         }
     }
 }
@@ -196,7 +227,7 @@ pub struct Partial {
 }
 
 /// `(∂/∂wrt (∂of/∂wrt₁)_at₁)_at` at a single-phase state: the first partial `first` differentiated by `wrt` at
-/// constant `at`.
+/// constant `at`. `first` names no c_v, c_p or w ([`DerivVar::is_second_order`]): differentiated twice, they are order 4.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SecondPartial {
     /// The first partial differentiated.

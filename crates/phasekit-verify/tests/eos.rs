@@ -313,3 +313,174 @@ fn fd_first_order_on_every_core_fluid() {
     }
     assert!(checked > 14 * 300, "{checked}");
 }
+
+/// A derivative string's output, read by compat's grammar as `PropsSI` reads it.
+fn derivative(key: &str) -> Prop {
+    let output = phasekit_compat::parse_output(key);
+    let prop = match output {
+        Some(phasekit_compat::Output::Prop(prop)) => Some(prop),
+        _ => None,
+    };
+    prop.ok_or(format!("{key} reads as {output:?}")).unwrap()
+}
+
+/// c_v and c_p in both bases and w by CoolProp's names: the derivative variables of order 3 (PLAN.md M20.1).
+const ORDER_THREE_VARIABLES: [&str; 5] = ["Cvmolar", "Cvmass", "Cpmolar", "Cpmass", "speed_of_sound"];
+
+/// `x`'s central differences at (T, ρ) of `fluid`, relative step 1e-5 (VERIFICATION.md §8.3), (∂x/∂T)_ρ and (∂x/∂ρ)_T,
+/// each with its truncation error estimated from the difference D at twice the step, |D(2h) − D(h)|/3 (a central
+/// difference's error is ~h²); `None` where a state of the stencil refuses `x`.
+fn central(fluid: &Fluid, x: Prop, t: f64, rho: f64) -> Option<[(f64, f64); 2]> {
+    let at = |t, rho| eos::state(fluid, t, rho).ok().and_then(|s| fluid.prop(&s, x).ok());
+    let in_t = |k: f64| Some((at(t + k * 1e-5 * t, rho)? - at(t - k * 1e-5 * t, rho)?) / (k * 2e-5 * t));
+    let in_rho = |k: f64| Some((at(t, rho + k * 1e-5 * rho)? - at(t, rho - k * 1e-5 * rho)?) / (k * 2e-5 * rho));
+    let (t1, t2, rho1, rho2) = (in_t(1.0)?, in_t(2.0)?, in_rho(1.0)?, in_rho(2.0)?);
+    Some([(t1, (t2 - t1).abs() / 3.0), (rho1, (rho2 - rho1).abs() / 3.0)])
+}
+
+/// The running result of `Fd` checks: one line per failure, the largest error over its bound of those that held, and
+/// the differences that cannot resolve the derivative.
+#[derive(Default)]
+struct FdCheck {
+    checked: usize,
+    failures: Vec<String>,
+    headroom: f64,
+    unresolved: usize,
+}
+
+impl FdCheck {
+    /// `got` against the central difference `want`, in `Fd` at the larger of the two and `floor` (VERIFICATION.md §5),
+    /// unless the difference's estimated truncation exceeds the bound at `want` (near a critical point c_p's curvature
+    /// outgrows a step of 1e-5, and the identities check it there).
+    fn check(&mut self, at: &str, (got, (want, truncation)): (f64, (f64, f64)), floor: f64) {
+        if truncation > ToleranceClass::Fd.bound(want.abs().max(floor)).unwrap() {
+            self.unresolved += 1;
+            return;
+        }
+        let bound = ToleranceClass::Fd.bound(got.abs().max(want.abs()).max(floor)).unwrap();
+        let error = (got - want).abs();
+        self.checked += 1;
+        if error <= bound {
+            self.headroom = self.headroom.max(error / bound);
+        } else {
+            self.failures.push(format!("{at}: {got:?} against {want:?}, error {error:e} > {bound:e}"));
+        }
+    }
+}
+
+/// `v`'s first partials at `state` of `fluid`: (∂v/∂T)_ρ and (∂v/∂ρ)_T against its central differences along the held
+/// variable (`Fd`, floors |v|/T and |v|/ρ); as the variable differentiated by and held, (∂p/∂v)_T·(∂v/∂ρ)_T = (∂p/∂ρ)_T
+/// and the triple product (∂ρ/∂T)_v·(∂T/∂v)_ρ·(∂v/∂ρ)_T = −1 (`Identity`).
+fn order_three_variable(
+    checks: (&mut FdCheck, &mut IdentityCheck),
+    at: (&str, Window),
+    fluid: &Fluid,
+    state: &State,
+    v: &str,
+) {
+    let (at, window) = at;
+    let (t, rho) = (state.t(), state.rho(Basis::Molar));
+    let (Some([v_t, v_rho]), Ok(x)) = (central(fluid, derivative(v), t, rho), fluid.prop(state, derivative(v))) else {
+        return;
+    };
+    let d = |key: String| fluid.prop(state, derivative(&key)).unwrap();
+    let (fd, id) = checks;
+    fd.check(&format!("{at}: d({v})/d(T)|Dmolar"), (d(format!("d({v})/d(T)|Dmolar")), v_t), x.abs() / t);
+    fd.check(&format!("{at}: d({v})/d(Dmolar)|T"), (d(format!("d({v})/d(Dmolar)|T")), v_rho), x.abs() / rho);
+    let (by, rho_v) = (d(format!("d(P)/d({v})|T")) * d(format!("d({v})/d(Dmolar)|T")), d("d(P)/d(Dmolar)|T".into()));
+    id.check(at, &format!("(∂p/∂{v})_T·(∂{v}/∂ρ)_T"), (by, rho_v), &[], window);
+    let held = [format!("d(Dmolar)/d(T)|{v}"), format!("d(T)/d({v})|Dmolar"), format!("d({v})/d(Dmolar)|T")];
+    id.check(at, &format!("triple product at {v}"), (held.map(d).iter().product(), -1.0), &[], window);
+}
+
+/// τ and δ as derivative variables against the T and ρ ones, at the published reducing state (T_r, ρ_r): each key with
+/// its base and the factor between them, from dτ/dT = −τ/T and dδ/dρ = δ/ρ, both constant where T is held; c_v, c_p and
+/// w as the variable a second partial is differentiated by or at, against the first partials of the same derivative.
+fn reduced_and_order_three_identities(check: &mut IdentityCheck, at: (&str, Window), fluid: &Fluid, state: &State) {
+    let (at, window) = at;
+    let d = |key: &str| fluid.prop(state, derivative(key)).unwrap();
+    let (t, rho, tau, delta) = (state.t(), state.rho(Basis::Molar), d("Tau"), d("Delta"));
+    let (tau_t, delta_rho) = (-tau / t, delta / rho);
+    let scaled = [
+        ("d(P)/d(Tau)|Delta", "d(P)/d(T)|Dmolar", 1.0 / tau_t),
+        ("d(P)/d(Delta)|Tau", "d(P)/d(Dmolar)|T", 1.0 / delta_rho),
+        ("d(Tau)/d(P)|Hmass", "d(T)/d(P)|Hmass", tau_t),
+        ("d(Delta)/d(Hmolar)|Smolar", "d(Dmolar)/d(Hmolar)|Smolar", delta_rho),
+        ("d(Hmass)/d(Smass)|Tau", "d(Hmass)/d(Smass)|T", 1.0),
+        ("d(Tau)/d(Delta)|P", "d(T)/d(Dmolar)|P", tau_t / delta_rho),
+        ("d(Cpmass)/d(Tau)|Delta", "d(Cpmass)/d(T)|Dmolar", 1.0 / tau_t),
+        ("d(Umolar)/d(Delta)|Cvmolar", "d(Umolar)/d(Dmolar)|Cvmolar", 1.0 / delta_rho),
+        ("d(d(P)/d(Tau)|Delta)/d(Delta)|Tau", "d(d(P)/d(T)|Dmolar)/d(Dmolar)|T", 1.0 / (tau_t * delta_rho)),
+        ("d(d(P)/d(Delta)|Tau)/d(Tau)|Delta", "d(d(P)/d(Dmolar)|T)/d(T)|Dmolar", 1.0 / (tau_t * delta_rho)),
+        ("d(d(Delta)/d(T)|P)/d(T)|P", "d(d(Dmolar)/d(T)|P)/d(T)|P", delta_rho),
+        ("d(d(Hmass)/d(T)|P)/d(Tau)|P", "d(d(Hmass)/d(T)|P)/d(T)|P", 1.0 / tau_t),
+        ("d(d(Delta)/d(Tau)|P)/d(P)|Tau", "d(d(Dmolar)/d(T)|P)/d(P)|T", delta_rho / tau_t),
+    ];
+    for (key, base, factor) in scaled {
+        check.check(at, key, (d(key), factor * d(base)), &[], window);
+    }
+    check.check(at, "(∂²τ/∂T²)_p = 2τ/T²", (d("d(d(Tau)/d(T)|P)/d(T)|P"), 2.0 * tau / (t * t)), &[], window);
+    // (∂h/∂τ)_p = c_p/(dτ/dT) = −c_p·T/τ, differentiated in T at p: −(T/τ)(∂c_p/∂T)_p − (2/τ)c_p.
+    let by_tau = [-t / tau * d("d(d(Hmass)/d(T)|P)/d(T)|P"), -2.0 / tau * d("d(Hmass)/d(T)|P")];
+    check.check(at, "(∂/∂T (∂h/∂τ)_p)_p", (d("d(d(Hmass)/d(Tau)|P)/d(T)|P"), by_tau.iter().sum()), &by_tau, window);
+    // (∂F/∂W)_V = (∂F/∂T)_V/(∂W/∂T)_V, and (∂F/∂T)_W = F_T − F_ρ·W_T/W_ρ in (T, ρ).
+    let outer = [
+        ("d(d(P)/d(T)|Dmolar)/d(Cvmolar)|Dmolar", "d(d(P)/d(T)|Dmolar)/d(T)|Dmolar", "d(Cvmolar)/d(T)|Dmolar"),
+        ("d(d(Smolar)/d(T)|P)/d(Cpmolar)|P", "d(d(Smolar)/d(T)|P)/d(T)|P", "d(Cpmolar)/d(T)|P"),
+        (
+            "d(d(Hmolar)/d(P)|Smolar)/d(speed_of_sound)|T",
+            "d(d(Hmolar)/d(P)|Smolar)/d(Dmolar)|T",
+            "d(speed_of_sound)/d(Dmolar)|T",
+        ),
+    ];
+    for (key, f, w) in outer {
+        check.check(at, key, (d(key), d(f) / d(w)), &[], window);
+    }
+    let held = [
+        ("d(d(P)/d(T)|Dmolar)/d(T)|Cpmass", "d(d(P)/d(T)|Dmolar)", "T", "Dmolar", "Cpmass"),
+        ("d(d(P)/d(Dmolar)|T)/d(Dmolar)|Cvmass", "d(d(P)/d(Dmolar)|T)", "Dmolar", "T", "Cvmass"),
+    ];
+    for (key, first, along, other, w) in held {
+        let f = [d(&format!("{first}/d({along})|{other}")), d(&format!("{first}/d({other})|{along}"))];
+        let ratio = d(&format!("d({w})/d({along})|{other}")) / d(&format!("d({w})/d({other})|{along}"));
+        let terms = [f[0], f[1] * ratio];
+        check.check(at, key, (d(key), terms[0] - terms[1]), &terms, window);
+    }
+}
+
+/// Fd and Identity (VERIFICATION.md §8.3, §8.1; PLAN.md M20.1, user decision OD1): c_v, c_p and w as derivative
+/// variables through the order-3 bundle, and τ and δ through the published reducing state, by the strings of compat's
+/// grammar, at the stable states of every core fluid's `eos` grid (the phase imposed): each of c_v, c_p and w
+/// differentiated in T and ρ against its central differences (`Fd`, where the difference resolves the derivative), then
+/// differentiated by and held, τ and δ against the T and ρ derivatives scaled by the reducing state, and c_v, c_p and w
+/// as a second partial's outer variables (`Identity`). No oracle: CoolProp's second derivatives refuse c_v, c_p and w.
+#[test]
+fn derivative_variables_match_central_differences() {
+    let registry = Registry::embedded().unwrap();
+    let (mut fd, mut id) = (FdCheck::default(), IdentityCheck::default());
+    for (path, text) in eos::CORE_FILES {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
+        let (fluid, region) = (registry.get(name).unwrap(), fixture.columns().iter().position(|c| *c == "region"));
+        let critical = fluid.model().critical_point().unwrap();
+        for row in
+            (0..fixture.rows().len()).filter(|&row| fixture.rows()[row].cells[region.unwrap()] == Cell::Text("stable"))
+        {
+            let (t, rho) = (fixture.value(row, "T").unwrap(), fixture.value(row, "rhomolar").unwrap());
+            let (state, at) = (eos::state(fluid, t, rho).unwrap(), format!("{name} at {t} K, {rho} mol/m³"));
+            let window = Window::at(t, rho, critical.t, critical.rho);
+            for v in ORDER_THREE_VARIABLES {
+                order_three_variable((&mut fd, &mut id), (&at, window), fluid, &state, v);
+            }
+            reduced_and_order_three_identities(&mut id, (&at, window), fluid, &state);
+        }
+    }
+    let shown: Vec<&String> = fd.failures.iter().take(20).collect();
+    assert!(fd.failures.is_empty(), "{} of {} outside Fd: {shown:#?}", fd.failures.len(), fd.checked);
+    // Ten differences and 30 identities at each of the 5,883 stable states. On x86-64 Linux 44 differences are
+    // unresolved, (∂c_p/∂T)_ρ within a few kelvin of HFE143m's, Methanol's and Nitrogen's critical points; another
+    // target's maths may move one across the bound.
+    assert_eq!((fd.checked + fd.unresolved, id.checked), (58_830, 176_490));
+    assert!(fd.unresolved <= 48, "{} unresolved", fd.unresolved);
+    assert_eq!(id.report(20), None);
+}

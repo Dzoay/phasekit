@@ -6,7 +6,7 @@ use crate::derivs::{Bundle, Derivs};
 use crate::error::{DomainError, Error};
 use crate::fluid::Gauge;
 use crate::math;
-use crate::model::ModelKey;
+use crate::model::{ModelKey, Reducing};
 use crate::prop::{DerivVar, Partial, Prop, SecondPartial};
 use crate::relations::{self, At};
 use crate::units::{Basis, Quality};
@@ -353,12 +353,37 @@ impl State {
         if w2 > 0.0 { Ok(math::sqrt(w2)) } else { Err(DomainError::MechanicallyUnstable.into()) }
     }
     /// A first partial derivative from the stored order-2 bundle: every family, no model call (E1); a saturated phase's
-    /// at Q = 0 and 1, undefined strictly inside the dome.
+    /// at Q = 0 and 1, undefined strictly inside the dome. One of c_v, c_p and w needs the model's order-3 bundle, and one
+    /// of τ and δ its reducing state: here they are `NoModel`, and [`crate::Fluid::prop`] gives them.
     pub fn partial(&self, p: Partial) -> Result<f64, Error> {
+        self.partial_with(p, None, None)
+    }
+
+    /// [`State::partial`] with `total`, the model's order-3 bundle at this state as one phase (`ThermoModel::derivs`),
+    /// which c_v's, c_p's and w's derivatives read, and the reducing state of τ and δ; `NoModel` where a variable's is
+    /// `None`.
+    pub(crate) fn partial_with(
+        &self,
+        p: Partial,
+        total: Option<&Derivs>,
+        reducing: Option<Reducing>,
+    ) -> Result<f64, Error> {
         let prop = Prop::Partial(p);
         let pt = self.saturated_point(prop)?;
-        let at = At { r: self.r, t: pt.t, rho: pt.rho, molar_mass: self.molar_mass, ds: self.gauge.ds(), b: &pt.b };
+        let vars = [p.of, p.wrt, p.at];
+        let missing = |v: &DerivVar| (v.is_second_order() && total.is_none()) || (v.is_reduced() && reducing.is_none());
+        if vars.iter().any(missing) {
+            return Err(Error::NoModel { prop });
+        }
+        let at = At { third: total, reducing, ..self.at(pt, &pt.b) };
         relations::first_partial(p.of, p.wrt, p.at, &at).ok_or(Error::Undefined { prop, phase: self.phase })
+    }
+
+    /// The derivative engine's view of the phase point `pt`, with the order-2 bundle `b`: no order-3 total, no reducing
+    /// state.
+    fn at<'a>(&self, pt: &Point, b: &'a Bundle) -> At<'a> {
+        let (r, molar_mass, ds) = (self.r, self.molar_mass, self.gauge.ds());
+        At { r, t: pt.t, rho: pt.rho, molar_mass, ds, b, third: None, reducing: None }
     }
 
     /// The isothermal compressibility κ_T = (1/ρ)(∂ρ/∂p)_T, 1/Pa, from the stored order-2 bundle; a saturated phase's at
@@ -378,19 +403,36 @@ impl State {
     /// `sign·p/ρ` for the first partial `p` of the density, as `prop`.
     fn per_density(&self, prop: Prop, p: Partial, sign: f64) -> Result<f64, Error> {
         let pt = self.saturated_point(prop)?;
-        let at = At { r: self.r, t: pt.t, rho: pt.rho, molar_mass: self.molar_mass, ds: self.gauge.ds(), b: &pt.b };
+        let at = self.at(pt, &pt.b);
         let v = relations::first_partial(p.of, p.wrt, p.at, &at).ok_or(Error::Undefined { prop, phase: self.phase })?;
         Ok(sign * v / pt.rho)
     }
 
     /// A second partial derivative from `total`, the model's order-3 bundle at this state (`ThermoModel::derivs`,
     /// E1), at Q = 0 and 1 at its saturated phase; undefined strictly inside the dome and where the derivative is (a
-    /// degenerate pair, a vanishing Jacobian).
+    /// degenerate pair, a vanishing Jacobian). c_v, c_p and w are its outer variables only, and τ and δ need the
+    /// reducing state: `NoModel` (as [`State::partial`]; [`crate::Fluid::prop`] gives τ and δ).
     pub fn second_partial(&self, p: SecondPartial, total: &Derivs) -> Result<f64, Error> {
+        self.second_partial_with(p, total, None)
+    }
+
+    /// [`State::second_partial`] with the reducing state of τ and δ.
+    pub(crate) fn second_partial_with(
+        &self,
+        p: SecondPartial,
+        total: &Derivs,
+        reducing: Option<Reducing>,
+    ) -> Result<f64, Error> {
         let prop = Prop::SecondPartial(p);
         let (pt, b) = (self.saturated_point(prop)?, total.bundle().ok_or(Error::NoModel { prop })?);
-        let at = At { r: self.r, t: pt.t, rho: pt.rho, molar_mass: self.molar_mass, ds: self.gauge.ds(), b: &b };
         let first = (p.first.of, p.first.wrt, p.first.at);
+        // The inner partial is differentiated twice: c_v, c_p and w there would need order 4.
+        let order_four = [first.0, first.1, first.2].iter().any(|v| v.is_second_order());
+        let reduced = [first.0, first.1, first.2, p.wrt, p.at].iter().any(|v| v.is_reduced());
+        if order_four || (reduced && reducing.is_none()) {
+            return Err(Error::NoModel { prop });
+        }
+        let at = At { third: Some(total), reducing, ..self.at(pt, &b) };
         relations::second_partial(first, (p.wrt, p.at), &at, total).ok_or(Error::Undefined { prop, phase: self.phase })
     }
 
@@ -400,7 +442,7 @@ impl State {
     pub fn fundamental_derivative(&self, total: &Derivs) -> Result<f64, Error> {
         let prop = Prop::FundamentalDerivative;
         let (pt, b) = (self.saturated_point(prop)?, total.bundle().ok_or(Error::NoModel { prop })?);
-        let at = At { r: self.r, t: pt.t, rho: pt.rho, molar_mass: self.molar_mass, ds: self.gauge.ds(), b: &b };
+        let at = self.at(pt, &b);
         let (p, rho, s) = (DerivVar::P, DerivVar::Dmolar, DerivVar::Smolar);
         let undefined = || Error::Undefined { prop, phase: self.phase };
         let w2 = relations::first_partial(p, rho, s, &at).ok_or_else(undefined)?;
@@ -587,6 +629,46 @@ mod tests {
             undefined(Prop::FundamentalDerivative),
         ];
         assert_eq!((outputs(&split(1e-300), &dense), outputs(&split(0.5), &dense)), (refused.clone(), refused));
+    }
+
+    /// M20.1: c_v, c_p and w as derivative variables read the model's order-3 total, and τ and δ its reducing state, so a
+    /// state alone refuses their partials as `NoModel`; a second partial refuses c_v, c_p and w inside its inner partial
+    /// (order 4) whatever it is given. On a monatomic ideal gas (α⁰ = ln δ + 1.5 ln τ: A20 = −1.5, A30 = 3) c_v and c_p
+    /// are constant and w ∝ √T, τ = T_r/T and δ = ρ/ρ_r.
+    #[test]
+    fn second_order_and_reduced_variables_need_the_model() {
+        use DerivVar::{Cpmass, Cvmolar, Delta, Dmolar, P, SpeedOfSound, T, Tau};
+        let total = Derivs::from_fn(Order::Three, |i, j| match (i, j) {
+            (1, 0) => 1.5,
+            (0, 1) => 1.0,
+            (2, 0) => -1.5,
+            (0, 2) => -1.0,
+            (3, 0) => 3.0,
+            (0, 3) => 2.0,
+            _ => 0.0,
+        });
+        let (t, rho, reducing) = (300.0, 40.0, Reducing { t: 150.0, rho: 10_000.0, p: None });
+        let s = State::from_total(KEY, t, rho, R, 0.04, Phase::Gas, &total.bundle().unwrap()).unwrap();
+        let partial = |of, wrt, at| Partial { of, wrt, at };
+        for p in [partial(Cvmolar, T, Dmolar), partial(P, SpeedOfSound, T), partial(T, P, Tau), partial(Delta, T, P)] {
+            assert_eq!(s.partial(p), Err(Error::NoModel { prop: Prop::Partial(p) }), "{p:?}");
+        }
+        let with = |p| s.partial_with(p, Some(&total), Some(reducing)).unwrap();
+        assert_eq!([with(partial(Cvmolar, T, Dmolar)), with(partial(Cpmass, Dmolar, T))], [0.0; 2]);
+        let w = s.speed_of_sound().unwrap();
+        assert!((with(partial(SpeedOfSound, T, Dmolar)) - w / (2.0 * t)).abs() < 1e-15 * w / t);
+        assert_eq!([with(partial(Tau, T, Dmolar)), with(partial(Delta, Dmolar, T))], [-150.0 / (t * t), 1e-4]);
+        let second = |first, wrt, at| SecondPartial { first, wrt, at };
+        let (inner, reduced) = (second(partial(Cvmolar, T, P), T, P), second(partial(P, Tau, Delta), T, Dmolar));
+        for p in [inner, reduced] {
+            assert_eq!(s.second_partial(p, &total), Err(Error::NoModel { prop: Prop::SecondPartial(p) }), "{p:?}");
+        }
+        let with = |p| s.second_partial_with(p, &total, Some(reducing));
+        assert_eq!(with(inner), Err(Error::NoModel { prop: Prop::SecondPartial(inner) }));
+        // ∂(∂p/∂T)_ρ/∂T = 0 at constant ρ, and (∂p/∂τ)_δ = −ρRT²/T_r differentiated in T: −2ρRT/T_r.
+        assert_eq!(s.second_partial(second(partial(P, T, Dmolar), SpeedOfSound, Dmolar), &total), Ok(0.0));
+        let by_t = with(reduced).unwrap();
+        assert!((by_t + 2.0 * rho * R * t / 150.0).abs() < 1e-13 * by_t.abs(), "{by_t}");
     }
 
     /// ROT-010 (M8.10): a saturated phase is a single phase. At Q = 0 a split's one phase is its liquid, at Q = 1 its

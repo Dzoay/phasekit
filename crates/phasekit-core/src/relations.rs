@@ -4,6 +4,7 @@
 
 use crate::derivs::{Bundle, Derivs, SLOTS, idx};
 use crate::error::{DomainError, Error};
+use crate::model::Reducing;
 use crate::num::math;
 use crate::prop::DerivVar;
 
@@ -73,10 +74,15 @@ pub(crate) struct At<'a> {
     /// Entropy gauge offset: the only gauge term with a T-derivative (g = h − Ts).
     pub(crate) ds: f64,
     pub(crate) b: &'a Bundle,
+    /// The model's order-3 total there, which the derivatives of c_v, c_p and w read.
+    pub(crate) third: Option<&'a Derivs>,
+    /// The published reducing state, at which τ and δ are taken.
+    pub(crate) reducing: Option<Reducing>,
 }
 
-/// `(∂X/∂T)_ρ` and `(∂X/∂ρ)_T` of a first-order state function (CoolProp's `get_dT_drho`, map 01 §4a).
-fn dt_drho(x: DerivVar, at: &At<'_>) -> (f64, f64) {
+/// `(∂X/∂T)_ρ` and `(∂X/∂ρ)_T` of a derivative variable (CoolProp's `get_dT_drho`, map 01 §4a); `None` for c_v, c_p and
+/// w without the order-3 total and for τ and δ without the reducing state.
+fn dt_drho(x: DerivVar, at: &At<'_>) -> Option<(f64, f64)> {
     let (r, t, rho, b) = (at.r, at.t, at.rho, at.b);
     let (rt_rho, m) = (r * t / rho, at.molar_mass);
     let (h, s, u, g) = (
@@ -86,7 +92,7 @@ fn dt_drho(x: DerivVar, at: &At<'_>) -> (f64, f64) {
         (r * (b.a00 + b.a01 - b.a10 - b.a11) - at.ds, rt_rho * (2.0 * b.a01 + b.a02)),
     );
     let mass = |(a, b): (f64, f64)| (a / m, b / m);
-    match x {
+    Some(match x {
         DerivVar::T => (1.0, 0.0),
         DerivVar::P => (rho * r * (b.a01 - b.a11), dp_drho_t(r, t, b)),
         DerivVar::Dmolar => (0.0, 1.0),
@@ -99,7 +105,84 @@ fn dt_drho(x: DerivVar, at: &At<'_>) -> (f64, f64) {
         DerivVar::Umass => mass(u),
         DerivVar::Gmolar => g,
         DerivVar::Gmass => mass(g),
+        DerivVar::Cvmolar | DerivVar::Cvmass | DerivVar::Cpmolar | DerivVar::Cpmass | DerivVar::SpeedOfSound => {
+            return second_order_dt_drho(x, at);
+        }
+        DerivVar::Tau => (-at.reducing?.t / (t * t), 0.0),
+        DerivVar::Delta => (0.0, 1.0 / at.reducing?.rho),
+    })
+}
+
+/// A value with its logarithmic derivatives `T(∂/∂T)_ρ` and `ρ(∂/∂ρ)_T`, carried through arithmetic by the sum, product
+/// and quotient rules: c_v, c_p and w differentiated through their relations in the `A_ij`.
+#[derive(Clone, Copy, Debug)]
+struct Logs {
+    v: f64,
+    t: f64,
+    r: f64,
+}
+
+impl Logs {
+    /// `Σ c_ij A_ij` and its two logarithmic derivatives at the order-3 total `d`; `None` past its order.
+    fn of(terms: &[(u8, u8, f64)], d: &Derivs) -> Option<Logs> {
+        let l = Lin::of(terms);
+        Some(Logs { v: l.value(d)?, t: l.t_log().value(d)?, r: l.rho_log().value(d)? })
     }
+
+    /// `k·self`.
+    fn scale(self, k: f64) -> Logs {
+        Logs { v: k * self.v, t: k * self.t, r: k * self.r }
+    }
+
+    /// `√self`.
+    fn sqrt(self) -> Logs {
+        let v = math::sqrt(self.v);
+        Logs { v, t: self.t / (2.0 * v), r: self.r / (2.0 * v) }
+    }
+
+    /// `self + o`.
+    fn plus(self, o: Logs) -> Logs {
+        Logs { v: self.v + o.v, t: self.t + o.t, r: self.r + o.r }
+    }
+
+    /// `self − o`.
+    fn minus(self, o: Logs) -> Logs {
+        self.plus(o.scale(-1.0))
+    }
+
+    /// `self·o`.
+    fn times(self, o: Logs) -> Logs {
+        Logs { v: self.v * o.v, t: self.t * o.v + self.v * o.t, r: self.r * o.v + self.v * o.r }
+    }
+
+    /// `self/o`.
+    fn over(self, o: Logs) -> Logs {
+        let q = self.v / o.v;
+        Logs { v: q, t: (self.t - q * o.t) / o.v, r: (self.r - q * o.r) / o.v }
+    }
+}
+
+/// `(∂X/∂T)_ρ` and `(∂X/∂ρ)_T` of c_v, c_p or w from the order-3 total (`At::third`): with x = A01 − A11 and
+/// D = 2·A01 + A02, cv = −R·A20, cp = cv + R·x²/D and w² = RT·(D − x²/A20)/M, as [`cv`], [`cp`] and
+/// [`speed_of_sound_squared`] take them from the bundle; a mass basis divides by M. `None` without the order-3 total or
+/// past its order; not finite where the relation is not (w² < 0, cp at (∂p/∂ρ)_T = 0).
+fn second_order_dt_drho(var: DerivVar, at: &At<'_>) -> Option<(f64, f64)> {
+    let d = at.third?;
+    let a20 = Logs::of(&[(2, 0, 1.0)], d)?;
+    let x = Logs::of(&[(0, 1, 1.0), (1, 1, -1.0)], d)?;
+    let den = Logs::of(&[(0, 1, 2.0), (0, 2, 1.0)], d)?;
+    let cv = a20.scale(-at.r);
+    let value = match molar(var) {
+        DerivVar::Cvmolar => cv,
+        DerivVar::Cpmolar => cv.plus(x.times(x).over(den).scale(at.r)),
+        // w² = (R/M)·T·(D − x²/A20), where T(∂T/∂T) = T.
+        _ => {
+            let t = Logs { v: at.t, t: at.t, r: 0.0 };
+            t.times(den.minus(x.times(x).over(a20))).scale(at.r / at.molar_mass).sqrt()
+        }
+    };
+    let per = if molar(var) == var { 1.0 } else { 1.0 / at.molar_mass };
+    Some((per * value.t / at.t, per * value.r / at.rho))
 }
 
 /// `(∂of/∂wrt)_at` by the Jacobian ratio in (T, ρ): `[X_T Z_ρ − X_ρ Z_T] / [Y_T Z_ρ − Y_ρ Z_T]`
@@ -114,13 +197,13 @@ pub(crate) fn first_partial(of: DerivVar, wrt: DerivVar, at_const: DerivVar, at:
     if molar(of) == molar(at_const) {
         return Some(0.0);
     }
-    let ((xt, xr), (yt, yr), (zt, zr)) = (dt_drho(of, at), dt_drho(wrt, at), dt_drho(at_const, at));
+    let ((xt, xr), (yt, yr), (zt, zr)) = (dt_drho(of, at)?, dt_drho(wrt, at)?, dt_drho(at_const, at)?);
     let den = yt * zr - yr * zt;
     let v = (xt * zr - xr * zt) / den;
     (den != 0.0 && v.is_finite()).then_some(v)
 }
 
-/// The molar variable of the quantity `v` measures (`Dmass` → `Dmolar`, …); T and p as they are.
+/// The molar variable of the quantity `v` measures (`Dmass` → `Dmolar`, …); T, p, w, τ and δ as they are.
 fn molar(v: DerivVar) -> DerivVar {
     match v {
         DerivVar::Dmass => DerivVar::Dmolar,
@@ -128,6 +211,8 @@ fn molar(v: DerivVar) -> DerivVar {
         DerivVar::Smass => DerivVar::Smolar,
         DerivVar::Umass => DerivVar::Umolar,
         DerivVar::Gmass => DerivVar::Gmolar,
+        DerivVar::Cvmass => DerivVar::Cvmolar,
+        DerivVar::Cpmass => DerivVar::Cpmolar,
         v => v,
     }
 }
@@ -198,8 +283,9 @@ impl Lin {
 
 /// `[(∂²X/∂T²)_ρ, ∂²X/∂T∂ρ, (∂²X/∂ρ²)_T]` of a first-order state function from the order-3 total `d` (CoolProp's
 /// `get_dT_drho_second_derivatives`): `X = R·T^m·ρ^n·L` with `L` linear in the `A_ij` (p: `TρA01`; h: `T(A10 + A01)`;
-/// s: `A10 − A00`; u: `TA10`; g: `T(A00 + A01)`), differentiated through `T∂/∂T` and `ρ∂/∂ρ`. T and ρ have none; a
-/// mass-basis quantity is its molar one over M, and a gauge term is at most linear in T. `None` past `d`'s order.
+/// s: `A10 − A00`; u: `TA10`; g: `T(A00 + A01)`), differentiated through `T∂/∂T` and `ρ∂/∂ρ`. T, ρ and δ have none, τ =
+/// T_r/T only (∂²τ/∂T²)_ρ = 2T_r/T³; a mass-basis quantity is its molar one over M, and a gauge term is at most linear in
+/// T. `None` past `d`'s order, for τ without the reducing state, and for c_v, c_p and w, whose are order 4.
 fn dt_drho2(x: DerivVar, at: &At<'_>, d: &Derivs) -> Option<[f64; 3]> {
     let (m, n, l) = match molar(x) {
         DerivVar::P => (1, 1, Lin::of(&[(0, 1, 1.0)])),
@@ -207,7 +293,10 @@ fn dt_drho2(x: DerivVar, at: &At<'_>, d: &Derivs) -> Option<[f64; 3]> {
         DerivVar::Smolar => (0, 0, Lin::of(&[(1, 0, 1.0), (0, 0, -1.0)])),
         DerivVar::Umolar => (1, 0, Lin::of(&[(1, 0, 1.0)])),
         DerivVar::Gmolar => (1, 0, Lin::of(&[(0, 0, 1.0), (0, 1, 1.0)])),
-        _ => return Some([0.0; 3]),
+        DerivVar::T | DerivVar::Dmolar | DerivVar::Delta => return Some([0.0; 3]),
+        DerivVar::Tau => return Some([2.0 * at.reducing?.t / (at.t * at.t * at.t), 0.0, 0.0]),
+        // c_v, c_p and w; `molar` returns no mass-basis variable.
+        _ => return None,
     };
     let per = if molar(x) == x { 1.0 } else { 1.0 / at.molar_mass };
     let (t, rho, fm, fn_) = (at.t, at.rho, f64::from(m), f64::from(n));
@@ -236,14 +325,14 @@ pub(crate) fn second_partial(
     if molar(of) == molar(at1) {
         return Some(0.0);
     }
-    let ((xt, xr), (yt, yr), (zt, zr)) = (dt_drho(of, at), dt_drho(wrt1, at), dt_drho(at1, at));
+    let ((xt, xr), (yt, yr), (zt, zr)) = (dt_drho(of, at)?, dt_drho(wrt1, at)?, dt_drho(at1, at)?);
     let ([xtt, xtr, xrr], [ytt, ytr, yrr], [ztt, ztr, zrr]) =
         (dt_drho2(of, at, d)?, dt_drho2(wrt1, at, d)?, dt_drho2(at1, at, d)?);
     let (num, den) = (xt * zr - xr * zt, yt * zr - yr * zt);
     let (num_t, num_r) = (xtt * zr + xt * ztr - xtr * zt - xr * ztt, xtr * zr + xt * zrr - xrr * zt - xr * ztr);
     let (den_t, den_r) = (ytt * zr + yt * ztr - ytr * zt - yr * ztt, ytr * zr + yt * zrr - yrr * zt - yr * ztr);
     let (f_t, f_r) = ((num_t * den - num * den_t) / (den * den), (num_r * den - num * den_r) / (den * den));
-    let ((wt, wr), (vt, vr)) = (dt_drho(wrt2, at), dt_drho(at2, at));
+    let ((wt, wr), (vt, vr)) = (dt_drho(wrt2, at)?, dt_drho(at2, at)?);
     let v = (f_t * vr - f_r * vt) / (wt * vr - wr * vt);
     v.is_finite().then_some(v)
 }
@@ -294,7 +383,7 @@ mod tests {
         let (r, t, rho) = (8.314462618, 300.0, 40.0);
         assert_eq!(pressure(r, t, rho, &b), rho * r * t);
         assert!((cp(r, &b) - 2.5 * r).abs() < 1e-12);
-        let at = At { r, t, rho, molar_mass: 0.04, ds: 0.0, b: &b };
+        let at = At { r, t, rho, molar_mass: 0.04, ds: 0.0, b: &b, third: None, reducing: None };
         let d = |of, wrt, c| first_partial(of, wrt, c, &at).unwrap();
         use DerivVar::*;
         assert!((d(Hmolar, T, P) - cp(r, &b)).abs() < 1e-12); // (∂h/∂T)_p = cp

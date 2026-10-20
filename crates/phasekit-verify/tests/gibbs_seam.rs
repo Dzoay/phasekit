@@ -119,6 +119,11 @@ fn solid_properties_come_from_the_shared_relations() {
     assert!(close(ice.prop(&s, dvdp).unwrap(), -g.g_pp / (g.g_p * g.g_p)));
     // Cp0 needs an ideal-gas part this family does not have (no `derivs` override): typed refusal.
     assert_eq!(ice.prop(&s, Prop::Cp0molar), Err(Error::NoModel { prop: Prop::Cp0molar }));
+    // So do the partials of c_v, c_p and w (an order-3 bundle) and of τ and δ (a reducing state; M20.1).
+    for of in [DerivVar::Cvmolar, DerivVar::SpeedOfSound, DerivVar::Tau, DerivVar::Delta] {
+        let prop = Prop::Partial(Partial { of, wrt: DerivVar::T, at: DerivVar::P });
+        assert_eq!(ice.prop(&s, prop), Err(Error::NoModel { prop }));
+    }
     // Nor a melting curve (M8.11): the trait's defaults say so.
     for prop in [Prop::MeltingPressure, Prop::MeltingTemperature] {
         assert_eq!(ice.prop(&s, prop), Err(Error::NoModel { prop }));
