@@ -3,7 +3,7 @@
 //! `Extrapolated` (a flagged value, PLAN.md M10.8); any other status leaves a gap.
 
 use phasekit_core::batch::{BatchRequest, ExecPolicy, Status, evaluate};
-use phasekit_core::{Basis, Error, FlashOptions, Fluid, Input, Pair, Prop};
+use phasekit_core::{Basis, Error, FlashOptions, Fluid, Input, Pair, Phase, Prop};
 
 use crate::plane::Quantity;
 
@@ -78,6 +78,14 @@ impl<'a> FluidBatch<'a> {
     pub const fn with_exec(mut self, exec: ExecPolicy) -> Self {
         self.exec = exec;
         self
+    }
+}
+
+impl FluidBatch<'_> {
+    /// The library's phase at the state of `inputs`, under the batch's flash options; `None` where it refuses the
+    /// state (PLAN.md M19.5).
+    pub fn phase(&self, inputs: Inputs) -> Option<Phase> {
+        Some(self.fluid.flash(inputs.input().ok()?, &self.flash).ok()?.phase())
     }
 }
 
