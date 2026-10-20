@@ -75,6 +75,16 @@ pub(crate) fn log_grid(a: f64, b: f64, n: usize) -> Vec<f64> {
     spaced(b, n, |i, last| a * math::powf(b / a, i / last))
 }
 
+/// `n` values from `a` to exactly `b`, closing in on `a`: a + (b − a)·(i/(n − 1))², the site's `awayFrom` (M23.2).
+pub(crate) fn away_from(a: f64, b: f64, n: usize) -> Vec<f64> {
+    let last = n.saturating_sub(1);
+    let at = |i: usize| {
+        let x = i as f64 / last as f64;
+        if i == last { b } else { a + (b - a) * (x * x) }
+    };
+    (0..n).map(at).collect()
+}
+
 /// `n` temperatures from exactly `low` up to just below T_c, closing in on it, where the dome narrows fastest:
 /// T_c − (T_c − low)·(1 − i/n)².
 pub(crate) fn dome_temperatures(low: f64, tc: f64, n: usize) -> Vec<f64> {
