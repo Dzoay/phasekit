@@ -327,6 +327,8 @@ const COMMITTED: &[(&str, &str)] = &[
     fixture!("paper/Water/CoolProp-Tests.lambda.csv"),
     fixture!("paper/Water/IAPWS-R1-76-2014.1.check.csv"),
     fixture!("paper/Water/IAPWS-R1-76-2014.1.csv"),
+    fixture!("paper/Water/IAPWS-R10-06-2009.6.check.csv"),
+    fixture!("paper/Water/IAPWS-R10-06-2009.6.csv"),
     fixture!("paper/Water/IAPWS-R12-08.4.check.csv"),
     fixture!("paper/Water/IAPWS-R12-08.4.csv"),
     fixture!("paper/Water/IAPWS-R12-08.5.check.csv"),

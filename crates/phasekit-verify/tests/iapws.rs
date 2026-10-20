@@ -7,7 +7,7 @@ use std::num::NonZeroUsize;
 
 use phasekit_core::batch::{BatchRequest, ExecPolicy};
 use phasekit_core::math;
-use phasekit_core::{Basis, Error, Fluid, Gauge, Input, Pair, Phase, Prop, State, Var};
+use phasekit_core::{Basis, DataSet, Error, Fluid, Gauge, Input, Pair, Phase, Prop, Registry, State, Var};
 use phasekit_iapws::if97;
 use phasekit_verify::conformance::{Outcome, capability_matrix, gauge_invariance, identities, policy_equivalence};
 use phasekit_verify::register::{RowKey, exempt_row};
@@ -307,4 +307,78 @@ fn if97_water_vapour_goes_below_611_pa() {
     assert_eq!(state.rho(Basis::Mass).to_bits(), if97::region2(300.0, 100.0).unwrap().rho(Basis::Mass).to_bits());
     let z = state.z();
     assert!(-1e-4 < z - 1.0 && z < 1.0, "Z = {z}");
+}
+
+/// Ice Ih (PLAN.md M14.4) on core's embedded IAPWS-95 water, under `data`.
+fn ice(data: DataSet) -> Fluid {
+    let water = Registry::from_embedded(data).unwrap().get("Water").unwrap().clone();
+    phasekit_iapws::ice::ice(&water, data).unwrap()
+}
+
+/// Table 6's 16 quantities at a state of ice, from its `State` alone: g and its derivatives through g_p = 1/ρ,
+/// g_T = −s, g_pp = −κ_T/ρ, g_Tp = α/ρ, g_TT = −c_p/T; f = g − pv; β = α/κ_T; κ_s = 1/(ρw²).
+fn table_6_quantities(state: &State) -> Vec<(&'static str, f64)> {
+    let (t, rho) = (state.t(), state.rho(Basis::Mass));
+    let (kappa_t, alpha) = (state.isothermal_compressibility().unwrap(), state.isobaric_expansion().unwrap());
+    let (cp, w) = (state.cp(Basis::Mass).unwrap(), state.speed_of_sound().unwrap());
+    vec![
+        ("g", state.g(Basis::Mass)),
+        ("g_p", 1.0 / rho),
+        ("g_T", -state.s(Basis::Mass)),
+        ("g_pp", -kappa_t / rho),
+        ("g_Tp", alpha / rho),
+        ("g_TT", -cp / t),
+        ("h", state.h(Basis::Mass)),
+        ("f", state.a(Basis::Mass)),
+        ("u", state.u(Basis::Mass)),
+        ("s", state.s(Basis::Mass)),
+        ("cp", cp),
+        ("rho", rho),
+        ("alpha", alpha),
+        ("beta", alpha / kappa_t),
+        ("kappa_T", kappa_t),
+        ("kappa_s", 1.0 / (rho * w * w)),
+    ]
+}
+
+/// Arbiter: IAPWS R10-06(2009) Table 6, ice Ih at the triple point, the normal melting point and (100 K, 100 MPa), its
+/// 48 values within their printed digits, under `Corrected` (the 2009 g₀₀; PLAN.md M14.4).
+#[test]
+fn ice_is_table_6() {
+    let (table, ice) = (table(fixture!("paper/Water/IAPWS-R10-06-2009.6.csv")), ice(DataSet::Corrected));
+    let mut missed = Vec::new();
+    for row in 0..table.rows().len() {
+        let quantity = match table.rows()[row].cells.first() {
+            Some(Cell::Text(q)) => *q,
+            _ => "",
+        };
+        let (t, p) = (table.value(row, "T").unwrap(), table.value(row, "p").unwrap());
+        let got = ice.state(Input::new(Pair::PT, p, t, Basis::Mass).unwrap()).map(|s| table_6_quantities(&s));
+        match got {
+            Ok(values) => {
+                let value = values.iter().find(|(q, _)| *q == quantity).map_or(f64::NAN, |(_, v)| *v);
+                missed.extend(table.check(row, "value", value).err().map(|e| format!("{quantity} at {t} K: {e:?}")));
+            }
+            Err(e) => missed.push(format!("{quantity} at {t} K: {e}")),
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+}
+
+/// ROT-248 (PLAN.md M14.4): ice's properties come from core's relations over all six Gibbs derivatives: the kit's
+/// first-order identities hold at ice states from 50 K to the triple point and to 200 MPa, where v8.0.0's ice lacks
+/// g_TT and g_Tp (map 07 C2); its range is refused beyond, never a sentinel.
+#[test]
+fn ice_properties_come_from_the_shared_relations() {
+    let ice = ice(DataSet::Corrected);
+    let pt = |p: f64, t: f64| Input::new(Pair::PT, p, t, Basis::Mass).unwrap();
+    let states: Vec<State> = [50.0, 100.0, 200.0, 273.16]
+        .into_iter()
+        .flat_map(|t| [1.0, 1e5, 200e6].map(|p| ice.state(pt(p, t)).unwrap()))
+        .collect();
+    assert!(states.iter().all(|s| s.phase() == Phase::Solid));
+    let checked = identities(&ice, &states).unwrap();
+    assert!(checked >= 12 * 10, "{checked}");
+    assert!(matches!(ice.state(pt(1e5, 273.2)), Err(Error::Domain(_))));
+    assert!(matches!(ice.state(pt(211e6, 200.0)), Err(Error::Domain(_))));
 }

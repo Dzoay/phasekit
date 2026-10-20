@@ -15,5 +15,9 @@ categories.workspace = true
 [dependencies]
 phasekit-core.workspace = true
 
+# Ice's unit tests stand it on core's embedded IAPWS-95 water.
+[dev-dependencies]
+phasekit-core = { workspace = true, features = ["fluids-core"] }
+
 [lints]
 workspace = true
