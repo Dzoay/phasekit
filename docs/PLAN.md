@@ -624,13 +624,10 @@ decisions implemented.** MX1-MX7; 4 (the `.mix` variants).
 **Goal.** The four follow-ups PLAN.md §6 had left unplanned (user decision PL1). **Entry.** After M12 lands; the steps
 are independent and may be reordered. M20 does not move `MILESTONE`.
 
-- **M20.1 Cv, Cp, w, τ and δ as derivative variables.** M10.3's strict grammar `d(X)/d(Y)|Z` and
-  `d(d(X)/d(Y)|Z)/d(W)|V` differentiates over the 12 first-order variables; Cv, Cp and w join them as X, Y, Z, W or V
-  through the order-3 bundle (`ThermoModel::derivs`, M7.10), and τ and δ through the published reducing state
-  (`FluidInfo::constants`, M10.2) (user decision OD1). There is no oracle: CoolProp's second derivatives refuse Cv, Cp
-  and w. *Red:* `derivative_variables_match_central_differences`: each new first derivative against central
-  differences of its property along the held variable on the `eos` grid (class `Fd`), and the τ and δ derivatives
-  against the T and ρ ones scaled by the reducing state (`Identity`), against a grammar that refuses the new names.
+| Step | Landed |
+|---|---|
+| M20.1 | `DerivVar` gains `Cvmolar`, `Cvmass`, `Cpmolar`, `Cpmass`, `SpeedOfSound` (`DerivVar::is_second_order`), `Tau` and `Delta` (user decision OD1). c_v's, c_p's and w's (T, ρ) derivatives come from the model's order-3 bundle (`ThermoModel::derivs`), forward through cv = −R·A20, cp = cv + R·x²/D and w² = RT·(D − x²/A20)/M, so `Fluid::prop` makes that call only for a partial that names one; τ's and δ's from the published reducing state (`FluidInfo::constants`). They are any variable of `d(X)/d(Y)\|Z`, and W or V of `d(d(X)/d(Y)\|Z)/d(W)\|V`, whose inner partial takes τ and δ but not c_v, c_p or w (differentiated twice they are order 4): compat's grammar reads them by name and alias and refuses those strings, and a `SecondPartial` with one inside is `NoModel`, as is `State::partial` of any of the seven and `State::second_partial` of τ or δ, which only the model can give. `derivative_variables_match_central_differences` (`tests/eos.rs`), at the 5,883 stable states of the core fluids' `eos` grids: each of the five differentiated in T and in ρ against its central differences in `Fd` (58,786 checks, headroom 0.93; 44 left to the identities where a central difference's own truncation, estimated from twice the step, exceeds the bound: (∂c_p/∂T)_ρ within a few kelvin of HFE143m's, Methanol's and Nitrogen's critical points), each differentiated by and held, τ and δ against the T and ρ derivatives scaled by the reducing state, and c_v, c_p and w as a second partial's outer variables, in `Identity` (176,490, headroom 0.12). No oracle: CoolProp's second derivatives refuse c_v, c_p and w |
+
 - **M20.2 The conformance kit's `identities` and `part_additivity`.** `phasekit_verify::identities(fluid, states)`
   asserts VERIFICATION.md §8.1's list in class `Identity` (M11.7's `entropy_identity` beside it), moved into the kit from `tests/eos.rs`, which then calls it
   per embedded fluid; `part_additivity` asserts that `ThermoModel::derivs`'s total is its ideal part plus its residual

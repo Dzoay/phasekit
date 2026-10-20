@@ -219,18 +219,22 @@ and QT to ice + vapour through `bundle_from_gibbs` and `from_split`, and reaches
 ### 3.7 Outputs and derivatives (D5, E1)
 
 `Prop` is the one `#[non_exhaustive]` output table (`Fluid::prop`). Besides the first-order keys it has `Z`,
-`Cp0molar`/`Cp0mass` and `Partial(Partial)`, where `Partial { of, wrt, at }` ranges over CoolProp's 12 first-order
-variables (`DerivVar`: T, P, D, H, S, U, G in both bases; map 01 §4a). First partials come from the stored order-2
-bundle through the Jacobian ratio `[X_T Z_ρ − X_ρ Z_T] / [Y_T Z_ρ − Y_ρ Z_T]` (map 01 U8), so every family gets them
-with no model call; tests check `(∂h/∂T)_p = cp`, `(∂s/∂T)_p = cp/T` and `(∂ρ/∂p)_T` on van der Waals and on the
-Gibbs solid. Order ≥ 3 and the ideal/residual parts come from `ThermoModel::derivs`; Cp0 uses it today and reports
-`NoModel` for a family without an ideal part.
+`Cp0molar`/`Cp0mass` and `Partial(Partial)`, where `Partial { of, wrt, at }` ranges over the derivative variables
+(`DerivVar`): CoolProp's 12 first-order variables (T, P, D, H, S, U, G in both bases; map 01 §4a), c_v and c_p in both
+bases, w, τ and δ. First partials of the 12 come from the stored order-2 bundle through the Jacobian ratio
+`[X_T Z_ρ − X_ρ Z_T] / [Y_T Z_ρ − Y_ρ Z_T]` (map 01 U8), so every family gets them with no model call; tests check
+`(∂h/∂T)_p = cp`, `(∂s/∂T)_p = cp/T` and `(∂ρ/∂p)_T` on van der Waals and on the Gibbs solid. Order ≥ 3 and the
+ideal/residual parts come from `ThermoModel::derivs`; Cp0 uses it today and reports `NoModel` for a family without an
+ideal part.
 
-The second partials, the fundamental derivative, κ_T and β come from order 3 (M7.10); Cv, Cp, w, τ and δ as derivative
-variables are deferred (user decision OD1). CoolProp's state-independent outputs are `Prop::Constant(Constant)`, from
-the model's limits and critical point and its data's published constants (`FluidInfo::constants`). The strict
-`d(X)/d(Y)|Z` and `d(d(X)/d(Y)|Z)/d(W)|V` grammar is compat's (`parse_derivative`), over the 12 variables; the 8 α-term
-outputs divide A_ij by τ^i δ^j at the published reducing state, at one phase.
+The second partials and the fundamental derivative come from order 3, κ_T and β from the order-2 bundle (M7.10). c_v,
+c_p and w as derivative variables read the order-3 bundle and τ and δ the published reducing state (M20.1, user decision
+OD1), so `Fluid::prop` gives their partials and `State::partial` refuses them as `NoModel`; a second partial takes c_v,
+c_p and w as its outer variables only, since its inner partial, differentiated twice, would need order 4. CoolProp's
+state-independent outputs are `Prop::Constant(Constant)`, from the model's limits and critical point and its data's
+published constants (`FluidInfo::constants`). The strict `d(X)/d(Y)|Z` and `d(d(X)/d(Y)|Z)/d(W)|V` grammar is compat's
+(`parse_derivative`), over the derivative variables; the 8 α-term outputs divide A_ij by τ^i δ^j at the published
+reducing state, at one phase.
 
 ### 3.8 Registry, data sources, flash, batch, saturation
 

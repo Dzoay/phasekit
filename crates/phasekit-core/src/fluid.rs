@@ -481,8 +481,10 @@ impl Fluid {
             Prop::SurfaceTension => self.model.surface_tension(state.t())?,
             Prop::MeltingPressure => self.model.melting_pressure(state.t())?,
             Prop::MeltingTemperature => self.model.melting_temperature(state.p())?,
-            Prop::Partial(p) => state.partial(p)?,
-            Prop::SecondPartial(p) => state.second_partial(p, &self.order_three(state, prop)?)?,
+            Prop::Partial(p) => self.partial(state, p)?,
+            Prop::SecondPartial(p) => {
+                state.second_partial_with(p, &self.order_three(state, prop)?, self.info().constants().reducing)?
+            }
             Prop::FundamentalDerivative => state.fundamental_derivative(&self.order_three(state, prop)?)?,
             Prop::IsothermalCompressibility => state.isothermal_compressibility()?,
             Prop::IsobaricExpansion => state.isobaric_expansion()?,
@@ -603,6 +605,15 @@ impl Fluid {
         let d2p_drho2 = state.second_partial(SecondPartial { first: dp_drho, wrt: Dmolar, at: T }, &total)?;
         let rho = state.rho(Basis::Molar);
         Ok(2.0 - rho * (d2p_drho_dt / state.partial(dp_dt)? - d2p_drho2 / state.partial(dp_drho)?))
+    }
+
+    /// A first partial at `state`: from its stored bundle, with the model's order-3 bundle (a model call) only where c_v,
+    /// c_p or w is one of its variables, and τ and δ at the published reducing state.
+    fn partial(&self, state: &State, p: Partial) -> Result<f64, Error> {
+        let prop = Prop::Partial(p);
+        let second_order = [p.of, p.wrt, p.at].into_iter().any(DerivVar::is_second_order);
+        let total = second_order.then(|| self.order_three(state, prop)).transpose()?;
+        state.partial_with(p, total.as_ref(), self.info().constants().reducing)
     }
 
     /// The model's order-3 total bundle at `state` as one phase (E1), `NoModel` from a model without one.
