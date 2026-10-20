@@ -132,9 +132,13 @@ impl IdealGas {
         let mut a = [R::from_f64(0.0); 5]; // τ^k d^k/dτ^k of the τ-part, k = 0..4
         for term in self.terms.iter() {
             let add: [R; 5] = match *term {
-                IdealTerm::Lead { a1, a2 } | IdealTerm::Offset { a1, a2, .. } => {
-                    [tau * a2 + a1, tau * a2, R::from_f64(0.0), R::from_f64(0.0), R::from_f64(0.0)]
-                }
+                IdealTerm::Lead { a1, a2 } | IdealTerm::Offset { a1, a2, .. } => [
+                    tau.mad(R::from_f64(a2), R::from_f64(a1)),
+                    tau * a2,
+                    R::from_f64(0.0),
+                    R::from_f64(0.0),
+                    R::from_f64(0.0),
+                ],
                 IdealTerm::LogTau { a } => {
                     [tau.ln() * a, R::from_f64(a), R::from_f64(-a), R::from_f64(2.0 * a), R::from_f64(-6.0 * a)]
                 }

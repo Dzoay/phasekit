@@ -61,6 +61,10 @@ jobs:
         run: cargo clippy -p phasekit-core --features libm --all-targets -- -D warnings
       - name: clippy on the simd feature (PLAN.md M12.4)
         run: cargo clippy -p phasekit-core -p phasekit-verify --features phasekit-verify/simd --all-targets -- -D warnings
+      - name: clippy on the fast feature, alone and with simd (PLAN.md M23.7)
+        run: |
+          cargo clippy -p phasekit-core -p phasekit-mix -p phasekit-verify --features phasekit-core/fast --all-targets -- -D warnings
+          cargo clippy -p phasekit-core -p phasekit-verify --features phasekit-core/fast,phasekit-verify/simd --all-targets -- -D warnings
       - name: clippy on the Tier A shim's build (PLAN.md M10.6)
         run: cargo clippy -p phasekit-capi --features coolproplib-shim --all-targets -- -D warnings
 
@@ -110,9 +114,9 @@ jobs:
         run: cargo nextest run --workspace --profile ci
       - name: G3 cargo test --doc --workspace
         run: cargo test --doc --workspace
-      - name: Cross-target hash with std and libm maths (PLAN.md M9.4; VERIFICATION.md §9.4)
+      - name: Cross-target hash with std, libm and fast maths (PLAN.md M9.4, M23.7; VERIFICATION.md §9.4)
         run: |
-          for features in "" "--features phasekit-core/libm"; do
+          for features in "" "--features phasekit-core/libm" "--features phasekit-core/fast"; do
             # shellcheck disable=SC2086 # an empty or two-word feature list
             cargo nextest run -p phasekit-verify --test cross_target --profile ci --no-capture $features | grep -o 'hash=[0-9a-f]* target=[^ ]* math=[a-z]*' | tee -a hash.txt
           done
@@ -121,9 +125,9 @@ jobs:
           name: hash-linux
           path: hash.txt
           if-no-files-found: error
-      - name: The maths report, std's and the libm crate's errors in ulps against mpmath (PLAN.md M23.1)
+      - name: The maths report, std's, the libm build's and the fast build's errors in ulps against mpmath (PLAN.md M23.1)
         run: |
-          for features in "" "--features phasekit-core/libm"; do
+          for features in "" "--features phasekit-core/libm" "--features phasekit-core/fast"; do
             # shellcheck disable=SC2086 # an empty or two-word feature list
             cargo nextest run -p phasekit-verify --test math --profile ci --no-capture $features
           done
@@ -135,6 +139,12 @@ jobs:
         run: |
           cargo nextest run -p phasekit-core --features simd --profile ci -E 'not test(std_vs_libm_ulp_report)'
           cargo nextest run -p phasekit-verify --features simd --test batch --profile ci
+      - name: G3 on the fast feature, and its lanes at every dispatch level (PLAN.md M23.7; xtask's datagen is std's)
+        run: |
+          cargo nextest run --workspace --exclude phasekit-xtask --features phasekit-core/fast --profile ci
+          cargo test --doc -p phasekit-core --features fast
+          cargo nextest run -p phasekit-core --features fast,simd --profile ci -E 'not test(std_vs_libm_ulp_report)'
+          cargo nextest run -p phasekit-verify --features simd,phasekit-core/fast --test batch --profile ci
       - name: G8 cargo xtask gates all --except mutants,perf (the mutants and perf jobs run those)
         run: cargo xtask gates all --except mutants,perf
       - name: Fluid data changes (job summary; PRs that change data; PLAN.md M2.9a)
@@ -310,9 +320,9 @@ jobs:
         run: cargo nextest run --workspace --exclude phasekit-xtask --profile ci
       - name: G3 cargo test --doc --workspace --exclude phasekit-xtask
         run: cargo test --doc --workspace --exclude phasekit-xtask
-      - name: Cross-target hash with std and libm maths (PLAN.md M9.4; VERIFICATION.md §9.4)
+      - name: Cross-target hash with std, libm and fast maths (PLAN.md M9.4, M23.7; VERIFICATION.md §9.4)
         run: |
-          for features in "" "--features phasekit-core/libm"; do
+          for features in "" "--features phasekit-core/libm" "--features phasekit-core/fast"; do
             # shellcheck disable=SC2086 # an empty or two-word feature list
             cargo nextest run -p phasekit-verify --test cross_target --profile ci --no-capture $features | grep -o 'hash=[0-9a-f]* target=[^ ]* math=[a-z]*' | tee -a hash.txt
           done
@@ -342,13 +352,15 @@ jobs:
         run: cargo nextest run --workspace --exclude phasekit-xtask --profile ci
       - name: G3 cargo test --doc --workspace --exclude phasekit-xtask
         run: cargo test --doc --workspace --exclude phasekit-xtask
-      - name: The lane tests on the simd feature, at NEON (PLAN.md M12.4)
+      - name: The lane tests on the simd feature, at NEON, and on fast with it (PLAN.md M12.4, M23.7)
         run: |
           cargo nextest run -p phasekit-core --features simd --profile ci -E 'not test(std_vs_libm_ulp_report)'
           cargo nextest run -p phasekit-verify --features simd --test batch --profile ci
-      - name: Cross-target hash with std and libm maths (PLAN.md M9.4; VERIFICATION.md §9.4)
+          cargo nextest run -p phasekit-core --features fast,simd --profile ci -E 'not test(std_vs_libm_ulp_report)'
+          cargo nextest run -p phasekit-verify --features simd,phasekit-core/fast --test batch --profile ci
+      - name: Cross-target hash with std, libm and fast maths (PLAN.md M9.4, M23.7; VERIFICATION.md §9.4)
         run: |
-          for features in "" "--features phasekit-core/libm"; do
+          for features in "" "--features phasekit-core/libm" "--features phasekit-core/fast"; do
             # shellcheck disable=SC2086 # an empty or two-word feature list
             cargo nextest run -p phasekit-verify --test cross_target --profile ci --no-capture $features | grep -o 'hash=[0-9a-f]* target=[^ ]* math=[a-z]*' | tee -a hash.txt
           done
@@ -380,9 +392,9 @@ jobs:
         run: cargo nextest run --workspace --exclude phasekit-xtask --target wasm32-wasip2 --profile ci
       - name: G4 cargo test --doc --workspace --exclude phasekit-xtask --target wasm32-wasip2
         run: cargo test --doc --workspace --exclude phasekit-xtask --target wasm32-wasip2
-      - name: Cross-target hash with std and libm maths (PLAN.md M9.4; VERIFICATION.md §9.4)
+      - name: Cross-target hash with std, libm and fast maths (PLAN.md M9.4, M23.7; VERIFICATION.md §9.4)
         run: |
-          for features in "" "--features phasekit-core/libm"; do
+          for features in "" "--features phasekit-core/libm" "--features phasekit-core/fast"; do
             # shellcheck disable=SC2086 # an empty or two-word feature list
             cargo nextest run -p phasekit-verify --test cross_target --target wasm32-wasip2 --profile ci --no-capture $features | grep -o 'hash=[0-9a-f]* target=[^ ]* math=[a-z]*' | tee -a hash.txt
           done
@@ -406,11 +418,12 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: hash-*
-      - name: The four targets' hashes (job summary; each target's libm run asserts the committed one)
+      - name: The four targets' hashes (job summary; each target's libm and fast runs assert the committed ones)
         run: |
           { echo '```'; cat hash-*/hash.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           cat hash-*/hash.txt
           echo "distinct libm hashes: $(grep -h 'math=libm' hash-*/hash.txt | cut -d' ' -f1 | sort -u | wc -l)"
+          echo "distinct fast hashes: $(grep -h 'math=fast' hash-*/hash.txt | cut -d' ' -f1 | sort -u | wc -l)"
 
   wasm-browser:
     name: wasm-browser

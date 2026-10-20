@@ -155,6 +155,13 @@ impl<const W: usize> Real for Lanes<W> {
     fn abs(self) -> Self {
         self.map(f64::abs)
     }
+    #[inline(always)]
+    fn mad(mut self, b: Self, c: Self) -> Self {
+        for ((x, b), c) in self.0.iter_mut().zip(b.0).zip(c.0) {
+            *x = math::mul_add(*x, b, c);
+        }
+        self
+    }
 }
 
 /// What the lane tests share (PLAN.md M12.8, M23.2, M23.3). `cfg(test)` stands alone, so cargo-mutants sees test code.

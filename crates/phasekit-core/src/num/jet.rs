@@ -288,6 +288,14 @@ macro_rules! jet {
             fn abs(self) -> Self {
                 if self.c[0].is_sign_negative() { -self } else { self }
             }
+            /// self·b + c: with the `fast` feature the product's terms are fused onto c's coefficients one by one (the
+            /// value part as on `f64`); without it `self * b + c`, bit for bit.
+            fn mad(self, b: Self, c: Self) -> Self {
+                #[cfg(not(feature = "fast"))]
+                return self * b + c;
+                #[cfg(feature = "fast")]
+                return Self { c: super::fused::jet_mad(&self.c, &b.c, c.c, PRODUCT.get(..$triples).unwrap_or(&[])) };
+            }
         }
     };
 }

@@ -474,7 +474,7 @@ build (E7).
 `Clone`; compat adds `CompatError`. No panics on input, enforced by lints (`todo`, `unimplemented`, `panic`,
 `unwrap_used`, `expect_used` denied; `indexing_slicing` denied in `batch` and `flash`) and by property tests (E12,
 S-06). NaN is never a typed result. One `math` choke point for every `f64` transcendental, an own `powi` chain, no FMA
-(§9). `libm` stays an opt-in feature: M9.5 applied user decision 12's rule, which makes it the default only if its
+but under the `fast` feature (§9). `libm` stays an opt-in feature: M9.5 applied user decision 12's rule, which makes it the default only if its
 cross-target hash is one on x86_64 Linux, Windows MSVC, aarch64 Linux and wasm32-wasip2, and if the geometric mean of
 its libm/std median-time ratios over six scalar benches (α^r order 2, properties at (T, ρ), QT, PQ, PT, PH; each over
 the §12 bench fluids) is ≤ 1.05 with none above 1.10. Bit-identity holds (`fixtures/hash/libm.txt`, asserted on all
@@ -727,10 +727,16 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
   - The target is ≥ 2.5× α^r batch throughput on AVX2 over the scalar path, on the reference machine; `simd` ships if
     it is faster than the scalar path (user decisions SL3, TG1).
 - **Dispatch.** `ExecPolicy` is a run-time value. Cargo features add executors but never change numerics (K13);
-  `simd` changes them only by enabling `libm` (D12, user decision SL1).
+  `simd` changes them only by enabling `libm` (D12, user decision SL1), and `fast` by fusing.
   Summation-order-changing variants (across-terms SIMD) exist only as a separate future `Fast` policy with its own
-  tolerance class (K9, K12). FMA is planned instead as core's opt-in `fast` feature, fused on every target so that a
-  `fast` build's bits are one set across targets (user decision IM4; PLAN.md M23).
+  tolerance class (K9, K12). FMA is core's opt-in `fast` feature (user decision IM4; PLAN.md M23.7): a·b + c through
+  `Real::mad` (IM10) and its one call of `f64::mul_add`, fused on every target in hardware or in software, in the
+  in-house functions (Arm's FMA forms), the α^r term accumulators, Horner's polynomials and α⁰'s lead term. The
+  superancillary's Clenshaw sums keep CoolProp's order (IM8). `fast` enables `libm` (IM7), so a `fast` build's bits are
+  one set across targets (`fixtures/hash/fast.txt`), and its lanes are its scalar path's. It pays only where a·b + c
+  compiles to an FMA instruction: on the i7-8700K, `-C target-cpu=x86-64-v3`'s `fast` build takes 0.95 times its
+  default build's time over D12's six scalar benches and 0.93 times on the α^r lanes, and the x86-64 baseline's 2.16
+  and 1.04 times, each a·b + c there a call to compiler-builtins' `fma` (PLAN.md M23.7).
 - **Differential testing.** `phasekit_verify::policy_equivalence(fluid, req, candidate)` asserts every cell and status
   bitwise equal to `Reference`. CI forces every dispatch level, and accelerated kernels must also pass the paper rows.
 - **Perf targets** (K19 estimates; criterion and counting-allocator benches recorded as each path lands, from M2, and
@@ -852,8 +858,9 @@ sha, all 38 config keys and the scrubbed environment (map 10 §8.3, map 01 §8).
   NaN Q (map 12 R9). A single-phase quality is `Undefined`, not −1. Batch cells hold NaN only beside a non-`Ok`
   `Status`; compat may map that to +inf (`FillPolicy::Inf`) for PropsSI parity.
 - **FP determinism.**
-  - No FMA: `f64::mul_add` is banned (rustc does not contract `a*b + c` on its own, *inference*). Summation order is
-    fixed per path. Integer powers use an own binary chain.
+  - No FMA but under `fast`: `f64::mul_add` is banned outside `math::mul_add`, which fuses only with the `fast`
+    feature (PLAN.md M23.7; rustc does not contract `a*b + c` on its own, *inference*). Summation order is fixed per
+    path. Integer powers use an own binary chain.
   - Every `f64` transcendental goes through `math` (exp, expm1, ln, ln_1p, powf, sqrt, sinh, cosh, atan; powi is the
     chain); clippy bans the rest. Default std; the `libm` feature (opt-in until M9) is the candidate for bit-identical
     results on Linux, Windows and WASM (R14). Whether it delivers that is unverified (dependencies §4) until the M9

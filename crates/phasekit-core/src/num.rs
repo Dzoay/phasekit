@@ -5,6 +5,8 @@ use core::fmt::Debug;
 use core::ops::{Add, Div, Mul, Neg, Sub};
 
 pub(crate) mod elementary;
+#[cfg(feature = "fast")]
+mod fused;
 mod jet;
 mod lanes;
 
@@ -61,6 +63,9 @@ pub trait Real:
     fn atan(self) -> Self;
     /// |x|.
     fn abs(self) -> Self;
+    /// self·b + c, rounded once with the `fast` feature on every target, else twice (PLAN.md M23.7; user decision
+    /// IM4). The term sums and the polynomial and Clenshaw evaluations take it.
+    fn mad(self, b: Self, c: Self) -> Self;
 }
 
 impl Real for f64 {
@@ -100,6 +105,9 @@ impl Real for f64 {
     fn abs(self) -> Self {
         f64::abs(self)
     }
+    fn mad(self, b: Self, c: Self) -> Self {
+        math::mul_add(self, b, c)
+    }
 }
 
 /// The only place the library calls a transcendental function (D12, dependencies R14). Default: `std`, the
@@ -109,8 +117,28 @@ impl Real for f64 {
 /// opt-in for its cost (ARCHITECTURE.md D12). clippy's `disallowed-methods` rejects every `f64` transcendental
 /// elsewhere (E16).
 pub mod math {
-    /// The backend this build's transcendentals run on: `"libm"` with the `libm` feature, else `"std"`.
-    pub const BACKEND: &str = if cfg!(feature = "libm") { "libm" } else { "std" };
+    /// The backend this build's transcendentals run on: `"fast"` with the `fast` feature (`libm`'s, the in-house
+    /// functions in their FMA forms; PLAN.md M23.7), else `"libm"` with the `libm` feature, else `"std"`.
+    pub const BACKEND: &str = if cfg!(feature = "fast") {
+        "fast"
+    } else if cfg!(feature = "libm") {
+        "libm"
+    } else {
+        "std"
+    };
+
+    /// a·b + c: fused, rounded once, with the `fast` feature on every target, in hardware or in software (PLAN.md
+    /// M23.7; user decision IM4); else rounded twice, as a·b, then + c. The one call of `f64::mul_add`.
+    #[allow(clippy::disallowed_methods)]
+    #[inline(always)]
+    pub(crate) fn mul_add(a: f64, b: f64, c: f64) -> f64 {
+        #[cfg(feature = "fast")]
+        return a.mul_add(b, c);
+        #[cfg(not(feature = "fast"))]
+        {
+            a * b + c
+        }
+    }
 
     macro_rules! choke {
         ($($(#[$doc:meta])* $name:ident => $std:ident, $libm:ident;)*) => {$(
@@ -270,6 +298,19 @@ pub(crate) fn solve_small<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N])
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// PLAN.md M23.7 (user decision IM4): [`Real::mad`] rounds a·b + c once with the `fast` feature, on `f64`, on lanes
+    /// and in a jet's value part, and twice without it: (1 + 2⁻³⁰)(1 − 2⁻³⁰) − 1 is −2⁻⁶⁰ exactly, and the product
+    /// alone rounds to 1, leaving 0.
+    #[test]
+    fn fast_fuses() {
+        let e = f64::from_bits(0x3e10_0000_0000_0000);
+        let (a, b, c) = (1.0 + e, 1.0 - e, -1.0);
+        let want = if cfg!(feature = "fast") { -e * e } else { 0.0 };
+        assert_eq!(a.mad(b, c).to_bits(), want.to_bits());
+        assert_eq!(Lanes([a; 4]).mad(Lanes([b; 4]), Lanes([c; 4])).0.map(f64::to_bits), [want.to_bits(); 4]);
+        assert_eq!(Jet4::constant(a).mad(Jet4::constant(b), Jet4::constant(c)).value().to_bits(), want.to_bits());
+    }
 
     /// Every one-argument function of [`math`] that the `libm` crate gives, with its `libm` and `std` counterparts.
     /// `exp`, `expm1`, `ln` and `powf` are core's own (PLAN.md M23.2-M23.5), measured against mpmath by

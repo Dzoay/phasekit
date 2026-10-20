@@ -476,7 +476,8 @@ Rules: classes live in `phasekit_verify::tolerance` and in fixture `tol:` lines;
 `#[non_exhaustive]` and this document adds `Faithful`, `SaFit`, `CaloricFit`, `Measured`, `Identity`, `Fd`, `RefAnchor` to the sketch's list.
 `tolerance_classes_match_verification_md` (PLAN.md M1.5) keeps the code and this table equal. A class value changes
 only in a PR that edits this table with a derivation; making CoolProp pass is never one. Fast policies
-(across-terms SIMD, FMA) get their own class when they exist, |Δ| ≤ n·u·Σ|φ_k| (kernel-performance §2.9). A failure
+(across-terms SIMD) get their own class when they exist, |Δ| ≤ n·u·Σ|φ_k| (kernel-performance §2.9); the `fast`
+feature's FMA passes these classes unchanged (PLAN.md M23.7). A failure
 prints fixture, row, column, class, provenance, got, want, error and bound (map 10 U1); every passing fixture reports
 its headroom (max error / bound), because map 10 R5 found 7 of 318 transport rows within 10 % of a hand-tuned bound.
 
@@ -725,8 +726,9 @@ on random inputs and on the edges: subnormal results, the overflow thresholds ne
 `lane_pow_is_scalar_bitwise`). Until M23.5 the vector `expm1` was M12.8's port of the locked `libm` crate's, held to
 it bitwise. CI forces every
 dispatch level (scalar, AVX2, AVX-512 where present, NEON, the `simd128` build). Accelerated kernels must also pass the
-K1/K2 paper rows (map 13 §7). Across-terms or FMA variants exist only as a separate `Fast` policy with its own class
-(section 5).
+K1/K2 paper rows (map 13 §7). Across-terms variants exist only as a separate `Fast` policy with its own class
+(section 5). FMA is the `fast` feature (PLAN.md M23.7), whose lanes are its scalar path's bits as well: the lane tests,
+`policy_equivalence_at_every_level` and `real_kernels_are_scalar_bitwise` run under `--features fast,simd` too.
 
 ### 9.3 Same model, two derivative mechanisms (L1)
 
@@ -742,13 +744,15 @@ This is the one definition of the hash grid; M9.4 runs it, and M9.5 applied the 
   points read off (p, T) truth states, all drawn with SplitMix64 seed 1; outputs p, h, s, c_v, c_p, w, the order-2 α^r
   bundle and the status. FNV-1a 64 over the fluid name bytes, then in grid order each output's
   `to_bits().to_le_bytes()` (NaN canonical) and the status byte. `tests/cross_target.rs` prints `hash=<hex>
-  target=<triple> math=<std|libm>`.
+  target=<triple> math=<std|libm|fast>`.
 - **When:** from M9.4, on x86_64 Linux, Windows MSVC, wasip2 under wasmtime and aarch64, with std math and with
   `--features libm`. std hashes are reported, never asserted (std transcendentals are documented as
   non-deterministic, kernel-performance §4). If the four `libm` hashes agree, that hash is committed as
   `fixtures/hash/libm.txt` and every target must reproduce it from then on. `libm` changes bits relative to std
   (dependencies §4), the one exception to "features never change numerics" (K13), so oracle comparisons stay
-  class-based under either math.
+  class-based under either math. From M23.7 the same holds for `--features fast`, which fuses a·b + c in hardware or
+  in software and enables `libm` (user decisions IM4, IM7): its hash is `fixtures/hash/fast.txt`, and it changes bits
+  relative to both.
 - **Decision:** ARCHITECTURE.md D12 (user decision 12, applied at M9.5): this hash is the rule's bit-identity half, which holds; the cost half does not, so `libm` stays opt-in and std's cross-target differences stay class-based (5).
 
 ## 10. Conformance kit for model families

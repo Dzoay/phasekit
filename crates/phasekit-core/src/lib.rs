@@ -11,6 +11,14 @@
 //! | L1 relations | `relations`, `derivs` | identities on synthetic bundles |
 //! | L0 numerics | `num` (`math`), `units`, `input`, `prop`, `error`, `exec` | unit tests |
 //!
+//! Features beside the data sets (`fluids-all`, the default, or `fluids-core`): `rayon` runs `ExecPolicy::Parallel`;
+//! `libm` runs core's own `exp`, `ln`, `pow` and `expm1` and the `libm` crate's other functions, the same bits on every
+//! target; `simd` runs `ExecPolicy::Simd`'s lanes and enables `libm`; `fast` fuses a·b + c on every target, in the
+//! in-house functions, the α^r and α⁰ term sums and the EOS's polynomials, and enables `libm`. `fast` pays only where
+//! a·b + c compiles to the CPU's FMA instruction, as with `-C target-cpu=x86-64-v3` and on aarch64: on the reference
+//! machine it takes 0.95 times the default build's time there, and 2.2 times at the x86-64 baseline, where each a·b + c
+//! is a call to the `fma` routine (in software on a CPU without FMA; PLAN.md M23.7).
+//!
 //! ```
 //! # fn main() -> Result<(), phasekit_core::Error> {
 //! use phasekit_core::{Basis, Density, Error, FlashOptions, Input, LoadError, Registry, Temperature};

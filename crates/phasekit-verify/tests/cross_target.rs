@@ -12,6 +12,8 @@ use phasekit_verify::{SplitMix64, fixture};
 
 /// The hash every target reproduces with `libm` (VERIFICATION.md §9.4): the four agreed at M9.4.
 const LIBM: (&str, &str) = fixture!("hash/libm.txt");
+/// The hash every target reproduces with `fast`, which fuses a·b + c in hardware or in software (PLAN.md M23.7).
+const FAST: (&str, &str) = fixture!("hash/fast.txt");
 
 /// FNV-1a 64, fed byte by byte.
 struct Fnv(u64);
@@ -113,10 +115,10 @@ fn fluid_grid(hash: &mut Fnv, registry: &Registry, fluid: &Fluid, name: &str) ->
 }
 
 /// VERIFICATION.md §9.4 (PLAN.md M9.4): the canonical grid of all 136 embedded fluids, 128 points each, hashed.
-/// Printed for the CI job that collects it from x86_64 Linux, Windows MSVC, aarch64 Linux and wasip2, with std and with
-/// `libm`; std hashes are reported, never asserted. Asserted: with `libm`, the committed `fixtures/hash/libm.txt` on
-/// every target (class `Exact`); every fluid hashed its 128 points; and at least three in four of the flashes
-/// succeeded, so the hash covers answers, not only refusals.
+/// Printed for the CI job that collects it from x86_64 Linux, Windows MSVC, aarch64 Linux and wasip2, with std, `libm`
+/// and `fast`; std hashes are reported, never asserted. Asserted: the committed `fixtures/hash/libm.txt` with `libm` and
+/// `fixtures/hash/fast.txt` with `fast` (PLAN.md M23.7), on every target (class `Exact`); every fluid hashed its 128
+/// points; and at least three in four of the flashes succeeded, so the hash covers answers, not only refusals.
 #[test]
 fn canonical_grid_hash() {
     let registry = Registry::embedded().unwrap();
@@ -136,8 +138,13 @@ fn canonical_grid_hash() {
     }
     assert_eq!(points, phasekit_data::FLUIDS.len() * 128, "{line}");
     assert!(4 * ok >= 3 * points, "{ok} of {points} flashes succeeded: {line}");
-    if math::BACKEND == "libm" {
-        let want = LIBM.1.lines().find(|l| !l.starts_with('#')).unwrap();
-        assert_eq!(format!("{:016x}", hash.0), want, "{line} against {}", LIBM.0);
+    let committed = match math::BACKEND {
+        "libm" => Some(LIBM),
+        "fast" => Some(FAST),
+        _ => None,
+    };
+    if let Some((name, text)) = committed {
+        let want = text.lines().find(|l| !l.starts_with('#')).unwrap();
+        assert_eq!(format!("{:016x}", hash.0), want, "{line} against {name}");
     }
 }

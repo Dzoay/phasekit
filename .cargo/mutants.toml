@@ -38,6 +38,11 @@ exclude_globs = [
     # where the mutants job runs; the Windows runner runs their tests (`pk_exports_restore_the_callers_fp_environment`).
     "crates/phasekit-capi/src/fp/windows.rs",
     "crates/phasekit-capi/src/fp/none.rs",
+    # The `fast` feature's fused forms (PLAN.md M23.7; user decision IM4): compiled only with `fast`, which the gate's
+    # run does not enable, so every mutant here builds into the same tests' binaries and passes; CI's fast steps run
+    # their tests. By hand (2026-10-20, `cargo mutants --no-config -f crates/phasekit-core/src/num/fused.rs --features
+    # phasekit-core/fast --test-tool nextest --test-package phasekit-core,…`): 46 mutants, 46 caught.
+    "crates/phasekit-core/src/num/fused.rs",
     # The browser package (PLAN.md M10.8): it compiles only for wasm32-unknown-unknown, never where the mutants job runs;
     # the wasm-browser job runs its tests under Node.
     "crates/phasekit-wasm/src/**",

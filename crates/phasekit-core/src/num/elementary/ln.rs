@@ -186,7 +186,8 @@ static TAB: [u64; 256] = [
 ];
 
 /// c = chi + clo for each subinterval: word 2i is chi's bits, word 2i + 1 clo's (Arm's `__log_data.tab2`, which
-/// stands in for FMA: z − chi − clo is exact to within 2⁻⁶⁶).
+/// stands in for FMA: z − chi − clo is exact to within 2⁻⁶⁶). The `fast` feature's FMA needs none.
+#[cfg(not(feature = "fast"))]
 #[rustfmt::skip]
 static TAB2: [u64; 256] = [
     0x3fe6_1000_014f_b66b, 0x3c7e_026c_9142_5b3c,
@@ -325,6 +326,19 @@ fn word(table: &[u64; 256], i: u64) -> u64 {
     table.get((i & 0xff) as usize).copied().unwrap_or(0)
 }
 
+/// r = z/c − 1, rounded about once: from the second table, (z − chi − clo)·(1/c), or with the `fast` feature by FMA,
+/// Arm's form (PLAN.md M23.7).
+#[inline(always)]
+fn ratio(z: f64, invc: f64, i: u64) -> f64 {
+    #[cfg(not(feature = "fast"))]
+    return (z - f64::from_bits(word(&TAB2, i)) - f64::from_bits(word(&TAB2, i.wrapping_add(1)))) * invc;
+    #[cfg(feature = "fast")]
+    {
+        let _ = i;
+        crate::num::fused::ratio(z, invc)
+    }
+}
+
 /// The main path at the bits of a positive normal x, or of a subnormal one normalised: k·ln 2 + ln c + ln(1 + r).
 #[inline(always)]
 fn reduced(ix: u64) -> f64 {
@@ -333,8 +347,7 @@ fn reduced(ix: u64) -> f64 {
     let k = (tmp.cast_signed() >> 52).cast_unsigned();
     let z = f64::from_bits(ix.wrapping_sub(tmp & 0xfff0_0000_0000_0000));
     let (invc, logc) = (f64::from_bits(word(&TAB, i)), f64::from_bits(word(&TAB, i.wrapping_add(1))));
-    let (chi, clo) = (f64::from_bits(word(&TAB2, i)), f64::from_bits(word(&TAB2, i.wrapping_add(1))));
-    let r = (z - chi - clo) * invc;
+    let r = ratio(z, invc, i);
     let kd = f64::from_bits(SHIFT.to_bits().wrapping_add(k)) - SHIFT;
     let (hi, lo) = fast_two_sum(kd * LN2_HI + logc, r);
     let lo = lo + kd * LN2_LO;
