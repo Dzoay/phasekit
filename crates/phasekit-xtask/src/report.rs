@@ -164,7 +164,8 @@ mod tests {
     }
 
     /// PLAN.md M20.4: per fluid and kind of each set, its rows, failed calls and the `nan` cells of the rows the
-    /// oracle answered (a long-format file split by its `fluid` column); each fluid's arbiters, and whether one
+    /// oracle answered (a long-format file split by its `fluid` column, a file that names no fluid under its own
+    /// name); each fluid's arbiters, and whether one
     /// arbitrates (Water's IAPWS-95 tables do, Neon's EOS paper prints none, n-Propane has no record); the ignored tests;
     /// and a file that does not parse, by name.
     #[test]
@@ -183,8 +184,10 @@ mod tests {
             "label,in,label,prop",
             &["Water,300.0,ok,1.0", "Neon,40.0,ok,nan", "n-Propane,300.0,err:solver,nan", "Water,310.0,ok,2.0"],
         );
+        let neon = fixture("sat", None, "T,status,p", "in,label,prop", &["40.0,ok,1.0"]);
         let full = vec![
             ("fixtures-full/eos/Air.csv".to_string(), air),
+            ("fixtures-full/sat/Neon.csv".to_string(), neon),
             ("fixtures-full/all/eos.csv".to_string(), all),
             ("fixtures-full/all/broken.csv".to_string(), "not a fixture\n".to_string()),
         ];
@@ -194,6 +197,7 @@ mod tests {
             "### Oracle fixtures in `fixtures-full`, by fluid and kind",
             "| Air | eos | 3 | 1 | 3 |",
             "| Neon | eos | 1 | 0 | 1 |",
+            "| Neon | sat | 1 | 0 | 0 |",
             "| Water | eos | 2 | 0 | 0 |",
             "| n-Propane | eos | 1 | 1 | 0 |",
         ];
