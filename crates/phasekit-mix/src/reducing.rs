@@ -8,7 +8,7 @@
 //! (m³/mol) pairs become β = 1, γ_T = (T_i + T_j + ξ)/(2√(T_i T_j)) and γ_v = (v_i + v_j + ζ)/((v_i^⅓ + v_j^⅓)³/4),
 //! which turns the sum into Lemmon's Σ x_i x_j (T_i + T_j + ξ) (`ReducingFunctions.h:695-706`).
 
-use phasekit_core::math;
+use phasekit_core::{Real, math};
 
 use crate::data::Reducing as Parameters;
 use crate::slot::at;
@@ -89,22 +89,28 @@ impl ReducingFunctions {
         1.0 / self.reduce(x, &self.v, |p| p.v)
     }
 
-    /// T_r and v_r = 1/ρ_r on Taylor numbers of the mole fractions (PLAN.md M13.6), the same sums; a pair of two absent
-    /// components contributes nothing.
+    /// T_r and v_r = 1/ρ_r on Taylor numbers of the mole fractions (PLAN.md M13.6), the same sums. A pair whose
+    /// denominator `present` finds 0 (two absent components) contributes nothing: on `f64` the test of its value; `Real`
+    /// has no comparisons, so a caller on lanes, whose fractions are all positive, passes one that is always true
+    /// (PLAN.md M22.5).
     #[allow(clippy::arithmetic_side_effects, reason = "multivariate series (&Taylor): IEEE arithmetic, no panic")]
-    pub(crate) fn reduce_taylor(&self, x: &[Taylor]) -> [Taylor; 2] {
+    pub(crate) fn reduce_taylor<R: Real>(
+        &self,
+        x: &[Taylor<R>],
+        present: impl Fn(&Taylor<R>) -> bool,
+    ) -> [Taylor<R>; 2] {
         [(&self.t, (|p: &Pair| p.t) as fn(&Pair) -> [f64; 2]), (&self.v, |p: &Pair| p.v)].map(|(y, of)| {
             let (m, order) = x.first().map_or((0, 0), |x0| (x0.vars(), x0.order()));
-            let mut sum = Taylor::constant(m, order, 0.0);
+            let mut sum = Taylor::constant(m, order, R::from_f64(0.0));
             for (xi, yi) in x.iter().zip(y.iter()) {
-                sum.add_scaled(*yi, &(xi * xi));
+                sum.add_scaled(R::from_f64(*yi), &(xi * xi));
             }
             for p in self.pairs.iter() {
                 let (Some(xi), Some(xj)) = (x.get(p.i), x.get(p.j)) else { continue };
                 let [beta, c] = of(p);
-                let denominator = &xi.scale(beta * beta) + xj;
-                if denominator.value() != 0.0 {
-                    sum.add_scaled(c, &(&(xi * xj) * &(xi + xj)).divide(&denominator));
+                let denominator = &xi.scale(R::from_f64(beta * beta)) + xj;
+                if present(&denominator) {
+                    sum.add_scaled(R::from_f64(c), &(&(xi * xj) * &(xi + xj)).divide(&denominator));
                 }
             }
             sum

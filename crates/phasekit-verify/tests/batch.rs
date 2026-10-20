@@ -4,15 +4,23 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
+use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 use phasekit_core::batch::{self, BatchRequest, ExecPolicy, RealKernel, Status};
 use phasekit_core::{
     Basis, DataSet, Density, Derivs, DomainPolicy, Error, FlashOptions, Fluid, HelmholtzModel, Input, Order, Pair,
     Phase, Pressure, Prop, Quality, Real, Registry, RootPolicy, Temperature, math,
 };
+use phasekit_mix::Mixture;
 use phasekit_verify::mixtures::{BENCH_MIXTURES, BenchMixture, MixtureModel};
 use phasekit_verify::{SplitMix64, policy_equivalence};
+
+#[path = "common/mix_flash.rs"]
+mod mix_flash;
+#[path = "common/mix_sat.rs"]
+mod mix_sat;
 
 /// Outputs that cover single-phase and two-phase answers and refusals (cp, w and Q are undefined somewhere).
 const OUTPUTS: [Prop; 8] =
@@ -572,6 +580,59 @@ fn assert_hinted_dt_policy_equivalence(name: &str, fluid: &Fluid, (rho, t): (&[f
         }
     }
     batches
+}
+
+/// PLAN.md M22.5 (VERIFICATION.md §9.2, class `Exact`; user decision ML4): a mixture's flashes, whose liquid and
+/// vapour at one temperature evaluate side by side in core's lanes under `ExecPolicy::Simd` (`Mixture::with_exec`,
+/// the default), are the same flashes under `Reference`, one phase after the other, bit for bit, every state and
+/// refusal: every third of the oracle's `mix_flash` rows (PT, QT, PQ and DT, at each row's inputs) and of `mix_sat`'s
+/// bubble and dew points (QT and PQ), 470 flashes of 1410, each mixture and pair among them.
+#[test]
+fn two_phase_flashes_are_scalar_bitwise() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let mut fluids: BTreeMap<String, (Fluid, Fluid)> = BTreeMap::new();
+    let mut both = |label: &str, z1: f64, build: &dyn Fn() -> Fluid| {
+        let pair = fluids.entry(format!("{label} {z1}")).or_insert_with(|| {
+            let fluid = build();
+            let mixture = mix_flash::mixture(&fluid);
+            let scalar = Mixture::new(mixture.model().clone(), mixture.composition()).unwrap();
+            (fluid, Fluid::new(Arc::new(scalar.with_exec(ExecPolicy::Reference))))
+        });
+        (pair.0.clone(), pair.1.clone())
+    };
+    let mut flashes = 0;
+    for pair in ["PT", "QT", "PQ", "DT"] {
+        for row in mix_flash::rows_of(pair).into_iter().step_by(3) {
+            let (lanes, scalar) = both(&row.label, row.z1, &|| mix_flash::binary(&registry, &row.label, row.z1));
+            let input = match pair {
+                "PT" => Input::new(Pair::PT, row.p, row.t, Basis::Molar),
+                "QT" => Input::new(Pair::QT, row.q, row.t, Basis::Molar),
+                "PQ" => Input::new(Pair::PQ, row.p, row.q, Basis::Molar),
+                _ => Input::new(Pair::DT, row.rho, row.t, Basis::Molar),
+            };
+            assert_same_flash(&row.label, (&lanes, &scalar), input.unwrap());
+            flashes += 1;
+        }
+    }
+    for row in mix_sat::sat_rows().into_iter().step_by(3) {
+        let (lanes, scalar) = both(&row.label, row.z1, &|| mix_sat::row_fluid(&registry, &row.label, row.z1));
+        let input = if row.given_t {
+            Input::new(Pair::QT, row.q, row.t, Basis::Molar)
+        } else {
+            Input::new(Pair::PQ, row.p, row.q, Basis::Molar)
+        };
+        assert_same_flash(&row.label, (&lanes, &scalar), input.unwrap());
+        flashes += 1;
+    }
+    assert!(flashes >= 470, "{flashes} flashes");
+}
+
+/// [`two_phase_flashes_are_scalar_bitwise`]'s flash of `input` on the lane and the scalar build of one mixture: the
+/// same state or refusal, every field's bits (`Debug` prints each `f64` in full and tells −0 from 0).
+fn assert_same_flash(label: &str, (lanes, scalar): (&Fluid, &Fluid), input: Input) {
+    let opts = FlashOptions::new();
+    let (got, want) = (lanes.flash(input, &opts), scalar.flash(input, &opts));
+    assert_eq!(format!("{got:?}"), format!("{want:?}"), "{label}: {input:?}");
 }
 
 /// A kernel over `Real` that uses every method and operator of `Real`, its counts set at run time: output j combines

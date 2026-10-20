@@ -254,7 +254,7 @@ pub(crate) fn jet(f: &DepartureData, tau: f64, delta: f64, order: usize) -> Jet 
 /// [`jet`] on any `Real`: each term's two univariate series multiplied out, the value slot summed as [`alpha`] sums it.
 #[inline(always)]
 #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
-fn jet_on<R: Real>(f: &DepartureData, tau: R, delta: R, order: usize) -> Jet<R> {
+pub(crate) fn jet_on<R: Real>(f: &DepartureData, tau: R, delta: R, order: usize) -> Jet<R> {
     let order = order.min(4);
     let mut c = [[R::from_f64(0.0); 5]; 5];
     let (t0, d0) = (Series::variable(tau, order), Series::variable(delta, order));
@@ -301,7 +301,7 @@ pub(crate) fn slots(order: Order) -> usize {
 
 /// Each A_ij of `d` with i + j ≤ `order`, in [`Derivs::from_fn`]'s order.
 #[inline(always)]
-fn entries<R: Real>(d: &Derivs<R>, order: Order) -> impl Iterator<Item = R> + '_ {
+pub(crate) fn entries<R: Real>(d: &Derivs<R>, order: Order) -> impl Iterator<Item = R> + '_ {
     (0..=order.get())
         .flat_map(|n| (0..=n).map(move |i| (i, n.saturating_sub(i))))
         .map(|(i, j)| d.get(i, j).unwrap_or(R::from_f64(f64::NAN)))

@@ -46,8 +46,8 @@ x86_64-unknown-linux-gnu phasekit-verify::gauge 2
 wasm32-wasip2 phasekit-verify::gauge 2
 x86_64-unknown-linux-gnu phasekit-verify::virials 2
 wasm32-wasip2 phasekit-verify::virials 2
-x86_64-unknown-linux-gnu phasekit-verify::batch 13
-wasm32-wasip2 phasekit-verify::batch 10
+x86_64-unknown-linux-gnu phasekit-verify::batch 14
+wasm32-wasip2 phasekit-verify::batch 11
 x86_64-unknown-linux-gnu phasekit-compat::lib 20
 x86_64-unknown-linux-gnu phasekit-verify::compat 1
 wasm32-wasip2 phasekit-compat::lib 20
@@ -97,8 +97,8 @@ x86_64-unknown-linux-gnu phasekit-verify::cubic_family 8
 wasm32-wasip2 phasekit-verify::cubic_family 8
 x86_64-unknown-linux-gnu phasekit-verify::mixture_seam 5
 wasm32-wasip2 phasekit-verify::mixture_seam 5
-x86_64-unknown-linux-gnu phasekit-mix::lib 115
-wasm32-wasip2 phasekit-mix::lib 115
+x86_64-unknown-linux-gnu phasekit-mix::lib 119
+wasm32-wasip2 phasekit-mix::lib 119
 x86_64-unknown-linux-gnu phasekit-mix::residual 4
 x86_64-unknown-linux-gnu phasekit-verify::mixture 8
 wasm32-wasip2 phasekit-mix::residual 4

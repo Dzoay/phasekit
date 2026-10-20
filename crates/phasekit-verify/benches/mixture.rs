@@ -23,6 +23,12 @@
 //!   and the batch once. `components` and `components_simd`: every component's own `residual_batch` over its scaled
 //!   states. `no_departures` and `no_departures_simd`: the batch with every F set to 0, so the departures' share is the
 //!   batch's time less this one's.
+//! - `mixture_flash` (PLAN.md M22.5): flashes whose liquid and vapour at one T a mixture evaluates side by side, on
+//!   R32/R125 rebuilt under each policy (`Mixture::with_exec`): `pt` between the bubble and dew pressures at 250 K
+//!   (the stability test, then the split's substitution and Newton steps), `qt` from 230 to 270 K and `pq` at those
+//!   temperatures' bubble pressures, each at Q = 0, 0.5 and 1 (the saturation solver's Newton steps). `pt`, `qt` and
+//!   `pq` under `ExecPolicy::Reference`, one phase after the other; `<case>_simd`, built with `--features simd`, under
+//!   `ExecPolicy::Simd`, the phases' composition derivatives in core's lanes.
 //! - `mixture_dt_batch` (PLAN.md M22.4): DT with h and c_p under the gas hint (`Strategy::Direct`) as one
 //!   `batch::evaluate` call on the same grid, reported per state; `scalar` under `ExecPolicy::Reference`, `simd` under
 //!   `ExecPolicy::Simd`, where the mixture's group hook evaluates the bundles side by side.
@@ -34,6 +40,7 @@
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
     use criterion::{BenchmarkId, Criterion, criterion_group};
@@ -169,6 +176,44 @@ mod bench {
             cycle(&mut g, case, &temperatures, |t| {
                 Input::new(Pair::QT, q, t, Basis::Molar).and_then(|input| fluid.state(input)).map(|s| s.p())
             });
+        }
+        g.finish();
+    }
+
+    /// R32/R125, its flashes' phases under `exec`.
+    fn r32_r125_under(exec: ExecPolicy) -> Option<Fluid> {
+        let fluid = r32_r125()?;
+        let mix = mixture(&fluid)?;
+        let rebuilt = Mixture::new(mix.model().clone(), mix.composition()).ok()?;
+        Some(Fluid::new(Arc::new(rebuilt.with_exec(exec))))
+    }
+
+    fn mixture_flash(c: &mut Criterion) {
+        let Some(fluid) = r32_r125() else { return };
+        let Some(mix) = mixture(&fluid) else { return };
+        let bubble = |t: f64| mix.saturation(Side::Bubble, Given::T(t)).map(|s| s.p);
+        let pt: Vec<(Pair, f64, f64)> = match (bubble(T), mix.saturation(Side::Dew, Given::T(T)).map(|s| s.p)) {
+            (Ok(bubble), Ok(dew)) => {
+                (1..10).map(|k| (Pair::PT, dew + 0.1 * f64::from(k) * (bubble - dew), T)).collect()
+            }
+            _ => Vec::new(),
+        };
+        let temperatures: Vec<f64> = (0..9).map(|k| 230.0 + 5.0 * f64::from(k)).collect();
+        let qualities = [0.0, 0.5, 1.0];
+        let qt: Vec<(Pair, f64, f64)> =
+            qualities.iter().flat_map(|q| temperatures.iter().map(|t| (Pair::QT, *q, *t))).collect();
+        let pressures: Vec<f64> = temperatures.iter().filter_map(|t| bubble(*t).ok()).collect();
+        let pq: Vec<(Pair, f64, f64)> =
+            qualities.iter().flat_map(|q| pressures.iter().map(|p| (Pair::PQ, *p, *q))).collect();
+        let flash = |fluid: &Fluid, (pair, x, y): (Pair, f64, f64)| {
+            Input::new(pair, x, y, Basis::Molar).and_then(|input| fluid.state(input)).map(|s| s.h(Basis::Molar))
+        };
+        let mut g = c.benchmark_group("mixture_flash");
+        for (name, states) in [("pt", &pt), ("qt", &qt), ("pq", &pq)] {
+            for (exec, case) in policies(name) {
+                let Some(fluid) = r32_r125_under(exec) else { continue };
+                cycle(&mut g, &case, states, |state| flash(&fluid, state));
+            }
         }
         g.finish();
     }
@@ -344,6 +389,7 @@ mod bench {
         mixture_alphar_batch,
         mixture_alphar_parts,
         mixture_dt_batch,
+        mixture_flash,
         mixture_dt,
         mixture_pt,
         mixture_qt

@@ -137,9 +137,24 @@ pub(crate) fn on_branch(
     branch: Branch,
     seed: Option<f64>,
 ) -> Result<AtTp, Error> {
+    let rho = branch_density(mixture, t, p, x, branch, seed)?;
+    AtTp::new(mixture, t, p, rho, x, Order::Two)
+}
+
+/// [`on_branch`]'s density of `x`, refused where it refuses: its root on `branch`, polished, where the composition
+/// derivatives admit it.
+fn branch_density(
+    mixture: &Mixture,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    branch: Branch,
+    seed: Option<f64>,
+) -> Result<f64, Error> {
     let phase = Phase { mixture, x };
     let rho = polished(&phase, t, p, branch_root(&phase, t, p, branch, seed)?);
-    AtTp::new(mixture, t, p, rho, x, Order::Two)
+    mixture.model().composition_order(t, rho, x, Order::Two)?;
+    Ok(rho)
 }
 
 /// Whether the equations `f` (F_1 .. F_N in ln K, then Rachford–Rice's Σ(y − x)) meet `GATE` at the point
@@ -529,11 +544,15 @@ impl<'a> Solver<'a> {
         (t, p, ln_k)
     }
 
-    /// The liquid and the vapour at (T, p) from `ln_k`, each on its branch.
+    /// The liquid and the vapour at (T, p) from `ln_k`, each on its branch ([`on_branch`]), their composition
+    /// derivatives side by side (PLAN.md M22.5).
     fn phases(&mut self, t: f64, p: f64, ln_k: &[f64]) -> Result<Phases, Error> {
         let (x, y) = self.fractions(ln_k);
-        let liquid = on_branch(self.mixture, t, p, &normalised(&x), Branch::Liquid, self.seeds.0)?;
-        let vapour = on_branch(self.mixture, t, p, &normalised(&y), Branch::Vapour, self.seeds.1)?;
+        let (liquid, vapour) = (normalised(&x), normalised(&y));
+        let rho_liquid = branch_density(self.mixture, t, p, &liquid, Branch::Liquid, self.seeds.0)?;
+        let rho_vapour = branch_density(self.mixture, t, p, &vapour, Branch::Vapour, self.seeds.1)?;
+        let phases = [(rho_liquid, liquid.as_slice()), (rho_vapour, vapour.as_slice())];
+        let (liquid, vapour) = AtTp::both(self.mixture, t, p, phases, Order::Two)?;
         self.seeds = (Some(liquid.rho), Some(vapour.rho));
         Ok(Phases { liquid, vapour, x, y })
     }

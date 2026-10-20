@@ -705,7 +705,17 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      seeds saturation, runs each point's scalar path. On the i7-8700K (M12.9's record) QT + h takes n-Propane 574 ns per
      state under `Simd` on AVX2, 2.59× the `libm` scalar path's 1488 ns and 1.76× std's 1011 ns, and Methane 737 ns
      (2.85× and 1.91×); PQ + h n-Propane 742 ns (2.37× and 1.64×). As in DT, R134a (1.75× over `libm`), n-Heptane
-     (1.42×) and Water (1.58×, 3044 ns against std's 2425) gain less.
+     (1.42×) and Water (1.58×, 3044 ns against std's 2425) gain less. Inside one mixture flash (M22.5), where the
+     split's Newton steps and the saturation solver evaluate a liquid and a vapour at one T, their composition
+     derivatives run side by side under the mixture's policy (`Mixture::with_exec`, `Simd` by default): each
+     component's derivatives at both phases' (τ, δ) through its own `residual_batch`, then the rest of Ψ (the
+     departures and the multivariate Taylor arithmetic, generic over `Real`) as one kernel through `batch::run_kernel`.
+     A phase with a zero mole fraction, whose reducing functions test a pair's denominator, runs point by point. On the
+     i7-8700K (M22.5's record) R32/R125's QT flash takes 366 µs under `Simd` in the default build, 0.92× `Reference`'s
+     399 µs, and its PQ flash 417 µs (0.92×); a PT flash, most of whose time is the stability test, 1.00×. In the `simd`
+     build (AVX2, core's maths) the three are unchanged within 1 %. The default build's measurement decides (user
+     decision ML6), so the kernel ships; the `Reference` path it shares is up to 3 % slower on QT than before it (M22.4;
+     user decision ML7).
   5. The browser package (M12.10, user decision SL8). WASM has no run-time detection, so `simd128` is a second build
      (K11, K15), with `phasekit-wasm`'s `simd` feature, which enables core's: a feature rather than a
      `cfg(target_feature = "simd128")` dependency, which cargo-about's notices cannot see. Its batch runs

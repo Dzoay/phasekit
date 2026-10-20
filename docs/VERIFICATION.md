@@ -898,9 +898,12 @@ This section is the one definition of the bench harness, the C++ baseline and th
   at the mixture's reducing state: `mixture_alphar_batch/{scalar,simd}`, one `residual_batch` call reported per state,
   and its breakdown `mixture_alphar_parts` into the point-by-point residual, the reducing state, the components' own
   batches and the batch without departures (M22.1); and `mixture_dt_batch/{scalar,simd}`, DT with h and c_p under the
-  gas hint as one `batch::evaluate` call (M22.4). The `simd` cases are built with `--features simd`; built without it,
-  each is a `lanes` case (`<case>_lanes`), `Simd`'s two lanes at the target's baseline, whose measurement decides
-  whether a kernel ships (user decision ML6); the others are named `<case>_libm` in a `libm` or `simd` build.
+  gas hint as one `batch::evaluate` call (M22.4). `mixture_flash/{pt,qt,pq}` on R32/R125 (M22.5): PT inside the dome at
+  250 K, QT from 230 to 270 K and PQ at those temperatures' bubble pressures, each at Q = 0, 0.5 and 1, one flash per
+  iteration, on the mixture rebuilt under `ExecPolicy::Reference` (the case) and `Simd` (`<case>_simd`) by
+  `Mixture::with_exec`. The `simd` cases are built with `--features simd`; built without it, each is a `lanes` case
+  (`<case>_lanes`), `Simd`'s two lanes at the target's baseline, whose measurement decides whether a kernel ships (user
+  decision ML6); the others are named `<case>_libm` in a `libm` or `simd` build.
 - **Maths workloads (M23.1, phasekit only, no §7 target):** `benches/math.rs`, `math_per_call/{exp,ln,pow,expm1}`:
   core's `math` functions per call on each function's EOS arguments in `fixtures/math/` (its `eos` set), as independent
   calls (`throughput`) and as a chain in which each call waits for the one before (`chain`). The case is the function on
