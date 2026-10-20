@@ -2,14 +2,14 @@
 //! `phasekit-data` only and `phasekit-data` on nothing; core's optional features (`rayon`, PLAN.md M9.1; `libm`,
 //! M9.3) each add their own crate and nothing else, and `simd` (M12.4) adds `fearless_simd` and the `libm` it enables.
 //! A family crate depends on `phasekit-core` alone (`phasekit-cubic`, PLAN.md M11.1; `phasekit-mix`, M13.2;
-//! dependencies, the family row).
+//! dependencies, the family row), and so does `phasekit-diagram` (M19.1; user decision DG3).
 
 use super::{Verdict, no_args};
 use crate::repo::Repo;
 
 /// Each guarded crate, the features it is built with, and exactly the crates its normal and build dependency tree
 /// names at depth 1 then (itself included).
-const GUARDED: [(&str, &str, &[&str]); 9] = [
+const GUARDED: [(&str, &str, &[&str]); 10] = [
     ("phasekit-core", "", &["phasekit-core", "phasekit-data"]),
     ("phasekit-core", "rayon", &["phasekit-core", "phasekit-data", "rayon"]),
     ("phasekit-core", "libm", &["phasekit-core", "phasekit-data", "libm"]),
@@ -19,6 +19,7 @@ const GUARDED: [(&str, &str, &[&str]); 9] = [
     ("phasekit-data", "", &["phasekit-data"]),
     ("phasekit-cubic", "", &["phasekit-cubic", "phasekit-core"]),
     ("phasekit-mix", "", &["phasekit-mix", "phasekit-core"]),
+    ("phasekit-diagram", "", &["phasekit-diagram", "phasekit-core"]),
 ];
 
 pub fn run(repo: &Repo, args: &[String]) -> Verdict {

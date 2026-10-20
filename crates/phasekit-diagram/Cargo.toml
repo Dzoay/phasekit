@@ -1,0 +1,24 @@
+[package]
+name = "phasekit-diagram"
+description = "The geometry of thermodynamic diagrams over phasekit: saturation domes, isolines, envelopes, phase regions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# phasekit-core's public API and nothing else (docs/DEPENDENCIES.md, the T1f row; user decisions WS4, DG3), which
+# `cargo xtask gates deps` holds. Not published yet: that is the user's call (AGENTS.md).
+[dependencies]
+phasekit-core.workspace = true
+
+# The tests' fluids: the five embedded ones and the pseudo-pure Air and R410A; and the tolerance classes.
+[dev-dependencies]
+phasekit-core = { workspace = true, features = ["fluids-all"] }
+phasekit-verify.workspace = true
+
+[lints]
+workspace = true
