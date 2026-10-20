@@ -1,6 +1,7 @@
 // The phase regions (PLAN.md M21.9) under Node on the real package: inside each region and clear of its edges, the
 // package's phase by the diagram's readout pair is the region's; each region's label sits inside it, at a state of its
-// phase; the critical isotherm and isobar run through the package's critical point.
+// phase; the critical isotherm and isobar run through the package's critical point; a pseudo-pure fluid's liquid stays
+// on the liquid side of its dome.
 import { describe, expect, test } from "vitest";
 import { buildModel, type Point } from "../../src/diagram/model";
 import { baseScales, readoutAt } from "../../src/diagram/scales";
@@ -18,12 +19,14 @@ import {
   type PhaseAt,
   type Regions,
 } from "../../src/sample/regions";
-import { embedded, loadPk } from "../pk";
+import { embedded, loadPk, packBytes } from "../pk";
 
-async function engine(fluid: string) {
+/** The engine on `fluid`, with `packs` added first. */
+async function engine(fluid: string, packs: string[] = []) {
   const handle = createHandler(await loadPk("simd"), "simd128");
   let id = 0;
   const call = (body: Record<string, unknown>): Response => handle({ ...body, fluid, id: ++id } as Request);
+  for (const file of packs) expect(call({ op: "pack", bytes: packBytes(file) }).ok, file).toBe(true);
   const batch: Batch = (outputs, name1, values1, name2, values2) => {
     const r = call({ op: "batch", outputs, name1, values1, name2, values2 });
     return r.ok && r.op === "batch" ? Promise.resolve(r.value) : Promise.reject(new Error("refused"));
@@ -253,6 +256,19 @@ describe("the phase regions", { timeout: 60_000 }, () => {
       expect(on.length, `${p} Pa`).toBeGreaterThan(0);
       expect(Math.min(...on.map((c) => c.T)), `${p} Pa`).toBeGreaterThan(low);
     }
+  });
+
+  // Air is pseudo-pure: at each p below p_c its bubble and dew temperatures differ, and the package has no PT state
+  // between them. Its lowest plotted T is under its melting line, so every cold isobar is halved, and a halving that
+  // landed between them would climb to the dew side, its vertex on the far side of the dome.
+  test("a pseudo-pure fluid's cold edge stays on the liquid side of its dome", async () => {
+    const { batch, phaseAt, l, at } = await engine("Air", ["air.pack"]);
+    const sampled = await sampleRegions(l, batch, phaseAt);
+    const liquid = sampled.regions.find((g) => g.phase === "liquid")?.outline ?? [];
+    const below = liquid.filter((c) => c.P < l.pc);
+    expect(below.length).toBeGreaterThan(COLD_ROWS);
+    const across = below.filter((c) => c.T > (at(["T"], "P", c.P, "Q", 0)[0] as number) * (1 + 1e-9));
+    expect(across.map((c) => `${c.T} K at ${c.P} Pa`)).toEqual([]);
   });
 
   test("a leg onto the saturation curve stops a cell short of it", async () => {
