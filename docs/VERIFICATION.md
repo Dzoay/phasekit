@@ -893,7 +893,8 @@ This section is the one definition of the bench harness, the C++ baseline and th
   `{qt,pq}_superancillary_batch/{scalar,scalar_libm,simd}`, the same builds (M12.9). The browser package's batch
   (M12.10) is timed by hand under Node, not by a bench: n-Propane's workloads (2), (3) and (4) plus h, 4096 points of
   a grid of their own as one `Fluid.evaluate` call, the median of 25 calls, on the release baseline and `simd128`
-  modules (ARCHITECTURE.md §7 item 5).
+  modules (ARCHITECTURE.md §7 item 5); M23.8 timed them so against main before M23, on 64 × 64 grids, three
+  alternating rounds.
 - **Mixture workloads (M13, M22, phasekit only, no §7 target):** `benches/mixture.rs`, whose module comment defines
   them: `mixture_alphar` (workload (1) at a mixture's composition, R32/R125 at 50/50 and a five-component GERG-2008 gas),
   `mixture_dt` (direct, stable, dome; M13.10), `mixture_pt` (single, dome) and `mixture_qt` (bubble, dew, interior) on
@@ -911,10 +912,12 @@ This section is the one definition of the bench harness, the C++ baseline and th
 - **Maths workloads (M23.1, phasekit only, no §7 target):** `benches/math.rs`, `math_per_call/{exp,ln,pow,expm1}`:
   core's `math` functions per call on each function's EOS arguments in `fixtures/math/` (its `eos` set), as independent
   calls (`throughput`) and as a chain in which each call waits for the one before (`chain`). The case is the function on
-  std's maths and `<f>_libm` on the `libm` crate's. So are the cases of the six scalar benches of D12's rule
-  (`alphar_order2`, `properties_at_t_rho`, `qt_superancillary`, `pq_superancillary`, `pt_flash`, `ph_flash`) built with
-  `--features phasekit-core/libm` (`phasekit_verify::backend::case`), so one results file holds both builds: the `libm`
-  build's benches run first, then `cargo xtask bench --record`.
+  std's maths, `<f>_libm` on the `libm` build's (core's own `exp`, `ln`, `pow` and `expm1` since M23.2-M23.5, the
+  `libm` crate's others) and `<f>_fast` on the `fast` build's (M23.7). So are the cases of the six scalar benches of
+  D12's rule (`alphar_order2`, `properties_at_t_rho`, `qt_superancillary`, `pq_superancillary`, `pt_flash`, `ph_flash`)
+  built with `--features phasekit-core/libm` or `fast` (`phasekit_verify::backend::case`), and the lanes under `fast`
+  are `simd_fast`, so one results file holds every build: the `simd` and `fast` builds' benches run first, then
+  `cargo xtask bench --record`.
 - **C++ baseline (M1.15):** CoolProp v8.0.0 built Release, no `-march`, like the wheels (kernel-performance §2.9), from
   a throwaway clone of `reference/CoolProp` in a scratch directory, because CoolProp's configure writes generated
   headers and data into its own source tree (`CMakeLists.txt:557-559`, `dev/generate_headers.py`). The harness
