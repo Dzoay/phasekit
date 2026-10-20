@@ -491,7 +491,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M23 | core `math` | After M13 closes (the core is frozen until `m13`, MX2); independent of M22 | In-house `exp`, `ln`, `pow` and `expm1` under 1 ulp, ported from Arm's optimized-routines, one code for the scalar path and the lanes; every build's maths if they pass M9.5's rule, so `simd` leaves `libm`; then an opt-in `fast` feature with FMA on every target (user decisions IM1-IM5, IM7-IM11), nine steps: [M23 In-house maths](#m23-in-house-maths) | Under 1 ulp on the reference values (IM3); lanes bitwise at every dispatch level; each committed hash one across the four targets; M9.5's rule applied and recorded (IM1); G1-G9, and G1-G8 with `--features simd` and with `--features fast` |
 | M24 | compat, capi, wasm, mix, core | The user's word, 2026-10-18, before `v0.1.0` (user decision PH1) | Panics at the facades (issue #219): fault injection along every C export's path, the browser package's panic hook, and clippy's `indexing_slicing` and `arithmetic_side_effects` denied in the crates it reaches: [M24 Panics at the facades](#m24-panics-at-the-facades) | The fault-injection tests; clippy clean with both lints; `gates perf` |
 | M25 | xtask, `.gitattributes`, docs | The user's word, 2026-10-18, beside M24; its mutants step after `m24` (user decision LM6) | Lists that merge, kept as text (LM1): `ci/test-counts.txt` by a merge driver, ROT ids unique and the register merged by union, one file per decision section, mutant exclusions as markers in the code: [M25 Lists that merge](#m25-lists-that-merge) | Each step's red tests; G1-G8; `actionlint` clean |
-| M26 | `phasekit-diagram`, `phasekit-wasm`, `site/` | `m19` and M21.6 landed (the site draws from `phasekit-diagram`); the user's word (user decision DG6) | Three sets of diagrams beyond M19's planes, each computed by the library and drawn by the site: a fluid's p–v–T surface in three dimensions, characteristic curves and property maps on the planes, and three-component mixtures' ternary diagrams: [M26 More diagrams](#m26-more-diagrams) | Every vertex a state the library computed; each set's arbiter; the browser package's and the page's budgets hold; tag `m26` |
+| M26 | `phasekit-diagram`, `phasekit-wasm`, `site/` | `m19` and M21.6 landed (the site draws from `phasekit-diagram`); the user's word (user decision DG6) | Three sets of diagrams beyond M19's planes, each computed by the library and drawn by the site: a fluid's p–v–T and u–s–v surfaces in three dimensions, drawn with three.js (user decisions DG7, DG8), characteristic curves and property maps on the planes, and three-component mixtures' ternary diagrams, the surfaces first (DG9): [M26 More diagrams](#m26-more-diagrams) | Every vertex a state the library computed; each set's arbiter; the browser package's and the page's budgets hold; tag `m26` |
 | M27 | `phasekit-iapws` | A steam use case (user decision HA1) | The rest of IF97: region 2 above 623.15 K with the B23 boundary, region 3 (SR3-03's backward v(T, p) refined by Newton, ROT-241) and region 5, the backward equations for HP, PS and HS, IF97's transport (R12-08, R15-11), and `IF97::Water` by name in compat, C and the browser package (HA5); map 07 §9's `if97-*` units | Zero-line core diff; R7-97(2012)'s other tables and SR3-03 Table 5; the `if97` oracle kind over all five regions |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
@@ -1045,9 +1045,9 @@ implemented.** LM1-LM7.
 that every host draws the same geometry, and drawn on the site: a fluid's thermodynamic surface in three dimensions; a
 three-component mixture's ternary diagram at fixed T and p; and characteristic curves and property maps on the planes.
 Other diagrams join the milestones that need them (DG5). **Entry.** `m19`, and M21.6 landed, so that the site already
-draws from `phasekit-diagram` *(decision)*; the user's word. **Prerequisites.** User decisions WS4, DG1-DG3, DG5 and
-DG6, and §6's open M26 decisions before the step each names; M19's crate and exports; M13's mixtures; M20.1's
-derivative variables. M26 does not move `MILESTONE`.
+draws from `phasekit-diagram` *(decision)*; the user's word. The surfaces come first, then the curves and the maps,
+then the ternaries (DG9). **Prerequisites.** User decisions WS4, DG1-DG3 and DG5-DG9; M19's crate and exports; M13's
+mixtures; M20.1's derivative variables; three.js in DEPENDENCIES.md's tier T5 (DG7). M26 does not move `MILESTONE`.
 
 M19's rules hold. Geometry, not drawing (WS4). `phasekit-diagram` depends on `phasekit-core` alone (T1f, DG3): what
 needs another crate reaches it as data, or through a seam its caller fills, as the `Batch` seam and M19.4's `Trace` do.
@@ -1057,20 +1057,23 @@ the saturation states for the surface, the second virial coefficient for the cur
 `phasekit-mix`'s PT equilibrium for the ternaries. The tests run on the five embedded fluids, a pseudo-pure one, and
 R407C's components.
 
-- **M26.1 The p–v–T surface.** `surface(fluid)`, a triangle mesh over T and ln ρ across M19's plotted range.
-  - Every vertex is the `DT` batch's state: T, ρ, p, its phase, and Q where it is two-phase. One batch call takes the
-    grid, one more the dome.
+- **M26.1 The p–v–T and u–s–v surfaces.** `surface(fluid)`, a triangle mesh over T and ln ρ across M19's plotted
+  range, with two sets of coordinates on the one mesh: p, v and T, and Gibbs's u, s and v (DG8).
+  - Every vertex is the `DT` batch's state: T, ρ, p, u, s, its phase, and Q where it is two-phase. One batch call takes
+    the grid, one more the dome.
   - The dome's saturated liquid and vapour, the critical point and, where the range reaches it, the triple line are
-    edges of the mesh, so the two-phase region is the ruled surface of the saturation pressures and no triangle crosses
-    the dome.
+    edges of the mesh, so that no triangle crosses the dome. On p–v–T the two-phase region is the ruled surface of the
+    saturation pressures; on u–s–v each two-phase vertex lies on the line between its T's saturated liquid and vapour.
   - *Red:* `every_vertex_is_the_dt_state` (`Exact`); `the_two_phase_region_is_the_saturation_pressure` (each two-phase
-    vertex's p within `Flash` of `QT`'s at its T); `the_dome_is_an_edge_of_the_mesh` (every dome vertex a mesh vertex,
-    no triangle across it). Gibbs's u–s–v surface joins this step if the user wants it (§6) *(open)*.
-- **M26.2 The surface on the site.** The browser package exports the mesh as typed arrays: each vertex's T, ρ and p,
-  its phase, and the triangles' vertex indices. The site draws it rotatable, coloured by phase, with the dome and the
-  critical point marked and p, v and T on its axes (p and v logarithmic). How the site draws it waits for the user
-  (§6) *(open)*. *Red:* the package's Node tests on both builds, the export the crate's bit for bit; the site's tests of
-  the view, run first against a page without it. The size budgets and the page's are re-measured (SL8).
+    vertex's p within `Flash` of `QT`'s at its T); `a_two_phase_vertex_lies_between_its_saturated_states` (on u–s–v,
+    its u, s and v those of Q's mix of `QT`'s at its T, within `Flash`); `the_dome_is_an_edge_of_the_mesh` (every dome
+    vertex a mesh vertex, no triangle across it).
+- **M26.2 The surfaces on the site.** The browser package exports the mesh as typed arrays: each vertex's T, ρ, p, u
+  and s, its phase, and the triangles' vertex indices. The site draws it with three.js in WebGL (DG7), rotatable,
+  coloured by phase, the dome and the critical point marked, and offers both surfaces: p–v–T, with p and v
+  logarithmic, and u–s–v (DG8). three.js's version is pinned here. *Red:* the package's Node tests on both builds, the
+  export the crate's bit for bit; the site's tests of the view, run first against a page without it. The size budgets
+  and the page's are re-measured (SL8).
 - **M26.3 Characteristic curves.**
   - On p–T and T–ρ: each fluid's ideal curve (Z = 1) and Brown's characteristic curves, the Boyle curve ((∂Z/∂ρ)_T = 0),
     the Joule–Thomson inversion curve ((∂T/∂p)_h = 0) and the Joule inversion curve ((∂Z/∂T)_ρ = 0). Each vertex is the
@@ -1104,8 +1107,7 @@ R407C's components.
 
 **Exit gate.** G1-G9 at every step; every vertex a state the library computed at its inputs (`Exact`), and each set's
 arbiter as its step states it; `gates deps` holds `phasekit-diagram` to core; the browser package's budgets and the
-page's hold. **ROT rows.** None. **User decisions implemented.** DG5, DG6, and the M26 decisions §6 lists, once the
-user takes them.
+page's hold. **ROT rows.** None. **User decisions implemented.** DG5-DG9.
 
 ## 5. Cross-cutting tracks
 
@@ -1170,17 +1172,6 @@ still open; an item leaves it when a step or a decision takes it.
 
 **Open user decisions.** P4: the paywalled EOS papers (Ammonia, CO₂, R125, Air, Nitrogen, HFE143m). Until a paper
 arrives its fluid stays oracle-only, labelled provisional; nothing waits on it.
-
-M26's (user decision DG6), each before the step it names:
-
-- **How the site draws the 3-D surface (M26.2).** Either a projection the site computes and draws itself, on the SVG
-  or canvas it already uses, with no new dependency; or a WebGL library such as three.js, which DEPENDENCIES.md's
-  tiers would have to admit. The first is enough for a few thousand triangles, rotated by dragging; the second shades
-  them better.
-- **Whether Gibbs's u–s–v surface joins the p–v–T one (M26.1).** It is the original thermodynamic surface (Maxwell
-  modelled water's in 1874), but it reads less easily than p–v–T.
-- **The order of the three sets.** The plan takes the surface first, then the curves and maps, then the ternaries,
-  whose PT flashes with the stability test make them the slowest to compute.
 
 **Logged future work** (user decision TG1). The goals relaxed for now, each in an issue labelled `future-work` with its
 measurement: #143, PT + h ≤ 3 µs (the target is PF2's); #144, α^r ≤ 0.3 µs and properties at (T, ρ) ≤ 0.5 µs (PF3);
