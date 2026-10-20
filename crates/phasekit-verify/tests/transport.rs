@@ -369,8 +369,9 @@ fn lands_later<T>(result: &Result<T, Error>) -> bool {
 
 /// PLAN.md M8.5 (map 05 U3): staged viscosity stage by stage against CoolProp's `viscosity_contributions` at the
 /// oracle's states (all-fluid tier and core subset), each stage and the total in class `TransportDirect` at the scale of
-/// the oracle's total. A staged model with a hardcoded stage (map 05 U10) says it lands at M8.9. On the `libm` backend,
-/// Ammonia's η and initial-density term at 8 states are counted, not asserted (user decision LB1, issue #170).
+/// the oracle's total. A staged model with a hardcoded stage (map 05 U10) says it lands at M8.9. A cell that
+/// `backend::LIBM_KNOWN` lists is counted on the `libm` backend, not asserted (user decision LB1, issue #170); since
+/// core's own `pow` (PLAN.md M23.4) it lists none, where Ammonia's η and initial-density term at 8 states were.
 #[test]
 fn viscosity_stages_match_contributions() {
     const TEST: &str = "viscosity_stages_match_contributions";
@@ -576,8 +577,9 @@ fn q_d_is_read() {
 /// conductivity (M8.6), and the ρ*_sr-CS and Chung viscosities, against CoolProp's totals at the oracle's states (the
 /// all-fluid tier and the core subset) in class `TransportDirect`, one case per model; the hard-coded stages of staged
 /// models are checked stage by stage (`viscosity_stages_match_contributions`, `conductivity_stages_match_contributions`).
-/// DIV-0035's 14 Helium λ cells of 3.5-12 K are exempt (its replacing check is `div_0035`). On the `libm` backend,
-/// Methanol's η at one state is counted, not asserted (user decision LB1, issue #170).
+/// DIV-0035's 14 Helium λ cells of 3.5-12 K are exempt (its replacing check is `div_0035`). A cell that
+/// `backend::LIBM_KNOWN` lists is counted on the `libm` backend, not asserted (user decision LB1, issue #170); since
+/// core's own `pow` (PLAN.md M23.4) it lists none, where Methanol's η at one state was.
 #[test]
 fn hardcoded_models_match_oracle() {
     const TEST: &str = "hardcoded_models_match_oracle";

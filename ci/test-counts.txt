@@ -3,16 +3,16 @@
 # than its minimum, or if a binary that runs tests is not listed. `--update` raises minimums and adds binaries; it
 # never lowers one. Lowering a minimum by hand needs a `# lowered: <reason>` line above it. `# pending M<n>.<k>:
 # <test>` lines name tests held back until that step; they fail the gate once milestone n has closed.
-x86_64-unknown-linux-gnu phasekit-core::lib 255
-x86_64-unknown-linux-gnu phasekit-verify::lib 63
+x86_64-unknown-linux-gnu phasekit-core::lib 261
+x86_64-unknown-linux-gnu phasekit-verify::lib 64
 x86_64-unknown-linux-gnu phasekit-verify::gibbs_seam 3
 x86_64-unknown-linux-gnu phasekit-verify::lazy_load 13
 x86_64-unknown-linux-gnu phasekit-verify::new_family 14
 x86_64-unknown-linux-gnu phasekit-verify::register 12
 x86_64-unknown-linux-gnu phasekit-xtask::main 182
 x86_64-unknown-linux-gnu phasekit-core::doc 2
-wasm32-wasip2 phasekit-core::lib 256
-wasm32-wasip2 phasekit-verify::lib 62
+wasm32-wasip2 phasekit-core::lib 262
+wasm32-wasip2 phasekit-verify::lib 63
 wasm32-wasip2 phasekit-verify::gibbs_seam 3
 wasm32-wasip2 phasekit-verify::lazy_load 9
 wasm32-wasip2 phasekit-verify::new_family 11
@@ -131,5 +131,5 @@ x86_64-unknown-linux-gnu phasekit-verify::mixture_family 11
 wasm32-wasip2 phasekit-verify::mixture_family 10
 x86_64-unknown-linux-gnu phasekit-verify::notices 2
 wasm32-wasip2 phasekit-verify::notices 2
-x86_64-unknown-linux-gnu phasekit-verify::math 4
-wasm32-wasip2 phasekit-verify::math 4
+x86_64-unknown-linux-gnu phasekit-verify::math 5
+wasm32-wasip2 phasekit-verify::math 5

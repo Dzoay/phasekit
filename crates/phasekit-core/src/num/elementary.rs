@@ -6,6 +6,7 @@
 
 mod exp;
 mod ln;
+mod pow;
 
 pub use exp::exp;
 #[cfg(feature = "libm")]
@@ -13,6 +14,9 @@ pub(crate) use exp::exp_lanes;
 pub use ln::ln;
 #[cfg(feature = "libm")]
 pub(crate) use ln::ln_lanes;
+pub use pow::pow;
+#[cfg(feature = "libm")]
+pub(crate) use pow::pow_lanes;
 
 /// a + b as hi + lo exactly, hi the rounded sum and lo its rounding error (Dekker's Fast2Sum), for |a| ≥ |b|.
 #[inline(always)]

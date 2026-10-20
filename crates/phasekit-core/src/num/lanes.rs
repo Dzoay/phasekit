@@ -129,8 +129,12 @@ impl<const W: usize> Real for Lanes<W> {
     fn powi(self, n: i32) -> Self {
         self.map(|x| math::powi(x, n))
     }
+    /// Core's own `pow` on every lane with the `libm` backend (PLAN.md M23.4); std's, per lane, without it.
     #[inline(always)]
     fn powf(self, y: f64) -> Self {
+        #[cfg(feature = "libm")]
+        return super::elementary::pow_lanes(self, y);
+        #[cfg(not(feature = "libm"))]
         self.map(|x| math::powf(x, y))
     }
     #[inline(always)]

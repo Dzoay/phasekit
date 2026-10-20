@@ -33,6 +33,8 @@ const DOWN_1009: u64 = 0x3f10_0000_0000_0000;
 const UP_1022: u64 = 0x3fe0_0000_0000_0000;
 const TWO_1009: f64 = f64::from_bits(0x7f00_0000_0000_0000);
 const TWO_M1022: f64 = f64::from_bits(0x0010_0000_0000_0000);
+/// A double's sign bit.
+const SIGN: u64 = 0x8000_0000_0000_0000;
 
 /// 2^(k/128) ≈ H[k]·(1 + T[k]) for k in [0, 128): word 2k is T[k]'s bits, word 2k + 1 is H[k]'s bits less k·2⁵²/128,
 /// so adding k·2⁴⁵ puts ⌊k/128⌋ in the exponent (Arm's `__exp_data.tab`).
@@ -180,17 +182,20 @@ fn abs_bits(x: f64) -> u64 {
     x.to_bits() & 0x7fff_ffff_ffff_ffff
 }
 
-/// The reduction and the polynomial at any `x`: (tmp, scale's bits, k's word), exp(x) ≈ scale + scale·tmp. The scale's
-/// bits are a double's for −1023·128 < k < 1024·128, and the word's bit 31 is k's sign.
+/// The reduction and the polynomial at any `x` + `xtail` and `sign`: (tmp, scale's bits, k's word), ±exp(x + xtail) ≈
+/// scale + scale·tmp. `xtail` is `pow`'s tail of y·ln x (Arm's `exp_inline`), −0 for `exp`, which leaves r as it is,
+/// and `sign` is 0 or the sign bit, which `pow` sets for an odd integer power of a negative base. The scale's bits are
+/// a double's for −1023·128 < k < 1024·128, and the word's bit 31 is k's sign.
 #[inline(always)]
-fn reduce(x: f64) -> (f64, u64, u64) {
+fn reduce(x: f64, xtail: f64, sign: u64) -> (f64, u64, u64) {
     let shifted = INV_LN2_N * x + SHIFT;
     let ki = shifted.to_bits();
     let kd = shifted - SHIFT;
     let r = x + kd * NEG_LN2_HI_N + kd * NEG_LN2_LO_N;
+    let r = r + xtail;
     let index = (ki & 0x7f).wrapping_shl(1);
     let tail = f64::from_bits(word(index));
-    let sbits = word(index.wrapping_add(1)).wrapping_add(ki.wrapping_shl(45));
+    let sbits = word(index.wrapping_add(1)).wrapping_add(ki.wrapping_shl(45)).wrapping_add(sign);
     let r2 = r * r;
     let tmp = tail + r + r2 * (C2 + r * C3) + r2 * r2 * (C4 + r * C5);
     (tmp, sbits, ki)
@@ -211,34 +216,39 @@ fn above(tmp: f64, sbits: u64) -> f64 {
 }
 
 /// Arm's `specialcase` for k < 0, −1024 < x ≤ −512: the scale taken 2¹⁰²² larger and the result multiplied back.
-/// Where that result is subnormal (y < 1 before the scaling), y is first rounded to its precision there, so the result
-/// is rounded once. Arm's guard against −0 under downward rounding is not needed: (hi + lo) − 1 is +0 when it is 0.
+/// Where that result is subnormal (|y| < 1 before the scaling), y is first rounded to its precision there, by adding
+/// and taking away ±1 by its sign, so the result is rounded once; a zero takes the scale's sign (`pow`'s sign, Arm's
+/// `pow` version). Arm's guard against −0 under downward rounding is not needed: (hi + lo) − one is +0 when it is 0.
 #[inline(always)]
 fn below(tmp: f64, sbits: u64) -> f64 {
     let scale = f64::from_bits(sbits.wrapping_add(UP_1022));
     let y = scale + scale * tmp;
-    let lo = scale - y + scale * tmp;
-    let hi = 1.0 + y;
-    let lo = 1.0 - hi + y + lo;
-    let rounded = (hi + lo) - 1.0;
-    // Equivalent (PLAN.md M23.2): at y = 1, hi = 2 and |lo| ≤ 2⁻⁵³, under half of 2's ulp, so `rounded` is y.
+    // Equivalent (M23.4): y is never 0, the scale being a normal number and |tmp| far below 1.
     // equivalent mutant: replace < with <=
-    TWO_M1022 * if y < 1.0 { rounded } else { y }
+    let one = if y < 0.0 { -1.0 } else { 1.0 };
+    let lo = scale - y + scale * tmp;
+    let hi = one + y;
+    let lo = one - hi + y + lo;
+    let rounded = (hi + lo) - one;
+    let rounded = if rounded == 0.0 { f64::from_bits(scale.to_bits() & SIGN) } else { rounded };
+    // Equivalent (PLAN.md M23.2): at |y| = 1, hi = ±2 and |lo| ≤ 2⁻⁵³, under half of 2's ulp, so `rounded` is y.
+    // equivalent mutant: replace < with <=
+    TWO_M1022 * if y.abs() < 1.0 { rounded } else { y }
 }
 
 /// Whether `x` takes the main path: 2⁻⁵⁴ ≤ |x| < 512.
 #[inline(always)]
-fn plain(x: f64) -> bool {
-    // Equivalent (M23.2): on the main path `exp_any` is `exp_plain`'s value bit for bit, so taking it at every `x`
-    // changes only the speed.
+pub(super) fn plain(x: f64) -> bool {
+    // Equivalent (M23.2, M23.4): on the main path `exp_any`, and `pow`'s `pow_any`, are `exp_plain`'s value bit for
+    // bit, so taking them at every `x` changes only the speed.
     // equivalent mutant: replace plain -> bool with false
     (TINY..LARGE).contains(&abs_bits(x))
 }
 
-/// exp at an `x` on the main path.
+/// exp(x + xtail) at an `x` on the main path.
 #[inline(always)]
-fn exp_plain(x: f64) -> f64 {
-    let (tmp, sbits, _) = reduce(x);
+pub(super) fn exp_plain(x: f64, xtail: f64) -> f64 {
+    let (tmp, sbits, _) = reduce(x, xtail, 0);
     combine(tmp, sbits)
 }
 
@@ -248,12 +258,21 @@ fn beyond(x: f64) -> f64 {
     if x.is_sign_negative() { 0.0 } else { f64::INFINITY }
 }
 
-/// exp at any `x`: the main path's value, or the case that `x` falls in, each computed and selected: the scale
-/// adjusted from 512 to 1024 by k's sign, 1 + x below 2⁻⁵⁴, 0 or ∞ from 1024, NaN itself. On the main path it is
-/// [`exp_plain`]'s value bit for bit.
+/// `v` with its sign bit flipped where `sign` is the sign bit.
 #[inline(always)]
-fn exp_any(x: f64) -> f64 {
-    let (tmp, sbits, ki) = reduce(x);
+fn signed(v: f64, sign: u64) -> f64 {
+    // Equivalent (M23.4): where its value is taken, `v` is 1 + x, near 1, or `beyond`'s +0 or +∞, never negative, so
+    // OR sets the sign bit as XOR flips it.
+    // equivalent mutant: replace ^ with |
+    f64::from_bits(v.to_bits() ^ sign)
+}
+
+/// ±exp(x + xtail) at any `x` but NaN, − where `sign` is the sign bit (Arm's `exp_inline`): the main path's value, or
+/// the case that `x` falls in, each computed and selected: the scale adjusted from 512 to 1024 by k's sign, ±(1 + x)
+/// below 2⁻⁵⁴, ±0 or ±∞ from 1024. On the main path it is [`exp_plain`]'s value bit for bit where `sign` is 0.
+#[inline(always)]
+pub(super) fn exp_signed(x: f64, xtail: f64, sign: u64) -> f64 {
+    let (tmp, sbits, ki) = reduce(x, xtail, sign);
     let ax = abs_bits(x);
     let special = if ki & 0x8000_0000 == 0 { above(tmp, sbits) } else { below(tmp, sbits) };
     // Equivalent (M23.2): at x = ±512 the scale is a double's, 2^±738.7, and the special case scales it by a power of
@@ -265,21 +284,34 @@ fn exp_any(x: f64) -> f64 {
     // equivalent mutant: replace < with ==
     // equivalent mutant: replace < with <=
     // equivalent mutant: replace + with -
-    let r = if ax < TINY { 1.0 + x } else { r };
-    let r = if ax >= HUGE { beyond(x) } else { r };
+    let r = if ax < TINY { signed(1.0 + x, sign) } else { r };
+    if ax >= HUGE { signed(beyond(x), sign) } else { r }
+}
+
+/// exp at any `x`: [`exp_signed`] with no tail and no sign, or NaN itself.
+#[inline(always)]
+fn exp_any(x: f64) -> f64 {
+    // Equivalent (M23.4): the tail −0 is the identity of + (so the add folds away); +0 would change r only at r = −0,
+    // which only x = −0 gives, and there the 1 + x case is taken.
+    // equivalent mutant: delete -
+    let r = exp_signed(x, -0.0, 0);
     if x.is_nan() { x } else { r }
 }
 
 /// e^x, under 1 ulp: Arm's `exp` without FMA (PLAN.md M23.2).
 pub fn exp(x: f64) -> f64 {
-    if plain(x) { exp_plain(x) } else { exp_any(x) }
+    // Equivalent (M23.4): as at `exp_any`'s tail; x = −0 is not on the main path.
+    // equivalent mutant: delete -
+    if plain(x) { exp_plain(x, -0.0) } else { exp_any(x) }
 }
 
 /// [`exp`] on every lane: the main path where every lane takes it, else every case on every lane.
 #[cfg(any(test, feature = "libm"))]
 #[inline(always)]
 pub(crate) fn exp_lanes<const W: usize>(x: Lanes<W>) -> Lanes<W> {
-    if x.0.iter().all(|&x| plain(x)) { Lanes(x.0.map(exp_plain)) } else { Lanes(x.0.map(exp_any)) }
+    // Equivalent (M23.4): as at `exp`'s tail.
+    // equivalent mutant: delete -
+    if x.0.iter().all(|&x| plain(x)) { Lanes(x.0.map(|x| exp_plain(x, -0.0))) } else { Lanes(x.0.map(exp_any)) }
 }
 
 #[cfg(test)]
