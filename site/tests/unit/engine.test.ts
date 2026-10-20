@@ -561,7 +561,8 @@ describe("the engine's mixtures (PLAN.md M21.5)", () => {
       },
     });
     const bound = handle({ id: 4, op: "envelope", fluid: "CarbonDioxide[0.5]&Nitrogen[0.5]" });
-    expect(bound.ok && bound.op === "envelope" && [bound.value.critical, bound.value.end]).toEqual([null, "bound"]);
+    const below = bound.ok && bound.op === "envelope" && bound.value;
+    expect(below && [below.T.length > 10, below.critical !== null, below.end]).toEqual([true, true, "bound"]);
     expect(bound.ok && bound.op === "envelope" && bound.value.reason).toContain("BelowMinTemperature");
     const water = handle({ id: 5, op: "envelope", fluid: "Water" });
     expect(water).toEqual({ id: 5, ok: false, op: "envelope", error: "Water is no mixture: it has no phase envelope" });

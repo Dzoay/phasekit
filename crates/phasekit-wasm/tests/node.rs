@@ -414,7 +414,8 @@ fn the_mixture_lists_are_the_librarys() {
 /// PLAN.md M21.5: a mixture's fluid has its components, composition and phase envelope, each phasekit-mix's bit for bit
 /// (`Exact`): R410A from R32's and R125's packs, its envelope closed through its critical point, the feed's mass density
 /// its molar density times its molar mass, its incipient phase point-major. A pure fluid is one component at 1 and has
-/// no envelope; CO₂/N₂'s trace, which starts at CO₂'s triple point, ends at that bound and says so.
+/// no envelope; CO₂/N₂'s trace, which starts at CO₂'s triple point, runs through its critical point and ends back at
+/// that bound, and says so (#256).
 #[wasm_bindgen_test]
 fn a_mixture_has_its_components_composition_and_envelope() {
     let (page, oracle) = r410a();
@@ -438,7 +439,7 @@ fn a_mixture_has_its_components_composition_and_envelope() {
     assert_eq!((water.components(), water.composition()), (vec!["Water".to_string()], vec![1.0]));
     assert!(water.envelope().is_err());
     let bound = Registry::new().unwrap().fluid("CarbonDioxide[0.5]&Nitrogen[0.5]").unwrap().envelope().unwrap();
-    assert_eq!((bound.end(), bound.critical_t()), ("bound".to_string(), None));
+    assert!(bound.t().len() > 10 && bound.critical_t().is_some() && bound.end() == "bound", "{}", bound.t().len());
     assert!(bound.reason().contains("BelowMinTemperature"), "{}", bound.reason());
 }
 
