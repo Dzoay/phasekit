@@ -118,11 +118,10 @@ const STEPS_OUT: usize = 10;
 const BISECTIONS: usize = 8;
 
 /// The march to a bubble or dew point its seeds miss ([`marched`]): the first distance below it in ln X and how many
-/// times it doubles, then the most solves on the way up and the smallest step before it gives up.
+/// times it doubles, then the most solves on the way up.
 const MARCH_FIRST: f64 = 0.005;
 const MARCH_OUT: usize = 8;
 const MARCH_SOLVES: usize = 32;
-const MARCH_MIN: f64 = 1e-6;
 
 /// Bisections of Wilson's seed inside the dome, in ln p or 1/T.
 const WILSON_BISECTIONS: usize = 80;
@@ -383,7 +382,7 @@ fn below(mixture: &Mixture, side: Side, given: Given) -> Result<Coexisting, Erro
     for _ in 0..MARCH_OUT {
         let at = given_at(given, u - h);
         let seed = Solver::new(mixture, side.beta(), &z).seed_wilson(at);
-        match Solver::new(mixture, side.beta(), &z).newton(at, seed) {
+        match Solver::new(mixture, side.beta(), &z).newton(at, seed).and_then(liquid_denser) {
             Ok(found) => return Ok(found),
             Err(e) => last = e,
         }
@@ -393,27 +392,37 @@ fn below(mixture: &Mixture, side: Side, given: Given) -> Result<Coexisting, Erro
 }
 
 /// The point on `side` at `given` from point `c` below it: steps up in ln X, each solve seeded on the line through the
-/// last two points ([`seed_from`]), a step that converges doubled and one that fails halved, at most `MARCH_SOLVES`
-/// solves; the last error where the step falls below `MARCH_MIN` or the solves run out.
+/// last two points ([`seed_from`]): the rest of the way at first and after each step that converges, a step that fails
+/// halved; the last error where `MARCH_SOLVES` solves do not reach it.
 fn up_to(mixture: &Mixture, side: Side, given: Given, mut c: Coexisting) -> Result<Coexisting, Error> {
     let target = ln_given(given);
-    let mut h = target - ln_of(&c, given);
+    let mut h = f64::INFINITY;
     let mut last = Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 };
     let mut prev: Option<Coexisting> = None;
     for _ in 0..MARCH_SOLVES {
         let left = target - ln_of(&c, given);
         h = h.min(left);
         let at = if h == left { given } else { given_at(given, ln_of(&c, given) + h) };
-        match coexisting_from(mixture, side.beta(), at, seed_from(prev.as_ref(), &c, at)) {
+        match coexisting_from(mixture, side.beta(), at, seed_from(prev.as_ref(), &c, at)).and_then(liquid_denser) {
             Ok(found) if at == given => return Ok(found),
-            Ok(found) => (prev, c, h) = (Some(c), found, 2.0 * h),
+            Ok(found) => (prev, c, h) = (Some(c), found, f64::INFINITY),
             Err(e) => (last, h) = (e, h / 2.0),
-        }
-        if h < MARCH_MIN {
-            break;
         }
     }
     Err(last)
+}
+
+/// Point `c` where its liquid is the denser phase; else refused. Near the critical point the bubble point's equations
+/// are also met by the dew point with its phases swapped, the feed on the vapour's root (R410A's bubble point
+/// 0.05 K below T_c, #257), and a march can reach it.
+fn liquid_denser(c: Coexisting) -> Result<Coexisting, Error> {
+    // Equivalent (#257): `>=` differs only at equal densities, the trivial solution, which Newton refuses first.
+    // equivalent mutant: replace > with >=
+    if c.rho_liquid > c.rho_vapour {
+        Ok(c)
+    } else {
+        Err(Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 })
+    }
 }
 
 /// The two phases of `mixture` at vapour fraction `beta` in [0, 1] and `given` T or p: from Wilson's seed at β; else,
