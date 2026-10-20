@@ -96,8 +96,9 @@ pub mod internal {
         DoubleExponentialTerm, GaoBTerm, GaussianTerm, IdealTerm, Lemmon2005Term, MAX_POW, NonAnalyticTerm,
         OffsetReference, PowerTerm,
     };
-    /// Core's own e^x, ln x and x^y in every build (PLAN.md M23.2-M23.4): `math` runs them with the `libm` feature.
-    pub use crate::num::elementary::{exp, ln, pow};
+    /// Core's own e^x, e^x − 1, ln x and x^y in every build (PLAN.md M23.2-M23.5): `math` runs them with the `libm`
+    /// feature.
+    pub use crate::num::elementary::{exp, expm1, ln, pow};
     pub use crate::saturation::{chebyshev_derivative, clenshaw, piece};
     pub use crate::transport::{
         BatschinskiHildebrand, Chung, Conductivity, ConductivityCritical, ConductivityDilute, ConductivityModel,

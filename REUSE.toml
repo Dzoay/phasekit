@@ -52,19 +52,6 @@ precedence = "override"
 SPDX-FileCopyrightText = "NIST (AGA8 and teqp authors)"
 SPDX-License-Identifier = "LicenseRef-NIST-GERG"
 
-# M12's lane expm1 ports the `libm` crate's (0.2.16, MIT) operation for operation, constants included, which ported
-# FreeBSD's msun under Sun Microsystems' notice, which LICENSE-THIRD-PARTY reproduces with the crate's (user decision
-# LC1).
-[[annotations]]
-path = "crates/phasekit-core/src/num/lanes/expm1.rs"
-precedence = "override"
-SPDX-FileCopyrightText = [
-    "2026 The phasekit contributors",
-    "The rust-lang/libm contributors",
-    "1993, 2004 Sun Microsystems, Inc.",
-]
-SPDX-License-Identifier = "(MIT OR Apache-2.0) AND MIT AND SunPro"
-
 # Core's own elementary functions port Arm's optimized-routines v26.07 (math/exp.c and exp_data.c, PLAN.md M23.2;
 # math/log.c and log_data.c, M23.3; math/pow.c, pow_common.h and pow_log_data.c, M23.4, whose files Arm dates to
 # 2026), under Arm's licence (user decision IM5), whose MIT notice LICENSE-THIRD-PARTY and core's NOTICE reproduce.

@@ -673,14 +673,14 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      crate-private `exec` module separates `LaneKernel` ("what") from `run_scalar`/`run_lanes<W>`/`run_parallel`
      ("how"); it sits at L0 with `ExecPolicy`, as its executors hold no physics, so L2's batch hook can take a policy
      (D1). The batch hooks and an `ExecPolicy` variant return with it. WASM `simd128` is a second build (K11, K15).
-  3. `simd` enables `libm` (user decision SL1), so its lanes are bitwise equal to the `libm` scalar path. The vector
-     `expm1` is a port of the locked `libm` crate's, operation for operation (fearless_simd has none; dependencies
-     §4); `exp`, `ln` and `powf` are core's own since M23.2-M23.4 (Arm's, `num::elementary`), one function each for
-     the scalar path and the lanes, which the `libm` build's `math` runs too; any other transcendental a laned kernel
-     needs is ported the same way or called per lane through `math`. `expm1` was ported at M12.8 (user decision SL7):
-     per lane it took about 89 ns of n-Propane's 129 ns of α⁰ in lanes on the i7-8700K (11.1 ns a call with `libm`;
-     four Planck-Einstein terms, which 114 of the 136 fluids have), and with the port α⁰ takes 83 ns. `powf` ran per
-     lane until M23.4 (48.7 ns a call): R134a's two α⁰ Power terms took most of its 112 ns.
+  3. `simd` enables `libm` (user decision SL1), so its lanes are bitwise equal to the `libm` scalar path. `exp`, `ln`
+     and `powf` (Arm's) and `expm1` (on `exp`'s table) are core's own since M23.2-M23.5 (`num::elementary`), one
+     function each for the scalar path and the lanes, which the `libm` build's `math` runs too; any other
+     transcendental a laned kernel needs is ported the same way or called per lane through `math` (fearless_simd has
+     none; dependencies §4). `expm1` was ported at M12.8 (user decision SL7), the locked `libm` crate's operation for
+     operation, until M23.5: per lane it had taken about 89 ns of n-Propane's 129 ns of α⁰ in lanes on the i7-8700K
+     (11.1 ns a call with `libm`; four Planck-Einstein terms, which 114 of the 136 fluids have), and with the port α⁰
+     took 83 ns. `powf` ran per lane until M23.4 (48.7 ns a call): R134a's two α⁰ Power terms took most of its 112 ns.
   4. What runs in lanes (M12.8, M12.9, M22.2): a family's kernel over `Real` through `batch::run_kernel`, its columns
      gathered into `Lanes<W>` a group at a time at the widths `exec::dispatch` picks for any batch, so a family reaches
      the lanes without a public lane type (user decision ML3); α^r and α⁰ through `HelmholtzModel::residual_batch` and
