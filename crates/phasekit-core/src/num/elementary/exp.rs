@@ -183,11 +183,11 @@ fn abs_bits(x: f64) -> u64 {
 }
 
 /// The reduction and the polynomial at any `x` + `xtail` and `sign`: (tmp, scale's bits, k's word), ±exp(x + xtail) ≈
-/// scale + scale·tmp. `xtail` is `pow`'s tail of y·ln x (Arm's `exp_inline`), −0 for `exp`, which leaves r as it is,
-/// and `sign` is 0 or the sign bit, which `pow` sets for an odd integer power of a negative base. The scale's bits are
-/// a double's for −1023·128 < k < 1024·128, and the word's bit 31 is k's sign.
+/// scale + scale·tmp. `xtail` is `pow`'s tail of y·ln x (Arm's `exp_inline`), −0 for `exp` and `expm1`, which leaves
+/// r as it is, and `sign` is 0 or the sign bit, which `pow` sets for an odd integer power of a negative base. The
+/// scale's bits are a double's for −1023·128 < k < 1024·128, and the word's bit 31 is k's sign.
 #[inline(always)]
-fn reduce(x: f64, xtail: f64, sign: u64) -> (f64, u64, u64) {
+pub(super) fn reduce(x: f64, xtail: f64, sign: u64) -> (f64, u64, u64) {
     let shifted = INV_LN2_N * x + SHIFT;
     let ki = shifted.to_bits();
     let kd = shifted - SHIFT;

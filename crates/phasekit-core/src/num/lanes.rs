@@ -7,9 +7,6 @@ use core::ops::{Add, Div, Mul, Neg, Sub};
 
 use super::{Real, math, sealed};
 
-#[cfg(feature = "libm")]
-mod expm1;
-
 /// W states side by side; crate-private, like the executors that use it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Lanes<const W: usize>(pub(crate) [f64; W]);
@@ -105,11 +102,12 @@ impl<const W: usize> Real for Lanes<W> {
         #[cfg(not(feature = "libm"))]
         self.map(math::exp)
     }
-    /// The `libm` crate's `expm1` ported to lanes with the `libm` backend (PLAN.md M12.8); std's, per lane, without it.
+    /// Core's own `expm1` (the `libm` crate's, PLAN.md M12.8 and M23.5) on every lane with the `libm` backend; std's,
+    /// per lane, without it.
     #[inline(always)]
     fn expm1(self) -> Self {
         #[cfg(feature = "libm")]
-        return expm1::expm1(self);
+        return super::elementary::expm1_lanes(self);
         #[cfg(not(feature = "libm"))]
         self.map(math::expm1)
     }

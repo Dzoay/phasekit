@@ -218,3 +218,13 @@ fn pow_is_faithful() {
     assert!(differ.is_empty(), "not Arm's result:\n{}", lines(&differ));
     assert!(ties.len() == 9, "Arm's near-ties rounded the other way:\n{}", lines(&ties));
 }
+
+/// PLAN.md M23.5 (VERIFICATION.md §5, class `Faithful`; user decision IM3): core's own `expm1`, M12.8's port of the
+/// `libm` crate's (FreeBSD's `s_expm1.c`), is under 1 ulp at every value of `fixtures/math/expm1.csv` and
+/// `math/arm/expm1.csv`, and Arm's result bit for bit at Arm's cases (NaN canonical), in every build.
+#[test]
+fn expm1_is_faithful() {
+    let (worst, differ) = own("expm1", |x| internal::expm1(x[0])).unwrap();
+    assert!(worst.error < ulp::FAITHFUL, "{} ulp at {:?}", worst.error, worst.at);
+    assert!(differ.is_empty(), "not Arm's result:\n{}", lines(&differ));
+}

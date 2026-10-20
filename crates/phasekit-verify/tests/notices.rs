@@ -1,6 +1,6 @@
 //! The notices the crates ship (user decision MX10): phasekit-mix's Cargo licence names NIST's notice for GERG-2008's
 //! coefficients, and the crate carries that notice, the repository's text, at the checksum cargo-about pins. Core
-//! carries the notices of its lane ports (user decision LC1).
+//! carries the notice of its ports of Arm's maths (user decision IM5).
 
 use phasekit_verify::sha256_hex;
 
@@ -17,16 +17,14 @@ fn phasekit_mix_carries_nists_notice() {
     assert!(include_str!("../../../about.toml").lines().any(|l| l == checksum), "{checksum}");
 }
 
-/// LC1 (PLAN.md M23.1) and IM5 (M23.2-M23.4): core's lane `expm1`, a port of the `libm` crate's from FreeBSD's msun,
-/// carries its msun file's notice at its head, and its own `exp`, `ln` and `pow`, ports of Arm's optimized-routines,
-/// name Arm's files and licence at theirs; core's NOTICE, which its package ships, reproduces LICENSE-THIRD-PARTY's
-/// sections for both.
+/// IM5 (PLAN.md M23.2-M23.4): core's own `exp`, `ln` and `pow`, ports of Arm's optimized-routines, name Arm's files and
+/// licence at their heads, and core's NOTICE, which its package ships, reproduces LICENSE-THIRD-PARTY's section for
+/// them. LC1's notices for M12.8's port of the `libm` crate's `expm1` (M23.1) went with the port at M23.5.
 #[test]
 fn phasekit_core_carries_its_ports_notices() {
     let notice = include_str!("../../phasekit-core/NOTICE");
     let third_party = include_str!("../../../LICENSE-THIRD-PARTY");
     let heads = [
-        ("s_expm1.c", include_str!("../../phasekit-core/src/num/lanes/expm1.rs"), "Developed at SunPro"),
         ("math/exp.c", include_str!("../../phasekit-core/src/num/elementary/exp.rs"), "Arm Limited"),
         ("math/log.c", include_str!("../../phasekit-core/src/num/elementary/ln.rs"), "Arm Limited"),
         ("math/pow.c", include_str!("../../phasekit-core/src/num/elementary/pow.rs"), "Arm Limited"),
@@ -36,15 +34,9 @@ fn phasekit_core_carries_its_ports_notices() {
         assert!(head.first().is_some_and(|l| l.contains(origin)), "{origin}: the head names its origin");
         assert!(head.iter().any(|l| l.contains(line)), "{origin}: its head carries `{line}`");
     }
-    // A section runs from its title to the next 80-column rule, or to the end of the file.
-    let rule = format!("\n{}\n", "-".repeat(80));
-    for title in ["The libm crate (0.2.16) and FreeBSD's msun (Sun Microsystems)", "Arm's optimized-routines (v26.07)"]
-    {
-        let section = |text: &'static str| text.split_once(title).and_then(|(_, rest)| rest.split(&rule).nth(1));
-        let ours = section(notice).map(str::trim_end);
-        assert!(
-            ours.is_some_and(|text| text.len() > 500) && ours == section(third_party).map(str::trim_end),
-            "{title}"
-        );
-    }
+    // The section runs from its title to the next 80-column rule, or to the end of the file.
+    let (rule, title) = (format!("\n{}\n", "-".repeat(80)), "Arm's optimized-routines (v26.07)");
+    let section = |text: &'static str| text.split_once(title).and_then(|(_, rest)| rest.split(&rule).nth(1));
+    let ours = section(notice).map(str::trim_end);
+    assert!(ours.is_some_and(|text| text.len() > 500) && ours == section(third_party).map(str::trim_end), "{title}");
 }

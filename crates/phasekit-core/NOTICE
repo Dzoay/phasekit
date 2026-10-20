@@ -1,52 +1,10 @@
 phasekit-core: notices
 ======================
 
-phasekit-core is licensed under MIT OR Apache-2.0 (the repository's LICENSE-MIT and LICENSE-APACHE). The lane expm1
-of its `simd` feature (src/num/lanes/) is a port of the libm crate's
-(https://github.com/rust-lang/compiler-builtins, MIT), which ported FreeBSD's msun under Sun Microsystems' notice
-(user decision LC1). Its own exp, ln and pow (src/num/elementary/) are ports of Arm's optimized-routines
-(https://github.com/ARM-software/optimized-routines, MIT OR Apache-2.0 WITH LLVM-exception; user decision IM5). Their
-notices are reproduced below, as in the repository's LICENSE-THIRD-PARTY, and each file names its origin at its head.
-
---------------------------------------------------------------------------------
-The libm crate (0.2.16) and FreeBSD's msun (Sun Microsystems)
---------------------------------------------------------------------------------
-
-crates/phasekit-core/src/num/lanes/expm1.rs ports the libm crate's expm1
-operation for operation, constants included (PLAN.md M12.8; user decision
-LC1).
-
-rust-lang/libm as a whole is available for use under the MIT license:
-
-------------------------------------------------------------------------------
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-FreeBSD's msun, whose file the libm crate ported, carries Sun Microsystems'
-notice:
-
-  s_expm1.c (expm1.rs):
-    Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
-
-    Developed at SunPro, a Sun Microsystems, Inc. business.
-    Permission to use, copy, modify, and distribute this
-    software is freely granted, provided that this notice
-    is preserved.
+phasekit-core is licensed under MIT OR Apache-2.0 (the repository's LICENSE-MIT and LICENSE-APACHE). Its own exp, ln
+and pow (src/num/elementary/) are ports of Arm's optimized-routines
+(https://github.com/ARM-software/optimized-routines, MIT OR Apache-2.0 WITH LLVM-exception; user decision IM5), whose
+notice is reproduced below, as in the repository's LICENSE-THIRD-PARTY; each file names its origin at its head.
 
 --------------------------------------------------------------------------------
 Arm's optimized-routines (v26.07)
