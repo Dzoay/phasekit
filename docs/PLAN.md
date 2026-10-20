@@ -99,7 +99,7 @@ reorder or split steps need a reviewer's. Once a step has been merged, its ID ne
 |---|---|---|
 | Cubic, PC-SAFT | New families must prove the zero-core-edit seam on a stable core first (D3) | M11, M15 |
 | Mixtures, GERG, true-mixture blends | Composition stays out of the core contract; mixtures are a family crate (D4) | M13 |
-| IF97, ice Ih, solids | Gibbs families arrive through the seam proved at M5 (D10) | M14: ice and IF97 below 623.15 K, what humid air needs (user decisions HA1, HA4); M26: the rest of IF97 |
+| IF97, ice Ih, solids | Gibbs families arrive through the seam proved at M5 (D10) | M14: ice and IF97 below 623.15 K, what humid air needs (user decisions HA1, HA4); M27: the rest of IF97 |
 | INCOMP, humid air (real `HAPropsSI`) | INCOMP its own `ThermoModel`; humid air its own type over water, air, IF97-water and ice models (map 07 §9; user decision HA4) | M17, M18 |
 | SIMD lanes | Investigated in a time-boxed spike, shipped if it is faster than the scalar path (D9; Kernel's fatal flaw; user decision TG1) | M12, which may land before the `v0.1.0` tag as an opt-in feature (user decision RL4) |
 | Python | After v0.1, own namespace + `compat` (user decision 7) | M16 |
@@ -468,7 +468,7 @@ conformance kit (VERIFICATION.md §10) and, where marked, a **zero-line core dif
 ```text
 v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
       ├─ M13 mixtures ────── M19 diagram geometry
-      ├─ M14 ice, IF97 water ─ M18 humid air (its chart drawn at M21.11); M26 the rest of IF97 on demand
+      ├─ M14 ice, IF97 water ─ M18 humid air (its chart drawn at M21.11); M27 the rest of IF97 on demand
       ├─ M21 site: M21.1, M21.7, M21.2, M21.8, M21.9, M21.3, M21.4, M21.10 landed, M21.5 after M13, M21.6 after M19,
       │  M21.11 and M21.12 after M18
       └─ M12 SIMD spike, M16 Python, M17 INCOMP; on demand: Tier B shim, WIT, network service, materials
@@ -491,7 +491,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M23 | core `math` | After M13 closes (the core is frozen until `m13`, MX2); independent of M22 | In-house `exp`, `ln`, `pow` and `expm1` under 1 ulp, ported from Arm's optimized-routines, one code for the scalar path and the lanes; every build's maths if they pass M9.5's rule, so `simd` leaves `libm`; then an opt-in `fast` feature with FMA on every target (user decisions IM1-IM5, IM7-IM11), nine steps: [M23 In-house maths](#m23-in-house-maths) | Under 1 ulp on the reference values (IM3); lanes bitwise at every dispatch level; each committed hash one across the four targets; M9.5's rule applied and recorded (IM1); G1-G9, and G1-G8 with `--features simd` and with `--features fast` |
 | M24 | compat, capi, wasm, mix, core | The user's word, 2026-10-18, before `v0.1.0` (user decision PH1) | Panics at the facades (issue #219): fault injection along every C export's path, the browser package's panic hook, and clippy's `indexing_slicing` and `arithmetic_side_effects` denied in the crates it reaches: [M24 Panics at the facades](#m24-panics-at-the-facades) | The fault-injection tests; clippy clean with both lints; `gates perf` |
 | M25 | xtask, `.gitattributes`, docs | The user's word, 2026-10-18, beside M24; its mutants step after `m24` (user decision LM6) | Lists that merge, kept as text (LM1): `ci/test-counts.txt` by a merge driver, ROT ids unique and the register merged by union, one file per decision section, mutant exclusions as markers in the code: [M25 Lists that merge](#m25-lists-that-merge) | Each step's red tests; G1-G8; `actionlint` clean |
-| M26 | `phasekit-iapws` | A steam use case (user decision HA1) | The rest of IF97: region 2 above 623.15 K with the B23 boundary, region 3 (SR3-03's backward v(T, p) refined by Newton, ROT-241) and region 5, the backward equations for HP, PS and HS, IF97's transport (R12-08, R15-11), and `IF97::Water` by name in compat, C and the browser package (HA5); map 07 §9's `if97-*` units | Zero-line core diff; R7-97(2012)'s other tables and SR3-03 Table 5; the `if97` oracle kind over all five regions |
+| M27 | `phasekit-iapws` | A steam use case (user decision HA1) | The rest of IF97: region 2 above 623.15 K with the B23 boundary, region 3 (SR3-03's backward v(T, p) refined by Newton, ROT-241) and region 5, the backward equations for HP, PS and HS, IF97's transport (R12-08, R15-11), and `IF97::Water` by name in compat, C and the browser package (HA5); map 07 §9's `if97-*` units | Zero-line core diff; R7-97(2012)'s other tables and SR3-03 Table 5; the `if97` oracle kind over all five regions |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
@@ -628,7 +628,7 @@ ARCHITECTURE.md §11): ice Ih (IAPWS R10-06(2009)) with its sublimation curve (R
 and 4 below 623.15 K (R7-97(2012)) as one `Fluid`, liquid, vapour and saturation (user decisions HA1, HA4). Neither is
 named in compat's strings: they are Rust functions, `if97()` and `ice(water, data_set)`, reached from strings through
 humid air (HA5). IF97's region 2 above 623.15 K, regions 3 and 5, its backward equations and the name `IF97::Water` are
-M26's. **Entry.** The user's word, 2026-10-20, as M18's prerequisite (HA1). The steps merge in order when green, in
+M27's. **Entry.** The user's word, 2026-10-20, as M18's prerequisite (HA1). The steps merge in order when green, in
 three PRs, a commit and a `Plan-Step:` footer each (as LM7 bundled M25's): M14.1 alone, since it changes the core;
 M14.2 and M14.3; M14.4 and M14.5. **Prerequisites.** User decisions HA1, HA4-HA6; M14.1's core seam, after which
 `m14-start` is tagged and the core stays frozen to M18's close (HA6). **Arbiters**, all free from IAPWS (attribution
