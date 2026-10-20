@@ -957,7 +957,7 @@ VTPR/UNIFAC, mixture transport (map 05 U14), an expression DSL (map 05 U11).
 | `HAPropsSI` | Tier A shim stub until the humid-air milestone | Returns `_HUGE` and sets a documented "not available" `errstring`; the symbol exists so hosts that bind every symbol at load time still load (D11) |
 | Emscripten JS build | `phasekit-wasm` (wasm-bindgen, baseline + `simd128` with lanes; `fluids-core` + `withPack`) | First browser build of any CoolProp port (P12) |
 | Python `CoolProp` | `phasekit-py` after 0.1 (pyo3 0.29 abi3, R16) | Import name `phasekit`; `phasekit.compat.PropsSI(...)` for migration; never the `CoolProp` name, so both install side by side (D11) |
-| CoolPropPlot | M19, after M13 (mixtures): diagram geometry in a separate crate, which the site draws (PLAN.md M21) | §1; domes, isolines and envelopes as polylines over saturation, `flash` and batch; no drawing code in the library (user decision WS4) |
+| CoolPropPlot | M19, after M13 (mixtures): diagram geometry in `phasekit-diagram`, which the site draws (PLAN.md M21; user decision DG1) | §1; domes, isolines and envelopes as polylines and the phase regions as polygons over saturation, `flash` and batch, a mixture's envelope passed in as data; no drawing code in the library (user decisions WS4, DG2, DG3) |
 
 Legacy policies stay in compat (map 14): PropsSI fills +inf, HAPropsSI raises on the first bad point, and
 PropsSImulti returns `[]`. `FillPolicy::{Error, Inf, Nan}` selects one; the kernel never has a legacy mode. Compat has

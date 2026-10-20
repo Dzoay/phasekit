@@ -483,7 +483,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M16 | `phasekit-py` | v0.1 + demand | pyo3 abi3 wheels, import name `phasekit`, `phasekit.compat.PropsSI(...)`, GIL released around kernel calls, NumPy `(N, M)` point-major (user decisions 7, 11; R16) | map 14 U1 Python-contract fixtures for the compat surface; installs beside `CoolProp` |
 | M17 | `phasekit-incomp` | v0.1 + demand | INCOMP fits as a `ThermoModel`, placeholders rejected at datagen, `Example*` fluids excluded, restricted data off by default (map 07 §9; D14) | Source tables; known-bad register (map 07 I1-I14) |
 | M18 | `phasekit-humidair` | M14 done (ice) | RP-1485 humid air on injected Water, Air and ice `Fluid`s (map 07 H3); HA strings in compat; the shim's real `HAPropsSI` replaces the stub; `pk_*` gains humid-air symbols (D11) | RP-1485 tables (map 10 §8.1, ~120 values); `HAPropsSI("H","T",300,"P",1e5,"R",0) = 27013.112479771713` (map 11 §8) |
-| M19 | a diagram-geometry crate (T1f), named at its plan | M13 done (user decision 13) | Geometry, not drawing (user decision WS4): saturation domes, isolines of T, p, h, s, ρ and quality on the p–h, T–s, p–T, T–ρ and h–s planes, split at the dome and at failed cells, sampled more densely where a line bends, with labels and ranges; M13's phase envelopes; over saturation, `flash` and batch; the browser package serves it to the site (M21.6) | Every vertex reproduces its line's value within `Flash`; a line's dome crossings are the saturation states at its value (`Exact` against `QT` or `PQ`); M21.2's checks pass on its geometry; the site's screenshots re-approved at M21.6 |
+| M19 | `phasekit-diagram` (T1f; user decision DG1) | M13 done (user decision 13); the user's word, 2026-10-20 | Geometry, not drawing (user decision WS4): saturation domes, isolines of T, p, h, s, ρ and quality on the p–h, T–s, p–T, T–ρ and h–s planes, split at the dome and at failed cells, sampled more densely where a line bends, with labels and ranges; M13's phase envelopes, passed in as data (DG3); the phase regions (DG2); over saturation, `flash` and batch; the browser package serves it to the site (M21.6); six steps: [M19 Diagram geometry](#m19-diagram-geometry) | Every vertex reproduces its line's value within `Flash`; a line's dome crossings are the saturation states at its value (`Exact` against `QT` or `PQ`, and `QS`, `HQ` or `DQ`); M21.2's checks pass on its geometry; the site's screenshots re-approved at M21.6 |
 | M20 | core, compat, verify, CI | M12 landed (user decision PL1) | Four follow-ups: Cv, Cp, w, τ and δ as derivative variables; the conformance kit's `identities` and `part_additivity`; the intra-doc link check; the nightly report: [M20 Follow-ups](#m20-follow-ups) | Each step's checks; G1-G8 |
 | M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19, mutation testing of the site's code, picking states on the diagrams, phase regions, how a property is calculated; ten steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
 | M22 | `phasekit-mix`, core `batch` and `ThermoModel` | After M13 closes (user decision ML2) | Mixtures in lanes: α^r and α⁰ batches at fixed z through the components' lane kernels with the departures in lanes, hinted DT batches through a group hook on `ThermoModel`, the `simd128` build, then a time-boxed spike putting a flash's two phases and its stability test's trial phases in lanes; core runs a family's kernels over `Real` in its private lanes (user decisions ML1, ML3, ML5), eight steps: [M22 Mixture lanes](#m22-mixture-lanes) | Each kernel ships if faster than the scalar path (ML4); `policy_equivalence` bitwise at every dispatch level; G1-G9, and G1-G8 with `--features simd` |
@@ -619,6 +619,97 @@ ROT-210 (M13.6); ROT-187 (M13.7); ROT-009, ROT-181, ROT-183, ROT-186 (M13.8); RO
 ROT-190 (M13.10); ROT-184, ROT-201, ROT-293 (M13.11); ROT-188, ROT-189 (M13.12); ROT-196, ROT-292 (M13.13). **User
 decisions implemented.** MX1-MX7; 4 (the `.mix` variants).
 
+### M19 Diagram geometry
+
+**Goal.** The geometry of the five diagrams, computed by the library so that the site's page adds no numerics and any
+other host (M16's Python with matplotlib) draws the same lines: saturation domes, isolines, a mixture's envelope and the
+phase regions, as polylines and polygons whose every vertex is a state the library computed, in a new crate,
+`phasekit-diagram` (user decisions WS4, DG1, DG2). It draws nothing. A line's label is its held quantity and value, a
+region's its phase; where a label goes depends on the zoom and the font, so placing it stays in the site
+(`site/src/diagram/model.ts`), as do the colours and the shown units. **Entry.** M13 closed (`m13`; user decision 13);
+the user's word, 2026-10-20. The steps merge in order when green: M19.1 and M19.2 in one PR, M19.3 and M19.4 in another,
+a commit and a `Plan-Step:` footer each, then M19.5 and M19.6 in a PR each (DG4). **Prerequisites.** User decisions WS4
+and DG1-DG4; M13.12's envelope; the site's samplers, whose behaviour M19 takes over and whose tests it ports:
+`site/src/sample/{diagrams,ranges,lines}.ts` (M21.2, M21.4), `envelope.ts` (M21.5) and `regions.ts` (M21.9 and #253).
+M19 does not move `MILESTONE`.
+
+The crate depends on `phasekit-core` alone and uses only its public API, never `phasekit_core::internal` (T1f; DG3): the
+fluid's constants and limits (`Fluid::constant`, which `Props1SI` reads), the batch (`batch::evaluate`, under the
+caller's `FlashOptions` and `ExecPolicy`) and the flash. A step that needs core to change stops and re-plans (section
+0.4). Each diagram is one function of a `Fluid` and a plane, or of a fluid alone for the regions, which serve every
+plane, and returns plain data: per line its held quantity and value and its segments, each one-phase or two-phase, each
+vertex its x and y and the input pair and values it was computed at. **Arbiters.** M19 adds no thermodynamics, so its
+arbiter is the library: a vertex is the batch's value at its inputs (`Exact`); flashed again from its plane's
+coordinates, where they name one state (on p–T a two-phase state does not), it gives back its line's value within
+`Flash`; where a line meets the dome, its vertex is the saturation state at the line's value, `Exact` against `QT`,
+`PQ`, `QS`, `HQ` or `DQ`. The tests run on the five embedded fluids and the pseudo-pure Air and R410A (`fluids-all` in
+the crate's dev-dependencies). The ranges, the isoline values and the refinement's rule are definitions, checked as they
+are stated.
+
+- **M19.1 The crate, its planes and the dome.** `phasekit-diagram`, with a row in `gates deps` (it and core, nothing
+  else), a root in `gates lints`' hardened list (the browser package reaches it, M24) and a row in ARCHITECTURE.md §2's
+  crate table. The five planes, from `diagrams.ts`: p–h, T–s, p–T, T–ρ and h–s, their axes, which of them are
+  logarithmic (p and ρ), the isoline families each draws and the quantity each family sweeps. The ranges, from
+  `ranges.ts`: T from the greater of T_min and the triple point's to the lesser of T_max and 1.6 T_c, p from the greater
+  of the triple point's and p_c/10⁴ to the lesser of P_max and 10 p_c; each family's values strictly inside its range,
+  1-2-5 per decade for p and ρ while that is at most 12 lines and decades past that, nice linear ticks for the rest
+  (tenths for quality). The dome: the saturated liquid and vapour by the `QT` batch at Q = 0 and 1 (a pseudo-pure
+  fluid's bubble and dew sides) from the saturation temperature of the lowest plotted pressure, or the lowest T if that
+  is higher, to just below T_c, closing in on it; the critical point by (T_c, ρ_c); a failed cell left out. An axis of
+  h, s or ρ spans the dome's and the range's corners' values. *Red:* the site's `ranges` and `dome` tests in Rust, and
+  `dome_vertices_are_the_qt_batch` (`Exact`), against functions that return `Error::Unsupported`.
+- **M19.2 Isolines.** Each family's lines on M21.2's fixed grids (160 points a sweep, linear in T, logarithmic in p;
+  M19.3 replaces them). An isotherm or isobar is one-phase on either side of its `QT` or `PQ` saturation states, and
+  between them two-phase along Q, entered from the side its sweep comes from; above the critical point it crosses
+  nothing. An isentrope, isenthalp or isochore is swept by `PS`, `HT`, `DP` or `DT`, two-phase where the batch defines
+  Q, its dome edges the states `QS`, `HQ` or `DQ` give at Q = 0 and 1. A quality line runs across the dome's
+  temperatures. A failed cell ends a segment, a lone vertex draws nothing, and an edge vertex ends one segment and
+  starts the next, so a line runs on through the dome's edge and never joins across a gap. *Red:*
+  `a_vertex_gives_back_its_lines_value` (`Flash`), `dome_crossings_are_the_saturation_states_at_the_lines_value`
+  (`Exact`), and the site's `segments`, `cells` and `shapes` tests in Rust (an isotherm enters the dome from the vapour,
+  an isobar from the liquid; a saturation the batch only partly gives is no crossing).
+- **M19.3 Sampled where a line bends.** Each piece of a line, and each side of the dome, starts on 32 points of its
+  sweep and is refined: an interval is halved while its midpoint's vertex lies farther than 10⁻³ from the chord in the
+  plane's unit square (each axis scaled to its range, a logarithmic one in its logarithm), at most 6 times *(decision)*;
+  one batch call takes a level's midpoints. An interval with one failed end is halved to the same depth, so a gap's edge
+  lies within 1/64 of a starting interval of where the library stops answering. Refinement is deterministic: a fluid and
+  a plane always give the same vertices. *Red:* `every_interval_is_within_the_chord_tolerance` (or at the depth) and
+  `a_gap_ends_within_the_depths_resolution`, against M19.2's fixed grids; M19.2's tests hold. The PR records each
+  plane's vertex count and time beside M19.2's.
+- **M19.4 A mixture's envelope.** The crate takes the traced envelope as data (DG3): T, p, the feed's mass density and
+  each point's side in the trace's order, and the critical point the trace passed. On p–T and T–ρ, the bubble side runs
+  toward the critical point and the dew side away from it, as a pure fluid's dome does; the model's critical point
+  (`Fluid::constant`) is drawn on it where the trace passed one; each axis spans the envelope, a logarithmic one widened
+  by 2 each way, a linear one by a tenth of its span. The other planes are `Unsupported`, and so is a trace without a
+  point, with the trace's reason. *Red:* `envelope.ts`'s tests in Rust, the traces built by `phasekit-mix`, a
+  dev-dependency only: every vertex `Exact` against the trace; every vertex the `QT` or `PQ` flash answers that flash's
+  state within `Flash` (35 of R410A's 51 at M21.5; issue #257); the model's critical point within TM15's 0.02 K and 2
+  kPa of the trace's crossing.
+- **M19.5 Phase regions.** `regions.ts` in Rust, one sampling a fluid, each corner carrying T, p, h, s and ρ so that
+  every plane reads its axes from it. The edges are the dome; the critical isotherm, and the critical isobar closing in
+  on T_c; the isotherm at T_max, the isobar at P_max and the isobar at the lesser of the range's lowest pressure and
+  half the saturation pressure at the lowest T; and the cold edge, on each of 48 isobars either side of p_c the lowest
+  temperature with a state, by 12 halvings, which follows the melting line where the library has one, and below p_c
+  stays under the bubble temperature, since a pseudo-pure fluid has no state between its bubble and dew temperatures
+  (#253). Each region's phase is the library's (`State::phase`) at a state inside it; a region whose phase the library
+  refuses is left out, and the edges join across a critical point it refuses. On M21.9's grids; M19.3's refinement does
+  not reach the regions. *Red:* `regions.ts`'s tests in Rust: inside each region, clear of its edges, the library's
+  phase is the region's; the cold edge halves only the isobars refused at the lowest T and follows the melting line; a
+  pseudo-pure fluid's cold edge stays on the liquid side of its dome; the critical lines run through the critical point.
+- **M19.6 The browser package, and M19 closed.** `planes()` (each plane's axes, which are logarithmic, and its families,
+  so that the site keeps no copy), `Fluid.diagram(plane)` (a mixture's: its envelope, filled from `phasekit-mix`'s) and
+  `Fluid.regions()`, as typed arrays; `gates features` lets `phasekit-diagram` into the browser package's tree, and
+  `size-budget.txt`'s two budgets are re-measured (SL8). *Red:* the browser package's Node tests on both builds,
+  M19.2's, M19.4's and M19.5's checks through the exports, against exports that return the typed "not yet" error. The PR
+  records each plane's time under Node beside the site's samplers on `main`. ROT-175's mechanism names the crate. Tag
+  `m19` with the user's approval.
+
+**Exit gate.** G1-G9 at every step; every vertex gives back its line's value within `Flash`; every dome crossing is the
+saturation state at the line's value (`Exact` against `QT`, `PQ`, `QS`, `HQ` or `DQ`); a mixture's envelope `Exact`
+against its trace; each region's phase the library's; `gates deps` holds the crate to core; the browser package's
+budgets hold. M21.2's checks and the screenshots then run on the geometry at M21.6. **ROT rows.** None. **User decisions
+implemented.** WS4, DG1-DG4.
+
 ### M20 Follow-ups
 
 **Goal.** The four follow-ups PLAN.md §6 had left unplanned (user decision PL1). **Entry.** After M12 lands; the steps
@@ -670,9 +761,11 @@ contrast ratio. M21 does not move `MILESTONE`.
 | M21.9 | Phase regions on the diagrams (the user's request, 2026-10-16), behind a toggle in the URL (`regions=1`): each region a polygon edged by the package's lines (`site/src/sample/regions.ts`): the dome, the critical isotherm and isobar, the isotherm and isobars that bound the range (T to `T_max`; p from half the saturation pressure at the lowest T to `P_max`), and on the cold side each isobar's lowest temperature with a state, found by bisection, which follows the melting line where the package has one; sampled once per fluid by the batch with every diagram's axes among its outputs (34 to 46 calls, 20 to 180 ms in Node); each region's phase the package's at a state inside it, so the page names none. The tints are drawn softened under the lines, each line on a halo of the surface, the critical isotherm and isobar sharp over them; each region is named at the deepest point of its part in the plot where the name fits (`site/src/diagram/geometry.ts`), zoom frames still at Chromium's 16.7 ms. Re-planned before it started: classifying the plot's cells by the readout pair took 15 s on T–s and 106 s on h–s |
 | M21.10 | How a property is calculated (the user's request, 2026-10-17): `#/how-it-works`, the property pipeline of `phasekit-core` in four static figures traced from `flash.rs`, `flash/phase.rs`, `fluid.rs`, `state.rs` and `batch.rs`: one PT call from the registry to the outputs, the 19 pairs over the three primitives their iterates come down to, the phase rule, and a batch under `Reference` and `Simd`; a table of what loads when. The figures are inline SVG drawn from data (`site/src/pages/HowItWorks.svelte`), themed by the page's tokens with the Helmholtz model in the accent, and scroll in their own frames on a phone, where the header's links now take their own row. The page computes nothing, so its arbiter is the source it was traced from. Loaded on first visit; the budget 96 289 B + 10 % |
 
-- **M21.6 The diagrams from M19.** The diagrams take their domes, isolines and envelopes from M19's geometry through
-  the browser package, and `site/src/sample/` is deleted. *Red:* M21.2's checks on M19's geometry, run first against
-  the package without its export. *Done when:* G1-G9; the screenshots re-approved in the PR.
+- **M21.6 The diagrams from M19.** The diagrams take their domes, isolines, envelopes and phase regions from M19's
+  geometry through the browser package (`planes()`, `Fluid.diagram`, `Fluid.regions`; M19.6), and `site/src/sample/`
+  is deleted, its sweeps (M21.3) moved beside the page that draws them (user decision DG2). *Red:* M21.2's, M21.5's
+  and M21.9's checks on the geometry the page draws, and a diagram or its regions drawn from one engine call and no
+  batch, run first against the page's samplers. *Done when:* G1-G9; the screenshots re-approved in the PR.
 
 **Exit gate.** G1-G9 at every step; the page deployed from `main` at each merge; every value on the page equals the
 package's (`Exact`); M21.1's budget and SL8's wasm budgets hold; `reuse lint` and `actionlint` clean. **ROT rows.**
