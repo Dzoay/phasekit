@@ -480,7 +480,12 @@ its libm/std median-time ratios over six scalar benches (α^r order 2, propertie
 the §12 bench fluids) is ≤ 1.05 with none above 1.10. Bit-identity holds (`fixtures/hash/libm.txt`, asserted on all
 four targets). The cost does not, on the laptop (user decision RM2; criterion medians, three interleaved rounds, 2026-10-13):
 `libm` is 1.44 times std (glibc) in geometric mean, from 1.35 (properties at (T, ρ)) to 1.53 (PH) per bench and 1.20 to
-2.04 per fluid, Water the dearest.
+2.04 per fluid, Water the dearest. M23.6 applied the rule again once the `libm` build ran core's own `exp`, `ln`, `pow`
+and `expm1` (user decision IM1), on the quiet i7-8700K (three interleaved rounds, 2026-10-20): 1.056 in geometric mean,
+from 1.034 (PH) to 1.091 (α^r order 2) per bench and 0.97 to 1.18 per bench and fluid, seven above 1.10, Water the
+dearest (α^r 1.18, PT 1.16) and n-Propane the cheapest. So the default keeps std, and `simd` keeps enabling `libm`.
+Per call core's `pow` takes 19.1 ns to glibc's 9.8, which Water's α^r leans on, while its `expm1` is the faster
+(4.9 ns to 6.8; `math_per_call`, M23.5's record).
 With `libm`, results are the same bits on every target; without it, each target's maths library gives its own
 (VERIFICATION.md §5's classes absorb the difference). *Rejected:* an
 error type per layer (the winner had four); a NaN mode in core (P9); bit-exact oracle parity (K18); stating libm
