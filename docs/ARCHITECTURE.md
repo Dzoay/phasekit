@@ -112,7 +112,7 @@ signatures are the code's; this section keeps what the code cannot say: why each
 | `Real` | `num.rs` | sealed; `f64` and `Jet4` only (and the crate-private `Jet2` and `Lanes<W>`, M9.2a, M12.2), so methods can be added without a break (S-02, E16) |
 | `Derivs<R>`, `Bundle`, `PointDerivs` | `derivs.rs` | reducing-invariant A_ij to order 4; `Bundle` is the order-2 slice a `State` stores |
 | `HelmholtzModel` | `helmholtz/mod.rs` | object-safe, `Send + Sync`, in (T, ρ); `zero_density` exact or `None` |
-| `ThermoModel` | `model.rs` | object-safe, `Any + Send + Sync`; its flash sees a validated molar `NativeInput`, never a gauge |
+| `ThermoModel` | `model.rs` | object-safe, `Any + Send + Sync`; its flash sees a validated molar `NativeInput`, never a gauge; `flash_many`, which the batch calls under `Simd`, is each point's `flash` bit for bit (K17, ML5) |
 | `PureFluid`, `Fluid` | `fluid.rs` | immutable once built, lazy parts behind `LazyLock`; `Fluid` converts each `Input` exactly once |
 | `Input`, `Pair` (`pairs!`) | `input.rs` | one 19-line table; `Input::new` is the one raw gate |
 | `State`, `from_total`, `from_split` | `state.rs` | `Copy`, at most 256 B; validated on construction |
@@ -306,8 +306,8 @@ R4); porting CoolProp's `all()` (rot R5 itself).
 **D3 Model representation.** Inside the multiparameter family, the set is closed: term kinds are an enum of SoA
 blocks, `match`ed once per block; unknown kinds are a `LoadError`. Across families it is open through two object-safe
 model traits:
-- `HelmholtzModel` (4 required methods, 1 defaulted) is the EOS seam, in (T, ρ), returning reducing-invariant bundles.
-- `ThermoModel` (3 required, 6 defaulted) is the package seam, held by the registry, batch, compat, C and WASM.
+- `HelmholtzModel` (4 required methods, 4 defaulted) is the EOS seam, in (T, ρ), returning reducing-invariant bundles.
+- `ThermoModel` (3 required, 10 defaulted) is the package seam, held by the registry, batch, compat, C and WASM.
 
 Two plug-in traits (`SaturationCurve`, `DataSource`), the sealed `Real` and `batch::RealKernel` (M22.2; user
 decision ML3) make six traits in all. `PureFluid` is the
@@ -690,21 +690,22 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      gathered into `Lanes<W>` a group at a time at the widths `exec::dispatch` picks for any batch, so a family reaches
      the lanes without a public lane type (user decision ML3); α^r and α⁰ through `HelmholtzModel::residual_batch` and
      `ideal_batch`, and a DT batch of `batch::evaluate` under `ExecPolicy::Simd` on a Helmholtz fluid, which the driver
-     reaches through `ThermoModel`'s `Any`, as the ECS transport does. Its points' total bundles are evaluated in lanes,
-     64 points at a time, and each point's flash then runs on its own bundle, so the phase rule, the domain checks, a
-     state inside the dome and the outputs are each point's scalar path. On the i7-8700K (M12.8's record) a DT batch of
-     h and c_p takes n-Propane 394 ns per state under `Simd` on AVX2, 2.23× the `libm` scalar path's 878 ns and 1.65×
-     std's 649 ns, and Methane 558 ns (2.34× and 1.61×). The rest of a point runs on `libm` at scalar speed, so a fluid
-     whose α⁰ or α^r keeps terms per lane gains less: R134a 417 ns (1.59× over `libm`; two `powf` a state), n-Heptane
-     445 ns (1.28×; its Aly-Lee terms are generalised Planck-Einstein ones, run lane by lane) and Water 1661 ns (1.58×,
-     above std's 1349 ns; its α^r's non-analytic terms run lane by lane). A QT or PQ batch (M12.9) takes its points'
-     saturations from the curve's `SaturationCurve::at_t_batch` or `at_p_batch`, the superancillary's Clenshaw sums in
-     lanes, and both phases' bundles in lanes, grouped by order (1 strictly inside the dome, 2 at Q = 0 and 1; user
-     decision PF1); each point's two-phase state is then built as the scalar path builds it. A pseudo-pure fluid's
-     curve, which only defines or seeds saturation, runs each point's scalar path. On the i7-8700K (M12.9's record) QT +
-     h takes n-Propane 574 ns per state under `Simd` on AVX2, 2.59× the `libm` scalar path's 1488 ns and 1.76× std's
-     1011 ns, and Methane 737 ns (2.85× and 1.91×); PQ + h n-Propane 742 ns (2.37× and 1.64×). As in DT, R134a (1.75×
-     over `libm`), n-Heptane (1.42×) and Water (1.58×, 3044 ns against std's 2425) gain less.
+     hands each group of up to 256 points through `ThermoModel::flash_many` (M22.4; user decision ML5), a mixture's
+     under a phase hint too. Its points' total bundles are evaluated in lanes, 64 points at a time, and each point's
+     flash then runs on its own bundle, so the phase rule, the domain checks, a state inside the dome and the outputs
+     are each point's scalar path. On the i7-8700K (M12.8's record) a DT batch of h and c_p takes n-Propane 394 ns per
+     state under `Simd` on AVX2, 2.23× the `libm` scalar path's 878 ns and 1.65× std's 649 ns, and Methane 558 ns (2.34×
+     and 1.61×). The rest of a point runs on `libm` at scalar speed, so a fluid whose α⁰ or α^r keeps terms per lane
+     gains less: R134a 417 ns (1.59× over `libm`; two `powf` a state), n-Heptane 445 ns (1.28×; its Aly-Lee terms are
+     generalised Planck-Einstein ones, run lane by lane) and Water 1661 ns (1.58×, above std's 1349 ns; its α^r's
+     non-analytic terms run lane by lane). A QT or PQ batch (M12.9) takes its points' saturations from the curve's
+     `SaturationCurve::at_t_batch` or `at_p_batch`, the superancillary's Clenshaw sums in lanes, and both phases'
+     bundles in lanes, grouped by order (1 strictly inside the dome, 2 at Q = 0 and 1; user decision PF1); each point's
+     two-phase state is then built as the scalar path builds it. A pseudo-pure fluid's curve, which only defines or
+     seeds saturation, runs each point's scalar path. On the i7-8700K (M12.9's record) QT + h takes n-Propane 574 ns per
+     state under `Simd` on AVX2, 2.59× the `libm` scalar path's 1488 ns and 1.76× std's 1011 ns, and Methane 737 ns
+     (2.85× and 1.91×); PQ + h n-Propane 742 ns (2.37× and 1.64×). As in DT, R134a (1.75× over `libm`), n-Heptane
+     (1.42×) and Water (1.58×, 3044 ns against std's 2425) gain less.
   5. The browser package (M12.10, user decision SL8). WASM has no run-time detection, so `simd128` is a second build
      (K11, K15), with `phasekit-wasm`'s `simd` feature, which enables core's: a feature rather than a
      `cfg(target_feature = "simd128")` dependency, which cargo-about's notices cannot see. Its batch runs

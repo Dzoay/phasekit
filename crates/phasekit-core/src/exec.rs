@@ -37,8 +37,9 @@ pub enum ExecPolicy {
     /// α^r and α⁰ through the built-in EOS's `HelmholtzModel::residual_batch` and `ideal_batch`, the superancillary's
     /// saturations through `SaturationCurve::at_t_batch` and `at_p_batch`, and, through `batch::evaluate`, the total
     /// bundles of a DT batch and the saturations and phases' bundles of a QT or PQ batch of a Helmholtz fluid (PLAN.md
-    /// M12.8, M12.9), and a family's [`RealKernel`] through `batch::run_kernel` (M22.2). Other batches, and the rest of
-    /// each point's flash, run the scalar path. With the `simd` feature
+    /// M12.8, M12.9), what a model's `ThermoModel::flash_many` evaluates side by side (a mixture's hinted DT, M22.4),
+    /// and a family's [`RealKernel`] through `batch::run_kernel` (M22.2). Other batches, and the rest of each point's
+    /// flash, run the scalar path. With the `simd` feature
     /// the lanes run at the CPU's widest level, detected once per batch, four vectors to a lane operation (32 lanes on
     /// AVX-512, 16 on AVX2, 8 below; PLAN.md M12.4, M12.7); without it, two lanes at the target's baseline, a measured
     /// win over the scalar path (M12.3). Each lane is its state's scalar evaluation, and a short last group is padded

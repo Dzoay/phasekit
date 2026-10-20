@@ -95,7 +95,7 @@ fn out_is_point_major() {
 /// whose total bundles the built-in EOS evaluates in lanes, are `Reference`'s, every cell and status bit for bit
 /// (`policy_equivalence`, K17). The points are [`dt_grid`]'s, in-dome states and refusals included, under the default
 /// options, `Extrapolate` and an imposed gas; prefixes of 0 to 17 points and the whole set take every remainder of the
-/// lanes and of the driver's groups.
+/// lanes and of the fluid's groups of 64 in its group hook.
 #[test]
 fn dt_batch_policy_equivalence() {
     let registry = Registry::embedded().unwrap();
@@ -515,6 +515,63 @@ fn assert_shapes_are_refused(name: &str, eos: &dyn HelmholtzModel, (t, rho): (&[
     }
     assert!(eos.residual_batch(&[], &[], Order::Two, &mut [], parallel).is_ok(), "{name}: empty batch");
     assert!(eos.ideal_batch(&[], &[], Order::Two, &mut [], ExecPolicy::Simd).is_ok(), "{name}: empty α⁰ batch");
+}
+
+/// PLAN.md M22.4 (VERIFICATION.md §9.2, class `Exact`; user decision ML5): DT batches of M22's bench mixtures under a
+/// phase hint, which a mixture's `ThermoModel::flash_many` evaluates side by side, are `Reference`'s under `Simd`, every
+/// cell and status bit for bit (`policy_equivalence`). The points lie between half and twice each mixture's reducing
+/// temperature and up to twice its reducing density, and the gate or the model refuses some: a NaN T, a negative ρ,
+/// and temperatures outside the mixture's limits under `Enforce` (evaluated and flagged under `Extrapolate`). The hint is
+/// gas or liquid; prefixes of 0 to 17 points, and the whole set of 300, a full group of the driver's 256 points and a
+/// partial one.
+#[test]
+fn hinted_mixture_dt_batches_are_per_point() {
+    let mut rng = SplitMix64::new(16);
+    let mut batches = 0;
+    for (label, fluid) in bench_mixtures() {
+        let r = fluid.model().helmholtz().unwrap().reducing().unwrap();
+        let (mut rho, mut t): (Vec<f64>, Vec<f64>) =
+            (0..296).map(|_| (rng.uniform(0.0, 2.0) * r.rho, rng.uniform(0.5, 2.0) * r.t)).unzip();
+        rho.extend([r.rho, -1.0, r.rho, r.rho]);
+        t.extend([f64::NAN, r.t, 1.0, 1e5]);
+        batches += assert_hinted_dt_policy_equivalence(label, &fluid, (&rho, &t));
+    }
+    assert_eq!(batches, BENCH_MIXTURES.len() * 2 * 2 * 19);
+}
+
+/// PLAN.md M22.4 (VERIFICATION.md §9.2, class `Exact`): PT batches of M22's bench mixtures under a phase hint, which a
+/// mixture's `ThermoModel::flash_many` runs point by point (only a hinted DT group goes side by side), are `Reference`'s
+/// under `Simd`, every cell and status bit for bit: 1, 10 and 30 bar at 1.1, 1.3 and 1.5 times the reducing
+/// temperature, under the gas hint.
+#[test]
+fn hinted_mixture_pt_batches_are_per_point() {
+    let opts = FlashOptions::new().with_phase(Phase::Gas);
+    for (label, fluid) in bench_mixtures() {
+        let t_r = fluid.model().helmholtz().unwrap().reducing().unwrap().t;
+        let (p, t): (Vec<f64>, Vec<f64>) =
+            [1e5, 1e6, 3e6].iter().flat_map(|p| [1.1, 1.3, 1.5].map(|f| (*p, f * t_r))).unzip();
+        let req = BatchRequest::new(Pair::PT, Basis::Molar, &p, &t, &OUTPUTS).with_flash(opts);
+        let equal = policy_equivalence(&fluid, &req, ExecPolicy::Simd);
+        assert!(equal.is_ok(), "{label}: {equal:?}");
+    }
+}
+
+/// [`hinted_mixture_dt_batches_are_per_point`]'s batches of one mixture: each hint and domain policy, each prefix;
+/// returns the batches compared.
+fn assert_hinted_dt_policy_equivalence(name: &str, fluid: &Fluid, (rho, t): (&[f64], &[f64])) -> usize {
+    let mut batches = 0;
+    for phase in [Phase::Gas, Phase::Liquid] {
+        for domain in [DomainPolicy::Enforce, DomainPolicy::Extrapolate] {
+            let opts = FlashOptions::new().with_phase(phase).with_domain(domain);
+            for n in (0..=17).chain([rho.len()]) {
+                let req = BatchRequest::new(Pair::DT, Basis::Molar, &rho[..n], &t[..n], &OUTPUTS).with_flash(opts);
+                let equal = policy_equivalence(fluid, &req, ExecPolicy::Simd);
+                assert!(equal.is_ok(), "{name} {phase:?} {domain:?}, {n} points: {equal:?}");
+                batches += 1;
+            }
+        }
+    }
+    batches
 }
 
 /// A kernel over `Real` that uses every method and operator of `Real`, its counts set at run time: output j combines

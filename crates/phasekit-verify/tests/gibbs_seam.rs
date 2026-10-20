@@ -8,13 +8,13 @@
 use std::sync::Arc;
 
 use phasekit_compat::props_si_in;
-use phasekit_core::batch::{self, BatchRequest, Status};
+use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
 use phasekit_core::{
     Basis, Capabilities, DataTerms, DerivVar, Enthalpy, Entropy, Error, FlashOptions, Fluid, FluidInfo, GibbsDerivs,
     Input, ModelKey, NativeInput, Pair, Partial, Phase, Pressure, Prop, Quality, ReferenceState, Registry, Source,
     State, Temperature, ThermoModel, bundle_from_gibbs, math,
 };
-use phasekit_verify::gauge_invariance;
+use phasekit_verify::{gauge_invariance, policy_equivalence};
 
 /// Any positive scale works: the transform's R cancels in every property.
 const R: f64 = 8.314_462_618;
@@ -137,6 +137,9 @@ fn solid_reaches_registry_batch_compat_and_reference_states() {
     let (mut out, mut status) = ([0.0; 6], [Status::Ok; 6]);
     batch::evaluate(ice, &req, &mut out, &mut status).unwrap();
     assert_eq!(status, [Status::Ok, Status::Ok, Status::Undefined, Status::Ok, Status::Ok, Status::Undefined]);
+    // Under `Simd` the batch hands the points to the family's `ThermoModel::flash_many`, here the trait's default, each
+    // point's flash (PLAN.md M22.4).
+    assert_eq!(policy_equivalence(ice, &req, ExecPolicy::Simd), Ok(()));
 
     // IAPWS-like anchor: h = −333.43 kJ/kg, s = −1.22 kJ/(kg K) at the normal melting point.
     let anchor = pt(101_325.0, 273.15);

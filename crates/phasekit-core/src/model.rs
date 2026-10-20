@@ -294,6 +294,19 @@ pub trait ThermoModel: Any + Send + Sync + fmt::Debug {
     /// The flash: a pure function of the model and its arguments. Returns a new `State` or a typed error.
     fn flash(&self, input: NativeInput, opts: &FlashOptions) -> Result<State, Error>;
 
+    /// The flash of a group of points: `out[k]` is [`flash`](Self::flash) of `inputs[k]`, each point through it by
+    /// default; points past the shorter slice are left as they are. Under `ExecPolicy::Simd` the batch driver calls it
+    /// for every model with the points its single gate passed (validated, molar, in the native gauge), in order, at most
+    /// 256 at a time, and writes each result back to its point's row: a refused point keeps its refusal and is
+    /// never in `inputs` (PLAN.md M22.4; user decision ML5). A family overrides it to evaluate the group side by side
+    /// (`PureFluid`'s DT, QT and PQ in core's lanes). An override must return each point's `flash` bit for bit (K17),
+    /// which the conformance kit's `policy_equivalence` checks for any family.
+    fn flash_many(&self, inputs: &[NativeInput], opts: &FlashOptions, out: &mut [Result<State, Error>]) {
+        for (input, out) in inputs.iter().zip(out) {
+            *out = self.flash(*input, opts);
+        }
+    }
+
     /// The model's own critical point (used for phase labels), if it has one.
     fn critical_point(&self) -> Option<CriticalPoint> {
         None

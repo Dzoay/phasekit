@@ -23,7 +23,12 @@
 //!   and the batch once. `components` and `components_simd`: every component's own `residual_batch` over its scaled
 //!   states. `no_departures` and `no_departures_simd`: the batch with every F set to 0, so the departures' share is the
 //!   batch's time less this one's.
+//! - `mixture_dt_batch` (PLAN.md M22.4): DT with h and c_p under the gas hint (`Strategy::Direct`) as one
+//!   `batch::evaluate` call on the same grid, reported per state; `scalar` under `ExecPolicy::Reference`, `simd` under
+//!   `ExecPolicy::Simd`, where the mixture's group hook evaluates the bundles side by side.
 //!
+//! Built without `simd`, each `simd` case is a `lanes` case (`<case>_lanes`): `ExecPolicy::Simd`'s two lanes at the
+//! target's baseline, the default build's lanes, whose measurement decides whether a kernel ships (user decision ML6).
 //! In the `libm` build, and so in the `simd` build, a case that is not `simd` is named `<case>_libm`
 //! (`backend::case`).
 
@@ -32,10 +37,10 @@ mod bench {
     use std::time::{Duration, Instant};
 
     use criterion::{BenchmarkId, Criterion, criterion_group};
-    use phasekit_core::batch::ExecPolicy;
+    use phasekit_core::batch::{self, BatchRequest, ExecPolicy, Status};
     use phasekit_core::math::BACKEND;
     use phasekit_core::{
-        Basis, DataSet, Derivs, FlashOptions, Fluid, HelmholtzModel, Input, Order, Pair, Phase, Registry,
+        Basis, DataSet, Derivs, FlashOptions, Fluid, HelmholtzModel, Input, Order, Pair, Phase, Prop, Registry,
     };
     use phasekit_mix::{Binary, Given, Mixture, MultiFluid, Side};
     use phasekit_verify::SplitMix64;
@@ -208,11 +213,13 @@ mod bench {
     }
 
     /// The policies a batch bench runs under: `Reference` as `case` on this build's maths, and `Simd` as `<case>_simd`
-    /// (`simd` for the batch itself) in the `simd` build.
+    /// (`simd` for the batch itself) in the `simd` build, else as `<case>_lanes` (`lanes`), two lanes at the target's
+    /// baseline, on this build's maths (user decision ML6).
     fn policies(case_name: &str) -> Vec<(ExecPolicy, String)> {
-        let simd = if case_name == "scalar" { "simd".to_string() } else { format!("{case_name}_simd") };
-        let simd = cfg!(feature = "simd").then_some((ExecPolicy::Simd, simd));
-        [(ExecPolicy::Reference, case(BACKEND, case_name))].into_iter().chain(simd).collect()
+        let lanes = if cfg!(feature = "simd") { "simd" } else { "lanes" };
+        let simd = if case_name == "scalar" { lanes.to_string() } else { format!("{case_name}_{lanes}") };
+        let simd = if cfg!(feature = "simd") { simd } else { case(BACKEND, &simd) };
+        vec![(ExecPolicy::Reference, case(BACKEND, case_name)), (ExecPolicy::Simd, simd)]
     }
 
     /// `eos`'s order-2 `residual_batch` over the grid under each policy, as `label`/`case_name`.
@@ -310,11 +317,33 @@ mod bench {
         }
     }
 
+    fn mixture_dt_batch(c: &mut Criterion) {
+        let outputs = [Prop::Hmolar, Prop::Cpmolar];
+        let opts = FlashOptions::new().with_phase(Phase::Gas);
+        let mut g = c.benchmark_group("mixture_dt_batch");
+        for (label, fluid) in bench_mixtures() {
+            let Some(eos) = fluid.model().helmholtz() else { continue };
+            let Some((t, rho)) = reduced_grid(eos) else { continue };
+            let cells = t.len() * outputs.len();
+            let (mut out, mut status) = (vec![0.0; cells], vec![Status::Ok; cells]);
+            for (exec, case) in policies("scalar") {
+                let req =
+                    BatchRequest::new(Pair::DT, Basis::Molar, &rho, &t, &outputs).with_flash(opts).with_exec(exec);
+                per_state(&mut g, (label, &case), t.len(), || {
+                    let batch = batch::evaluate(&fluid, &req, &mut out, &mut status);
+                    std::hint::black_box((batch.is_ok(), &mut out));
+                });
+            }
+        }
+        g.finish();
+    }
+
     criterion_group!(
         benches,
         mixture_alphar,
         mixture_alphar_batch,
         mixture_alphar_parts,
+        mixture_dt_batch,
         mixture_dt,
         mixture_pt,
         mixture_qt
