@@ -16,7 +16,7 @@ use phasekit_verify::majorant;
 use phasekit_verify::register::{RowKey, exempt_row};
 use phasekit_verify::term::IdealScale;
 use phasekit_verify::tolerance::Tolerance;
-use phasekit_verify::{DIVERGENCES, Fixture, ToleranceClass, Window};
+use phasekit_verify::{DIVERGENCES, Fixture, Tallies, ToleranceClass, Window};
 
 use crate::sweep::Failures;
 
@@ -311,7 +311,8 @@ fn bound(output: &str, (want, derivative_floor): (f64, f64), model: &Model, at: 
 /// What the rows of `props` files gave: per output, the rows compared within their bound and the rows both sides
 /// refuse; per register entry, the cells it exempts; the ECS cells phasekit's conformal solve gives
 /// where the oracle's fails (as the `transport` kind counts them); every disagreement; the largest fraction of a bound
-/// used.
+/// used; and per fluid, kind and output, what it asserted (PLAN.md M20.4a): a cell compared or refused by both, or the
+/// register entry that exempts it, and the ECS cells as oracle-gap rows.
 #[derive(Default)]
 pub struct PropsCheck {
     pub compared: BTreeMap<String, usize>,
@@ -320,6 +321,7 @@ pub struct PropsCheck {
     pub ecs_beyond_oracle: usize,
     pub failures: Failures,
     pub headroom: f64,
+    pub tallies: Tallies,
 }
 
 impl PropsCheck {
@@ -357,8 +359,10 @@ impl PropsCheck {
             balanced: true,
             near_critical: false,
         };
+        let tally = (name, table.kind());
         if let Some(id) = exempt_row(DIVERGENCES, name, Kind::Props, register_column(output), key) {
             *self.exempt.entry(id).or_default() += 1;
+            self.tallies.exempt(tally, output, id);
             return;
         }
         let got = match at.pair {
@@ -370,20 +374,31 @@ impl PropsCheck {
         match (got, table.printed(row, "status") == Some("ok")) {
             (Ok(value), true) => {
                 let floor = derivative_floor(output, |v| at.value(registry, name, v));
-                self.compare((table, row), (output, floor), value, (at, model), &place);
+                let held = self.compare((table, row), (output, floor), value, (at, model), &place);
+                self.tallies.cell(tally, output, held);
             }
-            (Err(_), false) => *self.refused.entry(output.into()).or_default() += 1,
-            (Ok(_), false) if model.ecs(output) => self.ecs_beyond_oracle += 1,
-            (Ok(value), false) => self.failures.check(false, || format!("{place}: {value} here, the oracle refuses")),
+            (Err(_), false) => {
+                *self.refused.entry(output.into()).or_default() += 1;
+                self.tallies.cell(tally, output, Some(0.0));
+            }
+            (Ok(_), false) if model.ecs(output) => {
+                self.ecs_beyond_oracle += 1;
+                self.tallies.gap(tally);
+            }
+            (Ok(value), false) => {
+                self.failures.check(false, || format!("{place}: {value} here, the oracle refuses"));
+                self.tallies.cell(tally, output, None);
+            }
             (Err(e), true) => {
                 let want = table.value(row, "value").unwrap();
                 self.failures.check(false, || format!("{place}: {e:?} here, the oracle's {want}"));
+                self.tallies.cell(tally, output, None);
             }
         }
     }
 
     /// A cell both sides give, within [`bound`], or within its relation's ([`Model::relation_bound`], computed only where
-    /// the own bound does not hold: it costs an order-3 evaluation and the majorants).
+    /// the own bound does not hold: it costs an order-3 evaluation and the majorants). Its error / bound, where it held.
     fn compare(
         &mut self,
         (table, row): (&Fixture<'_>, usize),
@@ -391,7 +406,7 @@ impl PropsCheck {
         value: f64,
         (at, model): (&At<'_>, &Model),
         place: &str,
-    ) {
+    ) -> Option<f64> {
         let want = table.value(row, "value").unwrap();
         let window = match (at.pair, model.critical) {
             ("DT", Some((tc, rhoc))) => Window::at(at.x[1], at.x[0], tc, rhoc),
@@ -401,11 +416,11 @@ impl PropsCheck {
         if (value - want).abs() > bound && !at.two_phase {
             bound = bound.max(at.one.map_or(0.0, |one| model.relation_bound(output, one)));
         }
-        if let Some(ratio) =
-            self.failures.ok(table.check_bound(row, "value", value, bound), |e| format!("{place}: {e:?}"))
-        {
+        let held = self.failures.ok(table.check_bound(row, "value", value, bound), |e| format!("{place}: {e:?}"));
+        if let Some(ratio) = held {
             self.headroom = self.headroom.max(ratio);
             *self.compared.entry(output.into()).or_default() += 1;
         }
+        held
     }
 }

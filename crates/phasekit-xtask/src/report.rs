@@ -1,35 +1,43 @@
-//! `cargo xtask nightly-report <dir>...`: the nightly `oracle` job's summary in Markdown on stdout (PLAN.md M20.4,
-//! user decision PL3). Each `<dir>` is a repo-relative oracle fixture set, a tree of `<kind>/<Fluid>.csv` and
-//! `all/<kind>.csv`. The summary lists, per fluid and kind of each set, the rows, the oracle's failed calls (`err:`
-//! rows) and the `nan` cells of its other rows. It gives each fluid's arbiter status (`phasekit_verify::ARBITERS`),
-//! oracle only where no table arbitrates, so such fluids stay visible, and the ignored tests (`gates ignores`). What the
-//! checks assert of the cells (asserted, exempt per DIV id, oracle-gap rows, headroom) is M20.4a's. A file that does
-//! not parse is listed, and the report is still written: the job runs it after a failed step too.
+//! `cargo xtask nightly-report [--tallies <dir>] <dir>...`: the nightly `oracle` job's summary in Markdown on stdout
+//! (PLAN.md M20.4, M20.4a; user decision PL3). Each `<dir>` is a repo-relative oracle fixture set, a tree of
+//! `<kind>/<Fluid>.csv` and `all/<kind>.csv`. The summary lists, per fluid and kind of each set, the rows, the oracle's
+//! failed calls (`err:` rows) and the `nan` cells of its other rows. From the `*.tsv` files in the tallies `<dir>`,
+//! which the nightly sweeps write (`phasekit_verify::Tallies`), it lists what the oracle checks asserted of the cells,
+//! per fluid and kind and per kind and column: the cells asserted and failed, the exempt ones by DIV id, the oracle-gap
+//! rows and the headroom. It gives each fluid's arbiter status (`phasekit_verify::ARBITERS`), oracle only where no table
+//! arbitrates, so such fluids stay visible, and the ignored tests (`gates ignores`). A file that does not parse is
+//! listed, and the report is still written: the job runs it after a failed step too.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::ExitCode;
 
-use phasekit_verify::{Arbiter, ArbiterStatus, Cell, ColumnRole, Fixture};
+use phasekit_verify::tallies::Column;
+use phasekit_verify::{Arbiter, ArbiterStatus, Cell, ColumnRole, Fixture, Tallies};
 
 use crate::gates::ignores;
 use crate::repo::Repo;
 
 pub fn main(args: &[String]) -> ExitCode {
-    if args.is_empty() {
-        eprintln!("usage: cargo xtask nightly-report <fixture dir>...");
+    let (tallies, dirs) = match args {
+        [flag, dir, rest @ ..] if flag == "--tallies" => (Some(dir.as_str()), rest),
+        _ => (None, args),
+    };
+    if dirs.is_empty() {
+        eprintln!("usage: cargo xtask nightly-report [--tallies <dir>] <fixture dir>...");
         return ExitCode::FAILURE;
     }
     let repo = Repo::locate();
     let sets: Result<Vec<Files<'_>>, String> =
-        args.iter().map(|dir| Ok((dir.as_str(), repo.files(dir, ".csv", true)?))).collect();
+        dirs.iter().map(|dir| Ok((dir.as_str(), repo.files(dir, ".csv", true)?))).collect();
     let sources = repo.files("crates", ".rs", true);
-    match (sets, sources) {
-        (Ok(sets), Ok(sources)) => {
+    let tallies = tallies.map_or(Ok(Vec::new()), |dir| repo.files(dir, ".tsv", true));
+    match (sets, sources, tallies) {
+        (Ok(sets), Ok(sources), Ok(tallies)) => {
             let ignored = ignores::check(&sources, phasekit_verify::DIVERGENCES).unwrap_or_else(|errors| errors);
-            println!("{}", report(&sets, &ignored, phasekit_verify::ARBITERS));
+            println!("{}", report(&sets, &tallies, &ignored, phasekit_verify::ARBITERS));
             ExitCode::SUCCESS
         }
-        (Err(e), _) | (_, Err(e)) => {
+        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
             eprintln!("nightly-report: {e}");
             ExitCode::FAILURE
         }
@@ -39,14 +47,20 @@ pub fn main(args: &[String]) -> ExitCode {
 /// A fixture set: its name and its (path, text) files.
 type Files<'a> = (&'a str, Vec<(String, String)>);
 
-/// The summary of `sets` with the `ignored` tests and the `arbiters`.
-pub(crate) fn report(sets: &[Files<'_>], ignored: &[String], arbiters: &[Arbiter]) -> String {
+/// The summary of `sets` and the sweeps' `tallies` files, with the `ignored` tests and the `arbiters`.
+pub(crate) fn report(
+    sets: &[Files<'_>],
+    tallies: &[(String, String)],
+    ignored: &[String],
+    arbiters: &[Arbiter],
+) -> String {
     let read: Vec<(&str, Set)> = sets.iter().map(|(name, files)| (*name, Set::of(files))).collect();
     let mut out = String::new();
     for (name, set) in &read {
         out.push_str(&set.table(name));
     }
     let fluids: BTreeSet<&str> = read.iter().flat_map(|(_, set)| set.tallies.keys().map(|(f, _)| f.as_str())).collect();
+    out.push_str(&asserted_tables(tallies));
     out.push_str(&arbiter_table(&fluids, arbiters));
     out.push_str(&format!("\n### Ignored tests ({})\n\n", ignored.len()));
     for line in ignored {
@@ -98,18 +112,13 @@ impl Set {
         out
     }
 
-    /// `fixture`'s rows, each under its fluid: its `fluid` or `mixture` column's (a long-format file), else the first
-    /// word of the header's `fluid`, else the file's `stem`.
+    /// `fixture`'s rows, each under its fluid (`Fixture::fluid`), else the file's `stem`.
     fn add(&mut self, fixture: &Fixture<'_>, stem: &str) {
-        let column = |name: &str| fixture.columns().iter().position(|c| *c == name);
-        let (fluid, status) = (column("fluid").or_else(|| column("mixture")), column("status"));
-        let named = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap_or(stem);
-        for row in fixture.rows() {
-            let label = |i: Option<usize>| i.and_then(|i| row.printed.get(i)).copied();
-            let tally = self.tallies.entry((label(fluid).unwrap_or(named).to_string(), fixture.kind().to_string()));
-            let tally = tally.or_default();
+        for (i, row) in fixture.rows().iter().enumerate() {
+            let fluid = fixture.fluid(i).unwrap_or(stem);
+            let tally = self.tallies.entry((fluid.to_string(), fixture.kind().to_string())).or_default();
             tally.rows += 1;
-            if label(status).is_some_and(|s| s.starts_with("err:")) {
+            if fixture.printed(i, "status").is_some_and(|s| s.starts_with("err:")) {
                 tally.failed += 1;
             } else {
                 tally.nan += nan_outputs(fixture.roles(), &row.cells);
@@ -130,6 +139,90 @@ fn nan_outputs(roles: &[ColumnRole], cells: &[Cell<'_>]) -> usize {
 fn stem(path: &str) -> &str {
     let name = path.rsplit('/').next().unwrap_or(path);
     name.strip_suffix(".csv").unwrap_or(name)
+}
+
+/// What the sweeps' checks asserted, from their tallies `files` (PLAN.md M20.4a): [`by_fluid_and_kind`] and
+/// [`by_kind_and_column`], then the files that are not tallies.
+fn asserted_tables(files: &[(String, String)]) -> String {
+    let mut tallies = Tallies::default();
+    let unreadable: Vec<String> =
+        files.iter().filter_map(|(path, text)| tallies.read(text).err().map(|e| format!("{path}: {e}"))).collect();
+    let mut out = by_fluid_and_kind(&tallies);
+    out.push_str(&by_kind_and_column(&tallies));
+    for line in &unreadable {
+        out.push_str(&format!("\nUnreadable tallies: {line}\n"));
+    }
+    out.push('\n');
+    out
+}
+
+/// Per fluid and kind, the cells asserted and failed, the exempt ones by DIV id, the oracle-gap rows and the headroom
+/// of the column with the most.
+fn by_fluid_and_kind(tallies: &Tallies) -> String {
+    let mut out = String::from("### What the nightly sweeps assert, by fluid and kind\n\n");
+    out.push_str("| Fluid | Kind | Cells asserted | Failed | Exempt | Oracle-gap rows | Headroom |\n");
+    out.push_str("|---|---|---|---|---|---|---|\n");
+    for (fluid, kind, group) in tallies.groups() {
+        let mut all = Asserted::default();
+        for (name, column) in &group.columns {
+            all.add(name, column);
+        }
+        let headroom = all.headroom.map_or("—".to_string(), |(h, column)| format!("{h:.3} ({column})"));
+        let (asserted, failed, exempt, gaps) = (all.asserted, all.failed, all.exempt(), group.gaps);
+        out.push_str(&format!("| {fluid} | {kind} | {asserted} | {failed} | {exempt} | {gaps} | {headroom} |\n"));
+    }
+    out
+}
+
+/// Per kind and column over every fluid, the cells asserted and failed, the exempt ones by DIV id, and the most
+/// headroom and its fluid.
+fn by_kind_and_column(tallies: &Tallies) -> String {
+    let mut by_column: BTreeMap<(&str, &str), Asserted<'_>> = BTreeMap::new();
+    for (fluid, kind, group) in tallies.groups() {
+        for (name, column) in &group.columns {
+            by_column.entry((kind, name)).or_default().add(fluid, column);
+        }
+    }
+    let mut out = String::from("\n### Headroom by kind and column\n\n");
+    out.push_str("| Kind | Column | Cells asserted | Failed | Exempt | Headroom | Fluid |\n");
+    out.push_str("|---|---|---|---|---|---|---|\n");
+    for ((kind, name), all) in &by_column {
+        let (headroom, fluid) =
+            all.headroom.map_or(("—".to_string(), "—"), |(h, fluid)| (format!("{h:.3}"), fluid));
+        let (asserted, failed, exempt) = (all.asserted, all.failed, all.exempt());
+        out.push_str(&format!("| {kind} | {name} | {asserted} | {failed} | {exempt} | {headroom} | {fluid} |\n"));
+    }
+    out
+}
+
+/// Columns' tallies added up: the cells asserted and failed, the exempt ones by DIV id, and the largest headroom of a
+/// column with a cell that held, with the name it came under (a column's, or a fluid's).
+#[derive(Debug, Default)]
+struct Asserted<'a> {
+    asserted: usize,
+    failed: usize,
+    exempt: BTreeMap<&'a str, usize>,
+    headroom: Option<(f64, &'a str)>,
+}
+
+impl<'a> Asserted<'a> {
+    /// `column`'s tallies, under `name`.
+    fn add(&mut self, name: &'a str, column: &'a Column) {
+        (self.asserted, self.failed) = (self.asserted + column.asserted, self.failed + column.failed);
+        for (id, n) in &column.exempt {
+            *self.exempt.entry(id).or_default() += n;
+        }
+        let held = column.asserted > column.failed;
+        if held && self.headroom.is_none_or(|(h, _)| column.headroom > h) {
+            self.headroom = Some((column.headroom, name));
+        }
+    }
+
+    /// The exempt cells as `DIV-0019: 40; DIV-0020: 6400`, or `—`.
+    fn exempt(&self) -> String {
+        let ids: Vec<String> = self.exempt.iter().map(|(id, n)| format!("{id}: {n}")).collect();
+        if ids.is_empty() { "—".to_string() } else { ids.join("; ") }
+    }
 }
 
 /// Each of `fluids` with arbiter records: their parts and statuses, and whether one arbitrates (a self-consistent
@@ -192,7 +285,7 @@ mod tests {
             ("fixtures-full/all/broken.csv".to_string(), "not a fixture\n".to_string()),
         ];
         let ignored = ["crates/phasekit-verify/tests/sweeps.rs:40: nightly: reads the full term set".to_string()];
-        let report = report(&[("fixtures-full", full)], &ignored, phasekit_verify::ARBITERS);
+        let report = report(&[("fixtures-full", full)], &[], &ignored, phasekit_verify::ARBITERS);
         let rows = [
             "### Oracle fixtures in `fixtures-full`, by fluid and kind",
             "| Air | eos | 3 | 1 | 3 |",
@@ -209,5 +302,59 @@ mod tests {
         assert!(report.contains("No arbiter record, oracle only (1): n-Propane"), "{report}");
         assert!(report.contains("- crates/phasekit-verify/tests/sweeps.rs:40: nightly: reads the full term set"));
         assert!(report.contains("fixtures-full/all/broken.csv"), "{report}");
+    }
+
+    /// PLAN.md M20.4a: what the sweeps' checks asserted, from the tallies files they write: per fluid and kind, the
+    /// cells asserted and failed, the exempt ones by DIV id, the oracle-gap rows and the headroom of the column with the
+    /// most (the first of a tie); per kind and column over every fluid, the same and the fluid with the most headroom; a
+    /// column only exempt has none; two files add up; a file that is not tallies is named, and the report still written.
+    #[test]
+    fn the_report_adds_what_the_checks_assert() {
+        let (water, ses36, r134a) = (("Water", "eos"), ("SES36", "flash"), ("R134a", "props"));
+        let mut eos = Tallies::default();
+        eos.cell(water, "p", Some(0.25));
+        eos.cell(water, "p", None);
+        eos.cell(water, "cp", Some(0.5));
+        eos.cell(("Air", "eos"), "cp", Some(0.75));
+        eos.cell(("Air", "eos"), "cv", Some(0.75));
+        let mut flash = Tallies::default();
+        flash.cell(ses36, "h", Some(0.125));
+        flash.cell(ses36, "h", Some(0.0));
+        flash.exempt(ses36, "p", "DIV-0019");
+        flash.exempt(ses36, "p", "DIV-0019");
+        flash.exempt(ses36, "h", "DIV-0020");
+        let mut props = Tallies::default();
+        props.cell(r134a, "viscosity", Some(0.0));
+        props.gap(r134a);
+        props.gap(r134a);
+        props.gap(r134a);
+        let tallies = [
+            ("fixtures-full/tallies/eos.tsv".to_string(), eos.to_text()),
+            ("fixtures-full/tallies/flash.tsv".to_string(), flash.to_text()),
+            ("fixtures-full/tallies/props.tsv".to_string(), props.to_text()),
+            ("fixtures-full/tallies/again.tsv".to_string(), props.to_text()),
+            ("fixtures-full/tallies/broken.tsv".to_string(), "cell\tWater\n".to_string()),
+        ];
+        let report = report(&[], &tallies, &[], phasekit_verify::ARBITERS);
+        let rows = [
+            "### What the nightly sweeps assert, by fluid and kind",
+            "| Fluid | Kind | Cells asserted | Failed | Exempt | Oracle-gap rows | Headroom |",
+            "| Air | eos | 2 | 0 | — | 0 | 0.750 (cp) |",
+            "| R134a | props | 2 | 0 | — | 6 | 0.000 (viscosity) |",
+            "| SES36 | flash | 2 | 0 | DIV-0019: 2; DIV-0020: 1 | 0 | 0.125 (h) |",
+            "| Water | eos | 3 | 1 | — | 0 | 0.500 (cp) |",
+            "### Headroom by kind and column",
+            "| Kind | Column | Cells asserted | Failed | Exempt | Headroom | Fluid |",
+            "| eos | cp | 2 | 0 | — | 0.750 | Air |",
+            "| eos | cv | 1 | 0 | — | 0.750 | Air |",
+            "| eos | p | 2 | 1 | — | 0.250 | Water |",
+            "| flash | h | 2 | 0 | DIV-0020: 1 | 0.125 | SES36 |",
+            "| flash | p | 0 | 0 | DIV-0019: 2 | — | — |",
+            "| props | viscosity | 2 | 0 | — | 0.000 | R134a |",
+            "Unreadable tallies: fixtures-full/tallies/broken.tsv: line 1: not `# tallies/v1`",
+        ];
+        for row in rows {
+            assert!(report.contains(row), "{row} in\n{report}");
+        }
     }
 }

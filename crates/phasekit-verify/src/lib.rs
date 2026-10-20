@@ -14,6 +14,7 @@ pub mod register;
 pub mod sample;
 pub mod saturation;
 pub mod sha256;
+pub mod tallies;
 pub mod term;
 pub mod tolerance;
 pub mod ulp;
@@ -31,6 +32,7 @@ pub use register::{
 };
 pub use sample::SplitMix64;
 pub use sha256::{sha256, sha256_hex};
+pub use tallies::Tallies;
 pub use tolerance::{Provenance, Tolerance, ToleranceClass, Window, from_printed};
 
 /// The first milestone that is not closed (PLAN.md §0.2). The step that closes milestone n sets it to n + 1, which
