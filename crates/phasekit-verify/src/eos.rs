@@ -10,7 +10,7 @@ use phasekit_core::{
 };
 
 use crate::term::{IdealScale, Tally, report};
-use crate::{Fixture, ToleranceClass, Window, majorant};
+use crate::{Fixture, Tallies, ToleranceClass, Window, majorant};
 
 /// The core subset's `eos` files (VERIFICATION.md §3.6), compiled in.
 pub const CORE_FILES: [(&str, &str); 14] = [
@@ -385,6 +385,8 @@ pub struct EosCheck {
     pub failures: Vec<String>,
     /// The largest error / bound of the entries that passed.
     pub headroom: f64,
+    /// What it asserted, by fluid, kind and column (PLAN.md M20.4a).
+    pub tallies: Tallies,
 }
 
 impl EosCheck {
@@ -399,11 +401,13 @@ impl EosCheck {
                     .push(format!("row {row} (T = {t}, ρ = {rho}): p is missing (status not ok?) or no bundle"));
                 continue;
             };
+            let at = (fixture.fluid(row).unwrap_or_default(), fixture.kind());
             for (column, floor) in COLUMNS {
                 let Some(want) = fixture.value(row, column) else { continue };
                 let carried = carried(column, &bundle, &majorants, r, t, rho, molar_mass);
                 let bound = ToleranceClass::Prop.bound_carried(scale(floor, want, r, t, rho, p), window, carried);
-                self.count(fixture.check_bound(row, column, output(&state, column), bound.unwrap_or(0.0)), row, column);
+                let got = output(&state, column);
+                self.count(at, fixture.check_bound(row, column, got, bound.unwrap_or(0.0)), row, column);
             }
         }
     }
@@ -438,10 +442,11 @@ impl EosCheck {
                 let floor = scale(floor, 0.0, r, t, rho, state.p());
                 entries.push((column.to_string(), fluid.prop(&state, prop).unwrap_or(f64::NAN), floor, spread));
             }
+            let at = (fixture.fluid(row).unwrap_or_default(), fixture.kind());
             for (column, got, floor, spread) in entries {
                 let Some(want) = fixture.value(row, &column) else { continue };
                 let bound = ToleranceClass::Prop.bound_carried(want.abs().max(floor), window, spread).unwrap_or(0.0);
-                self.count(fixture.check_bound(row, &column, got, bound), row, &column);
+                self.count(at, fixture.check_bound(row, &column, got, bound), row, &column);
             }
         }
     }
@@ -461,12 +466,13 @@ impl EosCheck {
             let total = setup.eos.ideal(t, rho, Order::Three) + setup.eos.residual(t, rho, Order::Three);
             let scales = order_three_scales(setup.record, &setup.ideal, t, rho);
             let point = [setup.r, t, rho, setup.molar_mass];
+            let at = (fixture.fluid(row).unwrap_or_default(), fixture.kind());
             for (column, prop, evaluate, floor) in order_three_outputs(which, fluid, &state) {
                 let Some(want) = fixture.value(row, &column) else { continue };
                 let spread = carried_order_three(&*evaluate, &total, &scales, point);
                 let bound = ToleranceClass::Prop.bound_carried(want.abs().max(floor), window, spread).unwrap_or(0.0);
                 let got = fluid.prop(&state, prop).unwrap_or(f64::NAN);
-                self.count(fixture.check_bound(row, &column, got, bound), row, &column);
+                self.count(at, fixture.check_bound(row, &column, got, bound), row, &column);
             }
         }
     }
@@ -515,8 +521,8 @@ impl EosCheck {
 }
 
 impl Tally for EosCheck {
-    fn parts(&mut self) -> (&mut usize, &mut Vec<String>, &mut f64) {
-        (&mut self.checked, &mut self.failures, &mut self.headroom)
+    fn parts(&mut self) -> (&mut usize, &mut Vec<String>, &mut f64, &mut Tallies) {
+        (&mut self.checked, &mut self.failures, &mut self.headroom, &mut self.tallies)
     }
 }
 
@@ -757,7 +763,7 @@ mod tests {
     /// No failures, no report; with failures, the count, the class, the headroom and the first lines only.
     #[test]
     fn eos_report_names_the_failures() {
-        let mut check = EosCheck { checked: 40, failures: vec![], headroom: 0.5 };
+        let mut check = EosCheck { checked: 40, failures: vec![], headroom: 0.5, ..EosCheck::default() };
         assert_eq!(check.report(5), None);
         check.failures = vec!["a".into(), "b".into()];
         assert_eq!(check.report(1), Some("2 of 40 entries outside Prop (headroom 0.500):\na".into()));

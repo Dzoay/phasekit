@@ -17,7 +17,8 @@
 //! - `mutants-config <path>`: the configuration `gates mutants` runs cargo-mutants with, for the weekly run (PLAN.md
 //!   M25.4).
 //! - `merge-counts <base> <ours> <theirs>`: git's merge driver for `ci/test-counts.txt` (PLAN.md M25.1).
-//! - `nightly-report <dir>...`: the nightly `oracle` job's summary of its fixture sets (PLAN.md M20.4).
+//! - `nightly-report [--tallies <dir>] <dir>...`: the nightly `oracle` job's summary of its fixture sets and of what
+//!   the sweeps' checks asserted (PLAN.md M20.4, M20.4a).
 //! - `packs <dir>`: one pack per fluid and `index.json`, which the site fetches (PLAN.md M21.4).
 //! - `gates`: gate G8 (VERIFICATION.md §11.2). From M0.4 the zero-dependency guard, workspace lints, executed-test
 //!   counts, `#[ignore]` reasons, doc excerpts and rot-register ticks; later fixture manifest drift, the facade

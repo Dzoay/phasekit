@@ -12,8 +12,9 @@ use phasekit_core::{HelmholtzModel, Order, SatPair};
 use crate::eos::Majorants;
 use crate::fixture::Kind;
 use crate::register::{DIVERGENCES, exempt_at};
+use crate::tallies::within;
 use crate::term::{IdealScale, report};
-use crate::{Fixture, ToleranceClass};
+use crate::{Fixture, Tallies, ToleranceClass};
 
 /// Below this Θ = (Tc − T)/Tc the VLE is not compared: `SatMp`'s bound on ρ exceeds 1e-3 there (4·ε·Θ^−1.5), and
 /// measured at M6.4 over all 130 fluids the VLE answers every row above it but refuses some below it (up to Θ = 6e-9).
@@ -53,6 +54,9 @@ pub struct SaturationCheck {
     pub conditioning: [f64; 2],
     /// One line per disagreement.
     pub failures: Vec<String>,
+    /// What it asserted, by fluid, kind and column (PLAN.md M20.4a): the VLE's p, ρ′ and ρ″ under their columns (or the
+    /// register entry that exempts them), the superancillary's as `superancillary <column>`.
+    pub tallies: Tallies,
 }
 
 impl SaturationCheck {
@@ -96,24 +100,26 @@ impl SaturationCheck {
             };
             // SaFit, the misfit the file records (its superancillary's p against the derived p, DP1).
             let sa_fit = [
-                ("p", sa.dew.p, p, p_ratio * p_file / p),
-                ("rhoL", sa.bubble.rho, rho_l, rho_l_ratio),
-                ("rhoV", sa.dew.rho, rho_v, rho_v_ratio),
+                ("superancillary p", sa.dew.p, p, p_ratio * p_file / p),
+                ("superancillary rhoL", sa.bubble.rho, rho_l, rho_l_ratio),
+                ("superancillary rhoV", sa.dew.rho, rho_v, rho_v_ratio),
             ];
-            self.sa_fit(&at, sa_fit);
+            let key = (name, fixture.kind());
+            self.sa_fit((key, &at), sa_fit);
             self.superancillary += 1;
-            self.seeded_vle((name, &at), (record, &ideal, eos), &sa, (t, theta), [p, rho_l, rho_v]);
+            self.seeded_vle((key, &at), (record, &ideal, eos), &sa, (t, theta), [p, rho_l, rho_v]);
         }
     }
 
     /// The superancillary at a row's T against the file's values: each cell (column, got, want, ratio) within
-    /// `SaFit` of its misfit ratio.
-    fn sa_fit(&mut self, at: &str, cells: [(&str, f64, f64, f64); 3]) {
+    /// `SaFit` of its misfit ratio, tallied under the fluid and kind `key`.
+    fn sa_fit(&mut self, (key, at): ((&str, &str), &str), cells: [(&str, f64, f64, f64); 3]) {
         for (column, got, want, ratio) in cells {
             let bound = ToleranceClass::sa_fit(ratio, want);
-            let within = (got - want).abs() <= bound; // false for NaN too
-            if !within {
-                self.failures.push(format!("{at} superancillary {column}: {got} against {want} (bound {bound:e})"));
+            let held = within(got, want, bound); // never for NaN
+            self.tallies.cell(key, column, held);
+            if held.is_none() {
+                self.failures.push(format!("{at} {column}: {got} against {want} (bound {bound:e})"));
             }
         }
     }
@@ -122,7 +128,7 @@ impl SaturationCheck {
     /// ([`Self::vle_row`]); not compared below [`THETA_VLE_MIN`] or where the file's ρ′ equals its ρ″.
     fn seeded_vle(
         &mut self,
-        (name, at): (&str, &str),
+        (key, at): ((&str, &str), &str),
         (record, ideal, eos): (&FluidRecord, &IdealScale, &dyn HelmholtzModel),
         sa: &SatPair,
         (t, theta): (f64, f64),
@@ -142,18 +148,18 @@ impl SaturationCheck {
         match vle_at_t(eos, t, (sa.bubble.rho, sa.dew.rho)) {
             Ok(sat) => {
                 let mu = carried_scale(record, ideal, eos, t, rho_l);
-                self.vle_row((name, at), &sat, (t, theta, mu), [p, rho_l, rho_v]);
+                self.vle_row((key, at), &sat, (t, theta, mu), [p, rho_l, rho_v]);
                 self.vle += 1;
             }
             Err(e) => self.failures.push(format!("{at}: VLE {e:?}")),
         }
     }
 
-    /// One VLE answer of `name` against `[p, ρ′, ρ″]` within `SatMp` at (T, Θ, μ), but for the cells the register
-    /// exempts.
+    /// One VLE answer of the fluid and kind `key` against `[p, ρ′, ρ″]` within `SatMp` at (T, Θ, μ), but for the cells
+    /// the register exempts.
     fn vle_row(
         &mut self,
-        (name, at): (&str, &str),
+        (key, at): ((&str, &str), &str),
         sat: &SatPair,
         (t, theta, mu): (f64, f64, f64),
         [p, rho_l, rho_v]: [f64; 3],
@@ -164,10 +170,14 @@ impl SaturationCheck {
             ("rhoV", sat.dew.rho, rho_v, ToleranceClass::sat_mp_density(theta, mu, rho_v)),
         ];
         for (column, got, want, bound) in checks {
-            let within = (got - want).abs() <= bound; // false for NaN too
-            if exempt_at(DIVERGENCES, name, Kind::Checkpoints, column, t).is_some() {
+            if let Some(id) = exempt_at(DIVERGENCES, key.0, Kind::Checkpoints, column, t) {
                 self.exempt += 1;
-            } else if !within {
+                self.tallies.exempt(key, column, id);
+                continue;
+            }
+            let held = within(got, want, bound); // never for NaN
+            self.tallies.cell(key, column, held);
+            if held.is_none() {
                 self.failures.push(format!("{at} VLE {column}: {got} against {want} (bound {bound:e})"));
             }
         }
@@ -421,5 +431,16 @@ mod tests {
         let header = header.replace("Water", "PropyleneGlycol");
         let exempt = check("PropyleneGlycol", &header, &[row, row]);
         assert_eq!((exempt.exempt, exempt.vle, exempt.report(5)), (4, 2, None));
+        let (fluid, kind, group) = exempt.tallies.groups().next().unwrap();
+        assert_eq!((fluid, kind, group.gaps), ("PropyleneGlycol", "checkpoints", 0));
+        let column = |name: &str| {
+            let c = &group.columns[name];
+            (c.asserted, c.failed, c.exempt.get("DIV-0016").copied())
+        };
+        let columns = ["p", "rhoL", "rhoV", "superancillary p", "superancillary rhoL", "superancillary rhoV"];
+        assert_eq!(
+            columns.map(column),
+            [(0, 0, Some(2)), (2, 0, None), (0, 0, Some(2)), (2, 0, None), (2, 0, None), (2, 0, None)]
+        );
     }
 }

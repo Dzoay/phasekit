@@ -6,7 +6,7 @@ use phasekit_core::internal::{EosRecord, FluidRecord};
 use phasekit_core::{Error, HelmholtzModel, Order, PureFluid, math};
 
 use crate::tolerance::TERM_FLOOR;
-use crate::{CheckError, Fixture, majorant};
+use crate::{CheckError, Fixture, Tallies, majorant};
 
 /// The 15 output columns of a `term` fixture, each with the (i, j) of the `A_ij` it holds unscaled.
 pub const COLUMNS: [(&str, usize, usize); 15] = [
@@ -49,15 +49,20 @@ pub struct TermCheck {
     pub failures: Vec<String>,
     /// The largest error / bound of the entries that passed.
     pub headroom: f64,
+    /// What it asserted, by fluid, kind and column (PLAN.md M20.4a): the α⁰ rows' columns as `<column> (ideal)`.
+    pub tallies: Tallies,
 }
 
 impl TermCheck {
     /// Checks `rows` (0-based) of `fixture` against `model`, whose residual part is `eos`.
     pub fn rows(&mut self, fixture: &Fixture<'_>, rows: &[usize], model: &dyn HelmholtzModel, eos: &EosRecord) {
         for (row, (t, rho, tau, delta)) in self.points(fixture, rows) {
+            let at = (fixture.fluid(row).unwrap_or_default(), fixture.kind());
             // The model's τ and δ are the oracle's, bit for bit, or the comparison is not like for like.
             for (column, own) in [("tau", eos.t_reducing / t), ("delta", rho / eos.rho_reducing)] {
-                if let Err(e) = fixture.check(row, column, own) {
+                let result = fixture.check(row, column, own);
+                self.tallies.cell(at, column, result.is_ok().then_some(0.0));
+                if let Err(e) = result {
                     self.failures.push(format!("row {row}: {column} differs from the oracle's: {e:?}"));
                 }
             }
@@ -70,7 +75,7 @@ impl TermCheck {
                 let scaled = majorant::floored(majorant::eos(eos, tau, delta, i, j), alpha_scale);
                 let scale = scaled.max(TERM_FLOOR) / factor;
                 let a = got.get(i, j).unwrap_or(f64::NAN);
-                self.count(fixture.check_scaled(row, column, a / factor, scale), row, column);
+                self.count(at, fixture.check_scaled(row, column, a / factor, scale), row, column);
             }
         }
     }
@@ -81,17 +86,19 @@ impl TermCheck {
     }
 }
 
-/// A running check of fixture entries ([`TermCheck`], `EosCheck`): entries compared, one line per failure, and the
-/// largest error / bound of the entries that passed.
+/// A running check of fixture entries ([`TermCheck`], `EosCheck`): entries compared, one line per failure, the
+/// largest error / bound of the entries that passed, and the [`Tallies`] of each entry.
 pub(crate) trait Tally {
-    /// The tally's three parts.
-    fn parts(&mut self) -> (&mut usize, &mut Vec<String>, &mut f64);
+    /// The tally's four parts.
+    fn parts(&mut self) -> (&mut usize, &mut Vec<String>, &mut f64, &mut Tallies);
 
-    /// Counts one entry of `row` and `column` by its check's `result`: its error / bound into the headroom when it
-    /// passed, else a line, the mismatch or what kept the entry from being compared.
-    fn count(&mut self, result: Result<f64, CheckError>, row: usize, column: &str) {
-        let (checked, failures, headroom) = self.parts();
+    /// Counts one entry of `row` and `column`, of the fluid and kind `at`, by its check's `result`: its error / bound
+    /// into the headroom when it passed, else a line, the mismatch or what kept the entry from being compared; and
+    /// into the tallies either way.
+    fn count(&mut self, at: (&str, &str), result: Result<f64, CheckError>, row: usize, column: &str) {
+        let (checked, failures, headroom, tallies) = self.parts();
         *checked += 1;
+        tallies.cell(at, column, result.as_ref().ok().copied());
         match result {
             Ok(ratio) => *headroom = headroom.max(ratio),
             Err(CheckError::Mismatch(m)) => failures.push(m.to_string()),
@@ -116,8 +123,8 @@ impl TermCheck {
 }
 
 impl Tally for TermCheck {
-    fn parts(&mut self) -> (&mut usize, &mut Vec<String>, &mut f64) {
-        (&mut self.checked, &mut self.failures, &mut self.headroom)
+    fn parts(&mut self) -> (&mut usize, &mut Vec<String>, &mut f64, &mut Tallies) {
+        (&mut self.checked, &mut self.failures, &mut self.headroom, &mut self.tallies)
     }
 }
 
@@ -172,13 +179,20 @@ impl TermCheck {
         model: &dyn HelmholtzModel,
         scale: &IdealScale,
     ) {
+        let columns: Vec<_> = COLUMNS
+            .into_iter()
+            .filter(|&(_, i, j)| i + j <= 3)
+            .map(|(c, i, j)| (c, format!("{c} (ideal)"), i, j))
+            .collect();
         for (row, (t, rho, tau, delta)) in self.points(fixture, rows) {
+            let at = (fixture.fluid(row).unwrap_or_default(), fixture.kind());
             let got = model.ideal(t, rho, Order::Three);
-            for (column, i, j) in COLUMNS.into_iter().filter(|&(_, i, j)| i + j <= 3) {
+            for (column, tallied, i, j) in &columns {
+                let (i, j) = (*i, *j);
                 let factor = math::powi(tau, i as i32) * math::powi(delta, j as i32);
                 let scaled = scale.get(t, rho, i, j).max(TERM_FLOOR);
                 let got = got.get(i, j).unwrap_or(f64::NAN) / factor;
-                self.count(fixture.check_scaled(row, column, got, scaled / factor), row, column);
+                self.count(at, fixture.check_scaled(row, column, got, scaled / factor), row, tallied);
             }
         }
     }
@@ -191,10 +205,26 @@ mod tests {
     /// No failures, no report; with failures, the count, the total, the headroom and the first lines only.
     #[test]
     fn report_names_the_failures() {
-        let mut check = TermCheck { checked: 30, failures: vec![], headroom: 0.25 };
+        let mut check = TermCheck { checked: 30, failures: vec![], headroom: 0.25, ..TermCheck::default() };
         assert_eq!(check.report(5), None);
         check.failures = vec!["a".into(), "b".into(), "c".into()];
         assert_eq!(check.report(2), Some("3 of 30 entries outside Term (headroom 0.250):\na\nb".into()));
+    }
+
+    /// Each entry counted is tallied under its fluid, kind and column, with its headroom where it passed.
+    #[test]
+    fn counted_entries_are_tallied() {
+        let mut check = TermCheck::default();
+        let water = ("Water", "term");
+        check.count(water, Ok(0.5), 0, "alphar");
+        check.count(water, Ok(0.25), 1, "alphar");
+        check.count(water, Err(CheckError::NoNumber { row: 2, column: "alphar".into() }), 2, "alphar");
+        assert_eq!((check.checked, check.failures.len(), check.headroom), (3, 1, 0.5));
+        let mut want = Tallies::default();
+        want.cell(water, "alphar", Some(0.5));
+        want.cell(water, "alphar", Some(0.25));
+        want.cell(water, "alphar", None);
+        assert_eq!(check.tallies, want);
     }
 
     /// δ-entries have the fixed scales of their exact forms; τ-entries sum |term| at ρ_r, and only A00 adds

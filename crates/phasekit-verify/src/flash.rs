@@ -14,8 +14,9 @@ use phasekit_core::{
 use crate::eos::{Majorants, Setup, carried};
 use crate::fixture::Kind;
 use crate::register::{DIVERGENCES, RowKey, exempt_row};
+use crate::tallies::within;
 use crate::term::{IdealScale, report};
-use crate::{Fixture, ToleranceClass, Window};
+use crate::{CheckError, Fixture, Tallies, ToleranceClass, Window};
 
 /// CoolProp's name of a phase.
 pub fn coolprop_name(phase: Phase) -> &'static str {
@@ -47,6 +48,9 @@ pub struct FlashCheck {
     pub exempt: usize,
     /// One line per disagreement.
     pub failures: Vec<String>,
+    /// What it asserted of the oracle's rows, by fluid, kind and column: each row's phase and Q, a PT row's ρ, and p, h,
+    /// s and u or the register entry that exempts them (PLAN.md M20.4a).
+    pub tallies: Tallies,
 }
 
 impl FlashCheck {
@@ -116,15 +120,27 @@ impl FlashCheck {
             }
         };
         self.compared += 1;
-        if label("phase") != coolprop_name(state.phase()) {
+        let same_phase = label("phase") == coolprop_name(state.phase());
+        self.tallies.cell((name, fixture.kind()), "phase", same_phase.then_some(0.0));
+        if !same_phase {
             self.failures.push(format!("{name} row {row}: {:?}, oracle {}", state.phase(), label("phase")));
         }
         self.outputs((fixture, name, row), setup, &state);
-        let q = number("Q");
-        match state.quality() {
-            Some(got) if (got - q).abs() <= ToleranceClass::FLASH_QUALITY => self.two_phase += 1,
-            None if q.is_nan() => {}
-            got => self.failures.push(format!("{name} row {row}: Q {got:?}, oracle {q}")),
+        self.quality((fixture.kind(), name, row), state.quality(), number("Q"));
+    }
+
+    /// Row `row`'s quality `got` against the oracle's `q`, NaN where it has none: within `FLASH_QUALITY` where both
+    /// have one, or neither.
+    fn quality(&mut self, (kind, name, row): (&str, &str, usize), got: Option<f64>, q: f64) {
+        let held = match got {
+            Some(got) => within(got, q, ToleranceClass::FLASH_QUALITY),
+            None => q.is_nan().then_some(0.0),
+        };
+        self.tallies.cell((name, kind), "Q", held);
+        match (got, held) {
+            (Some(_), Some(_)) => self.two_phase += 1,
+            (None, Some(_)) => {}
+            (got, None) => self.failures.push(format!("{name} row {row}: Q {got:?}, oracle {q}")),
         }
     }
 
@@ -145,11 +161,10 @@ impl FlashCheck {
             ("s", state.s(b), r, "smolar"),
             ("u", state.u(b), r * t, "umolar"),
         ];
+        let at = (name, fixture.kind());
         if label("pair") == "PT" {
             let bound = ToleranceClass::Flash.bound(number("rho").abs());
-            if let Err(e) = fixture.check_bound(row, "rho", rho, bound.unwrap_or(0.0)) {
-                self.failures.push(format!("{e:?}"));
-            }
+            self.cell(at, "rho", fixture.check_bound(row, "rho", rho, bound.unwrap_or(0.0)));
         }
         for (column, got, floor, relation) in columns {
             let key = RowKey {
@@ -160,8 +175,9 @@ impl FlashCheck {
                 balanced: true,
                 near_critical: false,
             };
-            if exempt_row(DIVERGENCES, name, Kind::Flash, column, key).is_some() {
+            if let Some(id) = exempt_row(DIVERGENCES, name, Kind::Flash, column, key) {
                 self.exempt += 1;
+                self.tallies.exempt(at, column, id);
                 continue;
             }
             let want = number(column);
@@ -170,9 +186,15 @@ impl FlashCheck {
                 _ => f64::NAN,
             };
             let bound = ToleranceClass::Flash.bound_carried(want.abs().max(floor), Window::Regular, spread);
-            if let Err(e) = fixture.check_bound(row, column, got, bound.unwrap_or(0.0)) {
-                self.failures.push(format!("{e:?}"));
-            }
+            self.cell(at, column, fixture.check_bound(row, column, got, bound.unwrap_or(0.0)));
+        }
+    }
+
+    /// One cell of `column` of the fluid and kind `at` by its check's `result`: tallied, and a line where it failed.
+    fn cell(&mut self, at: (&str, &str), column: &str, result: Result<f64, CheckError>) {
+        self.tallies.cell(at, column, result.as_ref().ok().copied());
+        if let Err(e) = result {
+            self.failures.push(format!("{e:?}"));
         }
     }
 
@@ -585,8 +607,48 @@ mod tests {
         let rho = state.rho(b);
         let exact = check("Water", &[row(rho, 0.0)]);
         assert_eq!((exact.compared, exact.exempt, exact.failures.len()), (1, 4, 0), "{:?}", exact.failures);
-        assert_eq!(check("Water", &[row(rho * (1.0 + 1e-6), 0.0)]).failures.len(), 1, "ρ 1e-6 off");
+        assert_eq!(
+            tallied(&exact),
+            [
+                ("Q", 1, 0, 0),
+                ("h", 0, 0, 1),
+                ("p", 0, 0, 1),
+                ("phase", 1, 0, 0),
+                ("rho", 1, 0, 0),
+                ("s", 0, 0, 1),
+                ("u", 0, 0, 1)
+            ]
+        );
+        let off = check("Water", &[row(rho * (1.0 + 1e-6), 0.0)]);
+        assert_eq!(off.failures.len(), 1, "ρ 1e-6 off");
+        assert_eq!(tallied(&off)[4], ("rho", 1, 1, 0));
         assert_eq!(check("Water", &[row(rho, 1e-6 * state.h(b))]).failures.len(), 0, "h exempt");
+    }
+
+    /// Each column `check` tallied for its one fluid, `flash`: (column, cells asserted, failed, exempt by DIV-0020).
+    fn tallied(check: &FlashCheck) -> Vec<(&str, usize, usize, usize)> {
+        let (_, kind, group) = check.tallies.groups().next().unwrap();
+        assert_eq!((kind, check.tallies.groups().count()), ("flash", 1));
+        let exempt = |c: &crate::tallies::Column| c.exempt.get("DIV-0020").copied().unwrap_or(0);
+        group.columns.iter().map(|(name, c)| (name.as_str(), c.asserted, c.failed, exempt(c))).collect()
+    }
+
+    /// A row's phase and quality are tallied as cells: a phase that differs fails, and a quality's headroom is its
+    /// error over `FLASH_QUALITY` (Water's two-phase state at 400 K with Q 5e-9 off, half its bound).
+    #[test]
+    fn phases_and_qualities_are_tallied() {
+        let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+        let input = Input::dt(Density::molar(1_000.0).unwrap(), Temperature::new(400.0).unwrap());
+        let wet = registry.get("Water").unwrap().state(input).unwrap();
+        let q = wet.quality().unwrap();
+        let half = check("Water", &[row(&wet, 0.0, q + 5e-9)]);
+        assert_eq!(half.failures.len(), 0, "{:?}", half.failures);
+        let (_, _, group) = half.tallies.groups().next().unwrap();
+        let headroom = group.columns["Q"].headroom;
+        assert!((headroom - 0.5).abs() < 1e-6, "{headroom}");
+        let gas = check("Water", &[row(&wet, 0.0, q).replace(",twophase", ",gas")]);
+        let gas = tallied(&gas);
+        assert_eq!((gas[0], gas[3]), (("Q", 1, 0, 0), ("phase", 1, 1, 0)), "the oracle's phase differs");
     }
 
     /// `beyond`, exactly: at the bound is not beyond it, past it is.

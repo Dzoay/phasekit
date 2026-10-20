@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 
 use phasekit_compat::{OUTPUT_COUNT, output_names};
 use phasekit_core::{DataSet, Registry};
+use phasekit_verify::tallies::Column;
 use phasekit_verify::{Fixture, fixture};
 
 #[path = "common/props_rows.rs"]
@@ -62,6 +63,21 @@ fn checked() -> PropsCheck {
     let (total, headroom) = (check.failures.len(), check.headroom);
     assert_eq!(shown, Vec::<&String>::new(), "{total} failures; the rest within {headroom:.3} of their bounds");
     check
+}
+
+/// PLAN.md M20.4a: what the check tallies by fluid, kind and output is what it counts: the cells that held are those
+/// compared and those both sides refuse, the failed ones its failures (none), the exempt ones the register's, and the
+/// oracle-gap rows its ECS cells beyond the oracle.
+#[test]
+fn props_tallies_are_its_counts() {
+    let check = checked();
+    let groups: Vec<_> = check.tallies.groups().collect();
+    assert!(groups.iter().all(|(_, kind, _)| *kind == "props") && groups.len() == PROPS_FIXTURES.len());
+    let sum = |f: fn(&Column) -> usize| groups.iter().flat_map(|(_, _, g)| g.columns.values()).map(f).sum::<usize>();
+    let held = check.compared.values().sum::<usize>() + check.refused.values().sum::<usize>();
+    assert_eq!((sum(|c| c.asserted), sum(|c| c.failed)), (held, check.failures.len()));
+    assert_eq!(sum(|c| c.exempt.values().sum()), check.exempt.values().sum::<usize>());
+    assert_eq!(groups.iter().map(|(_, _, g)| g.gaps).sum::<usize>(), check.ecs_beyond_oracle);
 }
 
 /// Oracle: CoolProp 8.0.0, fixtures/coolprop-8.0.0/props/<Fluid>.csv (PLAN.md M10.2, M10.3; map 01 §4a), under

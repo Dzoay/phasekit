@@ -231,6 +231,13 @@ impl<'a> Fixture<'a> {
         self.rows.get(row)?.printed.get(index).copied()
     }
 
+    /// The fluid of `row` (0-based): its `fluid` or `mixture` column's in a long-format file, else the first word of the
+    /// header's `fluid`.
+    pub fn fluid(&self, row: usize) -> Option<&'a str> {
+        let named = || self.header("fluid").and_then(|f| f.split(' ').next());
+        self.printed(row, "fluid").or_else(|| self.printed(row, "mixture")).or_else(named)
+    }
+
     /// The float in `row` (0-based) and `column`.
     pub fn value(&self, row: usize, column: &str) -> Option<f64> {
         let index = self.columns.iter().position(|c| *c == column)?;
@@ -699,6 +706,23 @@ mod tests {
             parse(format!("{oracle}2.0\n")).is_ok() && parse(format!("{oracle}\n")).is_err(),
             "only printed tables"
         );
+    }
+
+    /// A row's fluid is its `fluid` column's, else its `mixture` column's, else the first word of the header's.
+    #[test]
+    fn a_rows_fluid_is_its_column_or_the_headers() {
+        assert_eq!(parse(fixture_text()).unwrap().fluid(0), Some("Water"));
+        let paper = |header: &str, first: &str| {
+            let head = format!("# fixture: eos/v1\n{header}# source: paper:lemmon2016/7\n");
+            parse(format!("{head}# columns: {first},T,p\n# tol: label,in,prop\nNeon,1.0,2.0\n")).unwrap()
+        };
+        assert_eq!(paper("", "fluid").fluid(0), Some("Neon"));
+        assert_eq!(paper("", "mixture").fluid(0), Some("Neon"));
+        let both = paper("# fluid: Air sha=1\n", "fluid");
+        assert_eq!((both.fluid(0), both.fluid(1)), (Some("Neon"), Some("Air")), "past the last row, the header's");
+        assert_eq!(paper("# fluid: Air sha=1\n", "x").fluid(0), Some("Air"));
+        let unnamed = paper("", "x");
+        assert_eq!(unnamed.fluid(0), None);
     }
 
     /// Map 10 U1: a failure names the fixture, the row, the column, its class and the provenance.
