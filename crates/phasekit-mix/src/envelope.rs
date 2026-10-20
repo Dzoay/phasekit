@@ -19,10 +19,12 @@
 //!   crossing itself is interpolated, never solved, for there the two phases are one: (T, p) at ln K = 0 by cubic
 //!   Hermite interpolation between the points either side (TM15 Eq. 7.134).
 //! - It starts at the bubble point at the stated low pressure (1 bar by default) and, where that fails or lies below the
-//!   model's lowest temperature, at the dew point there. It ends typed (ROT-188): closed where it returns to the starting
-//!   pressure past its highest, at a bound where a point leaves the model's temperature range or rises above the stated
-//!   (else the model's) highest pressure, and without convergence where the step falls below `MIN_STEP`, the start
-//!   fails, or the trace runs past its stated number of points.
+//!   model's lowest temperature, at the dew point there, and runs up in pressure; where both do, at the bubble (else the
+//!   dew) point at that lowest temperature, and runs up in temperature, into the range (#256). It ends typed (ROT-188):
+//!   from a start at the stated pressure, closed where it returns to that pressure past its highest; at a bound where a
+//!   point leaves the model's temperature range, as a start at the lowest temperature ends on the other side, or rises
+//!   above the stated (else the model's) highest pressure; and without convergence where the step falls below
+//!   `MIN_STEP`, the start fails, or the trace runs past its stated number of points.
 //! - Nothing in a flash reads an envelope (ROT-189): it is a value the caller holds.
 
 use phasekit_core::density::Branch;
@@ -180,7 +182,7 @@ impl Mixture {
         let limits = self.range();
         let p_max = opts.p_max.map_or(limits.p_max(), |p| p.min(limits.p_max()));
         Ok(match Tracer::start(self, p_start, limits.t_min()) {
-            Ok((tracer, first)) => tracer.trace(first, limits, (p_max, opts.points)),
+            Ok((tracer, first, up)) => tracer.trace((first, up), limits, (p_max, opts.points)),
             Err(e) => Envelope::empty(self.composition().len()).ended(EnvelopeEnd::NoConvergence(e)),
         })
     }
@@ -291,16 +293,20 @@ fn hermite((ua, fa, da): (f64, f64, f64), (ub, fb, db): (f64, f64, f64), u: f64)
 }
 
 impl<'a> Tracer<'a> {
-    /// The trace's first point and its state: the bubble point at `p_start`, else the dew point there, else the bubble
-    /// or the dew point at the model's lowest temperature `t_min`; the first of them at or above `t_min` that
-    /// converges as the trace's own point, specified in ln p.
-    fn start(mixture: &'a Mixture, p_start: f64, t_min: f64) -> Result<(Tracer<'a>, Point), Error> {
+    /// The trace's first point, its state and the unknown the trace first runs up in: the bubble point at `p_start`,
+    /// else the dew point there, run up in ln p, else the bubble or the dew point at the model's lowest temperature
+    /// `t_min`, run up in ln T, into the range (#256); the first of them at or above `t_min` that converges as the
+    /// trace's own point, specified in ln p.
+    fn start(mixture: &'a Mixture, p_start: f64, t_min: f64) -> Result<(Tracer<'a>, Point, usize), Error> {
         let mut last = Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 };
-        let starts = [(Side::Bubble, Given::P(p_start)), (Side::Dew, Given::P(p_start))];
-        for (side, given) in starts.into_iter().chain([(Side::Bubble, Given::T(t_min)), (Side::Dew, Given::T(t_min))]) {
+        let n = mixture.composition().len();
+        let (ln_t, ln_p) = (n, n.saturating_add(1));
+        let at_p = [(Side::Bubble, Given::P(p_start), ln_p), (Side::Dew, Given::P(p_start), ln_p)];
+        let at_t = [(Side::Bubble, Given::T(t_min), ln_t), (Side::Dew, Given::T(t_min), ln_t)];
+        for (side, given, up) in at_p.into_iter().chain(at_t) {
             match saturation(mixture, side, given) {
                 Ok(s) if s.t >= t_min => match Tracer::from_point(mixture, side, &s) {
-                    Ok(found) => return Ok(found),
+                    Ok((tracer, point)) => return Ok((tracer, point, up)),
                     Err(e) => last = e,
                 },
                 Ok(s) => last = DomainError::BelowMinTemperature { t: s.t, t_min }.into(),
@@ -536,9 +542,11 @@ impl<'a> Tracer<'a> {
         }
     }
 
-    /// The envelope from `first`: each next point specifying the unknown that varies fastest, until the trace returns
-    /// to the first point's pressure past its highest, leaves `limits` or rises above `p_max`, or fails.
-    fn trace(mut self, first: Point, limits: &Limits, (p_max, points): (f64, usize)) -> Envelope {
+    /// The envelope from `first`, run first up in its unknown `up` (ln T or ln p): each next point specifying the
+    /// unknown that varies fastest, until the trace returns to the first point's pressure past its highest (from a
+    /// start at its starting pressure; one at the lowest temperature runs on to it), leaves `limits` or rises above
+    /// `p_max`, or fails.
+    fn trace(mut self, (first, up): (Point, usize), limits: &Limits, (p_max, points): (f64, usize)) -> Envelope {
         let n = self.z.len();
         let mut env = Envelope::empty(n);
         let failed =
@@ -546,7 +554,7 @@ impl<'a> Tracer<'a> {
         let ln_start = ln_tp(&first.v, n).1;
         let mut highest = ln_start;
         self.record(&mut env, &first);
-        let (mut point, mut spec, mut direction, mut h) = (first, n.saturating_add(1), 1.0, FIRST_STEP);
+        let (mut point, mut spec, mut direction, mut h) = (first, up, 1.0, FIRST_STEP);
         loop {
             if env.len() >= points {
                 return env.ended(EnvelopeEnd::NoConvergence(failed(points)));
@@ -574,7 +582,7 @@ impl<'a> Tracer<'a> {
             highest = highest.max(ln_p);
             // Equivalent (M13.12): `>=` differs only at a highest pressure exactly the start's, which no trace meets.
             // equivalent mutant: replace > with >=
-            if ln_p <= ln_start && highest > ln_start {
+            if up == n.saturating_add(1) && ln_p <= ln_start && highest > ln_start {
                 return env.ended(EnvelopeEnd::Closed);
             }
             (point, h) = (found, step);

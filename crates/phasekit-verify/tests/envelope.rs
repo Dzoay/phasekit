@@ -143,6 +143,32 @@ fn the_critical_point_lies_on_the_envelope() {
     assert!(failures.is_empty() && beyond == ["Methane&n-Butane 0.75"], "{failures:#?} {beyond:?}");
 }
 
+/// #256: a trace that starts at the model's lowest temperature, where both the bubble and the dew point at 1 bar lie
+/// below it, runs up in temperature into the range: CO₂/N₂ at 50/50 and 90/10 (CO₂'s triple point, 216.592 K) trace their
+/// bubble side from there, through M13.7's critical point (within TM15's 0.02 K and 2 kPa), and back down their dew side
+/// until it leaves the range below T_min, in at least 10 points, every one a bubble or a dew point by M13.9's gate.
+#[test]
+fn traces_from_the_lowest_temperature_run_into_the_range() {
+    let registry = registry();
+    let mut failures = Vec::new();
+    for z1 in [0.5, 0.9] {
+        let fluid = phasekit_mix::mixture(&registry, &[("CarbonDioxide", z1), ("Nitrogen", 1.0 - z1)], DataSet::Parity)
+            .unwrap();
+        let (env, mix) = (envelope(&fluid, &EnvelopeOptions::new()), mixture(&fluid));
+        let (t_min, c) = (fluid.model().limits().unwrap().t_min(), fluid.model().critical_point().unwrap());
+        let label = format!("CO₂/N₂ {z1}: {} points, {:?}, critical {:?}", env.len(), env.end, env.critical);
+        let started = env.len() >= 10 && env.side[0] == Side::Bubble && (env.t[0] / t_min - 1.0).abs() <= 1e-12;
+        let ended = matches!(env.end, EnvelopeEnd::Bound(phasekit_core::DomainError::BelowMinTemperature { .. }))
+            && env.side[env.len() - 1] == Side::Dew;
+        let through = env.critical.is_some_and(|(t, p)| (t - c.t).abs() <= 0.02 && (p - c.p).abs() <= 2e3);
+        if !(started && ended && through) {
+            failures.push(format!("{label} against ({}, {})", c.t, c.p));
+        }
+        failures.extend((0..env.len()).filter_map(|k| off_gate(mix, &env, k).map(|e| format!("{label}: {e}"))));
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
 /// ROT-188 (map 04 #15): where v8.0.0's tracer fails at its start (CO₂/water at 0.9/0.1) or runs to 6.8 GPa (methane/
 /// n-decane), 21 GPa (hydrogen/methane) or 23 GPa and 7135 K (N₂/C1/C2/C3), phasekit's ends typed: every point within
 /// the model's temperature range and below the stated 100 MPa, each a bubble or a dew point by M13.9's gate, and a
