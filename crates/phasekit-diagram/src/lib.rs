@@ -16,6 +16,7 @@ mod diagram;
 mod lines;
 mod plane;
 mod ranges;
+mod refine;
 
 pub use batch::{Batch, FluidBatch, Inputs, Row, Vertex};
 pub use diagram::{Diagram, Dome, diagram, sample};

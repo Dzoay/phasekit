@@ -1,5 +1,6 @@
 //! A diagram: its plane's saturation dome, its isolines and the ranges of its axes (PLAN.md M19.1, M19.2), sampled by
-//! the batch. It adds no numerics: every vertex is the batch's value at the inputs it carries.
+//! the batch and refined where they bend (M19.3). It adds no numerics: every vertex is the batch's value at the inputs
+//! it carries.
 
 use phasekit_core::{Error, Fluid};
 
@@ -7,6 +8,7 @@ use crate::batch::{Batch, FluidBatch, Row, Vertex, along, vertex};
 use crate::lines::{Line, lines};
 use crate::plane::{Plane, Quantity};
 use crate::ranges::{Limits, Ranges, dome_temperatures, lin_grid, log_grid, ranges};
+use crate::refine::{Halving, Sides, Square, points, refine};
 
 /// The saturated liquid and vapour, each up to just below T_c, in order of temperature, and the critical point. A
 /// pseudo-pure fluid's liquid side is its bubble points, its vapour side its dew points.
@@ -45,12 +47,18 @@ pub fn sample(batch: &impl Batch, plane: Plane, limits: &Limits) -> Result<Diagr
     let r = ranges(limits);
     let outputs = [plane.x().quantity, plane.y().quantity, Quantity::Hmass, Quantity::Smass, Quantity::Dmass];
     let temperatures = dome_temperatures(dome_start(batch, &r)?, limits.t_critical, DOME_POINTS);
-    let side = |q: f64| along(batch, &outputs, (Quantity::T, &temperatures), (Quantity::Q, &vec![q; DOME_POINTS]));
-    let (liquid, vapour) = (side(0.0)?, side(1.0)?);
-    let (t_c, rho_c) = ([limits.t_critical], [limits.rho_critical]);
-    let critical = along(batch, &outputs, (Quantity::T, &t_c), (Quantity::Dmass, &rho_c))?;
+    let side = |q: f64| move |t: &[f64]| along(batch, &outputs, (Quantity::T, t), (Quantity::Q, &vec![q; t.len()]));
+    let (liquid, vapour) = (side(0.0)(&temperatures)?, side(1.0)(&temperatures)?);
     let (t, p) = ([r.t.0, r.t.0, r.t.1, r.t.1], [r.p.0, r.p.1, r.p.0, r.p.1]);
     let corners = along(batch, &outputs, (Quantity::T, &t), (Quantity::P, &p))?;
+    let coarse = Spans::of(r, &[&liquid, &vapour, &corners]).square(plane);
+    let refined = |rows: Vec<Row>, q: f64| -> Result<Vec<Row>, Error> {
+        let all = refine(points(&temperatures, rows), (Halving::Linear, Sides::One), &coarse, side(q))?;
+        Ok(all.into_iter().map(|p| p.row).collect())
+    };
+    let (liquid, vapour) = (refined(liquid, 0.0)?, refined(vapour, 1.0)?);
+    let (t_c, rho_c) = ([limits.t_critical], [limits.rho_critical]);
+    let critical = along(batch, &outputs, (Quantity::T, &t_c), (Quantity::Dmass, &rho_c))?;
     let spans = Spans::of(r, &[&liquid, &vapour, &corners]);
     let dome =
         Dome { liquid: vertices(&liquid), vapour: vertices(&vapour), critical: critical.first().and_then(vertex) };
@@ -58,15 +66,16 @@ pub fn sample(batch: &impl Batch, plane: Plane, limits: &Limits) -> Result<Diagr
         Quantity::T => lin_grid(r.t.0, r.t.1, SWEEP_POINTS),
         _ => log_grid(r.p.0, r.p.1, SWEEP_POINTS),
     };
-    let lines = lines(batch, plane, &|q| spans.get(q), &sweeps, &temperatures)?;
+    let lines = lines(batch, plane, &spans.square(plane), &|q| spans.get(q), &sweeps, &temperatures)?;
     Ok(Diagram { plane, dome, lines, x: spans.get(plane.x().quantity), y: spans.get(plane.y().quantity) })
 }
 
-/// The points a side of the dome takes.
+/// The temperatures a side of the dome starts on, which the quality lines start on too: closing in on T_c, they reach
+/// within 0.03 K of Water's (32 would stop 0.37 K short).
 const DOME_POINTS: usize = 120;
 
-/// The points a line's sweep takes, linear in T and logarithmic in p, across the plotted range (M21.2's).
-const SWEEP_POINTS: usize = 160;
+/// The points a line's sweep starts on, linear in T and logarithmic in p, across the plotted range.
+const SWEEP_POINTS: usize = 32;
 
 /// Where the dome enters the plotted pressures: at the saturation temperature of the lowest, or at the lowest plotted
 /// temperature if that is higher or the batch has no such state.
@@ -92,6 +101,12 @@ struct Spans {
 impl Spans {
     fn of(ranges: Ranges, rows: &[&[Row]]) -> Spans {
         Spans { ranges, h: extent(rows, 2), s: extent(rows, 3), d: extent(rows, 4) }
+    }
+
+    /// The plane's unit square over these spans, where its lines are refined.
+    fn square(&self, plane: Plane) -> Square {
+        let (x, y) = (plane.x(), plane.y());
+        Square::new((x, self.get(x.quantity)), (y, self.get(y.quantity)))
     }
 
     fn get(&self, quantity: Quantity) -> (f64, f64) {
