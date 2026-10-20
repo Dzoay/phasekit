@@ -36,9 +36,12 @@ const OFF: u64 = 0x3fe6_9555_0000_0000;
 /// 1.5·2⁵²: an integer k under 2⁵¹ in magnitude added to its bits gives the double 1.5·2⁵² + k.
 const SHIFT: f64 = f64::from_bits(0x4338_0000_0000_0000);
 /// The masks that keep a double's top 32 bits (z's split) and its top 37 (y's and hi's 27-bit splits).
+#[cfg(not(feature = "fast"))]
 const TOP32: u64 = 0xffff_ffff_0000_0000;
+#[cfg(not(feature = "fast"))]
 const TOP37: u64 = 0xffff_ffff_f800_0000;
 /// Half of [`TOP32`]'s lowest kept bit, which rounds z to its top bits.
+#[cfg(not(feature = "fast"))]
 const HALF32: u64 = 0x8000_0000;
 /// A double's sign bit, the bits of 1, of the smallest normal number and of +∞.
 const SIGN: u64 = 0x8000_0000_0000_0000;
@@ -173,6 +176,29 @@ fn entry(table: &[u64; 128], i: u64) -> f64 {
     f64::from_bits(table.get((i & 0x7f) as usize).copied().unwrap_or(0))
 }
 
+/// r = z/c − 1 and A0·r² as sq + lo3, sq what joins the sum and lo3 its error. z is split at its top 32 bits, so that
+/// r = rhi + rlo exactly and sq = rhi·(A0·rhi) is exact; with the `fast` feature Arm's FMA form instead (PLAN.md M23.7).
+#[inline(always)]
+fn ratio(z: f64, iz: u64, invc: f64) -> (f64, f64, f64) {
+    #[cfg(not(feature = "fast"))]
+    {
+        let zhi = f64::from_bits(iz.wrapping_add(HALF32) & TOP32);
+        let zlo = z - zhi;
+        let rhi = zhi * invc - 1.0;
+        let rlo = zlo * invc;
+        let r = rhi + rlo;
+        let arhi = A0 * rhi;
+        (r, rhi * arhi, rlo * (A0 * r + arhi))
+    }
+    #[cfg(feature = "fast")]
+    {
+        let _ = iz;
+        let r = crate::num::fused::ratio(z, invc);
+        let (sq, lo3) = crate::num::fused::square(r, A0);
+        (r, sq, lo3)
+    }
+}
+
 /// ln x as hi + lo, |lo| about 2⁻¹⁵ of hi's ulp, at the bits of a positive x, a subnormal one normalised with its
 /// exponent below 0 in the sign bit (Arm's `log_inline` without FMA).
 #[inline(always)]
@@ -184,37 +210,36 @@ fn ln_hi_lo(ix: u64) -> (f64, f64) {
     let z = f64::from_bits(iz);
     let kd = f64::from_bits(SHIFT.to_bits().wrapping_add(k)) - SHIFT;
     let (invc, logc, logctail) = (entry(&INVC, i), entry(&LOGC, i), entry(&LOGCTAIL, i));
-    let zhi = f64::from_bits(iz.wrapping_add(HALF32) & TOP32);
-    let zlo = z - zhi;
-    let rhi = zhi * invc - 1.0;
-    let rlo = zlo * invc;
-    let r = rhi + rlo;
+    let (r, sq, lo3) = ratio(z, iz, invc);
     // k·ln 2 + ln c + r.
     let t1 = kd * LN2_HI + logc;
     let (t2, lo2) = fast_two_sum(t1, r);
     let lo1 = kd * LN2_LO + logctail;
-    // … + A0·r², with rhi² exact.
+    // … + A0·r², as sq + lo3.
     let ar = A0 * r;
     let ar2 = r * ar;
     let ar3 = r * ar2;
-    let arhi = A0 * rhi;
-    let (hi, lo4) = fast_two_sum(t2, rhi * arhi);
-    let lo3 = rlo * (ar + arhi);
+    let (hi, lo4) = fast_two_sum(t2, sq);
     let p = ar3 * (A1 + r * A2 + ar2 * (A3 + r * A4 + ar2 * (A5 + r * A6)));
     let lo = lo1 + lo2 + lo3 + lo4 + p;
     fast_two_sum(hi, lo)
 }
 
 /// y·ln x as ehi + elo, |elo| < 2⁻²⁵·|ehi|, from [`ln_hi_lo`] at `ix`: y and hi each split at 27 bits, so that ehi
-/// is their high halves' product, exact.
+/// is their high halves' product, exact; with the `fast` feature Arm's FMA form instead (PLAN.md M23.7).
 #[inline(always)]
 fn exponent(ix: u64, y: f64) -> (f64, f64) {
     let (hi, lo) = ln_hi_lo(ix);
-    let yhi = f64::from_bits(y.to_bits() & TOP37);
-    let ylo = y - yhi;
-    let lhi = f64::from_bits(hi.to_bits() & TOP37);
-    let llo = hi - lhi + lo;
-    (yhi * lhi, ylo * lhi + y * llo)
+    #[cfg(not(feature = "fast"))]
+    {
+        let yhi = f64::from_bits(y.to_bits() & TOP37);
+        let ylo = y - yhi;
+        let lhi = f64::from_bits(hi.to_bits() & TOP37);
+        let llo = hi - lhi + lo;
+        (yhi * lhi, ylo * lhi + y * llo)
+    }
+    #[cfg(feature = "fast")]
+    crate::num::fused::product(y, hi, lo)
 }
 
 /// Whether 2⁻⁶⁵ ≤ |y| < 2⁶³: outside, x^y is 1 ± y, or 0, 1 or ∞ for an even integer y.
@@ -522,9 +547,11 @@ mod tests {
 
     /// [`ln_hi_lo`] is Arm's `log_inline` bit for bit, hi and lo: at 1, at either end of the subinterval about 1 (r
     /// widest above 1), at z's range's ends, 1.2345, 3, 10³⁰⁰, the largest double, the smallest normal and two
-    /// subnormals, normalised. The values are Arm's without FMA, compiled from C.
+    /// subnormals, normalised. The values are Arm's compiled from C, without FMA, or with it (`-mfma`, Arm's
+    /// `HAVE_FAST_FMA`) for the `fast` feature: the two differ only in the last subnormal's lo.
     #[test]
     fn ln_is_arms_bitwise() {
+        let last_lo = if cfg!(feature = "fast") { 0xbd03_5918_fe54_0000 } else { 0xbd03_5918_fe58_0000 };
         let cases = [
             (0x3ff0_0000_0000_0000, 0x0000_0000_0000_0000, 0x0000_0000_0000_0000),
             (0x3fef_f555_0000_0000, 0xbf55_598f_3c53_243a, 0x3bfb_4d3c_0000_0000),
@@ -537,7 +564,7 @@ mod tests {
             (0x7fef_ffff_ffff_ffff, 0x4086_2e42_fefa_39ef, 0x3d1a_9c9e_3b39_8000),
             (0x0010_0000_0000_0000, 0xc086_232b_dd7a_bcd2, 0xbd1e_ef3f_ec1b_e000),
             (0x0000_0000_0000_0001, 0xc087_4385_446d_71c3, 0xbd28_e569_fa8e_e800),
-            (0x0000_1268_8b70_e62b, 0xc086_4e69_394d_9508, 0xbd03_5918_fe58_0000),
+            (0x0000_1268_8b70_e62b, 0xc086_4e69_394d_9508, last_lo),
         ];
         for (x, hi, lo) in cases {
             let (got_hi, got_lo) = ln_hi_lo(normalised(f64::from_bits(x)));

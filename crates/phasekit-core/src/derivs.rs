@@ -86,7 +86,8 @@ impl<R: Real> Derivs<R> {
         if i.saturating_add(j) <= self.order.get() { self.a.get(idx(i, j)).copied() } else { None }
     }
 
-    /// `A_ij += φ · bt[i] · bd[j]` for `i + j ≤ ORD`: the outer product of separable τ- and δ-factors.
+    /// `A_ij += φ · bt[i] · bd[j]` for `i + j ≤ ORD`: the outer product of separable τ- and δ-factors, each addition
+    /// [`Real::mad`]'s (fused with the `fast` feature).
     #[inline(always)]
     #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
     pub(crate) fn add_outer<const ORD: usize>(&mut self, phi: R, bt: &[f64; 5], bd: &[R; 5]) {
@@ -94,7 +95,7 @@ impl<R: Real> Derivs<R> {
             let e = phi * bti;
             for (j, &bdj) in bd.iter().enumerate().take(ORD.saturating_add(1).saturating_sub(i)) {
                 if let Some(a) = self.a.get_mut(idx(i, j)) {
-                    *a = *a + e * bdj;
+                    *a = e.mad(bdj, *a);
                 }
             }
         }
@@ -108,7 +109,7 @@ impl<R: Real> Derivs<R> {
             let e = phi * bti;
             for (j, &bdj) in bd.iter().enumerate().take(ORD.saturating_add(1).saturating_sub(i)) {
                 if let Some(a) = self.a.get_mut(idx(i, j)) {
-                    *a = *a + e * bdj;
+                    *a = e.mad(bdj, *a);
                 }
             }
         }

@@ -28,10 +28,10 @@ fn listed(list: &[Known], test: &str, fluid: &str, column: &str) -> bool {
     list.iter().any(|&(t, f, c, _)| (t, f, c) == (test, fluid, column))
 }
 
-/// A single-state bench's case on `backend` (PLAN.md M23.1; VERIFICATION.md §12): `case` on std's maths, `<case>_libm`
-/// on the `libm` crate's, so that one results file holds both builds' rows of D12's rule.
+/// A single-state bench's case on `backend` (PLAN.md M23.1, M23.7; VERIFICATION.md §12): `case` on std's maths,
+/// `<case>_<backend>` on another (`_libm`, `_fast`), so that one results file holds every build's rows.
 pub fn case(backend: &str, case: &str) -> String {
-    if backend == "libm" { format!("{case}_libm") } else { case.to_string() }
+    if backend == "std" { case.to_string() } else { format!("{case}_{backend}") }
 }
 
 /// The cells of `test` that [`LIBM_KNOWN`] lists on `backend`: none on std's maths.
@@ -84,5 +84,6 @@ mod tests {
     #[test]
     fn bench_cases_name_their_backend() {
         assert_eq!((case("std", "pt_h"), case("libm", "pt_h")), ("pt_h".to_string(), "pt_h_libm".to_string()));
+        assert_eq!(case("fast", "pt_h"), "pt_h_fast");
     }
 }

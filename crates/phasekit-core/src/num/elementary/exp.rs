@@ -196,9 +196,20 @@ pub(super) fn reduce(x: f64, xtail: f64, sign: u64) -> (f64, u64, u64) {
     let index = (ki & 0x7f).wrapping_shl(1);
     let tail = f64::from_bits(word(index));
     let sbits = word(index.wrapping_add(1)).wrapping_add(ki.wrapping_shl(45)).wrapping_add(sign);
-    let r2 = r * r;
-    let tmp = tail + r + r2 * (C2 + r * C3) + r2 * r2 * (C4 + r * C5);
-    (tmp, sbits, ki)
+    (poly(tail, r), sbits, ki)
+}
+
+/// tail + exp(r) − 1 from the polynomial: tail + r + r²·(C2 + r·C3) + r⁴·(C4 + r·C5), each a·b + c fused with the
+/// `fast` feature (PLAN.md M23.7).
+#[inline(always)]
+fn poly(tail: f64, r: f64) -> f64 {
+    #[cfg(not(feature = "fast"))]
+    {
+        let r2 = r * r;
+        tail + r + r2 * (C2 + r * C3) + r2 * r2 * (C4 + r * C5)
+    }
+    #[cfg(feature = "fast")]
+    crate::num::fused::exp_poly(tail, r, [C2, C3, C4, C5])
 }
 
 /// scale + scale·tmp, the main path's result.

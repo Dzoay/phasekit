@@ -86,8 +86,8 @@ pub trait SaturationCurve: Send + Sync + fmt::Debug {
 }
 
 /// Σ_k c_k T_k(x) for x in [−1, 1] by Clenshaw's recurrence, b_k = 2x·b_(k+1) − b_(k+2) + c_k from the top and f = c_0 +
-/// x·b_1 − b_2, in a fixed order with no fused multiply-add: CoolProp's order for two or more coefficients (map 03
-/// §3.3). One coefficient is the constant c_0 (CoolProp returns c_0·(1 + x), map 03 §6); none is the zero series.
+/// x·b_1 − b_2, in a fixed order with no fused multiply-add, the `fast` feature's builds included (user decision IM8):
+/// CoolProp's order for two or more coefficients (map 03 §3.3). One coefficient is the constant c_0 (CoolProp returns c_0·(1 + x), map 03 §6); none is the zero series.
 pub fn clenshaw(coef: &[f64], x: f64) -> f64 {
     let Some((&c0, rest)) = coef.split_first() else { return 0.0 };
     let Some((&top, middle)) = rest.split_last() else { return c0 };

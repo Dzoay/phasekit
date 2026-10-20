@@ -55,10 +55,11 @@ mod bench {
         let (t, rho): (Vec<f64>, Vec<f64>) = states.iter().copied().unzip();
         let mut out = vec![Derivs::zero(Order::Two); states.len()];
         let per_state = u32::try_from(states.len()).unwrap_or(u32::MAX);
-        let backend = if phasekit_core::math::BACKEND == "libm" { "scalar_libm" } else { "scalar" };
-        let simd = cfg!(feature = "simd").then_some((ExecPolicy::Simd, "simd"));
+        let backend = case(BACKEND, "scalar");
+        let lanes = if BACKEND == "fast" { "simd_fast" } else { "simd" };
+        let simd = cfg!(feature = "simd").then_some((ExecPolicy::Simd, lanes));
         let mut g = c.benchmark_group("alphar_batch");
-        for (exec, case) in [(ExecPolicy::Reference, backend)].into_iter().chain(simd) {
+        for (exec, case) in [(ExecPolicy::Reference, backend.as_str())].into_iter().chain(simd) {
             g.bench_function(BenchmarkId::new(label, case), |b| {
                 b.iter_custom(|iters| {
                     let start = Instant::now();

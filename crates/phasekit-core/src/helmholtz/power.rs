@@ -113,15 +113,15 @@ pub(super) fn exp_poly(p: f64, q: f64) -> [Poly; 5] {
     ]
 }
 
-/// `[1, B_1(x), …, B_ORD(x)]` from the polynomials of [`exp_poly`], by Horner: exact coefficients, no cancellation
-/// as x → 0.
+/// `[1, B_1(x), …, B_ORD(x)]` from the polynomials of [`exp_poly`], by Horner with [`Real::mad`]: exact coefficients,
+/// no cancellation as x → 0.
 #[inline(always)]
 #[allow(clippy::arithmetic_side_effects, reason = "on any Real: IEEE or lane arithmetic, no panic")]
 pub(super) fn horner<R: Real, const ORD: usize>(polys: &[Poly; 5], x: R) -> [R; 5] {
     let mut b = [R::from_f64(1.0); 5];
     for (j, (b, poly)) in b.iter_mut().zip(polys).enumerate().take(ORD.saturating_add(1)).skip(1) {
         let lead = R::from_f64(poly.get(j).copied().unwrap_or(f64::NAN));
-        *b = poly.get(..j).unwrap_or_default().iter().rev().fold(lead, |acc, &ck| acc * x + ck);
+        *b = poly.get(..j).unwrap_or_default().iter().rev().fold(lead, |acc, &ck| acc.mad(x, R::from_f64(ck)));
     }
     b
 }

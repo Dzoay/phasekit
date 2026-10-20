@@ -77,7 +77,7 @@ disallowed-methods = [
     { path = "std::path::Path::read_link", reason = "the library never touches the filesystem (ROT-153)" },
     { path = "std::path::Path::symlink_metadata", reason = "the library never touches the filesystem (ROT-153)" },
     { path = "std::path::Path::try_exists", reason = "the library never touches the filesystem (ROT-153)" },
-    { path = "f64::mul_add", reason = "FMA breaks cross-target determinism (D12, K12)" },
+    { path = "f64::mul_add", reason = "FMA breaks cross-target determinism (D12, K12); the `fast` feature fuses through `math::mul_add` alone (M23.7)" },
     { path = "f64::powi", reason = "use math::powi: a fixed multiplication chain (D12)" },
     { path = "f64::powf", reason = "use math::powf: the transcendental choke point (D12)" },
     { path = "f64::exp", reason = "use math::exp (D12)" },

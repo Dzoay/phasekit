@@ -28,6 +28,12 @@ libm = ["dep:libm"]
 # `ExecPolicy::Simd` runs its lanes at the CPU's widest level, detected at run time (fearless_simd; PLAN.md M12.4), and
 # enables `libm`, so the lanes are the scalar path's bits on every target (user decision SL1).
 simd = ["libm", "dep:fearless_simd"]
+# a·b + c fused (`f64::mul_add`) in the in-house maths, the α^r and α⁰ term sums and the EOS's polynomials (not the
+# superancillary's Clenshaw sums, IM8), on every target, in hardware or in software (PLAN.md M23.7; user decision IM4).
+# It enables `libm` (IM7), so a `fast` build's results are one set of bits across targets, but not the other builds'.
+# It pays only where a·b + c compiles to an FMA instruction (`-C target-cpu=x86-64-v3`, aarch64): 0.95x the default's
+# time there, 2.2x at the x86-64 baseline (PLAN.md M23.7).
+fast = ["libm"]
 
 [dependencies]
 phasekit-data = { workspace = true, optional = true }

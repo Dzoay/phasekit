@@ -648,16 +648,18 @@ impl RealKernel for EveryMethod {
             let growth = a.exp() + b.expm1() * a.ln() - b.ln_1p() / a.sqrt();
             let powers = a.powi(3) + b.powf(1.7);
             let hyperbolic = (a * 0.1).sinh() * (b * 0.1).cosh() + (-a).atan() - (-b).abs();
-            *out = (growth + powers + hyperbolic + R::from_f64(0.5)) * (j as f64 + 1.0) + 0.25;
+            let fused = a.mad(b, R::from_f64(0.5));
+            *out = (growth + powers + hyperbolic + fused) * (j as f64 + 1.0) + 0.25;
         }
     }
 }
 
 /// PLAN.md M22.2 (VERIFICATION.md §9.2, class `Exact`; user decision ML3): a family's kernel over `Real` runs through
 /// `batch::run_kernel` bitwise its `f64` evaluation point by point, under `Reference`, `Parallel` (16-point chunks) and
-/// `Simd`, through the public path only. The kernel uses every `Real` method, at counts set at run time (1 in and 1 out,
-/// 2 in and 3 out, 3 in and 15 out), over batches of 1 to 65 points, so a short last group at every lane width. Unequal
-/// columns are a `Shape` error, and an empty batch runs.
+/// `Simd`, through the public path only, and with the `fast` feature too (M23.7: `mad` fused on every lane as on the
+/// scalar path). The kernel uses every `Real` method, at counts set at run time (1 in and 1 out, 2 in and 3 out, 3 in
+/// and 15 out), over batches of 1 to 65 points, so a short last group at every lane width. Unequal columns are a `Shape`
+/// error, and an empty batch runs.
 #[test]
 fn real_kernels_are_scalar_bitwise() {
     let mut rng = SplitMix64::new(15);

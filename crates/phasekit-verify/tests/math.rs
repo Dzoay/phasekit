@@ -209,14 +209,16 @@ fn ln_is_faithful() {
 /// in every build, and Arm's result bit for bit at Arm's cases (NaN canonical, signed zeros kept) but its near-ties.
 /// There, at nine of them, the exact value lies at the midpoint of two doubles to four digits (a tail of ±½), and Arm's
 /// own `pow` without FMA rounds to the other neighbour as core's does, ½ ulp off either way: Arm's results are the
-/// correctly rounded ones, which its FMA build gives.
+/// correctly rounded ones, which its FMA build gives. With the `fast` feature (PLAN.md M23.7) core's FMA forms round
+/// four of the nine as Arm does, and five stay near-ties the other way.
 #[test]
 fn pow_is_faithful() {
     let (worst, differ) = own("pow", |x| internal::pow(x[0], x[1])).unwrap();
     assert!(worst.error < ulp::FAITHFUL, "{} ulp at {:?}", worst.error, worst.at);
     let (ties, differ): (Vec<_>, Vec<_>) = differ.into_iter().partition(|(_, tail)| tail.abs() == 0.5);
     assert!(differ.is_empty(), "not Arm's result:\n{}", lines(&differ));
-    assert!(ties.len() == 9, "Arm's near-ties rounded the other way:\n{}", lines(&ties));
+    let want = if math::BACKEND == "fast" { 5 } else { 9 };
+    assert!(ties.len() == want, "Arm's near-ties rounded the other way:\n{}", lines(&ties));
 }
 
 /// PLAN.md M23.5 (VERIFICATION.md §5, class `Faithful`; user decision IM3): core's own `expm1`, M12.8's port of the
