@@ -1,9 +1,12 @@
 // The page's tables: each output's quantity against CoolProp's units, and every name a viewer reads is written and
-// tells its row apart. The presets are states the package computes.
+// tells its row apart. The presets are states the package computes, of a fluid of the index or a predefined mixture the
+// package builds (PLAN.md M21.5).
 import { describe, expect, test } from "vitest";
 import { createHandler } from "../../src/engine/handler";
 import { PRESETS } from "../../src/lib/fluids";
+import { buildable } from "../../src/lib/mixtures";
 import { GROUPS, HEADLINE, INPUTS, OUTPUTS, output } from "../../src/lib/outputs";
+import { find } from "../../src/lib/packs";
 import { ACCENTS, ACCENT_LABELS, MODES, MODE_LABELS } from "../../src/lib/theme";
 import { KINDS, SYSTEMS, displayUnit, type KindId } from "../../src/lib/units";
 import { embedded, loadPk, packBytes, packIndex } from "../pk";
@@ -57,26 +60,32 @@ describe("tables", () => {
     expect(HEADLINE).toEqual(["T", "P", "Dmass", "Hmass", "Smass", "Q"]);
   });
 
-  test("the presets' names are written and distinct; presets name fluids of the index and input keys", () => {
+  test("the presets' names are written and distinct; presets name fluids of the index or mixtures and input keys", async () => {
     expect(distinct(PRESETS.map((p) => p.label)) && written(PRESETS.map((p) => p.label))).toBe(true);
     const fluids = packIndex().fluids;
+    const pk = await loadPk("simd");
+    const predefined = pk.predefinedMixtures().map((name) => ({ name, components: pk.mixtureComponents(name) }));
+    const mixtures = buildable(predefined, fluids, new Set(pk.binaryPairs())).map((m) => m.name);
     for (const p of PRESETS) {
-      expect(
-        fluids.some((f) => f.name === p.fluid),
-        p.label,
-      ).toBe(true);
+      expect(fluids.some((f) => f.name === p.fluid) || mixtures.includes(p.fluid), p.label).toBe(true);
       expect(INPUTS.includes(p.a[0]) && INPUTS.includes(p.b[0]) && p.a[0] !== p.b[0], p.label).toBe(true);
     }
   });
 
-  test("each preset is a state the package computes, one from its pack", async () => {
-    const handle = createHandler(await loadPk("simd"), "simd128");
+  test("each preset is a state the package computes, one from its pack and two mixtures from their components'", async () => {
+    const pk = await loadPk("simd");
+    const handle = createHandler(pk, "simd128");
     const named = await embedded();
     const packed = PRESETS.filter((p) => !named.includes(p.fluid));
-    expect(packed.map((p) => p.fluid)).toEqual(["R32"]);
-    for (const p of packed) {
-      const entry = packIndex().fluids.find((f) => f.name === p.fluid);
-      expect(handle({ id: 0, op: "pack", bytes: packBytes(entry?.pack ?? "") }).ok).toBe(true);
+    expect(packed.map((p) => p.fluid)).toEqual(["R32", "R410A.mix", "Air.mix"]);
+    const needed = new Set(
+      packed.flatMap((p) => (p.fluid.endsWith(".mix") ? pk.mixtureComponents(p.fluid) : [p.fluid])),
+    );
+    const fluids = packIndex().fluids;
+    for (const name of new Set([...needed].map((n) => find(fluids, n)?.name ?? n))) {
+      if (named.includes(name)) continue;
+      const entry = find(fluids, name);
+      expect(handle({ id: 0, op: "pack", bytes: packBytes(entry?.pack ?? "") }).ok, name).toBe(true);
     }
     for (const [i, p] of PRESETS.entries()) {
       const [[name1, value1], [name2, value2]] = [p.a, p.b];

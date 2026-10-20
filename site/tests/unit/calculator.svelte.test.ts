@@ -259,7 +259,7 @@ describe("calculator", () => {
     flushSync();
     const states = pending.filter((p) => p.body.op === "state");
     expect(states.length).toBe(2);
-    const answer = (phase: string): StateValue => ({ phase, values: [], errors: [] });
+    const answer = (phase: string): StateValue => ({ phase, values: [], errors: [], mixture: null });
     states[1]?.resolve(answer("newer"));
     await vi.waitFor(() => expect(calc.result?.phase).toBe("newer"));
     states[0]?.resolve(answer("older"));
@@ -296,6 +296,7 @@ const answer = (phase: string, values: (number | null)[] = [], errors: (string |
   phase,
   values,
   errors,
+  mixture: null,
 });
 
 describe("calculator, before and between answers", () => {

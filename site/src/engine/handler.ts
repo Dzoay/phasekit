@@ -1,15 +1,18 @@
 // The engine: the page's requests (protocol.ts) answered by the browser package. It adds no numerics: every value is
 // the package's, and every refusal is the package's message. It holds one registry, which each pack the page adds
 // replaces with a registry that also serves the pack's fluids (PLAN.md M21.4), and the fluid handles it has opened,
-// which outlive the registry they came from; each state is freed once its outputs are read.
+// which outlive the registry they came from; each state, envelope and set of phases is freed once it is read.
 import type { Pk } from "./pk";
 import type {
   BatchValue,
   BenchValue,
   Build,
+  EnvelopeValue,
+  MixturesValue,
   RegistryValue,
   Request,
   Response,
+  StateMixture,
   StateValue,
   TimeValue,
   Timing,
@@ -18,6 +21,7 @@ import type {
 // The handle types; wasm-bindgen's private constructors rule out `InstanceType`.
 type Registry = Pk["Registry"]["prototype"];
 type Fluid = Pk["Fluid"]["prototype"];
+type State = Pk["State"]["prototype"];
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -68,8 +72,28 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
     return contents();
   };
 
+  // A mixture's composition, and its phases at a two-phase state (PLAN.md M21.5); null for a pure fluid, the one
+  // component of its own. A refusal of the phases is kept in the package's words, and the state's values stand.
+  const mixtureAt = (f: Fluid, s: State): StateMixture | null => {
+    const components = f.components;
+    if (components.length < 2) return null;
+    const at: StateMixture = { components, feed: [...f.composition], liquid: null, vapour: null, error: null };
+    try {
+      const phases = s.phases();
+      if (!phases) return at;
+      try {
+        return { ...at, liquid: [...phases.liquid], vapour: [...phases.vapour] };
+      } finally {
+        phases.free();
+      }
+    } catch (e) {
+      return { ...at, error: message(e) };
+    }
+  };
+
   const state = (r: Extract<Request, { op: "state" }>): StateValue => {
-    const s = fluid(r.fluid).flash(r.name1, r.value1, r.name2, r.value2);
+    const f = fluid(r.fluid);
+    const s = f.flash(r.name1, r.value1, r.name2, r.value2);
     try {
       const values: (number | null)[] = [];
       const errors: (string | null)[] = [];
@@ -82,9 +106,29 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
           errors.push(message(e));
         }
       }
-      return { phase: s.phase, values, errors };
+      return { phase: s.phase, values, errors, mixture: mixtureAt(f, s) };
     } finally {
       s.free();
+    }
+  };
+
+  // What can be mixed: the predefined mixtures with their components, and the binary pairs.
+  const mixtures = (): MixturesValue => ({
+    predefined: pk.predefinedMixtures().map((name) => ({ name, components: pk.mixtureComponents(name) })),
+    pairs: pk.binaryPairs(),
+  });
+
+  // A mixture's envelope, its handle freed once its arrays are copied out.
+  const envelope = (name: string): EnvelopeValue => {
+    const f = fluid(name);
+    const e = f.envelope();
+    try {
+      const critical: [number, number] | null = e.criticalT === undefined ? null : [e.criticalT, e.criticalP as number];
+      const [T, P, Q, Dmass, incipient] = [e.T, e.P, e.Q, e.Dmass, e.incipient];
+      const [components, feed] = [f.components, [...f.composition]];
+      return { T, P, Q, Dmass, incipient, components, feed, critical, end: e.end, reason: e.reason };
+    } finally {
+      e.free();
     }
   };
 
@@ -164,6 +208,12 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
           return { id, ok: true, op: "time", value: time(request) };
         case "constants":
           return { id, ok: true, op: "constants", value: constants(request) };
+        case "mixtures":
+          return { id, ok: true, op: "mixtures", value: mixtures() };
+        case "components":
+          return { id, ok: true, op: "components", value: pk.mixtureComponents(request.name) };
+        case "envelope":
+          return { id, ok: true, op: "envelope", value: envelope(request.fluid) };
         case "batch":
           return { id, ok: true, op: "batch", value: batch(request) };
         case "bench":

@@ -7,7 +7,7 @@ import { DiagramView, READOUT_KEYS } from "../../src/diagram/view.svelte";
 import type { Key } from "../../src/sample/diagrams";
 import { createHandler } from "../../src/engine/handler";
 import type { Body, Engine, Request, Values } from "../../src/engine/protocol";
-import { loadPk } from "../pk";
+import { loadPk, packBytes } from "../pk";
 
 async function realEngine(): Promise<{ engine: Engine; calls: string[]; bodies: Body[] }> {
   const handle = createHandler(await loadPk("simd"), "simd128");
@@ -226,13 +226,15 @@ describe("the diagrams view, before and between answers", { timeout: 30_000 }, (
   });
 
   test("drops a late diagram, sampled or refused", async () => {
-    const { engine, answer } = await held(["constants"]);
+    const { engine, waiting, answer } = await held(["constants"]);
     const route = $state({ params: new URLSearchParams("fluid=Water&d=pt") });
     const view = new DiagramView(engine);
     const stop = view.connect(route, () => {});
     flushSync();
     view.fluid = "Nitrogen";
     flushSync();
+    // Each asks the engine first whether it is a mixture.
+    await vi.waitFor(() => expect(waiting.length).toBe(2));
     await answer(1);
     await settle(view);
     const nitrogen = view.data;
@@ -244,6 +246,7 @@ describe("the diagrams view, before and between answers", { timeout: 30_000 }, (
     flushSync();
     view.fluid = "R134a";
     flushSync();
+    await vi.waitFor(() => expect(waiting.length).toBe(4));
     await answer(3);
     await settle(view);
     await answer(2);
@@ -428,6 +431,73 @@ describe("the phase regions (PLAN.md M21.9)", { timeout: 30_000 }, () => {
     expect(view.refusal).not.toBeNull();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(view.phases).toBeNull();
+    stop();
+  });
+});
+
+// A mixture's diagram (PLAN.md M21.5): R410A.mix's envelope on the real package, with R32's and R125's packs.
+describe("a mixture's diagrams", { timeout: 30_000 }, () => {
+  async function mixed(query: string) {
+    const real = await realEngine();
+    for (const file of ["r32.pack", "r125.pack"]) await real.engine.call({ op: "pack", bytes: packBytes(file) });
+    const route = $state({ params: new URLSearchParams(query) });
+    const writes: string[] = [];
+    const view = new DiagramView(real.engine);
+    const stop = view.connect(route, (p) => writes.push(p.toString()));
+    await settle(view);
+    return { view, route, writes, stop, ...real };
+  }
+
+  test("are its envelope on p–T and T–ρ, its components and the trace's end beside it", async () => {
+    const { view, writes, calls, stop } = await mixed("fluid=R410A.mix&d=trho");
+    expect([view.id, view.refusal, view.data?.lines]).toEqual(["trho", null, []]);
+    expect(view.mixture).toEqual({
+      components: ["R32", "R125"],
+      feed: [expect.closeTo(0.6976, 4), expect.closeTo(0.3024, 4)],
+      end: "closed",
+      reason: "",
+    });
+    expect(view.data?.envelope).toBe(view.mixture);
+    expect(view.data?.dome.liquid.length).toBeGreaterThan(10);
+    // The model's critical point, from its constants, on T–ρ: (ρ_c, T_c).
+    expect(view.data?.dome.critical?.inputs).toEqual([
+      "T",
+      expect.closeTo(344.494, 3),
+      "Dmass",
+      expect.closeTo(459.05, 2),
+    ]);
+    expect(last(writes)).toBe("fluid=R410A.mix&d=trho");
+    view.choose("pt");
+    await settle(view);
+    expect([view.id, view.mixture?.end]).toEqual(["pt", "closed"]);
+    expect(calls.filter((c) => c === "components")).toEqual(["components"]);
+    stop();
+  });
+
+  test("on a plane a mixture has not switch to p–T; a pure fluid's then has none", async () => {
+    const { view, writes, stop } = await mixed("fluid=R410A.mix&d=ph");
+    expect([view.id, view.data?.envelope?.components]).toEqual(["pt", ["R32", "R125"]]);
+    expect(last(writes)).toBe("fluid=R410A.mix&d=pt");
+    view.choose("ph");
+    await settle(view);
+    expect(view.id).toBe("pt");
+    view.fluid = "Water";
+    await settle(view);
+    expect([view.mixture, view.data?.envelope]).toEqual([null, undefined]);
+    view.fluid = "R410A.mix";
+    await settle(view);
+    expect(view.mixture?.components).toEqual(["R32", "R125"]);
+    stop();
+  });
+
+  test("a name the engine refuses is no mixture, and the package's refusal is its diagram's", async () => {
+    const { view, calls, stop } = await mixed("fluid=R410A.mix&d=pt");
+    const envelopes = calls.filter((c) => c === "envelope").length;
+    view.fluid = "R999.mix";
+    await settle(view);
+    expect([view.data, view.mixture]).toEqual([null, null]);
+    expect(view.refusal).toContain("R999.mix");
+    expect(calls.filter((c) => c === "envelope").length).toBe(envelopes);
     stop();
   });
 });

@@ -26,7 +26,12 @@ const FLUIDS = [
 function setup(value: string, fluids: readonly PackEntry[] = FLUIDS) {
   const data = new FluidData(
     { index: () => Promise.reject(new Error("unused")), pack: () => Promise.reject(new Error("unused")) },
-    { add: () => Promise.reject(new Error("unused")), contents: () => Promise.reject(new Error("unused")) },
+    {
+      add: () => Promise.reject(new Error("unused")),
+      contents: () => Promise.reject(new Error("unused")),
+      components: () => Promise.reject(new Error("unused")),
+      mixtures: () => Promise.reject(new Error("unused")),
+    },
   );
   data.names = ["Water", "n-Propane"];
   data.fluids = fluids;
@@ -38,6 +43,40 @@ function setup(value: string, fluids: readonly PackEntry[] = FLUIDS) {
 const names = (picker: Picker) => picker.hits.map((h) => h.entry.name);
 
 describe("the picker", () => {
+  test("lists the predefined mixtures the package builds after the fluids, found by name or by a component", () => {
+    const { picker, data } = setup("Water");
+    expect(picker.entries).toBe(FLUIDS);
+    data.mixable = {
+      predefined: [
+        { name: "R410A.mix", components: ["R32", "R125"] },
+        { name: "R999.mix", components: ["R32", "Water"] },
+      ],
+      pairs: ["354-33-6&75-10-5"],
+    };
+    data.fluids = FLUIDS.map((f) => (f.name === "R125" ? { ...f, cas: "354-33-6" } : f));
+    const r410a: PackEntry = {
+      name: "R410A.mix",
+      aliases: ["R32 + R125"],
+      cas: null,
+      requires: ["R32", "R125"],
+      pack: "",
+      bytes: 0,
+      mixture: true,
+    };
+    expect(picker.entries).toEqual([...data.fluids, r410a]);
+    picker.type("r410");
+    expect(picker.hits).toEqual([{ entry: r410a, via: null }]);
+    picker.type("r125");
+    expect(names(picker)).toEqual(["R125", "R410A.mix"]);
+    expect(picker.hits[1]?.via).toBe("R32 + R125");
+    expect(data.cost(r410a)).toBe("mixture");
+    picker.pick();
+    expect(picker.text).toBe("R125");
+    picker.type("410");
+    picker.pick();
+    expect(picker.text).toBe("R410A.mix");
+  });
+
   test("offers the registry's fluids until the index has come, then the index's", () => {
     const { picker, data } = setup("Water", []);
     expect(picker.entries.map((e) => e.name)).toEqual(["Water", "n-Propane"]);

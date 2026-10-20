@@ -70,7 +70,10 @@ test("toggles families, switches diagrams and fluids, all in the URL", async ({ 
   await expect(page.getByTestId("plot")).toHaveAttribute("data-state", "ready", { timeout: 30_000 });
   await expect(page.getByTestId("plot").locator("text.title")).toHaveText(["s / J/(kg·K)", "T / K"]);
   await page.getByRole("combobox", { name: "Fluid" }).fill("nitrogen");
-  await page.getByRole("option", { name: /^Nitrogen\b/ }).click();
+  await page
+    .getByRole("listbox", { name: "Fluids" })
+    .getByRole("option", { name: /^Nitrogen\b/ })
+    .click();
   await expect(page).toHaveURL(/fluid=Nitrogen/);
   await expect(page.getByTestId("plot")).toHaveAttribute("data-state", "ready", { timeout: 30_000 });
 });

@@ -76,6 +76,8 @@ export const fluidData = new FluidData(
       return main.call({ op: "pack", bytes });
     },
     contents: () => worker("").call({ op: "registry" }),
+    components: (name) => worker("").call({ op: "components", name }),
+    mixtures: () => worker("").call({ op: "mixtures" }),
   },
 );
 

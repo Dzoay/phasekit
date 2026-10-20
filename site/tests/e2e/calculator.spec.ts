@@ -21,7 +21,10 @@ test("keeps its inputs in the URL", async ({ page }) => {
   await page.goto("./#/calculator?fluid=R134a&a=T:300&b=P:1e6");
   await expect(page.getByTestId("value-Dmass")).toHaveAttribute("data-value", /\d/);
   await page.getByRole("combobox", { name: "Fluid" }).fill("water");
-  await page.getByRole("option", { name: /^Water\b/ }).click();
+  await page
+    .getByRole("listbox", { name: "Fluids" })
+    .getByRole("option", { name: /^Water\b/ })
+    .click();
   await expect(page).toHaveURL(/fluid=Water/);
   await expect(page).toHaveURL(/a=T(:|%3A)300/);
 });

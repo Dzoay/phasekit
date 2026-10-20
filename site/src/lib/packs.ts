@@ -16,6 +16,9 @@ export interface PackEntry {
   pack: string;
   /** The pack's size in bytes. */
   bytes: number;
+  /** Set on a predefined mixture's entry, which the picker lists after the index's fluids, its components as the
+   *  fluids it requires (PLAN.md M21.5); the index has none. */
+  mixture?: true;
 }
 
 export interface PackIndex {

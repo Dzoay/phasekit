@@ -8,9 +8,10 @@
 
   const picker = new Picker(fluidData, { get: () => value, set: (name) => (value = name) });
 
-  // The index and what the registry serves, asked for once the picker is on the page.
+  // The index, what the registry serves and what it mixes, asked for once the picker is on the page.
   $effect(() => {
     fluidData.index().catch(() => {});
+    fluidData.catalogue().catch(() => {});
     fluidData.touch();
   });
 
@@ -30,7 +31,7 @@
     aria-activedescendant={picker.open && picker.hits.length > 0 ? `${id}-option-${picker.active}` : undefined}
     autocomplete="off"
     spellcheck="false"
-    placeholder="Name, alias or CAS number"
+    placeholder="Name, alias, CAS number or mixture"
     value={picker.text}
     onfocus={(e) => {
       picker.show();
@@ -55,7 +56,8 @@
           onmousemove={() => (picker.active = i)}
         >
           <span class="name">{hit.entry.name}</span>
-          {#if hit.via}<span class="via">{hit.via}</span>{/if}
+          {#if hit.via}<span class="via">{hit.via}</span>
+          {:else if hit.entry.mixture}<span class="via">{hit.entry.aliases[0]}</span>{/if}
           <span class="cost">{fluidData.cost(hit.entry)}</span>
         </li>
       {:else}
