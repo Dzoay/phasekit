@@ -725,7 +725,11 @@ The scalar `f64` reference path is the source of truth. "What is computed" lives
      under Node that module is 1 325 154 B against 1 402 513 B with the remainder, and faster. Under Node 26 on the
      i7-8700K, n-Propane's DT + h + c_p, QT + h and PQ + h batches take 749, 1268 and 1485 ns per state on the
      `simd128` build, 1.50×, 1.45× and 1.45× M12.9's (which ran the scalar path); the baseline build's two lanes gain
-     4-5 %. Each build has its own size budget, its size + 10 % (`crates/phasekit-wasm/size-budget.txt`).
+     4-5 %. Since M23 both builds run core's own `exp`, `ln`, `pow` and `expm1` (user decision IM6): under Node 26 on
+     the i7-8700K, n-Propane's DT + h + c_p, QT + h and PQ + h batches (4096 points on 64 × 64 grids) take 1072, 1025
+     and 1300 ns per state on the baseline build and 956, 829 and 1105 ns on `simd128`, 0.58-0.66 and 0.71-0.76 times
+     main's before M23 (same boot, three alternating rounds; PLAN.md M23.8). Each build has its own size budget, its size
+     + 10 % (`crates/phasekit-wasm/size-budget.txt`), which both still meet.
   - The target is ≥ 2.5× α^r batch throughput on AVX2 over the scalar path, on the reference machine; `simd` ships if
     it is faster than the scalar path (user decisions SL3, TG1).
 - **Dispatch.** `ExecPolicy` is a run-time value. Cargo features add executors but never change numerics (K13);
