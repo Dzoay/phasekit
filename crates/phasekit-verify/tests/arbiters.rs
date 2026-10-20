@@ -42,6 +42,7 @@ fn arbiter_statuses_are_asserted() {
         ("Helium", ArbiterPart::Saturation),
         ("IF97 water", ArbiterPart::Saturation),
         ("IF97 water", ArbiterPart::Gibbs),
+        ("Ice Ih", ArbiterPart::Gibbs),
     ];
     let transport = ["Water", "HeavyWater"]
         .into_iter()

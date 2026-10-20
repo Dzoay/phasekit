@@ -1621,6 +1621,24 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[14],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0066",
+        fluids: &["Ice Ih"],
+        part: Part::Reducing,
+        arbiter: Some("IAPWS R10-06(2009) Table 2 (g00) and Table 6"),
+        policy: Policy::UsePaper,
+        fix: Fix::Code("phasekit_iapws::ice"),
+        evidence: "map 07 C1 (ROT-247): v8.0.0's ice g00 is -0.632020233449497e6 J/kg (src/Ice.cpp:20), the 2006 \
+                   release's; the 2009 revision's is -0.632020233335886e6, 1.13611e-4 J/kg higher, for consistency \
+                   with IAPWS-95 (Feistel et al. 2008). Under Corrected ice's g, h, u and f are the 2009 value's, \
+                   within Table 6's printed digits; under Parity v8.0.0's, every one 1.13611e-4 J/kg lower and \
+                   nothing else changed (M14.4). v8.0.0 reaches its ice only through humid air, so no fixture holds it",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[14],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The output columns of the `cubic` and `cubic_sat` kinds (PLAN.md M11.4, M11.5).

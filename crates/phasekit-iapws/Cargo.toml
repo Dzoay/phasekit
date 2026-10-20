@@ -19,6 +19,8 @@ phasekit-core.workspace = true
 # phasekit-verify's tests/iapws.rs, which reads them as fixtures.
 [dev-dependencies]
 phasekit-verify.workspace = true
+# Ice's unit tests stand it on core's embedded IAPWS-95 water.
+phasekit-core = { workspace = true, features = ["fluids-core"] }
 
 [lints]
 workspace = true

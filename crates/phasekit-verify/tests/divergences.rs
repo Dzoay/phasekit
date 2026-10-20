@@ -94,6 +94,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0063", div_0063),
     ("DIV-0064", div_0064),
     ("DIV-0065", div_0065),
+    ("DIV-0066", div_0066),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1821,4 +1822,31 @@ fn div_0065() {
         .unwrap();
     let oracle = table.value(row, "speed_sound").unwrap();
     assert!((oracle / W - 1.0).abs() > 2e-12 && (oracle / W - 1.0).abs() <= 5e-12, "{oracle}");
+}
+
+/// DIV-0066 (`UsePaper`, PLAN.md M14.4; ROT-247): ice's g₀₀. (1) Under `Corrected` R10-06(2009) Table 6 holds
+/// (`tests/iapws.rs::ice_is_table_6`); at its three states (2) `Parity`'s g, h, u and f are `Corrected`'s less the
+/// 2006 and 2009 values' difference, 1.13611e-4 J/kg, within 1e-9 J/kg, and (3) its c_p and ρ are `Corrected`'s bit for
+/// bit and its s within `Prop` (the state's s comes from bundle terms that both carry g, so g₀₀ cancels to an ulp).
+fn div_0066() {
+    let ice = |data: DataSet| {
+        let water = Registry::from_embedded(data).unwrap().get("Water").unwrap().clone();
+        phasekit_iapws::ice::ice(&water, data).unwrap()
+    };
+    let (corrected, parity) = (ice(DataSet::Corrected), ice(DataSet::Parity));
+    let offset = -0.632_020_233_449_497e6 - -0.632_020_233_335_886e6;
+    for (t, p) in [(273.16, 611.657), (273.152_519, 101_325.0), (100.0, 100e6)] {
+        let at = |fluid: &phasekit_core::Fluid| {
+            fluid.state(Input::pt(Pressure::new(p).unwrap(), Temperature::new(t).unwrap())).unwrap()
+        };
+        let (c, q) = (at(&corrected), at(&parity));
+        let m = Basis::Mass;
+        for (what, shift) in
+            [("g", q.g(m) - c.g(m)), ("h", q.h(m) - c.h(m)), ("u", q.u(m) - c.u(m)), ("f", q.a(m) - c.a(m))]
+        {
+            assert!((shift - offset).abs() <= 1e-9, "{what} at {t} K: {shift}");
+        }
+        assert_eq!([q.cp(m).unwrap(), q.rho(m)].map(f64::to_bits), [c.cp(m).unwrap(), c.rho(m)].map(f64::to_bits));
+        assert!((q.s(m) - c.s(m)).abs() <= ToleranceClass::Prop.bound(c.s(m).abs()).unwrap(), "s at {t} K");
+    }
 }

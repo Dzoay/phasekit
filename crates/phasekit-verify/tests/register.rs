@@ -614,6 +614,11 @@ fn div_0065(_: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0065"]
 }
 
+/// DIV-0066: v8.0.0 reaches its ice only through humid air, so its g₀₀ is cited from its source (map 07 C1).
+fn div_0066(_: &Fixture<'_>) -> Vec<&'static str> {
+    vec!["DIV-0066"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -647,6 +652,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0063,
         div_0064,
         div_0065,
+        div_0066,
     ]
     .iter()
     .flat_map(|group| group(&facts))

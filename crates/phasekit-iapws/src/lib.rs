@@ -12,4 +12,5 @@
 // (`gates lints` checks this line); its tests are exempt. Humid air reaches this crate.
 #![cfg_attr(not(test), deny(clippy::indexing_slicing, clippy::arithmetic_side_effects))]
 
+pub mod ice;
 pub mod if97;
