@@ -95,6 +95,12 @@ const GATE: f64 = FUGACITY_GATE / 2.0;
 const SUBSTITUTIONS: usize = 8;
 const NEWTON_STEPS: u16 = 60;
 
+/// Newton's iterates that may meet `FUGACITY_GATE` without meeting `GATE` before the solve counts as stalled at its
+/// rounding floor and returns the best of them (user decision IM11). R411A's bubble point at 260.48 K cycles there in
+/// every build, at about 5.3e-13: its liquid's p is the 1 % that 1 + δα^r_δ leaves, so the residuals round to about the
+/// size of `GATE` (PLAN.md M23.7a).
+const STALLED: u16 = 4;
+
 /// An iterate is the trivial solution where every |ln K_i| is under the first and the phases' densities are within
 /// the second in ln ρ: the incipient phase is the feed, on its root.
 const TRIVIAL: (f64, f64) = (1e-4, 1e-3);
@@ -143,6 +149,35 @@ pub(crate) fn on_branch(
 pub(crate) fn meets_gate(f: &[f64]) -> bool {
     let Some((balance, fugacities)) = f.split_last() else { return false };
     balance.abs() <= GATE && fugacities.iter().all(|f| (f - balance).abs() <= GATE)
+}
+
+/// [`meets_gate`]'s measure of `f`: the largest of |F_{N+1}| and each |F_i − F_{N+1}|; +∞ for no equations or a NaN.
+fn residual(f: &[f64]) -> f64 {
+    let Some((balance, fugacities)) = f.split_last() else { return f64::INFINITY };
+    let worst = fugacities.iter().map(|f| (f - balance).abs()).fold(balance.abs(), f64::max);
+    if f.iter().any(|f| f.is_nan()) { f64::INFINITY } else { worst }
+}
+
+/// The iterates of one Newton solve that met `FUGACITY_GATE` but not `GATE`: how many, and the best so far.
+#[derive(Default)]
+struct Floor {
+    count: u16,
+    best: Option<(f64, Coexisting)>,
+}
+
+impl Floor {
+    /// An iterate above `GATE` with `residual`: none until `STALLED` iterates have met `FUGACITY_GATE`, then the best of
+    /// them, the solve stalled at its rounding floor (user decision IM11).
+    fn stalled(&mut self, residual: f64, point: impl FnOnce() -> Coexisting) -> Option<Coexisting> {
+        if residual > FUGACITY_GATE {
+            return None;
+        }
+        if self.best.as_ref().is_none_or(|(best, _)| residual < *best) {
+            self.best = Some((residual, point()));
+        }
+        self.count = self.count.saturating_add(1);
+        if self.count < STALLED { None } else { self.best.take().map(|(_, point)| point) }
+    }
 }
 
 /// Whether an iterate is the trivial solution (`TRIVIAL`): every |ln K_i| and |ln(ρ′/ρ″)| small.
@@ -514,11 +549,25 @@ impl<'a> Solver<'a> {
         Ok((f, at))
     }
 
+    /// The two coexisting phases at the iterate (T, p) whose phases are `at`.
+    fn coexisting(&self, t: f64, p: f64, at: &Phases) -> Coexisting {
+        Coexisting {
+            t,
+            p,
+            beta: self.beta,
+            x: normalised(&at.x),
+            y: normalised(&at.y),
+            rho_liquid: at.liquid.rho,
+            rho_vapour: at.vapour.rho,
+        }
+    }
+
     /// Newton's method on the N + 1 equations in (ln K, ln X) from `seed` (T, p, ln K), each step cut to 0.5 in ln K and
-    /// 0.1 in ln X, to the residual gate.
+    /// 0.1 in ln X, to the residual gate; or, stalled at the rounding floor, the best of its iterates there ([`Floor`]).
     fn newton(&mut self, given: Given, (mut t, mut p, mut ln_k): (f64, f64, Vec<f64>)) -> Result<Coexisting, Error> {
         let failed = |iterations| Error::NoConvergence { strategy: Strategy::Vle, iterations };
         let n = self.z.len();
+        let mut floor = Floor::default();
         for iteration in 0..NEWTON_STEPS {
             let (f, at) = self.equations(t, p, &ln_k)?;
             // The trivial solution: both phases one, on the same root. An azeotrope's K_i are all near 1 too, but its
@@ -527,15 +576,10 @@ impl<'a> Solver<'a> {
                 return Err(failed(iteration));
             }
             if meets_gate(&f) {
-                return Ok(Coexisting {
-                    t,
-                    p,
-                    beta: self.beta,
-                    x: normalised(&at.x),
-                    y: normalised(&at.y),
-                    rho_liquid: at.liquid.rho,
-                    rho_vapour: at.vapour.rho,
-                });
+                return Ok(self.coexisting(t, p, &at));
+            }
+            if let Some(best) = floor.stalled(residual(&f), || self.coexisting(t, p, &at)) {
+                return Ok(best);
             }
             let jacobian = self.jacobian(given, (t, p), &at);
             let Some(step) = solve(jacobian, f.iter().map(|f| -f).collect()) else { return Err(failed(iteration)) };
@@ -652,6 +696,51 @@ mod tests {
         assert!(meets_gate(&[g, g, g]) && !meets_gate(&[-g, -g, g]) && meets_gate(&[0.0, 0.0, -g]));
         assert!(meets_gate(&[2.0 * g, 0.0, g]) && !meets_gate(&[2.5 * g, 0.0, g]));
         assert!(!meets_gate(&[1.5 * g, 1.5 * g, 1.5 * g]) && !meets_gate(&[]));
+    }
+
+    /// [`residual`] is the gate's measure, the largest of |F_{N+1}| and each |F_i − F_{N+1}|, and +∞ for no equations or
+    /// a NaN anywhere. g = 2⁻⁴¹, so every sum here is exact.
+    #[test]
+    fn the_residual_is_the_gates_measure() {
+        let g = f64::from_bits(0x3d60_0000_0000_0000);
+        assert_eq!(
+            [residual(&[g, -g, g]), residual(&[0.0, 3.0 * g, -g]), residual(&[g, g, 0.0])],
+            [2.0 * g, 4.0 * g, g]
+        );
+        assert!(
+            [residual(&[]), residual(&[0.0, f64::NAN]), residual(&[f64::NAN, 0.0])].iter().all(|r| r.is_infinite())
+        );
+    }
+
+    /// [`Floor`] passes over an iterate above `FUGACITY_GATE`, counts one at it, and returns the best of `STALLED` within
+    /// it, the first of equal ones (user decision IM11).
+    #[test]
+    fn a_floor_returns_its_best_once_stalled() {
+        let at =
+            |t: f64| Coexisting { t, p: 1.0, beta: 0.0, x: vec![1.0], y: vec![1.0], rho_liquid: 1.0, rho_vapour: 1.0 };
+        let mut floor = Floor::default();
+        assert!(floor.stalled(2e-12, || at(-1.0)).is_none() && floor.stalled(f64::INFINITY, || at(-1.0)).is_none());
+        let residuals = [FUGACITY_GATE, 6e-13, 7e-13, 6e-13];
+        let found: Vec<Option<f64>> =
+            residuals.iter().zip(0..).map(|(&r, i)| floor.stalled(r, || at(f64::from(i))).map(|c| c.t)).collect();
+        assert_eq!(found, [None, None, None, Some(1.0)]);
+    }
+
+    /// User decision IM11 (PLAN.md M23.7a): R411A's bubble point at 260.48 K, from Wilson's seed, ends at its rounding
+    /// floor in every build, Newton's iterates cycling at about 5.3e-13, above `GATE`, until its 60 steps ran out. The
+    /// stalled solve returns its best iterate, within 1e-12 of the point the split's seed reached.
+    #[test]
+    fn a_solve_stalled_at_its_floor_returns_its_best() {
+        let registry = Registry::from_embedded(DataSet::Parity).unwrap_or_else(|e| panic!("{e:?}"));
+        let fluid = crate::predefined(&registry, "R411A", DataSet::Parity).unwrap_or_else(|e| panic!("{e:?}"));
+        let model = fluid.model() as &dyn core::any::Any;
+        let mixture = model.downcast_ref::<Mixture>().unwrap_or_else(|| panic!("R411A is a mixture"));
+        let z = mixture.composition().to_vec();
+        let given = Given::T(260.484_246_459_023_1);
+        let mut solver = Solver::new(mixture, 0.0, &z);
+        let seed = solver.seed_wilson(given);
+        let found = solver.newton(given, seed).unwrap_or_else(|e| panic!("{e:?}"));
+        assert!((found.p / 303_500.127_077_401_15 - 1.0).abs() < 1e-12, "{}", found.p);
     }
 
     /// The mass balance gives the phases: x_i = z_i/(1 + β(K_i − 1)) and y_i = K_i x_i, so (1 − β)x + βy = z; at β = 0
