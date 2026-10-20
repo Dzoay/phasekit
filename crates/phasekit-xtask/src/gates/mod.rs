@@ -16,7 +16,7 @@ mod features;
 #[cfg(test)]
 pub(crate) use features::core_list;
 mod fixtures;
-mod ignores;
+pub(crate) mod ignores;
 mod lints;
 mod mutants;
 pub(crate) mod perf;

@@ -1,18 +1,18 @@
 //! `phasekit-wasm`: the browser package (PLAN.md M10.8; D11; E6, E7; map 11 U12, F23). wasm-bindgen over
 //! `phasekit-compat`, with the five core fluids embedded (E7) and more from packs a page fetches (`withPack`, E6).
 //!
-//! - [`Registry`]: `new Registry()`, `withPack(bytes)`, `withReference(fluid, state)`, `PropsSI(...)`, `Props1SI(output,
+//! - `Registry`: `new Registry()`, `withPack(bytes)`, `withReference(fluid, state)`, `PropsSI(...)`, `Props1SI(output,
 //!   fluid)`, `fluid(name)`, and `names()` and `loaded()`, what it serves and what it has decoded.
-//! - [`Fluid`]: `flash(name1, value1, name2, value2)`, the typed flash, and `evaluate(outputs, name1, values1, name2,
+//! - `Fluid`: `flash(name1, value1, name2, value2)`, the typed flash, and `evaluate(outputs, name1, values1, name2,
 //!   values2)`, the one batch: point-major `Float64Array` values (N × M) and a `Uint8Array` of cell codes.
-//! - [`output_keys`]: `outputKeys()`, CoolProp's 85 output keys, which `PropsSI` and `State.get` take.
-//! - Mixtures (PLAN.md M13.14, M21.5): `fluid` and `PropsSI` read CoolProp's mixture names; [`predefined_mixtures`],
-//!   [`binary_pairs`] and [`mixture_components`] say what can be mixed and which fluids a name needs; a mixture's
-//!   [`Fluid`] has its components, composition and [`Envelope`], and its two-phase [`State`] its [`Phases`].
+//! - `output_keys`: `outputKeys()`, CoolProp's 85 output keys, which `PropsSI` and `State.get` take.
+//! - Mixtures (PLAN.md M13.14, M21.5): `fluid` and `PropsSI` read CoolProp's mixture names; `predefined_mixtures`,
+//!   `binary_pairs` and `mixture_components` say what can be mixed and which fluids a name needs; a mixture's
+//!   `Fluid` has its components, composition and `Envelope`, and its two-phase `State` its `Phases`.
 //! - Errors are JS `Error`s. JS's garbage collector never frees wasm memory, so `Registry` and `Fluid`, the handle
 //!   objects, are freed with `free()`; the `State` and `Batch` a call returns are values, freed the same way.
 //! - A panic, a bug, cannot be caught on wasm32 and leaves the module unusable. It reaches JavaScript as an `Error` that
-//!   names it, [`panicked`] then returns its message, and every later call that computes refuses with it: load the
+//!   names it, `panicked` then returns its message, and every later call that computes refuses with it: load the
 //!   module anew (PLAN.md M24.2; issue #219).
 //!
 //! Two builds: the baseline, and `simd128` (`-C target-feature=+simd128`) with this crate's `simd` feature, which enables

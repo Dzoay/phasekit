@@ -838,7 +838,7 @@ required check on `main`. They pin GitHub's own actions by commit, install the t
 | Workflow: job | Runner | Runs |
 |---|---|---|
 | `ci`: `fmt`, `clippy` | Linux | G1; G2 and G7, and clippy on `phasekit-core --features libm` (M9.3) |
-| `ci`: `linux` | Linux | G3 and the doctests; `phasekit-core`'s tests with `--features libm` (M9.3); G8 as `gates all --except mutants`; `cargo deny check`, `cargo shear`, `reuse lint`; on a PR that changes data, `cargo xtask fluid diff --base origin/main` in the job summary |
+| `ci`: `linux` | Linux | G3 and the doctests; `cargo doc --workspace --no-deps`, its broken and private intra-doc links denied (PLAN.md M20.3); `phasekit-core`'s tests with `--features libm` (M9.3); G8 as `gates all --except mutants`; `cargo deny check`, `cargo shear`, `reuse lint`; on a PR that changes data, `cargo xtask fluid diff --base origin/main` in the job summary |
 | `ci`: `mutants (shard k of 4)`, `mutants` | Linux | G8's `gates mutants --shard k/4` in four jobs beside `linux` (user decisions CI2, CI6); `mutants`, the required check, passes only when all four do |
 | `ci`: `perf` | Linux + valgrind | G8's `gates perf`, the instruction gate, beside `linux` (whose `gates all` skips it); the run's counts uploaded as the `instructions-baseline` artifact |
 | `ci`: `msrv` | Linux | G3 and the doctests on the workspace `rust-version` (user decision MS1) |
@@ -848,7 +848,7 @@ required check on `main`. They pin GitHub's own actions by commit, install the t
 | `ci`: `site` | Linux + Chromium | G9 on `wasm-browser`'s modules (PLAN.md M21.1), StrykerJS on the PR's changed site TypeScript included (M21.7; its incremental file cached per branch); the built page as the `site` artifact |
 | `pr-title` | Linux | the PR title is a Conventional Commit (CONTRIBUTING.md) |
 | `pages`: `deploy` | Linux | after a green `ci` run on a push to `main`, that run's `site` artifact to GitHub Pages (user decision WS1) |
-| `nightly`: `oracle` | the pinned `runner_image` | regenerates the committed fixtures and checks them byte for byte (drift, determinism; 3.6); generates the full tier into `fixtures-full/` and fetches every fastchebpure file; runs the L5 sweep (`--run-ignored only`); its job summary lists rows and failed oracle calls per committed fixture and the sweep's result |
+| `nightly`: `oracle` | the pinned `runner_image` | regenerates the committed fixtures and checks them byte for byte (drift, determinism; 3.6); generates the full tier into `fixtures-full/` and fetches every fastchebpure file; runs the L5 sweep (`--run-ignored only`); its job summary gives the sweep's result and `cargo xtask nightly-report`'s (PLAN.md M20.4): per fluid and kind of the committed, multiprecision and full sets, the rows, the oracle's failed calls and the `nan` cells of the others; each fluid's arbiter records and whether one arbitrates, the fluids with none named as oracle only; and the ignored tests |
 | `nightly`: `advisories` | Linux | `cargo deny check advisories` |
 | `nightly`: `thread scaling` | Linux x86-64; aarch64 Linux | `cargo xtask bench --record scaling` at the latest `Plan-Step:` (12): the results file in the run summary and the `scaling-<runner>` artifact; informational (PLAN.md M9.2) |
 | `weekly`: `latest-deps` | Linux | `cargo update`, then the workspace tests |

@@ -51,7 +51,7 @@ fn side(p: f64, q: f64, x: f64, k: usize) -> f64 {
 }
 
 /// The `Term` scale of entry `(i, j)`, `i + j ≤ 4`, of the separable term `n τ^t e^(−aτ^m) δ^d e^(−cδ^l)` at
-/// (τ, δ): `|φ| ·` [`side`]`(t, m, aτ^m, i) ·` [`side`]`(d, l, cδ^l, j)`. Power, Exponential, Lemmon2005 and
+/// (τ, δ): `|φ| · side(t, m, aτ^m, i) · side(d, l, cδ^l, j)`. Power, Exponential, Lemmon2005 and
 /// DoubleExponential terms are all of this form.
 #[allow(clippy::too_many_arguments)] // the symbols of the formula, as printed
 pub fn separable(n: f64, t: f64, a: f64, m: f64, d: f64, c: f64, l: f64, at: (f64, f64), ij: (usize, usize)) -> f64 {

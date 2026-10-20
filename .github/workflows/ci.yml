@@ -114,6 +114,10 @@ jobs:
         run: cargo nextest run --workspace --profile ci
       - name: G3 cargo test --doc --workspace
         run: cargo test --doc --workspace
+      - name: Intra-doc links, none broken and none to a private item (PLAN.md M20.3)
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D rustdoc::broken_intra_doc_links -D rustdoc::private_intra_doc_links
       - name: Cross-target hash with std, libm and fast maths (PLAN.md M9.4, M23.7; VERIFICATION.md §9.4)
         run: |
           for features in "" "--features phasekit-core/libm" "--features phasekit-core/fast"; do

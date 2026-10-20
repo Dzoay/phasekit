@@ -1,6 +1,6 @@
 //! The mutants cargo-mutants leaves out (PLAN.md M25.4; user decision LM2). An equivalent mutant, one no test can
 //! catch, is excluded where it is: a line comment `// equivalent mutant: <mutation>` ends the comment that says why,
-//! and names a mutation as cargo-mutants describes it up to " in <function>" (`replace + with *`) on the next line
+//! and names a mutation as cargo-mutants describes it up to `" in <function>"` (`replace + with *`) on the next line
 //! that is not a comment; `#k` after the mutation picks the k-th such mutant on that line by column. Each marker
 //! resolves, from cargo-mutants' own list, to the full names of the mutants it means, which join
 //! `.cargo/mutants.toml`'s `exclude_re` in the configuration `gates mutants` and the weekly run pass with `--config`.
@@ -13,7 +13,7 @@ const MARKER: &str = "// equivalent mutant: ";
 pub const TOML: &str = ".cargo/mutants.toml";
 
 /// A mutant as `cargo mutants --list --json` lists it: its full name (`<file>:<line>:<col>: <description>`), file,
-/// line, column and mutation (the description without " in <function>").
+/// line, column and mutation (the description without `" in <function>"`).
 #[derive(Debug, PartialEq)]
 pub struct Listed {
     pub name: String,
