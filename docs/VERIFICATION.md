@@ -888,13 +888,15 @@ This section is the one definition of the bench harness, the C++ baseline and th
   state: `alphar_batch/scalar` (std), `alphar_batch/scalar_libm` (built with `--features phasekit-core/libm`), and
   `alphar_batch/simd` under `ExecPolicy::Simd` (built with `phasekit-verify`'s `--features simd`, which enables core's;
   M12.4). M12's SIMD gate compares `simd` with `scalar` (user decision SL3). Workload (2), DT + h + c_p, on its grid as
-  one `batch::evaluate` call: `properties_at_t_rho_batch/{scalar,scalar_libm,simd}`, the same builds (M12.8).
-  Workloads (3) and (4) plus h on their saturation grid as one call each:
+  one `batch::evaluate` call: `properties_at_t_rho_batch/{scalar,scalar_libm,simd}`, the same builds (M12.8). Workloads
+  (3) and (4) plus h on their saturation grid as one call each:
   `{qt,pq}_superancillary_batch/{scalar,scalar_libm,simd}`, the same builds (M12.9). The browser package's batch
-  (M12.10) is timed by hand under Node, not by a bench: n-Propane's workloads (2), (3) and (4) plus h, 4096 points of
-  a grid of their own as one `Fluid.evaluate` call, the median of 25 calls, on the release baseline and `simd128`
-  modules (ARCHITECTURE.md §7 item 5); M23.8 timed them so against main before M23, on 64 × 64 grids, three
-  alternating rounds.
+  (M12.10) is timed by hand under Node, not by a bench: n-Propane's workloads (2), (3) and (4) plus h, 4096 points of a
+  grid of their own as one `Fluid.evaluate` call, the median of 25 calls, on the release baseline and `simd128` modules
+  (ARCHITECTURE.md §7 item 5); M23.8 timed them so against main before M23, on 64 × 64 grids, three alternating rounds.
+  A mixture's flashes in the browser (M22.8) are timed the same way: CO2/n-Propane at 40/60, QT and PQ at Q = 0, 0.5 and
+  1 from 230 to 270 K, PT about the dome and QT + h as one `Fluid.evaluate` call, µs per flash, the median of 15, three
+  rounds, under the mixture's default `Simd` against modules whose mixtures default to `Reference`.
 - **Mixture workloads (M13, M22, phasekit only, no §7 target):** `benches/mixture.rs`, whose module comment defines
   them: `mixture_alphar` (workload (1) at a mixture's composition, R32/R125 at 50/50 and a five-component GERG-2008 gas),
   `mixture_dt` (direct, stable, dome; M13.10), `mixture_pt` (single, dome) and `mixture_qt` (bubble, dew, interior) on

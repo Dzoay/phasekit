@@ -214,11 +214,14 @@ impl MultiFluid {
         exec: ExecPolicy,
     ) -> Result<Vec<Composition>, Error> {
         let point_by_point = || phases.iter().map(|(rho, x)| self.composition(t, *rho, x, order)).collect();
-        // Before the phases' τ and δ, which only the lanes use: the other policies pay nothing for them.
+        // Before the phases' τ and δ, which only the lanes use: the other policies pay nothing for them. On simd128
+        // `Simd` runs point by point too, where the lanes are slower than `f64` and the kernel on `f64`, its
+        // departures' jet inline, slower than `composition` (M22.8, user decision ML8).
         // Equivalent (M22.5): either path gives each phase's `composition` bit for bit (K17), so which one a policy
         // takes changes only the time.
         // equivalent mutant: replace != with ==
-        if exec != ExecPolicy::Simd {
+        // equivalent mutant: replace || with &&
+        if exec != ExecPolicy::Simd || cfg!(target_feature = "simd128") {
             return point_by_point();
         }
         let mut k = 0;
