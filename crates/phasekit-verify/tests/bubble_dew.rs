@@ -214,3 +214,37 @@ fn quality_inputs_are_the_saturation_points() {
     let caps = fluid.model().capabilities();
     assert!(caps.contains(Pair::QT) && caps.contains(Pair::PQ) && caps.contains(Pair::PT));
 }
+
+/// #257: near the critical point, where Wilson's K lie far from 1, QT and PQ reach the bubble and dew points that the
+/// phase envelope traces (each on M13.9's gate). At each of R410A's envelope points within 6 K of its critical point
+/// (344.49 K), QT at its side's Q and T has its p, and PQ at its p and Q its T, within `Flash`; QT at Q = 0.5 there lies
+/// between the bubble and the dew pressure. The points within 1 mK of T_c are left out: there each side turns in T and
+/// in p, so a given T or p has two of its points within 1 Pa (the bubble point 0.24 mK above T_c, whose QT is the other,
+/// 0.31 Pa lower).
+#[test]
+fn near_critical_points_are_the_envelope_s() {
+    let registry = registry();
+    let fluid = row_fluid(&registry, "R410A.mix", f64::NAN);
+    let env = mixture(&fluid).envelope(&phasekit_mix::EnvelopeOptions::new()).unwrap();
+    let t_c = fluid.model().critical_point().unwrap().t;
+    let (mut failures, mut checked) = (Vec::new(), 0);
+    for k in (0..env.len()).filter(|k| env.t[*k] > t_c - 6.0 && (env.t[*k] - t_c).abs() > 1e-3) {
+        let (t, p, q) = (env.t[k], env.p[k], if env.side[k] == Side::Bubble { 0.0 } else { 1.0 });
+        let at_t = flash(&fluid, Pair::QT, q, t).map(|s| s.p());
+        let at_p = flash(&fluid, Pair::PQ, q, p).map(|s| s.t());
+        let near = |got: &Result<f64, Error>, want: f64| {
+            got.as_ref().is_ok_and(|got| (got - want).abs() <= ToleranceClass::Flash.bound(want).unwrap())
+        };
+        if !(near(&at_t, p) && near(&at_p, t)) {
+            failures.push(format!("{:?} at {t} K, {p} Pa: QT {at_t:?}, PQ {at_p:?}", env.side[k]));
+        }
+        checked += 1;
+    }
+    for t in [340.0, 342.0, 344.0] {
+        let [bubble, middle, dew] = [0.0, 0.5, 1.0].map(|q| flash(&fluid, Pair::QT, q, t).map(|s| s.p()));
+        if !matches!((&bubble, &middle, &dew), (Ok(b), Ok(m), Ok(d)) if d < m && m < b) {
+            failures.push(format!("QT at {t} K: {bubble:?} {middle:?} {dew:?}"));
+        }
+    }
+    assert!(failures.is_empty() && checked >= 15, "{checked} checked: {failures:#?}");
+}

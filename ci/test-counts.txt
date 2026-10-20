@@ -115,9 +115,9 @@ x86_64-unknown-linux-gnu phasekit-verify::critical 3
 wasm32-wasip2 phasekit-verify::critical 3
 x86_64-unknown-linux-gnu phasekit-verify::pt_flash 8
 wasm32-wasip2 phasekit-verify::pt_flash 8
-x86_64-unknown-linux-gnu phasekit-verify::bubble_dew 6
+x86_64-unknown-linux-gnu phasekit-verify::bubble_dew 7
 x86_64-unknown-linux-gnu phasekit-verify::interior 3
-wasm32-wasip2 phasekit-verify::bubble_dew 6
+wasm32-wasip2 phasekit-verify::bubble_dew 7
 wasm32-wasip2 phasekit-verify::interior 3
 # lowered: M13.15 moved the three capability-matrix tests to phasekit-verify::mixture_family
 x86_64-unknown-linux-gnu phasekit-verify::mixture_pairs 2

@@ -19,8 +19,11 @@
 //! - At a bubble or dew point, where Wilson's seed fails, as it does near the critical point, where it lies above the
 //!   dome and the solve falls into the trivial solution, M13.8's PT flash seeds it: Newton's method from the split
 //!   nearest the side's own end of Wilson's interval, its K = y/x; and where that fails too, from the last split
-//!   before that split's boundary with the feed's own single phase, bisected. Inside the dome the bubble and dew points
-//!   at the same T or p seed it, ln X and ln K interpolated in β.
+//!   before that split's boundary with the feed's own single phase, bisected. Where those fail too, as they do within a
+//!   few kelvin of a near-azeotrope's critical point, where Wilson's K lie far from 1 and no phase of them has a root on
+//!   its branch (R410A, #257), it is marched to: from the point on the same side at a lower T or p that Wilson's seed
+//!   solves, up in ln T or ln p, each solve seeded on the line through the last two points. Inside the dome the bubble
+//!   and dew points at the same T or p seed it, ln X and ln K interpolated in β.
 
 use phasekit_core::density::Branch;
 use phasekit_core::{Error, Order, Strategy, ThermoModel, math};
@@ -113,6 +116,13 @@ const CANDIDATES: usize = 9;
 const STEP_OUT: f64 = 1.25;
 const STEPS_OUT: usize = 10;
 const BISECTIONS: usize = 8;
+
+/// The march to a bubble or dew point its seeds miss ([`marched`]): the first distance below it in ln X and how many
+/// times it doubles, then the most solves on the way up and the smallest step before it gives up.
+const MARCH_FIRST: f64 = 0.005;
+const MARCH_OUT: usize = 8;
+const MARCH_SOLVES: usize = 32;
+const MARCH_MIN: f64 = 1e-6;
 
 /// Bisections of Wilson's seed inside the dome, in ln p or 1/T.
 const WILSON_BISECTIONS: usize = 80;
@@ -289,8 +299,15 @@ fn on_side(side: Side, found: Coexisting) -> Saturation {
     Saturation { t: found.t, p: found.p, rho: feed.0, incipient: feed.1, rho_incipient: incipient }
 }
 
-/// The bubble or dew point as two coexisting phases (`saturation`'s solve).
+/// The bubble or dew point as two coexisting phases (`saturation`'s solve): from its seeds; else marched to from a lower
+/// T or p ([`marched`]), the error the seeds' where that fails too.
 fn at_side(mixture: &Mixture, side: Side, given: Given) -> Result<Coexisting, Error> {
+    seeded(mixture, side, given).or_else(|first| marched(mixture, side, given).map_err(|_| first))
+}
+
+/// The bubble or dew point from Wilson's seed; else from the split nearest the side's own end of Wilson's interval;
+/// else from that split's boundary with the feed's own phase, bisected.
+fn seeded(mixture: &Mixture, side: Side, given: Given) -> Result<Coexisting, Error> {
     let z = mixture.composition().to_vec();
     let beta = side.beta();
     let solve = |seed: (f64, f64, Vec<f64>)| Solver::new(mixture, beta, &z).newton(given, seed);
@@ -301,6 +318,102 @@ fn at_side(mixture: &Mixture, side: Side, given: Given) -> Result<Coexisting, Er
     let search = SplitSearch { mixture, side, given };
     let Some(split) = search.first() else { return Err(first) };
     solve(search.seed(&split)).or_else(|_| search.boundary(split).map_or(Err(first), |near| solve(search.seed(&near))))
+}
+
+/// ln X of the given T or p.
+fn ln_given(given: Given) -> f64 {
+    match given {
+        Given::T(t) => math::ln(t),
+        Given::P(p) => math::ln(p),
+    }
+}
+
+/// The given T or p at ln X `u`.
+fn given_at(given: Given, u: f64) -> Given {
+    match given {
+        Given::T(_) => Given::T(math::exp(u)),
+        Given::P(_) => Given::P(math::exp(u)),
+    }
+}
+
+/// ln X of point `c`, X the T or p that `given` gives.
+fn ln_of(c: &Coexisting, given: Given) -> f64 {
+    ln_given(match given {
+        Given::T(_) => Given::T(c.t),
+        Given::P(_) => Given::P(c.p),
+    })
+}
+
+/// The logarithm of the other of T and p at point `c`, X the one `given` gives.
+fn ln_other(c: &Coexisting, given: Given) -> f64 {
+    math::ln(match given {
+        Given::T(_) => c.p,
+        Given::P(_) => c.t,
+    })
+}
+
+/// Newton's seed at `given` from point `c` nearby, and from `prev` before it where there is one: the given T or p, and
+/// the logarithm of the other and ln K extrapolated linearly in ln X through the two points (`c`'s own without
+/// `prev`).
+fn seed_from(prev: Option<&Coexisting>, c: &Coexisting, given: Given) -> (f64, f64, Vec<f64>) {
+    let s = prev.map_or(0.0, |b| (ln_given(given) - ln_of(c, given)) / (ln_of(c, given) - ln_of(b, given)));
+    let line = |a: f64, b: f64| a + s * (a - b);
+    let (k, k_prev) = (ln_k(c), prev.map_or_else(|| ln_k(c), ln_k));
+    let ln_k = k.iter().zip(&k_prev).map(|(a, b)| line(*a, *b)).collect();
+    let other = math::exp(line(ln_other(c, given), prev.map_or(ln_other(c, given), |b| ln_other(b, given))));
+    match given {
+        Given::T(t) => (t, other, ln_k),
+        Given::P(p) => (other, p, ln_k),
+    }
+}
+
+/// The bubble or dew point at `given` where its seeds fail, as they do near the critical point, where Wilson's K lie
+/// far from 1 and no phase of them has a root on its branch (R410A's bubble point at 340 K, #257): continued from the
+/// point on `side` at a lower T or p that Wilson's seed solves ([`below`]), up in ln X to `given` ([`up_to`]).
+fn marched(mixture: &Mixture, side: Side, given: Given) -> Result<Coexisting, Error> {
+    up_to(mixture, side, given, below(mixture, side, given)?)
+}
+
+/// The point on `side` nearest `given` below it that Wilson's seed solves: `MARCH_FIRST` lower in ln X, the distance
+/// doubled `MARCH_OUT` times; the last error where none is.
+fn below(mixture: &Mixture, side: Side, given: Given) -> Result<Coexisting, Error> {
+    let (z, u) = (mixture.composition().to_vec(), ln_given(given));
+    let mut last = Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 };
+    let mut h = MARCH_FIRST;
+    for _ in 0..MARCH_OUT {
+        let at = given_at(given, u - h);
+        let seed = Solver::new(mixture, side.beta(), &z).seed_wilson(at);
+        match Solver::new(mixture, side.beta(), &z).newton(at, seed) {
+            Ok(found) => return Ok(found),
+            Err(e) => last = e,
+        }
+        h *= 2.0;
+    }
+    Err(last)
+}
+
+/// The point on `side` at `given` from point `c` below it: steps up in ln X, each solve seeded on the line through the
+/// last two points ([`seed_from`]), a step that converges doubled and one that fails halved, at most `MARCH_SOLVES`
+/// solves; the last error where the step falls below `MARCH_MIN` or the solves run out.
+fn up_to(mixture: &Mixture, side: Side, given: Given, mut c: Coexisting) -> Result<Coexisting, Error> {
+    let target = ln_given(given);
+    let mut h = target - ln_of(&c, given);
+    let mut last = Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 };
+    let mut prev: Option<Coexisting> = None;
+    for _ in 0..MARCH_SOLVES {
+        let left = target - ln_of(&c, given);
+        h = h.min(left);
+        let at = if h == left { given } else { given_at(given, ln_of(&c, given) + h) };
+        match coexisting_from(mixture, side.beta(), at, seed_from(prev.as_ref(), &c, at)) {
+            Ok(found) if at == given => return Ok(found),
+            Ok(found) => (prev, c, h) = (Some(c), found, 2.0 * h),
+            Err(e) => (last, h) = (e, h / 2.0),
+        }
+        if h < MARCH_MIN {
+            break;
+        }
+    }
+    Err(last)
 }
 
 /// The two phases of `mixture` at vapour fraction `beta` in [0, 1] and `given` T or p: from Wilson's seed at β; else,
