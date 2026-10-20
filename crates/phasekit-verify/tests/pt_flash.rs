@@ -2,9 +2,10 @@
 //! ROT-181's and ROT-183's regression corpus and v8.0.0's Michelsen scenarios, and against the oracle's `mix_flash`.
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
+use phasekit_core::batch::ExecPolicy;
 use phasekit_core::density::{self, Branch};
 use phasekit_core::{Basis, DataSet, Error, FlashOptions, Fluid, Input, Order, Pair, Phase, Registry};
-use phasekit_mix::Equilibrium;
+use phasekit_mix::{Equilibrium, Mixture};
 use phasekit_verify::register::{RowKey, exempt_row};
 use phasekit_verify::{DIVERGENCES, Kind, Tolerance, ToleranceClass};
 
@@ -129,6 +130,37 @@ fn splits(registry: &Registry) -> Vec<(String, Fluid, f64, f64, Equilibrium)> {
         }
     }
     out
+}
+
+/// PLAN.md M22.6 (VERIFICATION.md §9.2, class `Exact`; user decision ML4): the stability test's trial phases, which
+/// evaluate side by side in core's lanes under `ExecPolicy::Simd` (`Mixture::with_exec`, the default), reach the same
+/// minima as under `Reference`, one trial after another, bit for bit: each trial's tangent-plane distance and
+/// minimiser, or that it reached the feed, or its refusal, at every state of the corpus and methanol/benzene's
+/// liquid-liquid one, and so the same verdict.
+#[test]
+fn stability_minima_are_scalar_bitwise() {
+    let registry = registry();
+    let states = CORPUS.iter().map(|(f, t, p, _)| (*f, *t, *p)).chain([(METHANOL_BENZENE, 308.15, 101_325.0)]);
+    let bits = |minima: Result<Vec<phasekit_mix::internal::Minimum>, Error>| {
+        let bits = |minimum: (f64, Vec<f64>)| (minimum.0.to_bits(), minimum.1.iter().map(|w| w.to_bits()).collect());
+        minima.map(|minima| {
+            minima.into_iter().map(|m| m.map(|m| m.map(bits))).collect::<Vec<Result<Option<(u64, Vec<u64>)>, Error>>>()
+        })
+    };
+    let mut trials = 0;
+    for (components, t, p) in states {
+        let fluid = feed(&registry, components);
+        let simd = mixture(&fluid);
+        let reference =
+            Mixture::new(simd.model().clone(), simd.composition()).unwrap().with_exec(ExecPolicy::Reference);
+        let (lanes, scalar) = (
+            phasekit_mix::internal::stability_minima(simd, t, p),
+            phasekit_mix::internal::stability_minima(&reference, t, p),
+        );
+        trials += scalar.as_ref().map_or(0, Vec::len);
+        assert_eq!(bits(lanes), bits(scalar), "{components:?} at {t} K, {p} Pa");
+    }
+    assert!(trials >= 4 * (CORPUS.len() + 1), "{trials} trials");
 }
 
 /// Map 04 §8: at every split the components' fugacities are equal and the phases add up to the feed, within

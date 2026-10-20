@@ -80,8 +80,21 @@ impl AtTp {
         Ok(AtTp { rho, c, p, rt: mixture.model().gas_constant() * t })
     }
 
-    /// [`AtTp::new`] of a liquid and a vapour at (T, p), each a density and its mole fractions, their composition
-    /// derivatives side by side under the mixture's policy (PLAN.md M22.5).
+    /// [`AtTp::new`] of phases at (T, p), each a density and its mole fractions, their composition derivatives side by
+    /// side under the mixture's policy (PLAN.md M22.5, M22.6).
+    pub(crate) fn many(
+        mixture: &Mixture,
+        t: f64,
+        p: f64,
+        phases: &[(f64, &[f64])],
+        order: Order,
+    ) -> Result<Vec<AtTp>, Error> {
+        let rt = mixture.model().gas_constant() * t;
+        let c = mixture.compositions(t, phases, order)?;
+        Ok(phases.iter().zip(c).map(|((rho, _), c)| AtTp { rho: *rho, c, p, rt }).collect())
+    }
+
+    /// [`AtTp::many`] of a liquid and a vapour.
     pub(crate) fn both(
         mixture: &Mixture,
         t: f64,
@@ -89,11 +102,9 @@ impl AtTp {
         phases: [(f64, &[f64]); 2],
         order: Order,
     ) -> Result<(AtTp, AtTp), Error> {
-        let rt = mixture.model().gas_constant() * t;
-        let mut c = mixture.compositions(t, &phases, order)?.into_iter();
-        let [liquid, vapour] = phases.map(|(rho, _)| c.next().map(|c| AtTp { rho, c, p, rt }));
+        let mut both = AtTp::many(mixture, t, p, &phases, order)?.into_iter();
         let missing = || Error::Shape { expected: 2, found: 0 };
-        Ok((liquid.ok_or_else(missing)?, vapour.ok_or_else(missing)?))
+        Ok((both.next().ok_or_else(missing)?, both.next().ok_or_else(missing)?))
     }
 
     /// ln φ_i = ∂Ψ/∂n_i − ln(p/(ρRT)) for every component, at the pressure the phase is at. At the root it is
@@ -379,11 +390,23 @@ pub(crate) enum Stability {
 /// − d_i − 1), d_i = ln z_i + ln φ_i(z), minimised from Wilson's vapour-like (z_i K_i) and liquid-like (z_i/K_i) trial
 /// phases and one near-pure trial phase per component. The most negative non-trivial minimum decides.
 pub(crate) fn stability(mixture: &Mixture, t: f64, p: f64, z: &[f64], feed: &AtTp) -> Result<Stability, Error> {
+    // A trial whose composition has no stable root at (T, p) proves nothing either way.
+    let minima = minima(mixture, t, p, z, feed).into_iter().filter_map(|minimum| minimum.ok().flatten());
+    Ok(most_unstable(minima).map_or(Stability::Stable, |w| Stability::Unstable(normalised(&w))))
+}
+
+/// A trial phase's minimum: its tangent-plane distance and minimiser, `None` where it reached the feed, or the
+/// refusal that stopped it.
+pub(crate) type Minimum = Result<Option<(f64, Vec<f64>)>, Error>;
+
+/// Each trial phase's [`Minimum`] in the tangent-plane test of `z` at (T, p) whose stable root is `feed`, in
+/// [`trials`]' order.
+pub(crate) fn minima(mixture: &Mixture, t: f64, p: f64, z: &[f64], feed: &AtTp) -> Vec<Minimum> {
     let d: Vec<f64> = z.iter().zip(feed.ln_phi()).map(|(z, l)| math::ln(*z) + l).collect();
     let tpd = Tpd { mixture, t, p, z, d: &d };
-    // A trial whose composition has no stable root at (T, p) proves nothing either way.
-    let minima = trials(z, &wilson(mixture, t, p)).into_iter().filter_map(|trial| tpd.minimise(trial).ok().flatten());
-    Ok(most_unstable(minima).map_or(Stability::Stable, |w| Stability::Unstable(normalised(&w))))
+    let mut trials: Vec<Trial> = trials(z, &wilson(mixture, t, p)).into_iter().map(Trial::new).collect();
+    tpd.run(&mut trials, |_| false);
+    trials.into_iter().map(Trial::minimum).collect()
 }
 
 /// The stability test's trial phases' mole numbers: Wilson's vapour-like z_i K_i and liquid-like z_i/K_i, then for each
@@ -416,12 +439,73 @@ struct Tpd<'a> {
     d: &'a [f64],
 }
 
-impl Tpd<'_> {
-    /// Trial mole numbers `w` at (T, p) on their stable root, to `order`.
-    fn at(&self, w: &[f64], order: Order) -> Result<AtTp, Error> {
-        at_t_p(self.mixture, self.t, self.p, &normalised(w), order)
+/// A trial phase on its way to its minimum (PLAN.md M22.6): its mole numbers W, the stage it is in, and the steps it
+/// took in successive substitution and in Newton's stage.
+#[derive(Debug)]
+struct Trial {
+    w: Vec<f64>,
+    stage: Stage,
+    steps: (usize, usize),
+}
+
+/// Where a [`Trial`] is: each stage but the last evaluates W (or a line search's candidate) at (T, p) once a round.
+#[derive(Debug)]
+enum Stage {
+    /// Successive substitution's step, from 1 to `SUBSTITUTIONS`.
+    Substitute(usize),
+    /// Newton's step, from 0 to `DESCENTS`.
+    Descend(usize),
+    /// A Newton step's line search.
+    Search(Search),
+    /// The minimum's own distance.
+    Last,
+    Done(Minimum),
+}
+
+/// A line search of Newton's step `step` in α_i = 2√W_i: the step `delta`, its `k`-th halving, the candidate W that
+/// halving gives, and the distance it must not exceed.
+#[derive(Debug)]
+struct Search {
+    step: usize,
+    k: i32,
+    alpha: Vec<f64>,
+    delta: Vec<f64>,
+    before: f64,
+    candidate: Vec<f64>,
+}
+
+impl Trial {
+    /// A trial from mole numbers `w`, about to substitute.
+    fn new(w: Vec<f64>) -> Trial {
+        Trial { w, stage: Stage::Substitute(1), steps: (0, 0) }
     }
 
+    /// The mole numbers its stage evaluates: a line search's candidate, else W.
+    fn evaluated(&self) -> &[f64] {
+        match &self.stage {
+            Stage::Search(search) => &search.candidate,
+            _ => &self.w,
+        }
+    }
+
+    /// Its minimum once done; a trial stopped short of it reached none.
+    fn minimum(self) -> Minimum {
+        match self.stage {
+            Stage::Done(minimum) => minimum,
+            _ => Ok(None),
+        }
+    }
+}
+
+impl Search {
+    /// The candidate W of the `k`-th halving: (α + 2^−k δ)²/4.
+    fn candidate(&self) -> Vec<f64> {
+        let scale = math::powi(0.5, self.k);
+        self.alpha.iter().zip(&self.delta).map(|(a, s)| 0.25 * (a + scale * s) * (a + scale * s)).collect()
+    }
+}
+
+impl Tpd<'_> {
     /// Whether `w` is the feed: Σ (w_i/Σw − z_i)² under `TM_TOLERANCE`.
     fn trivial(&self, w: &[f64]) -> bool {
         // Equivalent (M13.8): `<=` differs only at a trial exactly TM_TOLERANCE from the feed, which no solve meets.
@@ -434,70 +518,160 @@ impl Tpd<'_> {
         1.0 + w.iter().zip(ln_phi).zip(self.d).map(|((w, l), d)| w * (math::ln(*w) + l - d - 1.0)).sum::<f64>()
     }
 
-    /// The minimum from trial mole numbers `w`, with the minimiser; `None` for the trivial one.
-    fn minimise(&self, w: Vec<f64>) -> Result<Option<(f64, Vec<f64>)>, Error> {
-        let Some((w, _)) = self.substitute(w)? else { return Ok(None) };
-        let (w, _) = self.descend(w)?;
-        if self.trivial(&w) {
-            return Ok(None);
-        }
-        let ln_phi = self.at(&w, Order::One)?.ln_phi();
-        Ok(Some((self.tm(&w, &ln_phi), w)))
-    }
-
-    /// Up to `SUBSTITUTIONS` steps of successive substitution, ln W_i = d_i − ln φ_i(W), to 1e-10 in ln W, with the steps
-    /// taken; `None` once trivial.
-    fn substitute(&self, mut w: Vec<f64>) -> Result<Option<(Vec<f64>, usize)>, Error> {
-        for step in 1..=SUBSTITUTIONS {
-            let ln_phi = self.at(&w, Order::One)?.ln_phi();
-            let next: Vec<f64> = self.d.iter().zip(&ln_phi).map(|(d, l)| math::exp(d - l)).collect();
-            let change = next.iter().zip(&w).map(|(a, b)| (math::ln(*a) - math::ln(*b)).abs()).fold(0.0, f64::max);
-            w = next;
-            if self.trivial(&w) {
-                return Ok(None);
+    /// `trials` in lockstep until each is done or `stop` holds for it: each round, the trials still iterating evaluate
+    /// their mole numbers at (T, p) side by side ([`at_many`]), then each takes its own step (PLAN.md M22.6). A trial's
+    /// steps are the ones it would take alone, so its minimum is too.
+    fn run(&self, trials: &mut [Trial], stop: impl Fn(&Trial) -> bool) {
+        loop {
+            let wanted: Vec<(usize, Order)> = trials
+                .iter_mut()
+                .enumerate()
+                .filter(|(_, trial)| !stop(trial))
+                .filter_map(|(i, trial)| self.wanted(trial).map(|order| (i, order)))
+                .collect();
+            if wanted.is_empty() {
+                return;
             }
-            // Equivalent (M13.8): `<=` differs only at a substitution changing exactly 1e-10, which no solve meets.
-            // equivalent mutant: replace < with <=
-            if change < 1e-10 {
-                return Ok(Some((w, step)));
+            let requests: Vec<(&[f64], Order)> =
+                wanted.iter().filter_map(|(i, order)| Some((trials.get(*i)?.evaluated(), *order))).collect();
+            let evaluated = at_many(self.mixture, self.t, self.p, &requests);
+            for ((i, _), at) in wanted.iter().zip(evaluated) {
+                if let Some(trial) = trials.get_mut(*i) {
+                    self.advance(trial, at);
+                }
             }
         }
-        Ok(Some((w, SUBSTITUTIONS)))
     }
 
-    /// Newton's method in α_i = 2√W_i on H_ij = δ_ij + √(W_i W_j) ∂ln φ_i/∂W_j, to 1e-12 in the gradient
-    /// g_i = √W_i (ln W_i + ln φ_i − d_i), each step halved until tm falls; with the steps taken.
-    fn descend(&self, mut w: Vec<f64>) -> Result<(Vec<f64>, usize), Error> {
-        for step in 0..DESCENTS {
-            let at = self.at(&w, Order::Two)?;
-            let (ln_phi, phi_n) = (at.ln_phi(), at.hessian());
-            let total: f64 = w.iter().sum();
-            let terms = w.iter().zip(&ln_phi).zip(self.d.iter());
-            let g: Vec<f64> = terms.map(|((w, phi), d)| math::sqrt(*w) * (math::ln(*w) + phi - d)).collect();
-            if g.iter().all(|g| g.abs() <= 1e-12) {
-                return Ok((w, step));
+    /// The order to which `trial` evaluates [`Trial::evaluated`] next; `None` once done. Steps that need no evaluation
+    /// are taken first: a line search's halving whose candidate is not positive everywhere, Newton's stage at its last
+    /// step, and the minimum of a trial that reached the feed.
+    fn wanted(&self, trial: &mut Trial) -> Option<Order> {
+        loop {
+            match &mut trial.stage {
+                Stage::Substitute(_) => return Some(Order::One),
+                Stage::Descend(step) if *step < DESCENTS => return Some(Order::Two),
+                Stage::Descend(step) => (trial.steps.1, trial.stage) = (*step, Stage::Last),
+                Stage::Search(search) if search.k < 8 => {
+                    search.candidate = search.candidate();
+                    // Equivalent (M13.8): `>=` differs only at a trial's W exactly 0, which no solve meets.
+                    // equivalent mutant: replace > with >=
+                    if search.candidate.iter().all(|w| *w > 0.0) {
+                        return Some(Order::One);
+                    }
+                    search.k = search.k.saturating_add(1);
+                }
+                Stage::Search(search) => (trial.steps.1, trial.stage) = (search.step, Stage::Last),
+                Stage::Last if self.trivial(&trial.w) => trial.stage = Stage::Done(Ok(None)),
+                Stage::Last => return Some(Order::One),
+                Stage::Done(_) => return None,
             }
-            let root = |i: usize, j: usize| math::sqrt(slot::at(&w, i) * slot::at(&w, j));
-            let h = square(w.len(), |i, j| if i == j { 1.0 } else { 0.0 } + root(i, j) * at2(&phi_n, i, j) / total);
-            let Some(delta) = solve(h, g.iter().map(|g| -g).collect()) else { return Ok((w, step)) };
-            let Some(next) = self.line_search(&w, &delta, self.tm(&w, &ln_phi)) else { return Ok((w, step)) };
-            w = next;
         }
-        Ok((w, DESCENTS))
     }
 
-    /// W after the step in α, halved up to eight times until tm is no more than `before`; `None` if none is.
-    fn line_search(&self, w: &[f64], step: &[f64], before: f64) -> Option<Vec<f64>> {
+    /// `trial`'s step from `at`, its last request evaluated at (T, p). A refusal stops the trial, except a line
+    /// search's, which halves again.
+    fn advance(&self, trial: &mut Trial, at: Result<AtTp, Error>) {
+        let stage = core::mem::replace(&mut trial.stage, Stage::Last);
+        trial.stage = match (stage, at) {
+            (Stage::Search(mut search), Err(_)) => {
+                search.k = search.k.saturating_add(1);
+                Stage::Search(search)
+            }
+            (_, Err(e)) => Stage::Done(Err(e)),
+            (Stage::Substitute(step), Ok(at)) => self.substitute(trial, step, &at.ln_phi()),
+            (Stage::Descend(step), Ok(at)) => self.descend(trial, step, &at),
+            (Stage::Search(search), Ok(at)) => self.search(trial, search, &at.ln_phi()),
+            (Stage::Last, Ok(at)) => Stage::Done(Ok(Some((self.tm(&trial.w, &at.ln_phi()), trial.w.clone())))),
+            (Stage::Done(minimum), Ok(_)) => Stage::Done(minimum),
+        };
+    }
+
+    /// Successive substitution's step `step`, ln W_i = d_i − ln φ_i(W), from W's `ln_phi`: done once trivial; on to
+    /// Newton's stage once ln W changes less than 1e-10, or after `SUBSTITUTIONS` steps.
+    fn substitute(&self, trial: &mut Trial, step: usize, ln_phi: &[f64]) -> Stage {
+        let next: Vec<f64> = self.d.iter().zip(ln_phi).map(|(d, l)| math::exp(d - l)).collect();
+        let change = next.iter().zip(&trial.w).map(|(a, b)| (math::ln(*a) - math::ln(*b)).abs()).fold(0.0, f64::max);
+        trial.w = next;
+        if self.trivial(&trial.w) {
+            return Stage::Done(Ok(None));
+        }
+        // Equivalent (M13.8): `<=` differs only at a substitution changing exactly 1e-10, which no solve meets.
+        // equivalent mutant: replace < with <=
+        if change < 1e-10 || step >= SUBSTITUTIONS {
+            trial.steps.0 = step;
+            return Stage::Descend(0);
+        }
+        Stage::Substitute(step.saturating_add(1))
+    }
+
+    /// Newton's step `step` in α_i = 2√W_i on H_ij = δ_ij + √(W_i W_j) ∂ln φ_i/∂W_j, from W at (T, p): done to 1e-12
+    /// in the gradient g_i = √W_i (ln W_i + ln φ_i − d_i), or where H is singular; else a line search of the step.
+    fn descend(&self, trial: &mut Trial, step: usize, at: &AtTp) -> Stage {
+        let w = &trial.w;
+        let (ln_phi, phi_n) = (at.ln_phi(), at.hessian());
+        let total: f64 = w.iter().sum();
+        let terms = w.iter().zip(&ln_phi).zip(self.d.iter());
+        let g: Vec<f64> = terms.map(|((w, phi), d)| math::sqrt(*w) * (math::ln(*w) + phi - d)).collect();
+        if g.iter().all(|g| g.abs() <= 1e-12) {
+            trial.steps.1 = step;
+            return Stage::Last;
+        }
+        let root = |i: usize, j: usize| math::sqrt(slot::at(w, i) * slot::at(w, j));
+        let h = square(w.len(), |i, j| if i == j { 1.0 } else { 0.0 } + root(i, j) * at2(&phi_n, i, j) / total);
+        let Some(delta) = solve(h, g.iter().map(|g| -g).collect()) else {
+            trial.steps.1 = step;
+            return Stage::Last;
+        };
         let alpha: Vec<f64> = w.iter().map(|w| 2.0 * math::sqrt(*w)).collect();
-        (0..8).map(|k| math::powi(0.5, k)).find_map(|scale| {
-            let trial: Vec<f64> =
-                alpha.iter().zip(step).map(|(a, s)| 0.25 * (a + scale * s) * (a + scale * s)).collect();
-            // Equivalent (M13.8): `>=` differs only at a trial's W exactly 0, which no solve meets.
-            // equivalent mutant: replace > with >=
-            let next = trial.iter().all(|w| *w > 0.0).then(|| self.at(&trial, Order::One).ok()).flatten()?;
-            (self.tm(&trial, &next.ln_phi()) <= before).then_some(trial)
-        })
+        Stage::Search(Search { step, k: 0, alpha, delta, before: self.tm(w, &ln_phi), candidate: Vec::new() })
     }
+
+    /// A line search's halving from its candidate's `ln_phi`: the candidate is W's next value where tm is no more than
+    /// before; else it halves again.
+    fn search(&self, trial: &mut Trial, mut search: Search, ln_phi: &[f64]) -> Stage {
+        if self.tm(&search.candidate, ln_phi) <= search.before {
+            trial.w = core::mem::take(&mut search.candidate);
+            return Stage::Descend(search.step.saturating_add(1));
+        }
+        search.k = search.k.saturating_add(1);
+        Stage::Search(search)
+    }
+}
+
+/// [`at_t_p`] of each of `requests`' mole numbers (normalised) to its order, their composition derivatives side by
+/// side, one batch an order ([`AtTp::many`]): each result is `at_t_p`'s, its refusal or its phase bit for bit.
+fn at_many(mixture: &Mixture, t: f64, p: f64, requests: &[(&[f64], Order)]) -> Vec<Result<AtTp, Error>> {
+    let fractions: Vec<Vec<f64>> = requests.iter().map(|(w, _)| normalised(w)).collect();
+    let densities: Vec<Result<f64, Error>> =
+        fractions.iter().zip(requests).map(|(x, (_, order))| stable_density(mixture, t, p, x, *order)).collect();
+    let mut evaluated: Vec<Option<Result<AtTp, Error>>> = (0..requests.len()).map(|_| None).collect();
+    for order in [Order::One, Order::Two] {
+        let members: Vec<(usize, f64, &[f64])> = requests
+            .iter()
+            .zip(densities.iter().zip(&fractions))
+            .enumerate()
+            .filter(|(_, ((_, o), _))| *o == order)
+            .filter_map(|(i, (_, (rho, x)))| Some((i, rho.as_ref().ok().copied()?, x.as_slice())))
+            .collect();
+        let phases: Vec<(f64, &[f64])> = members.iter().map(|(_, rho, x)| (*rho, *x)).collect();
+        // The batch refuses only where some phase's `composition` would: then each phase is its own.
+        let mut batch = AtTp::many(mixture, t, p, &phases, order).ok().map(Vec::into_iter);
+        for (i, rho, x) in &members {
+            let at = match batch.as_mut() {
+                Some(batch) => batch.next().ok_or(Error::Shape { expected: phases.len(), found: 0 }),
+                None => AtTp::new(mixture, t, p, *rho, x, order),
+            };
+            if let Some(slot) = evaluated.get_mut(*i) {
+                *slot = Some(at);
+            }
+        }
+    }
+    densities
+        .into_iter()
+        .zip(evaluated)
+        .map(|(rho, at)| rho.and_then(|_| at.unwrap_or(Err(Error::Shape { expected: 1, found: 0 }))))
+        .collect()
 }
 
 /// The n × n matrix of `f(i, j)`.
@@ -940,10 +1114,23 @@ mod tests {
         (z.iter().zip(feed.ln_phi()).map(|(z, l)| math::ln(*z) + l).collect(), feed)
     }
 
+    /// Mole numbers `w` at (T, p) on their stable root, to order 1, as a trial evaluates them.
+    fn trial_at(tpd: &Tpd<'_>, w: &[f64]) -> AtTp {
+        at_t_p(tpd.mixture, tpd.t, tpd.p, &normalised(w), Order::One).unwrap_or_else(|e| panic!("{e:?}"))
+    }
+
     /// √W_i (ln W_i + ln φ_i(W) − d_i), the distance's gradient in α_i = 2√W_i.
     fn gradient(tpd: &Tpd<'_>, w: &[f64]) -> Vec<f64> {
-        let ln_phi = tpd.at(w, Order::One).unwrap_or_else(|e| panic!("{e:?}")).ln_phi();
+        let ln_phi = trial_at(tpd, w).ln_phi();
         (0..w.len()).map(|i| math::sqrt(w[i]) * (math::ln(w[i]) + ln_phi[i] - tpd.d[i])).collect()
+    }
+
+    /// `trial` run alone until `stop` holds for it, or done.
+    fn run_alone(tpd: &Tpd<'_>, trial: Trial, stop: impl Fn(&Trial) -> bool) -> Trial {
+        let mut one = [trial];
+        tpd.run(&mut one, stop);
+        let [trial] = one;
+        trial
     }
 
     /// Methane/Ethane at 50/50: `Tpd::trivial` within 1e-10 of the feed in Σ Δx², for an even feed and a (0.3, 0.7) one;
@@ -967,29 +1154,30 @@ mod tests {
         let uneven = [0.3, 0.7];
         let other = Tpd { mixture: &mixture, t: 180.0, p: 1e6, z: &uneven, d: &d };
         assert!(other.trivial(&[0.3 + 5e-6, 0.7 - 5e-6]) && !other.trivial(&[0.3 + 1e-4, 0.7 - 1e-4]));
-        let trial = trials(&z, &wilson(&mixture, 180.0, 1e6)).swap_remove(0);
-        let (w, steps) = tpd.substitute(trial).unwrap_or_else(|e| panic!("{e:?}")).unwrap_or_else(|| panic!("trivial"));
-        assert!(steps == 6 && gradient(&tpd, &w).iter().all(|g| g.abs() <= 1e-12), "{steps}: {:?}", gradient(&tpd, &w));
+        let substituting = |trial: &Trial| matches!(trial.stage, Stage::Substitute(_));
+        let trial = Trial::new(trials(&z, &wilson(&mixture, 180.0, 1e6)).swap_remove(0));
+        let trial = run_alone(&tpd, trial, |trial| !substituting(trial));
+        let (w, steps) = (&trial.w, trial.steps.0);
+        assert!(matches!(trial.stage, Stage::Descend(0)), "{:?}", trial.stage);
+        assert!(steps == 6 && gradient(&tpd, w).iter().all(|g| g.abs() <= 1e-12), "{steps}: {:?}", gradient(&tpd, w));
         let (d, _) = tangent_plane(&mixture, 258.0, 6e6);
         let tpd = Tpd { mixture: &mixture, t: 258.0, p: 6e6, z: &z, d: &d };
-        let trial = trials(&z, &wilson(&mixture, 258.0, 6e6)).swap_remove(0);
-        let (w, steps) =
-            tpd.substitute(trial.clone()).unwrap_or_else(|e| panic!("{e:?}")).unwrap_or_else(|| panic!("trivial"));
-        assert!(
-            steps == SUBSTITUTIONS && gradient(&tpd, &w).iter().any(|g| g.abs() > 1e-9),
-            "{:?}",
-            gradient(&tpd, &w)
-        );
-        let (_, steps) = tpd.descend(w.clone()).unwrap_or_else(|e| panic!("{e:?}"));
-        assert_eq!(steps, 2, "Newton's stage from the substitution's point");
-        let (tm, minimum) =
-            tpd.minimise(trial).unwrap_or_else(|e| panic!("{e:?}")).unwrap_or_else(|| panic!("trivial"));
+        let trial = Trial::new(trials(&z, &wilson(&mixture, 258.0, 6e6)).swap_remove(0));
+        let trial = run_alone(&tpd, trial, |trial| !substituting(trial));
+        let gradient_after = gradient(&tpd, &trial.w);
+        assert!(trial.steps.0 == SUBSTITUTIONS && gradient_after.iter().any(|g| g.abs() > 1e-9), "{gradient_after:?}");
+        let trial = run_alone(&tpd, trial, |trial| matches!(trial.stage, Stage::Last | Stage::Done(_)));
+        assert_eq!(trial.steps.1, 2, "Newton's stage from the substitution's point");
+        let (tm, minimum) = run_alone(&tpd, trial, |_| false)
+            .minimum()
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .unwrap_or_else(|| panic!("trivial"));
         let g = gradient(&tpd, &minimum);
         assert!(tm < -1e-3 && g.iter().all(|g| g.abs() <= 1e-12), "{tm}: {g:?}");
     }
 
     /// A line search from Wilson's vapour-like trial at 258 K and 6 MPa keeps a short step against the gradient whole,
-    /// halves a long one until tm falls, and refuses a step along the gradient.
+    /// halves a long one until tm falls, and refuses a step along the gradient, which ends Newton's stage there.
     #[test]
     fn line_searches_halve_until_the_distance_falls() {
         let mixture = library(&["Methane", "Ethane"], &[0.5, 0.5]);
@@ -997,21 +1185,28 @@ mod tests {
         let (d, _) = tangent_plane(&mixture, 258.0, 6e6);
         let tpd = Tpd { mixture: &mixture, t: 258.0, p: 6e6, z: &z, d: &d };
         let w = trials(&z, &wilson(&mixture, 258.0, 6e6)).swap_remove(0);
-        let before = tpd.tm(&w, &tpd.at(&w, Order::One).unwrap_or_else(|e| panic!("{e:?}")).ln_phi());
+        let before = tpd.tm(&w, &trial_at(&tpd, &w).ln_phi());
         let g = gradient(&tpd, &w);
         let alpha: Vec<f64> = w.iter().map(|w| 2.0 * math::sqrt(*w)).collect();
         let at = |scale: f64, step: &[f64]| -> Vec<f64> {
             alpha.iter().zip(step).map(|(a, s)| 0.25 * (a + scale * s) * (a + scale * s)).collect()
         };
+        let search = |delta: Vec<f64>| {
+            let search = Search { step: 0, k: 0, alpha: alpha.clone(), delta, before, candidate: Vec::new() };
+            let trial = Trial { w: w.clone(), stage: Stage::Search(search), steps: (0, 0) };
+            run_alone(&tpd, trial, |trial| !matches!(trial.stage, Stage::Search(_)))
+        };
         let down: Vec<f64> = g.iter().map(|g| -1e-3 * g).collect();
-        assert_eq!(tpd.line_search(&w, &down, before), Some(at(1.0, &down)));
+        let kept = search(down.clone());
+        assert!(matches!(kept.stage, Stage::Descend(1)) && kept.w == at(1.0, &down), "{:?}", kept.stage);
         let long: Vec<f64> = g.iter().map(|g| -10.0 * g).collect();
-        let halved = tpd.line_search(&w, &long, before).unwrap_or_else(|| panic!("no step"));
+        let halved = search(long.clone()).w;
         let k = (1..8).find(|k| at(math::powi(0.5, *k), &long) == halved);
-        let after = tpd.tm(&halved, &tpd.at(&halved, Order::One).unwrap_or_else(|e| panic!("{e:?}")).ln_phi());
+        let after = tpd.tm(&halved, &trial_at(&tpd, &halved).ln_phi());
         assert!(k.is_some() && after <= before, "{halved:?}: {after} after {before}");
         let up: Vec<f64> = g.iter().map(|g| 1e-3 * g).collect();
-        assert_eq!(tpd.line_search(&w, &up, before), None);
+        let refused = search(up);
+        assert!(refused.w == w && refused.steps.1 == 0 && matches!(refused.stage, Stage::Done(_)), "{refused:?}");
     }
 
     /// K has collapsed onto the feed where Σ (ln K_i)² is under 1e-10: (7e-6, 7e-6) has, (1e-5, 1e-5) and (1e-5, 0) have

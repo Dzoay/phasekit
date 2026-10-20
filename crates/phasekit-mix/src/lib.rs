@@ -65,6 +65,19 @@ pub mod internal {
         crate::equilibrium::stable_root(model, t, p)
     }
 
+    /// A trial phase's minimum in the PT flash's stability test: its tangent-plane distance and minimiser, `None`
+    /// where it reached the feed, or the refusal that stopped it.
+    pub type Minimum = Result<Option<(f64, Vec<f64>)>, phasekit_core::Error>;
+
+    /// The PT flash's stability test of `mixture`'s feed at (T, p) (PLAN.md M13.8, M22.6): each trial phase's
+    /// [`Minimum`] in turn, Wilson's vapour-like and liquid-like, then one rich in each component; the feed's refusal
+    /// where it has no stable root.
+    pub fn stability_minima(mixture: &crate::Mixture, t: f64, p: f64) -> Result<Vec<Minimum>, phasekit_core::Error> {
+        let z = mixture.composition();
+        let feed = crate::equilibrium::at_t_p(mixture, t, p, z, phasekit_core::Order::One)?;
+        Ok(crate::equilibrium::minima(mixture, t, p, z, &feed))
+    }
+
     /// The bubble or dew point of `mixture` on `side` at `given` from `seed` (T, p, ln K) alone: M13.9's Newton without
     /// its own seeds, which checks a point another implementation found (PLAN.md M13.12's oracle envelopes).
     pub fn saturation_from(
