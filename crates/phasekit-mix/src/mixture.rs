@@ -63,6 +63,8 @@ pub struct Mixture {
     limits: Limits,
     /// Every critical point in the model's range, found on first use (ROT-187).
     critical: OnceLock<Vec<CriticalState>>,
+    /// The policy a flash evaluates its phases under (PLAN.md M22.5).
+    exec: ExecPolicy,
 }
 
 /// Refuses a composition that is not one: a fraction not finite or outside [0, 1], or fractions not summing to 1
@@ -103,12 +105,30 @@ impl Mixture {
         let source = Source::new("Kunz-JCED-2012", Some("10.1021/je300655b"), DataTerms::Published);
         let info = FluidInfo::new(&name, molar_mass, source, ModelKey::from_content(&content))?;
         let limits = intersection(&fluids)?;
-        Ok(Mixture { fluid, z: z.into(), r_ratio, info, limits, critical: OnceLock::new() })
+        Ok(Mixture { fluid, z: z.into(), r_ratio, info, limits, critical: OnceLock::new(), exec: ExecPolicy::Simd })
     }
 
     /// The mole fractions, one per component.
     pub fn composition(&self) -> &[f64] {
         &self.z
+    }
+
+    /// The same mixture, its flashes evaluating their phases under `exec` (PLAN.md M22.5): under `ExecPolicy::Simd`,
+    /// the default, the composition derivatives of a flash's liquid and vapour at one temperature side by side in
+    /// core's lanes; under the others one after the other. The results are the same bit for bit (K17).
+    pub fn with_exec(self, exec: ExecPolicy) -> Mixture {
+        Mixture { exec, ..self }
+    }
+
+    /// The composition derivatives of `phases` (each a density and its mole fractions) at T, under the mixture's
+    /// policy: each `MixtureModel::composition`'s.
+    pub(crate) fn compositions(
+        &self,
+        t: f64,
+        phases: &[(f64, &[f64])],
+        order: Order,
+    ) -> Result<Vec<Composition>, Error> {
+        self.fluid.compositions(t, phases, order, self.exec)
     }
 
     /// The components' limits' intersection (ROT-197), which `ThermoModel::limits` returns.
@@ -795,6 +815,15 @@ mod tests {
         let registry = Registry::from_embedded(DataSet::Parity).unwrap_or_else(|e| panic!("{e:?}"));
         let model = MultiFluid::new(&registry, components, DataSet::Parity).unwrap_or_else(|e| panic!("{e:?}"));
         Mixture::new(model, z).unwrap_or_else(|e| panic!("{e:?}"))
+    }
+
+    /// A mixture evaluates its flashes' phases under `ExecPolicy::Simd` unless rebuilt under another policy
+    /// (`Mixture::with_exec`, PLAN.md M22.5).
+    #[test]
+    fn with_exec_sets_the_flash_policy() {
+        let mixture = library(&["Methane", "Ethane"], &[0.5, 0.5]);
+        assert_eq!(mixture.exec, ExecPolicy::Simd);
+        assert_eq!(mixture.with_exec(ExecPolicy::Reference).exec, ExecPolicy::Reference);
     }
 
     /// A homogeneous state is mechanically stable where Z > 0 and 2Z + δ²α_δδ − 1 > 0, both strictly.

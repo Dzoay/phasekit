@@ -80,6 +80,22 @@ impl AtTp {
         Ok(AtTp { rho, c, p, rt: mixture.model().gas_constant() * t })
     }
 
+    /// [`AtTp::new`] of a liquid and a vapour at (T, p), each a density and its mole fractions, their composition
+    /// derivatives side by side under the mixture's policy (PLAN.md M22.5).
+    pub(crate) fn both(
+        mixture: &Mixture,
+        t: f64,
+        p: f64,
+        phases: [(f64, &[f64]); 2],
+        order: Order,
+    ) -> Result<(AtTp, AtTp), Error> {
+        let rt = mixture.model().gas_constant() * t;
+        let mut c = mixture.compositions(t, &phases, order)?.into_iter();
+        let [liquid, vapour] = phases.map(|(rho, _)| c.next().map(|c| AtTp { rho, c, p, rt }));
+        let missing = || Error::Shape { expected: 2, found: 0 };
+        Ok((liquid.ok_or_else(missing)?, vapour.ok_or_else(missing)?))
+    }
+
     /// ln φ_i = ∂Ψ/∂n_i − ln(p/(ρRT)) for every component, at the pressure the phase is at. At the root it is
     /// `Composition::ln_phi`'s, which takes Z from the model at ρ; but a dense phase's p(ρ) moves by K_T/p ulps of p per
     /// ulp of ρ (2.5e4 for a propane-rich liquid at 41 kPa), so the model's Z there leaves ln φ a floor of 1e-12 that
@@ -102,6 +118,28 @@ pub(crate) fn at_t_p(mixture: &Mixture, t: f64, p: f64, x: &[f64], order: Order)
     let phase = Phase { mixture, x };
     let rho = polished(&phase, t, p, stable_root(&phase, t, p)?);
     AtTp::new(mixture, t, p, rho, x, order)
+}
+
+/// [`at_t_p`]'s density of `x`, refused where it refuses: its stable root, polished, where the composition derivatives
+/// admit it at `order`.
+fn stable_density(mixture: &Mixture, t: f64, p: f64, x: &[f64], order: Order) -> Result<f64, Error> {
+    let phase = Phase { mixture, x };
+    let rho = polished(&phase, t, p, stable_root(&phase, t, p)?);
+    mixture.model().composition_order(t, rho, x, order)?;
+    Ok(rho)
+}
+
+/// [`at_t_p`] of the liquid `x` and the vapour `y`, refused as they are in turn, their composition derivatives side by
+/// side (PLAN.md M22.5).
+pub(crate) fn both_at_t_p(
+    mixture: &Mixture,
+    t: f64,
+    p: f64,
+    (x, y): (&[f64], &[f64]),
+    order: Order,
+) -> Result<(AtTp, AtTp), Error> {
+    let (rho_liquid, rho_vapour) = (stable_density(mixture, t, p, x, order)?, stable_density(mixture, t, p, y, order)?);
+    AtTp::both(mixture, t, p, [(rho_liquid, x), (rho_vapour, y)], order)
 }
 
 /// `rho`, a root of p(T, ρ) = p, polished by up to three Newton steps to the rounding of p: core's solve accepts a root
@@ -492,7 +530,7 @@ pub(crate) fn split(mixture: &Mixture, t: f64, p: f64, z: &[f64], mut ln_k: Vec<
         let Some(beta) = rachford_rice(z, &ln_k) else { return Ok(None) };
         let (x, y) = phases(z, &ln_k, beta);
         let (x, y) = (normalised(&x), normalised(&y));
-        let (liquid, vapour) = (at_t_p(mixture, t, p, &x, Order::One)?, at_t_p(mixture, t, p, &y, Order::One)?);
+        let (liquid, vapour) = both_at_t_p(mixture, t, p, (&x, &y), Order::One)?;
         let next: Vec<f64> = liquid.ln_phi().iter().zip(vapour.ln_phi()).map(|(l, v)| l - v).collect();
         let step: Vec<f64> = next.iter().zip(&ln_k).map(|(a, b)| a - b).collect();
         if collapsed(&next) {
@@ -563,7 +601,7 @@ fn newton(mixture: &Mixture, t: f64, p: f64, z: &[f64], ln_k: &[f64]) -> Result<
         if vapour_minor { y.iter().map(|y| beta * y).collect() } else { x.iter().map(|x| (1.0 - beta) * x).collect() };
     for iteration in 0..40_u16 {
         let (beta, x, y) = from_minority(z, &minor, vapour_minor);
-        let (liquid, vapour) = (at_t_p(mixture, t, p, &x, Order::Two)?, at_t_p(mixture, t, p, &y, Order::Two)?);
+        let (liquid, vapour) = both_at_t_p(mixture, t, p, (&x, &y), Order::Two)?;
         let (phi_l, phi_v) = (liquid.ln_phi(), vapour.ln_phi());
         let terms = y.iter().zip(&phi_v).zip(&x).zip(&phi_l).take(z.len());
         let f: Vec<f64> = terms.map(|(((y, pv), x), pl)| math::ln(*y) + pv - math::ln(*x) - pl).collect();
@@ -779,6 +817,25 @@ mod tests {
             for (i, ln_phi) in phase.ln_phi().into_iter().enumerate() {
                 let model = phase.c.ln_phi(i);
                 assert!((ln_phi - model).abs() < 1e-10, "{x:?}: {i}: {ln_phi} {model}");
+            }
+        }
+    }
+
+    /// A liquid and a vapour side by side (`both_at_t_p`, `AtTp::both`) are each `AtTp::new`'s bit for bit, RT and ln φ
+    /// included (PLAN.md M22.5): library Methane/Ethane's 30/70 liquid and 90/10 vapour at 200 K and 1.5 MPa, under
+    /// `Simd` and `Reference`.
+    #[test]
+    fn both_phases_are_each_phase_s() {
+        let (t, p, x, y) = (200.0, 1.5e6, [0.3, 0.7], [0.9, 0.1]);
+        let bits =
+            |a: &AtTp| (a.rho.to_bits(), a.rt.to_bits(), a.ln_phi().iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+        for exec in [phasekit_core::batch::ExecPolicy::Simd, phasekit_core::batch::ExecPolicy::Reference] {
+            let mixture = library(&["Methane", "Ethane"], &[0.5, 0.5]).with_exec(exec);
+            let (liquid, vapour) =
+                both_at_t_p(&mixture, t, p, (&x, &y), Order::Two).unwrap_or_else(|e| panic!("{e:?}"));
+            for (both, x) in [(liquid, x), (vapour, y)] {
+                let one = at_t_p(&mixture, t, p, &x, Order::Two).unwrap_or_else(|e| panic!("{e:?}"));
+                assert_eq!(bits(&both), bits(&one), "{exec:?} {x:?}");
             }
         }
     }

@@ -2,11 +2,12 @@
 //! by degree, its monomials sorted (x_i x_j with i ≤ j, x_i x_j x_k with i ≤ j ≤ k), so a product costs O(m³), not the
 //! square of the coefficient count. The coefficients are the Taylor coefficients ∂^α f / α! at the expansion point;
 //! [`Taylor::derivative`] multiplies α! back. Only the field operations are needed: the mixture's composition
-//! derivatives compose each part's (τ, δ) jet with τ(n) and δ(n), which are rational in the variables.
+//! derivatives compose each part's (τ, δ) jet with τ(n) and δ(n), which are rational in the variables. The coefficients
+//! are any `Real`: `f64`, or core's lanes through `batch::run_kernel` (PLAN.md M22.5), each operation the same on both.
 
 use std::ops::{Add, Mul, Neg, Sub};
 
-use crate::slot::{at, set};
+use phasekit_core::Real;
 
 /// The index of monomial x_i x_j, i ≤ j, among the degree-2 monomials. The index arithmetic saturates (PLAN.md M24.4):
 /// a saturated index lies outside every coefficient vector, where [`at`] reads NaN.
@@ -19,41 +20,79 @@ fn triple(i: usize, j: usize, k: usize) -> usize {
     (k.saturating_mul(k.saturating_add(1)).saturating_mul(k.saturating_add(2)) / 6).saturating_add(pair(i, j))
 }
 
-/// A polynomial of degree ≤ `order` (≤ 3) in `m` variables.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Taylor {
-    m: usize,
-    order: usize,
-    c0: f64,
-    c1: Vec<f64>,
-    c2: Vec<f64>,
-    c3: Vec<f64>,
+/// Entry `i` of `v`, or NaN where it has none (`slot::at` on any `Real`).
+#[inline(always)]
+fn at<R: Real>(v: &[R], i: usize) -> R {
+    v.get(i).copied().unwrap_or(R::from_f64(f64::NAN))
 }
 
-impl Taylor {
+/// Sets entry `i` of `v` to `value`, where it has one.
+#[inline(always)]
+fn set<R: Real>(v: &mut [R], i: usize, value: R) {
+    if let Some(x) = v.get_mut(i) {
+        *x = value;
+    }
+}
+
+/// A polynomial of degree ≤ `order` (≤ 3) in `m` variables.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Taylor<R = f64> {
+    m: usize,
+    order: usize,
+    c0: R,
+    c1: Vec<R>,
+    c2: Vec<R>,
+    c3: Vec<R>,
+}
+
+/// The number of monomials of each degree to `order` in `m` variables: m, then the pairs and triples below index m.
+fn monomials(m: usize, order: usize, degree: usize) -> usize {
+    match degree {
+        _ if degree > order => 0,
+        1 => m,
+        2 => pair(0, m),
+        _ => triple(0, 0, m),
+    }
+}
+
+#[allow(clippy::arithmetic_side_effects, reason = "multivariate series on any Real: IEEE or lane arithmetic, no panic")]
+impl<R: Real> Taylor<R> {
     /// The constant `value`.
-    pub(crate) fn constant(m: usize, order: usize, value: f64) -> Taylor {
-        // The monomials of each degree: m, then the pairs and triples below index m.
-        let n = |degree: usize| match degree {
-            _ if degree > order => 0,
-            1 => m,
-            2 => pair(0, m),
-            _ => triple(0, 0, m),
-        };
-        Taylor { m, order, c0: value, c1: vec![0.0; n(1)], c2: vec![0.0; n(2)], c3: vec![0.0; n(3)] }
+    pub(crate) fn constant(m: usize, order: usize, value: R) -> Taylor<R> {
+        let zeros = |degree| vec![R::from_f64(0.0); monomials(m, order, degree)];
+        Taylor { m, order, c0: value, c1: zeros(1), c2: zeros(2), c3: zeros(3) }
     }
 
     /// Variable `i` at the expansion point `value`.
-    pub(crate) fn variable(m: usize, order: usize, i: usize, value: f64) -> Taylor {
+    pub(crate) fn variable(m: usize, order: usize, i: usize, value: R) -> Taylor<R> {
         let mut x = Taylor::constant(m, order, value);
-        if let Some(c) = x.c1.get_mut(i) {
-            *c = 1.0;
-        }
+        set(&mut x.c1, i, R::from_f64(1.0));
         x
     }
 
+    /// The polynomial whose coefficients, by degree and in [`Taylor::coefficients`]' order, are `c`'s next ones; NaN
+    /// where `c` runs out.
+    pub(crate) fn from_coefficients(m: usize, order: usize, c: impl IntoIterator<Item = R>) -> Taylor<R> {
+        let mut c = c.into_iter();
+        let mut next = || c.next().unwrap_or(R::from_f64(f64::NAN));
+        let c0 = next();
+        let mut degree = |d| (0..monomials(m, order, d)).map(|_| next()).collect();
+        let (c1, c2, c3) = (degree(1), degree(2), degree(3));
+        Taylor { m, order, c0, c1, c2, c3 }
+    }
+
+    /// Every coefficient: the value, then each degree's by monomial.
+    pub(crate) fn coefficients(&self) -> impl Iterator<Item = R> + '_ {
+        core::iter::once(self.c0).chain(self.c1.iter().chain(&self.c2).chain(&self.c3).copied())
+    }
+
+    /// The number of coefficients of a polynomial to `order` in `m` variables.
+    pub(crate) fn len(m: usize, order: usize) -> usize {
+        (1..=3).fold(1_usize, |n, degree| n.saturating_add(monomials(m, order, degree)))
+    }
+
     /// The value at the expansion point.
-    pub(crate) fn value(&self) -> f64 {
+    pub(crate) fn value(&self) -> R {
         self.c0
     }
 
@@ -68,34 +107,35 @@ impl Taylor {
     }
 
     /// The same polynomial with its constant set to 0.
-    pub(crate) fn increment(&self) -> Taylor {
-        Taylor { c0: 0.0, ..self.clone() }
+    pub(crate) fn increment(&self) -> Taylor<R> {
+        Taylor { c0: R::from_f64(0.0), ..self.clone() }
     }
 
     /// ∂^(len) f / ∂x_vars[0] ∂x_vars[1] ... at the expansion point, for up to three variables in any order; 0 beyond
     /// the order kept.
-    pub(crate) fn derivative(&self, vars: &[usize]) -> f64 {
+    pub(crate) fn derivative(&self, vars: &[usize]) -> R {
         let mut v = vars.to_vec();
         v.sort_unstable();
+        let zero = R::from_f64(0.0);
         match v[..] {
             [] => self.c0,
-            [i] => self.c1.get(i).copied().unwrap_or(0.0),
-            [i, j] => self.c2.get(pair(i, j)).copied().unwrap_or(0.0) * if i == j { 2.0 } else { 1.0 },
+            [i] => self.c1.get(i).copied().unwrap_or(zero),
+            [i, j] => self.c2.get(pair(i, j)).copied().unwrap_or(zero) * if i == j { 2.0 } else { 1.0 },
             [i, j, k] => {
                 let factorial = match (i == j, j == k) {
                     (true, true) => 6.0,
                     (true, false) | (false, true) => 2.0,
                     (false, false) => 1.0,
                 };
-                self.c3.get(triple(i, j, k)).copied().unwrap_or(0.0) * factorial
+                self.c3.get(triple(i, j, k)).copied().unwrap_or(zero) * factorial
             }
-            _ => 0.0,
+            _ => zero,
         }
     }
 
     /// `a·self + b·other`, coefficient by coefficient.
-    fn combine(&self, a: f64, other: &Taylor, b: f64) -> Taylor {
-        let mix = |x: &[f64], y: &[f64]| x.iter().zip(y).map(|(x, y)| a * x + b * y).collect();
+    fn combine(&self, a: R, other: &Taylor<R>, b: R) -> Taylor<R> {
+        let mix = |x: &[R], y: &[R]| x.iter().zip(y).map(|(x, y)| a * *x + b * *y).collect();
         Taylor {
             m: self.m,
             order: self.order,
@@ -107,26 +147,26 @@ impl Taylor {
     }
 
     /// `self` times the number `k`.
-    pub(crate) fn scale(&self, k: f64) -> Taylor {
-        self.combine(k, self, 0.0)
+    pub(crate) fn scale(&self, k: R) -> Taylor<R> {
+        self.combine(k, self, R::from_f64(0.0))
     }
 
     /// `self + k·other`, in place.
-    pub(crate) fn add_scaled(&mut self, k: f64, other: &Taylor) {
-        self.c0 += k * other.c0;
+    pub(crate) fn add_scaled(&mut self, k: R, other: &Taylor<R>) {
+        self.c0 = self.c0 + k * other.c0;
         for (x, y) in [(&mut self.c1, &other.c1), (&mut self.c2, &other.c2), (&mut self.c3, &other.c3)] {
             for (x, y) in x.iter_mut().zip(y) {
-                *x += k * y;
+                *x = *x + k * *y;
             }
         }
     }
 
     /// The truncated product.
-    pub(crate) fn product(&self, other: &Taylor) -> Taylor {
+    pub(crate) fn product(&self, other: &Taylor<R>) -> Taylor<R> {
         let (a, b) = (self, other);
         let mut out = Taylor::constant(a.m, a.order, a.c0 * b.c0);
         for ((out, x), y) in out.c1.iter_mut().zip(&a.c1).zip(&b.c1) {
-            *out = a.c0 * y + x * b.c0;
+            *out = a.c0 * *y + *x * b.c0;
         }
         if a.order >= 2 {
             a.squares(b, &mut out.c2);
@@ -138,7 +178,7 @@ impl Taylor {
     }
 
     /// The product's degree-2 coefficients, into `c2`.
-    fn squares(&self, b: &Taylor, c2: &mut [f64]) {
+    fn squares(&self, b: &Taylor<R>, c2: &mut [R]) {
         for j in 0..self.m {
             for i in 0..=j {
                 set(c2, pair(i, j), self.square(b, i, j));
@@ -147,7 +187,7 @@ impl Taylor {
     }
 
     /// The product's degree-3 coefficients, into `c3`.
-    fn cubes(&self, b: &Taylor, c3: &mut [f64]) {
+    fn cubes(&self, b: &Taylor<R>, c3: &mut [R]) {
         for k in 0..self.m {
             for j in 0..=k {
                 for i in 0..=j {
@@ -158,7 +198,7 @@ impl Taylor {
     }
 
     /// The product's coefficient of x_i x_j, i ≤ j.
-    fn square(&self, b: &Taylor, i: usize, j: usize) -> f64 {
+    fn square(&self, b: &Taylor<R>, i: usize, j: usize) -> R {
         let a = self;
         let (a1, b1) = (|i| at(&a.c1, i), |i| at(&b.c1, i));
         let cross = if i == j { a1(i) * b1(i) } else { a1(i) * b1(j) + a1(j) * b1(i) };
@@ -168,64 +208,64 @@ impl Taylor {
 
     /// The product's coefficient of x_i x_j x_k, i ≤ j ≤ k: each distinct way to split the monomial into one variable
     /// times a pair (x_i, then x_j and x_k where they differ from the one before).
-    fn cube(&self, b: &Taylor, (i, j, k): (usize, usize, usize)) -> f64 {
+    fn cube(&self, b: &Taylor<R>, (i, j, k): (usize, usize, usize)) -> R {
         let a = self;
         let t = triple(i, j, k);
         let split = |s: usize, p: usize| at(&a.c1, s) * at(&b.c2, p) + at(&a.c2, p) * at(&b.c1, s);
         let mut sum = a.c0 * at(&b.c3, t) + at(&a.c3, t) * b.c0 + split(i, pair(j, k));
         if j != i {
-            sum += split(j, pair(i, k));
+            sum = sum + split(j, pair(i, k));
         }
         if k != j {
-            sum += split(k, pair(i, j));
+            sum = sum + split(k, pair(i, j));
         }
         sum
     }
 
     /// 1/self, from the geometric series of its increment (its value must not be 0).
-    pub(crate) fn recip(&self) -> Taylor {
-        let r = 1.0 / self.c0;
+    pub(crate) fn recip(&self) -> Taylor<R> {
+        let r = R::from_f64(1.0) / self.c0;
         let e = self.increment().scale(-r); // 1/(c0 + d) = r·Σ (−d·r)^k
-        let mut sum = Taylor::constant(self.m, self.order, 1.0);
+        let mut sum = Taylor::constant(self.m, self.order, R::from_f64(1.0));
         let mut power = sum.clone();
         for _ in 0..self.order {
             power = power.product(&e);
-            sum.add_scaled(1.0, &power);
+            sum.add_scaled(R::from_f64(1.0), &power);
         }
         sum.scale(r)
     }
 
     /// self/other.
-    pub(crate) fn divide(&self, other: &Taylor) -> Taylor {
+    pub(crate) fn divide(&self, other: &Taylor<R>) -> Taylor<R> {
         self.product(&other.recip())
     }
 }
 
-impl Add for &Taylor {
-    type Output = Taylor;
-    fn add(self, other: &Taylor) -> Taylor {
-        self.combine(1.0, other, 1.0)
+impl<R: Real> Add for &Taylor<R> {
+    type Output = Taylor<R>;
+    fn add(self, other: &Taylor<R>) -> Taylor<R> {
+        self.combine(R::from_f64(1.0), other, R::from_f64(1.0))
     }
 }
 
-impl Sub for &Taylor {
-    type Output = Taylor;
-    fn sub(self, other: &Taylor) -> Taylor {
-        self.combine(1.0, other, -1.0)
+impl<R: Real> Sub for &Taylor<R> {
+    type Output = Taylor<R>;
+    fn sub(self, other: &Taylor<R>) -> Taylor<R> {
+        self.combine(R::from_f64(1.0), other, R::from_f64(-1.0))
     }
 }
 
-impl Mul for &Taylor {
-    type Output = Taylor;
-    fn mul(self, other: &Taylor) -> Taylor {
+impl<R: Real> Mul for &Taylor<R> {
+    type Output = Taylor<R>;
+    fn mul(self, other: &Taylor<R>) -> Taylor<R> {
         self.product(other)
     }
 }
 
-impl Neg for &Taylor {
-    type Output = Taylor;
-    fn neg(self) -> Taylor {
-        self.scale(-1.0)
+impl<R: Real> Neg for &Taylor<R> {
+    type Output = Taylor<R>;
+    fn neg(self) -> Taylor<R> {
+        self.scale(R::from_f64(-1.0))
     }
 }
 
