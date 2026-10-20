@@ -10,5 +10,8 @@
 # M21.5 (SL8): a mixture's phase envelope (phasekit-mix's tracer, until then unreached from the package), its phases and
 # the mixture lists took the builds to 1949724 and 2008810 bytes, the baseline 45500 above main's 1904224; each budget is
 # that + 10 %.
-baseline 2144696
-simd128 2209691
+# M19.6 (SL8): the diagrams' geometry, phasekit-diagram's planes, lines, envelopes and phase regions with their
+# typed-array exports, took the builds to 2169132 and 2135626 bytes, 216686 and 198654 above main's 1952446 and
+# 1936972; each budget is that + 10 %.
+baseline 2386045
+simd128 2349188

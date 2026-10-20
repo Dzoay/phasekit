@@ -9,6 +9,9 @@
 //! - Mixtures (PLAN.md M13.14, M21.5): `fluid` and `PropsSI` read CoolProp's mixture names; `predefined_mixtures`,
 //!   `binary_pairs` and `mixture_components` say what can be mixed and which fluids a name needs; a mixture's
 //!   `Fluid` has its components, composition and `Envelope`, and its two-phase `State` its `Phases`.
+//! - Diagrams (PLAN.md M19.6): `planes` lists the planes, their axes and isoline families; a `Fluid`'s
+//!   `diagram(plane)` is its dome and isolines, a mixture's its phase envelope, and `regions()` its phase regions, all
+//!   phasekit-diagram's, as typed arrays (`Diagram`, `Regions`).
 //! - Errors are JS `Error`s. JS's garbage collector never frees wasm memory, so `Registry` and `Fluid`, the handle
 //!   objects, are freed with `free()`; the `State` and `Batch` a call returns are values, freed the same way.
 //! - A panic, a bug, cannot be caught on wasm32 and leaves the module unusable. It reaches JavaScript as an `Error` that
@@ -33,6 +36,10 @@ use phasekit_core::batch::{ExecPolicy, Status};
 use phasekit_core::{DataSet, FlashOptions, Pack, ThermoModel};
 use phasekit_mix::{EnvelopeEnd, EnvelopeOptions, Mixture, Side};
 use wasm_bindgen::prelude::*;
+
+mod diagram;
+
+pub use diagram::{Corners, Diagram, Lines, PlaneInfo, Regions, Vertices, pair_keys, planes};
 
 /// A JS `Error` with `e`'s message.
 fn js(e: impl Display) -> JsError {
@@ -402,22 +409,31 @@ impl Envelope {
     /// highest pressure; or `failed`, without convergence.
     #[wasm_bindgen(getter)]
     pub fn end(&self) -> String {
-        match &self.inner.end {
-            EnvelopeEnd::Closed => "closed",
-            EnvelopeEnd::Bound(_) => "bound",
-            _ => "failed",
-        }
-        .to_string()
+        end_name(&self.inner.end).to_string()
     }
 
     /// Why the trace ended at a bound or failed, in the package's words; empty where it closed.
     #[wasm_bindgen(getter)]
     pub fn reason(&self) -> String {
-        match &self.inner.end {
-            EnvelopeEnd::Bound(e) => phasekit_core::Error::Domain(*e).to_string(),
-            EnvelopeEnd::NoConvergence(e) => e.to_string(),
-            _ => String::new(),
-        }
+        end_reason(&self.inner.end)
+    }
+}
+
+/// How an envelope's trace ended: `closed`, `bound` or `failed`.
+fn end_name(end: &EnvelopeEnd) -> &'static str {
+    match end {
+        EnvelopeEnd::Closed => "closed",
+        EnvelopeEnd::Bound(_) => "bound",
+        _ => "failed",
+    }
+}
+
+/// Why an envelope's trace ended at a bound or failed, in the package's words; empty where it closed.
+fn end_reason(end: &EnvelopeEnd) -> String {
+    match end {
+        EnvelopeEnd::Bound(e) => phasekit_core::Error::Domain(*e).to_string(),
+        EnvelopeEnd::NoConvergence(e) => e.to_string(),
+        _ => String::new(),
     }
 }
 

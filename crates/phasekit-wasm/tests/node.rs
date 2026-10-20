@@ -12,7 +12,7 @@ use phasekit_core::batch::{ExecPolicy, Status};
 use phasekit_core::{DataSet, Pack};
 use phasekit_mix::{EnvelopeOptions, Given, Mixture, Side};
 use phasekit_verify::{Fixture, ToleranceClass};
-use phasekit_wasm::{Registry, binary_pairs, mixture_components, output_keys, predefined_mixtures};
+use phasekit_wasm::{Registry, binary_pairs, mixture_components, output_keys, pair_keys, planes, predefined_mixtures};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -453,4 +453,215 @@ fn a_mixtures_two_phase_state_has_its_phases() {
     assert!(page.flash("T", 300.0, "P", 1e5).unwrap().phases().unwrap().is_none());
     let water = Registry::new().unwrap().fluid("Water").unwrap();
     assert!(water.flash("Q", 0.5, "T", 373.0).unwrap().phases().unwrap().is_none());
+}
+
+/// The keys a plane quantity has in the package, as phasekit-diagram's `Quantity` names them.
+fn key(quantity: phasekit_diagram::Quantity) -> &'static str {
+    use phasekit_diagram::Quantity;
+    match quantity {
+        Quantity::T => "T",
+        Quantity::P => "P",
+        Quantity::Hmass => "Hmass",
+        Quantity::Smass => "Smass",
+        Quantity::Dmass => "Dmass",
+        Quantity::Q => "Q",
+    }
+}
+
+/// PLAN.md M19.6: `planes()` are phasekit-diagram's, in the site's order, each with its axes, which of them is
+/// logarithmic, and its families' held and swept keys; `pairKeys()` names each input pair's keys in its order, D, H and
+/// S per unit mass.
+#[wasm_bindgen_test]
+fn the_planes_and_the_pairs_keys_are_the_crates() {
+    use phasekit_diagram::Plane;
+    let got = planes();
+    assert_eq!(got.iter().map(|p| p.id()).collect::<Vec<_>>(), ["ph", "ts", "pt", "trho", "hs"]);
+    for (info, plane) in got.iter().zip(Plane::ALL) {
+        let (x, y) = (plane.x(), plane.y());
+        assert_eq!(
+            (info.x_key(), info.x_log(), info.y_key(), info.y_log()),
+            (key(x.quantity).into(), x.log, key(y.quantity).into(), y.log)
+        );
+        assert_eq!(info.held(), plane.families().iter().map(|f| key(f.held)).collect::<Vec<_>>());
+        assert_eq!(info.sweep(), plane.families().iter().map(|f| key(f.sweep)).collect::<Vec<_>>());
+    }
+    assert_eq!((got[0].x_key(), got[0].y_key(), got[0].y_log()), ("Hmass".into(), "P".into(), true));
+    let keys = pair_keys();
+    assert_eq!(keys.len(), 2 * phasekit_core::Pair::ALL.len());
+    let qt = phasekit_core::Pair::ALL.iter().position(|p| *p == phasekit_core::Pair::QT).unwrap();
+    assert_eq!(keys[2 * qt..2 * qt + 2], ["Q", "T"]);
+}
+
+/// The vertices' x and y, inputs and pairs as the package lays them out (`Exact`).
+fn laid_out<'a>(vertices: impl IntoIterator<Item = &'a phasekit_diagram::Vertex>) -> (Vec<u64>, Vec<u64>, Vec<u8>) {
+    let all: Vec<_> = vertices.into_iter().collect();
+    let code = |pair| phasekit_core::Pair::ALL.iter().position(|p| *p == pair).unwrap() as u8;
+    let xy = all.iter().flat_map(|v| [v.x.to_bits(), v.y.to_bits()]).collect();
+    let inputs = all.iter().flat_map(|v| [v.inputs.x.to_bits(), v.inputs.y.to_bits()]).collect();
+    (xy, inputs, all.iter().map(|v| code(v.inputs.pair)).collect())
+}
+
+fn bits(values: Vec<f64>) -> Vec<u64> {
+    values.into_iter().map(f64::to_bits).collect()
+}
+
+fn exported(v: &phasekit_wasm::Vertices) -> (Vec<u64>, Vec<u64>, Vec<u8>) {
+    (bits(v.xy()), bits(v.inputs()), v.pairs())
+}
+
+/// Water from the embedded registry the package reads, the oracle's.
+fn water() -> phasekit_core::Fluid {
+    phasekit_core::Registry::from_embedded(DataSet::Corrected).unwrap().get("Water").unwrap().clone()
+}
+
+/// PLAN.md M19.6: a pure fluid's diagram is phasekit-diagram's, bit for bit, computed here on the same build by its
+/// batch in lanes (`Exact`): Water on each plane, its axes' spans, the dome and every line's segments and vertices.
+#[wasm_bindgen_test]
+fn a_fluids_diagram_is_the_crates_bit_for_bit() {
+    use phasekit_diagram::{FluidBatch, Limits, Plane, sample};
+    let oracle = water();
+    let batch = FluidBatch::new(&oracle).with_exec(ExecPolicy::Simd);
+    let page = Registry::new().unwrap().fluid("Water").unwrap();
+    for plane in Plane::ALL {
+        let (got, want) =
+            (page.diagram(plane.id()).unwrap(), sample(&batch, plane, &Limits::of(&oracle).unwrap()).unwrap());
+        assert_eq!(
+            (got.plane(), bits(got.x()), bits(got.y())),
+            (plane.id().to_string(), bits(vec![want.x.0, want.x.1]), bits(vec![want.y.0, want.y.1]))
+        );
+        assert_eq!(exported(&got.liquid()), laid_out(&want.dome.liquid), "{plane:?}");
+        assert_eq!(exported(&got.vapour()), laid_out(&want.dome.vapour), "{plane:?}");
+        assert_eq!(exported(&got.critical()), laid_out(&want.dome.critical), "{plane:?}");
+        let lines = got.lines();
+        assert_eq!(lines.held(), want.lines.iter().map(|l| key(l.held)).collect::<Vec<_>>());
+        assert_eq!(bits(lines.values()), bits(want.lines.iter().map(|l| l.value).collect()));
+        let segments = want.lines.iter().flat_map(|l| &l.segments);
+        assert_eq!(lines.two_phase(), segments.clone().map(|s| u8::from(s.two_phase)).collect::<Vec<_>>());
+        assert_eq!(exported(&lines.vertices()), laid_out(segments.clone().flat_map(|s| &s.vertices)), "{plane:?}");
+        let mut starts = vec![0];
+        segments.for_each(|s| starts.push(starts.last().unwrap() + s.vertices.len() as u32));
+        assert_eq!(lines.starts(), starts);
+        let mut by_line = vec![0];
+        want.lines.iter().for_each(|l| by_line.push(by_line.last().unwrap() + l.segments.len() as u32));
+        assert_eq!(lines.segments(), by_line);
+        assert_eq!((got.end(), got.reason()), (String::new(), String::new()));
+    }
+}
+
+/// Checks that each vertex of `vertices` is `evaluate`'s `x` and `y` at its inputs, bit for bit, one call a pair, and
+/// returns how many it checked.
+fn evaluated(page: &phasekit_wasm::Fluid, vertices: &phasekit_wasm::Vertices, (x, y): (&str, &str)) -> usize {
+    let (keys, xy, inputs, pairs) = (pair_keys(), vertices.xy(), vertices.inputs(), vertices.pairs());
+    let mut checked = 0;
+    for code in 0..phasekit_core::Pair::ALL.len() as u8 {
+        let at: Vec<usize> = (0..pairs.len()).filter(|&i| pairs[i] == code).collect();
+        let k = 2 * code as usize;
+        let (a, b): (Vec<f64>, Vec<f64>) = at.iter().map(|&i| (inputs[2 * i], inputs[2 * i + 1])).unzip();
+        let values = page.evaluate(vec![x.into(), y.into()], &keys[k], &a, &keys[k + 1], &b).unwrap().values();
+        let got: Vec<u64> = values.iter().map(|v| v.to_bits()).collect();
+        let want: Vec<u64> = at.iter().flat_map(|&i| [xy[2 * i].to_bits(), xy[2 * i + 1].to_bits()]).collect();
+        assert_eq!(got, want, "pair {}{}", keys[k], keys[k + 1]);
+        checked += at.len();
+    }
+    checked
+}
+
+/// PLAN.md M19.6, M19.2's check through the exports: every vertex of Water's p–h and h–s diagrams, the dome's and the
+/// lines', is `evaluate`'s x and y at its inputs, bit for bit, the batch a page calls; and an unknown plane is refused.
+#[wasm_bindgen_test]
+fn every_vertex_is_evaluates_value_at_its_inputs() {
+    let page = Registry::new().unwrap().fluid("Water").unwrap();
+    for (id, axes) in [("ph", ("Hmass", "P")), ("hs", ("Smass", "Hmass"))] {
+        let d = page.diagram(id).unwrap();
+        let all = [d.liquid(), d.vapour(), d.critical(), d.lines().vertices()];
+        let checked: usize = all.iter().map(|vertices| evaluated(&page, vertices, axes)).sum();
+        assert!(checked > 1000, "{id}: {checked}");
+    }
+    assert!(page.diagram("xy").is_err());
+}
+
+/// PLAN.md M19.6, M19.4's check through the exports: R410A.mix's diagram on p–T and T–ρ is its envelope as
+/// `Fluid.envelope()` gives it, bit for bit, the bubble side in the trace's order and the dew side reversed, with the
+/// model's critical point (`Props1SI`) and how the trace ended; its other planes are refused, and so are its regions.
+#[wasm_bindgen_test]
+fn a_mixtures_diagram_is_its_envelope() {
+    let (page, _) = r410a();
+    let e = page.envelope().unwrap();
+    let registry = Registry::new().unwrap().with_pack(&r32_pack()).unwrap().with_pack(&r125_pack()).unwrap();
+    let constant = |k: &str| registry.props1_si(k, "R410A.mix").unwrap();
+    for (id, x, y, critical) in [
+        ("pt", e.t(), e.p(), [constant("T_critical"), constant("p_critical")]),
+        ("trho", e.dmass(), e.t(), [constant("rhomass_critical"), constant("T_critical")]),
+    ] {
+        let d = page.diagram(id).unwrap();
+        let (liquid, vapour) = (d.liquid().xy(), d.vapour().xy());
+        let dew: Vec<f64> = vapour.chunks(2).rev().flat_map(|p| p.to_vec()).collect();
+        let order: Vec<f64> = liquid.iter().copied().chain(dew).collect();
+        let want: Vec<f64> = x.iter().zip(&y).flat_map(|(&a, &b)| [a, b]).collect();
+        assert_eq!(bits(order), bits(want), "{id}");
+        assert_eq!(bits(d.critical().xy()), bits(critical.to_vec()), "{id}");
+        assert_eq!((d.lines().held().len(), d.end(), d.reason()), (0, e.end(), e.reason()));
+    }
+    assert!(page.diagram("ph").is_err());
+    assert!(page.regions().is_err());
+}
+
+/// PLAN.md M19.6, M19.5's checks through the exports: Water's regions are phasekit-diagram's, bit for bit, their phases
+/// the library's six as `PhaseSI` names them, and its critical isotherm and isobar run through the critical point.
+#[wasm_bindgen_test]
+fn a_fluids_regions_are_the_crates_bit_for_bit() {
+    let oracle = water();
+    let want = phasekit_diagram::regions(&oracle).unwrap();
+    let got = Registry::new().unwrap().fluid("Water").unwrap().regions().unwrap();
+    let mut phases = got.phases();
+    assert_eq!(phases, want.regions.iter().map(|g| phasekit_compat::phase_name(g.phase)).collect::<Vec<_>>());
+    phases.sort();
+    assert_eq!(phases, ["gas", "liquid", "supercritical", "supercritical_gas", "supercritical_liquid", "twophase"]);
+    let corners = |runs: Vec<&[phasekit_diagram::Corner]>| -> (Vec<u32>, Vec<u64>) {
+        let mut starts = vec![0];
+        runs.iter().for_each(|r| starts.push(starts.last().unwrap() + r.len() as u32));
+        (
+            starts,
+            runs.iter().flat_map(|r| r.iter()).flat_map(|c| [c.t, c.p, c.h, c.s, c.rho]).map(f64::to_bits).collect(),
+        )
+    };
+    let outlines = got.outlines();
+    assert_eq!(
+        (outlines.starts(), bits(outlines.corners())),
+        corners(want.regions.iter().map(|g| g.outline.as_slice()).collect())
+    );
+    for (line, runs) in [(got.isotherm(), &want.isotherm), (got.isobar(), &want.isobar)] {
+        assert_eq!((line.starts(), bits(line.corners())), corners(runs.iter().map(Vec::as_slice).collect()));
+        let critical = got.critical();
+        assert_eq!(critical.len(), 5);
+        assert!(line.corners().chunks(5).any(|c| c == critical.as_slice()));
+    }
+    assert_eq!((got.t_critical(), got.p_critical()), (want.t_critical, want.p_critical));
+}
+
+#[wasm_bindgen(inline_js = r#"
+export function diagramTypes(fluid) {
+    const d = fluid.diagram("ph"), liquid = d.liquid, lines = d.lines, v = lines.vertices;
+    const r = fluid.regions(), o = r.outlines;
+    const typed = d.x instanceof Float64Array && liquid.xy instanceof Float64Array &&
+        liquid.inputs instanceof Float64Array && liquid.pairs instanceof Uint8Array && liquid.length > 100 &&
+        lines.values instanceof Float64Array && lines.segments instanceof Uint32Array &&
+        lines.twoPhase instanceof Uint8Array && lines.starts instanceof Uint32Array && v.xy instanceof Float64Array &&
+        Array.isArray(lines.held) && o.corners instanceof Float64Array && o.starts instanceof Uint32Array &&
+        r.critical instanceof Float64Array && typeof r.Tc === "number" && Array.isArray(r.phases);
+    for (const handle of [v, lines, liquid, d, o, r]) handle.free();
+    return typed;
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen(js_name = diagramTypes)]
+    fn diagram_types(fluid: &JsValue) -> bool;
+}
+
+/// PLAN.md M19.6: a page reads a diagram and the regions as typed arrays, the inline JS calling the exported classes
+/// as a page does: `Float64Array` values, `Uint8Array` pair codes and flags, `Uint32Array` offsets.
+#[wasm_bindgen_test]
+fn the_diagram_and_the_regions_are_typed_arrays() {
+    let fluid = JsValue::from(Registry::new().unwrap().fluid("Water").unwrap());
+    assert!(diagram_types(&fluid));
 }
