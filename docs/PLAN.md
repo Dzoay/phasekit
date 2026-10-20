@@ -646,18 +646,10 @@ coordinates, where they name one state (on p–T a two-phase state does not), it
 the crate's dev-dependencies). The ranges, the isoline values and the refinement's rule are definitions, checked as they
 are stated.
 
-- **M19.1 The crate, its planes and the dome.** `phasekit-diagram`, with a row in `gates deps` (it and core, nothing
-  else), a root in `gates lints`' hardened list (the browser package reaches it, M24) and a row in ARCHITECTURE.md §2's
-  crate table. The five planes, from `diagrams.ts`: p–h, T–s, p–T, T–ρ and h–s, their axes, which of them are
-  logarithmic (p and ρ), the isoline families each draws and the quantity each family sweeps. The ranges, from
-  `ranges.ts`: T from the greater of T_min and the triple point's to the lesser of T_max and 1.6 T_c, p from the greater
-  of the triple point's and p_c/10⁴ to the lesser of P_max and 10 p_c; each family's values strictly inside its range,
-  1-2-5 per decade for p and ρ while that is at most 12 lines and decades past that, nice linear ticks for the rest
-  (tenths for quality). The dome: the saturated liquid and vapour by the `QT` batch at Q = 0 and 1 (a pseudo-pure
-  fluid's bubble and dew sides) from the saturation temperature of the lowest plotted pressure, or the lowest T if that
-  is higher, to just below T_c, closing in on it; the critical point by (T_c, ρ_c); a failed cell left out. An axis of
-  h, s or ρ spans the dome's and the range's corners' values. *Red:* the site's `ranges` and `dome` tests in Rust, and
-  `dome_vertices_are_the_qt_batch` (`Exact`), against functions that return `Error::Unsupported`.
+| Step | Landed |
+|---|---|
+| M19.1 | `phasekit-diagram` on core's public API alone (`gates deps`; a hardened root of `gates lints`): `Plane` (p–h, T–s, p–T, T–ρ and h–s: the axes, p and ρ logarithmic, the isoline families each draws), `Quantity`, `Limits::of` (the constants `Props1SI` reads), and `Batch`, the seam the geometry samples through, a fluid's `FluidBatch` under the caller's flash options and executor or a test's that fails cells, a cell a value where it is `Ok` or `Extrapolated`. The ranges: T from the greater of T_min and T_triple to the lesser of T_max and 1.6 T_c, p from the greater of p_triple and p_c/10⁴ to the lesser of P_max and 10 p_c; a family's values strictly inside, 1-2-5 per decade for p and ρ while that is at most 12 lines and decades past that, d3-array 3.2.4's `ticks(a, b, 8)` for the rest. The dome: 120 temperatures from the saturation T of the lowest plotted p, closing in on T_c, by the `QT` batch at Q = 0 and 1 (a pseudo-pure fluid's bubble and dew sides), and the critical point at (T_c, ρ_c), a failed cell left out; an axis of h, s or ρ spans the dome's and the range's corners' values. Every dome vertex of Water, n-Propane, CO₂, Nitrogen, R134a, Air and R410A on the five planes is the flash's at its inputs, bit for bit (`tests/dome.rs`) |
+
 - **M19.2 Isolines.** Each family's lines on M21.2's fixed grids (160 points a sweep, linear in T, logarithmic in p;
   M19.3 replaces them). An isotherm or isobar is one-phase on either side of its `QT` or `PQ` saturation states, and
   between them two-phase along Q, entered from the side its sweep comes from; above the critical point it crosses

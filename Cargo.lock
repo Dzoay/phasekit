@@ -505,6 +505,13 @@ name = "phasekit-data"
 version = "0.1.0"
 
 [[package]]
+name = "phasekit-diagram"
+version = "0.1.0"
+dependencies = [
+ "phasekit-core",
+]
+
+[[package]]
 name = "phasekit-mix"
 version = "0.1.0"
 dependencies = [
