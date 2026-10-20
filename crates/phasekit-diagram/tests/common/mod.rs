@@ -3,10 +3,29 @@
 #![allow(dead_code)] // each test binary uses its own part
 
 use phasekit_core::{Error, Fluid, Pair, Registry};
-use phasekit_diagram::{Batch, FluidBatch, Plane, Quantity, Row, Vertex};
+use phasekit_diagram::{Batch, FluidBatch, Limits, Plane, Quantity, Row, Vertex};
 
 /// The five embedded fluids, and the pseudo-pure Air and R410A, whose domes have bubble and dew sides.
 pub const FLUIDS: [&str; 7] = ["Water", "n-Propane", "CarbonDioxide", "Nitrogen", "R134a", "Air", "R410A"];
+
+/// The fluids and planes the isoline tests run on: every plane, and both pseudo-pure fluids.
+pub const CASES: [(&str, Plane); 8] = [
+    ("Water", Plane::Ph),
+    ("Water", Plane::Ts),
+    ("Water", Plane::Hs),
+    ("n-Propane", Plane::Ph),
+    ("n-Propane", Plane::TRho),
+    ("CarbonDioxide", Plane::Pt),
+    ("R410A", Plane::Ph),
+    ("Air", Plane::Ts),
+];
+
+/// The plotted T and p (PLAN.md M19.1): T from the greater of T_min and T_triple to the lesser of T_max and 1.6 T_c,
+/// p from the greater of p_triple and p_c/10⁴ to the lesser of P_max and 10 p_c.
+pub fn plotted_range(l: &Limits) -> ((f64, f64), (f64, f64)) {
+    let t = (l.t_min.max(l.t_triple), l.t_max.min(1.6 * l.t_critical));
+    (t, (l.p_triple.max(l.p_critical / 1e4), l.p_max.min(l.p_critical * 10.0)))
+}
 
 /// A fluid of the embedded registry.
 pub fn fluid(name: &str) -> Result<&'static Fluid, Error> {
@@ -47,9 +66,7 @@ where
     }
 }
 
-/// Fails every cell of row `i`.
-pub fn fail_row(rows: &mut [Row], i: usize) {
-    if let Some(row) = rows.get_mut(i) {
-        row.ok.iter_mut().for_each(|ok| *ok = false);
-    }
+/// Fails every cell of the row.
+pub fn fail(row: &mut Row) {
+    row.ok.iter_mut().for_each(|ok| *ok = false);
 }

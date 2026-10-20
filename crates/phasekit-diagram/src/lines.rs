@@ -1,12 +1,13 @@
-//! The isolines (PLAN.md M19.2, the site's `lines.ts` of M21.2): each family's lines on fixed grids of their sweep,
-//! split at the dome and at failed cells. A line meets the dome at saturation states the batch computes (`QT`, `PQ`,
-//! `QS`, `HQ`, `DQ`), its two-phase part between them; a failed cell breaks it.
+//! The isolines (PLAN.md M19.2, the site's `lines.ts` of M21.2): each family's lines from a grid of their sweep,
+//! refined where they bend (M19.3), split at the dome and at failed cells. A line meets the dome at saturation states
+//! the batch computes (`QT`, `PQ`, `QS`, `HQ`, `DQ`), its two-phase part between them; a failed cell breaks it.
 
 use phasekit_core::Error;
 
 use crate::batch::{Batch, Row, Vertex, along, vertex};
-use crate::plane::{Family, Plane, Quantity};
+use crate::plane::{Plane, Quantity};
 use crate::ranges::{lin_grid, values};
+use crate::refine::{Halving, Sides, Square, Swept, points, refine};
 
 /// A line of constant `held`, in segments.
 #[derive(Clone, Debug, PartialEq)]
@@ -85,11 +86,12 @@ impl Builder {
     }
 }
 
-/// Each family's lines on `plane`: `sweeps` gives each swept quantity's grid, `spans` each held quantity's span, and
-/// `temperatures` the dome's, which the quality lines run across.
+/// Each family's lines on `plane`, refined in its unit square `square`: `sweeps` gives each swept quantity's starting
+/// grid, `spans` each held quantity's span, and `temperatures` the dome's, on which the quality lines start.
 pub(crate) fn lines(
     batch: &impl Batch,
     plane: Plane,
+    square: &Square,
     spans: &impl Fn(Quantity) -> (f64, f64),
     sweeps: &impl Fn(Quantity) -> Vec<f64>,
     temperatures: &[f64],
@@ -97,10 +99,11 @@ pub(crate) fn lines(
     let mut out = Vec::new();
     for &family in plane.families() {
         for value in values(family.held, spans(family.held)) {
+            let on = On { batch, plane, square, held: family.held, value };
             let segments = match family.held {
-                Quantity::Q => held_q(batch, plane, value, temperatures)?,
-                Quantity::T | Quantity::P => held_tp(batch, plane, family, value, &sweeps(family.sweep))?,
-                _ => held_other(batch, plane, family, value, &sweeps(family.sweep))?,
+                Quantity::Q => on.quality(temperatures)?,
+                Quantity::T | Quantity::P => on.crossing(family.sweep, &sweeps(family.sweep))?,
+                _ => on.swept(family.sweep, &sweeps(family.sweep))?,
             };
             out.push(Line { held: family.held, value, segments });
         }
@@ -108,74 +111,125 @@ pub(crate) fn lines(
     Ok(out)
 }
 
-/// The qualities a two-phase part of an isotherm or isobar takes, from 0 to 1.
-const QUALITIES: usize = 11;
+/// The qualities a two-phase part of an isotherm or isobar starts on, from 0 to 1.
+const QUALITIES: usize = 32;
 
 /// The row's vertex on one side of the dome or inside it; a failed cell where it has none.
 fn item(row: &Row, two_phase: bool) -> Item {
     vertex(row).map_or(Item::Gap, |vertex| Item::Vertex { vertex, two_phase })
 }
 
-/// A line of constant T or p: one-phase on either side of the dome, and inside it the two-phase part from `QT` or
-/// `PQ`, which needs both its ends, the saturation states at Q = 0 and 1 with their sweep values; a quality the batch
-/// fails between them is a gap inside the dome. Above the critical point, or without either end, the line crosses
-/// nothing. A pseudo-pure fluid's line meets the dome at its dew and bubble states, apart, and the batch refuses the
-/// qualities between (user decision 4), so it has no two-phase part.
-fn held_tp(batch: &impl Batch, plane: Plane, f: Family, v: f64, sweep: &[f64]) -> Result<Vec<Segment>, Error> {
-    let (x, y) = (plane.x().quantity, plane.y().quantity);
-    let swept = along(batch, &[x, y], (f.held, &vec![v; sweep.len()]), (f.sweep, sweep))?;
-    let qualities = lin_grid(0.0, 1.0, QUALITIES);
-    let mut sat = along(batch, &[x, y, f.sweep], (f.held, &[v; QUALITIES]), (Quantity::Q, &qualities))?;
-    if f.held == Quantity::T {
-        sat.reverse();
+/// How a quantity's sweep is halved, p in its logarithm as its grid runs, and whether its points lie on either side
+/// of the dome.
+fn rule(sweep: Quantity, sides: Sides) -> (Halving, Sides) {
+    (if sweep == Quantity::P { Halving::Geometric } else { Halving::Linear }, sides)
+}
+
+/// A line being sampled: the batch, the plane and its unit square, and the quantity the line holds at `value`.
+struct On<'a, B> {
+    batch: &'a B,
+    plane: Plane,
+    square: &'a Square,
+    held: Quantity,
+    value: f64,
+}
+
+impl<B: Batch> On<'_, B> {
+    /// Rows of the plane's axes, and of `extra`, at the line's states where `sweep` takes the values `at`.
+    fn rows(&self, extra: Option<Quantity>, sweep: Quantity, at: &[f64]) -> Result<Vec<Row>, Error> {
+        let outputs: Vec<Quantity> =
+            [self.plane.x().quantity, self.plane.y().quantity].into_iter().chain(extra).collect();
+        along(self.batch, &outputs, (self.held, &vec![self.value; at.len()]), (sweep, at))
     }
-    let Some((entry, exit)) = sat.first().and_then(swept_at).zip(sat.last().and_then(swept_at)) else {
-        return Ok(segments(swept.iter().map(|r| item(r, false))));
-    };
-    let side = |keep: fn(f64, f64, f64) -> bool| {
-        let kept = move |(_, s): &(&Row, &f64)| keep(**s, entry, exit);
-        swept.iter().zip(sweep).filter(kept).map(|(r, _)| item(r, false))
-    };
-    let before = side(|s, entry, _| s < entry);
-    let after = side(|s, _, exit| s > exit);
-    Ok(segments(before.chain(inside(&sat)).chain(after)))
+
+    /// An isotherm or isobar: one-phase on either side of the dome, and inside it the two-phase part from `QT` or
+    /// `PQ`, which needs both its ends, the saturation states at Q = 0 and 1 with their sweep values; a quality the
+    /// batch fails between them is a gap inside the dome. Above the critical point, or without either end, the line
+    /// crosses nothing. A pseudo-pure fluid's line meets the dome at its dew and bubble states, apart, and the batch
+    /// refuses the qualities between (user decision 4), so it has no two-phase part. Each piece is refined on its own.
+    fn crossing(&self, sweep: Quantity, grid: &[f64]) -> Result<Vec<Segment>, Error> {
+        let swept_at = |at: &[f64]| self.rows(None, sweep, at);
+        let sat_at = |q: &[f64]| self.rows(Some(sweep), Quantity::Q, q);
+        let qualities = lin_grid(0.0, 1.0, QUALITIES);
+        let all = points(grid, swept_at(grid)?);
+        let inside = points(&qualities, sat_at(&qualities)?);
+        let from_vapour = self.held == Quantity::T;
+        let Some((entry, exit)) = ends(&inside, from_vapour) else {
+            return Ok(segments(one_phase(&refine(all, rule(sweep, Sides::One), self.square, swept_at)?)));
+        };
+        let (before, after) = sides(&all, entry, exit);
+        let before = refine(before, rule(sweep, Sides::One), self.square, swept_at)?;
+        let after = refine(after, rule(sweep, Sides::One), self.square, swept_at)?;
+        let mut inside = refine(inside, (Halving::Linear, Sides::One), self.square, sat_at)?;
+        if from_vapour {
+            inside.reverse();
+        }
+        Ok(segments(one_phase(&before).chain(edged(&inside)).chain(one_phase(&after))))
+    }
+
+    /// An isentrope, isenthalp or isochore: the batch's states along the sweep, two-phase where the batch defines Q,
+    /// with the saturation states at its value (`QS`, `HQ`, `DQ`) where it meets the dome, each placed by its own
+    /// sweep value, all refined together, a change of side closed in on.
+    fn swept(&self, sweep: Quantity, grid: &[f64]) -> Result<Vec<Segment>, Error> {
+        let swept_at = |at: &[f64]| self.rows(Some(Quantity::Q), sweep, at);
+        let sat = self.rows(Some(sweep), Quantity::Q, &[0.0, 1.0])?;
+        let mut all = points(grid, swept_at(grid)?);
+        all.extend(sat.iter().filter_map(edge));
+        Ok(segments(refine(all, rule(sweep, Sides::ByQuality), self.square, swept_at)?.iter().map(swept_item)))
+    }
+
+    /// A line of constant quality, starting on the dome's temperatures.
+    fn quality(&self, temperatures: &[f64]) -> Result<Vec<Segment>, Error> {
+        let at = |t: &[f64]| self.rows(None, Quantity::T, t);
+        let all = refine(points(temperatures, at(temperatures)?), (Halving::Linear, Sides::One), self.square, at)?;
+        Ok(segments(all.iter().map(|p| item(&p.row, true))))
+    }
 }
 
-/// The sweep value of a saturation state, its third cell, where the row is whole.
-fn swept_at(row: &Row) -> Option<f64> {
-    row.cells.get(2).copied().filter(|_| row.ok.iter().all(|&ok| ok))
+/// A saturation state as an edge point at its sweep value, its third cell; `None` unless the row is whole.
+fn edge(row: &Row) -> Option<Swept> {
+    let at = row.cells.get(2).copied().filter(|_| row.ok.iter().all(|&ok| ok))?;
+    Some(Swept { at, row: row.clone(), edge: true })
 }
 
-/// The two-phase part in the sweep's order, its ends on the dome's edge: an isotherm, swept up in p, enters from the
-/// vapour (its rows Q from 1 to 0); an isobar, swept up in T, from the liquid (Q from 0 to 1).
-fn inside(sat: &[Row]) -> Vec<Item> {
-    let last = sat.len().saturating_sub(1);
-    let at = |(i, row): (usize, &Row)| match vertex(row) {
+/// The two-phase part's ends in the sweep's order, as edge points: an isotherm, swept up in p, enters from the vapour
+/// (Q = 1) and leaves to the liquid; an isobar, swept up in T, the other way. `None` without either.
+fn ends(inside: &[Swept], from_vapour: bool) -> Option<(Swept, Swept)> {
+    let (first, last) = (inside.first()?, inside.last()?);
+    let (entry, exit) = if from_vapour { (last, first) } else { (first, last) };
+    Some((edge(&entry.row)?, edge(&exit.row)?))
+}
+
+/// The one-phase pieces before the dome and after it, each ending on its edge.
+fn sides(all: &[Swept], entry: Swept, exit: Swept) -> (Vec<Swept>, Vec<Swept>) {
+    let (entry_at, exit_at) = (entry.at, exit.at);
+    let before = all.iter().filter(|p| p.at < entry_at).cloned().chain([entry]).collect();
+    let after = [exit].into_iter().chain(all.iter().filter(|p| p.at > exit_at).cloned()).collect();
+    (before, after)
+}
+
+/// A one-phase piece's points as items, without its ends on the dome's edge, which the two-phase part gives.
+fn one_phase(piece: &[Swept]) -> impl Iterator<Item = Item> + '_ {
+    piece.iter().filter(|p| !p.edge).map(|p| item(&p.row, false))
+}
+
+/// The two-phase part in the sweep's order as items, its ends on the dome's edge.
+fn edged(inside: &[Swept]) -> Vec<Item> {
+    let last = inside.len().saturating_sub(1);
+    let at = |(i, p): (usize, &Swept)| match vertex(&p.row) {
         Some(v) if i == 0 || i == last => Item::Edge(v),
-        _ => item(row, true),
+        _ => item(&p.row, true),
     };
-    sat.iter().enumerate().map(at).collect()
+    inside.iter().enumerate().map(at).collect()
 }
 
-/// A line of constant s, h or ρ: the batch's states along the sweep, two-phase where the batch defines Q, with the
-/// saturation states at its value (`QS`, `HQ`, `DQ`) where it meets the dome, each placed by its own sweep value.
-fn held_other(batch: &impl Batch, plane: Plane, f: Family, v: f64, sweep: &[f64]) -> Result<Vec<Segment>, Error> {
-    let (x, y) = (plane.x().quantity, plane.y().quantity);
-    let swept = along(batch, &[x, y, Quantity::Q], (f.held, &vec![v; sweep.len()]), (f.sweep, sweep))?;
-    let sat = along(batch, &[x, y, f.sweep], (f.held, &[v, v]), (Quantity::Q, &[0.0, 1.0]))?;
-    let defined = |r: &Row| r.ok.get(2) == Some(&true);
-    let mut items: Vec<(f64, Item)> = swept.iter().zip(sweep).map(|(r, &at)| (at, item(r, defined(r)))).collect();
-    let edge = |r: &Row| Some((r.cells.get(2).copied().filter(|_| defined(r))?, Item::Edge(vertex(r)?)));
-    items.extend(sat.iter().filter_map(edge));
-    items.sort_by(|a, b| a.0.total_cmp(&b.0));
-    Ok(segments(items.into_iter().map(|(_, item)| item)))
-}
-
-/// A line of constant quality, across the dome's temperatures.
-fn held_q(batch: &impl Batch, plane: Plane, v: f64, temperatures: &[f64]) -> Result<Vec<Segment>, Error> {
-    let (x, y) = (plane.x().quantity, plane.y().quantity);
-    let found = along(batch, &[x, y], (Quantity::T, temperatures), (Quantity::Q, &vec![v; temperatures.len()]))?;
-    Ok(segments(found.iter().map(|r| item(r, true))))
+/// A point of an isentrope, isenthalp or isochore as an item: on the dome's edge, or two-phase where the batch
+/// defines Q.
+fn swept_item(p: &Swept) -> Item {
+    match vertex(&p.row) {
+        Some(v) if p.edge => Item::Edge(v),
+        _ => item(&p.row, p.row.ok.get(2) == Some(&true)),
+    }
 }
 
 #[cfg(test)]

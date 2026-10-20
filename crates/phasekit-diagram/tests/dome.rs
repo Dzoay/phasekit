@@ -3,9 +3,9 @@
 
 mod common;
 
-use common::{FLUIDS, Tamper, fail_row, flashed, fluid, is_flash};
+use common::{FLUIDS, Tamper, fail, flashed, fluid, is_flash};
 use phasekit_core::Pair;
-use phasekit_diagram::{Diagram, FluidBatch, Limits, Plane, Quantity, Vertex, diagram, sample};
+use phasekit_diagram::{Diagram, FluidBatch, Limits, Plane, Quantity, Row, Vertex, diagram, sample};
 
 fn dome_vertices(d: &Diagram) -> Vec<Vertex> {
     let (liquid, vapour) = (d.dome.liquid.iter(), d.dome.vapour.iter());
@@ -60,19 +60,24 @@ fn a_pseudo_pure_fluids_dome_has_its_bubble_and_dew_sides() {
     assert!(pairs.iter().all(|(bubble, dew)| bubble.y > dew.y), "{:?}", pairs.first());
 }
 
-/// A failed cell of the dome is left out of it, on either side, and the rest of the side kept.
+/// A failed cell of the dome is left out of it, on either side, and the rest of the side kept: Water's states between
+/// 400 and 410 K failed, every vertex of its whole dome outside them stays.
 #[test]
 fn a_failed_cell_of_the_dome_is_left_out() {
     let water = fluid("Water").unwrap();
     let limits = Limits::of(water).unwrap();
+    let band = |v: &Vertex| 400.0 < v.inputs.y && v.inputs.y < 410.0;
     let broken = Tamper {
         inner: FluidBatch::new(water),
         when: |outputs: &[Quantity], pair: Pair, _: &[f64], _: &[f64]| pair == Pair::QT && outputs.len() == 5,
-        change: |rows: &mut [phasekit_diagram::Row]| fail_row(rows, 10),
+        change: |rows: &mut [Row]| rows.iter_mut().filter(|r| 400.0 < r.inputs.y && r.inputs.y < 410.0).for_each(fail),
     };
     let d = sample(&broken, Plane::Ts, &limits).unwrap();
-    assert_eq!((d.dome.liquid.len(), d.dome.vapour.len()), (119, 119));
-    assert!(d.dome.liquid.iter().chain(&d.dome.vapour).all(|v| v.x.is_finite() && v.y.is_finite()));
+    let whole = diagram(water, Plane::Ts).unwrap();
+    for (side, all) in [(&d.dome.liquid, &whole.dome.liquid), (&d.dome.vapour, &whole.dome.vapour)] {
+        assert!(side.iter().all(|v| !band(v) && v.x.is_finite() && v.y.is_finite()));
+        assert!(all.iter().any(band) && all.iter().filter(|v| !band(v)).all(|v| side.contains(v)));
+    }
 }
 
 /// An axis of h, s or ρ spans the dome's and the plotted range's corners' values; an axis of T or p is the range.

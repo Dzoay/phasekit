@@ -5,21 +5,10 @@
 
 mod common;
 
-use common::{Tamper, fail_row, fluid, is_flash};
+use common::{CASES, Tamper, fail, fluid, is_flash, plotted_range};
 use phasekit_core::{Basis, Error, Fluid, Input, Pair, Phase, Prop, math};
 use phasekit_diagram::{Diagram, FluidBatch, Limits, Line, Plane, Quantity, Row, Segment, Vertex, diagram, sample};
 use phasekit_verify::tolerance::{ToleranceClass, Window};
-
-const CASES: [(&str, Plane); 8] = [
-    ("Water", Plane::Ph),
-    ("Water", Plane::Ts),
-    ("Water", Plane::Hs),
-    ("n-Propane", Plane::Ph),
-    ("n-Propane", Plane::TRho),
-    ("CarbonDioxide", Plane::Pt),
-    ("R410A", Plane::Ph),
-    ("Air", Plane::Ts),
-];
 
 /// T, ρ, p and Q of a state: Q NaN in one phase.
 fn tdpq(f: &Fluid, input: Input) -> Result<[f64; 4], Error> {
@@ -122,7 +111,7 @@ fn a_vertex_gives_back_its_lines_value() {
             assert!(skip || round_trips(f, &limits, plane, v).unwrap_or(false), "{label}");
             count += 1;
         }
-        assert!(count > 500, "{name} {plane:?}: {count}");
+        assert!(count > 200, "{name} {plane:?}: {count}");
     }
 }
 
@@ -203,22 +192,22 @@ fn check_segment(f: &Fluid, plane: Plane, l: &Line, s: &Segment, label: &str) {
     }
 }
 
-/// Water on p–h with its 400 K isotherm's sweep (`PT` at T = 400 K) changed by `change`.
-fn water_ph_with_isotherm(change: impl Fn(&mut [Row])) -> Result<Diagram, Error> {
+/// Water on p–h with its 400 K isotherm's states (`PT` at T = 400 K) changed by `change` wherever `at` holds of their
+/// pressure.
+fn water_ph_with_isotherm(at: impl Fn(f64) -> bool, change: impl Fn(&mut Row)) -> Result<Diagram, Error> {
     let water = fluid("Water")?;
     let broken = Tamper {
         inner: FluidBatch::new(water),
         when: |_: &[Quantity], pair: Pair, _: &[f64], y: &[f64]| pair == Pair::PT && y.first() == Some(&400.0),
-        change,
+        change: |rows: &mut [Row]| rows.iter_mut().filter(|r| at(r.inputs.x)).for_each(&change),
     };
     sample(&broken, Plane::Ph, &Limits::of(water)?)
 }
 
-/// Water's p–h sweep's pressure `i` of 160, as the diagram computes it.
+/// Water's p–h sweep's pressure `i` of the 32 its isotherms start on, as the diagram computes it.
 fn swept_pressure(i: f64) -> Result<f64, Error> {
-    let limits = Limits::of(fluid("Water")?)?;
-    let (a, b) = (limits.p_triple.max(limits.p_critical / 1e4), limits.p_max.min(limits.p_critical * 10.0));
-    Ok(a * math::powf(b / a, i / 159.0))
+    let (_, (a, b)) = plotted_range(&Limits::of(fluid("Water")?)?);
+    Ok(a * math::powf(b / a, i / 31.0))
 }
 
 /// Whether the 400 K isotherm has a vertex at the swept pressure `p`.
@@ -231,8 +220,8 @@ fn has_sweep_point(d: &Diagram, p: f64) -> bool {
 /// state of its vapour side failed, has three one-phase segments.
 #[test]
 fn a_failed_cell_breaks_its_line() {
-    let d = water_ph_with_isotherm(|rows| fail_row(rows, 50)).unwrap();
-    let lost = swept_pressure(50.0).unwrap();
+    let lost = swept_pressure(10.0).unwrap();
+    let d = water_ph_with_isotherm(|p| p == lost, fail).unwrap();
     assert!(!has_sweep_point(&d, lost));
     let l = line(&d, Quantity::T, 400.0).unwrap();
     assert_eq!(l.segments.iter().filter(|s| !s.two_phase).count(), 3);
@@ -242,37 +231,39 @@ fn a_failed_cell_breaks_its_line() {
 /// A cell whose x or y failed is a gap, whatever its other cells.
 #[test]
 fn a_cell_whose_x_or_y_failed_is_a_gap() {
+    let at = swept_pressure(8.0).unwrap();
     for k in [0, 1] {
-        let d = water_ph_with_isotherm(|rows| rows[40].ok[k] = false).unwrap();
-        assert!(!has_sweep_point(&d, swept_pressure(40.0).unwrap()), "output {k}");
+        let d = water_ph_with_isotherm(|p| p == at, |r| r.ok[k] = false).unwrap();
+        assert!(!has_sweep_point(&d, at), "output {k}");
     }
 }
 
-/// Water on p–h with its 400 K isotherm's saturation states (`QT` at T = 400 K, Q the tenths) changed by `change`.
-fn water_ph_with_saturation(change: impl Fn(&mut [Row])) -> Result<Diagram, Error> {
+/// Water on p–h with its 400 K isotherm's saturation states (`QT` at T = 400 K, with the sweep's p) changed by `change`
+/// wherever `at` holds of their quality.
+fn water_ph_with_saturation(at: impl Fn(f64) -> bool, change: impl Fn(&mut Row)) -> Result<Diagram, Error> {
     let water = fluid("Water")?;
     let broken = Tamper {
         inner: FluidBatch::new(water),
-        when: |_: &[Quantity], pair: Pair, x: &[f64], y: &[f64]| {
-            pair == Pair::QT && x.len() == 11 && y.first() == Some(&400.0)
+        when: |outputs: &[Quantity], pair: Pair, _: &[f64], y: &[f64]| {
+            pair == Pair::QT && outputs.len() == 3 && y.first() == Some(&400.0)
         },
-        change,
+        change: |rows: &mut [Row]| rows.iter_mut().filter(|r| at(r.inputs.x)).for_each(&change),
     };
     sample(&broken, Plane::Ph, &Limits::of(water)?)
 }
 
-/// A crossing needs both its ends, the saturation states with their sweep values: without the saturated liquid there
-/// is none; a failed quality between them is a gap inside the dome. A saturation state without its sweep value is no
-/// edge of an isentrope.
+/// A crossing needs both its ends, the saturation states with their sweep values: without the saturated liquid's p, or
+/// the saturated vapour, there is none; qualities failed between them are a gap inside the dome. A saturation state
+/// without its sweep value is no edge of an isentrope.
 #[test]
 fn a_crossing_needs_both_its_ends_and_a_failed_quality_between_is_a_gap() {
     let water = fluid("Water").unwrap();
     let limits = Limits::of(water).unwrap();
     let inside = |d: &Diagram| line(d, Quantity::T, 400.0).unwrap().segments.iter().filter(|s| s.two_phase).count();
     assert_eq!(inside(&diagram(water, Plane::Ph).unwrap()), 1);
-    assert_eq!(inside(&water_ph_with_saturation(|rows| rows[0].ok[2] = false).unwrap()), 0);
-    assert_eq!(inside(&water_ph_with_saturation(|rows| rows[10].ok[0] = false).unwrap()), 0);
-    assert_eq!(inside(&water_ph_with_saturation(|rows| rows[3].ok[0] = false).unwrap()), 2);
+    assert_eq!(inside(&water_ph_with_saturation(|q| q == 0.0, |r| r.ok[2] = false).unwrap()), 0);
+    assert_eq!(inside(&water_ph_with_saturation(|q| q == 1.0, |r| r.ok[0] = false).unwrap()), 0);
+    assert_eq!(inside(&water_ph_with_saturation(|q| 0.05 < q && q < 0.15, |r| r.ok[0] = false).unwrap()), 2);
     let no_sweep = Tamper {
         inner: FluidBatch::new(water),
         when: |_: &[Quantity], pair: Pair, _: &[f64], _: &[f64]| pair == Pair::QS,
@@ -289,7 +280,7 @@ fn a_crossing_needs_both_its_ends_and_a_failed_quality_between_is_a_gap() {
 fn a_sweep_point_on_the_dome_is_its_edge() {
     let at = swept_pressure(10.0).unwrap();
     assert!(has_sweep_point(&diagram(fluid("Water").unwrap(), Plane::Ph).unwrap(), at));
-    let d = water_ph_with_saturation(|rows| rows.iter_mut().for_each(|r| r.cells[2] = at)).unwrap();
+    let d = water_ph_with_saturation(|q| q == 0.0 || q == 1.0, |r| r.cells[2] = at).unwrap();
     assert!(!has_sweep_point(&d, at));
 }
 

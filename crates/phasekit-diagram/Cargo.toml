@@ -15,9 +15,11 @@ categories.workspace = true
 [dependencies]
 phasekit-core.workspace = true
 
-# The tests' fluids: the five embedded ones and the pseudo-pure Air and R410A; and the tolerance classes.
+# The tests' fluids: the five embedded ones and the pseudo-pure Air and R410A; the tolerance classes; and a mixture's
+# traced envelope (PLAN.md M19.4), which the crate itself takes as data (user decision DG3).
 [dev-dependencies]
 phasekit-core = { workspace = true, features = ["fluids-all"] }
+phasekit-mix.workspace = true
 phasekit-verify.workspace = true
 
 [lints]
