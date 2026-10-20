@@ -617,7 +617,7 @@ On every core fluid at eos-grid states (stable and imposed phase), on the out-of
 - M7 (user decisions OD1, OD5; the Thorade & Saadat paper is not openly available): the mixed second partial of p;
   Maxwell's (∂s/∂ρ)_T = −(∂p/∂T)_ρ/ρ² differentiated in T; (∂c_v/∂ρ)_T = −T(∂²p/∂T²)_ρ/ρ² and (∂c_p/∂p)_T =
   −T(∂²v/∂T²)_p from the second partials of s against those of p and ρ; β/κ_T = (∂p/∂T)_ρ, c_p − c_v = Tβ²/(ρκ_T) and
-  κ_T·ρ·w² = c_p/c_v (`order_three_identities_hold`); and in core the second partials against central differences of
+  κ_T·ρ·w² = c_p/c_v (the kit's `identities`, M20.2); and in core the second partials against central differences of
   the first (`second_partials_are_the_first_partials_differentiated`).
 - Saturation equilibrium at every SA or VLE point: p(T, ρ′) = p(T, ρ″), g′ = g″ from the EOS (the oracle shows Δg/RT
   1e-15 to 1e-13, map 03 §8).
@@ -765,8 +765,8 @@ so it needs no oracle (`crates/phasekit-verify/src/conformance.rs`).
 | FD | `fd_first_order` | A10, A01 vs FD in dimensional T, ρ | `Fd` | M1 |
 | Gauge | `gauge_invariance` | 8.4 | `Exact` / `Identity` | M1 |
 | Executors | `policy_equivalence` | 9.1 | `Exact` | M1 |
-| Identities | `identities(fluid, states)` | the 8.1 list | `Identity` | M20.2; until then `tests/eos.rs` checks them |
-| Part additivity | `part_additivity` | `ThermoModel::derivs`: total = ideal + residual | `Identity` | M20.2 |
+| Identities | `identities(fluid, states)` | the 8.1 list, first order and, where the model gives order 3, M7's | `Identity` | M20.2 |
+| Part additivity | `part_additivity(fluid, states)` | `ThermoModel::derivs`' ideal and residual parts add up to each state's own bundle: p, (∂p/∂ρ)_T, (∂p/∂T)_ρ and c_v from the summed A_ij, h = h⁰ + h^r and s = s⁰ + s^r | `Identity` | M20.2 |
 | Entropy | `entropy_identity(fluid, inputs)` | T (∂s/∂T)_p = c_p, the derivative from entropies flashed along the isobar, not from the bundle (catches an α⁰ chain rule dropped, DIV-0010) | 1e-7 relative | M11.7 |
 | Capability | `capability_matrix` | 8.5 | `Flash` | M7 |
 | Threads | `thread_invariance(make, inputs, threads)` | N threads racing into one fresh fluid's first use give a lone fluid's bits | `Exact` | M13.15; M9's tests wrote their own |

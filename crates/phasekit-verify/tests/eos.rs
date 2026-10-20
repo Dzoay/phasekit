@@ -5,7 +5,7 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::internal::FluidRecord;
-use phasekit_core::{Basis, DataSet, DerivVar, Fluid, Partial, Prop, Registry, SecondPartial, State};
+use phasekit_core::{Basis, DataSet, Fluid, Prop, Registry, State};
 use phasekit_verify::eos::{self, EosCheck, IdentityCheck, OrderThree};
 use phasekit_verify::{Cell, Fixture, ToleranceClass, Window, fixture};
 
@@ -76,62 +76,59 @@ fn eos_fixtures_match_oracle() {
     assert_eq!(check.report(20), None);
 }
 
-/// The identities of VERIFICATION.md §8.1 at a single-phase `state` of a fluid of molar mass `m` (kg/mol): h = u + p/ρ,
-/// g = h − Ts, a = u − Ts, μ = a + p/ρ = g (a pure fluid), Z = p/(ρRT), cp − cv = T(∂p/∂T)²_ρ/(ρ²(∂p/∂ρ)_T), (∂h/∂T)_p
-/// = cp, (∂s/∂T)_p = cp/T, (∂g/∂T)_p = −s and w² = (∂p/∂ρ)_s (mass density); where w is refused, (∂p/∂ρ)_s ≤ 0. The
-/// relations compute each side from the bundle along different algebra; a first partial's terms are the two summands
-/// of its Jacobian ratio.
-fn identities(check: &mut IdentityCheck, at: &str, state: &State, m: f64, window: Window) {
-    use DerivVar::{Dmass, Dmolar, Gmolar, Hmolar, P, Smolar, T};
-    let molar = Basis::Molar;
-    let (t, p, rho, r) = (state.t(), state.p(), state.rho(molar), state.gas_constant());
-    let (h, s, u, g, a) = (state.h(molar), state.s(molar), state.u(molar), state.g(molar), state.a(molar));
-    let d = |of, wrt, at| state.partial(Partial { of, wrt, at }).unwrap();
-    // (∂X/∂T)_p = X_T − X_ρ·P_T/P_ρ.
-    let (p_t, p_rho) = (d(P, T, Dmolar), d(P, Dmolar, T));
-    let along_p = |x| [d(x, T, Dmolar), d(x, Dmolar, T) * p_t / p_rho];
-    let mut id = |name: &str, sides: (f64, f64), terms: &[f64]| check.check(at, name, sides, terms, window);
-    id("h = u + p/ρ", (h, u + p / rho), &[u, p / rho]);
-    id("g = h − Ts", (g, h - t * s), &[h, t * s]);
-    id("a = u − Ts", (a, u - t * s), &[u, t * s]);
-    id("μ = a + p/ρ = g", (a + p / rho, g), &[a, p / rho]);
-    id("Z = p/(ρRT)", (state.z(), p / (rho * r * t)), &[]);
-    id("(∂g/∂T)_p = −s", (d(Gmolar, T, P), -s), &along_p(Gmolar));
-    let (cv, cp) = (state.cv(molar).unwrap(), state.cp(molar).unwrap());
-    let rhs = t * p_t * p_t / (rho * rho * p_rho);
-    id("cp − cv = T(∂p/∂T)²_ρ/(ρ²(∂p/∂ρ)_T)", (cp - cv, rhs), &[cp, cv]);
-    id("(∂h/∂T)_p = cp", (d(Hmolar, T, P), cp), &along_p(Hmolar));
-    id("(∂s/∂T)_p = cp/T", (d(Smolar, T, P), cp / t), &along_p(Smolar));
-    // (∂p/∂ρ)_s = (P_ρ − P_T·S_ρ/S_T)/M in mass density.
-    let dpds = d(P, Dmass, Smolar);
-    let terms = [p_rho / m, p_t * d(Smolar, Dmolar, T) / d(Smolar, T, Dmolar) / m];
-    match state.speed_of_sound() {
-        Ok(w) => id("w² = (∂p/∂ρ)_s", (w * w, dpds), &terms),
-        Err(_) => id("refused w: (∂p/∂ρ)_s ≤ 0", (dpds.max(0.0), 0.0), &terms),
+/// The DT states of every core fluid's `eos` grid (500 each) and of every fluid's in the all-fluid tier (8 each), the
+/// phase imposed, on the `Corrected` data: each fluid with its states.
+fn grid_states(registry: &Registry) -> Vec<(&Fluid, Vec<State>)> {
+    let states = |fixture: &Fixture<'_>, fluid: &Fluid, rows: &[usize]| -> Vec<State> {
+        let point = |row| (fixture.value(row, "T").unwrap(), fixture.value(row, "rhomolar").unwrap());
+        rows.iter().map(|&row| point(row)).map(|(t, rho)| eos::state(fluid, t, rho).unwrap()).collect()
+    };
+    let mut grids = Vec::new();
+    for (path, text) in eos::CORE_FILES {
+        let fixture = Fixture::parse(path, text).unwrap();
+        let fluid = registry.get(fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap()).unwrap();
+        grids.push((fluid, states(&fixture, fluid, &(0..fixture.rows().len()).collect::<Vec<_>>())));
     }
+    let (path, text) = fixture!("coolprop-8.0.0/all/eos.csv");
+    let fixture = Fixture::parse(path, text).unwrap();
+    for (name, rows) in by_fluid(&fixture) {
+        let fluid = registry.get(name).unwrap();
+        grids.push((fluid, states(&fixture, fluid, &rows)));
+    }
+    grids
 }
 
-/// Identity (VERIFICATION.md §8.1; map 01 §8, map 02 §8): the L4 identities, μ = g included (ROT-062), at the 500
-/// (T, ρ) of every core fluid's `eos` grid, stable, metastable and unstable states alike with the phase imposed, on the
-/// `Corrected` data. Class `Identity`: 1e-12 of the largest term, 1e-8 in the near-critical window.
+/// Identity (VERIFICATION.md §8.1; map 01 §8, map 02 §8; PLAN.md M7.10, M20.2): the conformance kit's `identities`,
+/// the L4 list, μ = g included (ROT-062), and its order-3 part, at every core fluid's `eos` grid and every fluid's in
+/// the all-fluid tier: stable, metastable and unstable states alike, the phase imposed, on the `Corrected` data. Class
+/// `Identity`: 1e-12 of the largest term, 1e-8 in the near-critical window.
 #[test]
 fn identities_hold() {
     let registry = Registry::embedded().unwrap();
-    let mut check = IdentityCheck::default();
-    for (path, text) in eos::CORE_FILES {
-        let fixture = Fixture::parse(path, text).unwrap();
-        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
-        let fluid = registry.get(name).unwrap();
-        let (m, critical) = (fluid.info().molar_mass(), fluid.model().critical_point().unwrap());
-        for row in 0..fixture.rows().len() {
-            let (t, rho) = (fixture.value(row, "T").unwrap(), fixture.value(row, "rhomolar").unwrap());
-            let state = eos::state(fluid, t, rho).unwrap();
-            let at = format!("{name} at {t} K, {rho} mol/m³");
-            identities(&mut check, &at, &state, m, Window::at(t, rho, critical.t, critical.rho));
-        }
-    }
-    assert_eq!(check.checked, 14 * 500 * 10);
-    assert_eq!(check.report(20), None);
+    let checked: usize = grid_states(registry)
+        .iter()
+        .map(|(fluid, states)| {
+            phasekit_verify::identities(fluid, states).map_err(|m| (fluid.info().name(), m)).unwrap()
+        })
+        .sum();
+    // Fifteen at each of the 8,088 states, and cp − cv and κ_T·ρ·w² from order 3 where cp, cv and w are defined; the
+    // core grids' are M5.1's 70,000 and M7.10's 48,658.
+    assert_eq!(checked, 137_074);
+}
+
+/// Identity (VERIFICATION.md §10; PLAN.md M20.2): the conformance kit's `part_additivity`, each model's ideal and
+/// residual parts adding up to the bundle of each state of every core fluid's `eos` grid and every fluid's in the
+/// all-fluid tier.
+#[test]
+fn parts_add_up_to_the_state() {
+    let registry = Registry::embedded().unwrap();
+    let checked: usize = grid_states(registry)
+        .iter()
+        .map(|(fluid, states)| {
+            phasekit_verify::part_additivity(fluid, states).map_err(|m| (fluid.info().name(), m)).unwrap()
+        })
+        .sum();
+    assert_eq!(checked, (14 * 500 + 136 * 8) * 6);
 }
 
 /// VERIFICATION.md §3.2, §11.3: the `eos` files come from the pinned runner image, like every committed oracle fixture.
@@ -228,58 +225,6 @@ fn kappa_and_beta_match_oracle() {
     let check = order_three_columns(OrderThree::KappaBeta);
     assert_eq!(check.checked, (14 * 500 + 136 * 8) * 2);
     assert_eq!(check.report(30), None);
-}
-
-fn order_three_identities(check: &mut IdentityCheck, at: &str, fluid: &Fluid, state: &State, window: Window) {
-    use DerivVar::{Dmolar, P, Smolar, T};
-    let molar = Basis::Molar;
-    let (t, rho) = (state.t(), state.rho(molar));
-    let d = |of, wrt, at| state.partial(Partial { of, wrt, at }).unwrap();
-    let d2 = |of, wrt, at, wrt2, at2| {
-        let p = SecondPartial { first: Partial { of, wrt, at }, wrt: wrt2, at: at2 };
-        fluid.prop(state, Prop::SecondPartial(p)).unwrap()
-    };
-    let mut id = |name: &str, sides: (f64, f64), terms: &[f64]| check.check(at, name, sides, terms, window);
-    let p_tt = d2(P, T, Dmolar, T, Dmolar);
-    id("∂²p/∂T∂ρ = ∂²p/∂ρ∂T", (d2(P, T, Dmolar, Dmolar, T), d2(P, Dmolar, T, T, Dmolar)), &[]);
-    id("∂²s/∂ρ∂T = −(∂²p/∂T²)_ρ/ρ²", (d2(Smolar, Dmolar, T, T, Dmolar), -p_tt / (rho * rho)), &[]);
-    id("(∂cv/∂ρ)_T = −T(∂²p/∂T²)_ρ/ρ²", (t * d2(Smolar, T, Dmolar, Dmolar, T), -t * p_tt / (rho * rho)), &[]);
-    let (rho_t, rho_tt) = (d(Dmolar, T, P), d2(Dmolar, T, P, T, P));
-    let v_tt = [-rho_tt / (rho * rho), 2.0 * rho_t * rho_t / (rho * rho * rho)];
-    id("(∂cp/∂p)_T = −T(∂²v/∂T²)_p", (t * d2(Smolar, T, P, P, T), -t * (v_tt[0] + v_tt[1])), &v_tt.map(|v| t * v));
-    let (kappa, beta) = (state.isothermal_compressibility().unwrap(), state.isobaric_expansion().unwrap());
-    id("β/κ_T = (∂p/∂T)_ρ", (beta / kappa, d(P, T, Dmolar)), &[]);
-    let (Ok(cv), Ok(cp)) = (state.cv(molar), state.cp(molar)) else { return };
-    id("cp − cv = Tβ²/(ρκ_T)", (cp - cv, t * beta * beta / (rho * kappa)), &[cp, cv]);
-    if let Ok(w) = state.speed_of_sound() {
-        id("κ_T·ρ·w² = cp/cv", (kappa * state.rho(Basis::Mass) * w * w, cp / cv), &[]);
-    }
-}
-
-/// Identity (VERIFICATION.md §8.1, PLAN.md M7.10, user decision on the order-3 identities): the second partials, κ_T
-/// and β against relations no oracle is needed for, at the 500 (T, ρ) of every core fluid's `eos` grid, the phase
-/// imposed: the mixed second partial of p, Maxwell's (∂s/∂ρ)_T differentiated in T, (∂cv/∂ρ)_T and (∂cp/∂p)_T from the
-/// second partials of s against those of p and v, and β/κ_T = (∂p/∂T)_ρ, cp − cv = Tβ²/(ρκ_T) and κ_T·ρ·w² = cp/cv
-/// where cp, cv and w are defined. Class `Identity`: 1e-12 of the largest term, 1e-8 in the near-critical window.
-#[test]
-fn order_three_identities_hold() {
-    let registry = Registry::embedded().unwrap();
-    let mut check = IdentityCheck::default();
-    for (path, text) in eos::CORE_FILES {
-        let fixture = Fixture::parse(path, text).unwrap();
-        let name = fixture.header("fluid").and_then(|f| f.split(' ').next()).unwrap();
-        let fluid = registry.get(name).unwrap();
-        let critical = fluid.model().critical_point().unwrap();
-        for row in 0..fixture.rows().len() {
-            let (t, rho) = (fixture.value(row, "T").unwrap(), fixture.value(row, "rhomolar").unwrap());
-            let state = eos::state(fluid, t, rho).unwrap();
-            let at = format!("{name} at {t} K, {rho} mol/m³");
-            order_three_identities(&mut check, &at, fluid, &state, Window::at(t, rho, critical.t, critical.rho));
-        }
-    }
-    // Five at each of the 7,000 states, cp − cv where cp and cv are defined, κ_T·ρ·w² where w is too.
-    assert_eq!(check.checked, 48_658);
-    assert_eq!(check.report(20), None);
 }
 
 /// VERIFICATION.md §8.3, class `Fd` (1e-7, relative step 1e-5): A10 and A01 of every core fluid's residual part against

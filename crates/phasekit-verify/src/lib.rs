@@ -20,8 +20,8 @@ pub mod ulp;
 
 pub use arbiters::{ARBITERS, Arbiter, ArbiterPart, ArbiterStatus};
 pub use conformance::{
-    Mismatch, Outcome, capability_matrix, entropy_identity, fd_first_order, gauge_invariance, gauged_pair, input_of,
-    policy_equivalence,
+    Mismatch, Outcome, capability_matrix, entropy_identity, fd_first_order, gauge_invariance, gauged_pair, identities,
+    input_of, part_additivity, policy_equivalence,
 };
 pub use fixture::{Cell, CheckError, ColumnRole, Fixture, FixtureError, FixtureMismatch, Kind, Row};
 pub use lock::{ORACLE_LOCK, OracleLock, TEQP_LOCK, generator_environment, on_the_pinned_image};

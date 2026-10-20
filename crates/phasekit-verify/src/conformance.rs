@@ -3,11 +3,12 @@
 
 use phasekit_core::batch::{self, BatchRequest, BatchSummary, ExecPolicy, Status};
 use phasekit_core::{
-    Basis, Error, FlashOptions, Fluid, Gauge, HelmholtzModel, Input, Order, Pair, Prop, RootPolicy, State, Var,
+    Basis, DerivVar, Derivs, Error, FlashOptions, Fluid, Gauge, HelmholtzModel, Input, Order, Pair, Partial, Prop,
+    RootPolicy, SecondPartial, State, Var,
 };
 
-use crate::ToleranceClass;
 use crate::flash::{coordinates, disagreement, window_of};
+use crate::{ToleranceClass, Window};
 
 /// A failed check: which quantity, at which point, got vs expected.
 #[derive(Clone, Debug, PartialEq)]
@@ -71,6 +72,177 @@ pub fn entropy_identity(fluid: &Fluid, inputs: &[Input]) -> Result<(), Mismatch>
         }
     }
     Ok(())
+}
+
+/// VERIFICATION.md §8.1 (PLAN.md M20.2): the L4 identities in class `Identity` (1e-12 of the largest term, 1e-8 in the
+/// near-critical window of the model's critical point) at each single-phase state of `fluid` in `states`, each side
+/// computed from the bundle along different algebra (a first partial's terms are the two summands of its Jacobian
+/// ratio). First order: h = u + p/ρ, g = h − Ts, a = u − Ts, μ = a + p/ρ = g (a pure fluid), Z = p/(ρRT), (∂g/∂T)_p =
+/// −s and, where c_p and c_v are defined, c_p − c_v = T(∂p/∂T)²_ρ/(ρ²(∂p/∂ρ)_T), (∂h/∂T)_p = c_p and (∂s/∂T)_p = c_p/T;
+/// w² = (∂p/∂ρ)_s (mass density), or (∂p/∂ρ)_s ≤ 0 where w is refused. From the model's order-3 bundle, where it gives
+/// one (M7.10): the mixed second partial of p, Maxwell's (∂s/∂ρ)_T differentiated in T, (∂c_v/∂ρ)_T =
+/// −T(∂²p/∂T²)_ρ/ρ² and (∂c_p/∂p)_T = −T(∂²v/∂T²)_p from the second partials of s against those of p and v,
+/// β/κ_T = (∂p/∂T)_ρ, and where c_p, c_v and w are defined c_p − c_v = Tβ²/(ρκ_T) and κ_T·ρ·w² = c_p/c_v. A state with
+/// a quality is skipped. How many held, or the first that did not, at its state's index.
+pub fn identities(fluid: &Fluid, states: &[State]) -> Result<usize, Mismatch> {
+    let mut checked = 0;
+    for (at, state) in states.iter().enumerate().filter(|(_, s)| s.quality().is_none()) {
+        let mut ledger = Ledger::new(fluid, state, at);
+        first_order_identities(&mut ledger, fluid, state)?;
+        order_three_identities(&mut ledger, fluid, state)?;
+        checked += ledger.held;
+    }
+    Ok(checked)
+}
+
+/// One state's checks in class `Identity`: its index, its window and how many held.
+struct Ledger {
+    at: usize,
+    window: Window,
+    held: usize,
+}
+
+impl Ledger {
+    /// The ledger of `state`, the `at`-th, in the window of `fluid`'s critical point (regular without one).
+    fn new(fluid: &Fluid, state: &State, at: usize) -> Ledger {
+        let (t, rho) = (state.t(), state.rho(Basis::Molar));
+        let window = fluid.model().critical_point().map_or(Window::Regular, |c| Window::at(t, rho, c.t, c.rho));
+        Ledger { at, window, held: 0 }
+    }
+
+    /// `lhs = rhs` within `Identity` of the largest of the two and of `terms`, the magnitudes of its summands.
+    fn hold(&mut self, what: &'static str, (lhs, rhs): (f64, f64), terms: &[f64]) -> Result<(), Mismatch> {
+        let largest = terms.iter().fold(lhs.abs().max(rhs.abs()), |m, x| m.max(x.abs()));
+        let bound = ToleranceClass::Identity.bound_in(largest, self.window).unwrap_or(0.0);
+        if (lhs - rhs).abs() <= bound {
+            self.held += 1;
+            Ok(())
+        } else {
+            Err(Mismatch { what, at: self.at, got: lhs, want: rhs }) // NaN included
+        }
+    }
+}
+
+/// [`identities`]' first-order list at one single-phase `state`.
+fn first_order_identities(ledger: &mut Ledger, fluid: &Fluid, state: &State) -> Result<(), Mismatch> {
+    use DerivVar::{Dmass, Dmolar, Gmolar, P, Smolar, T};
+    let molar = Basis::Molar;
+    let (t, p, rho, r) = (state.t(), state.p(), state.rho(molar), state.gas_constant());
+    let (h, s, u, g, a) = (state.h(molar), state.s(molar), state.u(molar), state.g(molar), state.a(molar));
+    let d = |of, wrt, at| state.partial(Partial { of, wrt, at }).unwrap_or(f64::NAN);
+    let (pv, ts) = (p / rho, t * s);
+    ledger.hold("h = u + p/ρ", (h, u + pv), &[u, pv])?;
+    ledger.hold("g = h − Ts", (g, h - ts), &[h, ts])?;
+    ledger.hold("a = u − Ts", (a, u - ts), &[u, ts])?;
+    ledger.hold("μ = a + p/ρ = g", (a + pv, g), &[a, pv])?;
+    ledger.hold("Z = p/(ρRT)", (state.z(), p / (rho * r * t)), &[])?;
+    ledger.hold("(∂g/∂T)_p = −s", (d(Gmolar, T, P), -s), &along_p(state, Gmolar))?;
+    caloric_identities(ledger, state)?;
+    // (∂p/∂ρ)_s = (P_ρ − P_T·S_ρ/S_T)/M in mass density.
+    let m = fluid.info().molar_mass();
+    let dpds = d(P, Dmass, Smolar);
+    let terms = [d(P, Dmolar, T) / m, d(P, T, Dmolar) * d(Smolar, Dmolar, T) / d(Smolar, T, Dmolar) / m];
+    match state.speed_of_sound() {
+        Ok(w) => ledger.hold("w² = (∂p/∂ρ)_s", (w * w, dpds), &terms),
+        Err(_) => ledger.hold("refused w: (∂p/∂ρ)_s ≤ 0", (dpds.max(0.0), 0.0), &terms),
+    }
+}
+
+/// The two terms of (∂x/∂T)_p = x_T − x_ρ·p_T/p_ρ at `state`.
+fn along_p(state: &State, x: DerivVar) -> [f64; 2] {
+    use DerivVar::{Dmolar, P, T};
+    let d = |of, wrt, at| state.partial(Partial { of, wrt, at }).unwrap_or(f64::NAN);
+    [d(x, T, Dmolar), d(x, Dmolar, T) * d(P, T, Dmolar) / d(P, Dmolar, T)]
+}
+
+/// c_p − c_v = T(∂p/∂T)²_ρ/(ρ²(∂p/∂ρ)_T), (∂h/∂T)_p = c_p and (∂s/∂T)_p = c_p/T, where c_p and c_v are defined.
+fn caloric_identities(ledger: &mut Ledger, state: &State) -> Result<(), Mismatch> {
+    use DerivVar::{Dmolar, Hmolar, P, Smolar, T};
+    let molar = Basis::Molar;
+    let (Ok(cv), Ok(cp)) = (state.cv(molar), state.cp(molar)) else { return Ok(()) };
+    let (t, rho) = (state.t(), state.rho(molar));
+    let d = |of, wrt, at| state.partial(Partial { of, wrt, at }).unwrap_or(f64::NAN);
+    let p_t = d(P, T, Dmolar);
+    let rhs = t * p_t * p_t / (rho * rho * d(P, Dmolar, T));
+    ledger.hold("cp − cv = T(∂p/∂T)²_ρ/(ρ²(∂p/∂ρ)_T)", (cp - cv, rhs), &[cp, cv])?;
+    ledger.hold("(∂h/∂T)_p = cp", (d(Hmolar, T, P), cp), &along_p(state, Hmolar))?;
+    ledger.hold("(∂s/∂T)_p = cp/T", (d(Smolar, T, P), cp / t), &along_p(state, Smolar))
+}
+
+/// [`identities`]' order-3 list at one single-phase `state`, where `fluid`'s model gives the order-3 bundle.
+fn order_three_identities(ledger: &mut Ledger, fluid: &Fluid, state: &State) -> Result<(), Mismatch> {
+    use DerivVar::{Dmolar, P, Smolar, T};
+    let molar = Basis::Molar;
+    let second = |of, wrt, at, wrt2, at2| {
+        let p = SecondPartial { first: Partial { of, wrt, at }, wrt: wrt2, at: at2 };
+        fluid.prop(state, Prop::SecondPartial(p))
+    };
+    let Ok(p_tt) = second(P, T, Dmolar, T, Dmolar) else { return Ok(()) };
+    let d2 = |of, wrt, at, wrt2, at2| second(of, wrt, at, wrt2, at2).unwrap_or(f64::NAN);
+    let d = |of, wrt, at| state.partial(Partial { of, wrt, at }).unwrap_or(f64::NAN);
+    let (t, rho) = (state.t(), state.rho(molar));
+    ledger.hold("∂²p/∂T∂ρ = ∂²p/∂ρ∂T", (d2(P, T, Dmolar, Dmolar, T), d2(P, Dmolar, T, T, Dmolar)), &[])?;
+    ledger.hold("∂²s/∂ρ∂T = −(∂²p/∂T²)_ρ/ρ²", (d2(Smolar, Dmolar, T, T, Dmolar), -p_tt / (rho * rho)), &[])?;
+    let cv_rho = t * d2(Smolar, T, Dmolar, Dmolar, T);
+    ledger.hold("(∂cv/∂ρ)_T = −T(∂²p/∂T²)_ρ/ρ²", (cv_rho, -t * p_tt / (rho * rho)), &[])?;
+    let (rho_t, rho_tt) = (d(Dmolar, T, P), d2(Dmolar, T, P, T, P));
+    let v_tt = [-rho_tt / (rho * rho), 2.0 * rho_t * rho_t / (rho * rho * rho)];
+    let cp_p = t * d2(Smolar, T, P, P, T);
+    ledger.hold("(∂cp/∂p)_T = −T(∂²v/∂T²)_p", (cp_p, -t * (v_tt[0] + v_tt[1])), &v_tt.map(|v| t * v))?;
+    let (kappa, beta) = (state.isothermal_compressibility(), state.isobaric_expansion());
+    let (kappa, beta) = (kappa.unwrap_or(f64::NAN), beta.unwrap_or(f64::NAN));
+    ledger.hold("β/κ_T = (∂p/∂T)_ρ", (beta / kappa, d(P, T, Dmolar)), &[])?;
+    let (Ok(cv), Ok(cp)) = (state.cv(molar), state.cp(molar)) else { return Ok(()) };
+    ledger.hold("cp − cv = Tβ²/(ρκ_T)", (cp - cv, t * beta * beta / (rho * kappa)), &[cp, cv])?;
+    let Ok(w) = state.speed_of_sound() else { return Ok(()) };
+    ledger.hold("κ_T·ρ·w² = cp/cv", (kappa * state.rho(Basis::Mass) * w * w, cp / cv), &[])
+}
+
+/// VERIFICATION.md §10 (PLAN.md M20.2): `ThermoModel::derivs`' ideal and residual parts add up to the total each
+/// single-phase state of `states` carries, so a family whose parts disagree with its flash fails (`derivs`' own total
+/// is their sum by construction, `PointDerivs::split`). In class `Identity`, of the larger of the two parts' terms:
+/// the six order-2 sums against the state through their relations, p = ρRT·A01, (∂p/∂ρ)_T = RT(2A01 + A02),
+/// (∂p/∂T)_ρ = ρR(A01 − A11) and c_v = −R·A20 from the summed entries, and h = h⁰ + h^r and s = s⁰ + s^r through
+/// `Fluid::prop`, which reads A10 and A00 of each part. A state with a quality, or whose model gives no parts, is
+/// skipped. How many held, or the first that did not, at its state's index.
+pub fn part_additivity(fluid: &Fluid, states: &[State]) -> Result<usize, Mismatch> {
+    let mut checked = 0;
+    for (at, state) in states.iter().enumerate().filter(|(_, s)| s.quality().is_none()) {
+        let Some(parts) = fluid.model().derivs(state, Order::Two) else { continue };
+        let (Some(ideal), Some(residual)) = (parts.ideal(), parts.residual()) else { continue };
+        let mut ledger = Ledger::new(fluid, state, at);
+        order_two_sums(&mut ledger, state, [&ideal, &residual])?;
+        caloric_sums(&mut ledger, fluid, state)?;
+        checked += ledger.held;
+    }
+    Ok(checked)
+}
+
+/// p, (∂p/∂ρ)_T, (∂p/∂T)_ρ and c_v at `state` against the relations on the sum of the two parts' entries.
+fn order_two_sums(ledger: &mut Ledger, state: &State, parts: [&Derivs; 2]) -> Result<(), Mismatch> {
+    use DerivVar::{Dmolar, P, T};
+    let (r, t, rho) = (state.gas_constant(), state.t(), state.rho(Basis::Molar));
+    let a = |part: &Derivs, i, j| part.get(i, j).unwrap_or(f64::NAN);
+    // Each part's term of a relation linear in the A_ij.
+    let by_part = |f: &dyn Fn(&Derivs) -> f64| parts.map(f);
+    let d = |of, wrt, at| state.partial(Partial { of, wrt, at }).unwrap_or(f64::NAN);
+    let p = by_part(&|x| rho * r * t * a(x, 0, 1));
+    ledger.hold("p = ρRT·A01", (state.p(), p[0] + p[1]), &p)?;
+    let p_rho = by_part(&|x| r * t * (2.0 * a(x, 0, 1) + a(x, 0, 2)));
+    ledger.hold("(∂p/∂ρ)_T = RT(2A01 + A02)", (d(P, Dmolar, T), p_rho[0] + p_rho[1]), &p_rho)?;
+    let p_t = by_part(&|x| rho * r * (a(x, 0, 1) - a(x, 1, 1)));
+    ledger.hold("(∂p/∂T)_ρ = ρR(A01 − A11)", (d(P, T, Dmolar), p_t[0] + p_t[1]), &p_t)?;
+    let cv = by_part(&|x| -r * a(x, 2, 0));
+    ledger.hold("cv = −R·A20", (state.cv(Basis::Molar).unwrap_or(f64::NAN), cv[0] + cv[1]), &cv)
+}
+
+/// h = h⁰ + h^r and s = s⁰ + s^r at `state`, each part's from `Fluid::prop`.
+fn caloric_sums(ledger: &mut Ledger, fluid: &Fluid, state: &State) -> Result<(), Mismatch> {
+    let prop = |p| fluid.prop(state, p).unwrap_or(f64::NAN);
+    let h = [prop(Prop::HmolarIdealGas), prop(Prop::HmolarResidual)];
+    ledger.hold("h = h⁰ + h^r", (state.h(Basis::Molar), h[0] + h[1]), &h)?;
+    let s = [prop(Prop::SmolarIdealGas), prop(Prop::SmolarResidual)];
+    ledger.hold("s = s⁰ + s^r", (state.s(Basis::Molar), s[0] + s[1]), &s)
 }
 
 /// Map 15 §8 at every input: the handle in `gauge` and the handle as given flash the same state, except that h and u

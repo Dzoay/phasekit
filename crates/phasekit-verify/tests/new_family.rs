@@ -15,7 +15,9 @@ use phasekit_core::{
     ReferenceState, Registry, SatAccuracy, SatPair, SatSide, SaturationCurve, Source, Strategy, Temperature,
     ThermoModel, Virials, math,
 };
-use phasekit_verify::{entropy_identity, fd_first_order, gauge_invariance, policy_equivalence};
+use phasekit_verify::{
+    entropy_identity, fd_first_order, gauge_invariance, identities, part_additivity, policy_equivalence,
+};
 
 const R: f64 = 8.314_462_618;
 
@@ -641,4 +643,21 @@ fn entropy_identity_holds_for_every_family() {
         let result = entropy_identity(fluid, &states);
         assert!(result.is_ok(), "{name}: {result:?}");
     }
+}
+
+/// VERIFICATION.md §10 (PLAN.md M20.2): the kit's `identities`, §8.1's list in class `Identity`, and `part_additivity`,
+/// the model's ideal and residual parts adding up to each state's own bundle, hold for this out-of-tree family at a
+/// supercritical gas, a supercritical and a supercritical liquid state (T < T_c, p > p_c): each of the 17 identities
+/// (cp, cv and w defined, order 3 given) and the six sums at each.
+#[test]
+fn identities_and_part_additivity_hold_for_the_new_family() {
+    let (model, crit) = vdw();
+    let reg = Registry::embedded().unwrap().with_model(model).unwrap();
+    let vdw = reg.get("vdw").unwrap();
+    let points = [(0.05, 1.2), (1.5, 1.5), (2.7, 0.8)];
+    let states: Vec<_> = points.iter().map(|&(rho, t)| vdw.state(dt(rho * crit.rho, t * crit.t)).unwrap()).collect();
+    let phases = [Phase::SupercriticalGas, Phase::Supercritical, Phase::SupercriticalLiquid];
+    assert_eq!(states.iter().map(|s| s.phase()).collect::<Vec<_>>(), phases);
+    assert_eq!(identities(vdw, &states), Ok(3 * 17));
+    assert_eq!(part_additivity(vdw, &states), Ok(3 * 6));
 }
