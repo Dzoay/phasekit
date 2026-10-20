@@ -4,15 +4,15 @@
 # never lowers one. Lowering a minimum by hand needs a `# lowered: <reason>` line above it. `# pending M<n>.<k>:
 # <test>` lines name tests held back until that step; they fail the gate once milestone n has closed.
 x86_64-unknown-linux-gnu phasekit-core::lib 266
-x86_64-unknown-linux-gnu phasekit-verify::lib 66
+x86_64-unknown-linux-gnu phasekit-verify::lib 72
 x86_64-unknown-linux-gnu phasekit-verify::gibbs_seam 3
 x86_64-unknown-linux-gnu phasekit-verify::lazy_load 13
 x86_64-unknown-linux-gnu phasekit-verify::new_family 15
 x86_64-unknown-linux-gnu phasekit-verify::register 12
-x86_64-unknown-linux-gnu phasekit-xtask::main 183
+x86_64-unknown-linux-gnu phasekit-xtask::main 184
 x86_64-unknown-linux-gnu phasekit-core::doc 2
 wasm32-wasip2 phasekit-core::lib 267
-wasm32-wasip2 phasekit-verify::lib 65
+wasm32-wasip2 phasekit-verify::lib 71
 wasm32-wasip2 phasekit-verify::gibbs_seam 3
 wasm32-wasip2 phasekit-verify::lazy_load 9
 wasm32-wasip2 phasekit-verify::new_family 12
@@ -72,8 +72,8 @@ x86_64-unknown-linux-gnu phasekit-verify::cross_target 1
 wasm32-wasip2 phasekit-verify::cross_target 1
 x86_64-unknown-linux-gnu phasekit-verify::refstate 2
 wasm32-wasip2 phasekit-verify::refstate 2
-x86_64-unknown-linux-gnu phasekit-verify::props 4
-wasm32-wasip2 phasekit-verify::props 4
+x86_64-unknown-linux-gnu phasekit-verify::props 5
+wasm32-wasip2 phasekit-verify::props 5
 x86_64-unknown-linux-gnu phasekit-capi::lib 27
 x86_64-unknown-linux-gnu phasekit-capi::smoke 1
 x86_64-unknown-linux-gnu phasekit-capi::entry_points 2
