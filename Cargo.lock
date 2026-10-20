@@ -514,6 +514,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "phasekit-iapws"
+version = "0.1.0"
+dependencies = [
+ "phasekit-core",
+ "phasekit-verify",
+]
+
+[[package]]
 name = "phasekit-mix"
 version = "0.1.0"
 dependencies = [
@@ -534,6 +542,7 @@ dependencies = [
  "phasekit-core",
  "phasekit-cubic",
  "phasekit-data",
+ "phasekit-iapws",
  "phasekit-mix",
  "rayon",
 ]

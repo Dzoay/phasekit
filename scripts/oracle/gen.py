@@ -30,7 +30,7 @@ MIXTURES_DIR = ROOT / "reference" / "CoolProp" / "dev" / "mixtures"
 FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
 MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
 KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transport", "sigma", "melt", "refstate", "cubic",
-         "cubic_sat", "mix_alphar", "mix_eos", "mix_crit", "mix_flash", "mix_sat", "mix_env", "props", "codes"]
+         "cubic_sat", "mix_alphar", "mix_eos", "mix_crit", "mix_flash", "mix_sat", "mix_env", "props", "codes", "if97"]
 SCRUBBED_PREFIXES = ("COOLPROP_", "PXFLASH_")
 FLUID_COUNT = 136
 
@@ -1024,6 +1024,52 @@ def cubic_sat(CP, lock, config, files, args):
     text = header("cubic_sat", lock, config, fluids, CUBIC_SAT_COLUMNS, CUBIC_SAT_TOL, floats, units=CUBIC_SAT_UNITS,
                   grid=grid)
     return {"all/cubic_sat.csv": text + "".join(lines)}
+
+
+# The `if97` kind (PLAN.md M14.2, M14.3): CoolProp 8.0.0's `IF97::Water` backend, as far as phasekit-iapws models IF97
+# (regions 1, 2 and 4 below 623.15 K; user decision HA4). PT on a grid of T and p, either side of the saturation line;
+# QT and PQ at Q 0 and 1 along it. Each row gives the inputs as asked, then T and p as the backend returns them and
+# its mass-based outputs; a refusal is a status (v8.0.0 refuses p below 611.213 Pa and states on the saturation line's
+# 3.3e-5 band, map 07 R7, H11).
+IF97_T = [273.15, 273.16, 280.0, 300.0, 350.0, 400.0, 450.0, 500.0, 550.0, 600.0, 623.15]
+IF97_P = [1e3, 1e4, 1e5, 1e6, 3e6, 1e7, 3e7, 1e8]
+IF97_SAT_P = [1e3, 1e4, 1e5, 1e6, 1e7, 16.5e6]
+IF97_OUTPUTS = [("T", "K", "T"), ("p", "Pa", "P"), ("rhomass", "kg/m3", "Dmass"), ("hmass", "J/kg", "Hmass"),
+                ("smass", "J/kg/K", "Smass"), ("umass", "J/kg", "Umass"), ("cpmass", "J/kg/K", "Cpmass"),
+                ("speed_sound", "m/s", "speed_of_sound")]
+IF97_COLUMNS = ["pair", "x", "y", "status", *(name for name, _, _ in IF97_OUTPUTS)]
+IF97_UNITS = ["-", "-", "-", "-", *(unit for _, unit, _ in IF97_OUTPUTS)]
+IF97_TOL = ["label", "in", "in", "label", *["prop"] * len(IF97_OUTPUTS)]
+
+
+def if97_row(CP, pair, x, y, floats, lines):
+    """One row: `pair` is PT (x = p, y = T), QT (x = Q, y = T) or PQ (x = p, y = Q), as PropsSI takes its inputs."""
+    names = {"PT": ("P", "T"), "QT": ("Q", "T"), "PQ": ("P", "Q")}[pair]
+    try:
+        values = [CP.PropsSI(key, names[0], x, names[1], y, "IF97::Water") for _, _, key in IF97_OUTPUTS]
+        status = "ok"
+    except Exception as exception:  # outside v8.0.0's IF97 or on its saturation band
+        values, status = [math.nan] * len(IF97_OUTPUTS), f"err:{error_class(exception)}"
+    floats.extend([x, y, *values])
+    lines.append(",".join([pair, cell(x), cell(y), status, *map(cell, values)]) + "\n")
+
+
+def if97(CP, lock, config, files, args):
+    """The `if97` kind: all/if97.csv."""
+    floats, lines = [], []
+    for t in IF97_T:
+        for p in IF97_P:
+            if97_row(CP, "PT", p, t, floats, lines)
+        for q in (0.0, 1.0):
+            if97_row(CP, "QT", q, t, floats, lines)
+    for p in IF97_SAT_P:
+        for q in (0.0, 1.0):
+            if97_row(CP, "PQ", p, q, floats, lines)
+    grid = (f"PT at T in {{{','.join(map(cell, IF97_T))}}} K x p in {{{','.join(map(cell, IF97_P))}}} Pa; QT at those T"
+            f" and Q in {{0,1}}; PQ at p in {{{','.join(map(cell, IF97_SAT_P))}}} Pa and Q in {{0,1}}")
+    text = header("if97", lock, config, "IF97::Water (IAPWS R7-97(2012); no fluid file)", IF97_COLUMNS, IF97_TOL,
+                  floats, units=IF97_UNITS, grid=grid)
+    return {"all/if97.csv": text + "".join(lines)}
 
 
 # The `mix_alphar` kind (PLAN.md M13.3): CoolProp 8.0.0's multi-fluid residual, the gas phase imposed so that (T, rho)
@@ -2142,7 +2188,7 @@ def codes(CP, lock, config, files, args):
 
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "cubic": cubic,
               "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "mix_eos": mix_eos, "mix_crit": mix_crit, "mix_flash": mix_flash, "mix_sat": mix_sat, "mix_env": mix_env, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
-              "props": props, "codes": codes}
+              "props": props, "codes": codes, "if97": if97}
 
 
 def write(out, files):

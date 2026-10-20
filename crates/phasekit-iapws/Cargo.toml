@@ -1,0 +1,24 @@
+[package]
+name = "phasekit-iapws"
+description = "IAPWS formulations over phasekit: IF97 water below 623.15 K, ice Ih and its sublimation curve"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# phasekit-core's public API and nothing else (docs/DEPENDENCIES.md, the T1f row; user decisions HA1, HA4), which
+# `cargo xtask gates deps` holds. Not published yet: that is the user's call (AGENTS.md).
+[dependencies]
+phasekit-core.workspace = true
+
+# The tolerance classes the unit tests compare in (VERIFICATION.md §5); the IAPWS tables are checked from
+# phasekit-verify's tests/iapws.rs, which reads them as fixtures.
+[dev-dependencies]
+phasekit-verify.workspace = true
+
+[lints]
+workspace = true

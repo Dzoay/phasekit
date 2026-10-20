@@ -60,6 +60,8 @@ pub fn k3_values(
 #[allow(missing_docs)]
 pub enum ArbiterPart {
     AlphaR,
+    /// A Gibbs function's properties at (T, p): IF97's regions, ice Ih (PLAN.md M14).
+    Gibbs,
     Alpha0,
     Viscosity,
     Conductivity,
@@ -293,6 +295,9 @@ pub const TABLES: &[(&str, &str)] = &[
     crate::fixture!("paper/Water/IAPWS-R15-11.5.csv"),
     crate::fixture!("paper/Water/IAPWS-R1-76-2014.1.csv"),
     crate::fixture!("paper/Water/IAPWS-R14-08-2011.3.csv"),
+    crate::fixture!("paper/Water/IAPWS-R7-97-2012.5.csv"),
+    crate::fixture!("paper/Water/IAPWS-R7-97-2012.35.csv"),
+    crate::fixture!("paper/Water/IAPWS-R7-97-2012.36.csv"),
     crate::fixture!("paper/HeavyWater/Herrig-JPCRD-2019.S3-4.csv"),
     crate::fixture!("paper/HeavyWater/IAPWS-R4-84-2007.A5.csv"),
     crate::fixture!("paper/HeavyWater/IAPWS-R4-84-2007.B4.csv"),
@@ -356,6 +361,25 @@ pub static ARBITERS: &[Arbiter] = &[
         part: ArbiterPart::Melting,
         citation: Citation { key: "IAPWS-R14-08", doi_or_report: Some("IAPWS R14-08(2011)"), role: Role::Release },
         tables: &[Table { file: "paper/Water/IAPWS-R14-08-2011.3.csv", kind: TableKind::Rows, rows: Some(6) }],
+        constants: None,
+        status: ArbiterStatus::SelfConsistent,
+    },
+    Arbiter {
+        fluid: "IF97 water",
+        part: ArbiterPart::Gibbs,
+        citation: Citation { key: "IAPWS-R7-97", doi_or_report: Some("IAPWS R7-97(2012)"), role: Role::Release },
+        tables: &[Table { file: "paper/Water/IAPWS-R7-97-2012.5.csv", kind: TableKind::Rows, rows: Some(3) }],
+        constants: None,
+        status: ArbiterStatus::SelfConsistent,
+    },
+    Arbiter {
+        fluid: "IF97 water",
+        part: ArbiterPart::Saturation,
+        citation: Citation { key: "IAPWS-R7-97", doi_or_report: Some("IAPWS R7-97(2012)"), role: Role::Release },
+        tables: &[
+            Table { file: "paper/Water/IAPWS-R7-97-2012.35.csv", kind: TableKind::Rows, rows: Some(3) },
+            Table { file: "paper/Water/IAPWS-R7-97-2012.36.csv", kind: TableKind::Rows, rows: Some(3) },
+        ],
         constants: None,
         status: ArbiterStatus::SelfConsistent,
     },
