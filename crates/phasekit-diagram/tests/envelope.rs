@@ -1,8 +1,8 @@
 //! A mixture's envelope (PLAN.md M19.4) on the library's own trace of R410A.mix, from R32's and R125's equations
 //! (phasekit-mix, a dev-dependency only): every vertex is the trace's point (`Exact`), drawn bubble side, critical
-//! point, dew side; every vertex the mixture's `QT` or `PQ` flash answers at its own Q is that flash's state within
-//! `Flash`, and near the critical point, where it refuses both (issue #257), the diagram draws what the trace found;
-//! the critical point drawn is the model's, which lies on the envelope within TM15's stated 0.02 K and 2 kPa.
+//! point, dew side; every vertex more than 1 mK from T_c is the mixture's `QT` and `PQ` state at its own Q within
+//! `Flash` (issue #257); the critical point drawn is the model's, which lies on the envelope within TM15's stated
+//! 0.02 K and 2 kPa.
 
 use std::any::Any;
 use std::sync::LazyLock;
@@ -76,34 +76,32 @@ fn flashed(f: &Fluid, input: Result<Input, Error>, prop: Prop) -> Option<f64> {
     f.prop(&state, prop).ok()
 }
 
-/// Every vertex the mixture's `QT` or `PQ` flash answers at its own Q is that flash's state within `Flash`, 1e-9
-/// relative in the p it gives at T or the T it gives at p, and at least two thirds of them are answered: near the
-/// critical point the flash refuses both (issue #257), and there the diagram draws what the trace found.
+/// Every vertex more than 1 mK from T_c is the mixture's `QT` and `PQ` state at its own Q within `Flash`, 1e-9
+/// relative in the p it gives at T and the T it gives at p (issue #257). Nearer T_c each side turns in T and in p, so a
+/// given T or p has two of its points within 1 Pa: there the flash may answer the other (at most two vertices).
 #[test]
-fn every_vertex_the_qt_or_pq_flash_answers_is_that_flashs_state_within_flash() {
+fn every_vertex_away_from_t_c_is_the_qt_and_pq_state_within_flash() {
     let (fluid, t) = r410a().unwrap();
     let f = &fluid;
     let d = envelope(f, &t, Plane::Pt).unwrap();
+    let t_c = model_critical(f).unwrap()[0];
     let vertices: Vec<&Vertex> = d.dome.liquid.iter().chain(&d.dome.vapour).collect();
+    let away: Vec<&&Vertex> = vertices.iter().filter(|v| (v.x - t_c).abs() > 1e-3).collect();
     let within = |got: Option<f64>, want: f64| {
         let bound = ToleranceClass::Flash.bound_in(want, Window::Regular).unwrap_or(0.0);
         got.is_some_and(|got| (got - want).abs() <= bound)
     };
-    let (mut answered, mut misses) = (0, Vec::new());
-    for v in &vertices {
+    let mut misses = Vec::new();
+    for v in &away {
         let (q, temperature, p) = (v.inputs.x, v.x, v.y);
         let at_t = flashed(f, Input::new(Pair::QT, q, temperature, Basis::Mass), Prop::P);
         let at_p = flashed(f, Input::new(Pair::PQ, p, q, Basis::Mass), Prop::T);
-        if at_t.is_none() && at_p.is_none() {
-            continue;
-        }
-        answered += 1;
-        if !(within(at_t, p) || within(at_p, temperature)) {
+        if !(within(at_t, p) && within(at_p, temperature)) {
             misses.push(format!("Q {q} at {temperature} K, {p} Pa: QT {at_t:?}, PQ {at_p:?}"));
         }
     }
     assert!(misses.is_empty(), "{misses:#?}");
-    assert!(3 * answered >= 2 * vertices.len(), "{answered} of {}", vertices.len());
+    assert!(away.len() + 2 >= vertices.len(), "{} of {}", away.len(), vertices.len());
 }
 
 /// The critical point drawn, the model's, lies on the envelope within TM15's stated 0.02 K and 2 kPa of the trace's
