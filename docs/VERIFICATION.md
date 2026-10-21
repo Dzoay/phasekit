@@ -927,6 +927,12 @@ This section is the one definition of the bench harness, the C++ baseline and th
   built with `--features phasekit-core/libm` or `fast` (`phasekit_verify::backend::case`), and the lanes under `fast`
   are `simd_fast`, so one results file holds every build: the `simd` and `fast` builds' benches run first, then
   `cargo xtask bench --record`.
+- **Family workloads (M14, M18, phasekit only, no §7 target):** `benches/iapws.rs`, `if97_pt/{region 1,region 2}`,
+  IF97 water's PT flash plus h and c_p beside v8.0.0's 750 ns a point (map 07 R8); `benches/humidair.rs`,
+  `humidair_hapropssi/{H,W,Tdp,Twb}` at (T, p, φ) and `humidair_hapropssi/T` at (h, p, φ), compat's `HAPropsSI` over
+  humid air under `Corrected` at 1 atm on a SplitMix64 grid (T from 273.15 to 323.15 K, φ from 0.1 to 0.9), beside
+  v8.0.0's costs a call (map 07 §3.3: H 7.5 µs, W 6.8 µs, T_dp 132 µs, T_wb 152 µs, T(H, R) 203 µs). Each file's module
+  comment defines its grid.
 - **C++ baseline (M1.15):** CoolProp v8.0.0 built Release, no `-march`, like the wheels (kernel-performance §2.9), from
   a throwaway clone of `reference/CoolProp` in a scratch directory, because CoolProp's configure writes generated
   headers and data into its own source tree (`CMakeLists.txt:557-559`, `dev/generate_headers.py`). The harness
