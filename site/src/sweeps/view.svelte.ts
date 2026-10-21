@@ -6,9 +6,8 @@ import { untrack } from "svelte";
 import type { Engine } from "../engine/protocol";
 import { output, type Output } from "../lib/outputs";
 import { displayUnit, fromSI, toSI, type System, type Unit } from "../lib/units";
-import type { Batch } from "../sample/lines";
-import { LIMIT_KEYS, limits } from "../sample/ranges";
-import { LATENT, MAX_LINES, MODES, defaultValues, sampleSweep, type Sweep, type SweepMode } from "../sample/sweeps";
+import { LIMIT_KEYS, limits } from "../lib/ranges";
+import { LATENT, MAX_LINES, MODES, defaultValues, sampleSweep, type Batch, type Sweep, type SweepMode } from "./sample";
 
 const DEFAULT = { fluid: "n-Propane", mode: "isobars", y: "Cpmass" } as const;
 
