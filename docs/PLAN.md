@@ -690,28 +690,11 @@ at IF97's density (map 07 H3), IF97's p_ws in Henry's constant, IAPWS-95's ideal
 v8.0.0's h_s at 25 °C and 101.325 kPa is 76.5045 kJ/kg, Table 2's 76.503. M18 does not move `MILESTONE`: M15 stays
 the first open milestone.
 
-- **M18.1 The crate, its parts and the virials.** `crates/phasekit-humidair` on `phasekit-core` alone (T1f, `gates
-  deps`; a hardened root of `gates lints`), PR scope `humidair`; its dev-dependencies `phasekit-iapws` and Air's data.
-  `HumidAir::new(Parts { water, air, liquid, ice }, data_set)`, each part checked at construction with a typed error
-  naming it (no exact virials, not water's molar mass, no sublimation curve); options by value, no globals or
-  thread-locals (ROT-267, ROT-268). RP-1485's constants with their sources (ROT-264): R = 8.314472 J/(mol K), M_a =
-  28.966 g/mol (Gatley et al. 2008), M_w = 18.015268 g/mol, dry air's N₂, O₂ and Ar fractions. The seven virials with
-  two T-derivatives each: B_aa and C_aaa from the air part's exact virials, B_ww and C_www from the water part's
-  (HA6), B_aw (Harvey and Huang 2007), C_aaw and C_aww as v8.0.0 has them in both data sets, under a new `KeepOracle`
-  entry (ROT-271): RP-1485 takes both from Nelson and Sauer (2002), not in hand; G8-10's Table 4, Hyland and Wexler's
-  (1983), matches v8.0.0's C_aaw, and its C_aww differs by 7.3e-5 at 300 K (b₀ and b₁ in the sixth digit), measured
-  in the entry. Oracle kind `humidair_aux`: v8.0.0's `HAProps_Aux` virials from 200 to 450 K. *Red:* G11-15 Table 7
-  (C_aww within the entry's measured difference) and G8-10 Table 15 within their printed digits, against virials that
-  return `Unsupported`.
-- **M18.2 Saturation and the enhancement factor.** p_ws from the liquid part's saturation at T ≥ 273.16 K and the ice
-  part's sublimation below, one predicate for the side (ROT-263; v8.0.0 mixes `>` and `>=`); κ_T and the molar volume
-  of the condensed phase from its part's state at (T, p), a typed input (ROT-261), with no correlation inside IF97's
-  saturation band (ROT-270); Henry's constant of dry air from G7-04's Eq. (3) over its own vapour-pressure equation
-  (Eq. 4) under `Corrected`, and as v8.0.0 (IF97's p_ws, its 0.7812, 0.2095 and 0.0093 fractions) under `Parity`; f by
-  Newton on RP-1485's Eq. (3.25), with `NoConvergence` where it fails (ROT-265); ψ_w from W, φ and the dew or frost
-  point, and W_s. `humidair_aux` rows gain f, p_ws, β_H and v̄_ws (not κ_T: v8.0.0's passes density as pressure, map
-  07 H1). *Red:* G7-04 Table 6's 12 values within their printed digits; Tables 1 and 2's W_s (31 temperatures) under
-  `Corrected`; f and p_ws against the oracle under `Parity`.
+| Step | Landed |
+|---|---|
+| M18.1 | `crates/phasekit-humidair` on `phasekit-core` alone (T1f, `gates deps`; a hardened root of `gates lints`), PR scope `humidair`. `HumidAir::new(Parts { water, air, liquid, ice }, data_set)`: water and air need exact virials, the liquid and ice water's molar mass and a saturation state each (QT at 300 K and 250 K), each refusal the part's own (ROT-267); `Send + Sync`, parts by value, no thread-local copy (ROT-268). `constants`: R = 8.314472, M_a = 28.966 g/mol, M_w = 18.015268 g/mol, Lemmon's N₂, O₂ and Ar fractions, each with its source (ROT-264). `virials(t)`: the seven with two T-derivatives each, B_aa, C_aaa, B_ww and C_www the parts' exact virials (M14.1's seam), B_aw and C_aaw G8-10's forms, C_aww v8.0.0's digits under DIV-0067 (`KeepOracle`, 1.3e-4; ROT-271: RP-1485 cites Nelson and Sauer for it). IAPWS G11-15 Table 7 and G8-10 Table 15 double-entered, every value within its printed digits but C_aww's, within 1.06e-4 (C_aww) to 1.22e-4 (its second derivative) at 200 K; G8-10's C_aww rows are its own Eq. (11). Oracle kind `humidair_aux` (51 rows, `HAProps_Aux` at 200 to 600 K and three pressures): the cross virials within `Prop`, B_aa and B_ww within DIV-0011's bound, C_aaa and C_www DIV-0011's (its C_www at 200 K is −5.93e-4 m⁶/mol², G11-15's −2.64e-4) |
+| M18.2 | `saturation(t, p)`: water's saturation pressure over the condensed phase, the liquid part's at T ≥ 273.16 K and ice's below (one predicate, ROT-263); the condensed phase's κ_T and molar volume from its part's state at (T, p) (ROT-261), IF97's inside its saturation band (ROT-270); Henry's constant (`henry_constant`, IAPWS G7-04 Eq. (3) over Eq. (4)); f by the secant on Eq. (3.25) as v8.0.0 writes it, to 4 ulp and at least 1, `NoConvergence` after 50 (ROT-265). `Corrected` takes RP-1485's parts (IF97's p_ws, liquid volume and κ_T, G7-04's Henry with Lemmon's fractions, R = 8.314472), `Parity` v8.0.0's (IAPWS-95's p_ws and volume in f, IAPWS-95's κ_T at IF97's density, IF97's p_ws in Henry with 0.7812, 0.2095 and 0.0093, R = 8.314371 in f). `Humidity` (W, ψ_w, φ, the dew or frost point), `mole_fraction`, `relative_humidity`, `humidity_ratio`, `saturated_humidity_ratio`. G7-04 Table 6's N₂, O₂ and Ar rows and the authors' Tables 1 and 2 double-entered: the 12 Henry's constants and W_s at all 31 temperatures from −60 to 90 °C at 101.325 kPa within their printed digits under `Corrected`. `humidair_aux` under `Parity`: p_ws, v̄_ws and β_H within `Prop`; f within DIV-0011's bound, extended to it (up to 9.8e-8 at 200 K and 5 MPa, from v8.0.0's B and C at δ = 1e-12) |
+
 - **M18.3 The moist-air state.** At (T, p, ψ_w): the molar volume by Newton on the virial equation of state; h, s and
   u per kilogram of dry air and of humid air, and c_p, c_v and w from the virials' derivatives (HA6), with no finite
   differences (ROT-269); Z. Ideal-gas parts: dry air's from the air part's α⁰; water vapour's from IF97 region 2's γ⁰

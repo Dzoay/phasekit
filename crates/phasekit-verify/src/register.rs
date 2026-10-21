@@ -392,10 +392,13 @@ pub static DIVERGENCES: &[Divergence] = &[
         fix: Fix::Code("phasekit_core::helmholtz"),
         evidence: "map 12 §6.3, R8: Cvirial from delta = 1e-12 off -6.7e-5/-7.1e-5/+1.9e-5; exact Taylor path (E4); \
                    M5.6: B, dB/dT off up to 1.5e-8, 8.6e-8 (Methanol), the series confirmed from its JSON; M10.2: \
-                   2.14e-7 for Oxygen's B at 56.89 K, the props kind's lowest temperatures (2026-10-13)",
+                   2.14e-7 for Oxygen's B at 56.89 K, the props kind's lowest temperatures (2026-10-13); M18.1: \
+                   HAProps_Aux's Cwww at 200 K is -5.93e-4 m6/mol2, the exact series' and IAPWS G11-15's -2.64e-4; M18.2: its \
+                   enhancement factor f inherits B and C through Eq. (3.25), up to 9.8e-8 off at 200 K and 5 MPa, \
+                   growing with p",
         exempt: Some(Exempt {
-            kinds: &[Kind::Eos, Kind::Props],
-            columns: &["Cvirial", "dCvirial_dT"],
+            kinds: &[Kind::Eos, Kind::Props, Kind::HumidairAux],
+            columns: &["Cvirial", "dCvirial_dT", "Caaa", "Cwww", "f"],
             rows: Rows::All,
         }),
         tolerance: Some(Tolerance::Relative(3e-7)),
@@ -1637,6 +1640,27 @@ pub static DIVERGENCES: &[Divergence] = &[
         tolerance: None,
         table_tolerances: &[],
         proof: &[14],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0067",
+        fluids: &["Humid air"],
+        part: Part::Algorithm,
+        arbiter: Some(
+            "IAPWS G8-10 Table 4 (Hyland and Wexler 1983); RP-1485 cites Nelson and Sauer (2002), not in hand",
+        ),
+        policy: Policy::KeepOracle,
+        fix: Fix::None,
+        evidence: "map 07 H13 (ROT-271): v8.0.0's C_aww has b0 = -10.72887 and b1 = 3478.04 K \
+                   (HumidAirProp.cpp:702, 714), G8-10 Table 4 -10.728876 and 34.7802 at T/100 K; RP-1485 takes C_aaw \
+                   and C_aww from Nelson and Sauer (2002) (ASHRAE's LibHuAirProp guide §1.3), not Hyland and Wexler as \
+                   G8-10 does, so G8-10 does not arbitrate v8.0.0's digits. Kept in both data sets until a source \
+                   arrives (PLAN.md §6): against G8-10 Table 15 at 200, 300 and 400 K, C_aww is 1.06e-4, 7.3e-5 and \
+                   5.6e-5 off, its T-derivatives up to 1.22e-4 (M18.1)",
+        exempt: None,
+        tolerance: Some(Tolerance::Relative(1.3e-4)),
+        table_tolerances: &[],
+        proof: &[18],
         status: DivStatus::Open,
     },
 ];

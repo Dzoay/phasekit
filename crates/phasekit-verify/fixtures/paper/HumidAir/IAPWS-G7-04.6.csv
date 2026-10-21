@@ -1,0 +1,21 @@
+# fixture: paper/v1
+# source: iapws:G7-04/6
+# citation: report=IAPWS-G7-04 table=6 page=8 erratum-checked=2026-10-21 pdf_sha256=1e258e8d68e02ec7fb207f99c8e344ee41c13b28302165b262853096eead42b5
+# kind: Rows
+# constants: ln(kH/1 GPa) in H2O; the rows of dry air's gases only; italic = outside the fitted range (Table 2)
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: solute,T,value,italic
+# units: -,K,-,-
+# tol: label,in,paper,label
+N2,300,2.1716,no
+N2,400,2.3509,no
+N2,500,1.4842,no
+N2,600,0.1647,no
+O2,300,1.5024,no
+O2,400,1.8832,no
+O2,500,1.1630,no
+O2,600,-0.0276,no
+Ar,300,1.4061,no
+Ar,400,1.8079,no
+Ar,500,1.1536,no
+Ar,600,0.0423,yes
