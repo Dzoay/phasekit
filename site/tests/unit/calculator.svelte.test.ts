@@ -4,7 +4,7 @@
 import { flushSync } from "svelte";
 import { describe, expect, test, vi } from "vitest";
 import { createHandler } from "../../src/engine/handler";
-import type { Body, Engine, Request, StateValue, Values } from "../../src/engine/protocol";
+import type { Body, Engine, Refusal, Request, StateValue, Values } from "../../src/engine/protocol";
 import { Calculator, KEYS, invalid } from "../../src/lib/calculator.svelte";
 import { PRESETS } from "../../src/lib/fluids";
 import { loadPk } from "../pk";
@@ -18,7 +18,7 @@ async function realEngine(): Promise<Engine> {
       const response = handle({ ...body, id: ++id } as Request);
       return response.ok
         ? Promise.resolve(response.value as Values[B["op"]])
-        : Promise.reject(new Error(response.error));
+        : Promise.reject(Object.assign(new Error(response.error.message), { refusal: response.error }));
     },
   };
 }
@@ -213,16 +213,44 @@ describe("calculator", () => {
     stop();
   });
 
-  test("a refusal restates the inputs in SI and in the shown units", async () => {
+  test("a refusal is the package's, in words and in the shown units (PLAN.md M28.3)", async () => {
     const { calc, stop } = await setup("fluid=Water&a=P:1002500000&b=T:0");
-    expect([calc.result, calc.refusal]).toEqual([null, "temperature 0 K is not above absolute zero"]);
-    expect(calc.received("T", 0)).toBe("T = 0 K");
-    expect(calc.received("Q", 0.5)).toBe("q = 0.5 mol/mol");
-    expect(calc.received("Delta", 2)).toBe("δ = 2");
+    expect([calc.result, calc.refusal?.message]).toEqual([null, "temperature 0 K is not above absolute zero"]);
+    expect(calc.refusalText).toBe("temperature 0 K is not above absolute zero");
     calc.setSystem("engineering");
-    expect(calc.received("T", 0)).toBe("T = 0 K (−273.15 °C)");
-    expect(calc.received("P", 1.0025e9)).toBe("p = 1.0025 × 10⁹ Pa (10025 bar)");
-    expect(calc.received("nonsense", 1)).toBe("nonsense = 1");
+    expect(calc.refusalText).toBe("temperature −273.15 °C is not above absolute zero");
+    stop();
+  });
+
+  test("a refused output is the package's short form in the shown units; an unexplained one its message", async () => {
+    const { engine, of } = manualEngine();
+    const calc = new Calculator(engine, 60_000);
+    const stop = calc.connect({ params: new URLSearchParams("fluid=Water&a=P:101325&b=T:300") }, () => {});
+    flushSync();
+    const explained: Refusal = {
+      message: "temperature 0 K is not above absolute zero",
+      explained: {
+        si: { long: "in words", short: "T = 0 K ≤ 0 K" },
+        engineering: { long: "in words", short: "T = −273.15 °C ≤ −273.15 °C" },
+      },
+    };
+    const errors = KEYS.map((_, i) => (i === 0 ? explained : i === 1 ? { message: "bare", explained: {} } : null));
+    of("state")[0]?.resolve(
+      answer(
+        "gas",
+        KEYS.map(() => null),
+        errors,
+      ),
+    );
+    await vi.waitFor(() => expect(calc.result?.phase).toBe("gas"));
+    const [first, second, third] = KEYS as [string, string, string];
+    expect([first, second, third].map((k) => calc.values.errors.get(k))).toEqual([
+      "T = 0 K ≤ 0 K",
+      "bare",
+      "not defined at this state",
+    ]);
+    calc.setSystem("engineering");
+    expect(calc.values.errors.get(first)).toBe("T = −273.15 °C ≤ −273.15 °C");
     stop();
   });
 
@@ -292,7 +320,7 @@ function manualEngine() {
   return { engine, of };
 }
 
-const answer = (phase: string, values: (number | null)[] = [], errors: (string | null)[] = []): StateValue => ({
+const answer = (phase: string, values: (number | null)[] = [], errors: (Refusal | null)[] = []): StateValue => ({
   phase,
   values,
   errors,
@@ -384,7 +412,7 @@ describe("calculator, before and between answers", () => {
     const stop = calc.connect(route, () => {});
     flushSync();
     of("state")[0]?.reject("a bare string");
-    await vi.waitFor(() => expect(calc.refusal).toBe("a bare string"));
+    await vi.waitFor(() => expect(calc.refusal).toEqual({ message: "a bare string", explained: {} }));
     stop();
   });
 
@@ -440,10 +468,8 @@ describe("calculator, before and between answers", () => {
     stop();
   });
 
-  test("received names keys with subscripts plainly, and unknown keys bare", async () => {
+  test("a key no output names has no unit", async () => {
     const calc = new Calculator(await realEngine(), 0);
-    expect(calc.received("p_critical", 2.2e7)).toBe("pc = 2.2 × 10⁷ Pa");
-    expect(calc.received("nonsense", 1.5)).toBe("nonsense = 1.5");
     expect(calc.unitOf("nonsense")).toEqual({ label: "", scale: 1, offset: 0 });
   });
 });

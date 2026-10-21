@@ -1,7 +1,21 @@
 // The messages between the page and its engine worker. Every call carries an id; its answer echoes the id and the op,
-// with the value or the package's error message.
+// with the value or the package's refusal.
+import type { System } from "../lib/units";
 
 export type Build = "simd128" | "baseline";
+
+/** A refusal in both of the package's styles (PLAN.md M28.3): in words, and as the relation the value breaks. */
+export interface Explained {
+  long: string;
+  short: string;
+}
+
+/** A refusal: the package's message, in SI, and its explanation in each of the page's unit systems where the package
+ *  gave one (a refusal that is not the package's, or that names no number, has the message alone). */
+export interface Refusal {
+  message: string;
+  explained: Partial<Record<System, Explained>>;
+}
 
 export interface Info {
   build: Build;
@@ -13,8 +27,8 @@ export interface StateValue {
   phase: string;
   /** Output k's value, or null where the package refused it. */
   values: (number | null)[];
-  /** Output k's refusal in the package's words, or null. */
-  errors: (string | null)[];
+  /** Output k's refusal, or null. */
+  errors: (Refusal | null)[];
   /** A mixture's composition and, at a two-phase state, its phases (PLAN.md M21.5); null for a pure fluid. */
   mixture: StateMixture | null;
 }
@@ -218,7 +232,7 @@ export interface Values {
 
 export type Response =
   | { [K in Op]: { id: number; ok: true; op: K; value: Values[K] } }[Op]
-  | { id: number; ok: false; op: Op; error: string };
+  | { id: number; ok: false; op: Op; error: Refusal };
 
 /** A request without its id, which the engine's client assigns. */
 export type Body = { [K in Op]: Omit<Extract<Request, { op: K }>, "id"> }[Op];

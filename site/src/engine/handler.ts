@@ -3,6 +3,7 @@
 // replaces with a registry that also serves the pack's fluids (PLAN.md M21.4), and the fluid handles it has opened,
 // which outlive the registry they came from; each state, set of phases, diagram and set of regions is freed once it is
 // read, and so is each handle read from it.
+import { refusalOf } from "../lib/refusal";
 import type { Pk } from "./pk";
 import type {
   BatchValue,
@@ -11,6 +12,7 @@ import type {
   CornersValue,
   DiagramValue,
   MixturesValue,
+  Refusal,
   RegionsValue,
   RegistryValue,
   Request,
@@ -115,14 +117,14 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
     const s = f.flash(r.name1, r.value1, r.name2, r.value2);
     try {
       const values: (number | null)[] = [];
-      const errors: (string | null)[] = [];
+      const errors: (Refusal | null)[] = [];
       for (const key of r.outputs) {
         try {
           values.push(s.get(key));
           errors.push(null);
         } catch (e) {
           values.push(null);
-          errors.push(message(e));
+          errors.push(refusalOf(e));
         }
       }
       return { phase: s.phase, values, errors, mixture: mixtureAt(f, s) };
@@ -265,7 +267,7 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
           return { id, ok: true, op: "bench", value: bench(request) };
       }
     } catch (e) {
-      return { id, ok: false, op, error: message(e) };
+      return { id, ok: false, op, error: refusalOf(e) };
     }
   };
 }

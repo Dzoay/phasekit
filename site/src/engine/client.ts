@@ -4,11 +4,18 @@
 // is given every pack added so far before any request.
 import { FluidData } from "../lib/fluiddata.svelte";
 import type { PackIndex } from "../lib/packs";
-import type { Body, Build, Engine, Response, Values } from "./protocol";
+import type { Body, Build, Engine, Refusal, Response, Values } from "./protocol";
 import { simdSupported } from "./simd";
 
-/** A refusal: the package's message, or the worker's if it could not load. */
-export class EngineError extends Error {}
+/** A refusal: the package's, or the worker's if it could not load; its message is the refusal's, in SI. */
+export class EngineError extends Error {
+  readonly refusal: Refusal;
+
+  constructor(refusal: Refusal) {
+    super(refusal.message);
+    this.refusal = refusal;
+  }
+}
 
 class WorkerEngine implements Engine {
   #worker: Worker;
@@ -25,7 +32,7 @@ class WorkerEngine implements Engine {
     };
     this.#worker.onerror = (event) => {
       for (const [id, done] of this.#pending)
-        done({ id, ok: false, op: "info", error: event.message || "the engine stopped" });
+        done({ id, ok: false, op: "info", error: { message: event.message || "the engine stopped", explained: {} } });
       this.#pending.clear();
     };
   }

@@ -4,7 +4,8 @@
 // shown (`regions=1`, M21.9), asked once per fluid; and the readout, the package's state at the cursor. The component
 // binds to it; tests/unit/view.svelte.test.ts drives it.
 import { untrack } from "svelte";
-import type { Engine, StateValue } from "../engine/protocol";
+import type { Engine, Refusal, StateValue } from "../engine/protocol";
+import { refusalOf } from "../lib/refusal";
 import type { System } from "../lib/units";
 import { readDiagram, readRegions, type DiagramData, type EnvelopeInfo, type Regions } from "./data";
 import { GRID_LEVELS } from "./grid";
@@ -28,7 +29,8 @@ function gridLevel(raw: string | null): number {
 export interface Readout {
   inputs: [Key, number, Key, number];
   state: StateValue | null;
-  refusal: string | null;
+  /** Why the package refused the point, which the readout writes short, in the shown units (PLAN.md M28.3). */
+  refusal: Refusal | null;
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -172,7 +174,7 @@ export class DiagramView {
     const request = { op: "state" as const, fluid: this.fluid, name1, value1, name2, value2 };
     this.#engine.call({ ...request, outputs: [...READOUT_KEYS] }).then(
       (state) => done({ inputs, state, refusal: null }),
-      (e: unknown) => done({ inputs, state: null, refusal: message(e) }),
+      (e: unknown) => done({ inputs, state: null, refusal: refusalOf(e) }),
     );
   }
 
