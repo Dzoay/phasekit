@@ -10,7 +10,7 @@
   import { GROUPS } from "../lib/outputs";
   import { route, writeParams } from "../lib/route.svelte";
   import { SYSTEMS, fromSI, toSI } from "../lib/units";
-  import { LATENT, MODES, type SweepMode } from "../sample/sweeps";
+  import { LATENT, MODES, type SweepMode } from "../sweeps/sample";
   import { buildChart, nearest } from "../sweeps/chart";
   import { SweepView, heldUnit, unitOfOutput } from "../sweeps/view.svelte";
 

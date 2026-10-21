@@ -153,3 +153,5 @@ x86_64-unknown-linux-gnu phasekit-humidair::lib 6
 x86_64-unknown-linux-gnu phasekit-verify::humidair 10
 wasm32-wasip2 phasekit-humidair::lib 6
 wasm32-wasip2 phasekit-verify::humidair 9
+x86_64-unknown-linux-gnu phasekit-diagram::surface 7
+wasm32-wasip2 phasekit-diagram::surface 7

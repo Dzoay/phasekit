@@ -36,7 +36,8 @@
 //! Built without `simd`, each `simd` case is a `lanes` case (`<case>_lanes`): `ExecPolicy::Simd`'s two lanes at the
 //! target's baseline, the default build's lanes, whose measurement decides whether a kernel ships (user decision ML6).
 //! In the `libm` build, and so in the `simd` build, a case that is not `simd` is named `<case>_libm`
-//! (`backend::case`).
+//! (`backend::case`). In the `fast` builds every case carries `_fast`, the `simd` ones too (`<case>_simd_fast`, as
+//! `alphar.rs`'s `simd_fast`), so that no build's case shares another's id in one results file.
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
@@ -259,11 +260,11 @@ mod bench {
 
     /// The policies a batch bench runs under: `Reference` as `case` on this build's maths, and `Simd` as `<case>_simd`
     /// (`simd` for the batch itself) in the `simd` build, else as `<case>_lanes` (`lanes`), two lanes at the target's
-    /// baseline, on this build's maths (user decision ML6).
+    /// baseline, on this build's maths (user decision ML6); `_fast` on either in a `fast` build.
     fn policies(case_name: &str) -> Vec<(ExecPolicy, String)> {
         let lanes = if cfg!(feature = "simd") { "simd" } else { "lanes" };
         let simd = if case_name == "scalar" { lanes.to_string() } else { format!("{case_name}_{lanes}") };
-        let simd = if cfg!(feature = "simd") { simd } else { case(BACKEND, &simd) };
+        let simd = if cfg!(feature = "simd") && BACKEND != "fast" { simd } else { case(BACKEND, &simd) };
         vec![(ExecPolicy::Reference, case(BACKEND, case_name)), (ExecPolicy::Simd, simd)]
     }
 
