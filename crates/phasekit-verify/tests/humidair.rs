@@ -305,28 +305,29 @@ fn saturated_states_are_tables_1_and_2() {
     ] {
         let table = table_of(fixture);
         for row in 0..table.rows().len() {
-            let t = table.value(row, "t").unwrap() + 273.15;
-            let psi = air.saturation(t, 101_325.0).unwrap().psi_ws;
-            let state = air.moist_air(t, 101_325.0, psi).unwrap();
-            let cells = [
-                ("vs", state.v(Per::KgDryAir)),
-                ("hs", state.h(Per::KgDryAir) / 1e3),
-                ("ss", state.s(Per::KgDryAir) / 1e3),
-            ];
-            let w = table.value(row, "Ws").unwrap();
-            for (column, got) in cells {
-                let (want, half) = (table.value(row, column).unwrap(), half_unit(&table, row, column));
-                let bound = if widened { div_0071_bound(fixture.0, column, w, half) } else { half };
-                missed.extend(
-                    table
-                        .check_bound(row, column, got, bound)
-                        .err()
-                        .map(|_| format!("{column} at {t} K: {got} against {want}")),
-                );
-            }
+            missed.extend(saturated_row(&air, (fixture.0, &table), row, widened));
         }
     }
     assert_eq!(missed, Vec::<String>::new());
+}
+
+/// Row `row` of Table 1 or 2 at `path`: its v_s, h_s and s_s within their printed digits, or where `widened` (Table 2)
+/// within DIV-0071's bound; the misses, as text.
+fn saturated_row(air: &HumidAir, (path, table): (&str, &Fixture<'_>), row: usize, widened: bool) -> Vec<String> {
+    let t = table.value(row, "t").unwrap() + 273.15;
+    let psi = air.saturation(t, 101_325.0).unwrap().psi_ws;
+    let state = air.moist_air(t, 101_325.0, psi).unwrap();
+    let cells =
+        [("vs", state.v(Per::KgDryAir)), ("hs", state.h(Per::KgDryAir) / 1e3), ("ss", state.s(Per::KgDryAir) / 1e3)];
+    let w = table.value(row, "Ws").unwrap();
+    let mut missed = Vec::new();
+    for (column, got) in cells {
+        let (want, half) = (table.value(row, column).unwrap(), half_unit(table, row, column));
+        let bound = if widened { div_0071_bound(path, column, w, half) } else { half };
+        let check = table.check_bound(row, column, got, bound);
+        missed.extend(check.err().map(|_| format!("{column} at {t} K: {got} against {want}")));
+    }
+    missed
 }
 
 /// The authors' Tables 5-14 with their temperature (°C) and pressure (Pa).
@@ -457,15 +458,17 @@ fn every_input_pair_round_trips() {
         let air = humid_air(data);
         for (t, p, w) in round_trip_states(&air) {
             let state = air.moist_air(t, p, air.mole_fraction(t, p, Humidity::Ratio(w)).unwrap()).unwrap();
-            let given = as_inputs(&air, &state);
-            for (i, &a) in given.iter().enumerate() {
-                for &b in &given[i + 1..] {
-                    checked += round_trip(&air, &state, a, b);
-                }
-            }
+            checked += round_trips_from(&air, &state);
         }
     }
     assert_eq!(checked, 1996);
+}
+
+/// Every pair of `state`'s inputs, each through [`round_trip`]: how many `HumidAir::state` takes.
+fn round_trips_from(air: &HumidAir, state: &MoistAir) -> usize {
+    let given = as_inputs(air, state);
+    let pairs = given.iter().enumerate().flat_map(|(i, &a)| given.iter().skip(i + 1).map(move |&b| (a, b)));
+    pairs.map(|(a, b)| round_trip(air, state, a, b)).sum()
 }
 
 /// The grid's unsaturated states (T, p, W) that the virial equation has (at 5 MPa its branch ends before some).

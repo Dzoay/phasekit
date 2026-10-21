@@ -1748,7 +1748,8 @@ pub static DIVERGENCES: &[Divergence] = &[
         ],
         proof: &[18],
         status: DivStatus::Open,
-    },    Divergence {
+    },
+    Divergence {
         id: "DIV-0072",
         fluids: &["Humid air"],
         part: Part::Algorithm,
