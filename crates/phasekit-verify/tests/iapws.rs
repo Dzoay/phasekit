@@ -6,6 +6,7 @@
 use std::num::NonZeroUsize;
 
 use phasekit_core::batch::{BatchRequest, ExecPolicy};
+use phasekit_core::math;
 use phasekit_core::{Basis, Error, Fluid, Gauge, Input, Pair, Phase, Prop, State, Var};
 use phasekit_iapws::if97;
 use phasekit_verify::conformance::{
@@ -275,7 +276,7 @@ fn if97_water_batches_agree_under_every_policy() {
     let water = water();
     let outputs = [Prop::P, Prop::Hmass, Prop::Cpmass, Prop::Q];
     let t: Vec<f64> = (0..37).map(|i| 270.0 + 10.0 * f64::from(i)).collect();
-    let p: Vec<f64> = (0..37).map(|i| 1e3 * 1.4_f64.powi(i)).collect();
+    let p: Vec<f64> = (0..37).map(|i| 1e3 * math::powi(1.4, i)).collect();
     let q: Vec<f64> = (0..37).map(|i| f64::from(i % 5) / 4.0).collect();
     let requests = [
         BatchRequest::new(Pair::PT, Basis::Mass, &p, &t, &outputs),

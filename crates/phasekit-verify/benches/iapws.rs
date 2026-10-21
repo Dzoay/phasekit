@@ -6,7 +6,7 @@
 #[cfg(not(target_family = "wasm"))]
 mod bench {
     use criterion::{BenchmarkId, Criterion, criterion_group};
-    use phasekit_core::math::BACKEND;
+    use phasekit_core::math::{self, BACKEND};
     use phasekit_core::{Basis, Input, Pressure, Temperature};
     use phasekit_iapws::if97;
     use phasekit_verify::SplitMix64;
@@ -20,7 +20,7 @@ mod bench {
         let mut rng = SplitMix64::new(1);
         let mut inputs = Vec::with_capacity(STATES);
         while inputs.len() < STATES {
-            let (t, p) = (rng.uniform(273.15, 623.15), 10f64.powf(rng.uniform(3.0, 8.0)));
+            let (t, p) = (rng.uniform(273.15, 623.15), math::powf(10.0, rng.uniform(3.0, 8.0)));
             let Ok(p_s) = if97::saturation_pressure(t) else { continue };
             if (p > p_s) == liquid
                 && let (Ok(p), Ok(t)) = (Pressure::new(p), Temperature::new(t))

@@ -2,7 +2,7 @@
 //! τ = T*/T (IAPWS R7-97(2012) Eq. (7), Table 2), and its derivatives to order 2 (Table 4) from one pass over the 34
 //! terms (ROT-243).
 
-use phasekit_core::GibbsDerivs;
+use phasekit_core::{GibbsDerivs, math};
 
 use super::{MOLAR_MASS, R};
 
@@ -54,7 +54,7 @@ fn gamma(pi: f64, tau: f64) -> [f64; 6] {
     let (x, y) = (7.1 - pi, tau - 1.222);
     let mut out = [0.0; 6];
     for &(i, j, n) in &TERMS {
-        let term = n * x.powi(i) * y.powi(j);
+        let term = n * math::powi(x, i) * math::powi(y, j);
         let (fi, fj) = (f64::from(i), f64::from(j));
         let parts = [
             term,

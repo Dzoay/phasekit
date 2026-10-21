@@ -2,7 +2,7 @@
 //! γ^r = Σ nᵢ π^Iᵢ (τ − 0.5)^Jᵢ (Eq. (17), Table 11), π = p/p* and τ = T*/T, and their derivatives to order 2
 //! (Tables 13 and 14) from one pass over each part's terms (ROT-243).
 
-use phasekit_core::GibbsDerivs;
+use phasekit_core::{GibbsDerivs, math};
 
 use super::{MOLAR_MASS, R};
 
@@ -74,16 +74,16 @@ const RESIDUAL: [(i32, i32, f64); 43] = [
 /// γ and γ_π, γ_ππ, γ_τ, γ_ττ, γ_πτ at (π, τ): γ⁰'s (Table 13), whose π-part is ln π alone, plus γ^r's (Table 14),
 /// each residual term n π^I y^J (y = τ − 0.5 > 0 in the region) entering them divided by π and y as its exponents ask.
 fn gamma(pi: f64, tau: f64) -> [f64; 6] {
-    let mut out = [pi.ln(), 1.0 / pi, -1.0 / (pi * pi), 0.0, 0.0, 0.0];
+    let mut out = [math::ln(pi), 1.0 / pi, -1.0 / (pi * pi), 0.0, 0.0, 0.0];
     for &(j, n) in &IDEAL {
-        let (term, fj) = (n * tau.powi(j), f64::from(j));
+        let (term, fj) = (n * math::powi(tau, j), f64::from(j));
         out[0] += term;
         out[3] += fj * term / tau;
         out[4] += fj * (fj - 1.0) * term / (tau * tau);
     }
     let y = tau - 0.5;
     for &(i, j, n) in &RESIDUAL {
-        let term = n * pi.powi(i) * y.powi(j);
+        let term = n * math::powi(pi, i) * math::powi(y, j);
         let (fi, fj) = (f64::from(i), f64::from(j));
         let parts = [
             term,
