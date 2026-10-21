@@ -85,13 +85,20 @@ fn errstring_is_readable_from_another_thread() {
     assert_eq!(errstring(), "", "a success leaves the errstring alone");
 }
 
-/// PLAN.md M10.6 (D11). `HAPropsSI` is a stub until the humid-air milestone: `_HUGE` and the documented message.
+/// PLAN.md M18.7 (D11). `HAPropsSI` is compat's `ha_props_si_in` over the embedded registry under `Corrected`, bit for
+/// bit, leaving the `errstring` alone; a failure is `_HUGE` with the `errstring` the typed error's message.
 #[test]
-fn hapropssi_is_a_documented_stub() {
+fn hapropssi_is_compats() {
     let _serial = serial();
+    let registry = Registry::embedded().unwrap_or_else(|_| unreachable!());
+    let air = phasekit_compat::humid_air_in(registry, DataSet::Corrected).unwrap_or_else(|_| unreachable!());
+    let want = phasekit_compat::ha_props_si_in(&air, "W", "T", 300.0, "P", 101_325.0, "R", 0.5).unwrap_or(f64::NAN);
     let (w, t, p, r) = (c("W"), c("T"), c("P"), c("R"));
-    let value = HAPropsSI(w.as_ptr(), t.as_ptr(), 300.0, p.as_ptr(), 101_325.0, r.as_ptr(), 0.5);
-    assert_eq!((value, errstring()), (f64::INFINITY, HAPROPSSI_MESSAGE.to_string()));
+    // SAFETY: NUL-terminated strings.
+    let ha = |rh: f64| unsafe { HAPropsSI(w.as_ptr(), t.as_ptr(), 300.0, p.as_ptr(), 101_325.0, r.as_ptr(), rh) };
+    assert_eq!((ha(0.5).to_bits(), errstring()), (want.to_bits(), String::new()));
+    assert_eq!(ha(1.5), f64::INFINITY);
+    assert_eq!(errstring(), "invalid relative humidity: 1.5");
 }
 
 /// PLAN.md M10.6 (map 14: PropsSI fills +inf). A failed `PropsSI` or `Props1SI` is `_HUGE` with the `errstring` set; a

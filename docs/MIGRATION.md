@@ -91,7 +91,7 @@ Where phasekit differs from v8.0.0 on mixtures:
 ## Humid air
 
 `phasekit_compat::ha_props_si(output, name1, value1, name2, value2, name3, value3)` is v8.0.0's `HAPropsSI` over the
-embedded registry under `Corrected`; `ha_props_si_in` takes any `HumidAir` (`humid_air_in` builds one from a registry
+embedded registry under `Corrected`, as the shim's `HAPropsSI` and the `pk_*` ABI's `pk_ha_props_si` are; `ha_props_si_in` takes any `HumidAir` (`humid_air_in` builds one from a registry
 and a data set), and `ha_props_si_vec_in` takes vectors with a `FillPolicy`. Its names and aliases are v8.0.0's, spelled
 exactly. Where it differs:
 
@@ -137,8 +137,9 @@ The default `pk_*` library exports none of these names, so it can share a proces
 
 ### Different
 
-- **`HAPropsSI`** is a stub until humid air is added: it returns +inf and sets the `errstring` to "HAPropsSI is not
-  available in this version of phasekit". It exists so that hosts that bind every symbol at load time still load.
+- **`HAPropsSI`** is compat's (see [Humid air](#humid-air)) over the embedded registry under `Corrected`: v8.0.0's
+  names, every output from the state, +inf on failure with the `errstring` the typed error's message. The `pk_*` ABI
+  has it as `pk_ha_props_si` on a `pk_humid_air` handle (`pk_humid_air_new` over a registry, under its data set).
 - **Strings** follow phasekit's strict grammar: one fluid, `HEOS::` optional, or a mixture name ([Mixtures](#mixtures));
   no other backends. Messages are phasekit's, not CoolProp's.
 - **`get_global_param_string`** has `version` (phasekit's), `errstring`, `warnstring` (always empty), `FluidsList` (also

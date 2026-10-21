@@ -468,6 +468,7 @@ dependencies = [
  "cc",
  "phasekit-compat",
  "phasekit-core",
+ "phasekit-humidair",
  "phasekit-mix",
  "proptest",
 ]

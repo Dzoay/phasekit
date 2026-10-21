@@ -30,9 +30,13 @@ use std::ffi::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use phasekit_compat::{CompatError, batch_si, fluid_in, parse_reference_state, phase_si_in, props_si_in, props1_si_in};
+use phasekit_compat::{
+    CompatError, batch_si, fluid_in, ha_props_si_in, humid_air_in, parse_reference_state, phase_si_in, props_si_in,
+    props1_si_in,
+};
 use phasekit_core::batch::Status;
 use phasekit_core::{DataSet, Error, Fluid, Registry};
+use phasekit_humidair::HumidAir;
 
 mod fp;
 mod handles;
@@ -42,7 +46,7 @@ pub mod shim;
 #[cfg(test)]
 mod tests;
 
-use handles::{fluids, lock, registries};
+use handles::{Held, fluids, humid_airs, lock, registries};
 
 /// A registry: the embedded fluids under one data set, perhaps re-gauged ([`pk_registry_with_reference`]).
 #[allow(non_camel_case_types, reason = "a C type name")]
@@ -51,6 +55,10 @@ pub type pk_registry = u64;
 /// One fluid of a registry ([`pk_fluid_new`]).
 #[allow(non_camel_case_types, reason = "a C type name")]
 pub type pk_fluid = u64;
+
+/// Humid air over a registry's water and air ([`pk_humid_air_new`]; PLAN.md M18.7).
+#[allow(non_camel_case_types, reason = "a C type name")]
+pub type pk_humid_air = u64;
 
 /// Success.
 pub const PK_OK: i32 = 0;
@@ -270,9 +278,19 @@ unsafe fn put_text(s: &str, (buf, len): (*mut c_char, usize), needed: *mut usize
     Ok(())
 }
 
-/// The registry a handle names.
-fn registry(h: pk_registry) -> Result<Arc<Registry>, Fail> {
+/// The registry a handle names, with its data set.
+fn held(h: pk_registry) -> Result<Arc<Held>, Fail> {
     lock(registries()).get(h).ok_or_else(|| Fail::new(PK_STALE_HANDLE, format!("registry handle {h:#x} is stale")))
+}
+
+/// The registry a handle names.
+fn registry(h: pk_registry) -> Result<Registry, Fail> {
+    Ok(held(h)?.registry.clone())
+}
+
+/// The humid air a handle names.
+fn humid_air(h: pk_humid_air) -> Result<Arc<HumidAir>, Fail> {
+    lock(humid_airs()).get(h).ok_or_else(|| Fail::new(PK_STALE_HANDLE, format!("humid-air handle {h:#x} is stale")))
 }
 
 /// The fluid a handle names.
@@ -289,9 +307,10 @@ fn named(embedded: &Registry, set: DataSet) -> Registry {
     named
 }
 
-/// A new handle for `registry`.
-fn new_registry(registry: Registry) -> Result<pk_registry, Fail> {
-    lock(registries()).insert(registry).ok_or_else(|| Fail::new(PK_OTHER, "every registry handle is in use"))
+/// A new handle for `registry`, made under `data_set`.
+fn new_registry(registry: Registry, data_set: DataSet) -> Result<pk_registry, Fail> {
+    let held = Held { registry, data_set };
+    lock(registries()).insert(held).ok_or_else(|| Fail::new(PK_OTHER, "every registry handle is in use"))
 }
 
 /// Copies this thread's last error, the message of its last `pk_*` call (empty if that succeeded), with a NUL into the
@@ -327,7 +346,7 @@ pub unsafe extern "C" fn pk_registry_new(data_set: i32, out: *mut pk_registry) -
             PK_DATASET_PARITY => DataSet::Parity,
             other => return Err(Fail::new(PK_INVALID_INPUT, format!("data set {other} is not PK_DATASET_*"))),
         };
-        let handle = new_registry(named(&Registry::from_embedded(set)?, set))?;
+        let handle = new_registry(named(&Registry::from_embedded(set)?, set), set)?;
         // SAFETY: the caller's contract.
         unsafe { put(out, handle, "out") }
     })
@@ -368,8 +387,9 @@ pub unsafe extern "C" fn pk_registry_with_reference(
             unsafe { (text(fluid, fluid_len, "fluid")?, text(reference, reference_len, "reference")?) };
         let state = parse_reference_state(reference)
             .ok_or_else(|| Fail::new(PK_UNKNOWN_KEY, format!("`{reference}` is not IIR, ASHRAE, NBP, DEF or RESET")))?;
-        let name = fluid_in(&*self::registry(registry)?, name)?.info().name().to_string();
-        let handle = new_registry(self::registry(registry)?.with_reference(&name, state)?)?;
+        let held = self::held(registry)?;
+        let name = fluid_in(&held.registry, name)?.info().name().to_string();
+        let handle = new_registry(held.registry.with_reference(&name, state)?, held.data_set)?;
         // SAFETY: the caller's contract.
         unsafe { put(out, handle, "out") }
     })
@@ -392,7 +412,7 @@ pub unsafe extern "C" fn pk_fluid_new(
     guard(|| {
         // SAFETY: the caller's contract.
         let name = unsafe { text(name, name_len, "name")? };
-        let found = fluid_in(&*self::registry(registry)?, name)?;
+        let found = fluid_in(&self::registry(registry)?, name)?;
         let handle = lock(fluids()).insert(found).ok_or_else(|| Fail::new(PK_OTHER, "every fluid handle is in use"))?;
         // SAFETY: the caller's contract.
         unsafe { put(out, handle, "out") }
@@ -459,7 +479,7 @@ pub unsafe extern "C" fn pk_props_si(
                 text(fluid, fluid_len, "fluid")?,
             )
         };
-        let value = props_si_in(&*self::registry(registry)?, output, name1, value1, name2, value2, fluid)?;
+        let value = props_si_in(&self::registry(registry)?, output, name1, value1, name2, value2, fluid)?;
         // SAFETY: the caller's contract.
         unsafe { put(out, value, "out") }
     })
@@ -484,7 +504,7 @@ pub unsafe extern "C" fn pk_props1_si(
     guard(|| {
         // SAFETY: the caller's contract.
         let (output, fluid) = unsafe { (text(output, output_len, "output")?, text(fluid, fluid_len, "fluid")?) };
-        let value = props1_si_in(&*self::registry(registry)?, output, fluid)?;
+        let value = props1_si_in(&self::registry(registry)?, output, fluid)?;
         // SAFETY: the caller's contract.
         unsafe { put(out, value, "out") }
     })
@@ -518,7 +538,7 @@ pub unsafe extern "C" fn pk_phase_si(
         let (name1, name2, fluid) = unsafe {
             (text(name1, name1_len, "name1")?, text(name2, name2_len, "name2")?, text(fluid, fluid_len, "fluid")?)
         };
-        let phase = phase_si_in(&*self::registry(registry)?, name1, value1, name2, value2, fluid)?;
+        let phase = phase_si_in(&self::registry(registry)?, name1, value1, name2, value2, fluid)?;
         // SAFETY: the caller's contract.
         unsafe { put_text(phase, (buf, len), needed) }
     })
@@ -575,5 +595,80 @@ pub unsafe extern "C" fn pk_batch(
             *code = status_code(cell);
         }
         Ok(())
+    })
+}
+
+/// New humid air, into `*out`, over `registry`'s Water and Air and phasekit-iapws's IF97 water and ice, under the data
+/// set the registry was made with (PLAN.md M18.7; RP-1485's humid air). Free it with [`pk_humid_air_free`].
+///
+/// # Safety
+/// `out` is null or points to writable memory for one `pk_humid_air`.
+#[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pk_humid_air_new(registry: pk_registry, out: *mut pk_humid_air) -> i32 {
+    guard(|| {
+        let held = self::held(registry)?;
+        let air = humid_air_in(&held.registry, held.data_set)?;
+        let handle =
+            lock(humid_airs()).insert(air).ok_or_else(|| Fail::new(PK_OTHER, "every humid-air handle is in use"))?;
+        // SAFETY: the caller's contract.
+        unsafe { put(out, handle, "out") }
+    })
+}
+
+/// Frees humid air; a call already using it finishes.
+#[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn pk_humid_air_free(humid_air: pk_humid_air) -> i32 {
+    guard(|| {
+        let freed = lock(humid_airs()).remove(humid_air);
+        freed.map(drop).ok_or_else(|| Fail::new(PK_STALE_HANDLE, format!("humid-air handle {humid_air:#x} is stale")))
+    })
+}
+
+/// CoolProp's `HAPropsSI(output, name1, value1, name2, value2, name3, value3)` over `humid_air`, into `*out`: the
+/// pressure and two more inputs, v8.0.0's names and aliases, every output from the state (compat's `ha_props_si_in`).
+///
+/// # Safety
+/// Each string pointer points to its length's readable bytes; `out` is null or points to writable memory for one
+/// `double`.
+#[allow(
+    unsafe_code,
+    clippy::too_many_arguments,
+    reason = "HAPropsSI's seven arguments, with the lengths and the output"
+)]
+#[cfg(not(feature = "coolproplib-shim"))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pk_ha_props_si(
+    humid_air: pk_humid_air,
+    output: *const c_char,
+    output_len: usize,
+    name1: *const c_char,
+    name1_len: usize,
+    value1: f64,
+    name2: *const c_char,
+    name2_len: usize,
+    value2: f64,
+    name3: *const c_char,
+    name3_len: usize,
+    value3: f64,
+    out: *mut f64,
+) -> i32 {
+    guard(|| {
+        // SAFETY: the caller's contract.
+        let (output, name1, name2, name3) = unsafe {
+            (
+                text(output, output_len, "output")?,
+                text(name1, name1_len, "name1")?,
+                text(name2, name2_len, "name2")?,
+                text(name3, name3_len, "name3")?,
+            )
+        };
+        let air = self::humid_air(humid_air)?;
+        let value = ha_props_si_in(&air, output, name1, value1, name2, value2, name3, value3)?;
+        // SAFETY: the caller's contract.
+        unsafe { put(out, value, "out") }
     })
 }
