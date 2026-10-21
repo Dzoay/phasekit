@@ -1084,31 +1084,10 @@ The proposed wording, which M28.1's PR shows in full for the user's review (EM2)
 In °C a temperature's zero limit is written in °C (`T = −273.15 °C ≤ −273.15 °C`), so the long form says "absolute
 zero", not "positive".
 
-- **M28.1 Quantities, units and the two styles in core.**
-  - A `Dimension`, closed and `#[non_exhaustive]`, which a caller's units are keyed by: the site's kinds
-    (`site/src/lib/units.ts`, a specific one by its `Basis`) and what humid air refuses, since the core is frozen
-    after M28.1 (EM5): a fraction in [0, 1] (Q, a mole fraction, ψ_w, φ), a mass ratio (the humidity ratio W, kg/kg),
-    a molar mass and a specific volume; humid air's h, s and v per kilogram of dry air are mass-specific, the dry air
-    in the quantity's name. A `Quantity`, open: a name, a symbol and a dimension; core's as constants (T, p, ρ, h, s,
-    u, Q, the mole fractions), and a family crate defines its own.
-  - `InvalidInput { quantity: Quantity, value }` for physical values; structural arguments (counts, names, planes,
-    grids, a mixture's components) a variant of their own naming what was refused, with no unit (EM3). Every place that
-    builds one, in core, `phasekit-mix`, `phasekit-diagram`, `phasekit-iapws`, `phasekit-humidair`, `phasekit-verify`,
-    compat and capi, takes a quantity or the new variant. `Ambiguous`'s roots carry their quantity. `Phase` gets the
-    names a message writes; `Prop`, `Pair` and `Strategy` are written by their variant names (`Cpmass`, `PT`,
-    `DensityNewton`), a partial derivative as `∂of/∂wrt|at`, in place of their `Debug` forms.
-  - `Units`, a trait from a `Dimension` to a unit (a label, a scale and an offset, SI = value · scale + offset), `Si`
-    its SI implementation; `Style::{Long, Short}`; `Error::display(&units, style)`. `{}` is `display(&Si, Long)` and
-    `{:#}` `display(&Si, Short)`. Six significant figures, trailing zeros dropped (EM4), as a decimal from 1e-4 to
-    below 1e6 and otherwise as `2e9` *(decision)*; the fields keep the exact value.
-  - ARCHITECTURE.md's D12 says how an error is written. `ci/core-frozen.txt` names no tag, as between family
-    milestones, since this step changes the core; `m18-start` is tagged at the merge, with the user's approval, and
-    M28.2 names it there, as M13.2 named `m13-start`.
-  - *Red:* `every_message_in_both_styles` (each variant's long and short form in SI, pinned);
-    `messages_take_the_callers_units` (a test `Units` of °C, bar and kJ/kg: `T = −273.15 °C ≤ −273.15 °C`,
-    `p = 20000 bar > p_max = 10000 bar`);
-    `six_significant_figures` (647.0959999999873 K is written 647.096 K); `the_alternate_flag_is_the_short_form`;
-    `structural_arguments_carry_no_unit`; compat's and the C shim's message checks updated to the new text.
+| Step | Landed |
+|---|---|
+| M28.1 | `phasekit_core::{Quantity, Dimension, Unit, Units, Si, Style, Message}` (`quantity.rs`, `error/message.rs`): a `Quantity` is a name, a symbol and a `Dimension`, held by an error as `&'static Quantity` so that `Error` keeps its 48 bytes; core's `TEMPERATURE`, `PRESSURE`, `QUALITY`, `MOLE_FRACTION`, `MOLAR_MASS` and, by basis, `density`, `enthalpy`, `entropy` and `internal_energy`, `Var::quantity(basis)`; the dimensions humid air refuses (a fraction in [0, 1], a mass ratio, a molar mass, a specific volume). `Error::InvalidInput { quantity, value }` and `Error::InvalidArgument { argument, value: Option<usize> }` for counts, indices, planes and mixtures (EM3), `Status::InvalidInput` for both; `Roots::new(quantity, roots)`, NaN the unused slots. `Error::display(&units, style)`: each number in the caller's unit of its dimension, six significant figures (EM4), a decimal from 1e-4 to below 1e6 and otherwise `2e9`, U+2212 for minus, NaN and ∞ by name; `{}` the long form in SI, `{:#}` the short (EM2, EM6). An `InvalidInput` names the first rule its value breaks (not a number, not finite, not above absolute zero, not positive, outside [0, 1]), else "out of range", so that a message never names a rule the value keeps. An unsupported pair's long form stays `input pair X is not supported by this model`, which the site's `liquidLiquid()` reads (MX4). `phasekit_mix::quantities` and `phasekit_humidair::quantities` hold those crates' own; every crate that builds an error converted; D12 says how an error is written; `ci/core-frozen.txt` names no tag; the site's two pins of `invalid temperature: 0` pin `temperature 0 K is not above absolute zero`. *Red:* `every_message_in_both_styles` (21 errors, both forms, pinned), `messages_take_the_callers_units` (°C, bar, kJ/kg: `T = −273.15 °C ≤ −273.15 °C`, `p = 20000 bar > p_max = 10000 bar`), `the_alternate_flag_is_the_short_form`, `structural_arguments_carry_no_unit`, `derivatives_and_constants_by_name`, `roots_carry_their_quantity`; `six_significant_figures` and its neighbours in `quantity.rs` |
+
 - **M28.2 The browser package's refusals.** `ci/core-frozen.txt` names `m18-start`. A refused call throws an `Error`
   whose message is the long form in SI and which carries the variant's code, its quantity's name and dimension, and its
   numbers; an output refused inside an evaluation carries the same. `explain(refusal, units, style)` writes either style

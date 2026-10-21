@@ -5,6 +5,7 @@
 use phasekit_core::{Constant, DataSet, Error, Fluid, Input, Prop, Quality, Temperature, Virials as PureVirials};
 
 use crate::constants::M_WATER;
+use crate::quantities::PART_MOLAR_MASS;
 use crate::saturation::{self, Saturation};
 use crate::virials::{self, Coefficient, Virials};
 
@@ -29,9 +30,6 @@ pub struct HumidAir {
     data_set: DataSet,
 }
 
-/// Each part's role in a refusal: which one a construction error names.
-const MOLAR_MASS: &str = "molar mass of the liquid or ice part";
-
 impl HumidAir {
     /// Humid air over `parts`, each checked: water and air need exact virials (a Helmholtz model with a closed-form
     /// `zero_density`); the liquid and ice, water's molar mass, and a saturation state each, the liquid's at 300 K
@@ -43,7 +41,7 @@ impl HumidAir {
         for (part, t) in [(&parts.liquid, 300.0), (&parts.ice, 250.0)] {
             let m = part.model().info().molar_mass();
             if m != M_WATER {
-                return Err(Error::InvalidInput { quantity: MOLAR_MASS, value: m });
+                return Err(Error::InvalidInput { quantity: PART_MOLAR_MASS, value: m });
             }
             part.state(Input::qt(Quality::new(0.0)?, Temperature::new(t)?))?;
         }

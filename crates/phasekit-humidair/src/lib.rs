@@ -17,6 +17,7 @@ pub mod constants;
 mod henry;
 mod humid_air;
 mod humidity;
+pub mod quantities;
 mod saturation;
 mod virials;
 

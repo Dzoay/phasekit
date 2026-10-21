@@ -40,9 +40,15 @@ fn the_humidity_measures_name_one_state() {
 fn impossible_humidities_are_refused() {
     let air = humid_air(DataSet::Corrected);
     let refused = |h: Humidity| air.mole_fraction(300.0, 101_325.0, h).unwrap_err();
-    assert!(matches!(refused(Humidity::Ratio(-1e-3)), Error::InvalidInput { quantity: "humidity ratio", .. }));
+    assert!(matches!(
+        refused(Humidity::Ratio(-1e-3)),
+        Error::InvalidInput { quantity: crate::quantities::HUMIDITY_RATIO, .. }
+    ));
     assert!(matches!(refused(Humidity::MoleFraction(1.0)), Error::InvalidInput { .. }));
-    assert!(matches!(refused(Humidity::Relative(1.01)), Error::InvalidInput { quantity: "relative humidity", .. }));
+    assert!(matches!(
+        refused(Humidity::Relative(1.01)),
+        Error::InvalidInput { quantity: crate::quantities::RELATIVE_HUMIDITY, .. }
+    ));
     assert!(matches!(refused(Humidity::Relative(-0.1)), Error::InvalidInput { .. }));
     let warm = DomainError::AboveMaxTemperature { t: 301.0, t_max: 300.0 };
     assert_eq!(refused(Humidity::DewPoint(301.0)), warm.into());
