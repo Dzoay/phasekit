@@ -949,7 +949,8 @@ fn every_name_and_alias_is_its_key() {
 
 /// `HAPropsSI`'s refusals (PLAN.md M18.6): no pressure, an unknown output or input, two inputs that fix no state, and
 /// inputs and states out of v8.0.0's range (T from 130 K to 350 °C, W to 10, ψ_w to 0.94145, φ to 1); an output equal
-/// to an input is computed, not echoed (DIV-0074), so φ = 5 is refused where v8.0.0 returns T as given.
+/// to an input is computed, not echoed (DIV-0074), so φ = 5 is refused where v8.0.0 returns T as given. T's range takes
+/// its ends, and the pressure may be any of the three inputs.
 #[test]
 fn ha_props_si_refuses() {
     use phasekit_compat::{CompatError, ha_props_si_in};
@@ -981,10 +982,18 @@ fn ha_props_si_refuses() {
         );
     }
     assert_eq!(call("T", t, p, r), Ok(300.0));
+    let (dry, h) = (("W", 0.0), call("H", t, p, r).map(f64::to_bits));
+    assert!(call("H", ("T", 130.0), p, dry).is_ok() && call("H", ("T", 623.15), p, dry).is_ok(), "T's range ends");
+    assert_eq!(
+        (call("H", p, t, r).map(f64::to_bits), call("H", t, r, p).map(f64::to_bits)),
+        (h.clone(), h),
+        "P's place"
+    );
 }
 
 /// `HAPropsSI` over vectors (PLAN.md M18.6): a length-1 operand broadcasts, each point is the scalar call's bit for bit,
-/// a failed point follows the fill policy, any other length mismatch is `Shape`; and the embedded registry's
+/// a failed point follows the fill policy but where every point failed (the first failure), any other length mismatch
+/// is `Shape`; and the embedded registry's
 /// `ha_props_si` is `Corrected`'s.
 #[test]
 fn ha_props_si_over_vectors_and_the_embedded_registry() {
@@ -1000,6 +1009,11 @@ fn ha_props_si_over_vectors_and_the_embedded_registry() {
     );
     assert!(call(FillPolicy::Nan).unwrap()[1].is_nan());
     assert_eq!(call(FillPolicy::Error), Err(one(100.0).unwrap_err()));
+    let none = |fill| ha_props_si_vec_in(&air, "H", ("T", &[100.0, 120.0]), ("P", &[101_325.0]), ("R", &[0.5]), fill);
+    assert_eq!(
+        (none(FillPolicy::Inf), none(FillPolicy::Nan)),
+        (Err(one(100.0).unwrap_err()), Err(one(100.0).unwrap_err()))
+    );
     let shape = ha_props_si_vec_in(&air, "H", ("T", &t), ("P", &[1e5, 2e5]), ("R", &[0.5]), FillPolicy::Inf);
     assert_eq!(shape, Err(CompatError::Core(Error::Shape { expected: 3, found: 2 })));
     let corrected = humid_air(DataSet::Corrected);
