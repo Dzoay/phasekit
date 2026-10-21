@@ -59,11 +59,11 @@ fn by_name(v: &Virials, name: &str) -> Option<f64> {
 
 /// DIV-0067 (`KeepOracle`): C_aww's b₀ and b₁ are v8.0.0's, which miss G8-10's (Hyland and Wexler's) at the tables'
 /// 200, 300 and 400 K by up to 1.06e-4 in C_aww, 1.15e-4 in its first and 1.22e-4 in its second T-derivative,
-/// relative, all at 200 K (measured at M18.1): the register's bound.
+/// relative, all at 200 K (measured at M18.1): the register's bound; NaN, which fails every comparison, without one.
 fn c_aww_gap() -> f64 {
     match DIVERGENCES.iter().find(|d| d.id == "DIV-0067").and_then(|d| d.tolerance) {
         Some(Tolerance::Relative(bound)) => bound,
-        other => panic!("DIV-0067 registers a relative bound: {other:?}"),
+        _ => f64::NAN,
     }
 }
 
@@ -155,11 +155,12 @@ fn humid_air_is_shared_across_threads() {
     let _: Option<Fluid> = None;
 }
 
-/// DIV-0011's registered bound, relative: v8.0.0's B from its EOS at δ = 1e-12, and what inherits it.
+/// DIV-0011's registered bound, relative: v8.0.0's B from its EOS at δ = 1e-12, and what inherits it; NaN, which fails
+/// every comparison, without one.
 fn div_0011() -> f64 {
     match DIVERGENCES.iter().find(|d| d.id == "DIV-0011").and_then(|d| d.tolerance) {
         Some(Tolerance::Relative(bound)) => bound,
-        other => panic!("DIV-0011 registers a relative bound: {other:?}"),
+        _ => f64::NAN,
     }
 }
 
