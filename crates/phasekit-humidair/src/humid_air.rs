@@ -4,7 +4,7 @@
 
 use phasekit_core::{Constant, DataSet, Error, Fluid, Input, Prop, Quality, Temperature, Virials as PureVirials};
 
-use crate::constants::{M_AIR, M_WATER};
+use crate::constants::M_WATER;
 use crate::saturation::{self, Saturation};
 use crate::virials::{self, Coefficient, Virials};
 
@@ -87,8 +87,7 @@ impl HumidAir {
     /// The humidity ratio of saturated moist air at `t` (K) and `p` (Pa), kg of water per kg of dry air:
     /// W_s = ε ψ_ws/(1 − ψ_ws), ε = M_w/M_a.
     pub fn saturated_humidity_ratio(&self, t: f64, p: f64) -> Result<f64, Error> {
-        let psi = self.saturation(t, p)?.psi_ws;
-        Ok(M_WATER / M_AIR * psi / (1.0 - psi))
+        Ok(crate::humidity::ratio(self.saturation(t, p)?.psi_ws))
     }
 }
 

@@ -16,10 +16,15 @@
 pub mod constants;
 mod henry;
 mod humid_air;
+mod humidity;
 mod saturation;
 mod virials;
 
 pub use henry::{Gas, henry_constant};
 pub use humid_air::{HumidAir, Parts};
+pub use humidity::Humidity;
 pub use saturation::Saturation;
 pub use virials::{Coefficient, Virials};
+
+#[cfg(test)]
+mod tests;
