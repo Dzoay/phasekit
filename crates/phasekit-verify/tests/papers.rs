@@ -98,6 +98,31 @@ const PAPERS: &[(Text, Text)] = &[
     (fixture!("paper/HumidAir/IAPWS-G7-04.6.csv"), fixture!("paper/HumidAir/IAPWS-G7-04.6.check.csv")),
     (fixture!("paper/HumidAir/Herrmann-HVACR-2009.1.csv"), fixture!("paper/HumidAir/Herrmann-HVACR-2009.1.check.csv")),
     (fixture!("paper/HumidAir/Herrmann-HVACR-2009.2.csv"), fixture!("paper/HumidAir/Herrmann-HVACR-2009.2.check.csv")),
+    (fixture!("paper/HumidAir/Herrmann-HVACR-2009.5.csv"), fixture!("paper/HumidAir/Herrmann-HVACR-2009.5.check.csv")),
+    (fixture!("paper/HumidAir/Herrmann-HVACR-2009.6.csv"), fixture!("paper/HumidAir/Herrmann-HVACR-2009.6.check.csv")),
+    (fixture!("paper/HumidAir/Herrmann-HVACR-2009.7.csv"), fixture!("paper/HumidAir/Herrmann-HVACR-2009.7.check.csv")),
+    (fixture!("paper/HumidAir/Herrmann-HVACR-2009.8.csv"), fixture!("paper/HumidAir/Herrmann-HVACR-2009.8.check.csv")),
+    (fixture!("paper/HumidAir/Herrmann-HVACR-2009.9.csv"), fixture!("paper/HumidAir/Herrmann-HVACR-2009.9.check.csv")),
+    (
+        fixture!("paper/HumidAir/Herrmann-HVACR-2009.10.csv"),
+        fixture!("paper/HumidAir/Herrmann-HVACR-2009.10.check.csv"),
+    ),
+    (
+        fixture!("paper/HumidAir/Herrmann-HVACR-2009.11.csv"),
+        fixture!("paper/HumidAir/Herrmann-HVACR-2009.11.check.csv"),
+    ),
+    (
+        fixture!("paper/HumidAir/Herrmann-HVACR-2009.12.csv"),
+        fixture!("paper/HumidAir/Herrmann-HVACR-2009.12.check.csv"),
+    ),
+    (
+        fixture!("paper/HumidAir/Herrmann-HVACR-2009.13.csv"),
+        fixture!("paper/HumidAir/Herrmann-HVACR-2009.13.check.csv"),
+    ),
+    (
+        fixture!("paper/HumidAir/Herrmann-HVACR-2009.14.csv"),
+        fixture!("paper/HumidAir/Herrmann-HVACR-2009.14.check.csv"),
+    ),
     (fixture!("paper/Water/IAPWS-R7-97-2012.15.csv"), fixture!("paper/Water/IAPWS-R7-97-2012.15.check.csv")),
     (fixture!("paper/Water/IAPWS-R7-97-2012.35.csv"), fixture!("paper/Water/IAPWS-R7-97-2012.35.check.csv")),
     (fixture!("paper/Water/IAPWS-R7-97-2012.36.csv"), fixture!("paper/Water/IAPWS-R7-97-2012.36.check.csv")),
