@@ -468,8 +468,8 @@ conformance kit (VERIFICATION.md §10) and, where marked, a **zero-line core dif
 ```text
 v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
       ├─ M13 mixtures ────── M19 diagram geometry ── M26 more diagrams
-      ├─ M14 ice, IF97 water ─ M28 error messages ─ M18 humid air (its chart drawn at M21.11); M27 the rest of IF97
-      │    on demand
+      ├─ M14 ice, IF97 water ─ M18 humid air (its chart drawn at M21.11; M28 error messages before M18.11); M27 the
+      │    rest of IF97 on demand
       ├─ M21 site: M21.1-M21.10 landed; M21.11 and M21.12 after M18
       └─ M12 SIMD spike, M16 Python, M17 INCOMP; on demand: Tier B shim, WIT, network service, materials
 ```
@@ -483,7 +483,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M15 | `phasekit-pcsaft` | M11 done + demand | Hard chain, dispersion, association, polar terms on `Jet4` (map 06 U9-U11) | Zero-line core diff; teqp/FeOs cross-checks; oracle only where map 06 §8 says it is usable |
 | M16 | `phasekit-py` | v0.1 + demand | pyo3 abi3 wheels, import name `phasekit`, `phasekit.compat.PropsSI(...)`, GIL released around kernel calls, NumPy `(N, M)` point-major (user decisions 7, 11; R16) | map 14 U1 Python-contract fixtures for the compat surface; installs beside `CoolProp` |
 | M17 | `phasekit-incomp` | v0.1 + demand | INCOMP fits as a `ThermoModel`, placeholders rejected at datagen, `Example*` fluids excluded, restricted data off by default (map 07 §9; D14) | Source tables; known-bad register (map 07 I1-I14) |
-| M18 | `phasekit-humidair` | M14 closed (user decision HA1) | RP-1485 humid air on injected Water, Air, IF97-water and ice `Fluid`s (map 07 H3) with its transport; compat's `HAPropsSI`, the `pk_*` humid-air symbols and the shim's real `HAPropsSI` (D11), the browser package, and in `phasekit-diagram` the psychrometric chart's geometry, ASHRAE's and Mollier's forms, and ice on Water's diagrams, drawn by the site at M21.11 and M21.12 (HA3, HA7); twelve steps: [M18 Humid air](#m18-humid-air) | The authors' printed tables and IAPWS G7-04, G8-10 and G11-15 under `Corrected` (HA2); the oracle under `Parity`, `HAPropsSI("H","T",300,"P",1e5,"R",0) = 27013.112479771713` among it (map 11 §8); the core unchanged since `m18-start` (user decision EM5) |
+| M18 | `phasekit-humidair` | M14 closed (user decision HA1) | RP-1485 humid air on injected Water, Air, IF97-water and ice `Fluid`s (map 07 H3) with its transport; compat's `HAPropsSI`, the `pk_*` humid-air symbols and the shim's real `HAPropsSI` (D11), the browser package, and in `phasekit-diagram` the psychrometric chart's geometry, ASHRAE's and Mollier's forms, and ice on Water's diagrams, drawn by the site at M21.11 and M21.12 (HA3, HA7); twelve steps: [M18 Humid air](#m18-humid-air) | The authors' printed tables and IAPWS G7-04, G8-10 and G11-15 under `Corrected` (HA2); the oracle under `Parity`, `HAPropsSI("H","T",300,"P",1e5,"R",0) = 27013.112479771713` among it (map 11 §8); the core unchanged since `m14-start` to M18.10 and since `m18-start`, M28.1's merge, after it (user decision EM5) |
 | M19 | `phasekit-diagram` (T1f; user decision DG1) | M13 done (user decision 13); the user's word, 2026-10-20 | Geometry, not drawing (user decision WS4): saturation domes, isolines of T, p, h, s, ρ and quality on the p–h, T–s, p–T, T–ρ and h–s planes, split at the dome and at failed cells, sampled more densely where a line bends, with labels and ranges; M13's phase envelopes, passed in as data (DG3); the phase regions (DG2); over saturation, `flash` and batch; the browser package serves it to the site (M21.6); six steps: [M19 Diagram geometry](#m19-diagram-geometry) | Every vertex reproduces its line's value within `Flash`; a line's dome crossings are the saturation states at its value (`Exact` against `QT` or `PQ`, and `QS`, `HQ` or `DQ`); M21.2's checks pass on its geometry; the site's screenshots re-approved at M21.6 |
 | M20 | core, compat, verify, CI | M12 landed (user decision PL1) | Four follow-ups: Cv, Cp, w, τ and δ as derivative variables; the conformance kit's `identities` and `part_additivity`; the intra-doc link check; the nightly report: [M20 Follow-ups](#m20-follow-ups) | Each step's checks; G1-G8 |
 | M21 | `site/`, the GitHub Pages site | The user's word, 2026-10-16, beside M13 (user decision WS3) | A single-page site over the browser package: a calculator, five diagrams with the state under the cursor, sweeps, an in-browser benchmark of both builds, all 136 fluids from per-fluid packs, mixtures after M13, M19's geometry after M19, mutation testing of the site's code, picking states on the diagrams, phase regions, how a property is calculated, a psychrometric chart and ice on Water's diagrams after M18 (user decisions HA3, HA7); twelve steps: [M21 The site](#m21-the-site) | G9 at every step; the page deployed from `main`; every value on the page equals the package's (`Exact`) |
@@ -493,7 +493,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M25 | xtask, `.gitattributes`, docs | The user's word, 2026-10-18, beside M24; its mutants step after `m24` (user decision LM6) | Lists that merge, kept as text (LM1): `ci/test-counts.txt` by a merge driver, ROT ids unique and the register merged by union, one file per decision section, mutant exclusions as markers in the code: [M25 Lists that merge](#m25-lists-that-merge) | Each step's red tests; G1-G8; `actionlint` clean |
 | M26 | `phasekit-diagram`, `phasekit-wasm`, `site/` | `m19` and M21.6 landed (the site draws from `phasekit-diagram`); the user's word (user decision DG6) | Three sets of diagrams beyond M19's planes, each computed by the library and drawn by the site: a fluid's p–v–T and u–s–v surfaces in three dimensions, drawn with three.js (user decisions DG7, DG8), characteristic curves and property maps on the planes, and three-component mixtures' ternary diagrams, the surfaces first (DG9): [M26 More diagrams](#m26-more-diagrams) | Every vertex a state the library computed; each set's arbiter; the browser package's and the page's budgets hold; tag `m26` |
 | M27 | `phasekit-iapws` | A steam use case (user decision HA1) | The rest of IF97: region 2 above 623.15 K with the B23 boundary, region 3 (SR3-03's backward v(T, p) refined by Newton, ROT-241) and region 5, the backward equations for HP, PS and HS, IF97's transport (R12-08, R15-11), and `IF97::Water` by name in compat, C and the browser package (HA5); map 07 §9's `if97-*` units | Zero-line core diff; R7-97(2012)'s other tables and SR3-03 Table 5; the `if97` oracle kind over all five regions |
-| M28 | core, every crate that builds an `Error`, `phasekit-wasm`, `site/` | The user's word, 2026-10-21, before M18.1 (user decision EM5) | Issue #191: error messages in the caller's units and in two styles, a long one in words and a short one stating the relation the value breaks; each number tagged with its quantity, six significant figures, `InvalidInput` split from structural arguments (user decisions EM1-EM4, EM6), three steps: [M28 Error messages](#m28-error-messages) | Every message pinned in both styles; a caller's units reach the browser package's messages; `m18-start` tagged at M28.1's merge; G1-G9 |
+| M28 | core, every crate that builds an `Error`, `phasekit-wasm`, `site/` | The user's word, 2026-10-21; M28.1 after M18.10 lands, before M18.11 (user decision EM5) | Issue #191: error messages in the caller's units and in two styles, a long one in words and a short one stating the relation the value breaks; each number tagged with its quantity, six significant figures, `InvalidInput` split from structural arguments (user decisions EM1-EM4, EM6), three steps: [M28 Error messages](#m28-error-messages) | Every message pinned in both styles; a caller's units reach the browser package's messages; `m18-start` tagged at M28.1's merge; G1-G9 |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
@@ -670,8 +670,8 @@ ARCHITECTURE.md §11's row says so. It reaches compat's `HAPropsSI`, the `pk_*` 
 psychrometric chart's geometry, in ASHRAE's form and Mollier's, and ice on Water's diagrams (HA7), drawn by the site at
 M21.11 and M21.12. **Entry.** M14 closed (HA1). The steps merge in order when green, in eight PRs, a commit and a
 `Plan-Step:` footer each: M18.1 and M18.2; M18.3; M18.4; M18.5 and M18.6; M18.7; M18.8; M18.9 and M18.10; M18.11 and
-M18.12. **Prerequisites.** User decisions HA1-HA7; M14's models; M28.1's error quantities, after which `m18-start` is
-tagged and the core frozen from it (user decision EM5).
+M18.12. **Prerequisites.** User decisions HA1-HA7; M14's models; core frozen since `m14-start` to M18.10; M28.1, after
+M18.10 lands, then `m18-start` tagged at its merge and the core frozen from it to M18.12 (user decision EM5).
 **Arbiters** (HA2), free and transcribed, double-entered, under `paper/HumidAir/`:
 - The authors' tables (Herrmann, Kretzschmar and Gatley, *Tables of property values for moist air*, the supplement to
   HVAC&R Research 15(5) 961-986, 2009, on their faculty's site): Tables 1 and 2, saturated moist air at 101.325 kPa
@@ -784,12 +784,13 @@ the first open milestone.
   (H(T, R) 7.5 µs, T_dp 132 µs, T_wb 152 µs, T(H, R) 203 µs); tag `m18` with the user's approval. *Red:* `gates rot`
   and `tests/divergences.rs` with M18's rows and entries due.
 
-**Exit gate.** G1-G9 at every step; `gates core-frozen` since `m18-start`; the authors' tables, G7-04, G8-10 and G11-15
-within their printed digits under `Corrected`; the oracle under `Parity`, each difference a register entry;
-`gauge_invariance` over every output; the C smoke test on Linux and Windows; the browser package on both builds within
-its budgets; every chart and ice vertex a state of its model (`Exact`), Mollier's drawn as its stated skew. **ROT rows.** M18.1: ROT-264, ROT-267, ROT-268, ROT-271. M18.2: ROT-261, ROT-263, ROT-265, ROT-270.
-M18.3: ROT-269. M18.4: ROT-104, ROT-266, ROT-272. M18.5: ROT-262 (deferred to the paper). M18.6: ROT-275 (its
-humid-air part). **User decisions implemented.** HA1-HA7, D11's real `HAPropsSI`.
+**Exit gate.** G1-G9 at every step; `gates core-frozen` since `m14-start` to M18.10, since `m18-start` after; the
+authors' tables, G7-04, G8-10 and G11-15 within their printed digits under `Corrected`; the oracle under `Parity`, each
+difference a register entry; `gauge_invariance` over every output; the C smoke test on Linux and Windows; the browser
+package on both builds within its budgets; every chart and ice vertex a state of its model (`Exact`), Mollier's drawn as
+its stated skew. **ROT rows.** M18.1: ROT-264, ROT-267, ROT-268, ROT-271. M18.2: ROT-261, ROT-263, ROT-265, ROT-270.
+M18.3: ROT-269. M18.4: ROT-104, ROT-266, ROT-272. M18.5: ROT-262 (deferred to the paper). M18.6: ROT-275 (its humid-air
+part). **User decisions implemented.** HA1-HA7, D11's real `HAPropsSI`.
 
 ### M19 Diagram geometry
 
@@ -1081,9 +1082,10 @@ verbatim, so a reader who entered °C and bar reads `invalid temperature: 0`. Co
 writes each number in the units its caller supplies (user decisions EM1, EM2): the long form in words, for a
 sentence's room, the short form stating the relation the value breaks, for a UI's narrow places, both in Unicode
 (EM6). Core cannot know a viewer's units (its API is SI, D5, and it keeps no global state), so a caller passes them;
-`Display` is SI. **Entry.** The user's word, 2026-10-21, before M18.1 (EM5). M28.1 alone, since it changes the core;
-`m18-start` is tagged at its merge and the core frozen from it to M18's close. M28.2 and M28.3 in one PR, a commit and
-a `Plan-Step:` footer each (LM7), beside M18's first steps: they touch no core. **Prerequisites.** User decisions
+`Display` is SI. **Entry.** The user's word, 2026-10-21. M28.1 alone, since it changes the core, after M18.10 lands and
+before M18.11 (EM5): it converts humid air's refusals too, and `m18-start` is tagged at its merge, with the user's
+approval, and the core frozen from it to M18's close. M28.2 and M28.3 in one PR, a commit and a `Plan-Step:` footer
+each (LM7), beside M18.11 and M18.12: they touch no core. **Prerequisites.** User decisions
 EM1-EM6. M28 does not move `MILESTONE`.
 
 The proposed wording, which M28.1's PR shows in full for the user's review (EM2):
@@ -1105,14 +1107,17 @@ zero", not "positive".
 
 - **M28.1 Quantities, units and the two styles in core.**
   - A `Dimension`, closed and `#[non_exhaustive]`, which a caller's units are keyed by: the site's kinds
-    (`site/src/lib/units.ts`, a specific one by its `Basis`) and what M18 needs, a mass ratio (the humidity ratio,
-    kg/kg) and a specific volume, since the core is frozen through M18 (EM5). A `Quantity`, open: a name, a symbol and
-    a dimension; core's as constants (T, p, ρ, h, s, u, Q, the mole fractions), and a family crate defines its own.
+    (`site/src/lib/units.ts`, a specific one by its `Basis`) and what humid air refuses, since the core is frozen
+    after M28.1 (EM5): a fraction in [0, 1] (Q, a mole fraction, ψ_w, φ), a mass ratio (the humidity ratio W, kg/kg),
+    a molar mass and a specific volume; humid air's h, s and v per kilogram of dry air are mass-specific, the dry air
+    in the quantity's name. A `Quantity`, open: a name, a symbol and a dimension; core's as constants (T, p, ρ, h, s,
+    u, Q, the mole fractions), and a family crate defines its own.
   - `InvalidInput { quantity: Quantity, value }` for physical values; structural arguments (counts, names, planes,
     grids, a mixture's components) a variant of their own naming what was refused, with no unit (EM3). Every place that
-    builds one, in core, `phasekit-mix`, `phasekit-diagram`, `phasekit-iapws`, `phasekit-verify`, compat and capi,
-    takes a quantity or the new variant. `Ambiguous`'s roots carry their quantity. `Pair`, `Prop`, `Phase` and
-    `Strategy` get the names a message writes in place of their `Debug` forms.
+    builds one, in core, `phasekit-mix`, `phasekit-diagram`, `phasekit-iapws`, `phasekit-humidair`, `phasekit-verify`,
+    compat and capi, takes a quantity or the new variant. `Ambiguous`'s roots carry their quantity. `Phase` gets the
+    names a message writes; `Prop`, `Pair` and `Strategy` are written by their variant names (`Cpmass`, `PT`,
+    `DensityNewton`), a partial derivative as `∂of/∂wrt|at`, in place of their `Debug` forms.
   - `Units`, a trait from a `Dimension` to a unit (a label, a scale and an offset, SI = value · scale + offset), `Si`
     its SI implementation; `Style::{Long, Short}`; `Error::display(&units, style)`. `{}` is `display(&Si, Long)` and
     `{:#}` `display(&Si, Short)`. Six significant figures, trailing zeros dropped (EM4), as a decimal from 1e-4 to
