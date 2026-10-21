@@ -24,7 +24,7 @@ mod keys;
 
 #[cfg(feature = "embedded")]
 pub use humid_air::ha_props_si;
-pub use humid_air::{ha_names, ha_props_si_in, ha_props_si_vec_in, humid_air_in};
+pub use humid_air::{ha_names, ha_output_at, ha_props_si_in, ha_props_si_vec_in, ha_state_in, humid_air_in};
 
 pub use keys::{
     OUTPUT_COUNT, Output, output_names, pair_name, parse_derivative, parse_input, parse_output, parse_pair_name,

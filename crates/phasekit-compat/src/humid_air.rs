@@ -211,6 +211,17 @@ pub fn humid_air_in(registry: &Registry, data: DataSet) -> Result<HumidAir, Comp
     Ok(HumidAir::new(Parts { water, air, liquid, ice }, data)?)
 }
 
+/// The state at `p` and the two named inputs, as `HAPropsSI` reads them (the browser package's `HumidAir.state`).
+pub fn ha_state_in(air: &HumidAir, p: f64, input1: (&str, f64), input2: (&str, f64)) -> Result<MoistAir, CompatError> {
+    state(air, [("P", p), input1, input2])
+}
+
+/// The output `HAPropsSI` names `output_name`, at `state` of `air`.
+pub fn ha_output_at(air: &HumidAir, state: &MoistAir, output_name: &str) -> Result<f64, CompatError> {
+    let out = key(output_name).ok_or_else(|| CompatError::UnknownOutput(output_name.into()))?;
+    Ok(output(air, state, out)?)
+}
+
 /// `HAPropsSI(output, name1, value1, name2, value2, name3, value3)` over `air` (see the module's notes).
 #[allow(clippy::too_many_arguments, reason = "HAPropsSI's seven arguments")]
 pub fn ha_props_si_in(
