@@ -15,5 +15,8 @@
 # 1936972; each budget is that + 10 %.
 # M18.8 (SL8): humid air, phasekit-humidair and phasekit-iapws behind HAPropsSI and the HumidAir handle, took the builds
 # to 2268213 and 2229861 bytes, 99081 and 94235 above M19.6's; both stay within their budgets, which are unchanged.
+# M18.9-M18.11 (SL8): the psychrometric and Mollier charts and ice on Water's diagrams took the builds to 2382242 and
+# 2335856 bytes, 114029 and 105995 above M18.8's; both stay within their budgets, 3803 and 13332 bytes short, which are
+# unchanged.
 baseline 2386045
 simd128 2349188
