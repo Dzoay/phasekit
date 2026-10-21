@@ -1008,3 +1008,16 @@ fn ha_props_si_over_vectors_and_the_embedded_registry() {
         ha_props_si_in(&corrected, "H", "T", 300.0, "P", 1e5, "R", 0.0)
     );
 }
+
+/// The browser package's two steps (PLAN.md M18.8): `ha_state_in`, then `ha_output_at` for every name, give
+/// `HAPropsSI`'s value at the same inputs bit for bit, refusals alike.
+#[test]
+fn a_state_s_outputs_are_hapropssis() {
+    use phasekit_compat::{ha_names, ha_output_at, ha_props_si_in, ha_state_in};
+    let air = humid_air(DataSet::Parity);
+    let state = ha_state_in(&air, 101_325.0, ("T", 300.0), ("R", 0.5)).unwrap();
+    for name in ha_names() {
+        let want = ha_props_si_in(&air, name, "T", 300.0, "P", 101_325.0, "R", 0.5);
+        assert_eq!(ha_output_at(&air, &state, name).map(f64::to_bits), want.map(f64::to_bits), "{name}");
+    }
+}
