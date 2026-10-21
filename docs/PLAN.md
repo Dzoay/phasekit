@@ -1067,7 +1067,7 @@ approval, and the core frozen from it to M18's close. M28.2 and M28.3 in one PR,
 each (LM7), beside M18.11 and M18.12: they touch no core. **Prerequisites.** User decisions
 EM1-EM6. M28 does not move `MILESTONE`.
 
-The proposed wording, which M28.1's PR shows in full for the user's review (EM2):
+The wording, which M28.1's PR shows in full for the user's review (EM2):
 
 | Error | Long | Short |
 |---|---|---|
@@ -1079,7 +1079,7 @@ The proposed wording, which M28.1's PR shows in full for the user's review (EM2)
 | above p_max | `pressure 2e9 Pa is above the maximum, 1e9 Pa` | `p = 2e9 Pa > p_max = 1e9 Pa` |
 | below the melting line | `temperature 250 K is below the melting temperature at this pressure, 251.2 K` | `T = 250 K < T_melt = 251.2 K` |
 | ambiguous | `several states fit these inputs: T = 300 K or 350 K` | `T ∈ {300 K, 350 K}` |
-| undefined | `cp is undefined in the two-phase region` | `cp: undefined, two-phase` |
+| undefined | `Cpmass is undefined for a two-phase state` | `Cpmass: undefined, two-phase` |
 
 In °C a temperature's zero limit is written in °C (`T = −273.15 °C ≤ −273.15 °C`), so the long form says "absolute
 zero", not "positive".
