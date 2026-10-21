@@ -1,6 +1,5 @@
-// A diagram's ranges, grids and isoline values (PLAN.md M21.2), from the fluid's own limits (the package's Props1SI).
-import { scaleLinear } from "d3-scale";
-import type { Key } from "./diagrams";
+// A fluid's plotted ranges and the grids over them (PLAN.md M21.2), from its own limits (the package's Props1SI): the
+// sweeps' and the benchmark's. The diagrams take theirs from the package (phasekit-diagram, M21.6).
 
 /** The constants a diagram needs, in this order. */
 export const LIMIT_KEYS = [
@@ -56,32 +55,7 @@ export function logGrid(a: number, b: number, n: number): number[] {
   return Array.from({ length: n }, (_, i) => (i === n - 1 ? b : a * (b / a) ** (i / (n - 1))));
 }
 
-/** n values from exactly `a` to exactly `b`, closing in on `a`: a + (b − a)·(i/(n − 1))². */
-export function awayFrom(a: number, b: number, n: number): number[] {
-  return Array.from({ length: n }, (_, i) => (i === n - 1 ? b : a + (b - a) * (i / (n - 1)) ** 2));
-}
-
 /** n temperatures from exactly `low` up to just below T_c, closing in on it, where the dome narrows fastest. */
 export function domeTemperatures(low: number, tc: number, n: number): number[] {
   return Array.from({ length: n }, (_, i) => (i === 0 ? low : tc - (tc - low) * (1 - i / n) ** 2));
-}
-
-/** The values a family's lines take, strictly inside `range`: 1-2-5 per decade for the logarithmic quantities while
- *  that is at most 12 lines, decades past that; nice linear ticks for the rest (tenths, for quality's [0, 1]). */
-export function values(key: Key, range: readonly [number, number]): number[] {
-  const [a, b] = range;
-  if (key === "P" || key === "Dmass") {
-    const decades = (mantissas: number[]) =>
-      Array.from({ length: Math.ceil(Math.log10(b)) - Math.floor(Math.log10(a)) + 1 }, (_, i) =>
-        mantissas.map((m) => m * 10 ** (Math.floor(Math.log10(a)) + i)),
-      )
-        .flat()
-        .filter((v) => a < v && v < b);
-    const fine = decades([1, 2, 5]);
-    return fine.length <= 12 ? fine : decades([1]);
-  }
-  return scaleLinear()
-    .domain([a, b])
-    .ticks(8)
-    .filter((v) => a < v && v < b);
 }
