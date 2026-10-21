@@ -2,9 +2,9 @@
 //! the same lines (PLAN.md M19; user decisions WS4, DG1-DG3). The p–h, T–s, p–T, T–ρ and h–s planes, each with its
 //! saturation dome and isolines, as polylines whose every vertex is a state the library computed, carrying the inputs
 //! it was computed at; a mixture's traced envelope on p–T and T–ρ; and the phase regions, polygons whose corners carry
-//! every plane's axes; and humid air's psychrometric chart (M18.9), sampled through a seam the caller fills. A line's
-//! label is its held quantity and value, a region's its phase. It draws nothing: where a label goes, the colours and
-//! the shown units are the host's.
+//! every plane's axes; and humid air's psychrometric chart (M18.9) and Mollier's h–x chart (M18.10), sampled through a
+//! seam the caller fills. A line's label is its held quantity and value, a region's its phase. It draws nothing: where
+//! a label goes, the colours and the shown units are the host's.
 //!
 //! It depends on phasekit-core's public API alone (`cargo xtask gates deps`). Its arbiter is the library: a vertex is
 //! the batch's value at its inputs, bit for bit.
@@ -17,6 +17,7 @@ mod batch;
 mod diagram;
 mod envelope;
 mod lines;
+mod mollier;
 mod plane;
 mod psychro;
 mod ranges;
@@ -27,6 +28,7 @@ pub use batch::{Batch, FluidBatch, Inputs, Row, Vertex};
 pub use diagram::{Diagram, Dome, diagram, sample};
 pub use envelope::{Trace, envelope};
 pub use lines::{Line, Segment};
+pub use mollier::{Mollier, MollierVertex, mollier};
 pub use plane::{Axis, Family, Plane, Quantity};
 pub use psychro::{ChartLine, ChartRange, ChartVertex, Held, HumidAirBatch, Psychrometric, psychrometric};
 pub use ranges::Limits;

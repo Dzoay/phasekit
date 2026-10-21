@@ -2,12 +2,13 @@
 //! Water and Air (the package does not embed Air: a page adds its pack with `withPack` first) and `phasekit-iapws`'s
 //! IF97 water and ice, under `Corrected`. `HumidAir.HAPropsSI(...)` is compat's `ha_props_si_in`; `HumidAir.state(p,
 //! name1, value1, name2, value2)` is the state the pressure and two more inputs name, whose `get(output)` takes every
-//! `HAPropsSI` output; `humidAirKeys()` lists the names, aliases included. `HumidAir.psychrometric(p)` is
-//! `phasekit-diagram`'s psychrometric chart at p (PLAN.md M18.9), its lines as typed arrays (`Chart`).
+//! `HAPropsSI` output; `humidAirKeys()` lists the names, aliases included. `HumidAir.psychrometric(p)` and
+//! `HumidAir.mollier(p)` are `phasekit-diagram`'s psychrometric chart and Mollier's h–x chart at p (PLAN.md M18.9,
+//! M18.10), their lines as typed arrays (`Chart`).
 
 use phasekit_compat as compat;
 use phasekit_core::{DataSet, Error};
-use phasekit_diagram::{ChartRange, Held, HumidAirBatch, Psychrometric};
+use phasekit_diagram::{ChartLine, ChartRange, ChartVertex, Held, HumidAirBatch, MollierVertex};
 use phasekit_humidair::{Given, Humidity, Per};
 use wasm_bindgen::prelude::*;
 
@@ -66,11 +67,24 @@ impl HumidAir {
         w_max: Option<f64>,
     ) -> Result<Chart, JsError> {
         alive()?;
-        let default = ChartRange::default();
-        let t = (t_min.unwrap_or(default.t.0), t_max.unwrap_or(default.t.1));
-        let range = ChartRange { t, w_max: w_max.unwrap_or(default.w_max) };
+        let range = chart_range(t_min, t_max, w_max);
         let chart = phasekit_diagram::psychrometric(&AtP { air: &self.inner, p }, range).map_err(js)?;
-        Chart::of(&chart)
+        Chart::of(std::iter::once(&chart.saturation).chain(&chart.lines), None)
+    }
+
+    /// Mollier's h–x chart at the pressure `p` (Pa), over the psychrometric chart's range and its defaults (PLAN.md
+    /// M18.10): its vertices carry h and the drawn height h − r₀W besides T and W.
+    pub fn mollier(
+        &self,
+        p: f64,
+        t_min: Option<f64>,
+        t_max: Option<f64>,
+        w_max: Option<f64>,
+    ) -> Result<Chart, JsError> {
+        alive()?;
+        let range = chart_range(t_min, t_max, w_max);
+        let chart = phasekit_diagram::mollier(&AtP { air: &self.inner, p }, range).map_err(js)?;
+        Chart::of(std::iter::once(&chart.saturation).chain(&chart.lines), Some(chart.r0))
     }
 
     /// The state at the pressure `p` (Pa) and two more inputs, as `HAPropsSI` reads them.
@@ -113,6 +127,13 @@ impl HumidAirState {
         alive()?;
         compat::ha_output_at(&self.air, &self.state, output).map_err(js)
     }
+}
+
+/// A chart's range: 0 to 50 °C and W to 0.03 unless the caller says otherwise.
+fn chart_range(t_min: Option<f64>, t_max: Option<f64>, w_max: Option<f64>) -> ChartRange {
+    let default = ChartRange::default();
+    let t = (t_min.unwrap_or(default.t.0), t_max.unwrap_or(default.t.1));
+    ChartRange { t, w_max: w_max.unwrap_or(default.w_max) }
 }
 
 /// Humid air at one pressure, as `phasekit-diagram`'s charts sample it (PLAN.md M18.9).
@@ -166,11 +187,16 @@ impl HumidAirBatch for AtP<'_> {
         let state = self.air.state(self.p, Given::Temperature(t), Given::Humidity(Humidity::Ratio(w)))?;
         Ok([state.h(Per::KgDryAir), state.v(Per::KgDryAir), self.air.wet_bulb(&state)?])
     }
+
+    fn enthalpies(&self, at: &[(f64, f64)]) -> Result<Vec<Option<f64>>, Error> {
+        let h = |(t, w)| self.air.state(self.p, Given::Temperature(t), Given::Humidity(Humidity::Ratio(w)));
+        Ok(at.iter().map(|&tw| h(tw).ok().map(|s| s.h(Per::KgDryAir))).collect())
+    }
 }
 
-/// A psychrometric chart's lines, as flat arrays: line `i` holds `held[i]` (`saturation`, `R`, `H`, `V` or `Twb`) at
+/// A chart's lines, as flat arrays: line `i` holds `held[i]` (`saturation`, `R`, `T`, `H`, `V` or `Twb`) at
 /// `values[i]` (1 for the saturation line), and its runs are those from `segments[i]` to `segments[i + 1]`; run `j`'s
-/// vertices are those of `T` and `W` from `starts[j]` to `starts[j + 1]`.
+/// vertices are those of `T` and `W` from `starts[j]` to `starts[j + 1]`, and on Mollier's chart those of `H` and `Y`.
 #[wasm_bindgen]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Chart {
@@ -180,6 +206,30 @@ pub struct Chart {
     starts: Vec<u32>,
     t: Vec<f64>,
     w: Vec<f64>,
+    h: Vec<f64>,
+    y: Vec<f64>,
+    r0: Option<f64>,
+}
+
+/// A chart's vertex as the flat arrays take it.
+trait Cells {
+    fn push(&self, chart: &mut Chart);
+}
+
+impl Cells for ChartVertex {
+    fn push(&self, chart: &mut Chart) {
+        chart.t.push(self.t);
+        chart.w.push(self.w);
+    }
+}
+
+impl Cells for MollierVertex {
+    fn push(&self, chart: &mut Chart) {
+        chart.t.push(self.t);
+        chart.w.push(self.w);
+        chart.h.push(self.h);
+        chart.y.push(self.y);
+    }
 }
 
 /// A count as a typed array's offset.
@@ -194,20 +244,21 @@ fn label(held: Held) -> (&'static str, f64) {
         Held::Enthalpy(h) => ("H", h),
         Held::Volume(v) => ("V", v),
         Held::WetBulb(t_wb) => ("Twb", t_wb),
+        Held::DryBulb(t) => ("T", t),
         _ => ("saturation", 1.0),
     }
 }
 
 impl Chart {
-    fn of(chart: &Psychrometric) -> Result<Chart, JsError> {
-        let mut out = Chart { segments: vec![0], starts: vec![0], ..Chart::default() };
-        for line in std::iter::once(&chart.saturation).chain(&chart.lines) {
+    /// `lines` as flat arrays, with Mollier's skew `r0`.
+    fn of<'a, V: Cells + 'a>(lines: impl Iterator<Item = &'a ChartLine<V>>, r0: Option<f64>) -> Result<Chart, JsError> {
+        let mut out = Chart { segments: vec![0], starts: vec![0], r0, ..Chart::default() };
+        for line in lines {
             let (key, value) = label(line.held);
             out.held.push(key.to_string());
             out.values.push(value);
             for segment in &line.segments {
-                out.t.extend(segment.iter().map(|v| v.t));
-                out.w.extend(segment.iter().map(|v| v.w));
+                segment.iter().for_each(|v| v.push(&mut out));
                 out.starts.push(offset(out.t.len())?);
             }
             out.segments.push(offset(out.starts.len().saturating_sub(1))?);
@@ -218,13 +269,13 @@ impl Chart {
 
 #[wasm_bindgen]
 impl Chart {
-    /// Each line's held key: `saturation`, `R`, `H`, `V` or `Twb`.
+    /// Each line's held key: `saturation`, `R`, `T`, `H`, `V` or `Twb`.
     #[wasm_bindgen(getter)]
     pub fn held(&self) -> Vec<String> {
         self.held.clone()
     }
 
-    /// Each line's value: φ, h (J/kg of dry air), v (m³/kg of dry air), T_wb (K), or 1 for the saturation line.
+    /// Each line's value: φ, T (K), h (J/kg of dry air), v (m³/kg of dry air), T_wb (K), or 1 for the saturation line.
     #[wasm_bindgen(getter)]
     pub fn values(&self) -> Vec<f64> {
         self.values.clone()
@@ -252,5 +303,23 @@ impl Chart {
     #[wasm_bindgen(getter, js_name = W)]
     pub fn w(&self) -> Vec<f64> {
         self.w.clone()
+    }
+
+    /// Mollier's chart: the vertices' enthalpies, J/kg of dry air; empty on the psychrometric chart.
+    #[wasm_bindgen(getter, js_name = H)]
+    pub fn h(&self) -> Vec<f64> {
+        self.h.clone()
+    }
+
+    /// Mollier's chart: the vertices' drawn heights h − r₀W, J/kg of dry air; empty on the psychrometric chart.
+    #[wasm_bindgen(getter, js_name = Y)]
+    pub fn y(&self) -> Vec<f64> {
+        self.y.clone()
+    }
+
+    /// Mollier's chart: its skew r₀, water vapour's h at 0 °C, J/kg; undefined on the psychrometric chart.
+    #[wasm_bindgen(getter)]
+    pub fn r0(&self) -> Option<f64> {
+        self.r0
     }
 }

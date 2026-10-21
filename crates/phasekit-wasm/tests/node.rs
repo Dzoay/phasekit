@@ -797,3 +797,47 @@ fn the_psychrometric_chart_is_hapropssis() {
     }
     assert_eq!(checked, 310);
 }
+
+/// Whether a vertex (T, W, h) of Mollier's chart on the line of `key` at `value` is `HAPropsSI`'s at its inputs at 1
+/// atm, bit for bit: on the saturation and φ lines W at (T, R), on an isotherm its T, on the h and v lines T at (W, the
+/// line's value); and its h the line's value on an h line, else H at (T, W).
+fn mollier_is_hapropssis(air: &HumidAir, (key, value): (&str, f64), [t, w, h]: [f64; 3]) -> Result<bool, JsError> {
+    let on_line = match key {
+        "saturation" => air.ha_props_si("W", "T", t, "P", 101_325.0, "R", 1.0)? == w,
+        "R" => air.ha_props_si("W", "T", t, "P", 101_325.0, "R", value)? == w,
+        "T" => t == value,
+        other => air.ha_props_si("T", "W", w, "P", 101_325.0, other, value)? == t,
+    };
+    let at = if key == "H" { value } else { air.ha_props_si("H", "T", t, "P", 101_325.0, "W", w)? };
+    Ok(on_line && at == h)
+}
+
+/// PLAN.md M18.10: `HumidAir.mollier(p)`, Mollier's h–x chart over the psychrometric chart's range above, as typed
+/// arrays: every vertex is `HAPropsSI`'s at its inputs bit for bit (`mollier_is_hapropssis`) and its `Y` is
+/// `H − r0·W`; every run is at least two vertices long; the psychrometric chart has no `H`, `Y` or `r0`.
+#[wasm_bindgen_test]
+fn mollier_s_chart_is_hapropssis() {
+    let air = Registry::new().unwrap().with_pack(&air_pack()).unwrap().humid_air().unwrap();
+    let chart = air.mollier(101_325.0, Some(288.15), Some(298.15), Some(0.015)).unwrap();
+    let (held, values, segments, starts) = (chart.held(), chart.values(), chart.segments(), chart.starts());
+    let (t, w, h, y, r0) = (chart.t(), chart.w(), chart.h(), chart.y(), chart.r0().unwrap());
+    assert_eq!((held[0].as_str(), held.len() + 1), ("saturation", segments.len()));
+    assert!([w.len(), h.len(), y.len()].iter().all(|n| *n == t.len()));
+    let mut checked = 0;
+    for (i, key) in held.iter().enumerate() {
+        let runs = segments[i] as usize..segments[i + 1] as usize;
+        assert!(!runs.is_empty(), "{key} {}", values[i]);
+        for run in runs {
+            let vertices = starts[run] as usize..starts[run + 1] as usize;
+            assert!(vertices.len() >= 2, "{key} {}", values[i]);
+            for k in vertices {
+                let at_inputs = mollier_is_hapropssis(&air, (key, values[i]), [t[k], w[k], h[k]]).unwrap();
+                assert!(at_inputs && y[k] == h[k] - r0 * w[k], "{key} {} at {} K, W {}", values[i], t[k], w[k]);
+                checked += 1;
+            }
+        }
+    }
+    assert_eq!(checked, 346);
+    let psychrometric = air.psychrometric(101_325.0, Some(288.15), Some(298.15), Some(0.015)).unwrap();
+    assert!(psychrometric.h().is_empty() && psychrometric.y().is_empty() && psychrometric.r0().is_none());
+}
