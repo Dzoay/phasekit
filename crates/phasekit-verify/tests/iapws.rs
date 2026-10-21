@@ -9,9 +9,7 @@ use phasekit_core::batch::{BatchRequest, ExecPolicy};
 use phasekit_core::math;
 use phasekit_core::{Basis, Error, Fluid, Gauge, Input, Pair, Phase, Prop, State, Var};
 use phasekit_iapws::if97;
-use phasekit_verify::conformance::{
-    Outcome, capability_matrix, gauge_invariance, identities, policy_equivalence, thread_invariance,
-};
+use phasekit_verify::conformance::{Outcome, capability_matrix, gauge_invariance, identities, policy_equivalence};
 use phasekit_verify::register::{RowKey, exempt_row};
 use phasekit_verify::{Cell, DIVERGENCES, Fixture, Kind, ToleranceClass, fixture};
 
@@ -256,7 +254,7 @@ fn kit_inputs() -> Vec<Input> {
     inputs
 }
 
-/// The kit's identities (`Identity`), gauge invariance and thread invariance on IF97 water (PLAN.md M14.3).
+/// The kit's identities (`Identity`) and gauge invariance on IF97 water (PLAN.md M14.3).
 #[test]
 fn if97_water_passes_the_kit() {
     let fluid = water();
@@ -265,6 +263,14 @@ fn if97_water_passes_the_kit() {
     assert!(checked >= 12 * 10, "the first-order identities at every single-phase state: {checked}");
     let gauged = gauge_invariance(&fluid, Gauge::new(1234.5, -6.75).unwrap(), &kit_inputs());
     assert!(gauged.is_ok(), "{gauged:?}");
+}
+
+/// The kit's thread invariance on IF97 water (PLAN.md M14.3): eight threads sharing one fluid get a lone fluid's states
+/// bit for bit.
+#[cfg(not(target_family = "wasm"))] // wasip2 has no thread spawning
+#[test]
+fn if97_water_is_thread_invariant() {
+    use phasekit_verify::conformance::thread_invariance;
     let threads = thread_invariance(water, &kit_inputs(), 8);
     assert!(threads.is_ok(), "{threads:?}");
 }
