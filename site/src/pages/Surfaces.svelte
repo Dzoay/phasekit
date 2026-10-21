@@ -7,29 +7,43 @@
   import { PHASES } from "../diagram/style";
   import { getEngine } from "../engine/client";
   import { formatNumber } from "../lib/format";
+  import { output } from "../lib/outputs";
   import { route, writeParams } from "../lib/route.svelte";
+  import { displayUnit, fromSI } from "../lib/units";
   import {
     KINDS,
     domePath,
     phasesPresent,
+    place,
     positions,
+    stateAt,
     surfaceToken,
-    vertexColours,
+    tickLabel,
+    ticks,
+    triangleColours,
     type AxisKey,
   } from "../surface/mesh";
   import { SurfaceScene, linearRgb } from "../surface/scene";
-  import { SurfaceView } from "../surface/view.svelte";
+  import { READOUT_KEYS, SurfaceView } from "../surface/view.svelte";
 
   const view = new SurfaceView(getEngine());
   $effect(() => view.connect(route, (params) => writeParams("surfaces", params)));
 
-  const AXES: Record<AxisKey, { name: string; unit: string }> = {
-    v: { name: "Specific volume v", unit: "m³/kg" },
-    p: { name: "Pressure p", unit: "Pa" },
-    T: { name: "Temperature T", unit: "K" },
-    u: { name: "Internal energy u", unit: "J/kg" },
-    s: { name: "Entropy s", unit: "J/(kg·K)" },
+  const AXES: Record<AxisKey, { name: string; symbol: string; unit: string }> = {
+    v: { name: "Specific volume v", symbol: "v", unit: "m³/kg" },
+    p: { name: "Pressure p", symbol: "p", unit: "Pa" },
+    T: { name: "Temperature T", symbol: "T", unit: "K" },
+    u: { name: "Internal energy u", symbol: "u", unit: "J/kg" },
+    s: { name: "Entropy s", symbol: "s", unit: "J/(kg·K)" },
   };
+
+  /** A readout value in its SI unit; a dash where the package refused it. */
+  function shown(key: string, v: number | null | undefined): string {
+    const kind = output(key)?.kind;
+    if (v === null || v === undefined || !kind) return "—";
+    const unit = displayUnit(kind, "si");
+    return `${formatNumber(fromSI(v, unit))} ${unit.label}`.trim();
+  }
   const PLACES = ["Across", "Up", "Deep"] as const;
 
   let box: HTMLElement | undefined = $state();
@@ -47,10 +61,14 @@
     return getComputedStyle(probe).color;
   }
 
-  // The scene lives as long as its canvas.
+  // The scene lives as long as its canvas; the point under the cursor is read as the package's state at its (T, ρ).
   $effect(() => {
-    if (!canvas) return;
-    const made = new SurfaceScene(canvas);
+    if (!canvas || !box) return;
+    const made = new SurfaceScene(canvas, box, (p) => {
+      const m = view.data;
+      if (p && m) view.hover(...stateAt(m, p.triangle, p.weights));
+      else view.leave();
+    });
     scene = made;
     return () => {
       made.dispose();
@@ -91,14 +109,20 @@
     const m = view.data;
     if (!scene || !m || !placed) return;
     const tint = (phase: string) => linearRgb(colour(surfaceToken(phase)));
+    const axes = placed.axes.map((axis) => ({
+      title: `${AXES[axis.key].symbol} / ${AXES[axis.key].unit}`,
+      ticks: ticks(axis).map((v) => ({ at: place(v, axis), label: tickLabel(v, axis, formatNumber) })),
+    }));
     scene.draw({
       xyz: placed.xyz,
-      colours: vertexColours(m, tint),
       triangles: m.triangles,
+      colours: triangleColours(m, tint),
       dome: domePath(m),
       critical: m.critical[0] ?? null,
-      line: colour("--fg"),
+      axes,
+      line: colour("--fg-muted"),
       box: colour("--border"),
+      marker: colour("--accent"),
     });
   });
 </script>
@@ -158,7 +182,34 @@
 
 {#if view.data && placed}
   <div class="below">
-    <section class="card legend">
+    <section class="card readout" data-testid="readout" data-inputs={JSON.stringify(view.readout?.inputs ?? null)}>
+      <h2>Under the cursor</h2>
+      {#if view.readout?.state}
+        <p class="reading">
+          Phase <strong data-testid="readout-phase"
+            >{PHASES[view.readout.state.phase]?.name ?? view.readout.state.phase}</strong
+          >
+        </p>
+      {:else if view.readout?.refusal}
+        <p class="reading">The package refused this point: <code>{view.readout.refusal}</code></p>
+      {:else}
+        <p class="reading muted">Move over the surface.</p>
+      {/if}
+      <table>
+        <tbody>
+          {#each READOUT_KEYS as key, i (key)}
+            {@const v = view.readout?.state?.values[i]}
+            <tr>
+              <th scope="row">{output(key)?.label}</th>
+              <td class="num" data-testid="readout-{key}" data-value={view.readout?.state ? String(v) : undefined}
+                >{shown(key, v)}</td
+              >
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </section>
+    <section class="card legend" data-testid="axes">
       <h2>Axes</h2>
       <table>
         <tbody>
@@ -320,8 +371,51 @@
     margin-top: 20px;
   }
 
-  .legend {
+  .legend,
+  .readout {
     padding: 14px 18px;
+  }
+
+  .readout h2 {
+    font-size: 15px;
+    margin: 0 0 6px;
+  }
+
+  .readout .reading {
+    margin: 0 0 8px;
+    font-size: 13px;
+  }
+
+  .readout table {
+    border-collapse: collapse;
+    font-size: 13px;
+    width: 100%;
+  }
+
+  .readout th {
+    text-align: left;
+    color: var(--fg-muted);
+    font-weight: 500;
+    padding: 2px 12px 2px 0;
+  }
+
+  .readout .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .plot :global(.labels .tick) {
+    font-size: 11px;
+    color: var(--fg-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .plot :global(.labels .title) {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg);
+    white-space: nowrap;
   }
 
   .legend h2 {

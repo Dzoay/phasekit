@@ -2,6 +2,7 @@
 // (phasekit-diagram's, through `Fluid.surface`) placed in a cube, each axis's span scaled to [−1, 1], a logarithmic one
 // in its logarithm. p–v–T stands p up over v and T, p and v logarithmic; Gibbs's u–s–v stands u up over s and v, v
 // logarithmic as it spans as many decades. It adds no numerics: every vertex is the package's state.
+import { scaleLinear } from "d3-scale";
 import type { SurfaceValue } from "../engine/protocol";
 
 export type SurfaceKind = "pvt" | "usv";
@@ -71,15 +72,80 @@ export function domePath(m: SurfaceValue): number[] {
   return [...m.liquid, ...m.critical, ...[...m.vapour].reverse()];
 }
 
-/** Each vertex's colour, three channels a vertex, from its phase's. */
-export function vertexColours(
+/** Whether a vertex is on the dome: a saturated state, which borders the two-phase region and a one-phase one. */
+function onDome(m: SurfaceValue, i: number): boolean {
+  const q = m.Q[i];
+  return q === 0 || q === 1;
+}
+
+/** Each triangle's phase code: the one most of its vertices off the dome have, the first of them on a tie; where all
+ *  three are on the dome, theirs (the two-phase region's). One colour a triangle, so that no phase bleeds into the
+ *  next. */
+export function trianglePhases(m: SurfaceValue): Uint8Array {
+  const out = new Uint8Array(m.triangles.length / 3);
+  for (let t = 0; t < out.length; t++) {
+    const corners = [...m.triangles.subarray(3 * t, 3 * t + 3)];
+    const off = corners.filter((i) => !onDome(m, i));
+    const codes = (off.length > 0 ? off : corners).map((i) => m.phases[i] as number);
+    const count = (code: number) => codes.filter((c) => c === code).length;
+    out[t] = codes.reduce((best, code) => (count(code) > count(best) ? code : best));
+  }
+  return out;
+}
+
+/** Each triangle's colour, three channels a triangle, from its phase's; black for a code with no name. */
+export function triangleColours(
   m: SurfaceValue,
   rgb: (phase: string) => readonly [number, number, number],
 ): Float32Array {
   const byCode = m.phaseNames.map(rgb);
-  const out = new Float32Array(3 * m.phases.length);
-  m.phases.forEach((code, i) => out.set(byCode[code] ?? [0, 0, 0], 3 * i));
+  const phases = trianglePhases(m);
+  const out = new Float32Array(3 * phases.length);
+  phases.forEach((code, t) => {
+    const rgb = byCode[code];
+    if (rgb) out.set(rgb, 3 * t);
+  });
   return out;
+}
+
+/** An axis's labelled values inside its span: on a logarithmic axis its decades, every other one past eight; on a
+ *  linear one about five round numbers. */
+export function ticks(axis: Axis): number[] {
+  const [lo, hi] = axis.span;
+  if (!(lo < hi)) return [];
+  if (!axis.log) return scaleLinear().domain([lo, hi]).ticks(5);
+  const [first, last] = [Math.ceil(Math.log10(lo)), Math.floor(Math.log10(hi))];
+  const every = last - first + 1 > 8 ? 2 : 1;
+  const decades: number[] = [];
+  for (let k = first; k <= last; k += every) decades.push(Number(`1e${k}`));
+  return decades;
+}
+
+const SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+
+/** A tick's label: on a logarithmic axis its decade as 10ᵏ, on a linear one the value as `format` writes it. */
+export function tickLabel(value: number, axis: Axis, format: (v: number) => string): string {
+  if (!axis.log) return format(value);
+  const k = Math.round(Math.log10(value));
+  const digits = [...String(Math.abs(k))].map((d) => SUPERSCRIPT[Number(d)]).join("");
+  return `10${k < 0 ? "⁻" : ""}${digits}`;
+}
+
+/** The state's (T, ρ) at a point of a triangle, by its barycentric weights: T linear and ρ in its logarithm between the
+ *  corners, as the mesh lies over T and ln ρ. */
+export function stateAt(
+  m: SurfaceValue,
+  triangle: number,
+  weights: readonly [number, number, number],
+): [number, number] {
+  const corners = [...m.triangles.subarray(3 * triangle, 3 * triangle + 3)];
+  let [t, lnRho] = [0, 0];
+  corners.forEach((i, k) => {
+    const w = weights[k] as number;
+    t += w * (m.T[i] as number);
+    lnRho += w * Math.log(m.rho[i] as number);
+  });
+  return [t, Math.exp(lnRho)];
 }
 
 /** The phases the surface has, in the legend's order of `order`. */

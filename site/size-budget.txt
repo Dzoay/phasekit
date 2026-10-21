@@ -9,5 +9,5 @@
 # M21.10: the how-it-works page, loaded on its first visit; the calculator's first load grows by 0.2 kB (its route and
 # header link): 96289 bytes, + 10 %.
 # M26.2: the surfaces page, loaded on its first visit with three.js (user decision DG7), about 137 kB of the growth; the
-# calculator's first load grows only by its header link: 243453 bytes, + 10 %.
-js+css-gzip 267798
+# calculator's first load grows only by its header link: 246836 bytes, + 10 %.
+js+css-gzip 271520

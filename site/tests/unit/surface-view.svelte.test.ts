@@ -4,7 +4,7 @@ import { flushSync } from "svelte";
 import { describe, expect, test, vi } from "vitest";
 import { createHandler } from "../../src/engine/handler";
 import type { Body, Engine, Request, SurfaceValue, Values } from "../../src/engine/protocol";
-import { SurfaceView } from "../../src/surface/view.svelte";
+import { READOUT_KEYS, SurfaceView } from "../../src/surface/view.svelte";
 import { loadPk } from "../pk";
 
 async function realEngine(): Promise<{ engine: Engine; calls: Body[] }> {
@@ -41,6 +41,18 @@ async function setup(query: string) {
 }
 
 describe("the surfaces view", { timeout: 30_000 }, () => {
+  test("is Water's p–v–T surface, busy and without a readout, before it connects", () => {
+    const view = new SurfaceView({ call: () => new Promise(() => {}) });
+    expect([view.fluid, view.kind, view.busy, view.data, view.refusal, view.readout]).toEqual([
+      "Water",
+      "pvt",
+      true,
+      null,
+      null,
+      null,
+    ]);
+  });
+
   test("loads its view from the route and asks for the fluid's mesh once", async () => {
     const { view, writes, calls, stop } = await setup("fluid=Water&kind=usv");
     expect([view.fluid, view.kind, view.refusal]).toEqual(["Water", "usv", null]);
@@ -96,7 +108,9 @@ describe("the surfaces view", { timeout: 30_000 }, () => {
     const mesh = { T: new Float64Array([1]) } as SurfaceValue;
     pending[0]?.resolve(mesh);
     pending[1]?.reject(new Error("B refused"));
-    await vi.waitFor(() => expect([view.data, view.refusal, view.busy]).toEqual([null, null, true]));
+    // Both late answers settle before C's state is read.
+    await new Promise((settled) => setTimeout(settled));
+    expect([view.data, view.refusal, view.busy]).toEqual([null, null, true]);
     pending[2]?.reject("C refused");
     await vi.waitFor(() => expect([view.data, view.refusal, view.busy]).toEqual([null, "C refused", false]));
     // A's mesh was kept, though its answer came late.
@@ -104,6 +118,64 @@ describe("the surfaces view", { timeout: 30_000 }, () => {
     flushSync();
     expect([view.data, view.refusal, view.busy]).toEqual([mesh, null, false]);
     expect(pending.length).toBe(3);
+    stop();
+  });
+
+  test("reads the package's state at a point of the surface, and none once the cursor leaves", async () => {
+    const { view, calls, stop } = await setup("fluid=Water");
+    view.hover(600, 2);
+    await vi.waitFor(() => expect(view.readout?.state).not.toBeNull());
+    expect(view.readout?.inputs).toEqual([600, 2]);
+    expect(view.readout?.state?.phase).toBe("gas");
+    expect(view.readout?.state?.values[0]).toBe(600);
+    expect(calls.at(-1)).toEqual({
+      op: "state",
+      fluid: "Water",
+      name1: "T",
+      value1: 600,
+      name2: "Dmass",
+      value2: 2,
+      outputs: [...READOUT_KEYS],
+    });
+    view.hover(-1, 2);
+    await vi.waitFor(() => expect(view.readout?.refusal).toBeTruthy());
+    expect([view.readout?.state, view.readout?.inputs]).toEqual([null, [-1, 2]]);
+    view.leave();
+    expect(view.readout).toBeNull();
+    stop();
+  });
+
+  test("shows only the latest point's state, none that comes after the cursor left or the fluid changed", async () => {
+    const pending: { body: Body; resolve: (v: unknown) => void; reject: (e: unknown) => void }[] = [];
+    const engine: Engine = {
+      call<B extends Body>(body: B): Promise<Values[B["op"]]> {
+        return new Promise((resolve, reject) => {
+          pending.push({ body, resolve: resolve as (v: unknown) => void, reject });
+        });
+      },
+    };
+    const route = $state({ params: new URLSearchParams("fluid=A") });
+    const view = new SurfaceView(engine);
+    const stop = view.connect(route, () => {});
+    flushSync();
+    const state = (phase: string) => ({ phase, values: [], errors: [], mixture: null });
+    view.hover(1, 1);
+    view.hover(2, 2);
+    pending[2]?.resolve(state("late"));
+    pending[1]?.resolve(state("first"));
+    await vi.waitFor(() => expect(view.readout?.state?.phase).toBe("late"));
+    expect(view.readout?.inputs).toEqual([2, 2]);
+    view.hover(3, 3);
+    view.leave();
+    pending[3]?.reject("too late");
+    await Promise.resolve();
+    expect(view.readout).toBeNull();
+    view.hover(4, 4);
+    route.params = new URLSearchParams("fluid=B");
+    flushSync();
+    pending[4]?.resolve(state("old fluid"));
+    await Promise.resolve();
+    expect(view.readout).toBeNull();
     stop();
   });
 });

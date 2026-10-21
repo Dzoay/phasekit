@@ -10,9 +10,13 @@ import {
   place,
   positions,
   span,
+  stateAt,
   surfaceToken,
+  tickLabel,
+  ticks,
+  triangleColours,
+  trianglePhases,
   valuesOf,
-  vertexColours,
 } from "../../src/surface/mesh";
 import { loadPk } from "../pk";
 
@@ -92,10 +96,50 @@ describe("the surface's placement", () => {
     expect(domePath({ ...m, critical: new Uint32Array([]) })).toEqual([0, 1, 3, 4]);
   });
 
-  test("colours each vertex by its phase, black for a code with no name", () => {
-    const m = { ...small(), phases: new Uint8Array([2, 0, 7]) };
+  test("gives each triangle the phase most of its vertices off the dome have, the first on a tie, the dome's alone", () => {
+    // Vertices 0 and 3 are on the dome (Q = 0 and 1, two-phase); 1 is liquid, 2 and 4 gas.
+    const m = {
+      ...small(),
+      Q: new Float64Array([0, NaN, NaN, 1, NaN]),
+      phases: new Uint8Array([1, 0, 2, 1, 2]),
+      triangles: new Uint32Array([0, 1, 2, 0, 3, 1, 3, 0, 3, 1, 2, 4]),
+    };
+    expect([...trianglePhases(m)]).toEqual([0, 0, 1, 2]);
     const rgb = (phase: string) => (phase === "gas" ? ([0, 0, 1] as const) : ([1, 0.5, 0] as const));
-    expect([...vertexColours(m, rgb)]).toEqual([0, 0, 1, 1, 0.5, 0, 0, 0, 0]);
+    expect([...triangleColours(m, rgb)]).toEqual([1, 0.5, 0, 1, 0.5, 0, 1, 0.5, 0, 0, 0, 1]);
+    const unnamed = { ...small(), phases: new Uint8Array([7, 7, 0]) };
+    expect([...triangleColours(unnamed, rgb)]).toEqual([0, 0, 0]);
+  });
+
+  test("labels a logarithmic axis's decades, every other past eight, and a linear one's round numbers", () => {
+    expect(ticks({ key: "v", log: true, span: [9.2e-4, 216] })).toEqual([0.001, 0.01, 0.1, 1, 10, 100]);
+    expect(ticks({ key: "v", log: true, span: [1e-8, 2e3] })).toEqual([1e-8, 1e-6, 1e-4, 0.01, 1, 100]);
+    // Nine decades are past eight; eight are not.
+    expect(ticks({ key: "p", log: true, span: [1e-7, 1e1] })).toEqual([1e-7, 1e-5, 1e-3, 0.1, 10]);
+    expect(ticks({ key: "p", log: true, span: [1e-7, 1] })).toEqual([1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 0.01, 0.1, 1]);
+    expect(ticks({ key: "T", log: false, span: [273.16, 1035.35] })).toEqual([400, 600, 800, 1000]);
+    expect(ticks({ key: "T", log: false, span: [5, 5] })).toEqual([]);
+    expect(ticks({ key: "T", log: false, span: [NaN, NaN] })).toEqual([]);
+  });
+
+  test("labels a logarithmic tick as its decade, 10ᵏ, and a linear one as the format writes it", () => {
+    const log = { key: "p", log: true, span: [1e-8, 1e9] } as const;
+    const got = [1e-8, 0.01, 1, 10, 1e9].map((v) => tickLabel(v, log, String));
+    expect(got).toEqual(["10⁻⁸", "10⁻²", "10⁰", "10¹", "10⁹"]);
+    expect(tickLabel(1e12, log, String)).toBe("10¹²");
+    expect(tickLabel(400, { key: "T", log: false, span: [300, 500] }, (v) => `${v} K`)).toBe("400 K");
+  });
+
+  test("reads a point of a triangle as T between its corners' and ρ between them in its logarithm", () => {
+    const m = small();
+    const [corner, dense] = stateAt(m, 0, [1, 0, 0]);
+    expect(corner).toBe(300);
+    expect(dense).toBeCloseTo(1000, 10);
+    const [t, rho] = stateAt(m, 0, [0.5, 0.5, 0]);
+    expect(t).toBe(350);
+    expect(rho).toBeCloseTo(100, 10);
+    const [, thin] = stateAt(m, 0, [0, 0.5, 0.5]);
+    expect(thin).toBeCloseTo(1, 12);
   });
 
   test("names each phase's surface colour token", () => {
