@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::math;
-use phasekit_core::{DataSet, Error, Fluid, Pair, Registry};
+use phasekit_core::{Basis, DataSet, Error, Fluid, Input, Pair, Registry};
 use phasekit_humidair::{Coefficient, Gas, HumidAir, Parts, Virials, henry_constant};
 use phasekit_verify::register::exempt_at;
 use phasekit_verify::{Cell, DIVERGENCES, Fixture, Kind, Tolerance, ToleranceClass, fixture};
@@ -305,4 +305,28 @@ fn saturation_matches_the_oracle() {
     }
     assert_eq!(missed, Vec::<String>::new());
     assert!(henry > 20, "{henry}");
+}
+
+/// ROT-261, ROT-263, ROT-270 (PLAN.md M18.2): the condensed phase is liquid at the triple point and above and ice
+/// below, one predicate; its κ_T and molar volume are its part's state at (T, p), a typed input: ice's (R10-06(2009),
+/// Table 6's κ_T) and IF97's region 1 under `Corrected`; and inside IF97's 3.3e-5 band about the saturation line,
+/// where v8.0.0 switches κ_T to a polynomial to dodge a throw (map 07 H11), it is still IF97's.
+#[test]
+fn the_condensed_phase_is_its_parts_state() {
+    let (air, parts) = (humid_air(DataSet::Corrected), parts(DataSet::Corrected));
+    let pt = |f: &Fluid, t: f64, p: f64| f.state(Input::new(Pair::PT, p, t, Basis::Mass).unwrap()).unwrap();
+    let ice = pt(&parts.ice, 250.0, 1e6);
+    let s = air.saturation(250.0, 1e6).unwrap();
+    assert_eq!((s.kappa_t, s.v_condensed), (ice.isothermal_compressibility().unwrap(), 1.0 / ice.rho(Basis::Molar)));
+    assert_eq!(s.beta_h, 0.0);
+    let triple = air.saturation(273.16, 1e6).unwrap();
+    assert_eq!(triple.kappa_t, pt(&parts.liquid, 273.16, 1e6).isothermal_compressibility().unwrap());
+    assert!(triple.beta_h > 0.0);
+    let just_below = air.saturation(273.159_99, 1e6).unwrap();
+    assert_eq!(just_below.beta_h, 0.0, "ice below the triple point");
+    let p_s = phasekit_iapws::if97::saturation_pressure(373.0).unwrap();
+    for p in [p_s * (1.0 + 1e-5), p_s * (1.0 + 3e-5)] {
+        let s = air.saturation(373.0, p).unwrap();
+        assert_eq!(s.kappa_t, pt(&parts.liquid, 373.0, p).isothermal_compressibility().unwrap(), "{p}");
+    }
 }
