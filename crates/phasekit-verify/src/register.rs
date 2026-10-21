@@ -1784,6 +1784,23 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[18],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0074",
+        fluids: &["Humid air"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_compat::humid_air"),
+        evidence: "map 07 H10 (ROT-165's rule): v8.0.0's HAPropsSI returns an output whose key is an input's before \
+                   any check, HAPropsSI(\"T\",\"T\",300,\"P\",101325,\"R\",5) = 300 with R = 5, and P = -1 returns -1; \
+                   phasekit_compat's computes every output from the state, so those calls are refused (M18.6). No \
+                   fixture row asks for an input as output with an input out of range",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[18],
+        status: DivStatus::Open,
+    },
 ];
 
 /// The `humidair` kind's state columns, every one DIV-0069's (PLAN.md M18.3).

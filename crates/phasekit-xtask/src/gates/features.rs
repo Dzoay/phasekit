@@ -1,7 +1,8 @@
 //! `gates features`: the fluid set is forwarded, never implied (E7; VERIFICATION.md §11.2). `phasekit-compat` built
-//! with `--no-default-features --features fluids-core` resolves to the three workspace crates, compat and core with
+//! with `--no-default-features --features fluids-core` resolves to compat, core and data with
 //! `embedded` and `fluids-core` only (no `rayon`, `libm` or `simd`, PLAN.md M12.4), and `phasekit-data` with `core` and
 //! exactly the fluids its `core` list names.
+//! Both builds also take phasekit-iapws and phasekit-humidair, with no feature, for `HAPropsSI` (M18.6).
 //! The browser package's build resolves the same (beside wasm-bindgen's own crates, phasekit-mix with no feature for
 //! its mixture names, M13.14, and phasekit-diagram with none for the diagrams' geometry, M19.6), except that core
 //! enables `libm` in both its builds (user decision IM6) and its `simd128` build, with the package's `simd` feature,
@@ -102,6 +103,7 @@ fn wanted<'a>(name: &str, core: &'a [String], root: &str, simd: bool) -> Option<
     let want = match name {
         "phasekit-wasm" if root == "phasekit-wasm" => simd.then_some("simd").into_iter().collect(),
         "phasekit-mix" | "phasekit-diagram" if root == "phasekit-wasm" => Vec::new(),
+        "phasekit-iapws" | "phasekit-humidair" => Vec::new(),
         "phasekit-core" if simd => vec!["embedded", "fluids-core", "libm", "simd"],
         "phasekit-core" if root == "phasekit-wasm" => vec!["embedded", "fluids-core", "libm"],
         "phasekit-compat" | "phasekit-core" => vec!["embedded", "fluids-core"],

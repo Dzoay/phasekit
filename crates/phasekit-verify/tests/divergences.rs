@@ -102,6 +102,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0071", div_0071),
     ("DIV-0072", div_0072),
     ("DIV-0073", div_0073),
+    ("DIV-0074", div_0074),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1997,6 +1998,19 @@ fn div_0073() {
     let oracle = Fixture::parse(path, text).unwrap();
     assert!(oracle.value(humidair_row(&oracle, 253.15, 10.0, "R", 0.0), "M").unwrap() > 0.0);
     assert!(air.viscosity(&state(612.0)).unwrap() > 0.0 && air.conductivity(&state(612.0)).unwrap() > 0.0);
+}
+
+/// DIV-0074 (`SkipOracle`, PLAN.md M18.6; map 07 H10): no echo. (1) `HAPropsSI("T","T",300,"P",101325,"R",5)`, which
+/// v8.0.0 answers 300, is refused, as φ = 5 is; (2) a valid call's T is the state's, and so is its W at a given W, which
+/// round-trips through ψ_w.
+fn div_0074() {
+    use phasekit_compat::ha_props_si_in;
+    let air = humid_air(DataSet::Parity);
+    let echo = ha_props_si_in(&air, "T", "T", 300.0, "P", 101_325.0, "R", 5.0);
+    assert!(matches!(echo, Err(phasekit_compat::CompatError::Core(Error::InvalidInput { .. }))), "{echo:?}");
+    assert_eq!(ha_props_si_in(&air, "T", "T", 300.0, "P", 101_325.0, "R", 0.5), Ok(300.0));
+    let w = ha_props_si_in(&air, "W", "T", 300.0, "P", 101_325.0, "W", 0.01).unwrap();
+    assert!((w / 0.01 - 1.0).abs() <= 4.0 * f64::EPSILON, "{w}");
 }
 
 /// RP-1485's humid air over core's water and air and phasekit-iapws's IF97 water and ice, under `data`.
