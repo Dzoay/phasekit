@@ -95,6 +95,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0064", div_0064),
     ("DIV-0065", div_0065),
     ("DIV-0066", div_0066),
+    ("DIV-0067", div_0067),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1848,5 +1849,30 @@ fn div_0066() {
         }
         assert_eq!([q.cp(m).unwrap(), q.rho(m)].map(f64::to_bits), [c.cp(m).unwrap(), c.rho(m)].map(f64::to_bits));
         assert!((q.s(m) - c.s(m)).abs() <= ToleranceClass::Prop.bound(c.s(m).abs()).unwrap(), "s at {t} K");
+    }
+}
+
+/// DIV-0067 (`KeepOracle`, PLAN.md M18.1; ROT-271): C_aww. (1) Humid air's C_aww is v8.0.0's (`HAProps_Aux`'s Caww
+/// within `Prop` at 200, 300 and 400 K); (2) it misses IAPWS G8-10 Table 15's C_aww by more than 5e-5 at each, and
+/// (3) by no more than the registered 1.3e-4 (`tests/humidair.rs` holds the derivatives too).
+fn div_0067() {
+    let registry = Registry::from_embedded(DataSet::Parity).unwrap();
+    let water = registry.get("Water").unwrap().clone();
+    let parts = phasekit_humidair::Parts {
+        water: water.clone(),
+        air: registry.get("Air").unwrap().clone(),
+        liquid: phasekit_iapws::if97::water().unwrap(),
+        ice: phasekit_iapws::ice::ice(&water, DataSet::Parity).unwrap(),
+    };
+    let air = phasekit_humidair::HumidAir::new(parts, DataSet::Parity).unwrap();
+    let (path, text) = fixture!("coolprop-8.0.0/all/humidair_aux.csv");
+    let oracle = Fixture::parse(path, text).unwrap();
+    for (t, g8_10) in [(200.0, -0.349_872_634e-5), (300.0, -0.115_552_784e-6), (400.0, -0.200_806_021e-7)] {
+        let ours = air.virials(t).unwrap().c_aww.value;
+        let row = (0..oracle.rows().len()).find(|&r| oracle.value(r, "T") == Some(t)).unwrap();
+        let want = oracle.value(row, "Caww").unwrap();
+        assert!((ours - want).abs() <= ToleranceClass::Prop.bound(want.abs()).unwrap(), "{t} K: {ours} {want}");
+        let gap = (ours / g8_10 - 1.0).abs();
+        assert!(gap > 5e-5 && gap <= 1.3e-4, "{t} K: {gap}");
     }
 }

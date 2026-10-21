@@ -1,0 +1,29 @@
+# fixture: paper/v1
+# source: iapws:G11-15/7
+# citation: report=IAPWS-G11-15 table=7 page=10 erratum-checked=2026-10-21 pdf_sha256=00fbe4dfb5226ba46f925d31a4d455fcf70d5803b7fd2c1cbf54be6b57dcec8f
+# kind: Rows
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: quantity,T,value,unit
+# units: -,K,unit,-
+# tol: label,in,paper,label
+B_AA,200,-0.392722567e-4,m3 mol-1
+B_AA,300,-0.776210977e-5,m3 mol-1
+B_AA,400,0.603953176e-5,m3 mol-1
+C_AAA,200,0.227113063e-8,m6 mol-2
+C_AAA,300,0.181166638e-8,m6 mol-2
+C_AAA,400,0.162604635e-8,m6 mol-2
+B_WW,200,-0.186282737e-1,m3 mol-1
+B_WW,300,-0.120129928e-2,m3 mol-1
+B_WW,400,-0.348784166e-3,m3 mol-1
+C_WWW,200,-0.263959706e-3,m6 mol-2
+C_WWW,300,-0.420419196e-5,m6 mol-2
+C_WWW,400,-0.217733298e-6,m6 mol-2
+B_AW,200,-0.784874278e-4,m3 mol-1
+B_AW,300,-0.295672747e-4,m3 mol-1
+B_AW,400,-0.100804610e-4,m3 mol-1
+C_AAW,200,0.105493575e-8,m6 mol-2
+C_AAW,300,0.801977741e-9,m6 mol-2
+C_AAW,400,0.672018172e-9,m6 mol-2
+C_AWW,200,-0.349872634e-5,m6 mol-2
+C_AWW,300,-0.115552784e-6,m6 mol-2
+C_AWW,400,-0.200806021e-7,m6 mol-2

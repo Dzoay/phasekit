@@ -35,6 +35,8 @@ phasekit-cubic.workspace = true
 # IAPWS water and ice, against the IAPWS releases' tables (tests/iapws.rs; PLAN.md M14.2); it dev-depends on this
 # crate too.
 phasekit-iapws.workspace = true
+# Humid air, against the IAPWS releases and the authors' tables (tests/humidair.rs; PLAN.md M18).
+phasekit-humidair.workspace = true
 # The mixture family, in its divergence proofs (tests/divergences.rs; PLAN.md M13.3); it dev-depends on this crate too.
 phasekit-mix.workspace = true
 # The AD oracle for Jet4 and the power-term fast path (tests/terms.rs; PLAN.md M3.2): scalar duals only, so no

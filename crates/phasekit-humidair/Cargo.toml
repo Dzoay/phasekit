@@ -1,0 +1,24 @@
+[package]
+name = "phasekit-humidair"
+description = "Humid air over phasekit: ASHRAE RP-1485's virial mixture of dry air and water vapour"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# phasekit-core's public API and nothing else (docs/DEPENDENCIES.md, the T1f row; user decision HA4): its water, air,
+# IF97 water and ice are `Fluid`s it takes at construction. Not published yet: that is the user's call (AGENTS.md).
+[dependencies]
+phasekit-core.workspace = true
+
+# The parts its tests stand it on: core's water and Air, phasekit-iapws's IF97 water and ice.
+[dev-dependencies]
+phasekit-core = { workspace = true, features = ["fluids-all"] }
+phasekit-iapws.workspace = true
+
+[lints]
+workspace = true
