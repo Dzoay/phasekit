@@ -20,8 +20,7 @@
   import { output } from "../lib/outputs";
   import { route, writeParams } from "../lib/route.svelte";
   import { SYSTEMS, fromSI } from "../lib/units";
-  import { DIAGRAMS } from "../sample/diagrams";
-  import { MIXTURE_DIAGRAMS } from "../sample/envelope";
+  import { DIAGRAMS, MIXTURE_DIAGRAMS } from "../diagram/planes";
 
   const view = new DiagramView(getEngine());
   $effect(() => view.connect(route, (params) => writeParams("diagrams", params)));

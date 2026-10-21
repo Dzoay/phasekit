@@ -4,7 +4,7 @@
 import { flushSync } from "svelte";
 import { describe, expect, test, vi } from "vitest";
 import { BENCH_OUTPUTS } from "../../src/bench/grids";
-import { LIMIT_KEYS } from "../../src/sample/ranges";
+import { LIMIT_KEYS } from "../../src/lib/ranges";
 import { BenchView, SIZES } from "../../src/bench/view.svelte";
 import type { BatchValue, Body, Build, Engine, Values } from "../../src/engine/protocol";
 

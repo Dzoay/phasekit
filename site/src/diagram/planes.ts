@@ -1,6 +1,8 @@
 // The five diagrams (PLAN.md M21.2): their axes, the isoline families each draws, each family's sweep, and the input
 // pair the cursor's readout flashes. At most three coloured families beside the lines of constant quality, the most the
-// isoline palette keeps apart for colour-blind readers when every pair can sit side by side (the dataviz skill).
+// isoline palette keeps apart for colour-blind readers when every pair can sit side by side (the dataviz skill). The
+// package draws them (`Fluid.diagram`, M21.6): the page needs its tabs before the engine has loaded, so it keeps this
+// table, and Vitest holds the axes and families to the package's `planes()`.
 
 /** A state variable, by the package's input key. */
 export type Key = "T" | "P" | "Hmass" | "Smass" | "Dmass" | "Q";
@@ -75,3 +77,6 @@ export const DIAGRAMS: readonly Diagram[] = [
 export function diagram(id: string): Diagram | undefined {
   return DIAGRAMS.find((d) => d.id === id);
 }
+
+/** The diagrams a mixture has: the planes of its envelope (PLAN.md M21.5); the package refuses the others. */
+export const MIXTURE_DIAGRAMS: readonly DiagramId[] = ["pt", "trho"];

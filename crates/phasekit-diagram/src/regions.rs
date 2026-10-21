@@ -31,7 +31,7 @@ pub struct Corner {
 }
 
 impl Corner {
-    /// Its value of `quantity`; `None` for quality, which no plane plots.
+    /// Its value of `quantity`; `None` for quality and internal energy, which no plane plots.
     pub fn get(&self, quantity: Quantity) -> Option<f64> {
         match quantity {
             Quantity::T => Some(self.t),
@@ -39,7 +39,7 @@ impl Corner {
             Quantity::Hmass => Some(self.h),
             Quantity::Smass => Some(self.s),
             Quantity::Dmass => Some(self.rho),
-            Quantity::Q => None,
+            Quantity::Q | Quantity::Umass => None,
         }
     }
 }

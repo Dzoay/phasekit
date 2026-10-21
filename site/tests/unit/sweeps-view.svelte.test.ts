@@ -5,7 +5,7 @@ import { flushSync } from "svelte";
 import { describe, expect, test, vi } from "vitest";
 import { createHandler } from "../../src/engine/handler";
 import type { Body, Engine, Request, Values } from "../../src/engine/protocol";
-import { LATENT, type Sweep } from "../../src/sample/sweeps";
+import { LATENT, type Sweep } from "../../src/sweeps/sample";
 import { RAMP, buildChart, lineName, lineStyle, nearest } from "../../src/sweeps/chart";
 import { SweepView, heldUnit, unitOfOutput } from "../../src/sweeps/view.svelte";
 import { loadPk } from "../pk";

@@ -9,7 +9,7 @@ import { lineLabel } from "../diagram/style";
 import { formatNumber } from "../lib/format";
 import { output, type Output } from "../lib/outputs";
 import { fromSI, type System } from "../lib/units";
-import { LATENT, type Sweep, type SweepLine } from "../sample/sweeps";
+import { LATENT, type Sweep, type SweepLine } from "./sample";
 import { unitOfOutput } from "./view.svelte";
 
 /** The sequential ramp's tokens, one a line, in the order of the lines' held values. */

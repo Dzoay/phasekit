@@ -149,7 +149,9 @@ x86_64-unknown-linux-gnu phasekit-iapws::lib 10
 x86_64-unknown-linux-gnu phasekit-verify::iapws 16
 wasm32-wasip2 phasekit-iapws::lib 10
 wasm32-wasip2 phasekit-verify::iapws 15
-x86_64-unknown-linux-gnu phasekit-humidair::lib 19
+x86_64-unknown-linux-gnu phasekit-humidair::lib 21
 x86_64-unknown-linux-gnu phasekit-verify::humidair 23
-wasm32-wasip2 phasekit-humidair::lib 19
+wasm32-wasip2 phasekit-humidair::lib 21
 wasm32-wasip2 phasekit-verify::humidair 22
+x86_64-unknown-linux-gnu phasekit-diagram::surface 7
+wasm32-wasip2 phasekit-diagram::surface 7

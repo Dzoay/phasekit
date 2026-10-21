@@ -2,8 +2,8 @@
 // pixel back to the SI inputs of the pair its flash takes.
 import { scaleLinear, scaleLog, type ScaleContinuousNumeric } from "d3-scale";
 import { fromSI, toSI, type System } from "../lib/units";
-import type { Axis, Diagram, Key } from "../sample/diagrams";
-import type { DiagramData } from "../sample/lines";
+import type { Axis, Diagram, Key } from "./planes";
+import type { DiagramData } from "./data";
 import { unitOfKey } from "./style";
 
 export type Scale = ScaleContinuousNumeric<number, number>;
