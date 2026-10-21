@@ -395,10 +395,11 @@ pub static DIVERGENCES: &[Divergence] = &[
                    2.14e-7 for Oxygen's B at 56.89 K, the props kind's lowest temperatures (2026-10-13); M18.1: \
                    HAProps_Aux's Cwww at 200 K is -5.93e-4 m6/mol2, the exact series' and IAPWS G11-15's -2.64e-4; M18.2: its \
                    enhancement factor f inherits B and C through Eq. (3.25), up to 9.8e-8 off at 200 K and 5 MPa, \
-                   growing with p",
+                   growing with p; M18.3: HAPropsSI's psi_w at a relative humidity inherits f, its W, psi_w and p_w up \
+                   to 2.4e-7 off at 300 °C, 10 MPa and R = 1",
         exempt: Some(Exempt {
-            kinds: &[Kind::Eos, Kind::Props, Kind::HumidairAux],
-            columns: &["Cvirial", "dCvirial_dT", "Caaa", "Cwww", "f"],
+            kinds: &[Kind::Eos, Kind::Props, Kind::HumidairAux, Kind::Humidair],
+            columns: &["Cvirial", "dCvirial_dT", "Caaa", "Cwww", "f", "W", "Y", "P_w"],
             rows: Rows::All,
         }),
         tolerance: Some(Tolerance::Relative(3e-7)),
@@ -1663,6 +1664,110 @@ pub static DIVERGENCES: &[Divergence] = &[
         proof: &[18],
         status: DivStatus::Open,
     },
+    Divergence {
+        id: "DIV-0068",
+        fluids: &["Humid air"],
+        part: Part::Composition,
+        arbiter: Some("Herrmann, Kretzschmar and Gatley (2009), Tables 1 and 2 (W_s to seven decimals)"),
+        policy: Policy::UsePaper,
+        fix: Fix::Code("phasekit_humidair::humidity"),
+        evidence: "map 07 H4 (ROT-264): v8.0.0 converts between W and psi_w with epsilon = 0.621945 \
+                   (HumidAirProp.cpp:110, 1345, 1547), 5.07e-7 below M_w/M_a = 0.018015268/0.028966, the molar \
+                   masses it takes for humid air's. Under Corrected, M_w/M_a gives Tables 1 and 2's W_s at all 31 \
+                   rows within their printed digits (M18.2); 0.621945 with the same psi_ws misses Table 2 from 55 °C \
+                   up, at 90 °C 1.4202347 against 1.4202354, and v8.0.0's own W_s at 80 °C and 101.325 kPa is \
+                   0.55292593 against 0.5529261 (M18.3)",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[18],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0069",
+        fluids: &["Humid air"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_humidair::moist_air"),
+        evidence: "map 07 H9 (ROT-269): HAPropsSI's moist-air states take HAProps_Aux's virials, B and C from \
+                   v8.0.0's EOS at delta = 1e-12 (DIV-0011), and its c_p, c_v, w and isentropic exponent are central \
+                   differences (dT = 1e-3 K, dv = 1e-8 m3/mol); phasekit's take the exact virials and the state's own \
+                   derivatives (M18.3). Over the humidair kind's 276 unsaturated states, relative to max(|value|, \
+                   floor) with section 5's floors: at a given W, h 1.1e-7, c_p 9.1e-8, v and Z 5.7e-8, s 2.1e-8, and w \
+                   1.4e-6 and the isentropic exponent 2.8e-6 at 350 °C and 10 Pa, where the difference in v rounds; \
+                   at a given R, psi_w also carries f's difference (DIV-0011), and c_p is 4.9e-6 off, c_v 1.1e-6, v \
+                   and Z 9.9e-7, at 300 °C, 10 MPa and R = 1",
+        exempt: Some(Exempt { kinds: &[Kind::Humidair], columns: &HUMIDAIR_STATE_COLUMNS, rows: Rows::All }),
+        tolerance: Some(Tolerance::Relative(5e-6)),
+        table_tolerances: &[],
+        proof: &[18],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0070",
+        fluids: &["Humid air"],
+        part: Part::Algorithm,
+        arbiter: Some("Herrmann, Kretzschmar and Gatley (2009), Table 2 (h_s and s_s)"),
+        policy: Policy::UsePaper,
+        fix: Fix::Code("phasekit_humidair::ideal"),
+        evidence: "map 07 H3: v8.0.0 takes water vapour's ideal part from IAPWS-95's alpha0 at every T \
+                   (HumidAirProp.cpp:1077-1100), where RP-1485 takes IF97 region 2's above the triple point \
+                   (ASHRAE's LibHuAirProp guide section 1.3). On the liquid's triple-point zero, IAPWS-95's ideal h \
+                   is 18.0 to 23.4 J/kg above IF97's from 0 to 90 °C (at 1 Pa). Under Corrected, IF97's gives Table \
+                   2's s_s at all 19 rows within their printed digits and its h_s within DIV-0071's bound; IAPWS-95's \
+                   misses s_s at 5 rows, and puts h_s at 90 °C 29 J/kg of dry air off (M18.3)",
+        exempt: None,
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[18],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0071",
+        fluids: &["Humid air"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::Investigate,
+        fix: Fix::None,
+        evidence: "map 07 H3; issue #275, user decision HA8: under Corrected, the authors' tables (Herrmann, \
+                   Kretzschmar and Gatley 2009) print h below phasekit's by one constant per kilogram of water, 2.29 \
+                   to 2.47 J/kg over Table 2's 19 h_s and Tables 5-14's 106 h, from 0 to 320 °C and 0.1 to 10 MPa; \
+                   it passes their half unit at 9 rows of Table 2 from 35 °C up and at 14 of Tables 5-14. Table 8's \
+                   s (200 °C, 5 MPa) sits below phasekit's on all 7 rows, by a mean 0.56 and at most 0.98 of its \
+                   printed unit, while Tables 7, 9 and 13 show nothing like it; Table 12's s at 320 °C, 2 MPa and \
+                   W = 0.05 is 0.501 of its unit off. Not IAPWS-95's ideal gas (DIV-0070), a virial term, dry air, a \
+                   gas-constant mix or IF97's zero; RP-1485's report, not in hand, may name the cause (2026-10-21). \
+                   The bound: h within its printed half unit plus W times `tolerance`, in J per kg of water; s of \
+                   the two tables within their `table_tolerances`, in kJ/(kg K)",
+        exempt: None,
+        tolerance: Some(Tolerance::Absolute(2.47)),
+        table_tolerances: &[
+            ("paper/HumidAir/Herrmann-HVACR-2009.8.csv", Tolerance::Absolute(1e-4)),
+            ("paper/HumidAir/Herrmann-HVACR-2009.12.csv", Tolerance::Absolute(5.01e-5)),
+        ],
+        proof: &[18],
+        status: DivStatus::Open,
+    },
+];
+
+/// The `humidair` kind's state columns, every one DIV-0069's (PLAN.md M18.3).
+const HUMIDAIR_STATE_COLUMNS: [&str; 15] = [
+    "V",
+    "Vha",
+    "H",
+    "Hha",
+    "U",
+    "Uha",
+    "S",
+    "Sha",
+    "C",
+    "Cha",
+    "CV",
+    "CVha",
+    "Z",
+    "speed_of_sound",
+    "isentropic_exponent",
 ];
 
 /// The output columns of the `cubic` and `cubic_sat` kinds (PLAN.md M11.4, M11.5).

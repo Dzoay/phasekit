@@ -17,12 +17,15 @@ pub mod constants;
 mod henry;
 mod humid_air;
 mod humidity;
+mod ideal;
+mod moist_air;
 mod saturation;
 mod virials;
 
 pub use henry::{Gas, henry_constant};
 pub use humid_air::{HumidAir, Parts};
 pub use humidity::Humidity;
+pub use moist_air::{MoistAir, Per};
 pub use saturation::Saturation;
 pub use virials::{Coefficient, Virials};
 
