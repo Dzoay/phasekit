@@ -643,6 +643,12 @@ fn div_0072(_: &Fixture<'_>) -> Vec<&'static str> {
     vec!["DIV-0072"]
 }
 
+/// DIV-0073: its oracle values are the `humidair` kind's M and K columns, which `tests/divergences.rs` and
+/// `tests/humidair.rs` read (PLAN.md M18.5).
+fn div_0073(_: &Fixture<'_>) -> Vec<&'static str> {
+    vec!["DIV-0073"]
+}
+
 /// PLAN.md M1.13: every seed entry's cited CoolProp 8.0.0 behaviour reproduces from `facts/register.csv`, which the
 /// oracle generates (map 12 §6.3, map 10 §8.4, map 13 §3); a fact that stops reproducing is fixed in the register.
 #[test]
@@ -681,6 +687,7 @@ fn register_cites_reproducible_oracle_facts() {
         div_0068_to_0069,
         div_0070_to_0071,
         div_0072,
+        div_0073,
     ]
     .iter()
     .flat_map(|group| group(&facts))

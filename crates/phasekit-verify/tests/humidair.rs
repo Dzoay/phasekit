@@ -789,3 +789,37 @@ fn the_oracle_across_input_pairs() {
     assert_eq!(missed, Vec::<String>::new());
     assert_eq!((checked, refused, exempt), (674, 96, 58));
 }
+
+/// Oracle: the `humidair` rows' viscosity and thermal conductivity (PLAN.md M18.5; provisional, user decision HA3),
+/// under `Parity`: at a given W within `TransportDirect` (measured: 9.3e-15), at a given R within DIV-0011's bound,
+/// ψ_w carrying f's difference (1.5e-8). Below water's triple-point pressure phasekit refuses them (DIV-0073), and
+/// those cells are counted.
+#[test]
+fn transport_matches_the_oracle() {
+    let (oracle, air) = (table(fixture!("coolprop-8.0.0/all/humidair.csv")), humid_air(DataSet::Parity));
+    let (mut missed, mut checked, mut exempt) = (Vec::new(), 0, 0);
+    for row in (0..oracle.rows().len()).filter(|&r| oracle.printed(r, "status") == Some("ok")) {
+        let (t, p, humidity) = humidair_inputs(&oracle, row);
+        let state = air.moist_air(t, p, air.mole_fraction(t, p, humidity).unwrap()).unwrap();
+        for (column, got) in [("M", air.viscosity(&state)), ("K", air.conductivity(&state))] {
+            let want = oracle.value(row, column).unwrap();
+            let bound = match (humidity, exempt_at(DIVERGENCES, "Humid air", Kind::Humidair, column, t)) {
+                (Humidity::Ratio(_), _) => ToleranceClass::TransportDirect.bound(want.abs()).unwrap(),
+                (_, Some(id)) => registered(id) * want.abs(),
+                _ => f64::NAN,
+            };
+            match got {
+                Err(Error::Domain(_)) if p < 611.655 && transport_exempt() => exempt += 1,
+                Ok(got) if (got - want).abs() <= bound => checked += 1,
+                got => missed.push(format!("{column} at {t} K, {p} Pa, {humidity:?}: {got:?} against {want}")),
+            }
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+    assert_eq!((checked, exempt), (456, 96));
+}
+
+/// Whether the register exempts the `humidair` kind's M and K below water's triple-point pressure.
+fn transport_exempt() -> bool {
+    DIVERGENCES.iter().any(|d| d.exempt.is_some_and(|e| e.kinds == [Kind::Humidair] && e.columns == ["M", "K"]))
+}

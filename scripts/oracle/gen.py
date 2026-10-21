@@ -1110,8 +1110,9 @@ def humidair_aux(CP, lock, config, files, args):
 # by p from 10 Pa to 10 MPa (v8.0.0's range), at a relative humidity (0, 0.5, 1) or a humidity ratio (0.001, 0.01, 0.1):
 # every output M18.3 serves, per kg of dry air (V, H, U, S, C, CV) and of humid air (Vha, ...). A W above v8.0.0's own
 # at saturation (T, p, R = 1) is supersaturated air, which RP-1485 does not model, and is left out. A row any of whose
-# outputs v8.0.0 refuses is `err:<class>`. M18.4 adds the wet bulb, the dew point and R, each NaN where v8.0.0 refuses
-# it alone (R wherever water's saturation pressure exceeds p), so that the row's other outputs stay.
+# outputs v8.0.0 refuses is `err:<class>`. M18.4 adds the wet bulb, the dew point and R, and M18.5 the viscosity and
+# conductivity, each NaN where v8.0.0 refuses it alone (R wherever water's saturation pressure exceeds p, M and K below
+# water's triple-point pressure), so that the row's other outputs stay.
 HUMIDAIR_T = [213.15, 233.15, 253.15, 273.15, 293.15, 313.15, 333.15, 353.15, 373.15, 423.15, 473.15, 523.15, 573.15,
               623.15]
 HUMIDAIR_P = [10.0, 1e3, 101325.0, 1e6, 1e7]
@@ -1120,7 +1121,7 @@ HUMIDAIR_OUTPUTS = [("W", "kg/kg"), ("Y", "mol/mol"), ("P_w", "Pa"), ("V", "m3/k
                     ("Hha", "J/kg"), ("U", "J/kg"), ("Uha", "J/kg"), ("S", "J/(kg K)"), ("Sha", "J/(kg K)"),
                     ("C", "J/(kg K)"), ("Cha", "J/(kg K)"), ("CV", "J/(kg K)"), ("CVha", "J/(kg K)"), ("Z", "-"),
                     ("speed_of_sound", "m/s"), ("isentropic_exponent", "-")]
-HUMIDAIR_EXTRA = [("Twb", "K"), ("Tdp", "K"), ("R", "-")]
+HUMIDAIR_EXTRA = [("Twb", "K"), ("Tdp", "K"), ("R", "-"), ("M", "Pa s"), ("K", "W/(m K)")]
 HUMIDAIR_COLUMNS = ["T", "p", "input", "value", "status", *(name for name, _ in HUMIDAIR_OUTPUTS + HUMIDAIR_EXTRA)]
 HUMIDAIR_UNITS = ["K", "Pa", "-", "-", "-", *(unit for _, unit in HUMIDAIR_OUTPUTS + HUMIDAIR_EXTRA)]
 HUMIDAIR_TOL = ["in", "in", "label", "in", "label", *["prop"] * len(HUMIDAIR_OUTPUTS + HUMIDAIR_EXTRA)]

@@ -101,6 +101,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0070", div_0070),
     ("DIV-0071", div_0071),
     ("DIV-0072", div_0072),
+    ("DIV-0073", div_0073),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1981,6 +1982,21 @@ fn div_0072() {
     assert!(air.saturation(t_dp, 101_325.0).unwrap().psi_ws > 0.0);
     let psi = air.saturation(290.0, 101_325.0).unwrap().psi_ws;
     assert!((air.dew_point(101_325.0, psi).unwrap() / 290.0 - 1.0).abs() <= 1e-12);
+}
+
+/// DIV-0073 (`SkipOracle`, PLAN.md M18.5; map 07 H2): humid air's transport below water's triple-point pressure.
+/// (1) phasekit refuses μ and k there, as core refuses saturated water vapour below 611.655 Pa; (2) v8.0.0 answers
+/// at 10 Pa (its PQ flash runs IAPWS-95's curve past its end); (3) at the triple-point pressure and above phasekit
+/// answers.
+fn div_0073() {
+    let air = humid_air(DataSet::Parity);
+    let state = |p: f64| air.moist_air(253.15, p, 0.0).unwrap();
+    let refused = air.viscosity(&state(10.0));
+    assert!(matches!(refused, Err(Error::Domain(DomainError::BelowMinPressure { .. }))), "{refused:?}");
+    let (path, text) = fixture!("coolprop-8.0.0/all/humidair.csv");
+    let oracle = Fixture::parse(path, text).unwrap();
+    assert!(oracle.value(humidair_row(&oracle, 253.15, 10.0, "R", 0.0), "M").unwrap() > 0.0);
+    assert!(air.viscosity(&state(612.0)).unwrap() > 0.0 && air.conductivity(&state(612.0)).unwrap() > 0.0);
 }
 
 /// RP-1485's humid air over core's water and air and phasekit-iapws's IF97 water and ice, under `data`.
