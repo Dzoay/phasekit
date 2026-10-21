@@ -330,13 +330,27 @@ impl Mixture {
     /// The coexisting phases at a mass quality `q` and `given`: the molar β where Q(β) = β M″/(β M″ + (1 − β) M′) is q,
     /// each phase's molar mass M′, M″ from its solve, by the secant method from β = q and the β that q gives with the
     /// first solve's molar masses, to |Q(β) − q| ≤ 4 ε.
-    fn at_mass_quality(&self, q: f64, given: Given) -> Result<Coexisting, Error> {
+    fn at_mass_quality(&self, q: f64, given: Given, near: Option<&Coexisting>) -> Result<Coexisting, Error> {
         let masses = |c: &Coexisting| (self.molar_mass_of(&c.x), self.molar_mass_of(&c.y));
-        let at = |beta: f64| -> Result<(f64, Coexisting), Error> {
-            let c = self.coexisting(beta, given)?;
-            Ok((mass_fraction(beta, masses(&c)) - q, c))
+        let miss = |beta: f64, c: &Coexisting| mass_fraction(beta, masses(c)) - q;
+        let from = |beta: f64, c: &Coexisting| {
+            let seed = match given {
+                Given::T(t) => (t, c.p, saturation::ln_k(c)),
+                Given::P(p) => (c.t, p, saturation::ln_k(c)),
+            };
+            saturation::coexisting_from(self, beta, given, seed)
         };
-        let (mut b0, (mut f0, first)) = (q, at(q)?);
+        let first = match near {
+            Some(c) => from(q, c)?,
+            None => self.coexisting(q, given)?,
+        };
+        // Each later β seeded by the first point (where that fails, solved as `coexisting` solves it): near T_c, where
+        // the bubble and dew points are marched to, `coexisting`'s own seeds cost a march each.
+        let at = |beta: f64| -> Result<(f64, Coexisting), Error> {
+            let c = from(beta, &first).or_else(|_| self.coexisting(beta, given))?;
+            Ok((miss(beta, &c), c))
+        };
+        let (mut b0, mut f0) = (q, miss(q, &first));
         if f0.abs() <= 4.0 * f64::EPSILON {
             return Ok(first);
         }
@@ -363,7 +377,7 @@ impl Mixture {
         }
         // A mass quality of 0 or 1 is the molar one: `at_mass_quality` returns its first point.
         let c = match input.quality_basis() {
-            Basis::Mass => self.at_mass_quality(q, given)?,
+            Basis::Mass => self.at_mass_quality(q, given, None)?,
             _ => self.coexisting(q, given)?,
         };
         self.coexisting_state(&c, opts)

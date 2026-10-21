@@ -1,8 +1,9 @@
 // A mixture's diagram (PLAN.md M21.5) under Node on the real package, R410A.mix from R32's and R125's packs: every
 // vertex of its envelope on p–T and T–ρ is the package's envelope point (`Exact`), drawn bubble side, critical point,
-// dew side; every vertex the package's QT or PQ flash answers at its own Q is that flash's state within `Flash`
-// (VERIFICATION.md §5), and near the critical point, where it refuses both, the page draws what the envelope traced;
-// the critical point drawn is the model's, which lies on the envelope within TM15's stated 0.02 K and 2 kPa.
+// dew side; every vertex more than 1 mK from the critical temperature is the package's QT or PQ state at its own Q
+// within `Flash` (VERIFICATION.md §5; #257), nearer which each side turns in T and in p, so a given T or p has two
+// points within 1 Pa; the critical point drawn is the model's, which lies on the envelope within TM15's stated 0.02 K
+// and 2 kPa.
 import { describe, expect, test } from "vitest";
 import { createHandler } from "../../src/engine/handler";
 import type { EnvelopeValue, Request } from "../../src/engine/protocol";
@@ -62,8 +63,9 @@ describe("a mixture's envelope on the real package", () => {
     }
   });
 
-  test("every vertex the package's QT or PQ flash answers is that flash's state within Flash", async () => {
-    const { registry, envelope: e } = await r410a();
+  test("every vertex more than 1 mK from the critical temperature is the package's QT or PQ state within Flash", async () => {
+    const { registry, envelope: e, constants } = await r410a();
+    const tc = constants[0] as number;
     const answer = (output: string, ...inputs: [string, number, string, number]): number | null => {
       try {
         return registry.PropsSI(output, ...inputs, "R410A.mix");
@@ -73,18 +75,16 @@ describe("a mixture's envelope on the real package", () => {
     };
     const vertices: Vertex[] = [...sampleEnvelope(plane("pt"), e, [null, null, null]).dome.liquid];
     vertices.push(...sampleEnvelope(plane("pt"), e, [null, null, null]).dome.vapour);
-    let answered = 0;
+    const away = vertices.filter((v) => Math.abs(v.x - tc) > 1e-3);
     const misses: string[] = [];
-    for (const v of vertices) {
+    for (const v of away) {
       const [q, t, p] = [v.inputs[1], v.x, v.y];
       const [atT, atP] = [answer("P", "Q", q, "T", t), answer("T", "P", p, "Q", q)];
-      if (atT === null && atP === null) continue;
-      answered += 1;
-      const agrees = (atT !== null && Math.abs(atT / p - 1) <= 1e-9) || (atP !== null && Math.abs(atP / t - 1) <= 1e-9);
+      const agrees = atT !== null && Math.abs(atT / p - 1) <= 1e-9 && atP !== null && Math.abs(atP / t - 1) <= 1e-9;
       if (!agrees) misses.push(`Q ${q} at ${t} K, ${p} Pa: QT ${atT}, PQ ${atP}`);
     }
     expect(misses).toEqual([]);
-    expect(answered).toBeGreaterThanOrEqual((2 * vertices.length) / 3);
+    expect(away.length).toBeGreaterThanOrEqual(vertices.length - 2);
   });
 
   test("the critical point drawn, the model's, lies on the envelope within TM15's 0.02 K and 2 kPa", async () => {
