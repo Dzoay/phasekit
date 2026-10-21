@@ -42,24 +42,62 @@ export interface MixturesValue {
   pairs: string[];
 }
 
-/** A mixture's phase envelope (the package's `Fluid.envelope()`, PLAN.md M21.5): one entry a point, in the trace's order,
- *  each a bubble point (Q = 0) or a dew point (Q = 1) of the feed. */
-export interface EnvelopeValue {
-  T: Float64Array;
-  P: Float64Array;
-  Q: Float64Array;
-  /** The feed's mass density. */
-  Dmass: Float64Array;
-  /** The incipient phase's mole fractions, point-major: component i's at point k at `k * components.length + i`. */
-  incipient: Float64Array;
-  /** The components' canonical names, and the feed's mole fractions. */
-  components: string[];
-  feed: number[];
-  /** The critical point the trace passed, (T, p) where every ln K is 0; null where it passed none. */
-  critical: [number, number] | null;
-  /** How the trace ended: `closed`, `bound` or `failed`; and why, in the package's words, where it did not close. */
-  end: string;
-  reason: string;
+/** A list of vertices, as the package's `Vertices` (PLAN.md M19.6): each vertex's x and y, two a vertex; the input
+ *  values it was computed at, two a vertex; and its input pair, an index into the package's `pairKeys()`' pairs. */
+export interface VerticesValue {
+  xy: Float64Array;
+  inputs: Float64Array;
+  pairs: Uint8Array;
+}
+
+/** A diagram's isolines, as the package's `Lines`: line i holds `held[i]` at `values[i]` and runs in the segments from
+ *  `segments[i]` to `segments[i + 1]`; segment j is two-phase where `twoPhase[j]` is 1, its vertices those from
+ *  `starts[j]` to `starts[j + 1]`. */
+export interface LinesValue {
+  held: string[];
+  values: Float64Array;
+  segments: Uint32Array;
+  twoPhase: Uint8Array;
+  starts: Uint32Array;
+  vertices: VerticesValue;
+}
+
+/** A fluid's diagram on one plane (the package's `Fluid.diagram`, PLAN.md M19.6): a pure fluid's dome and isolines, a
+ *  mixture's phase envelope, as the package's typed arrays. */
+export interface DiagramValue {
+  /** The axes' spans, [lo, hi] each. */
+  x: Float64Array;
+  y: Float64Array;
+  liquid: VerticesValue;
+  vapour: VerticesValue;
+  /** One vertex, or none. */
+  critical: VerticesValue;
+  lines: LinesValue;
+  /** Each input pair's two keys, pair after pair (the package's `pairKeys()`). */
+  pairKeys: string[];
+  /** A mixture's components and the feed's mole fractions, how the trace of its envelope ended and why; null for a pure
+   *  fluid. */
+  mixture: { components: string[]; feed: number[]; end: string; reason: string } | null;
+}
+
+/** Runs of corners, as the package's `Corners`: run i the corners from `starts[i]` to `starts[i + 1]`, each corner's T,
+ *  P, Hmass, Smass and Dmass five values of `corners`. */
+export interface CornersValue {
+  starts: Uint32Array;
+  corners: Float64Array;
+}
+
+/** A fluid's phase regions (the package's `Fluid.regions`, PLAN.md M19.6). */
+export interface RegionsValue {
+  /** Each region's phase, as `PhaseSI` names it, and its outline, a run a region. */
+  phases: string[];
+  outlines: CornersValue;
+  isotherm: CornersValue;
+  isobar: CornersValue;
+  /** The critical point's five values, or none. */
+  critical: Float64Array;
+  Tc: number;
+  pc: number;
 }
 
 /** The mean time of one run, over `runs` runs repeated for a short budget. */
@@ -125,7 +163,8 @@ export type Request =
   | { id: number; op: "mixtures" }
   // A name, not a fluid: the engine answers it before any pack is added (src/engine/client.ts).
   | { id: number; op: "components"; name: string }
-  | { id: number; op: "envelope"; fluid: string }
+  | { id: number; op: "diagram"; fluid: string; plane: string }
+  | { id: number; op: "regions"; fluid: string }
   | {
       id: number;
       op: "batch";
@@ -171,7 +210,8 @@ export interface Values {
   mixtures: MixturesValue;
   /** The fluids a mixture name needs (the package's `mixtureComponents`); none for a pure fluid's name. */
   components: string[];
-  envelope: EnvelopeValue;
+  diagram: DiagramValue;
+  regions: RegionsValue;
   batch: BatchValue;
   bench: BenchValue;
 }

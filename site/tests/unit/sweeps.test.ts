@@ -3,9 +3,8 @@
 import { describe, expect, test } from "vitest";
 import { createHandler } from "../../src/engine/handler";
 import type { Request } from "../../src/engine/protocol";
-import type { Batch } from "../../src/sample/lines";
-import { LIMIT_KEYS, limits, type Limits } from "../../src/sample/ranges";
-import { LATENT, MAX_LINES, defaultValues, sampleSweep, type Sweep } from "../../src/sample/sweeps";
+import { LIMIT_KEYS, limits, type Limits } from "../../src/lib/ranges";
+import { LATENT, MAX_LINES, defaultValues, rows, sampleSweep, type Batch, type Sweep } from "../../src/sweeps/sample";
 import { loadPk, propsSI, sameBits } from "../pk";
 
 async function engine(fluid: string) {
@@ -118,5 +117,21 @@ describe("a sweep", { timeout: 60_000 }, () => {
     const latent = await sampleSweep("saturation", LATENT, [], l, vapourFails, 10);
     expect(latent.lines[0]?.points[3]).toBeNull();
     expect(latent.lines[0]?.points[2]).not.toBeNull();
+  });
+});
+
+describe("the batch's rows", () => {
+  test("hold each point's cells and inputs; a flagged extrapolation is a value, a failure is not", async () => {
+    const batch: Batch = (outputs) =>
+      Promise.resolve({
+        values: Float64Array.from([1, 2, 3, 4, 5, 6]),
+        status: Uint8Array.from([0, 1, 2, 1, 0, 4]),
+        outputs: outputs.length,
+      });
+    expect(await rows(batch, ["A", "B"], "T", [300, 310, 320], "P", [1e5, 2e5, 3e5])).toEqual([
+      { cells: [1, 2], ok: [true, true], inputs: ["T", 300, "P", 1e5] },
+      { cells: [3, 4], ok: [false, true], inputs: ["T", 310, "P", 2e5] },
+      { cells: [5, 6], ok: [true, false], inputs: ["T", 320, "P", 3e5] },
+    ]);
   });
 });
