@@ -518,7 +518,6 @@ name = "phasekit-iapws"
 version = "0.1.0"
 dependencies = [
  "phasekit-core",
- "phasekit-verify",
 ]
 
 [[package]]

@@ -15,10 +15,5 @@ categories.workspace = true
 [dependencies]
 phasekit-core.workspace = true
 
-# The tolerance classes the unit tests compare in (VERIFICATION.md §5); the IAPWS tables are checked from
-# phasekit-verify's tests/iapws.rs, which reads them as fixtures.
-[dev-dependencies]
-phasekit-verify.workspace = true
-
 [lints]
 workspace = true
