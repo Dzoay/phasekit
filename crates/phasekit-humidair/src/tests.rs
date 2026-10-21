@@ -210,6 +210,8 @@ fn a_pair_that_fixes_no_state_is_refused() {
         (Given::Humidity(Humidity::Ratio(0.0)), Given::Humidity(phi)),
     ] {
         assert!(matches!(air.state(101_325.0, a, b), Err(Error::InvalidState { .. })), "{a:?}, {b:?}");
+    }
+}
 
 /// Where water's saturation pressure is p or above (RP-1485 Eq. (3.25)'s note), no condensed phase is under pressure:
 /// its κ_T and Henry's constant are 0, over ice (250 K) and liquid (300 K), at p_ws itself too; above it they are its
