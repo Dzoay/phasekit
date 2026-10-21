@@ -65,7 +65,7 @@ pub fn surface(fluid: &Fluid) -> Result<Surface, Error> {
 /// The surface of the fluid whose batch and limits these are: `phase` gives the library's phase at the state of some
 /// inputs, `None` where it refuses the state. One `QT` batch call takes the dome below T_c and one `DT` call the grid:
 /// rows at the dome's temperatures, at T_c with the critical point, and above T_c to the plotted range's top, each
-/// across the plotted range's densities ([`densities`]), evenly in ln ρ. A state the batch fails, or whose phase
+/// across the plotted range's densities (`densities`), evenly in ln ρ. A state the batch fails, or whose phase
 /// the library refuses, is left out and its row joined across the gap; a temperature below T_c without both
 /// saturated states is left out, row and all.
 pub fn sample_surface(
@@ -180,10 +180,12 @@ impl Course {
     }
 
     /// Puts the vertex in its place by density, and says where. A grid vertex sampled at its density gives way to it:
-    /// the span's ends are the dome's where it reaches them (n-Propane's vapour at its triple point), and the `DT`
-    /// state's density there is the input's to within a rounding.
+    /// the span's top is the saturated liquid's where no corner of the plotted range is denser (n-Propane's at its triple
+    /// point), and the `DT` state's density there is the input's to within a rounding.
     fn insert(&mut self, v: SurfaceVertex) -> usize {
         self.vertices.retain(|w| !(w.inputs.pair == Pair::DT && w.inputs.x == v.rho));
+        // With the grid vertex sampled at its density gone, none has it, so either side of a tie is the same place.
+        // equivalent mutant: replace < with <=
         let at = self.vertices.partition_point(|w| w.rho < v.rho);
         self.vertices.insert(at, v);
         at
