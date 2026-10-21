@@ -82,9 +82,9 @@ pub(crate) trait TauSide: Copy + fmt::Debug + PartialEq {
     }
     /// `(u, [τ u', τ² u'', τ³ u''', τ⁴ u''''])` at τ.
     fn jet<R: Real>(&self, tau: R) -> (R, [R; 4]);
-    /// `(t ln τ + u, t + τ u')` at a real τ, as the paper writes them: the δ → 0 series' τ-factor `f = n e^(t ln τ + u)`
-    /// and `τ f' / f`.
-    fn series(&self, t: f64, tau: f64) -> (f64, f64);
+    /// `(t ln τ + u, t + τ u', τ u' + τ² u'')` at a real τ, as the paper writes them: the δ → 0 series' τ-factor
+    /// `f = n e^(t ln τ + u)`, s = `τ f' / f` and `τ ds/dτ`, so that `τ² f'' / f = s² − s + τ ds/dτ`.
+    fn series(&self, t: f64, tau: f64) -> (f64, f64, f64);
 }
 
 /// The τ-side of a Gaussian term, `u = −β(τ − γ)²`.
@@ -111,10 +111,11 @@ impl TauSide for GaussianTau {
         gaussian_side(tau, self.beta, self.gamma)
     }
 
-    /// `τ f' = f·(t − 2βτ(τ − γ))`.
-    fn series(&self, t: f64, tau: f64) -> (f64, f64) {
+    /// `τ f' = f·(t − 2βτ(τ − γ))`; τu' + τ²u'' = −2βτ(τ − γ) − 2βτ².
+    fn series(&self, t: f64, tau: f64) -> (f64, f64, f64) {
         let w = tau - self.gamma;
-        (t * math::ln(tau) - self.beta * w * w, t - 2.0 * self.beta * tau * w)
+        let tu = -2.0 * self.beta * tau * w;
+        (t * math::ln(tau) - self.beta * w * w, t + tu, tu - 2.0 * self.beta * tau * tau)
     }
 }
 
@@ -178,19 +179,21 @@ impl<S: TauSide> GaussianBlock<S> {
         }
     }
 
-    /// Exact δ → 0 Taylor coefficients `[a_k(τ), τ·da_k/dτ]`, k = 0, 1, 2: `δ^d e^(−η(δ−ε)²) = e^(−ηε²) δ^d (1 + 2ηε δ +
-    /// (2η²ε² − η) δ² + …)`, times the τ-factor `f = n τ^t e^u` and `τ f'` ([`TauSide::series`]).
-    pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 2]; 3] {
-        let mut out = [[0.0; 2]; 3];
+    /// Exact δ → 0 Taylor coefficients `[a_k(τ), τ·da_k/dτ, τ²·d²a_k/dτ²]`, k = 0, 1, 2: `δ^d e^(−η(δ−ε)²) = e^(−ηε²)
+    /// δ^d (1 + 2ηε δ + (2η²ε² − η) δ² + …)`, times the τ-factor `f = n τ^t e^u`, `τ f'` and `τ² f''`
+    /// ([`TauSide::series`]).
+    pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 3]; 3] {
+        let mut out = [[0.0; 3]; 3];
         let terms = self.n.iter().zip(&self.t).zip(&self.d).zip(&self.eta).zip(&self.epsilon).zip(self.side.iter());
         for (((((&n, &t), &d), &eta), &eps), side) in terms {
-            let (log_f, scaled) = side.series(t, tau);
+            let (log_f, s, ts) = side.series(t, tau);
             let f = n * math::exp(log_f - eta * eps * eps);
-            let tf = f * scaled;
+            let (tf, ttf) = (f * s, f * (s * s - s + ts));
             for (q, c) in delta_series(eta, eps).into_iter().enumerate() {
                 if let Some(slot) = out.get_mut(usize::from(d).saturating_add(q)) {
                     slot[0] += c * f;
                     slot[1] += c * tf;
+                    slot[2] += c * ttf;
                 }
             }
         }
@@ -243,16 +246,17 @@ mod tests {
     /// with d = 0 (Methane's terms) the series carries α^r itself.
     #[test]
     fn gaussian_zero_density_series() {
-        assert_eq!(Block::new(&water()).unwrap().zero_density_series(1.3), [[0.0; 2]; 3]);
+        assert_eq!(Block::new(&water()).unwrap().zero_density_series(1.3), [[0.0; 3]; 3]);
         let d0 = [GaussianTerm { n: 0.7, t: 1.5, d: 0, eta: 3.0, epsilon: 0.5, beta: 2.0, gamma: 1.1 }];
         let block = Block::new(&d0).unwrap();
         let (tau, delta) = (1.3, 1e-8);
         let [a0, a1, a2] = block.zero_density_series(tau);
-        let mut acc = Derivs::zero(Order::One);
-        block.accumulate::<f64, 1>(&Vars::new(tau, delta), &mut acc);
+        let mut acc = Derivs::zero(Order::Two);
+        block.accumulate::<f64, 2>(&Vars::new(tau, delta), &mut acc);
         let at = |k: usize| a0[k] + a1[k] * delta + a2[k] * delta * delta;
-        assert!(((acc.get(0, 0).unwrap() - at(0)) / at(0)).abs() < 1e-14);
-        assert!(((acc.get(1, 0).unwrap() - at(1)) / at(1)).abs() < 1e-14);
+        for (k, i) in [(0, 0), (1, 1), (2, 2)] {
+            assert!(((acc.get(i, 0).unwrap() - at(k)) / at(k)).abs() < 1e-14, "A{i}0");
+        }
     }
 
     /// Leibniz by hand: with p = 0 and every h_k = 1 the factors are the Bell numbers 1, 1, 2, 5, 15; with h = 0 they
@@ -266,16 +270,18 @@ mod tests {
         assert_eq!(leibniz::<f64, 2>(&falling(0.0), ones), [1.0, 1.0, 2.0, 1.0, 1.0]);
     }
 
-    /// The δ → 0 coefficients by hand for d = 0: `f·[1, 2ηε, 2η²ε² − η]` and `τ f' = f·(t − 2βτ(τ − γ))`.
+    /// The δ → 0 coefficients by hand for d = 0: `f·[1, 2ηε, 2η²ε² − η]`, `τ f' = f·s` with s = t − 2βτ(τ − γ), and
+    /// `τ² f'' = f·(s² − s − 2βτ(τ − γ) − 2βτ²)`.
     #[test]
     fn gaussian_zero_density_coefficients_by_hand() {
         let term = GaussianTerm { n: 0.7, t: 1.5, d: 0, eta: 3.0, epsilon: 0.4, beta: 2.0, gamma: 1.1 };
         let tau = 1.3;
         let f = 0.7 * math::exp(1.5 * math::ln(tau) - 2.0 * 0.2 * 0.2 - 3.0 * 0.16);
-        let tf = f * (1.5 - 2.0 * 2.0 * tau * 0.2);
+        let (tu, s) = (-2.0 * 2.0 * tau * 0.2, 1.5 - 2.0 * 2.0 * tau * 0.2);
+        let (tf, ttf) = (f * s, f * (s * s - s + tu - 2.0 * 2.0 * tau * tau));
         let got = Block::new(&[term]).unwrap().zero_density_series(tau);
         // 2ηε = 2.4, 2η²ε² − η = 2.88 − 3 = −0.12.
-        let want = [[f, tf], [2.4 * f, 2.4 * tf], [-0.12 * f, -0.12 * tf]];
+        let want = [[f, tf, ttf], [2.4 * f, 2.4 * tf, 2.4 * ttf], [-0.12 * f, -0.12 * tf, -0.12 * ttf]];
         for (g, w) in got.iter().flatten().zip(want.iter().flatten()) {
             assert!(((g - w) / w).abs() < 1e-14, "{got:?} vs {want:?}");
         }

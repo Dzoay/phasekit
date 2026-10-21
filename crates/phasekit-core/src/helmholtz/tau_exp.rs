@@ -72,18 +72,20 @@ impl TauExpBlock {
         }
     }
 
-    /// Exact δ → 0 Taylor coefficients `[a_k(τ), τ·da_k/dτ]`, k = 0, 1, 2, as for power terms; the τ-factor
-    /// `f = n τ^t e^(−aτ^m)` has `τ f' = f·(t − a m τ^m)`.
-    pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 2]; 3] {
-        let mut out = [[0.0; 2]; 3];
+    /// Exact δ → 0 Taylor coefficients `[a_k(τ), τ·da_k/dτ, τ²·d²a_k/dτ²]`, k = 0, 1, 2, as for power terms; the
+    /// τ-factor `f = n τ^t e^(−y)`, y = aτ^m, has `τ f' = f·s` with s = t − m y, and `τ² f'' = f·(s² − s − m² y)`.
+    pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 3]; 3] {
+        let mut out = [[0.0; 3]; 3];
         let terms = self.n.iter().zip(&self.t).zip(&self.a).zip(&self.m).zip(&self.d).zip(&self.l).zip(&self.c);
         for ((((((&n, &t), &a), &m), &d), &l), &c) in terms {
             let y = if a == 0.0 { 0.0 } else { a * math::powf(tau, m) };
             let f = n * math::powf(tau, t) * math::exp(-y);
-            let tf = f * (t - m * y);
+            let s = t - m * y;
+            let (tf, ttf) = (f * s, f * (s * s - s - m * m * y));
             exp_series(&mut out, (d, l, c), |slot, coef| {
                 slot[0] += coef * f;
                 slot[1] += coef * tf;
+                slot[2] += coef * ttf;
             });
         }
         out
@@ -149,12 +151,12 @@ mod tests {
         let block = TauExpBlock::new(&lemmon, &double).unwrap();
         let (tau, delta) = (1.3, 1e-8);
         let [a0, a1, a2] = block.zero_density_series(tau);
-        let mut acc = Derivs::zero(Order::One);
-        block.accumulate::<f64, 1>(&Vars::new(tau, delta), &mut acc);
-        let series = a0[0] + a1[0] * delta + a2[0] * delta * delta;
-        let tau_series = a0[1] + a1[1] * delta + a2[1] * delta * delta;
-        assert!(((acc.get(0, 0).unwrap() - series) / series).abs() < 1e-10);
-        assert!(((acc.get(1, 0).unwrap() - tau_series) / tau_series).abs() < 1e-10);
+        let mut acc = Derivs::zero(Order::Two);
+        block.accumulate::<f64, 2>(&Vars::new(tau, delta), &mut acc);
+        for (k, i) in [(0, 0), (1, 1), (2, 2)] {
+            let series = a0[k] + a1[k] * delta + a2[k] * delta * delta;
+            assert!(((acc.get(i, 0).unwrap() - series) / series).abs() < 1e-10, "A{i}0");
+        }
     }
 
     /// Non-finite data and exponents past `MAX_POW` are refused at decode.

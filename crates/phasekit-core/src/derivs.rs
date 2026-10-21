@@ -225,7 +225,8 @@ impl PointDerivs {
     }
 }
 
-/// Exact zero-density virial coefficients at one temperature (E4), molar SI: `Z = 1 + Bρ + Cρ² + …`.
+/// Exact zero-density virial coefficients and their first two T-derivatives at one temperature (E4), molar SI:
+/// `Z = 1 + Bρ + Cρ² + …`.
 /// From the δ → 0 Taylor coefficients of α^r, never from a small-δ evaluation (map 12 §6.3, R8).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Virials {
@@ -237,6 +238,10 @@ pub struct Virials {
     pub db_dt: f64,
     /// dC/dT, m⁶/(mol² K).
     pub dc_dt: f64,
+    /// d²B/dT², m³/(mol K²): humid air's c_p, c_v and w take it (PLAN.md M14.1, user decision HA6).
+    pub d2b_dt2: f64,
+    /// d²C/dT², m⁶/(mol² K²).
+    pub d2c_dt2: f64,
 }
 
 #[cfg(test)]

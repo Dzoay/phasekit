@@ -163,17 +163,20 @@ impl phasekit_core::HelmholtzModel for Pure {
         self.bound.model().helmholtz().map_or(f64::NAN, |m| m.rho_max(t))
     }
 
-    /// α^r = Σ a_k(τ) δ^k near δ = 0, from the residual's jet there: B = α^r_δ/ρ_c, C = α^r_δδ/ρ_c².
+    /// α^r = Σ a_k(τ) δ^k near δ = 0, from the residual's jet there: B = α^r_δ/ρ_c, C = α^r_δδ/ρ_c², their
+    /// T-derivatives by the chain rule, d²τ/dT² = 2T_c/T³.
     fn zero_density(&self, t: f64) -> Option<Virials> {
-        let jet = departure::jet(&self.residual, self.t_c / t, 0.0, 3);
+        let jet = departure::jet(&self.residual, self.t_c / t, 0.0, 4);
         let at = |i, j| jet.derivative(i, j).unwrap_or(f64::NAN);
-        let dtau_dt = -self.t_c / (t * t);
+        let (dtau_dt, d2tau) = (-self.t_c / (t * t), 2.0 * self.t_c / (t * t * t));
         let (r1, r2) = (1.0 / self.rho_c, 1.0 / (self.rho_c * self.rho_c));
         Some(Virials {
             b: at(0, 1) * r1,
             c: at(0, 2) * r2,
             db_dt: at(1, 1) * dtau_dt * r1,
             dc_dt: at(1, 2) * dtau_dt * r2,
+            d2b_dt2: (at(2, 1) * dtau_dt * dtau_dt + at(1, 1) * d2tau) * r1,
+            d2c_dt2: (at(2, 2) * dtau_dt * dtau_dt + at(1, 2) * d2tau) * r2,
         })
     }
 

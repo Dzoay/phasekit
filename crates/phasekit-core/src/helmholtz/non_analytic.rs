@@ -84,12 +84,13 @@ impl NonAnalyticBlock {
         })
     }
 
-    /// Exact δ → 0 Taylor coefficients `[a_k(τ), τ·da_k/dτ]`, k = 0, 1, 2: α = δ·f(τ, δ) with `f = n Δ^b ψ` analytic at
-    /// δ = 0 (there |δ − 1| = 1), so `a_1 = f(τ, 0)` and `a_2 = ∂f/∂δ(τ, 0)`.
-    pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 2]; 3] {
+    /// Exact δ → 0 Taylor coefficients `[a_k(τ), τ·da_k/dτ, τ²·d²a_k/dτ²]`, k = 0, 1, 2: α = δ·f(τ, δ) with
+    /// `f = n Δ^b ψ` analytic at δ = 0 (there |δ − 1| = 1), so `a_1 = f(τ, 0)` and `a_2 = ∂f/∂δ(τ, 0)`.
+    pub(crate) fn zero_density_series(&self, tau: f64) -> [[f64; 3]; 3] {
         let g = self.sum(Jet4::tau(tau), Jet4::delta(0.0));
         let at = |i: usize, j: usize| g.derivative(i, j).unwrap_or(f64::NAN);
-        [[0.0, 0.0], [at(0, 0), tau * at(1, 0)], [at(0, 1), tau * at(1, 1)]]
+        let tt = tau * tau;
+        [[0.0; 3], [at(0, 0), tau * at(1, 0), tt * at(2, 0)], [at(0, 1), tau * at(1, 1), tt * at(2, 1)]]
     }
 }
 
@@ -111,10 +112,10 @@ mod tests {
         let block = NonAnalyticBlock::new(&water()).unwrap();
         let (tau, delta) = (0.95, 1e-10);
         let [a0, a1, a2] = block.zero_density_series(tau);
-        assert_eq!(a0, [0.0, 0.0]);
-        let mut acc = Derivs::zero(Order::One);
-        block.accumulate::<1>(tau, delta, &mut acc);
-        for (k, got) in [(0, acc.get(0, 0).unwrap()), (1, acc.get(1, 0).unwrap())] {
+        assert_eq!(a0, [0.0; 3]);
+        let mut acc = Derivs::zero(Order::Two);
+        block.accumulate::<2>(tau, delta, &mut acc);
+        for (k, got) in [(0, acc.get(0, 0).unwrap()), (1, acc.get(1, 0).unwrap()), (2, acc.get(2, 0).unwrap())] {
             let series = a1[k] * delta + a2[k] * delta * delta;
             assert!(((got - series) / series).abs() < 1e-14, "{k}: {got} vs {series}");
         }

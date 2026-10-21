@@ -261,26 +261,28 @@ impl MultiFluid {
 
     /// The exact virial coefficients at T and mole fractions `x` (E4): B = α^r_δ(τ, 0)/ρ_r and C = α^r_δδ(τ, 0)/ρ_r²,
     /// each component's from its own `zero_density` at T_r,i T/T_r (where its τ is the mixture's), each departure's from
-    /// its jet at δ = 0; `None` when a component has no closed form.
+    /// its jet at δ = 0; their T-derivatives by the chain rule, d²τ/dT² = 2T_r/T³; `None` when a component has no closed
+    /// form.
     pub(crate) fn virials(&self, x: &[f64], t: f64) -> Option<Virials> {
         let (t_r, rho_r) = self.reducing_state(x);
         let tau = t_r / t;
-        let (mut b, mut c, mut db, mut dc) = (0.0, 0.0, 0.0, 0.0);
+        let ([mut b, mut db, mut d2b], [mut c, mut dc, mut d2c]) = ([0.0; 3], [0.0; 3]);
         for (component, xi) in self.components.iter().zip(x) {
             let v = component.fluid.model().helmholtz()?.zero_density(component.t_r / tau)?;
             let (rho, scale) = (component.rho_r, component.t_r / t_r);
-            (b, c) = (b + xi * rho * v.b, c + xi * rho * rho * v.c);
-            (db, dc) = (db + xi * rho * v.db_dt * scale, dc + xi * rho * rho * v.dc_dt * scale);
+            let (wb, wc) = (xi * rho, xi * rho * rho);
+            (b, db, d2b) = (b + wb * v.b, db + wb * v.db_dt * scale, d2b + wb * v.d2b_dt2 * scale * scale);
+            (c, dc, d2c) = (c + wc * v.c, dc + wc * v.dc_dt * scale, d2c + wc * v.d2c_dt2 * scale * scale);
         }
-        let dtau_dt = -t_r / (t * t);
+        let (dtau, d2tau) = (-t_r / (t * t), 2.0 * t_r / (t * t * t));
         for d in self.departures.iter() {
-            let (w, jet) = (d.weight(x), departure::jet(d.function, tau, 0.0, 3));
-            let at = |i, j| jet.derivative(i, j).unwrap_or(f64::NAN);
-            (b, c) = (b + w * at(0, 1), c + w * at(0, 2));
-            (db, dc) = (db + w * at(1, 1) * dtau_dt, dc + w * at(1, 2) * dtau_dt);
+            let (w, jet) = (d.weight(x), departure::jet(d.function, tau, 0.0, 4));
+            let at = |i, j| w * jet.derivative(i, j).unwrap_or(f64::NAN);
+            (b, db, d2b) = (b + at(0, 1), db + at(1, 1) * dtau, d2b + at(2, 1) * dtau * dtau + at(1, 1) * d2tau);
+            (c, dc, d2c) = (c + at(0, 2), dc + at(1, 2) * dtau, d2c + at(2, 2) * dtau * dtau + at(1, 2) * d2tau);
         }
         let (r1, r2) = (1.0 / rho_r, 1.0 / (rho_r * rho_r));
-        Some(Virials { b: b * r1, c: c * r2, db_dt: db * r1, dc_dt: dc * r2 })
+        Some(Virials { b: b * r1, c: c * r2, db_dt: db * r1, dc_dt: dc * r2, d2b_dt2: d2b * r1, d2c_dt2: d2c * r2 })
     }
 
     /// Pair (i, j)'s parameters, from component i to j: those of (j, i) with β inverted. None for i = j or a component

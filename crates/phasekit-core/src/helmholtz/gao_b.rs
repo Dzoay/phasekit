@@ -55,10 +55,10 @@ impl TauSide for GaoBTau {
         gao_b_tau_side(tau, self.beta, self.gamma, self.b)
     }
 
-    /// `τ f' = f·(t + τ v')`.
-    fn series(&self, t: f64, tau: f64) -> (f64, f64) {
+    /// `τ f' = f·(t + τ v')`; τ ds/dτ = τ v' + τ² v'', the side's own first two scaled derivatives.
+    fn series(&self, t: f64, tau: f64) -> (f64, f64, f64) {
         let (v, h) = gao_b_tau_side(tau, self.beta, self.gamma, self.b);
-        (t * math::ln(tau) + v, t + h[0])
+        (t * math::ln(tau) + v, t + h[0], h[0] + h[1])
     }
 }
 
@@ -103,18 +103,21 @@ mod tests {
         }
     }
 
-    /// The δ → 0 coefficients by hand for d = 1: `a_1 = f`, `a_2 = 2ηε f`, with `f = n τ^t e^(v − ηε²)` and
-    /// `τ f' = f·(t + τ v')`, `v' = −2β(τ − γ)/q²`.
+    /// The δ → 0 coefficients by hand for d = 1: `a_1 = f`, `a_2 = 2ηε f`, with `f = n τ^t e^(v − ηε²)`,
+    /// `τ f' = f·s`, s = t + τ v', `v' = −2β(τ − γ)/q²`, and `τ² f'' = f·(s² − s + τ v' + τ² v'')`,
+    /// `v'' = −2β/q² + 8β²(τ − γ)²/q³`.
     #[test]
     fn gao_b_zero_density_coefficients_by_hand() {
         let terms = &ammonia()[..1];
         let tau = 1.3;
-        let (w, q) = (tau - 1.108, 0.3696 * (tau - 1.108) * (tau - 1.108) + 1.244);
+        let (beta, w, q) = (0.3696, tau - 1.108, 0.3696 * (tau - 1.108) * (tau - 1.108) + 1.244);
         let f = -1.6909858 * math::exp(4.3315 * math::ln(tau) + 1.0 / q - 2.8452 * 0.4478 * 0.4478);
-        let tf = f * (4.3315 - tau * 2.0 * 0.3696 * w / (q * q));
+        let (v1, v2) = (-2.0 * beta * w / (q * q), -2.0 * beta / (q * q) + 8.0 * beta * beta * w * w / (q * q * q));
+        let s = 4.3315 + tau * v1;
+        let (tf, ttf) = (f * s, f * (s * s - s + tau * v1 + tau * tau * v2));
         let a2 = 2.0 * 2.8452 * 0.4478;
         let got = Block::new(terms).unwrap().zero_density_series(tau);
-        let want = [[0.0, 0.0], [f, tf], [a2 * f, a2 * tf]];
+        let want = [[0.0; 3], [f, tf, ttf], [a2 * f, a2 * tf, a2 * ttf]];
         for (g, w) in got.iter().flatten().zip(want.iter().flatten()) {
             assert!((g - w).abs() <= 1e-14 * w.abs(), "{got:?} vs {want:?}");
         }

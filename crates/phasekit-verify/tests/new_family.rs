@@ -76,7 +76,14 @@ impl HelmholtzModel for VanDerWaals {
     /// α^r = bρ + b²ρ²/2 − aρ/(RT) + …, so B = b − a/(RT) and C = b², exactly (E4).
     fn zero_density(&self, t: f64) -> Option<Virials> {
         let (a, b) = (self.a, self.b);
-        Some(Virials { b: b - a / (R * t), c: b * b, db_dt: a / (R * t * t), dc_dt: 0.0 })
+        Some(Virials {
+            b: b - a / (R * t),
+            c: b * b,
+            db_dt: a / (R * t * t),
+            dc_dt: 0.0,
+            d2b_dt2: -2.0 * a / (R * t * t * t),
+            d2c_dt2: 0.0,
+        })
     }
 }
 

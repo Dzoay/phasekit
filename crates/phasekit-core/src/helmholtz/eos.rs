@@ -207,10 +207,11 @@ impl HelmholtzModel for MultiParameterEos {
         self.rho_max
     }
 
-    /// `α^r = Σ a_k(τ) δ^k` near δ = 0, so `B = a₁/ρ_r` and `C = 2a₂/ρ_r²`; `T d/dT = −τ d/dτ`.
+    /// `α^r = Σ a_k(τ) δ^k` near δ = 0, so `B = a₁/ρ_r` and `C = 2a₂/ρ_r²`; `T d/dT = −τ d/dτ` and
+    /// `T² d²/dT² = τ² d²/dτ² + 2τ d/dτ`.
     fn zero_density(&self, t: f64) -> Option<Virials> {
         let tau = self.t_r / t;
-        let mut a = [[0.0; 2]; 3];
+        let mut a = [[0.0; 3]; 3];
         for block in self.blocks.iter() {
             let s = match block {
                 ResidualBlock::Power(b) => b.zero_density_series(tau),
@@ -223,13 +224,15 @@ impl HelmholtzModel for MultiParameterEos {
                 *acc += x;
             }
         }
-        let [_, [a1, ta1], [a2, ta2]] = a;
-        let r2 = self.rho_r * self.rho_r;
+        let [_, [a1, ta1, tta1], [a2, ta2, tta2]] = a;
+        let (r2, t2) = (self.rho_r * self.rho_r, t * t);
         Some(Virials {
             b: a1 / self.rho_r,
             c: 2.0 * a2 / r2,
             db_dt: -ta1 / (t * self.rho_r),
             dc_dt: -2.0 * ta2 / (t * r2),
+            d2b_dt2: (tta1 + 2.0 * ta1) / (t2 * self.rho_r),
+            d2c_dt2: 2.0 * (tta2 + 2.0 * ta2) / (t2 * r2),
         })
     }
 }
