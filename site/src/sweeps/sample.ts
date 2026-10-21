@@ -1,8 +1,47 @@
 // Sweeps (PLAN.md M21.3): an output against T along isobars, against p along isotherms, or against T along saturation
 // for each phase. Every point is the package's batch value at the inputs it carries (`Exact`); along saturation the
 // latent heat is the package's h at q = 1 less its h at q = 0, at the same T. A failed cell is a gap.
-import { rows, type Batch, type Row } from "./lines";
-import { domeTemperatures, linGrid, logGrid, ranges, type Limits } from "./ranges";
+import type { BatchValue } from "../engine/protocol";
+import { domeTemperatures, linGrid, logGrid, ranges, type Limits } from "../lib/ranges";
+
+/** The package's batch over one fluid: the page's worker in the browser, the handler itself in tests. */
+export type Batch = (
+  outputs: string[],
+  name1: string,
+  values1: Float64Array,
+  name2: string,
+  values2: Float64Array,
+) => Promise<BatchValue>;
+
+/** A point's answer: its outputs' cells, which of them are values, and its inputs, `[name1, value1, name2, value2]`. */
+export interface Row {
+  cells: number[];
+  ok: boolean[];
+  inputs: readonly [string, number, string, number];
+}
+
+/** The highest cell code that is a value: 0 success, 1 a flagged extrapolation (PLAN.md M10.8). */
+const VALUE = 1;
+
+/** The batch's answer as rows, one a point. */
+export async function rows(
+  batch: Batch,
+  outputs: string[],
+  name1: string,
+  values1: readonly number[],
+  name2: string,
+  values2: readonly number[],
+): Promise<Row[]> {
+  const answer = await batch(outputs, name1, Float64Array.from(values1), name2, Float64Array.from(values2));
+  return values1.map((v1, i) => {
+    const at = i * outputs.length;
+    return {
+      cells: outputs.map((_, k) => answer.values[at + k] as number),
+      ok: outputs.map((_, k) => (answer.status[at + k] as number) <= VALUE),
+      inputs: [name1, v1, name2, values2[i] as number],
+    };
+  });
+}
 
 export type SweepMode = "isobars" | "isotherms" | "saturation";
 

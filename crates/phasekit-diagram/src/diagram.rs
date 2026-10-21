@@ -98,7 +98,8 @@ fn vertices(rows: &[Row]) -> Vec<Vertex> {
 }
 
 /// The span of each quantity an axis can plot: of T and p the plotted range, of Q [0, 1], and of h, s and ρ the least
-/// and greatest values the dome and the range's corners gave, cells 2, 3 and 4 of their rows.
+/// and greatest values the dome and the range's corners gave, cells 2, 3 and 4 of their rows; of u, which no plane
+/// plots, none.
 struct Spans {
     ranges: Ranges,
     h: (f64, f64),
@@ -125,12 +126,13 @@ impl Spans {
             Quantity::Hmass => self.h,
             Quantity::Smass => self.s,
             Quantity::Dmass => self.d,
+            Quantity::Umass => (f64::INFINITY, f64::NEG_INFINITY),
         }
     }
 }
 
 /// The least and greatest of cell `k` over the rows where it is a value, whatever became of the others.
-fn extent(rows: &[&[Row]], k: usize) -> (f64, f64) {
+pub(crate) fn extent(rows: &[&[Row]], k: usize) -> (f64, f64) {
     let value = |row: &Row| match (row.cells.get(k), row.ok.get(k)) {
         (Some(&v), Some(true)) => Some(v),
         _ => None,
@@ -161,5 +163,6 @@ mod tests {
             .map(|q| spans.get(q))
             .collect();
         assert_eq!(got, [(1.0, 10.0), (2.0, 20.0), (3.0, 30.0), (1.0, 2.0), (3.0, 4.0), (0.0, 1.0)]);
+        assert_eq!(spans.get(Quantity::Umass), (f64::INFINITY, f64::NEG_INFINITY));
     }
 }

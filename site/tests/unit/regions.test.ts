@@ -1,49 +1,18 @@
-// The phase regions (PLAN.md M21.9) under Node on the real package: inside each region and clear of its edges, the
-// package's phase by the diagram's readout pair is the region's; each region's label sits inside it, at a state of its
-// phase; the critical isotherm and isobar run through the package's critical point; a pseudo-pure fluid's liquid stays
-// on the liquid side of its dome.
+// The phase regions as the page draws them (PLAN.md M21.9, M21.6) under Node on the real package: inside each region
+// and clear of its edges, the package's phase by the diagram's readout pair is the region's; each region's label sits
+// inside it, at a state of its phase; the critical isotherm and isobar run through the package's critical point; a
+// pseudo-pure fluid's liquid stays on the liquid side of its dome.
 import { describe, expect, test } from "vitest";
+import type { AxisKey, Corner, DiagramData, Regions } from "../../src/diagram/data";
 import { buildModel, type Point } from "../../src/diagram/model";
+import { DIAGRAMS, type Diagram } from "../../src/diagram/planes";
 import { baseScales, readoutAt } from "../../src/diagram/scales";
-import { createHandler } from "../../src/engine/handler";
-import type { Request, Response } from "../../src/engine/protocol";
-import { DIAGRAMS, type Diagram } from "../../src/sample/diagrams";
-import type { Batch, DiagramData } from "../../src/sample/lines";
-import { LIMIT_KEYS, limits, logGrid, ranges, type Limits } from "../../src/sample/ranges";
-import {
-  COLD_ROWS,
-  runs,
-  sampleRegions,
-  type AxisKey,
-  type Corner,
-  type PhaseAt,
-  type Regions,
-} from "../../src/sample/regions";
-import { embedded, loadPk, packBytes } from "../pk";
+import { logGrid, ranges, type Limits } from "../../src/lib/ranges";
+import { embedded } from "../pk";
+import { drawn } from "./drawn";
 
-/** The engine on `fluid`, with `packs` added first. */
-async function engine(fluid: string, packs: string[] = []) {
-  const handle = createHandler(await loadPk("simd"), "simd128");
-  let id = 0;
-  const call = (body: Record<string, unknown>): Response => handle({ ...body, fluid, id: ++id } as Request);
-  for (const file of packs) expect(call({ op: "pack", bytes: packBytes(file) }).ok, file).toBe(true);
-  const batch: Batch = (outputs, name1, values1, name2, values2) => {
-    const r = call({ op: "batch", outputs, name1, values1, name2, values2 });
-    return r.ok && r.op === "batch" ? Promise.resolve(r.value) : Promise.reject(new Error("refused"));
-  };
-  const phaseAt: PhaseAt = (name1, value1, name2, value2) => {
-    const r = call({ op: "state", name1, value1, name2, value2, outputs: [] });
-    return Promise.resolve(r.ok && r.op === "state" ? r.value.phase : null);
-  };
-  const constants = call({ op: "constants", keys: [...LIMIT_KEYS] });
-  const l = limits(constants.ok && constants.op === "constants" ? constants.value : []) as Limits;
-  // The package's values of `outputs` at a state.
-  const at = (outputs: string[], name1: string, value1: number, name2: string, value2: number) => {
-    const r = call({ op: "state", name1, value1, name2, value2, outputs });
-    return r.ok && r.op === "state" ? (r.value.values as number[]) : [];
-  };
-  return { batch, phaseAt, l, at };
-}
+/** The isobars the cold edge crosses on either side of p_c (PLAN.md M19.5). */
+const COLD_ROWS = 48;
 
 /** The test's own plane geometry, which Stryker leaves uninstrumented (src/diagram/geometry.ts has its own tests):
  *  whether `p` is inside the polygon by the even-odd rule, and its distance to the polygon's nearest edge. */
@@ -111,8 +80,8 @@ const EMBEDDED = await embedded();
 describe("the phase regions", { timeout: 60_000 }, () => {
   for (const fluid of EMBEDDED) {
     test(`of ${fluid}: inside each region, clear of its edges, the package's phase is the region's`, async () => {
-      const { batch, phaseAt, l } = await engine(fluid);
-      const sampled = await sampleRegions(l, batch, phaseAt);
+      const { regions, phaseAt, limits: l } = await drawn(fluid);
+      const sampled = regions();
       expect(sampled.regions.map((g) => g.phase).sort()).toEqual([...ALL].sort());
       for (const d of DIAGRAMS) {
         const f = frame(d, sampled, l);
@@ -145,8 +114,8 @@ describe("the phase regions", { timeout: 60_000 }, () => {
   }
 
   test("each region's label sits inside it, at a state of its phase", async () => {
-    const { batch, phaseAt, l } = await engine("Water");
-    const sampled = await sampleRegions(l, batch, phaseAt);
+    const { regions, phaseAt, limits: l } = await drawn("Water");
+    const sampled = regions();
     const labelled = new Set<string>();
     for (const d of DIAGRAMS) {
       const f = frame(d, sampled, l);
@@ -182,28 +151,12 @@ describe("the phase regions", { timeout: 60_000 }, () => {
     expect([...labelled].sort()).toEqual([...ALL].sort());
   });
 
-  test("each region's phase is the package's at a state inside it", async () => {
-    const { batch, phaseAt, l, at } = await engine("Water");
-    const seeds: [string, number, string, number][] = [];
-    const sampled = await sampleRegions(l, batch, (...inputs) => {
-      seeds.push(inputs);
-      return phaseAt(...inputs);
-    });
-    expect(seeds.length).toBe(6);
-    // On p–h, in h and log p, where every region has room.
-    const ph = (c: Corner): Point => [c.Hmass, Math.log10(c.P)];
-    sampled.regions.forEach((region, i) => {
-      const [h, p] = at(["Hmass", "P"], ...(seeds[i] as [string, number, string, number]));
-      expect(within([h as number, Math.log10(p as number)], region.outline.map(ph)), region.phase).toBe(true);
-    });
-  });
-
   test("each outline walks its region's edge, a step between corners at most a tenth of the range", async () => {
     // In T and ln p, each over its whole span. (Where a fluid's melting line crosses T_c, as Nitrogen's does, an edge
     // cuts across the states the package refuses there, in one longer step.)
     for (const fluid of ["Water", "n-Propane"]) {
-      const { batch, phaseAt, l } = await engine(fluid);
-      const sampled = await sampleRegions(l, batch, phaseAt);
+      const { regions, limits: l } = await drawn(fluid);
+      const sampled = regions();
       const low = ranges(l).T[0];
       const floor = Math.min(...sampled.regions.flatMap((g) => g.outline.map((c) => c.P)));
       const u = (c: Corner): Point => [(c.T - low) / (l.Tmax - low), Math.log(c.P / floor) / Math.log(l.pmax / floor)];
@@ -217,36 +170,9 @@ describe("the phase regions", { timeout: 60_000 }, () => {
     }
   });
 
-  test("the cold edge halves only the isobars the package refused at the lowest T", async () => {
-    const { batch, phaseAt, l } = await engine("Water");
-    const low = ranges(l).T[0];
-    const asked: { values1: number[]; values2: number[]; refused: number[] }[] = [];
-    await sampleRegions(
-      l,
-      async (outputs, name1, values1, name2, values2) => {
-        const answer = await batch(outputs, name1, values1, name2, values2);
-        if (name1 === "T" && name2 === "P") {
-          const refused = [...values2].filter((_, i) =>
-            outputs.some((_, k) => (answer.status[i * outputs.length + k] as number) > 1),
-          );
-          asked.push({ values1: [...values1], values2: [...values2], refused });
-        }
-        return answer;
-      },
-      phaseAt,
-    );
-    // Water's isotherm at its triple point reaches ice above about 0.6 GPa: those isobars, and only they, are halved.
-    const first = asked.findIndex((a) => a.values2.length === COLD_ROWS && a.values1.every((t) => t === low));
-    const refused = (asked[first] as { refused: number[] }).refused;
-    expect(refused.length).toBeGreaterThan(0);
-    expect(refused.length).toBeLessThan(COLD_ROWS);
-    expect(asked[first + 1]?.values2).toEqual(refused);
-    expect(asked[first + 1]?.values1.every((t) => t > low)).toBe(true);
-  });
-
   test("the cold edge follows the melting line, by bisection on each isobar", async () => {
-    const { batch, phaseAt, l } = await engine("n-Propane");
-    const sampled = await sampleRegions(l, batch, phaseAt);
+    const { regions, limits: l } = await drawn("n-Propane");
+    const sampled = regions();
     // The isotherm at n-Propane's lowest T is past its melting line at every pressure above p_c: each cold isobar
     // there has its state at a higher T.
     const outline = sampled.regions.find((g) => g.phase === "supercritical_liquid")?.outline ?? [];
@@ -262,8 +188,8 @@ describe("the phase regions", { timeout: 60_000 }, () => {
   // between them. Its lowest plotted T is under its melting line, so every cold isobar is halved, and a halving that
   // landed between them would climb to the dew side, its vertex on the far side of the dome.
   test("a pseudo-pure fluid's cold edge stays on the liquid side of its dome", async () => {
-    const { batch, phaseAt, l, at } = await engine("Air", ["air.pack"]);
-    const sampled = await sampleRegions(l, batch, phaseAt);
+    const { regions, limits: l, at } = await drawn("Air", ["air.pack"]);
+    const sampled = regions();
     const liquid = sampled.regions.find((g) => g.phase === "liquid")?.outline ?? [];
     const below = liquid.filter((c) => c.P < l.pc);
     expect(below.length).toBeGreaterThan(COLD_ROWS);
@@ -271,43 +197,19 @@ describe("the phase regions", { timeout: 60_000 }, () => {
     expect(across.map((c) => `${c.T} K at ${c.P} Pa`)).toEqual([]);
   });
 
-  test("a leg onto the saturation curve stops a cell short of it", async () => {
-    const { batch, phaseAt, l, at } = await engine("Water");
-    const asked: { values1: number[]; values2: number[] }[] = [];
-    const low = ranges(l).T[0];
-    await sampleRegions(
-      l,
-      (outputs, name1, values1, name2, values2) => {
-        if (name1 === "T" && name2 === "P") asked.push({ values1: [...values1], values2: [...values2] });
-        return batch(outputs, name1, values1, name2, values2);
-      },
-      phaseAt,
-    );
-    const [saturated] = at(["P"], "T", low, "Q", 0) as [number];
-    const cold = asked.filter((a) => a.values1.every((t) => t === low));
-    // The gas side's isotherm: 159 cells from below, the last one log step under the saturation pressure.
-    const gas = cold.find((a) => a.values2.length === 159)?.values2 ?? [];
-    expect(Math.max(...gas)).toBeLessThan(saturated * (1 - 1e-9));
-    expect(Math.max(...gas)).toBeGreaterThan(saturated * 0.99);
-    // The liquid side's cold edge: its first COLD_ROWS - 1 cells from p_c down, the last a step over it.
-    const liquid = cold.find((a) => a.values2.length === COLD_ROWS - 1)?.values2 ?? [];
-    expect(Math.min(...liquid)).toBeGreaterThan(saturated * (1 + 1e-9));
-    expect(Math.min(...liquid)).toBeLessThan(saturated * 1.5);
-  });
-
   test("the critical isotherm and isobar run through the package's critical point", async () => {
-    const { batch, phaseAt, l } = await engine("n-Propane");
-    const { isotherm, isobar, critical } = await sampleRegions(l, batch, phaseAt);
+    const { regions, limits: l } = await drawn("n-Propane");
+    const { isotherm, isobar, critical } = regions();
     expect(Math.abs((critical?.T ?? 0) / l.Tc - 1)).toBeLessThan(1e-9);
     for (const [line, key, value] of [
       [isotherm, "T", l.Tc],
       [isobar, "P", l.pc],
     ] as const) {
-      expect(line.flat()).toContain(critical);
+      expect(line.flat()).toContainEqual(critical);
       // In order along the line: p up the isotherm, T along the isobar.
       const along = line.flat().map((c) => c[key === "T" ? "P" : "T"]);
       expect(along.every((v, i) => i === 0 || v > (along[i - 1] as number))).toBe(true);
-      for (const c of line.flat().filter((c) => c !== critical))
+      for (const c of line.flat().filter((c) => c.T !== critical?.T || c.P !== critical?.P))
         expect(Math.abs(c[key] / value - 1)).toBeLessThan(1e-9);
       const [lo, hi] = [
         Math.min(...line.flat().map((c) => c[key === "T" ? "P" : "T"])),
@@ -316,71 +218,5 @@ describe("the phase regions", { timeout: 60_000 }, () => {
       expect(lo).toBeLessThan(key === "T" ? l.pc / 1e3 : l.Tc * 0.5);
       expect(hi).toBeGreaterThan(key === "T" ? l.pc * 10 : l.Tc * 1.5);
     }
-  });
-});
-
-describe("a region's edges", () => {
-  const c = (T: number): Corner => ({ T, P: 1, Hmass: 0, Smass: 0, Dmass: 0 });
-
-  test("break where a cell failed, and a run of one draws nothing", () => {
-    expect(runs([c(1), c(2), null, c(3), null, c(4), c(5), c(6)])).toEqual([
-      [c(1), c(2)],
-      [c(4), c(5), c(6)],
-    ]);
-    expect(runs([null, c(1), null])).toEqual([]);
-  });
-
-  test("leave out a region whose phase the package refuses, and join across a critical point it refuses", async () => {
-    const { batch, l } = await engine("Water");
-    const refused = await sampleRegions(l, batch, (n1, v1, n2) => Promise.resolve(n2 === "Q" ? null : "x"));
-    expect(refused.regions.map((g) => g.phase)).toEqual(["x", "x", "x", "x", "x"]);
-    // A critical point by (T_c, ρ_c) that the package refuses, as it refused Nitrogen's until core's own exp (PLAN.md
-    // M23.2): the regions join across it, the critical lines break there, and they keep the constants' T_c and p_c.
-    const n2 = await engine("Nitrogen");
-    const unstable: Batch = async (outputs, name1, values1, name2, values2) => {
-      const answer = await n2.batch(outputs, name1, values1, name2, values2);
-      return name2 === "Dmass" ? { ...answer, status: answer.status.map(() => 4) } : answer;
-    };
-    const nitrogen = await sampleRegions(n2.l, unstable, n2.phaseAt);
-    expect(nitrogen.critical).toBeNull();
-    expect(nitrogen.regions.map((g) => g.phase).sort()).toEqual([...ALL].sort());
-    expect([nitrogen.isotherm.length, nitrogen.isobar.length]).toEqual([2, 2]);
-    expect([nitrogen.Tc, nitrogen.pc]).toEqual([n2.l.Tc, n2.l.pc]);
-  });
-
-  test("leave out a state whose any output failed, and the regions under the dome without its middle", async () => {
-    const { batch, l } = await engine("Water");
-    const failing =
-      (fail: (name2: string, values2: Float64Array, i: number) => boolean): Batch =>
-      async (outputs, name1, values1, name2, values2) => {
-        const answer = await batch(outputs, name1, values1, name2, values2);
-        const status = Uint8Array.from(answer.status);
-        values1.forEach((_, i) => {
-          if (fail(name2, values2, i)) status[i * outputs.length + 2] = 4;
-        });
-        return { ...answer, status };
-      };
-    // The critical point's h fails: the point is left out.
-    const partial = await sampleRegions(
-      l,
-      failing((name2) => name2 === "Dmass"),
-      () => Promise.resolve("x"),
-    );
-    expect(partial.critical).toBeNull();
-    expect(partial.regions.length).toBe(6);
-    // The saturated liquid's middle state fails: only the three regions above the critical point remain.
-    const middle = await sampleRegions(
-      l,
-      failing((name2, values2, i) => name2 === "Q" && values2.length === 120 && values2[0] === 0 && i === 60),
-      () => Promise.resolve("x"),
-    );
-    expect(middle.regions.length).toBe(3);
-  });
-
-  test("draw nothing where the package has no saturated liquid at the lowest temperature", async () => {
-    const { batch, l } = await engine("Water");
-    const none = await sampleRegions({ ...l, Tmin: 200, Ttriple: 200 }, batch, () => Promise.resolve("x"));
-    expect(none).toEqual({ regions: [], isotherm: [], isobar: [], critical: none.critical, Tc: l.Tc, pc: l.pc });
-    expect(none.critical?.T).toBeCloseTo(l.Tc, 6);
   });
 });

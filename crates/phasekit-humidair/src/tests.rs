@@ -348,3 +348,26 @@ fn the_virial_equation_s_slope_is_its_pressure_s() {
         }
     }
 }
+
+/// The bracketed root at adjacent doubles is the end with the smaller value: x − 1 − 2⁻⁵⁴ between 1 and the next double
+/// up is 1, whose value is a third of the other's.
+#[test]
+fn the_root_at_adjacent_doubles_is_the_end_nearer_zero() {
+    let f = |x: f64| Ok((x - 1.0) - f64::EPSILON / 4.0);
+    assert_eq!(crate::root::bracketed(f, (1.0, 1.0 + f64::EPSILON)).unwrap(), Some(1.0));
+    assert_eq!(crate::root::bracketed(f, (1.0 + f64::EPSILON, 1.0)).unwrap(), Some(1.0));
+}
+
+/// The Illinois method closes in superlinearly: the cube root of 2 from [1, 2] to adjacent doubles in 10 evaluations (at
+/// most 12 asserted), where bisection takes 54.
+#[test]
+fn the_illinois_method_closes_in_superlinearly() {
+    let calls = std::cell::Cell::new(0);
+    let f = |x: f64| {
+        calls.set(calls.get() + 1);
+        Ok(x * x * x - 2.0)
+    };
+    let root = crate::root::bracketed(f, (1.0, 2.0)).unwrap().unwrap();
+    assert!((root - 1.259_921_049_894_873_2).abs() <= f64::EPSILON * 2.0, "{root}");
+    assert!(calls.get() <= 12, "{}", calls.get());
+}

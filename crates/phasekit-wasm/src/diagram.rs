@@ -31,6 +31,7 @@ fn key(quantity: Quantity) -> &'static str {
         Quantity::Smass => "Smass",
         Quantity::Dmass => "Dmass",
         Quantity::Q => "Q",
+        Quantity::Umass => "Umass",
     }
 }
 
