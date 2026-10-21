@@ -1,17 +1,14 @@
 // The diagrams page's view (PLAN.md M21.2): a fluid, a diagram, the units and the families turned off, in the URL
-// (`fluid=Water&d=ph&units=engineering&hide=T,Q`); the diagram's geometry, sampled once per fluid and diagram, a
-// mixture's its phase envelope on p–T or T–ρ, its only planes (M21.5); the phase regions while they are shown
-// (`regions=1`, M21.9), sampled once per fluid; and the readout, the package's state at the cursor. The component binds
-// to it; tests/unit/view.svelte.test.ts drives it.
+// (`fluid=Water&d=ph&units=engineering&hide=T,Q`); the diagram's geometry, the package's (M21.6), asked once per fluid
+// and diagram, a mixture's its phase envelope on p–T or T–ρ, its only planes (M21.5); the phase regions while they are
+// shown (`regions=1`, M21.9), asked once per fluid; and the readout, the package's state at the cursor. The component
+// binds to it; tests/unit/view.svelte.test.ts drives it.
 import { untrack } from "svelte";
 import type { Engine, StateValue } from "../engine/protocol";
 import type { System } from "../lib/units";
-import { diagram, type Diagram, type DiagramId, type Key } from "../sample/diagrams";
-import { MIXTURE_DIAGRAMS, MIXTURE_KEYS, sampleEnvelope } from "../sample/envelope";
-import { sampleDiagram, type Batch, type DiagramData, type EnvelopeInfo } from "../sample/lines";
-import { LIMIT_KEYS, limits, type Limits } from "../sample/ranges";
-import { sampleRegions, type PhaseAt, type Regions } from "../sample/regions";
+import { readDiagram, readRegions, type DiagramData, type EnvelopeInfo, type Regions } from "./data";
 import { GRID_LEVELS } from "./grid";
+import { MIXTURE_DIAGRAMS, diagram, type Diagram, type DiagramId, type Key } from "./planes";
 
 /** What the readout shows of the state under the cursor, beside its phase. */
 export const READOUT_KEYS = ["T", "P", "Hmass", "Smass", "Dmass", "Q"] as const;
@@ -188,14 +185,14 @@ export class DiagramView {
         untrack(() => this.load(params));
       });
       $effect(() => write(this.params()));
-      $effect(() => this.#sample(this.fluid, this.id));
-      $effect(() => this.#sampleRegions(this.fluid, this.regions));
+      $effect(() => this.#load(this.fluid, this.id));
+      $effect(() => this.#loadRegions(this.fluid, this.regions));
     });
   }
 
-  // The diagram's geometry: from the cache, or sampled; a late answer is dropped, and so is a mixture's on a plane it
-  // has not, which switches to p–T instead.
-  #sample(fluid: string, id: DiagramId): void {
+  // The diagram's geometry: from the cache, or the package's; a late answer is dropped, and so is a mixture's on a plane
+  // it has not, which switches to p–T instead.
+  #load(fluid: string, id: DiagramId): void {
     const key = `${fluid}/${id}`;
     // Stryker disable next-line UpdateOperator: as the pointer's.
     const mine = ++this.#sequence;
@@ -222,25 +219,20 @@ export class DiagramView {
     );
   }
 
-  // A pure fluid's dome and isolines from its limits; a mixture's envelope, or null where `id` is a plane the mixture
-  // has not and the view has switched to p–T.
+  // The package's diagram, from one call; or null where the package refused a mixture a plane it has not and the view
+  // has switched to p–T. Only then is the engine asked whether the fluid is a mixture.
   async #geometry(fluid: string, id: DiagramId): Promise<DiagramData | null> {
-    if ((await this.#mixed(fluid)).length === 0) {
-      const batch: Batch = (outputs, name1, values1, name2, values2) =>
-        this.#engine.call({ op: "batch", fluid, outputs, name1, values1, name2, values2 });
-      return sampleDiagram(diagram(id) as Diagram, await this.#limits(fluid), batch);
-    }
-    if (!MIXTURE_DIAGRAMS.includes(id)) {
+    try {
+      return readDiagram(await this.#engine.call({ op: "diagram", fluid, plane: id }));
+    } catch (e) {
+      if (MIXTURE_DIAGRAMS.includes(id) || (await this.#mixed(fluid)).length === 0) throw e;
       this.id = "pt";
       return null;
     }
-    const envelope = await this.#engine.call({ op: "envelope", fluid });
-    const constants = await this.#engine.call({ op: "constants", fluid, keys: [...MIXTURE_KEYS] });
-    return sampleEnvelope(diagram(id) as Diagram, envelope, constants);
   }
 
   // A mixture name's components, as the engine names them, asked once a name; none for a pure fluid, or a name the
-  // engine refuses, whose geometry then refuses in its words.
+  // engine refuses.
   #mixed(fluid: string): Promise<string[]> {
     let parts = this.#components.get(fluid);
     if (!parts) {
@@ -250,17 +242,9 @@ export class DiagramView {
     return parts;
   }
 
-  #limits(fluid: string): Promise<Limits> {
-    return this.#engine.call({ op: "constants", fluid, keys: [...LIMIT_KEYS] }).then((values) => {
-      const l = limits(values);
-      if (!l) throw new Error(`${fluid} names no critical or triple point to draw a dome from`);
-      return l;
-    });
-  }
-
-  // The fluid's phase regions while they are shown: from the cache, or sampled; a late answer is dropped, and a
-  // refused sampling shows none.
-  #sampleRegions(fluid: string, shown: boolean): void {
+  // The fluid's phase regions while they are shown: from the cache, or the package's, from one call; a late answer is
+  // dropped, and a refused one shows none.
+  #loadRegions(fluid: string, shown: boolean): void {
     // Stryker disable next-line UpdateOperator: as the pointer's.
     const mine = ++this.#regionSequence;
     const cached = this.#regionCache.get(fluid);
@@ -269,21 +253,13 @@ export class DiagramView {
       return;
     }
     untrack(() => (this.phases = null));
-    const batch: Batch = (outputs, name1, values1, name2, values2) =>
-      this.#engine.call({ op: "batch", fluid, outputs, name1, values1, name2, values2 });
-    const phaseAt: PhaseAt = (name1, value1, name2, value2) =>
-      this.#engine.call({ op: "state", fluid, name1, value1, name2, value2, outputs: [] }).then(
-        (s) => s.phase,
-        () => null,
-      );
-    this.#limits(fluid)
-      .then((l) => sampleRegions(l, batch, phaseAt))
-      .then(
-        (regions) => {
-          this.#regionCache.set(fluid, regions);
-          if (mine === this.#regionSequence) this.phases = regions;
-        },
-        () => undefined,
-      );
+    this.#engine.call({ op: "regions", fluid }).then(
+      (value) => {
+        const regions = readRegions(value);
+        this.#regionCache.set(fluid, regions);
+        if (mine === this.#regionSequence) this.phases = regions;
+      },
+      () => undefined,
+    );
   }
 }

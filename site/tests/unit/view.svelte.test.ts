@@ -1,10 +1,10 @@
 // The diagrams page's view (PLAN.md M21.2), with its wiring, under Node on the real package: the route loads the view,
-// the view writes the URL, a fluid and diagram load their geometry once, and the cursor's readout is the package's
-// flash at the pixel's inputs.
+// the view writes the URL, a fluid and diagram load their geometry once, from one call and no batch (M21.6), and the
+// cursor's readout is the package's flash at the pixel's inputs.
 import { flushSync } from "svelte";
 import { describe, expect, test, vi } from "vitest";
+import type { Key } from "../../src/diagram/planes";
 import { DiagramView, READOUT_KEYS } from "../../src/diagram/view.svelte";
-import type { Key } from "../../src/sample/diagrams";
 import { createHandler } from "../../src/engine/handler";
 import type { Body, Engine, Request, Values } from "../../src/engine/protocol";
 import { loadPk, packBytes } from "../pk";
@@ -175,19 +175,17 @@ describe("the diagrams view, before and between answers", { timeout: 30_000 }, (
     stop();
   });
 
-  test("refuses a fluid without a critical or triple point to draw from", async () => {
-    const { engine: real } = await realEngine();
-    const engine: Engine = {
-      call: <B extends Body>(body: B) =>
-        body.op === "constants"
-          ? (Promise.resolve([1, 2, null, 4, 5, 6, 7, 8]) as Promise<Values[B["op"]]>)
-          : real.call(body),
-    };
-    const route = $state({ params: new URLSearchParams("fluid=Water") });
-    const view = new DiagramView(engine);
-    const stop = view.connect(route, () => {});
-    await settle(view);
-    expect([view.data, view.refusal]).toEqual([null, "Water names no critical or triple point to draw a dome from"]);
+  // PLAN.md M21.6: the package computes the geometry, so the page asks it once and samples nothing itself.
+  test("draws a diagram from one engine call and no batch, and the regions from one more", async () => {
+    const { view, calls, stop } = await setup("fluid=Water&d=ts");
+    expect(calls).toEqual(["diagram"]);
+    expect(view.data?.dome.liquid.length).toBeGreaterThan(100);
+    view.toggleRegions();
+    await vi.waitFor(() => {
+      flushSync();
+      expect(view.phases).not.toBeNull();
+    });
+    expect(calls).toEqual(["diagram", "regions"]);
     stop();
   });
 
@@ -226,14 +224,13 @@ describe("the diagrams view, before and between answers", { timeout: 30_000 }, (
   });
 
   test("drops a late diagram, sampled or refused", async () => {
-    const { engine, waiting, answer } = await held(["constants"]);
+    const { engine, waiting, answer } = await held(["diagram"]);
     const route = $state({ params: new URLSearchParams("fluid=Water&d=pt") });
     const view = new DiagramView(engine);
     const stop = view.connect(route, () => {});
     flushSync();
     view.fluid = "Nitrogen";
     flushSync();
-    // Each asks the engine first whether it is a mixture.
     await vi.waitFor(() => expect(waiting.length).toBe(2));
     await answer(1);
     await settle(view);
@@ -343,7 +340,8 @@ describe("the phase regions (PLAN.md M21.9)", { timeout: 30_000 }, () => {
     await shown(view);
     const water = view.phases;
     expect(water?.regions.map((r) => r.phase).sort()).toEqual(PHASES);
-    expect(calls.filter((c) => c === "state").length).toBe(6);
+    expect(calls.filter((c) => c === "regions").length).toBe(1);
+    expect(calls.filter((c) => c === "state" || c === "batch")).toEqual([]);
     view.toggleRegions();
     flushSync();
     expect([view.regions, view.phases]).toEqual([false, null]);
@@ -356,7 +354,7 @@ describe("the phase regions (PLAN.md M21.9)", { timeout: 30_000 }, () => {
     view.choose("ts");
     await settle(view);
     expect(view.phases).toBe(water);
-    expect(calls.slice(before).filter((c) => c === "state")).toEqual([]);
+    expect(calls.slice(before).filter((c) => c === "regions")).toEqual([]);
     view.load(new URLSearchParams("regions=yes"));
     expect(view.regions).toBe(false);
     stop();
@@ -364,9 +362,8 @@ describe("the phase regions (PLAN.md M21.9)", { timeout: 30_000 }, () => {
 
   test("a new fluid's replace the old ones at once, and the old fluid's late answer is dropped", async () => {
     const { engine } = await realEngine();
-    // Water's answers come late: each after a timer, so n-Propane's finish first. Its sampling ends with its sixth
-    // phase, from a state request.
-    let [late, phases] = [0, 0];
+    // Water's answers come late: each after a timer, so n-Propane's finish first.
+    let [late, regions] = [0, 0];
     const slow: Engine = {
       call<B extends Body>(body: B): Promise<Values[B["op"]]> {
         const answer = engine.call(body);
@@ -375,7 +372,7 @@ describe("the phase regions (PLAN.md M21.9)", { timeout: 30_000 }, () => {
         return new Promise((resolve, reject) =>
           setTimeout(() => {
             late -= 1;
-            if (body.op === "state") phases += 1;
+            if (body.op === "regions") regions += 1;
             answer.then(resolve, reject);
           }, 5),
         );
@@ -392,37 +389,13 @@ describe("the phase regions (PLAN.md M21.9)", { timeout: 30_000 }, () => {
     route.params = new URLSearchParams("fluid=n-Propane&d=pt&regions=1");
     flushSync();
     expect(view.phases).toBe(propane);
-    await vi.waitFor(() => expect([phases, late]).toEqual([6, 0]), { timeout: 20_000 });
+    await vi.waitFor(() => expect([regions, late]).toEqual([1, 0]), { timeout: 20_000 });
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(view.phases).toBe(propane);
     // Water's were sampled, and kept: a view of Water shows them at once.
     route.params = new URLSearchParams("fluid=Water&d=pt&regions=1");
     flushSync();
     expect(Math.abs((view.phases?.critical?.T ?? 0) / 647.096 - 1)).toBeLessThan(1e-9);
-    stop();
-  });
-
-  test("ask the package for each region's phase alone, and leave out a region whose phase it refuses", async () => {
-    const { engine, bodies } = await realEngine();
-    // The package refuses every state given by a quality: the liquid + vapour region's.
-    const picky: Engine = {
-      call<B extends Body>(body: B): Promise<Values[B["op"]]> {
-        return body.op === "state" && body.name2 === "Q" ? Promise.reject(new Error("no")) : engine.call(body);
-      },
-    };
-    const route = $state({ params: new URLSearchParams("fluid=Water&d=ph&regions=1") });
-    const view = new DiagramView(picky);
-    const stop = view.connect(route, () => undefined);
-    await shown(view);
-    expect(view.phases?.regions.map((r) => r.phase)).toEqual([
-      "supercritical",
-      "supercritical_gas",
-      "supercritical_liquid",
-      "liquid",
-      "gas",
-    ]);
-    const asked = bodies.flatMap((b) => (b.op === "state" ? [b.outputs] : []));
-    expect(asked).toEqual([[], [], [], [], []]);
     stop();
   });
 
@@ -461,26 +434,30 @@ describe("a mixture's diagrams", { timeout: 30_000 }, () => {
     expect(view.data?.dome.liquid.length).toBeGreaterThan(10);
     // The model's critical point, from its constants, on T–ρ: (ρ_c, T_c).
     expect(view.data?.dome.critical?.inputs).toEqual([
-      "T",
-      expect.closeTo(344.494, 3),
       "Dmass",
       expect.closeTo(459.05, 2),
+      "T",
+      expect.closeTo(344.494, 3),
     ]);
     expect(last(writes)).toBe("fluid=R410A.mix&d=trho");
     view.choose("pt");
     await settle(view);
     expect([view.id, view.mixture?.end]).toEqual(["pt", "closed"]);
-    expect(calls.filter((c) => c === "components")).toEqual(["components"]);
+    expect(calls.filter((c) => c !== "pack")).toEqual(["diagram", "diagram"]);
     stop();
   });
 
   test("on a plane a mixture has not switch to p–T; a pure fluid's then has none", async () => {
-    const { view, writes, stop } = await mixed("fluid=R410A.mix&d=ph");
+    const { view, writes, calls, stop } = await mixed("fluid=R410A.mix&d=ph");
+    // The package refused p–h, and only then was the engine asked whether R410A.mix is a mixture.
+    expect(calls.filter((c) => c !== "pack")).toEqual(["diagram", "components", "diagram"]);
     expect([view.id, view.data?.envelope?.components]).toEqual(["pt", ["R32", "R125"]]);
     expect(last(writes)).toBe("fluid=R410A.mix&d=pt");
     view.choose("ph");
     await settle(view);
     expect(view.id).toBe("pt");
+    // Its components were asked once, and kept.
+    expect(calls.filter((c) => c === "components")).toEqual(["components"]);
     view.fluid = "Water";
     await settle(view);
     expect([view.mixture, view.data?.envelope]).toEqual([null, undefined]);
@@ -492,12 +469,16 @@ describe("a mixture's diagrams", { timeout: 30_000 }, () => {
 
   test("a name the engine refuses is no mixture, and the package's refusal is its diagram's", async () => {
     const { view, calls, stop } = await mixed("fluid=R410A.mix&d=pt");
-    const envelopes = calls.filter((c) => c === "envelope").length;
     view.fluid = "R999.mix";
     await settle(view);
     expect([view.data, view.mixture]).toEqual([null, null]);
     expect(view.refusal).toContain("R999.mix");
-    expect(calls.filter((c) => c === "envelope").length).toBe(envelopes);
+    // On p–h too: a name the engine refuses is no mixture, so the view stays on p–h.
+    view.choose("ph");
+    await settle(view);
+    expect([view.id, view.data]).toEqual(["ph", null]);
+    expect(view.refusal).toContain("R999.mix");
+    expect(calls.filter((c) => c === "components")).toEqual(["components"]);
     stop();
   });
 });

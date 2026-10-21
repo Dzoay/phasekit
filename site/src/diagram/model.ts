@@ -5,9 +5,8 @@
 import { formatNumber, superscript } from "../lib/format";
 import { output, type Output } from "../lib/outputs";
 import { fromSI, type System } from "../lib/units";
-import type { Diagram, Key } from "../sample/diagrams";
-import type { DiagramData, Vertex } from "../sample/lines";
-import type { AxisKey, Corner, Regions } from "../sample/regions";
+import type { Diagram, Key } from "./planes";
+import type { AxisKey, Corner, DiagramData, Regions, Vertex } from "./data";
 import { clip, deepest, inside, thin } from "./geometry";
 import type { Plot, Scale } from "./scales";
 import { CRITICAL_LINE, PHASES, lineLabel, styleOf, unitOfKey } from "./style";
