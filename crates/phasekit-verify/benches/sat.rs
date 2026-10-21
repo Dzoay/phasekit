@@ -7,7 +7,8 @@
 //! `ExecPolicy::Simd`, the curve's Clenshaw sums and both phases' bundles in lanes at the CPU's widest level. Recorded by
 //! `cargo xtask bench --record`.
 //! Built with `--features phasekit-core/libm`, the cases are `qt_h_libm` and `pq_h_libm` (`backend::case`; PLAN.md
-//! M23.1).
+//! M23.1). In the `fast` builds the batches' cases are `scalar_fast` and `simd_fast`, as `dt.rs`'s, so that no build's
+//! case shares another's id in one results file.
 
 #[cfg(not(target_family = "wasm"))]
 mod bench {
@@ -66,10 +67,11 @@ mod bench {
         let outputs = [Prop::Hmolar];
         let (mut out, mut status) = (vec![0.0; states.len()], vec![Status::Ok; states.len()]);
         let per_state = u32::try_from(states.len()).unwrap_or(u32::MAX);
-        let backend = if phasekit_core::math::BACKEND == "libm" { "scalar_libm" } else { "scalar" };
-        let simd = cfg!(feature = "simd").then_some((ExecPolicy::Simd, "simd"));
+        let backend = case(phasekit_core::math::BACKEND, "scalar");
+        let lanes = if phasekit_core::math::BACKEND == "fast" { "simd_fast" } else { "simd" };
+        let simd = cfg!(feature = "simd").then_some((ExecPolicy::Simd, lanes));
         let mut g = c.benchmark_group(group);
-        for (exec, case) in [(ExecPolicy::Reference, backend)].into_iter().chain(simd) {
+        for (exec, case) in [(ExecPolicy::Reference, backend.as_str())].into_iter().chain(simd) {
             let req = BatchRequest::new(pair, Basis::Molar, &x, &y, &outputs).with_exec(exec);
             g.bench_function(BenchmarkId::new(name, case), |b| {
                 b.iter_custom(|iters| {
