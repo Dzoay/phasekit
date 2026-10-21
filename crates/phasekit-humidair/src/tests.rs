@@ -1,6 +1,6 @@
 use phasekit_core::{DataSet, DomainError, Error, Registry};
 
-use crate::{HumidAir, Humidity, Parts, Per};
+use crate::{Given, HumidAir, Humidity, Parts, Per};
 
 /// Humid air on core's water and Air and phasekit-iapws's IF97 water and ice, under `data`.
 fn humid_air(data: DataSet) -> HumidAir {
@@ -153,4 +153,62 @@ fn the_state_refuses_outside_its_range() {
         assert!(matches!(refused(300.0, 1e5, psi), Error::InvalidInput { quantity: "mole fraction of water", .. }));
     }
     assert!(air.moist_air(130.0, 10.0, 0.0).is_ok() && air.moist_air(623.15, 1e7, 0.0).is_ok());
+}
+
+/// The dew point of saturated air at T is T, over liquid water above the triple point and over ice below (the frost
+/// point), to 1e-12; dry air has none (ROT-272), refused with its partial pressure, 0; ψ_w and p out of range are
+/// refused.
+#[test]
+fn the_dew_point_is_saturation_at_the_water_content() {
+    let air = humid_air(DataSet::Corrected);
+    for (t, p) in [(200.0, 1e4), (250.0, 101_325.0), (273.16, 1e5), (300.0, 101_325.0), (350.0, 1e6), (450.0, 5e6)] {
+        let psi = air.saturation(t, p).unwrap().psi_ws;
+        let t_dp = air.dew_point(p, psi).unwrap();
+        assert!((t_dp / t - 1.0).abs() <= 1e-12, "{t} K, {p} Pa: {t_dp}");
+    }
+    assert!(matches!(air.dew_point(1e5, 0.0), Err(Error::Domain(DomainError::BelowMinPressure { p, .. })) if p == 0.0));
+    let quantity = "mole fraction of water";
+    assert_eq!(air.dew_point(1e5, 1.0).unwrap_err(), Error::InvalidInput { quantity, value: 1.0 });
+    assert_eq!(air.dew_point(5.0, 0.1).unwrap_err(), DomainError::BelowMinPressure { p: 5.0, p_min: 10.0 }.into());
+    assert_eq!(air.dew_point(2e7, 0.1).unwrap_err(), DomainError::AboveMaxPressure { p: 2e7, p_max: 1e7 }.into());
+}
+
+/// The wet bulb of saturated air is its own T; an unsaturated stream's lies between its dew point and its T, an
+/// ice-bulb below the triple point. At 1 atm and W = 0.002 the triple point's gap is about a third of a kelvin wide:
+/// no state has a wet bulb of 273.10 K, while 272.50 K and 273.30 K each give one, whose wet bulb it is.
+#[test]
+fn the_wet_bulb_lies_between_the_dew_point_and_t() {
+    let air = humid_air(DataSet::Corrected);
+    for (t, p) in [(250.0, 101_325.0), (300.0, 101_325.0), (350.0, 1e6)] {
+        let saturated = air.moist_air(t, p, air.saturation(t, p).unwrap().psi_ws).unwrap();
+        assert!((air.wet_bulb(&saturated).unwrap() / t - 1.0).abs() <= 1e-12, "{t} K");
+        let psi = air.saturation(t, p).unwrap().psi_ws / 2.0;
+        let twb = air.wet_bulb(&air.moist_air(t, p, psi).unwrap()).unwrap();
+        assert!(air.dew_point(p, psi).unwrap() < twb && twb < t, "{t} K: {twb}");
+    }
+    let w = Given::Humidity(Humidity::Ratio(0.002));
+    let gap = air.state(101_325.0, w, Given::WetBulb(273.10)).unwrap_err();
+    assert!(matches!(gap, Error::InvalidState { reason } if reason.contains("gap")), "{gap:?}");
+    for twb in [272.5, 273.3] {
+        let state = air.state(101_325.0, w, Given::WetBulb(twb)).unwrap();
+        assert!((air.wet_bulb(&state).unwrap() - twb).abs() < 1e-9, "{twb} K");
+    }
+}
+
+/// A pair without T or a humidity, two temperatures, two humidities that each fix ψ_w, two φ, and dry air with φ fix
+/// no state: each refused as such.
+#[test]
+fn a_pair_that_fixes_no_state_is_refused() {
+    let air = humid_air(DataSet::Corrected);
+    let (t, w, phi) = (Given::Temperature(300.0), Humidity::Ratio(0.01), Humidity::Relative(0.5));
+    for (a, b) in [
+        (Given::Enthalpy(5e4), Given::Entropy(100.0)),
+        (Given::Volume(0.9), Given::WetBulb(290.0)),
+        (t, t),
+        (Given::Humidity(w), Given::Humidity(Humidity::DewPoint(280.0))),
+        (Given::Humidity(phi), Given::Humidity(phi)),
+        (Given::Humidity(Humidity::Ratio(0.0)), Given::Humidity(phi)),
+    ] {
+        assert!(matches!(air.state(101_325.0, a, b), Err(Error::InvalidState { .. })), "{a:?}, {b:?}");
+    }
 }

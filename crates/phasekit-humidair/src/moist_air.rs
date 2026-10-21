@@ -41,10 +41,10 @@ pub struct MoistAir {
 }
 
 /// v8.0.0's range (`check_bounds`): T from −143.15 to 350 °C, p from 10 Pa to 10 MPa.
-const T_MIN: f64 = 130.0;
-const T_MAX: f64 = 623.15;
-const P_MIN: f64 = 10.0;
-const P_MAX: f64 = 10e6;
+pub(crate) const T_MIN: f64 = 130.0;
+pub(crate) const T_MAX: f64 = 623.15;
+pub(crate) const P_MIN: f64 = 10.0;
+pub(crate) const P_MAX: f64 = 10e6;
 
 /// Newton's iterations on the virial equation: from the ideal gas it settles in under ten.
 const ITERATIONS: u16 = 50;

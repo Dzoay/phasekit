@@ -4,8 +4,8 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::math;
-use phasekit_core::{Basis, DataSet, Error, Fluid, Input, Pair, Registry};
-use phasekit_humidair::{Coefficient, Gas, HumidAir, Humidity, MoistAir, Parts, Per, Virials, henry_constant};
+use phasekit_core::{Basis, DataSet, Error, Fluid, Gauge, Input, Pair, ReferenceState, Registry};
+use phasekit_humidair::{Coefficient, Gas, Given, HumidAir, Humidity, MoistAir, Parts, Per, Virials, henry_constant};
 use phasekit_verify::register::exempt_at;
 use phasekit_verify::{Cell, DIVERGENCES, Fixture, Kind, Tolerance, ToleranceClass, fixture};
 
@@ -329,13 +329,9 @@ fn saturated_states_are_tables_1_and_2() {
     assert_eq!(missed, Vec::<String>::new());
 }
 
-/// Arbiter: the authors' Tables 5-14, moist air at 200 and 320 °C from 101.325 kPa to 10 MPa: v, h and s per kilogram
-/// of dry air at each row's W, within their printed digits under `Corrected` (PLAN.md M18.3; t_wb and φ are M18.4's),
-/// h and Tables 8's and 12's s within DIV-0071's bound (user decision HA8).
-#[test]
-fn states_are_tables_5_to_14() {
-    let air = humid_air(DataSet::Corrected);
-    let tables = [
+/// The authors' Tables 5-14 with their temperature (°C) and pressure (Pa).
+fn tables_5_to_14() -> [((&'static str, &'static str), f64, f64); 10] {
+    [
         (fixture!("paper/HumidAir/Herrmann-HVACR-2009.5.csv"), 200.0, 101_325.0),
         (fixture!("paper/HumidAir/Herrmann-HVACR-2009.6.csv"), 200.0, 1e6),
         (fixture!("paper/HumidAir/Herrmann-HVACR-2009.7.csv"), 200.0, 2e6),
@@ -346,9 +342,17 @@ fn states_are_tables_5_to_14() {
         (fixture!("paper/HumidAir/Herrmann-HVACR-2009.12.csv"), 320.0, 2e6),
         (fixture!("paper/HumidAir/Herrmann-HVACR-2009.13.csv"), 320.0, 5e6),
         (fixture!("paper/HumidAir/Herrmann-HVACR-2009.14.csv"), 320.0, 1e7),
-    ];
+    ]
+}
+
+/// Arbiter: the authors' Tables 5-14, moist air at 200 and 320 °C from 101.325 kPa to 10 MPa: v, h and s per kilogram
+/// of dry air at each row's W, within their printed digits under `Corrected` (PLAN.md M18.3; t_wb and φ are M18.4's),
+/// h and Tables 8's and 12's s within DIV-0071's bound (user decision HA8).
+#[test]
+fn states_are_tables_5_to_14() {
+    let air = humid_air(DataSet::Corrected);
     let (mut missed, mut checked) = (Vec::new(), 0);
-    for (fixture, t, p) in tables {
+    for (fixture, t, p) in tables_5_to_14() {
         let (path, table, t) = (fixture.0, table_of(fixture), t + 273.15);
         for row in 0..table.rows().len() {
             let w = table.value(row, "W").unwrap();
@@ -373,6 +377,169 @@ fn states_are_tables_5_to_14() {
     }
     assert_eq!(missed, Vec::<String>::new());
     assert_eq!(checked, 318);
+}
+
+/// Arbiter: the authors' Tables 5-14 at each row's W under `Corrected` (PLAN.md M18.4): t_wb (106 values), and φ at
+/// 200 °C from 2 MPa (22, in percent), within their printed digits.
+#[test]
+fn wet_bulb_and_relative_humidity_are_tables_5_to_14() {
+    let air = humid_air(DataSet::Corrected);
+    let (mut missed, mut checked) = (Vec::new(), 0);
+    for (fixture, t, p) in tables_5_to_14() {
+        let (table, t) = (table_of(fixture), t + 273.15);
+        for row in 0..table.rows().len() {
+            let w = table.value(row, "W").unwrap();
+            let psi = air.mole_fraction(t, p, Humidity::Ratio(w)).unwrap();
+            let state = air.moist_air(t, p, psi).unwrap();
+            let mut cells = vec![("twb", air.wet_bulb(&state).map_or(f64::NAN, |twb| twb - 273.15))];
+            if table.columns().contains(&"phi") {
+                cells.push(("phi", air.relative_humidity(t, p, psi).map_or(f64::NAN, |phi| 100.0 * phi)));
+            }
+            for (column, got) in cells {
+                checked += 1;
+                let want = table.value(row, column).unwrap();
+                missed.extend(
+                    table
+                        .check(row, column, got)
+                        .err()
+                        .map(|_| format!("{column} at {t} K, {p} Pa, W {w}: {got} {want}")),
+                );
+            }
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+    assert_eq!(checked, 128);
+}
+
+/// What a state gives every input as: T, W, ψ_w, h, s, v, T_wb, T_dp (none for dry air) and φ (none above water's
+/// boiling point at p, where v8.0.0 refuses it).
+fn as_inputs(air: &HumidAir, state: &MoistAir) -> Vec<Given> {
+    let (t, p, psi) = (state.t(), state.p(), state.mole_fraction());
+    let mut given = vec![
+        Given::Temperature(t),
+        Given::Humidity(Humidity::Ratio(state.humidity_ratio())),
+        Given::Humidity(Humidity::MoleFraction(psi)),
+        Given::Enthalpy(state.h(Per::KgDryAir)),
+        Given::Entropy(state.s(Per::KgDryAir)),
+        Given::Volume(state.v(Per::KgDryAir)),
+        Given::WetBulb(air.wet_bulb(state).unwrap()),
+    ];
+    if psi > 0.0 {
+        given.push(Given::Humidity(Humidity::DewPoint(air.dew_point(p, psi).unwrap())));
+    }
+    if air.saturation(t, p).unwrap().psi_ws < 1.0 {
+        given.push(Given::Humidity(Humidity::Relative(air.relative_humidity(t, p, psi).unwrap())));
+    }
+    given
+}
+
+/// Whether `HumidAir::state` takes the pair: T and anything else; a humidity and h, s, v or T_wb; W, ψ_w or T_dp with
+/// φ but for `dry` air (PLAN.md M18.4).
+fn takes(a: Given, b: Given, dry: bool) -> bool {
+    let fixed = |g: Given| matches!(g, Given::Humidity(h) if !matches!(h, Humidity::Relative(_)));
+    let relative = |g: Given| matches!(g, Given::Humidity(Humidity::Relative(_)));
+    let humidity = |g: Given| matches!(g, Given::Humidity(_));
+    let temperature = |g: Given| matches!(g, Given::Temperature(_));
+    match () {
+        () if temperature(a) || temperature(b) => !(temperature(a) && temperature(b)),
+        () if humidity(a) && humidity(b) => !dry && ((fixed(a) && relative(b)) || (relative(a) && fixed(b))),
+        () => humidity(a) || humidity(b),
+    }
+}
+
+/// Every input pair round-trips (PLAN.md M18.4): from unsaturated states at 260 to 470 K, 10 kPa to 5 MPa and W from 0
+/// to 0.1, both data sets, every pair `HumidAir::state` takes, in either order, gives back T and ψ_w within `Flash`
+/// (ψ_w's scale at least 1e-6), and every other pair is refused: 1996 pairs taken.
+#[test]
+fn every_input_pair_round_trips() {
+    let mut checked = 0;
+    for data in [DataSet::Corrected, DataSet::Parity] {
+        let air = humid_air(data);
+        for (t, p, w) in round_trip_states(&air) {
+            let state = air.moist_air(t, p, air.mole_fraction(t, p, Humidity::Ratio(w)).unwrap()).unwrap();
+            let given = as_inputs(&air, &state);
+            for (i, &a) in given.iter().enumerate() {
+                for &b in &given[i + 1..] {
+                    checked += round_trip(&air, &state, a, b);
+                }
+            }
+        }
+    }
+    assert_eq!(checked, 1996);
+}
+
+/// The grid's unsaturated states (T, p, W) that the virial equation has (at 5 MPa its branch ends before some).
+fn round_trip_states(air: &HumidAir) -> Vec<(f64, f64, f64)> {
+    let mut states = Vec::new();
+    for t in [260.0, 300.0, 350.0, 470.0] {
+        for p in [1e4, 101_325.0, 1e6, 5e6] {
+            let w_s = air.saturated_humidity_ratio(t, p).unwrap_or(f64::INFINITY);
+            let unsaturated = |w: f64| w < w_s.max(0.0) || w_s < 0.0;
+            let exists =
+                |w: f64| air.mole_fraction(t, p, Humidity::Ratio(w)).and_then(|psi| air.moist_air(t, p, psi)).is_ok();
+            states.extend(
+                [0.0, 0.001, 0.01, 0.1].into_iter().filter(|&w| unsaturated(w) && exists(w)).map(|w| (t, p, w)),
+            );
+        }
+    }
+    states
+}
+
+/// One pair's round trip from `state`: 1 if `HumidAir::state` takes it and gives `state` back, 0 if it refuses a pair
+/// it should; a panic otherwise.
+fn round_trip(air: &HumidAir, state: &MoistAir, a: Given, b: Given) -> usize {
+    let (p, t, psi) = (state.p(), state.t(), state.mole_fraction());
+    let flash = |scale: f64| ToleranceClass::Flash.bound(scale).unwrap();
+    for (x, y) in [(a, b), (b, a)] {
+        let got = air.state(p, x, y);
+        if !takes(x, y, psi == 0.0) {
+            assert!(matches!(got, Err(Error::InvalidState { .. })), "{x:?}, {y:?} at {p} Pa: {got:?}");
+            continue;
+        }
+        assert!(got.is_ok(), "{x:?}, {y:?} at {t} K, {p} Pa, ψ {psi}: {got:?}");
+        let got = got.unwrap();
+        assert!((got.t() - t).abs() <= flash(t), "{x:?}, {y:?}: T {} against {t}", got.t());
+        let psi_got = got.mole_fraction();
+        assert!((psi_got - psi).abs() <= flash(psi.max(1e-6)), "{x:?}, {y:?}: ψ {psi_got} against {psi}");
+    }
+    usize::from(takes(a, b, psi == 0.0))
+}
+
+/// ROT-104 (PLAN.md M18.4): every output, T_wb and T_dp included, is the one the parts give in their models' own
+/// gauge, whatever reference state they carry: the IF97 water under NBP and IIR, the IAPWS-95 water under NBP and an
+/// arbitrary gauge (IIR anchors at 0 °C, below IAPWS-95's triple point, which core refuses), the air and the ice under
+/// that gauge; both data sets, bit for bit.
+#[test]
+fn every_output_is_gauge_invariant() {
+    for data in [DataSet::Corrected, DataSet::Parity] {
+        let native = humid_air(data);
+        for reference in [ReferenceState::Nbp, ReferenceState::Iir] {
+            let custom = Gauge::new(1234.5, -6.75).unwrap();
+            let Parts { water, air, liquid, ice } = parts(data);
+            let water = match reference {
+                ReferenceState::Nbp => water.with_reference(reference).unwrap(),
+                _ => water.with_gauge(custom),
+            };
+            let liquid = liquid.with_reference(reference).unwrap();
+            let (air, ice) = (air.with_gauge(custom), ice.with_gauge(custom));
+            let gauged = HumidAir::new(Parts { water, air, liquid, ice }, data).unwrap();
+            for (t, p, w) in
+                [(250.0, 101_325.0, 0.0003), (300.0, 101_325.0, 0.01), (320.0, 2e5, 0.02), (473.15, 1e6, 0.3)]
+            {
+                let outputs = |air: &HumidAir| {
+                    let psi = air.mole_fraction(t, p, Humidity::Ratio(w)).unwrap();
+                    let s = air.moist_air(t, p, psi).unwrap();
+                    let per = Per::KgDryAir;
+                    [s.h(per), s.s(per), s.u(per), s.v(per), s.cp(per), s.cv(per), s.speed_of_sound()]
+                        .into_iter()
+                        .chain([air.wet_bulb(&s).unwrap(), air.dew_point(p, psi).unwrap()])
+                        .chain([air.relative_humidity(t, p, psi).unwrap()])
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(outputs(&gauged), outputs(&native), "{data:?}, {reference:?}: {t} K, {p} Pa, W {w}");
+            }
+        }
+    }
 }
 
 /// Oracle: map 11 §8's `HAPropsSI("H","T",300,"P",1e5,"R",0)`, 27013.112479771713 J/kg of dry air (PLAN.md M18.3),
@@ -517,4 +684,108 @@ fn moist_air_matches_the_oracle() {
     }
     assert_eq!(missed, Vec::<String>::new());
     assert_eq!((asserted, refused), (276, 80));
+}
+
+/// Whether `got` is `want` within DIV-0069's bound, relative to max(|want|, `floor`).
+fn close(got: f64, want: f64, floor: f64) -> bool {
+    (got - want).abs() <= registered("DIV-0069") * want.abs().max(floor)
+}
+
+/// `target`'s value at (T, W) and p in phasekit, with its floor (§5's, as `moist_air_outputs` takes them).
+fn target_at(air: &HumidAir, (t, p, w): (f64, f64, f64), target: Given) -> (f64, f64) {
+    let state = air.moist_air(t, p, air.mole_fraction(t, p, Humidity::Ratio(w)).unwrap()).unwrap();
+    let r = state.cp(Per::KgDryAir) / state.cp(Per::MolHumidAir) * phasekit_humidair::constants::R;
+    match target {
+        Given::Enthalpy(_) => (state.h(Per::KgDryAir), r * t),
+        Given::Entropy(_) => (state.s(Per::KgDryAir), r),
+        Given::Volume(_) => (state.v(Per::KgDryAir), 0.0),
+        _ => (air.wet_bulb(&state).unwrap(), 0.0),
+    }
+}
+
+/// The bound on a solve's unknown from the oracle's `target` at the row's state: DIV-0069's bound on the target,
+/// carried through the target's slope in the unknown there (a central difference of phasekit's, 1e-6 of the unknown),
+/// plus `Flash`'s on the unknown.
+fn carried(air: &HumidAir, (t, p, w): (f64, f64, f64), target: Given, unknown_is_t: bool) -> f64 {
+    let (x, floor) = target_at(air, (t, p, w), target);
+    let d = if unknown_is_t { 1e-6 * t } else { 1e-6 * w.max(1e-6) };
+    let at = |k: f64| {
+        let (t, w) = if unknown_is_t { (t + k * d, w) } else { (t, w + k * d) };
+        target_at(air, (t, p, w), target).0
+    };
+    let up = if unknown_is_t && t + d > 623.15 { 0.0 } else { 1.0 };
+    let slope = (at(up) - at(up - 2.0)) / (2.0 * d);
+    let unknown = if unknown_is_t { t } else { w.max(1e-6) };
+    registered("DIV-0069") * x.abs().max(floor) / slope.abs() + ToleranceClass::Flash.bound(unknown).unwrap()
+}
+
+/// The row's state solved back from its own H, S, V and T_wb, each with its T and with its W: the misses, as text.
+/// Dry air at its T, saturated air at either and air at 350 °C at its W sit at an end of the solve's range, where
+/// v8.0.0's outputs, a part in 1e7 off phasekit's, may lie just outside it, and are left out.
+fn from_outputs(air: &HumidAir, oracle: &Fixture<'_>, row: usize, state: &MoistAir) -> Vec<String> {
+    let (t, p, w) = (state.t(), state.p(), state.humidity_ratio());
+    let value = |column: &str| oracle.value(row, column).unwrap_or(f64::NAN);
+    let saturated = oracle.printed(row, "input") == Some("R") && oracle.value(row, "value") == Some(1.0);
+    let targets = [
+        Given::Enthalpy(value("H")),
+        Given::Entropy(value("S")),
+        Given::Volume(value("V")),
+        Given::WetBulb(value("Twb")),
+    ];
+    let mut missed = Vec::new();
+    for target in targets.into_iter().filter(|g| !matches!(g, Given::WetBulb(x) if x.is_nan())) {
+        let knowns = [
+            (Given::Temperature(t), w > 0.0 && !saturated),
+            (Given::Humidity(Humidity::Ratio(w)), !saturated && t < 623.15),
+        ];
+        for (known, unknown_is_t) in
+            knowns.into_iter().filter(|(_, inside)| *inside).map(|(k, _)| (k, matches!(k, Given::Humidity(_))))
+        {
+            let got = air.state(p, known, target);
+            let bound = carried(air, (t, p, w), target, unknown_is_t);
+            let ok = got.as_ref().is_ok_and(|s| (s.t() - t).abs().max((s.humidity_ratio() - w).abs()) <= bound);
+            if !ok {
+                missed.push(format!("{known:?} with {target:?} at {t} K, {p} Pa, W {w} (bound {bound:e}): {got:?}"));
+            }
+        }
+    }
+    missed
+}
+
+/// Whether the register exempts the `humidair` kind's dew point of dry air, outside the dew point's domain.
+fn exempt_dew_point() -> bool {
+    DIVERGENCES.iter().any(|d| d.exempt.is_some_and(|e| e.kinds == [Kind::Humidair] && e.columns == ["Tdp"]))
+}
+
+/// Oracle: the `humidair` rows across the input pairs (PLAN.md M18.4), under `Parity`. At each answered row's state,
+/// T_wb, T_dp and φ are v8.0.0's within DIV-0069's bound; the cells v8.0.0 refuses are counted (66 wet bulbs, 30 R
+/// where water's saturation pressure exceeds p), and so are the 58 dry rows' T_dp, which phasekit refuses where v8.0.0's
+/// is about 149.4 K (DIV-0072, ROT-272). From the row's own H, S, V and T_wb, each with its T and with its W, the state
+/// is the row's within that bound carried through the target's slope in the unknown.
+#[test]
+fn the_oracle_across_input_pairs() {
+    let (path, text) = fixture!("coolprop-8.0.0/all/humidair.csv");
+    let oracle = Fixture::parse(path, text).unwrap();
+    let air = humid_air(DataSet::Parity);
+    let (mut missed, mut checked, mut refused, mut exempt) = (Vec::new(), 0, 0, 0);
+    for row in (0..oracle.rows().len()).filter(|&r| oracle.printed(r, "status") == Some("ok")) {
+        let (t, p, humidity) = humidair_inputs(&oracle, row);
+        let psi = air.mole_fraction(t, p, humidity).unwrap();
+        let state = air.moist_air(t, p, psi).unwrap();
+        let forward =
+            [("Twb", air.wet_bulb(&state)), ("Tdp", air.dew_point(p, psi)), ("R", air.relative_humidity(t, p, psi))];
+        for (column, got) in forward {
+            let want = oracle.value(row, column).unwrap_or(f64::NAN);
+            let dry_air = column == "Tdp" && psi == 0.0;
+            match got {
+                _ if want.is_nan() => refused += 1,
+                Err(Error::Domain(_)) if dry_air && exempt_dew_point() => exempt += 1,
+                Ok(got) if !dry_air && close(got, want, 0.0) => checked += 1,
+                got => missed.push(format!("{column} at {t} K, {p} Pa, {humidity:?}: {got:?} against {want}")),
+            }
+        }
+        missed.extend(from_outputs(&air, &oracle, row, &state));
+    }
+    assert_eq!(missed, Vec::<String>::new());
+    assert_eq!((checked, refused, exempt), (674, 96, 58));
 }

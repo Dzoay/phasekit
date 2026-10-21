@@ -1748,6 +1748,22 @@ pub static DIVERGENCES: &[Divergence] = &[
         ],
         proof: &[18],
         status: DivStatus::Open,
+    },    Divergence {
+        id: "DIV-0072",
+        fluids: &["Humid air"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_humidair::dew_point"),
+        evidence: "map 07 H14 (ROT-272): v8.0.0's DewpointTemperature guards against psi_w = 1 where its comment says \
+                   dry air, so for W = 0 its secant runs on p_w = 0 and stops where p_ws is negligible: 149.4 K at \
+                   20 °C and 101.325 kPa, which is no dew point. phasekit refuses dry air's (BelowMinPressure, its \
+                   partial pressure 0), so the humidair kind's Tdp at its 58 dry rows is not asserted (M18.4)",
+        exempt: Some(Exempt { kinds: &[Kind::Humidair], columns: &["Tdp"], rows: Rows::BelowDomain }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[18],
+        status: DivStatus::Open,
     },
 ];
 
