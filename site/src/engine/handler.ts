@@ -1,14 +1,17 @@
 // The engine: the page's requests (protocol.ts) answered by the browser package. It adds no numerics: every value is
 // the package's, and every refusal is the package's message. It holds one registry, which each pack the page adds
 // replaces with a registry that also serves the pack's fluids (PLAN.md M21.4), and the fluid handles it has opened,
-// which outlive the registry they came from; each state, envelope and set of phases is freed once it is read.
+// which outlive the registry they came from; each state, set of phases, diagram and set of regions is freed once it is
+// read, and so is each handle read from it.
 import type { Pk } from "./pk";
 import type {
   BatchValue,
   BenchValue,
   Build,
-  EnvelopeValue,
+  CornersValue,
+  DiagramValue,
   MixturesValue,
+  RegionsValue,
   RegistryValue,
   Request,
   Response,
@@ -16,6 +19,7 @@ import type {
   StateValue,
   TimeValue,
   Timing,
+  VerticesValue,
 } from "./protocol";
 
 // The handle types; wasm-bindgen's private constructors rule out `InstanceType`.
@@ -24,6 +28,21 @@ type Fluid = Pk["Fluid"]["prototype"];
 type State = Pk["State"]["prototype"];
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** What `read` takes from a handle, the handle freed once it is read. */
+function freed<H extends { free(): void }, T>(handle: H, read: (handle: H) => T): T {
+  try {
+    return read(handle);
+  } finally {
+    handle.free();
+  }
+}
+
+const vertices = (v: { xy: Float64Array; inputs: Float64Array; pairs: Uint8Array; free(): void }): VerticesValue =>
+  freed(v, (h) => ({ xy: h.xy, inputs: h.inputs, pairs: h.pairs }));
+
+const corners = (c: { starts: Uint32Array; corners: Float64Array; free(): void }): CornersValue =>
+  freed(c, (h) => ({ starts: h.starts, corners: h.corners }));
 
 /** How long a timing repeats its run: long enough that a browser's coarse clock (100 µs without isolation) blurs the
  *  mean by under 1 %. */
@@ -118,19 +137,43 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
     pairs: pk.binaryPairs(),
   });
 
-  // A mixture's envelope, its handle freed once its arrays are copied out.
-  const envelope = (name: string): EnvelopeValue => {
+  // A fluid's diagram on a plane (PLAN.md M21.6), its arrays copied out of the package's handles; a mixture's with its
+  // components, its feed and how the trace of its envelope ended.
+  const diagram = (name: string, plane: string): DiagramValue => {
     const f = fluid(name);
-    const e = f.envelope();
-    try {
-      const critical: [number, number] | null = e.criticalT === undefined ? null : [e.criticalT, e.criticalP as number];
-      const [T, P, Q, Dmass, incipient] = [e.T, e.P, e.Q, e.Dmass, e.incipient];
-      const [components, feed] = [f.components, [...f.composition]];
-      return { T, P, Q, Dmass, incipient, components, feed, critical, end: e.end, reason: e.reason };
-    } finally {
-      e.free();
-    }
+    return freed(f.diagram(plane), (d) => ({
+      x: d.x,
+      y: d.y,
+      liquid: vertices(d.liquid),
+      vapour: vertices(d.vapour),
+      critical: vertices(d.critical),
+      lines: freed(d.lines, (l) => ({
+        held: l.held,
+        values: l.values,
+        segments: l.segments,
+        twoPhase: l.twoPhase,
+        starts: l.starts,
+        vertices: vertices(l.vertices),
+      })),
+      pairKeys: pk.pairKeys(),
+      mixture:
+        f.components.length < 2
+          ? null
+          : { components: f.components, feed: [...f.composition], end: d.end, reason: d.reason },
+    }));
   };
+
+  // A fluid's phase regions (PLAN.md M21.6), their arrays copied out of the package's handles.
+  const regions = (name: string): RegionsValue =>
+    freed(fluid(name).regions(), (r) => ({
+      phases: r.phases,
+      outlines: corners(r.outlines),
+      isotherm: corners(r.isotherm),
+      isobar: corners(r.isobar),
+      critical: r.critical,
+      Tc: r.Tc,
+      pc: r.pc,
+    }));
 
   // A flash with a state handle made and freed, as the page makes one; then every output read from one state.
   const time = (r: Extract<Request, { op: "time" }>): TimeValue => {
@@ -212,8 +255,10 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
           return { id, ok: true, op: "mixtures", value: mixtures() };
         case "components":
           return { id, ok: true, op: "components", value: pk.mixtureComponents(request.name) };
-        case "envelope":
-          return { id, ok: true, op: "envelope", value: envelope(request.fluid) };
+        case "diagram":
+          return { id, ok: true, op: "diagram", value: diagram(request.fluid, request.plane) };
+        case "regions":
+          return { id, ok: true, op: "regions", value: regions(request.fluid) };
         case "batch":
           return { id, ok: true, op: "batch", value: batch(request) };
         case "bench":

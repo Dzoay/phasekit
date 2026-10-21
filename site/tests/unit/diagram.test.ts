@@ -17,9 +17,8 @@ import {
 } from "../../src/diagram/model";
 import { padded, baseScales, readoutAt, readoutInputs, shownAt } from "../../src/diagram/scales";
 import { CRITICAL_LINE, lineLabel, styleOf } from "../../src/diagram/style";
-import { DIAGRAMS, diagram, type Diagram } from "../../src/sample/diagrams";
-import type { DiagramData, Vertex } from "../../src/sample/lines";
-import type { Corner, Regions } from "../../src/sample/regions";
+import type { Corner, DiagramData, Regions, Vertex } from "../../src/diagram/data";
+import { DIAGRAMS, diagram, type Diagram } from "../../src/diagram/planes";
 
 const ph = diagram("ph") as Diagram;
 const v = (x: number, y: number): Vertex => ({ x, y, inputs: ["T", 300, "P", y] });

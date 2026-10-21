@@ -1,6 +1,6 @@
 // The benchmark's states (PLAN.md M21.3): N states of one input pair over a fluid's plotted ranges, a near-square grid
 // in the pair's two inputs, the last row cut short at N.
-import { linGrid, logGrid, ranges, type Limits } from "../sample/ranges";
+import { linGrid, logGrid, ranges, type Limits } from "../lib/ranges";
 
 export type Pair = "DT" | "PT" | "QT" | "PQ";
 

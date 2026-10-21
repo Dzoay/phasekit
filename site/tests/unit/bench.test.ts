@@ -6,7 +6,7 @@ import { BENCH_OUTPUTS, PAIRS, benchGrid } from "../../src/bench/grids";
 import { byStatus, compareBuilds } from "../../src/bench/compare";
 import { createHandler } from "../../src/engine/handler";
 import type { BatchValue, Request } from "../../src/engine/protocol";
-import { LIMIT_KEYS, limits, ranges, type Limits } from "../../src/sample/ranges";
+import { LIMIT_KEYS, limits, ranges, type Limits } from "../../src/lib/ranges";
 import { loadPk } from "../pk";
 
 async function handlers() {

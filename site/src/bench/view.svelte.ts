@@ -4,7 +4,7 @@
 // only when asked; its results stay with the settings they ran on. tests/unit/bench-view.svelte.test.ts drives it.
 import { untrack } from "svelte";
 import type { BatchValue, Build, Engine, Timing } from "../engine/protocol";
-import { LIMIT_KEYS, limits } from "../sample/ranges";
+import { LIMIT_KEYS, limits } from "../lib/ranges";
 import { byStatus, compareBuilds, type Comparison } from "./compare";
 import { BENCH_OUTPUTS, PAIRS, benchGrid, type Pair } from "./grids";
 
