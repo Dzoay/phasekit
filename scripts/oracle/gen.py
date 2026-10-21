@@ -30,7 +30,7 @@ MIXTURES_DIR = ROOT / "reference" / "CoolProp" / "dev" / "mixtures"
 FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
 MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
 KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transport", "sigma", "melt", "refstate", "cubic",
-         "cubic_sat", "mix_alphar", "mix_eos", "mix_crit", "mix_flash", "mix_sat", "mix_env", "props", "codes", "if97"]
+         "cubic_sat", "mix_alphar", "mix_eos", "mix_crit", "mix_flash", "mix_sat", "mix_env", "props", "codes", "if97", "humidair_aux"]
 SCRUBBED_PREFIXES = ("COOLPROP_", "PXFLASH_")
 FLUID_COUNT = 136
 
@@ -1070,6 +1070,39 @@ def if97(CP, lock, config, files, args):
     text = header("if97", lock, config, "IF97::Water (IAPWS R7-97(2012); no fluid file)", IF97_COLUMNS, IF97_TOL,
                   floats, units=IF97_UNITS, grid=grid)
     return {"all/if97.csv": text + "".join(lines)}
+
+
+# The `humidair_aux` kind (PLAN.md M18.1, M18.2): CoolProp 8.0.0's humid-air parts through `HAProps_Aux`, at T from 200
+# to 600 K and three pressures, W = 0 (the parts asked for take no humidity): the seven virial coefficients (B and C of
+# air and water from v8.0.0's EOS at delta = 1e-12, map 07 §3.3), the enhancement factor, the saturation pressure, the
+# Henry's-law beta_H and the condensed phase's molar volume. Not kT: v8.0.0's passes density as pressure (map 07 H1).
+HUMIDAIR_AUX_T = [200.0 + 25.0 * k for k in range(17)]
+HUMIDAIR_AUX_P = [101325.0, 1e6, 5e6]
+HUMIDAIR_AUX_OUTPUTS = [("Baa", "m3/mol"), ("Caaa", "m6/mol2"), ("Bww", "m3/mol"), ("Cwww", "m6/mol2"),
+                        ("Baw", "m3/mol"), ("Caaw", "m6/mol2"), ("Caww", "m6/mol2"), ("f", "-"), ("p_ws", "Pa"),
+                        ("beta_H", "1/Pa"), ("vbar_ws", "m3/mol")]
+HUMIDAIR_AUX_COLUMNS = ["T", "p", "status", *(name for name, _ in HUMIDAIR_AUX_OUTPUTS)]
+HUMIDAIR_AUX_UNITS = ["K", "Pa", "-", *(unit for _, unit in HUMIDAIR_AUX_OUTPUTS)]
+HUMIDAIR_AUX_TOL = ["in", "in", "label", *["prop"] * len(HUMIDAIR_AUX_OUTPUTS)]
+
+
+def humidair_aux(CP, lock, config, files, args):
+    """The `humidair_aux` kind: all/humidair_aux.csv."""
+    from CoolProp.HumidAirProp import HAProps_Aux
+    floats, lines = [], []
+    for t in HUMIDAIR_AUX_T:
+        for p in HUMIDAIR_AUX_P:
+            try:
+                values, status = [HAProps_Aux(name, t, p, 0.0)[0] for name, _ in HUMIDAIR_AUX_OUTPUTS], "ok"
+            except Exception as exception:  # outside v8.0.0's humid-air range
+                values, status = [math.nan] * len(HUMIDAIR_AUX_OUTPUTS), f"err:{error_class(exception)}"
+            floats.extend([t, p, *values])
+            lines.append(",".join([cell(t), cell(p), status, *map(cell, values)]) + "\n")
+    grid = (f"T in {{{','.join(map(cell, HUMIDAIR_AUX_T))}}} K x p in {{{','.join(map(cell, HUMIDAIR_AUX_P))}}} Pa, "
+            "W = 0")
+    text = header("humidair_aux", lock, config, "Water Air (HAProps_Aux's own backends)", HUMIDAIR_AUX_COLUMNS,
+                  HUMIDAIR_AUX_TOL, floats, units=HUMIDAIR_AUX_UNITS, grid=grid)
+    return {"all/humidair_aux.csv": text + "".join(lines)}
 
 
 # The `mix_alphar` kind (PLAN.md M13.3): CoolProp 8.0.0's multi-fluid residual, the gas phase imposed so that (T, rho)
@@ -2188,7 +2221,7 @@ def codes(CP, lock, config, files, args):
 
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "cubic": cubic,
               "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "mix_eos": mix_eos, "mix_crit": mix_crit, "mix_flash": mix_flash, "mix_sat": mix_sat, "mix_env": mix_env, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
-              "props": props, "codes": codes, "if97": if97}
+              "props": props, "codes": codes, "if97": if97, "humidair_aux": humidair_aux}
 
 
 def write(out, files):

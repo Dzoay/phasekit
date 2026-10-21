@@ -1,0 +1,36 @@
+# fixture: paper/v1
+# source: iapws:G8-10/15
+# citation: report=IAPWS-G8-10 table=15 page=21 erratum-checked=2026-10-21 pdf_sha256=1d49b4f5b0aba0e3f6c5654d922da86e8f6a374b1a26b6b624067b640ef3962d
+# kind: Rows
+# constants: the cross-virial rows only; the states are saturated air over ice at 200 K and over liquid water at 300 and 400 K
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: quantity,T,value,unit
+# units: -,K,unit,-
+# tol: label,in,paper,label
+B_AW,200,-0.784874278e-4,m3 mol-1
+B_AW,300,-0.295672747e-4,m3 mol-1
+B_AW,400,-0.100804610e-4,m3 mol-1
+dB_AW/dT,200,0.848076624e-6,m3 mol-1 K-1
+dB_AW/dT,300,0.280097360e-6,m3 mol-1 K-1
+dB_AW/dT,400,0.135021228e-6,m3 mol-1 K-1
+d2B_AW/dT2,200,-0.122622146e-7,m3 mol-1 K-2
+d2B_AW/dT2,300,-0.242599241e-8,m3 mol-1 K-2
+d2B_AW/dT2,400,-0.839901729e-9,m3 mol-1 K-2
+C_AAW,200,0.105493575e-8,m6 mol-2
+C_AAW,300,0.801977741e-9,m6 mol-2
+C_AAW,400,0.672018172e-9,m6 mol-2
+dC_AAW/dT,200,-0.152535000e-11,m6 mol-2 K-1
+dC_AAW/dT,300,-0.196103457e-11,m6 mol-2 K-1
+dC_AAW/dT,400,-0.812416406e-12,m6 mol-2 K-1
+d2C_AAW/dT2,200,-0.113436375e-12,m6 mol-2 K-2
+d2C_AAW/dT2,300,0.170055638e-13,m6 mol-2 K-2
+d2C_AAW/dT2,400,0.683147461e-14,m6 mol-2 K-2
+C_AWW,200,-0.349872634e-5,m6 mol-2
+C_AWW,300,-0.115552784e-6,m6 mol-2
+C_AWW,400,-0.200806021e-7,m6 mol-2
+dC_AWW/dT,200,0.188025052e-6,m6 mol-2 K-1
+dC_AWW/dT,300,0.261363278e-8,m6 mol-2 K-1
+dC_AWW/dT,400,0.274535403e-9,m6 mol-2 K-1
+d2C_AWW/dT2,200,-0.124996856e-7,m6 mol-2 K-2
+d2C_AWW/dT2,300,-0.751334582e-10,m6 mol-2 K-2
+d2C_AWW/dT2,400,-0.491763910e-11,m6 mol-2 K-2

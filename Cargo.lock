@@ -514,6 +514,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "phasekit-humidair"
+version = "0.1.0"
+dependencies = [
+ "phasekit-core",
+ "phasekit-iapws",
+]
+
+[[package]]
 name = "phasekit-iapws"
 version = "0.1.0"
 dependencies = [
@@ -541,6 +549,7 @@ dependencies = [
  "phasekit-core",
  "phasekit-cubic",
  "phasekit-data",
+ "phasekit-humidair",
  "phasekit-iapws",
  "phasekit-mix",
  "rayon",

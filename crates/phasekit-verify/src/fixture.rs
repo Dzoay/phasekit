@@ -53,6 +53,7 @@ pub enum Kind {
     Props,
     Codes,
     If97,
+    HumidairAux,
 }
 
 /// What a column holds, from its `tol:` entry.

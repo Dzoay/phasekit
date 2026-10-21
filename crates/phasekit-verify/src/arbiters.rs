@@ -62,6 +62,10 @@ pub enum ArbiterPart {
     AlphaR,
     /// A Gibbs function's properties at (T, p): IF97's regions, ice Ih (PLAN.md M14).
     Gibbs,
+    /// Virial coefficients and their T-derivatives: humid air's (PLAN.md M18).
+    Virial,
+    /// Cross virial coefficients of a mixture and their T-derivatives: humid air's (PLAN.md M18).
+    CrossVirial,
     Alpha0,
     Viscosity,
     Conductivity,
@@ -298,6 +302,8 @@ pub const TABLES: &[(&str, &str)] = &[
     crate::fixture!("paper/Water/IAPWS-R7-97-2012.5.csv"),
     crate::fixture!("paper/Water/IAPWS-R7-97-2012.15.csv"),
     crate::fixture!("paper/Water/IAPWS-R10-06-2009.6.csv"),
+    crate::fixture!("paper/HumidAir/IAPWS-G11-15.7.csv"),
+    crate::fixture!("paper/HumidAir/IAPWS-G8-10.15.csv"),
     crate::fixture!("paper/Water/IAPWS-R7-97-2012.35.csv"),
     crate::fixture!("paper/Water/IAPWS-R7-97-2012.36.csv"),
     crate::fixture!("paper/HeavyWater/Herrig-JPCRD-2019.S3-4.csv"),
@@ -374,6 +380,22 @@ pub static ARBITERS: &[Arbiter] = &[
             Table { file: "paper/Water/IAPWS-R7-97-2012.5.csv", kind: TableKind::Rows, rows: Some(3) },
             Table { file: "paper/Water/IAPWS-R7-97-2012.15.csv", kind: TableKind::Rows, rows: Some(3) },
         ],
+        constants: None,
+        status: ArbiterStatus::SelfConsistent,
+    },
+    Arbiter {
+        fluid: "Humid air",
+        part: ArbiterPart::Virial,
+        citation: Citation { key: "IAPWS-G11-15", doi_or_report: Some("IAPWS G11-15"), role: Role::Release },
+        tables: &[Table { file: "paper/HumidAir/IAPWS-G11-15.7.csv", kind: TableKind::Rows, rows: Some(21) }],
+        constants: None,
+        status: ArbiterStatus::SelfConsistent,
+    },
+    Arbiter {
+        fluid: "Humid air",
+        part: ArbiterPart::CrossVirial,
+        citation: Citation { key: "IAPWS-G8-10", doi_or_report: Some("IAPWS G8-10"), role: Role::Release },
+        tables: &[Table { file: "paper/HumidAir/IAPWS-G8-10.15.csv", kind: TableKind::Rows, rows: Some(27) }],
         constants: None,
         status: ArbiterStatus::SelfConsistent,
     },

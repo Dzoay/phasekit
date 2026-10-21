@@ -93,6 +93,8 @@ const PAPERS: &[(Text, Text)] = &[
     (fixture!("paper/Water/IAPWS-R14-08-2011.3.csv"), fixture!("paper/Water/IAPWS-R14-08-2011.3.check.csv")),
     (fixture!("paper/Water/IAPWS-R7-97-2012.5.csv"), fixture!("paper/Water/IAPWS-R7-97-2012.5.check.csv")),
     (fixture!("paper/Water/IAPWS-R10-06-2009.6.csv"), fixture!("paper/Water/IAPWS-R10-06-2009.6.check.csv")),
+    (fixture!("paper/HumidAir/IAPWS-G11-15.7.csv"), fixture!("paper/HumidAir/IAPWS-G11-15.7.check.csv")),
+    (fixture!("paper/HumidAir/IAPWS-G8-10.15.csv"), fixture!("paper/HumidAir/IAPWS-G8-10.15.check.csv")),
     (fixture!("paper/Water/IAPWS-R7-97-2012.15.csv"), fixture!("paper/Water/IAPWS-R7-97-2012.15.check.csv")),
     (fixture!("paper/Water/IAPWS-R7-97-2012.35.csv"), fixture!("paper/Water/IAPWS-R7-97-2012.35.check.csv")),
     (fixture!("paper/Water/IAPWS-R7-97-2012.36.csv"), fixture!("paper/Water/IAPWS-R7-97-2012.36.check.csv")),
