@@ -650,7 +650,7 @@ impl Mixture {
         let point = |t: f64, near: Option<&Coexisting>| -> Result<Coexisting, Error> {
             let given = Given::T(t);
             match near {
-                _ if by_mass => self.at_mass_quality(q, given),
+                _ if by_mass => self.at_mass_quality(q, given, near),
                 Some(c) => saturation::coexisting_from(self, q, given, (t, c.p, ln_k(c))),
                 None => self.coexisting(q, given),
             }
