@@ -2,7 +2,10 @@
 //! specific (per kilogram): g(T, p) = g₀(p) − s₀T_tτ + T_t Re Σₖ rₖ F(tₖ, τ), F(t, τ) = (t − τ) ln(t − τ) +
 //! (t + τ) ln(t + τ) − 2t ln t − τ²/t, τ = T/T_t, with r₁ constant and r₂ and g₀ polynomials in π − π₀, π = p/p_t.
 
+use std::f64::consts::{FRAC_PI_2, PI};
 use std::ops::{Add, Mul, Sub};
+
+use phasekit_core::math;
 
 /// T_t, K, p_t and p₀, Pa (Table 1).
 pub(super) const T_T: f64 = 273.16;
@@ -46,8 +49,9 @@ impl C {
         C::new(re, 0.0)
     }
 
+    /// The principal value: ln |z| + i arg z, arg z in (−π, π].
     fn ln(self) -> Self {
-        C::new(self.re.hypot(self.im).ln(), self.im.atan2(self.re))
+        C::new(0.5 * math::ln(self.re * self.re + self.im * self.im), arg(self.re, self.im))
     }
 
     fn recip(self) -> Self {
@@ -77,7 +81,23 @@ impl Mul for C {
     }
 }
 
+/// The argument of re + i·im in (−π, π], from `math::atan` (core's `math` has no atan2).
+fn arg(re: f64, im: f64) -> f64 {
+    if re > 0.0 {
+        math::atan(im / re)
+    } else if re < 0.0 {
+        math::atan(im / re) + if im >= 0.0 { PI } else { -PI }
+    } else if im > 0.0 {
+        FRAC_PI_2
+    } else if im < 0.0 {
+        -FRAC_PI_2
+    } else {
+        0.0
+    }
+}
+
 /// F(t, τ), ∂F/∂τ and ∂²F/∂τ².
+#[allow(clippy::arithmetic_side_effects, reason = "complex f64 arithmetic: IEEE, no panic")]
 fn f(t: C, tau: f64) -> [C; 3] {
     let (minus, plus, x) = (t - C::real(tau), t + C::real(tau), C::real(tau));
     let two = C::real(2.0);
@@ -89,6 +109,7 @@ fn f(t: C, tau: f64) -> [C; 3] {
 
 /// The specific Gibbs energy at `t` (K) and `p` (Pa) with `g00`, and g_T, g_p, g_TT, g_Tp and g_pp (Table 4), in
 /// `[g, g_t, g_p, g_tt, g_tp, g_pp]`, J/kg and its derivatives in K and Pa; g₀ and r₂ by Horner in d = π − π₀.
+#[allow(clippy::arithmetic_side_effects, reason = "complex f64 arithmetic: IEEE, no panic")]
 pub(super) fn evaluate(t: f64, p: f64, g00: f64) -> [f64; 6] {
     let (tau, d) = (t / T_T, (p - P_0) / P_T);
     let [g1, g2, g3, g4] = G0;
