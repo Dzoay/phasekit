@@ -26,6 +26,7 @@ phasekit-capi = { path = "crates/phasekit-capi", default-features = false }
 phasekit-compat = { path = "crates/phasekit-compat", version = "0.1.0", default-features = false }
 phasekit-core = { path = "crates/phasekit-core", version = "0.1.0", default-features = false }
 phasekit-cubic = { path = "crates/phasekit-cubic" }
+phasekit-iapws = { path = "crates/phasekit-iapws" }
 phasekit-mix = { path = "crates/phasekit-mix" }
 phasekit-diagram = { path = "crates/phasekit-diagram" }
 phasekit-data = { path = "crates/phasekit-data", version = "0.1.0", default-features = false }

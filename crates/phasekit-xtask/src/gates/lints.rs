@@ -15,11 +15,12 @@ const PER_THREAD: &str = "crates/phasekit-capi/src/last_error.rs";
 
 /// The roots of the crates whose library code denies implicit panics (PLAN.md M24.3 to M24.5): every crate the C ABI
 /// and the browser package reach, the kernel included.
-const HARDENED: [&str; 6] = [
+const HARDENED: [&str; 7] = [
     "crates/phasekit-compat/src/lib.rs",
     "crates/phasekit-capi/src/lib.rs",
     "crates/phasekit-wasm/src/lib.rs",
     "crates/phasekit-mix/src/lib.rs",
+    "crates/phasekit-iapws/src/lib.rs",
     "crates/phasekit-diagram/src/lib.rs",
     "crates/phasekit-core/src/lib.rs",
 ];

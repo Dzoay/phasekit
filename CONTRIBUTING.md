@@ -51,7 +51,7 @@ BREAKING CHANGE: <what breaks and how to migrate>
 | `chore` | everything else (dependency bumps, `chore: rust 1.NN`) | none |
 | `revert` | reverts an earlier commit (`revert: feat(core): ...`) | as the reverted change |
 
-- **Scopes:** the crate without its prefix (`core`, `data`, `compat`, `cubic`, `mix`, `diagram`, `verify`, `xtask`,
+- **Scopes:** the crate without its prefix (`core`, `data`, `compat`, `cubic`, `mix`, `iapws`, `diagram`, `verify`, `xtask`,
   `capi`, `wasm`, `py`), `site` (`site/`, PLAN.md M21), or `plan`, `deps`, `repo`. Omit the scope only when a change truly spans
   everything.
 - **Breaking changes:** add `!` before the colon *and* a `BREAKING CHANGE:` footer.

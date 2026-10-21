@@ -9,7 +9,7 @@ use crate::repo::Repo;
 
 /// Each guarded crate, the features it is built with, and exactly the crates its normal and build dependency tree
 /// names at depth 1 then (itself included).
-const GUARDED: [(&str, &str, &[&str]); 10] = [
+const GUARDED: [(&str, &str, &[&str]); 11] = [
     ("phasekit-core", "", &["phasekit-core", "phasekit-data"]),
     ("phasekit-core", "rayon", &["phasekit-core", "phasekit-data", "rayon"]),
     ("phasekit-core", "libm", &["phasekit-core", "phasekit-data", "libm"]),
@@ -19,6 +19,7 @@ const GUARDED: [(&str, &str, &[&str]); 10] = [
     ("phasekit-data", "", &["phasekit-data"]),
     ("phasekit-cubic", "", &["phasekit-cubic", "phasekit-core"]),
     ("phasekit-mix", "", &["phasekit-mix", "phasekit-core"]),
+    ("phasekit-iapws", "", &["phasekit-iapws", "phasekit-core"]),
     ("phasekit-diagram", "", &["phasekit-diagram", "phasekit-core"]),
 ];
 

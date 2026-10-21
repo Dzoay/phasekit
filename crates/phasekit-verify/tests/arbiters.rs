@@ -36,7 +36,13 @@ fn arbiter_statuses_are_asserted() {
     // table at HE1, by DIV-0035's (computed on TN 1334's own EOS and η, so within a measured bound, not `Paper`).
     let alpha_r =
         ["Water", "R227EA", "R365MFC", "R115", "R13I1", "R1234ze(E)", "Helium", "R1130(E)", "Tetrahydrofuran"];
-    let saturation = [("Water", ArbiterPart::Saturation), ("Helium", ArbiterPart::Saturation)];
+    // IF97 water's region 1 and saturation line at M14.2, by `tests/iapws.rs`.
+    let saturation = [
+        ("Water", ArbiterPart::Saturation),
+        ("Helium", ArbiterPart::Saturation),
+        ("IF97 water", ArbiterPart::Saturation),
+        ("IF97 water", ArbiterPart::Gibbs),
+    ];
     let transport = ["Water", "HeavyWater"]
         .into_iter()
         .flat_map(|fluid| [(fluid, ArbiterPart::Viscosity), (fluid, ArbiterPart::Conductivity)]);

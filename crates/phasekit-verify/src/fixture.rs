@@ -52,6 +52,7 @@ pub enum Kind {
     Refstate,
     Props,
     Codes,
+    If97,
 }
 
 /// What a column holds, from its `tol:` entry.

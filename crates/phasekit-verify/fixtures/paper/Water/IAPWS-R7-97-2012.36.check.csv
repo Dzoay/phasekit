@@ -1,0 +1,11 @@
+# fixture: paper/v1
+# source: iapws:R7-97(2012)/36
+# citation: report=IAPWS-R7-97(2012) table=36 page=36 erratum-checked=2026-10-20 pdf_sha256=c92f887e989cbf074af1fa982083dc54195d57691eab4fbc950ef6098d4cf1f4
+# kind: Rows
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: p,T
+# units: MPa,K
+# tol: in,paper
+0.1,0.372755919e3
+1,0.453035632e3
+10,0.584149488e3

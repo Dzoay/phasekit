@@ -93,6 +93,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0062", div_0062),
     ("DIV-0063", div_0063),
     ("DIV-0064", div_0064),
+    ("DIV-0065", div_0065),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1798,4 +1799,26 @@ fn div_0055() {
     };
     assert_eq!(table.printed(row, "cv"), Some("67.839375"));
     assert!((cv - want).abs() > half && (cv - want).abs() <= half + measured * want, "{cv}");
+}
+
+/// DIV-0065 (`SkipOracle`, PLAN.md M14.3): the speed of sound of IF97's saturated liquid at 623.15 K. (1) phasekit-iapws's
+/// is Eq. (7)'s, evaluated in 50 digits by `scripts/math/if97.py` (576.91493103792562 m/s), within `Prop`; (2) the
+/// `if97` kind's row, v8.0.0's, is more than 2e-12 off it; (3) and within the registered 5e-12.
+fn div_0065() {
+    const W: f64 = 576.914_931_037_925_6;
+    let water = phasekit_iapws::if97::water().unwrap();
+    let state = water.state(Input::qt(Quality::new(0.0).unwrap(), Temperature::new(623.15).unwrap())).unwrap();
+    let ours = state.speed_of_sound().unwrap();
+    assert!((ours / W - 1.0).abs() <= 1e-12, "{ours}");
+    let (path, text) = fixture!("coolprop-8.0.0/all/if97.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let row = (0..table.rows().len())
+        .find(|&i| {
+            table.printed(i, "pair") == Some("QT")
+                && table.value(i, "x") == Some(0.0)
+                && table.value(i, "y") == Some(623.15)
+        })
+        .unwrap();
+    let oracle = table.value(row, "speed_sound").unwrap();
+    assert!((oracle / W - 1.0).abs() > 2e-12 && (oracle / W - 1.0).abs() <= 5e-12, "{oracle}");
 }

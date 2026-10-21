@@ -1,0 +1,12 @@
+# fixture: paper/v1
+# source: iapws:R7-97(2012)/5
+# citation: report=IAPWS-R7-97(2012) table=5 page=9 erratum-checked=2026-10-20 pdf_sha256=c92f887e989cbf074af1fa982083dc54195d57691eab4fbc950ef6098d4cf1f4
+# kind: Rows
+# constants: R=0.461526 kJ/(kg K) p*=16.53 MPa T*=1386 K (region 1, Eq. (7))
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: T,p,v,h,u,s,cp,w
+# units: K,MPa,m3/kg,kJ/kg,kJ/kg,kJ/(kg K),kJ/(kg K),m/s
+# tol: in,in,paper,paper,paper,paper,paper,paper
+300,3,0.100215168e-2,0.115331273e3,0.112324818e3,0.392294792,0.417301218e1,0.150773921e4
+300,80,0.971180894e-3,0.184142828e3,0.106448356e3,0.368563852,0.401008987e1,0.163469054e4
+500,3,0.120241800e-2,0.975542239e3,0.971934985e3,0.258041912e1,0.465580682e1,0.124071337e4

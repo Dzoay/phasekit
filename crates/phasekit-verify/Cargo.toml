@@ -32,6 +32,9 @@ phasekit-compat = { workspace = true, features = ["fluids-all"] }
 # The cubic family, against its oracle kind and in its divergence proofs (tests/cubic.rs, tests/divergences.rs; PLAN.md
 # M11.4, M11.7). It dev-depends on this crate in turn, which Cargo allows for dev-dependencies.
 phasekit-cubic.workspace = true
+# IAPWS water and ice, against the IAPWS releases' tables (tests/iapws.rs; PLAN.md M14.2); it dev-depends on this
+# crate too.
+phasekit-iapws.workspace = true
 # The mixture family, in its divergence proofs (tests/divergences.rs; PLAN.md M13.3); it dev-depends on this crate too.
 phasekit-mix.workspace = true
 # The AD oracle for Jet4 and the power-term fast path (tests/terms.rs; PLAN.md M3.2): scalar duals only, so no
@@ -88,6 +91,10 @@ harness = false
 
 [[bench]]
 name = "transport"
+harness = false
+
+[[bench]]
+name = "iapws"
 harness = false
 
 [[bench]]

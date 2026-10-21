@@ -1,0 +1,13 @@
+phasekit-iapws: notices
+=======================
+
+phasekit-iapws is licensed under MIT OR Apache-2.0 (the repository's LICENSE-MIT and LICENSE-APACHE). It implements
+formulations of the International Association for the Properties of Water and Steam, and its coefficient tables are
+taken from the IAPWS releases that publish them, each named at the table:
+
+- IAPWS R7-97(2012), Revised Release on the IAPWS Industrial Formulation 1997 for the Thermodynamic Properties of
+  Water and Steam: regions 1, 2 and 4 (src/if97/).
+
+Each release states: "Publication in whole or in part is allowed in all countries provided that attribution is given
+to the International Association for the Properties of Water and Steam." This notice and the citation at each table
+are that attribution. The releases are at https://iapws.org.
