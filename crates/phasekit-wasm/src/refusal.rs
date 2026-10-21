@@ -2,10 +2,34 @@
 //! message is core's long form in SI and which carries the refusal's code, its quantity and its numbers, and a
 //! `refusal` whose `explain(units, style)` writes core's wording in the caller's units.
 
-use js_sys::{Array, Reflect};
 use phasekit_compat::CompatError;
 use phasekit_core::{Basis, Dimension, DomainError, Error, Quantity, Style, Unit, Units};
 use wasm_bindgen::prelude::*;
+
+// The three JS functions a refusal needs, declared here rather than through js-sys, whose declarations of every JS
+// built-in would add 0.4 MB to the module `gates features` measures (wasm-bindgen strips them from the shipped one).
+#[wasm_bindgen]
+extern "C" {
+    /// `new Error(message)`.
+    #[wasm_bindgen(js_name = Error)]
+    type JsErrorObject;
+    #[wasm_bindgen(constructor, js_class = "Error")]
+    fn new(message: &str) -> JsErrorObject;
+    /// `Reflect.get(target, key)`; `undefined` where `target` is not an object.
+    #[wasm_bindgen(js_namespace = Reflect, js_name = get, catch)]
+    fn reflect_get(target: &JsValue, key: &str) -> Result<JsValue, JsValue>;
+    /// `Reflect.set(target, key, value)`.
+    #[wasm_bindgen(js_namespace = Reflect, js_name = set)]
+    fn reflect_set(target: &JsValue, key: &str, value: &JsValue) -> bool;
+    /// `Reflect.set(target, key, numbers)`, the numbers a `Float64Array`.
+    #[wasm_bindgen(js_namespace = Reflect, js_name = set)]
+    fn reflect_set_numbers(target: &JsValue, key: &str, numbers: Vec<f64>) -> bool;
+}
+
+/// `Reflect.get(target, key)`, `undefined` where it throws.
+fn get(target: &JsValue, key: &str) -> JsValue {
+    reflect_get(target, key).unwrap_or(JsValue::UNDEFINED)
+}
 
 /// Every dimension a refusal's number can have, by the key a caller's units name it with: the site's kinds
 /// (`site/src/lib/units.ts`) where it has one.
@@ -87,21 +111,20 @@ impl Refusal {
 
 /// The `Error` a refused call throws: its message the long form in SI, its fields the refusal's.
 pub(crate) fn refused(error: CompatError) -> JsValue {
-    let thrown = js_sys::Error::new(&error.to_string());
+    let thrown: JsValue = JsErrorObject::new(&error.to_string()).into();
     let refusal = Refusal { error };
-    let numbers: Array = refusal.values().into_iter().map(JsValue::from).collect();
-    let fields: [(&str, JsValue); 5] = [
+    // Setting a property of a fresh `Error` cannot fail; were it to, the message alone is still thrown.
+    let _ = reflect_set_numbers(&thrown, "values", refusal.values());
+    let fields: [(&str, JsValue); 4] = [
         ("code", refusal.code().into()),
         ("quantity", refusal.quantity().into()),
         ("dimension", refusal.dimension().into()),
-        ("values", numbers.into()),
         ("refusal", refusal.into()),
     ];
     for (key, value) in fields {
-        // Setting a property of a fresh `Error` cannot fail; were it to, the message alone is still thrown.
-        let _ = Reflect::set(&thrown, &key.into(), &value);
+        let _ = reflect_set(&thrown, key, &value);
     }
-    thrown.into()
+    thrown
 }
 
 fn code(error: &CompatError) -> &'static str {
@@ -202,7 +225,7 @@ impl Table {
             return Ok(table);
         }
         for (dimension, key) in DIMENSIONS {
-            let entry = Reflect::get(units, &key.into()).unwrap_or(JsValue::UNDEFINED);
+            let entry = get(units, key);
             if !entry.is_undefined() {
                 table.units.push(unit_of(dimension, key, &entry)?);
             }
@@ -214,7 +237,7 @@ impl Table {
 /// One `{label, scale, offset}` entry, refused unless its label is a string and its scale and offset finite numbers,
 /// the scale not zero.
 fn unit_of(dimension: Dimension, key: &str, entry: &JsValue) -> Result<(Dimension, String, f64, f64), JsError> {
-    let field = |name: &str| Reflect::get(entry, &name.into()).unwrap_or(JsValue::UNDEFINED);
+    let field = |name: &str| get(entry, name);
     let (label, scale, offset) = (field("label").as_string(), field("scale").as_f64(), field("offset").as_f64());
     match (label, scale, offset) {
         (Some(label), Some(scale), Some(offset)) if scale.is_finite() && scale != 0.0 && offset.is_finite() => {

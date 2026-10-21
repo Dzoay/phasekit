@@ -40,8 +40,8 @@ use wasm_bindgen::prelude::*;
 mod diagram;
 mod refusal;
 
-pub use refusal::Refusal;
 pub use diagram::{Corners, Diagram, Lines, PlaneInfo, Regions, Vertices, pair_keys, planes};
+pub use refusal::Refusal;
 
 /// A JS `Error` with `e`'s message.
 fn js(e: impl Display) -> JsError {

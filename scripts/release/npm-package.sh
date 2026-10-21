@@ -25,6 +25,13 @@ const t = registry.PropsSI("T", "P", 101325, "Q", 0, "Water");
 registry.free();
 \`\`\`
 
+A refused call throws an \`Error\` whose message is in SI, \`temperature 0 K is not above absolute zero\`. It also
+carries \`code\` (\`invalid_input\`, \`below_min_temperature\`, …), \`quantity\`, \`dimension\` and \`values\` (SI), and
+\`refusal.explain(units, style)\` writes the message in a page's units, in words (\`"long"\`) or as the relation the
+value breaks (\`"short"\`): \`units\` maps a dimension (\`temperature\`, \`pressure\`, \`specificEnergy\`, …) to
+\`{ label, scale, offset }\`, SI = value · scale + offset, so \`{ temperature: { label: "°C", scale: 1, offset: 273.15 } }\`
+gives \`T = −273.15 °C ≤ −273.15 °C\`; a dimension it lacks is written in SI.
+
 Free the handle objects (\`Registry\`, \`Fluid\`) with \`free()\`. A panic, a bug, ends the module: its call throws an
 \`Error\` naming it, \`panicked()\` then returns its message, and every later call refuses; load the module anew.
 Documentation: https://github.com/Dzoay/phasekit.

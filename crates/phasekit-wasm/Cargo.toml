@@ -23,9 +23,6 @@ phasekit-mix.workspace = true
 # The diagrams' geometry (PLAN.md M19.6; user decisions DG1-DG3): planes, lines, a mixture's envelope and the regions.
 phasekit-diagram.workspace = true
 wasm-bindgen = "0.2.129"
-# A refusal's fields on the `Error` it throws, and the units `explain` reads (PLAN.md M28.2; DEPENDENCIES.md T2: needed
-# here). Without `std`, which would pull in futures-util.
-js-sys = { version = "0.3.106", default-features = false }
 
 # wasm-bindgen-test runs the tests under Node (tier T3); verify gives them its tolerance classes and fixtures. Neither
 # adds a fluid, so the tests run the five the package ships (PLAN.md M21.4).

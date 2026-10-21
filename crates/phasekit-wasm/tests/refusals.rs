@@ -39,6 +39,12 @@ export function explained(registry, call, style) {
 export function inSI(registry, call, units) {
     return thrown(() => CALLS[call](registry)).refusal.explain(units, "short");
 }
+export function noUnits() {
+    return {};
+}
+export function halfUnits() {
+    return { temperature: { label: "°C" } };
+}
 export function refusedExplain(registry, units, style) {
     const refusal = thrown(() => CALLS.zeroKelvin(registry)).refusal;
     return thrown(() => refusal.explain(units, style)).message;
@@ -49,6 +55,10 @@ extern "C" {
     fn explained(registry: &JsValue, call: &str, style: &str) -> String;
     #[wasm_bindgen(js_name = inSI)]
     fn in_si(registry: &JsValue, call: &str, units: JsValue) -> String;
+    #[wasm_bindgen(js_name = noUnits)]
+    fn no_units() -> JsValue;
+    #[wasm_bindgen(js_name = halfUnits)]
+    fn half_units() -> JsValue;
     #[wasm_bindgen(js_name = refusedExplain)]
     fn refused_explain(registry: &JsValue, units: JsValue, style: &str) -> String;
 }
@@ -84,7 +94,7 @@ fn explain_writes_the_callers_units() {
 fn an_absent_unit_is_si() {
     let r = registry();
     assert_eq!(in_si(&r, "zeroKelvin", JsValue::UNDEFINED), "T = 0 K ≤ 0 K");
-    assert_eq!(in_si(&r, "zeroKelvin", js_sys::Object::new().into()), "T = 0 K ≤ 0 K");
+    assert_eq!(in_si(&r, "zeroKelvin", no_units()), "T = 0 K ≤ 0 K");
     assert!(fields(&r, "outputAtState").starts_with("true|"), "{}", fields(&r, "outputAtState"));
 }
 
@@ -94,10 +104,6 @@ fn explain_refuses_what_it_cannot_read() {
     let r = registry();
     let style = refused_explain(&r, JsValue::UNDEFINED, "tiny");
     assert_eq!(style, "`tiny` is not a style: \"long\" or \"short\"");
-    let half = js_sys::Object::new();
-    let celsius = js_sys::Object::new();
-    js_sys::Reflect::set(&celsius, &"label".into(), &"°C".into()).unwrap();
-    js_sys::Reflect::set(&half, &"temperature".into(), &celsius).unwrap();
-    let unit = refused_explain(&r, half.into(), "long");
+    let unit = refused_explain(&r, half_units(), "long");
     assert_eq!(unit, "units.temperature is not {label, scale, offset} with a finite, non-zero scale");
 }
