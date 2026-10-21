@@ -145,7 +145,7 @@ wasm32-wasip2 phasekit-diagram::envelope 3
 wasm32-wasip2 phasekit-diagram::refine 3
 x86_64-unknown-linux-gnu phasekit-diagram::regions 11
 wasm32-wasip2 phasekit-diagram::regions 11
-x86_64-unknown-linux-gnu phasekit-iapws::lib 3
-x86_64-unknown-linux-gnu phasekit-verify::iapws 10
-wasm32-wasip2 phasekit-iapws::lib 3
-wasm32-wasip2 phasekit-verify::iapws 9
+x86_64-unknown-linux-gnu phasekit-iapws::lib 6
+x86_64-unknown-linux-gnu phasekit-verify::iapws 16
+wasm32-wasip2 phasekit-iapws::lib 6
+wasm32-wasip2 phasekit-verify::iapws 15
