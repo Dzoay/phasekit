@@ -11,6 +11,7 @@
 use phasekit_core::Error;
 
 use crate::moist_air::{T_MAX, T_MIN};
+use crate::wet_bulb::Bulb;
 use crate::{HumidAir, Humidity, MoistAir, Per, root};
 
 /// One of a moist-air state's inputs besides its pressure, with h, s and v per kilogram of dry air, as `HAPropsSI`'s H,
@@ -76,20 +77,36 @@ fn existing(value: impl Fn(f64) -> Result<f64, Error>, range: (f64, f64)) -> Res
     }
 }
 
-/// The state among `state(x)` for x over `range` whose `target` is the one given, or the refusal naming it; a wet bulb
-/// that solves to the jump at the triple point instead is in its gap.
+/// The state among `state(x)` for x over `range` at `p` whose `target` is the one given, or the refusal naming it. A
+/// wet bulb is solved on its balance at the given bulb temperature, a state a step (`wet_bulb::Bulb`), then checked: a
+/// target in the triple point's gap, or one whose balance has its root on the other wick's side, is refused.
 fn solve(
     air: &HumidAir,
-    state: impl Fn(f64) -> Result<MoistAir, Error>,
+    (p, state): (f64, impl Fn(f64) -> Result<MoistAir, Error>),
     range: (f64, f64),
     target: Given,
 ) -> Result<MoistAir, Error> {
     let (value, quantity) = wanted(target)?;
-    let residual = |x: f64| Ok(output(air, &state(x)?, target)? - value);
+    let bulb = match target {
+        Given::WetBulb(twb) => Some(Bulb::new(air, p, twb)?),
+        _ => None,
+    };
+    let residual = |x: f64| {
+        let s = state(x)?;
+        match &bulb {
+            Some(bulb) => Ok(-bulb.balance((s.humidity_ratio(), s.h(Per::KgDryAir)))),
+            None => Ok(output(air, &s, target)? - value),
+        }
+    };
     let range = existing(residual, range)?;
-    let x = root::bracketed(residual, range)?.ok_or(Error::InvalidInput { quantity, value })?;
+    let matches = |s: &MoistAir| output(air, s, target).is_ok_and(|v| (v - value).abs() <= WET_BULB_MATCH);
+    let Some(x) = root::bracketed(residual, range)? else {
+        // A wet bulb at an end of the range (dry air, saturation) balances there only to its rounding.
+        let ends = [range.0, range.1].into_iter().filter_map(|x| state(x).ok());
+        return ends.into_iter().find(|s| bulb.is_some() && matches(s)).ok_or(Error::InvalidInput { quantity, value });
+    };
     let solved = state(x)?;
-    if matches!(target, Given::WetBulb(_)) && (output(air, &solved, target)? - value).abs() > WET_BULB_MATCH {
+    if bulb.is_some() && !matches(&solved) {
         return Err(Error::InvalidState { reason: "no state has this wet bulb: it is in the triple point's gap" });
     }
     Ok(solved)
@@ -104,7 +121,7 @@ fn at_least(target: Given) -> f64 {
 /// At T and p, the state whose `target` is the one given, by a solve in ψ_w from dry air to saturation.
 fn in_humidity(air: &HumidAir, t: f64, p: f64, target: Given) -> Result<MoistAir, Error> {
     let top = air.saturation(t, p)?.psi_ws.min(PSI_TOP);
-    solve(air, |psi| air.moist_air(t, p, psi), (0.0, top), target)
+    solve(air, (p, |psi| air.moist_air(t, p, psi)), (0.0, top), target)
 }
 
 /// At p, with `humidity`, the state whose `target` is the one given, by a solve in T.
@@ -115,7 +132,7 @@ fn in_temperature(air: &HumidAir, p: f64, humidity: Humidity, target: Given) -> 
         }
         let top = if phi > 0.0 { air.dew_point(p, PSI_TOP)? } else { T_MAX };
         let state = |t: f64| air.moist_air(t, p, air.mole_fraction(t, p, humidity)?);
-        return solve(air, state, (at_least(target), top), target);
+        return solve(air, (p, state), (at_least(target), top), target);
     }
     if matches!(target, Given::Humidity(h) if !matches!(h, Humidity::Relative(_))) {
         return Err(NO_STATE);
@@ -128,7 +145,7 @@ fn in_temperature(air: &HumidAir, p: f64, humidity: Humidity, target: Given) -> 
         return Err(Error::InvalidState { reason: "dry air's relative humidity is 0 at every temperature" });
     }
     let bottom = if psi > 0.0 { air.dew_point(p, psi)?.max(T_MIN) } else { T_MIN };
-    solve(air, |t| air.moist_air(t, p, psi), (bottom.max(at_least(target)), T_MAX), target)
+    solve(air, (p, |t| air.moist_air(t, p, psi)), (bottom.max(at_least(target)), T_MAX), target)
 }
 
 impl HumidAir {

@@ -46,12 +46,39 @@ fn condensed_h(air: &HumidAir, wick: Wick, t: f64, p: f64) -> Result<f64, Error>
     }
 }
 
+/// Saturated air at a bulb temperature with its wick, what a stream's balance there takes: its h and W per kilogram of
+/// dry air, and the condensed water's h.
+pub(crate) struct Bulb {
+    h_s: f64,
+    w_s: f64,
+    h_c: f64,
+}
+
+impl Bulb {
+    /// The bulb at `twb` and `p` with `wick`.
+    fn with(air: &HumidAir, p: f64, twb: f64, wick: Wick) -> Result<Bulb, Error> {
+        let saturated = air.moist_air(twb, p, air.saturation(twb, p)?.psi_ws)?;
+        let (h_s, w_s) = (saturated.h(Per::KgDryAir), saturated.humidity_ratio());
+        Ok(Bulb { h_s, w_s, h_c: condensed_h(air, wick, twb, p)? })
+    }
+
+    /// The bulb at `twb` and `p`, its wick liquid at and above the triple point and ice below: what the solves for a
+    /// given wet bulb take (`given`), so that each step costs a state, not a wet bulb.
+    pub(crate) fn new(air: &HumidAir, p: f64, twb: f64) -> Result<Bulb, Error> {
+        Bulb::with(air, p, twb, if twb < T_TRIPLE { Wick::Ice } else { Wick::Liquid })
+    }
+
+    /// The balance of a stream of humidity ratio `w` and enthalpy `h` (J per kilogram of dry air): the right-hand side
+    /// less the left, zero where the bulb's temperature is the stream's wet bulb.
+    pub(crate) fn balance(&self, (w, h): (f64, f64)) -> f64 {
+        self.h_s + (w - self.w_s) * self.h_c - h
+    }
+}
+
 /// The balance at a bulb temperature `twb` for a stream of humidity ratio `w` and enthalpy `h` (J per kilogram of dry
 /// air), with `wick`: the right-hand side less the left. It rises with `twb` on either side of the triple point.
 fn balance(air: &HumidAir, (p, w, h): (f64, f64, f64), wick: Wick, twb: f64) -> Result<f64, Error> {
-    let saturated = air.moist_air(twb, p, air.saturation(twb, p)?.psi_ws)?;
-    let w_s = saturated.humidity_ratio();
-    Ok(saturated.h(Per::KgDryAir) + (w - w_s) * condensed_h(air, wick, twb, p)? - h)
+    Ok(Bulb::with(air, p, twb, wick)?.balance((w, h)))
 }
 
 /// The balance's root over `range` with `wick`, narrowed first to where saturated air at p has a state (at high p
