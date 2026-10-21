@@ -1007,9 +1007,10 @@ implemented.** LM1-LM7.
 that every host draws the same geometry, and drawn on the site: a fluid's thermodynamic surface in three dimensions; a
 three-component mixture's ternary diagram at fixed T and p; and characteristic curves and property maps on the planes.
 Other diagrams join the milestones that need them (DG5). **Entry.** `m19`, and M21.6 landed, so that the site already
-draws from `phasekit-diagram` *(decision)*; the user's word. The surfaces come first, then the curves and the maps,
-then the ternaries (DG9). **Prerequisites.** User decisions WS4, DG1-DG3 and DG5-DG9; M19's crate and exports; M13's
-mixtures; M20.1's derivative variables; three.js in DEPENDENCIES.md's tier T5 (DG7). M26 does not move `MILESTONE`.
+draws from `phasekit-diagram` *(decision)*; the user's word, given 2026-10-21. The surfaces come first, then the curves
+and the maps, then the ternaries (DG9). **Prerequisites.** User decisions WS4, DG1-DG3 and DG5-DG9; M19's crate and
+exports; M13's mixtures; M20.1's derivative variables; three.js in DEPENDENCIES.md's tier T5 (DG7). M26 does not move
+`MILESTONE`.
 
 M19's rules hold. Geometry, not drawing (WS4). `phasekit-diagram` depends on `phasekit-core` alone (T1f, DG3): what
 needs another crate reaches it as data, or through a seam its caller fills, as the `Batch` seam and M19.4's `Trace` do.
@@ -1019,23 +1020,18 @@ the saturation states for the surface, the second virial coefficient for the cur
 `phasekit-mix`'s PT equilibrium for the ternaries. The tests run on the five embedded fluids, a pseudo-pure one, and
 R407C's components.
 
-- **M26.1 The p–v–T and u–s–v surfaces.** `surface(fluid)`, a triangle mesh over T and ln ρ across M19's plotted
-  range, with two sets of coordinates on the one mesh: p, v and T, and Gibbs's u, s and v (DG8).
-  - Every vertex is the `DT` batch's state: T, ρ, p, u, s, its phase, and Q where it is two-phase. One batch call takes
-    the grid, one more the dome.
-  - The dome's saturated liquid and vapour, the critical point and, where the range reaches it, the triple line are
-    edges of the mesh, so that no triangle crosses the dome. On p–v–T the two-phase region is the ruled surface of the
-    saturation pressures; on u–s–v each two-phase vertex lies on the line between its T's saturated liquid and vapour.
-  - *Red:* `every_vertex_is_the_dt_state` (`Exact`); `the_two_phase_region_is_the_saturation_pressure` (each two-phase
-    vertex's p within `Flash` of `QT`'s at its T); `a_two_phase_vertex_lies_between_its_saturated_states` (on u–s–v,
-    its u, s and v those of Q's mix of `QT`'s at its T, within `Flash`); `the_dome_is_an_edge_of_the_mesh` (every dome
-    vertex a mesh vertex, no triangle across it).
+| Step | Landed |
+|---|---|
+| M26.1 | `surface(fluid)` and `sample_surface(batch, phase, limits)` (`surface.rs`): a `Surface` of `SurfaceVertex`es (T, ρ, p, u, s, Q where the state is two-phase, the library's phase, the inputs), triangles counter-clockwise in (ln ρ, T), and a `SurfaceDome` of indices (the saturated liquid and vapour, the critical point, and the triple line where the plotted range starts at the triple point); `Quantity::Umass`. One `QT` call takes the dome at 40 temperatures closing in on T_c (M19's `dome_temperatures`), one `DT` call the grid: those rows, T_c's with (T_c, ρ_c), and 24 rows above T_c to the plotted range's top, each at 48 densities evenly in ln ρ from the plotted range's least (its hot low-pressure corner) to the greatest of its corners and the saturated liquid. Each row joins the next by a ladder either side of the dome and one inside it, so that the dome's edges are the mesh's. A vertex's phase is the flash's at its inputs, as M19.5's regions take it: core's batch has no phase output. A failed state is left out and its row joined across the gap; a temperature below T_c without both saturated states is left out, row and all; a grid vertex sampled at a dome vertex's density gives way to it (n-Propane's least density is its vapour's at its triple point). Re-planned in the step: the dome's vertices are `QT` states, so `every_vertex_is_the_dt_state` holds each vertex to the flash at its own inputs, `DT` or `QT`; a pseudo-pure fluid's two-phase `DT` states are its EOS's own VLE, not its bubble and dew curves, so `the_two_phase_region_is_the_saturation_pressure` and `a_two_phase_vertex_lies_between_its_saturated_states` run on the five pure fluids, the rest of `tests/surface.rs` on them, Air and R410A: `the_dome_is_an_edge_of_the_mesh` (with no triangle across the dome, each counter-clockwise, every vertex a triangle's), `the_mesh_spans_the_plotted_range` and `a_failed_state_is_left_out_and_the_mesh_joined_across` |
+
 - **M26.2 The surfaces on the site.** The browser package exports the mesh as typed arrays: each vertex's T, ρ, p, u
-  and s, its phase, and the triangles' vertex indices. The site draws it with three.js in WebGL (DG7), rotatable,
-  coloured by phase, the dome and the critical point marked, and offers both surfaces: p–v–T, with p and v
-  logarithmic, and u–s–v (DG8). three.js's version is pinned here. *Red:* the package's Node tests on both builds, the
-  export the crate's bit for bit; the site's tests of the view, run first against a page without it. The size budgets
-  and the page's are re-measured (SL8).
+  and s, its Q and phase, the triangles' vertex indices and the dome's. The site draws it with three.js in WebGL (DG7),
+  rotatable, coloured by phase, the dome and the critical point marked, and offers both surfaces: p–v–T, with p and v
+  logarithmic, and u–s–v (DG8). Where the triple point's pressure is below the plotted range's, the two-phase region
+  runs past the mesh's least density to the saturated vapour (n-Propane's to 10⁻⁸ kg/m³): the view decides how much of
+  it to show. three.js's version is pinned here. *Red:* the package's Node tests on both builds, the export the crate's
+  bit for bit; the site's tests of the view, run first against a page without it. The size budgets and the page's are
+  re-measured (SL8).
 - **M26.3 Characteristic curves.**
   - On p–T and T–ρ: each fluid's ideal curve (Z = 1) and Brown's characteristic curves, the Boyle curve ((∂Z/∂ρ)_T = 0),
     the Joule–Thomson inversion curve ((∂T/∂p)_h = 0) and the Joule inversion curve ((∂Z/∂T)_ρ = 0). Each vertex is the

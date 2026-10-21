@@ -149,3 +149,5 @@ x86_64-unknown-linux-gnu phasekit-iapws::lib 10
 x86_64-unknown-linux-gnu phasekit-verify::iapws 16
 wasm32-wasip2 phasekit-iapws::lib 10
 wasm32-wasip2 phasekit-verify::iapws 15
+x86_64-unknown-linux-gnu phasekit-diagram::surface 6
+wasm32-wasip2 phasekit-diagram::surface 6
