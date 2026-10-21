@@ -19,6 +19,8 @@ pub enum Quantity {
     Dmass,
     /// Vapour quality.
     Q,
+    /// Specific internal energy, J/kg: a surface's (PLAN.md M26.1), which no plane plots.
+    Umass,
 }
 
 impl Quantity {
@@ -31,6 +33,7 @@ impl Quantity {
             Quantity::Smass => Prop::Smass,
             Quantity::Dmass => Prop::Dmass,
             Quantity::Q => Prop::Q,
+            Quantity::Umass => Prop::Umass,
         }
     }
 
@@ -43,6 +46,7 @@ impl Quantity {
             Quantity::Smass => Var::S,
             Quantity::Dmass => Var::D,
             Quantity::Q => Var::Q,
+            Quantity::Umass => Var::U,
         }
     }
 }
@@ -197,9 +201,10 @@ mod tests {
     /// Each quantity reads its own mass-basis property and is its own input variable.
     #[test]
     fn each_quantity_is_its_property_and_its_variable() {
-        let all = [Quantity::T, Quantity::P, Quantity::Hmass, Quantity::Smass, Quantity::Dmass, Quantity::Q];
-        let props = [Prop::T, Prop::P, Prop::Hmass, Prop::Smass, Prop::Dmass, Prop::Q];
-        let vars = [Var::T, Var::P, Var::H, Var::S, Var::D, Var::Q];
+        let all =
+            [Quantity::T, Quantity::P, Quantity::Hmass, Quantity::Smass, Quantity::Dmass, Quantity::Q, Quantity::Umass];
+        let props = [Prop::T, Prop::P, Prop::Hmass, Prop::Smass, Prop::Dmass, Prop::Q, Prop::Umass];
+        let vars = [Var::T, Var::P, Var::H, Var::S, Var::D, Var::Q, Var::U];
         for ((q, prop), var) in all.into_iter().zip(props).zip(vars) {
             assert_eq!((q.prop(), q.var()), (prop, var));
         }

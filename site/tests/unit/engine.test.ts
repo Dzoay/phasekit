@@ -142,8 +142,67 @@ function fakePk() {
     evaluated: 0,
     batchesFreed: 0,
     phasesFreed: 0,
-    envelopesFreed: 0,
+    /** Handles freed by kind: a diagram and its lines, vertices, regions and corners. */
+    handlesFreed: {} as Record<string, number>,
   };
+  class Handle {
+    free(): void {
+      const kind = this.constructor.name;
+      calls.handlesFreed[kind] = (calls.handlesFreed[kind] ?? 0) + 1;
+    }
+  }
+  class Vertices extends Handle {
+    xy = new Float64Array([1, 2]);
+    inputs = new Float64Array([0, 300]);
+    pairs = new Uint8Array([0]);
+  }
+  class Lines extends Handle {
+    held = ["T"];
+    values = new Float64Array([300]);
+    segments = new Uint32Array([0, 1]);
+    twoPhase = new Uint8Array([0]);
+    starts = new Uint32Array([0, 1]);
+    get vertices(): Vertices {
+      return new Vertices();
+    }
+  }
+  class Diagram extends Handle {
+    x = new Float64Array([0, 1]);
+    y = new Float64Array([2, 3]);
+    end = "closed";
+    reason = "";
+    get liquid(): Vertices {
+      return new Vertices();
+    }
+    get vapour(): Vertices {
+      return new Vertices();
+    }
+    get critical(): Vertices {
+      return new Vertices();
+    }
+    get lines(): Lines {
+      return new Lines();
+    }
+  }
+  class Corners extends Handle {
+    starts = new Uint32Array([0, 1]);
+    corners = new Float64Array([1, 2, 3, 4, 5]);
+  }
+  class Regions extends Handle {
+    phases = ["gas"];
+    critical = new Float64Array([6, 7, 8, 9, 10]);
+    Tc = 6;
+    pc = 7;
+    get outlines(): Corners {
+      return new Corners();
+    }
+    get isotherm(): Corners {
+      return new Corners();
+    }
+    get isobar(): Corners {
+      return new Corners();
+    }
+  }
   class Phases {
     liquid = new Float64Array([0.75, 0.25]);
     vapour = new Float64Array([0.25, 0.75]);
@@ -170,20 +229,6 @@ function fakePk() {
     }
     free(): void {
       calls.freed += 1;
-    }
-  }
-  class Envelope {
-    T = new Float64Array([200, 300]);
-    P = new Float64Array([1e5, 1e6]);
-    Q = new Float64Array([0, 1]);
-    Dmass = new Float64Array([1000, 50]);
-    incipient = new Float64Array([0.9, 0.1, 0.1, 0.9]);
-    criticalT = 250;
-    criticalP = 4e6;
-    end = "closed";
-    reason = "";
-    free(): void {
-      calls.envelopesFreed += 1;
     }
   }
   class Batch {
@@ -214,8 +259,12 @@ function fakePk() {
       calls.flashes += 1;
       return new State(this.#name);
     }
-    envelope(): Envelope {
-      return new Envelope();
+    diagram(plane: string): Diagram {
+      if (plane === "xy") throw new Error("`xy` is no plane");
+      return new Diagram();
+    }
+    regions(): Regions {
+      return new Regions();
     }
   }
   class Registry {
@@ -243,7 +292,7 @@ function fakePk() {
       calls.registriesFreed += 1;
     }
   }
-  return { pk: { Registry, outputKeys: () => ["T"] } as unknown as Pk, calls };
+  return { pk: { Registry, outputKeys: () => ["T"], pairKeys: () => ["Q", "T"] } as unknown as Pk, calls };
 }
 
 const at = { name1: "T", value1: 300, name2: "P", value2: 1e5 };
@@ -538,38 +587,32 @@ describe("the engine's mixtures (PLAN.md M21.5)", () => {
     });
   });
 
-  test("traces a mixture's envelope as the package does, bit for bit; a pure fluid has none", async () => {
-    const { handle, registry } = await r410a();
+  test("draws a mixture's envelope as the package does, bit for bit, with its components, feed and end", async () => {
+    const { pk, handle, registry } = await r410a();
     const fluid = registry.fluid("R410A.mix");
-    const want = fluid.envelope();
-    const got = handle({ id: 3, op: "envelope", fluid: "R410A.mix" });
-    expect(got).toEqual({
-      id: 3,
-      ok: true,
-      op: "envelope",
-      value: {
-        T: want.T,
-        P: want.P,
-        Q: want.Q,
-        Dmass: want.Dmass,
-        incipient: want.incipient,
-        components: ["R32", "R125"],
-        feed: [...fluid.composition],
-        critical: [want.criticalT, want.criticalP],
-        end: "closed",
-        reason: "",
-      },
+    const got = handle({ id: 3, op: "diagram", fluid: "R410A.mix", plane: "trho" });
+    const want = fluid.diagram("trho");
+    expect(got.ok && got.op === "diagram" && got.value).toEqual({
+      ...arrays(want),
+      pairKeys: pk.pairKeys(),
+      mixture: { components: ["R32", "R125"], feed: [...fluid.composition], end: "closed", reason: "" },
     });
-    const bound = handle({ id: 4, op: "envelope", fluid: "CarbonDioxide[0.5]&Nitrogen[0.5]" });
-    const below = bound.ok && bound.op === "envelope" && bound.value;
-    expect(below && [below.T.length > 10, below.critical !== null, below.end]).toEqual([true, true, "bound"]);
-    expect(bound.ok && bound.op === "envelope" && bound.value.reason).toContain("BelowMinTemperature");
-    const water = handle({ id: 5, op: "envelope", fluid: "Water" });
-    expect(water).toEqual({ id: 5, ok: false, op: "envelope", error: "Water is no mixture: it has no phase envelope" });
-    for (const handle of [want, fluid, registry]) handle.free();
+    expect(handle({ id: 4, op: "diagram", fluid: "R410A.mix", plane: "ph" })).toEqual({
+      id: 4,
+      ok: false,
+      op: "diagram",
+      error: "input pair HP is not supported by this model",
+    });
+    expect(handle({ id: 5, op: "regions", fluid: "R410A.mix" })).toEqual({
+      id: 5,
+      ok: false,
+      op: "regions",
+      error: `${fluid.name} is a mixture: its phase regions are not drawn`,
+    });
+    for (const h of [want, fluid, registry]) h.free();
   });
 
-  test("frees each envelope and each state's phases; keeps a refusal of the phases in the package's words", () => {
+  test("frees each state's phases, diagram and set of regions; keeps a refusal of the phases in the package's words", () => {
     const { pk, calls } = fakePk();
     const handle = createHandler(pk, "baseline");
     const split = handle({ id: 1, op: "state", fluid: "Split", ...at, outputs: [] });
@@ -601,8 +644,148 @@ describe("the engine's mixtures (PLAN.md M21.5)", () => {
       },
     });
     expect(calls.phasesFreed).toBe(1);
-    const envelope = handle({ id: 4, op: "envelope", fluid: "Split" });
-    expect(envelope.ok && envelope.op === "envelope" && envelope.value.critical).toEqual([250, 4e6]);
-    expect(calls.envelopesFreed).toBe(1);
+    const diagram = handle({ id: 4, op: "diagram", fluid: "Split", plane: "pt" });
+    expect(diagram.ok && diagram.op === "diagram" && diagram.value.mixture).toEqual({
+      components: ["A", "B"],
+      feed: [0.5, 0.5],
+      end: "closed",
+      reason: "",
+    });
+    // The diagram, its lines, and its liquid, vapour, critical point and lines' vertices.
+    expect(calls.handlesFreed).toEqual({ Diagram: 1, Lines: 1, Vertices: 4 });
   });
 });
+
+describe("the engine's diagrams (PLAN.md M21.6)", () => {
+  test("draws a pure fluid's diagram and regions as the package does, bit for bit", async () => {
+    const pk = await loadPk("simd");
+    const handle = createHandler(pk, "simd128");
+    const registry = new pk.Registry();
+    const water = registry.fluid("Water");
+    const got = handle({ id: 1, op: "diagram", fluid: "Water", plane: "ts" });
+    const want = water.diagram("ts");
+    expect(got.ok && got.op === "diagram" && got.value).toEqual({
+      ...arrays(want),
+      pairKeys: pk.pairKeys(),
+      mixture: null,
+    });
+    const regions = handle({ id: 2, op: "regions", fluid: "Water" });
+    const r = water.regions();
+    const corners = (c: { starts: Uint32Array; corners: Float64Array; free(): void }) => {
+      const value = { starts: c.starts, corners: c.corners };
+      c.free();
+      return value;
+    };
+    expect(regions.ok && regions.op === "regions" && regions.value).toEqual({
+      phases: r.phases,
+      outlines: corners(r.outlines),
+      isotherm: corners(r.isotherm),
+      isobar: corners(r.isobar),
+      critical: r.critical,
+      Tc: r.Tc,
+      pc: r.pc,
+    });
+    expect(handle({ id: 3, op: "diagram", fluid: "Water", plane: "xy" })).toEqual({
+      id: 3,
+      ok: false,
+      op: "diagram",
+      error: "`xy` is no plane: ph, ts, pt, trho or hs",
+    });
+    for (const h of [want, r, water, registry]) h.free();
+  });
+
+  test("frees each diagram and set of regions, and every handle read from them", () => {
+    const { pk, calls } = fakePk();
+    const handle = createHandler(pk, "baseline");
+    const vertices = { xy: new Float64Array([1, 2]), inputs: new Float64Array([0, 300]), pairs: new Uint8Array([0]) };
+    expect(handle({ id: 1, op: "diagram", fluid: "Water", plane: "ph" })).toEqual({
+      id: 1,
+      ok: true,
+      op: "diagram",
+      value: {
+        x: new Float64Array([0, 1]),
+        y: new Float64Array([2, 3]),
+        liquid: vertices,
+        vapour: vertices,
+        critical: vertices,
+        lines: {
+          held: ["T"],
+          values: new Float64Array([300]),
+          segments: new Uint32Array([0, 1]),
+          twoPhase: new Uint8Array([0]),
+          starts: new Uint32Array([0, 1]),
+          vertices,
+        },
+        pairKeys: ["Q", "T"],
+        mixture: null,
+      },
+    });
+    expect(calls.handlesFreed).toEqual({ Diagram: 1, Lines: 1, Vertices: 4 });
+    const corners = { starts: new Uint32Array([0, 1]), corners: new Float64Array([1, 2, 3, 4, 5]) };
+    expect(handle({ id: 2, op: "regions", fluid: "Water" })).toEqual({
+      id: 2,
+      ok: true,
+      op: "regions",
+      value: {
+        phases: ["gas"],
+        outlines: corners,
+        isotherm: corners,
+        isobar: corners,
+        critical: new Float64Array([6, 7, 8, 9, 10]),
+        Tc: 6,
+        pc: 7,
+      },
+    });
+    expect(calls.handlesFreed).toEqual({ Diagram: 1, Lines: 1, Vertices: 4, Regions: 1, Corners: 3 });
+    expect(handle({ id: 3, op: "diagram", fluid: "Water", plane: "xy" })).toEqual({
+      id: 3,
+      ok: false,
+      op: "diagram",
+      error: "`xy` is no plane",
+    });
+  });
+});
+
+type Vertices = { xy: Float64Array; inputs: Float64Array; pairs: Uint8Array; free(): void };
+
+/** A diagram's arrays as the package gives them, each handle read freed. */
+function arrays(d: {
+  x: Float64Array;
+  y: Float64Array;
+  liquid: Vertices;
+  vapour: Vertices;
+  critical: Vertices;
+  lines: {
+    held: string[];
+    values: Float64Array;
+    segments: Uint32Array;
+    twoPhase: Uint8Array;
+    starts: Uint32Array;
+    vertices: Vertices;
+    free(): void;
+  };
+}) {
+  const vertices = (v: Vertices) => {
+    const value = { xy: v.xy, inputs: v.inputs, pairs: v.pairs };
+    v.free();
+    return value;
+  };
+  const l = d.lines;
+  const lines = {
+    held: l.held,
+    values: l.values,
+    segments: l.segments,
+    twoPhase: l.twoPhase,
+    starts: l.starts,
+    vertices: vertices(l.vertices),
+  };
+  l.free();
+  return {
+    x: d.x,
+    y: d.y,
+    liquid: vertices(d.liquid),
+    vapour: vertices(d.vapour),
+    critical: vertices(d.critical),
+    lines,
+  };
+}

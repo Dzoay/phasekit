@@ -4,7 +4,7 @@
 import { formatNumber } from "../lib/format";
 import { output, type Output } from "../lib/outputs";
 import { displayUnit, fromSI, type System, type Unit } from "../lib/units";
-import type { Key } from "../sample/diagrams";
+import type { Key } from "./planes";
 
 export interface FamilyStyle {
   name: string;
