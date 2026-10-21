@@ -79,6 +79,8 @@ impl Bracket {
     /// Replaces the end whose value has `fc`'s sign by (c, fc), halving the other end's value when the same end moved
     /// twice running (Illinois).
     fn update(&mut self, c: f64, fc: f64) {
+        // A value of exactly zero ends the solve at the next step, whichever end takes it: `root` returns that end.
+        // equivalent mutant: replace > with >=
         if (fc > 0.0) == (self.b.1 > 0.0) {
             self.b = (c, fc);
             if self.side == -1 {
