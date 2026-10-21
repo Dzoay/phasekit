@@ -7,7 +7,10 @@ use std::num::NonZeroUsize;
 
 use phasekit_core::batch::{BatchRequest, ExecPolicy};
 use phasekit_core::math;
-use phasekit_core::{Basis, DataSet, Error, Fluid, Gauge, Input, Pair, Phase, Prop, Registry, State, Var};
+use phasekit_core::{
+    Basis, DataSet, Enthalpy, Entropy, Error, Fluid, Gauge, Input, Pair, Phase, Prop, ReferenceState, Registry, State,
+    Var,
+};
 use phasekit_iapws::if97;
 use phasekit_verify::conformance::{Outcome, capability_matrix, gauge_invariance, identities, policy_equivalence};
 use phasekit_verify::register::{RowKey, exempt_row};
@@ -381,4 +384,110 @@ fn ice_properties_come_from_the_shared_relations() {
     assert!(checked >= 12 * 10, "{checked}");
     assert!(matches!(ice.state(pt(1e5, 273.2)), Err(Error::Domain(_))));
     assert!(matches!(ice.state(pt(211e6, 200.0)), Err(Error::Domain(_))));
+}
+
+/// Arbiter: IAPWS R14-08(2011) Table 3's sublimation row, p = 8.94735e-6 MPa at 230 K, within its printed digits, and
+/// Eq. (6)'s inverse back to 230 K (PLAN.md M14.5).
+#[test]
+fn sublimation_is_table_3() {
+    let table = table(fixture!("paper/Water/IAPWS-R14-08-2011.3.csv"));
+    let row = (0..table.rows().len()).find(|&r| table.printed(r, "note") == Some("ice Ih - gas Eq. (6)")).unwrap();
+    let t = table.value(row, "T").unwrap();
+    let p = phasekit_iapws::ice::sublimation_pressure(t).unwrap();
+    assert_eq!(table.check(row, "p", p / 1e6).map_err(|e| format!("{e:?}")), Ok(()));
+    let back = phasekit_iapws::ice::sublimation_temperature(p).unwrap();
+    assert!((back / t - 1.0).abs() <= 4.0 * f64::EPSILON, "{back}");
+}
+
+/// The molar Gibbs energy and volume of `water`'s vapour at (T, p), through its model (no gauge).
+fn vapour_g_and_v(water: &Fluid, t: f64, p: f64) -> (f64, f64) {
+    let eos = water.model().helmholtz().unwrap();
+    let rho = phasekit_core::density::solve(eos, t, p, phasekit_core::density::Branch::Vapour, None).unwrap();
+    let total = eos.ideal(t, rho, phasekit_core::Order::One) + eos.residual(t, rho, phasekit_core::Order::One);
+    (eos.gas_constant() * t * (total.get(0, 0).unwrap() + total.get(0, 1).unwrap()), 1.0 / rho)
+}
+
+/// R14-08(2011) §6 Eq. (7a): the expanded uncertainty (k = 2) of Eq. (6)'s pressure above 130 K, relative.
+fn sublimation_uncertainty(t: f64) -> f64 {
+    let x = 273.16 / t;
+    (1.1e-5_f64.powi(2) + (1e-2 * (x - 1.0)).powi(2) + (4e-4 * (x - 1.0 - x.ln())).powi(2)).sqrt()
+}
+
+/// R14-08(2011) §3, §6: Eq. (6) was fitted to the equilibrium of R10-06(2009)'s ice and IAPWS-95's vapour from 130 K.
+/// At 15 temperatures from 130 K to the triple point the pressure where ice's and the vapour's Gibbs energies are
+/// equal (Newton in p from Eq. (6)'s) lies within Eq. (7a)'s uncertainty of Eq. (6)'s, the largest gap 0.33 of it
+/// (measured at M14.5).
+#[test]
+fn sublimation_is_the_equilibrium_of_ice_and_iapws_95() {
+    let water = Registry::from_embedded(DataSet::Corrected).unwrap().get("Water").unwrap().clone();
+    let ice = ice(DataSet::Corrected);
+    let mut worst = 0.0_f64;
+    for k in 0..15 {
+        let t = 130.0 + f64::from(k) * (273.16 - 130.0) / 14.0;
+        let p_subl = phasekit_iapws::ice::sublimation_pressure(t).unwrap();
+        let mut p = p_subl;
+        for _ in 0..8 {
+            let solid = ice.state(Input::new(Pair::PT, p, t, Basis::Mass).unwrap()).unwrap();
+            let (g, v) = vapour_g_and_v(&water, t, p);
+            p -= (solid.g(Basis::Molar) - g) / (1.0 / solid.rho(Basis::Molar) - v);
+        }
+        let ratio = (p / p_subl - 1.0).abs() / sublimation_uncertainty(t);
+        worst = worst.max(ratio);
+        assert!(ratio <= 1.0, "{t} K: equilibrium {p} Pa against Eq. (6)'s {p_subl} Pa");
+    }
+    assert!(worst <= 0.34, "the largest gap, as a share of Eq. (7a)'s uncertainty: {worst}");
+}
+
+/// Ice's sublimation states (PLAN.md M14.5): ice and the borrowed water's vapour through `State::from_split` at Eq.
+/// (6)'s pressure, the lever rule in h; PQ the same state; refused outside Eq. (6)'s 50 K to the triple point.
+#[test]
+fn sublimation_states_split_ice_and_vapour() {
+    let (ice, water) = (ice(DataSet::Corrected), Registry::embedded().unwrap().get("Water").unwrap().clone());
+    let (t, q) = (250.0, 0.25);
+    let s = ice.state(Input::new(Pair::QT, q, t, Basis::Mass).unwrap()).unwrap();
+    let p = phasekit_iapws::ice::sublimation_pressure(t).unwrap();
+    assert_eq!((s.phase(), s.quality(), s.p(), s.t()), (Phase::TwoPhase, Some(q), p, t));
+    let solid = ice.state(Input::new(Pair::PT, p, t, Basis::Mass).unwrap()).unwrap().h(Basis::Molar);
+    let eos = water.model().helmholtz().unwrap();
+    let rho = phasekit_core::density::solve(eos, t, p, phasekit_core::density::Branch::Vapour, None).unwrap();
+    let total = eos.ideal(t, rho, phasekit_core::Order::One) + eos.residual(t, rho, phasekit_core::Order::One);
+    let vapour = eos.gas_constant() * t * (total.get(1, 0).unwrap() + total.get(0, 1).unwrap());
+    assert!((s.h(Basis::Molar) / ((1.0 - q) * solid + q * vapour) - 1.0).abs() < 1e-12, "{}", s.h(Basis::Molar));
+    let pq = ice.state(Input::new(Pair::PQ, p, q, Basis::Mass).unwrap()).unwrap();
+    assert!((pq.t() / t - 1.0).abs() <= 4.0 * f64::EPSILON && pq.quality() == Some(q));
+    for t in [49.9, 273.17] {
+        assert!(matches!(ice.state(Input::new(Pair::QT, q, t, Basis::Mass).unwrap()), Err(Error::Domain(_))), "{t}");
+    }
+}
+
+/// `tests/gibbs_seam.rs`'s checks on the real ice model (PLAN.md M14.5): registered beside the embedded fluids, it is
+/// the same through compat's strings, the batch (PT and QT, `Simd` the reference bit for bit) and a reference state.
+#[test]
+fn ice_reaches_registry_batch_compat_and_reference_states() {
+    let embedded = Registry::embedded().unwrap();
+    let water = embedded.get("Water").unwrap().clone();
+    let registry = embedded.with_model(phasekit_iapws::ice::model(&water, DataSet::Corrected).unwrap()).unwrap();
+    let ice = registry.get("Ice Ih").unwrap();
+    let pt = |p: f64, t: f64| Input::new(Pair::PT, p, t, Basis::Mass).unwrap();
+    let h = ice.state(pt(101_325.0, 250.0)).unwrap().h(Basis::Mass);
+    assert_eq!(phasekit_compat::props_si_in(&registry, "Hmass", "P", 101_325.0, "T", 250.0, "Ice Ih").unwrap(), h);
+    let outputs = [Prop::Dmass, Prop::Hmass, Prop::Q];
+    let (p, t, q) = ([101_325.0, 2e8, 1e3], [250.0, 260.0, 270.0], [0.0, 0.5, 1.0]);
+    for req in [
+        BatchRequest::new(Pair::PT, Basis::Mass, &p, &t, &outputs),
+        BatchRequest::new(Pair::QT, Basis::Mass, &q, &t, &outputs),
+    ] {
+        let result = policy_equivalence(ice, &req, ExecPolicy::Simd);
+        assert!(result.is_ok(), "{result:?}");
+    }
+    let anchor = pt(101_325.0, 273.15);
+    let (h0, s0) = (Enthalpy::mass(-333_430.0).unwrap(), Entropy::mass(-1220.0).unwrap());
+    let shifted = ice.with_reference(ReferenceState::Custom { at: anchor, h: h0, s: s0 }).unwrap();
+    assert!((shifted.state(anchor).unwrap().h(Basis::Mass) + 333_430.0).abs() < 1e-6);
+    let gauged = gauge_invariance(
+        ice,
+        shifted.gauge(),
+        &[anchor, pt(5e7, 200.0), Input::new(Pair::QT, 0.5, 250.0, Basis::Mass).unwrap()],
+    );
+    assert!(gauged.is_ok(), "{gauged:?}");
 }
