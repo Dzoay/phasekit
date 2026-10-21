@@ -5,7 +5,7 @@
 
 use phasekit_core::math;
 use phasekit_core::{Basis, DataSet, Error, Fluid, Input, Pair, Registry};
-use phasekit_humidair::{Coefficient, Gas, HumidAir, Parts, Virials, henry_constant};
+use phasekit_humidair::{Coefficient, Gas, HumidAir, Humidity, MoistAir, Parts, Per, Virials, henry_constant};
 use phasekit_verify::register::exempt_at;
 use phasekit_verify::{Cell, DIVERGENCES, Fixture, Kind, Tolerance, ToleranceClass, fixture};
 
@@ -155,10 +155,10 @@ fn humid_air_is_shared_across_threads() {
     let _: Option<Fluid> = None;
 }
 
-/// DIV-0011's registered bound, relative: v8.0.0's B from its EOS at δ = 1e-12, and what inherits it; NaN, which fails
-/// every comparison, without one.
-fn div_0011() -> f64 {
-    match DIVERGENCES.iter().find(|d| d.id == "DIV-0011").and_then(|d| d.tolerance) {
+/// The relative bound the register entry `id` measured: DIV-0011's, v8.0.0's B from its EOS at δ = 1e-12 and what
+/// inherits it; DIV-0069's, its moist-air states. NaN, which fails every comparison, without one.
+fn registered(id: &str) -> f64 {
+    match DIVERGENCES.iter().find(|d| d.id == id).and_then(|d| d.tolerance) {
         Some(Tolerance::Relative(bound)) => bound,
         _ => f64::NAN,
     }
@@ -200,7 +200,7 @@ fn g8_10_table_15_is_its_own_c_aww() {
 #[test]
 fn virials_match_the_oracle() {
     let (table, air) = (table(fixture!("coolprop-8.0.0/all/humidair_aux.csv")), humid_air(DataSet::Parity));
-    let div_0011 = div_0011();
+    let div_0011 = registered("DIV-0011");
     let (mut missed, mut exempt) = (Vec::new(), 0);
     for row in 0..table.rows().len() {
         let t = table.value(row, "T").unwrap();
@@ -271,6 +271,120 @@ fn saturated_humidity_ratio_is_tables_1_and_2() {
     assert_eq!(missed, Vec::<String>::new());
 }
 
+/// DIV-0071's bound on the printed `column` of the table at `path`, in the table's units (user decision HA8): h (`h`,
+/// `hs`) within the cell's `half` unit plus W times the entry's constant per kilogram of water, s within the entry's
+/// own bound for Tables 8 and 12; every other cell within its `half` unit.
+fn div_0071_bound(path: &str, column: &str, w: f64, half: f64) -> f64 {
+    let entry = DIVERGENCES.iter().find(|d| d.id == "DIV-0071").unwrap();
+    let own = entry.table_tolerances.iter().find(|(file, _)| *file == path).map(|(_, bound)| *bound);
+    match (column, entry.tolerance, own) {
+        ("h" | "hs", Some(Tolerance::Absolute(per_kg_water)), _) => half + w * per_kg_water / 1e3,
+        ("s", _, Some(Tolerance::Absolute(bound))) => bound,
+        _ => half,
+    }
+}
+
+/// Half a unit in the last digit of the printed `column` at `row`, in the table's units.
+fn half_unit(table: &Fixture<'_>, row: usize, column: &str) -> f64 {
+    match table.printed(row, column).and_then(phasekit_verify::from_printed) {
+        Some(Tolerance::Absolute(half)) => half,
+        _ => f64::NAN,
+    }
+}
+
+/// Arbiter: the authors' Tables 1 and 2, v_s, h_s and s_s of saturated moist air at 101.325 kPa from −60 to 90 °C, per
+/// kilogram of dry air, within their printed digits under `Corrected` (PLAN.md M18.3), Table 2's h_s within DIV-0071's
+/// bound (user decision HA8).
+#[test]
+fn saturated_states_are_tables_1_and_2() {
+    let air = humid_air(DataSet::Corrected);
+    let mut missed = Vec::new();
+    for (fixture, widened) in [
+        (fixture!("paper/HumidAir/Herrmann-HVACR-2009.1.csv"), false),
+        (fixture!("paper/HumidAir/Herrmann-HVACR-2009.2.csv"), true),
+    ] {
+        let table = table_of(fixture);
+        for row in 0..table.rows().len() {
+            let t = table.value(row, "t").unwrap() + 273.15;
+            let psi = air.saturation(t, 101_325.0).unwrap().psi_ws;
+            let state = air.moist_air(t, 101_325.0, psi).unwrap();
+            let cells = [
+                ("vs", state.v(Per::KgDryAir)),
+                ("hs", state.h(Per::KgDryAir) / 1e3),
+                ("ss", state.s(Per::KgDryAir) / 1e3),
+            ];
+            let w = table.value(row, "Ws").unwrap();
+            for (column, got) in cells {
+                let (want, half) = (table.value(row, column).unwrap(), half_unit(&table, row, column));
+                let bound = if widened { div_0071_bound(fixture.0, column, w, half) } else { half };
+                missed.extend(
+                    table
+                        .check_bound(row, column, got, bound)
+                        .err()
+                        .map(|_| format!("{column} at {t} K: {got} against {want}")),
+                );
+            }
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+}
+
+/// Arbiter: the authors' Tables 5-14, moist air at 200 and 320 °C from 101.325 kPa to 10 MPa: v, h and s per kilogram
+/// of dry air at each row's W, within their printed digits under `Corrected` (PLAN.md M18.3; t_wb and φ are M18.4's),
+/// h and Tables 8's and 12's s within DIV-0071's bound (user decision HA8).
+#[test]
+fn states_are_tables_5_to_14() {
+    let air = humid_air(DataSet::Corrected);
+    let tables = [
+        (fixture!("paper/HumidAir/Herrmann-HVACR-2009.5.csv"), 200.0, 101_325.0),
+        (fixture!("paper/HumidAir/Herrmann-HVACR-2009.6.csv"), 200.0, 1e6),
+        (fixture!("paper/HumidAir/Herrmann-HVACR-2009.7.csv"), 200.0, 2e6),
+        (fixture!("paper/HumidAir/Herrmann-HVACR-2009.8.csv"), 200.0, 5e6),
+        (fixture!("paper/HumidAir/Herrmann-HVACR-2009.9.csv"), 200.0, 1e7),
+        (fixture!("paper/HumidAir/Herrmann-HVACR-2009.10.csv"), 320.0, 101_325.0),
+        (fixture!("paper/HumidAir/Herrmann-HVACR-2009.11.csv"), 320.0, 1e6),
+        (fixture!("paper/HumidAir/Herrmann-HVACR-2009.12.csv"), 320.0, 2e6),
+        (fixture!("paper/HumidAir/Herrmann-HVACR-2009.13.csv"), 320.0, 5e6),
+        (fixture!("paper/HumidAir/Herrmann-HVACR-2009.14.csv"), 320.0, 1e7),
+    ];
+    let (mut missed, mut checked) = (Vec::new(), 0);
+    for (fixture, t, p) in tables {
+        let (path, table, t) = (fixture.0, table_of(fixture), t + 273.15);
+        for row in 0..table.rows().len() {
+            let w = table.value(row, "W").unwrap();
+            let psi = air.mole_fraction(t, p, Humidity::Ratio(w)).unwrap();
+            let state = air.moist_air(t, p, psi).unwrap();
+            let cells = [
+                ("v", state.v(Per::KgDryAir)),
+                ("h", state.h(Per::KgDryAir) / 1e3),
+                ("s", state.s(Per::KgDryAir) / 1e3),
+            ];
+            for (column, got) in cells {
+                checked += 1;
+                let (want, half) = (table.value(row, column).unwrap(), half_unit(&table, row, column));
+                missed.extend(
+                    table
+                        .check_bound(row, column, got, div_0071_bound(path, column, w, half))
+                        .err()
+                        .map(|_| format!("{column} at {t} K, {p} Pa, W {w}: {got} against {want}")),
+                );
+            }
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+    assert_eq!(checked, 318);
+}
+
+/// Oracle: map 11 §8's `HAPropsSI("H","T",300,"P",1e5,"R",0)`, 27013.112479771713 J/kg of dry air (PLAN.md M18.3),
+/// under `Parity`: dry air's h on v8.0.0's zeros, within DIV-0069's bound (measured: 5.1e-11, v8.0.0's B and C at
+/// δ = 1e-12).
+#[test]
+fn dry_air_at_300_k_is_map_11s_enthalpy() {
+    let h = humid_air(DataSet::Parity).moist_air(300.0, 1e5, 0.0).unwrap().h(Per::KgDryAir);
+    let want = 27_013.112_479_771_713;
+    assert!((h / want - 1.0).abs() <= registered("DIV-0069"), "{h}");
+}
+
 /// The table at `path`, parsed (for a `fixture!` passed as a value).
 fn table_of(fixture: (&'static str, &'static str)) -> Fixture<'static> {
     table(fixture)
@@ -297,7 +411,7 @@ fn saturation_matches_the_oracle() {
             let want = table.value(row, column).unwrap();
             let error = (got - want).abs();
             let bound = match exempt_at(DIVERGENCES, "Humid air", Kind::HumidairAux, column, t) {
-                Some(_) => div_0011() * want.abs(),
+                Some(_) => registered("DIV-0011") * want.abs(),
                 None => ToleranceClass::Prop.bound(want.abs()).unwrap(),
             };
             if error.is_nan() || error > bound {
@@ -331,4 +445,76 @@ fn the_condensed_phase_is_its_parts_state() {
         let s = air.saturation(373.0, p).unwrap();
         assert_eq!(s.kappa_t, pt(&parts.liquid, 373.0, p).isothermal_compressibility().unwrap(), "{p}");
     }
+}
+
+/// The `humidair` kind's outputs of a moist-air state, by column, each with its §5 floor (VERIFICATION.md §5: R·T for
+/// an energy, R for an entropy or a heat capacity, per kilogram of dry or humid air; 0 elsewhere).
+fn moist_air_outputs(s: &MoistAir) -> [(&'static str, f64, f64); 18] {
+    let (da, ha) = (Per::KgDryAir, Per::KgHumidAir);
+    let r = |per| s.cp(per) / s.cp(Per::MolHumidAir) * phasekit_humidair::constants::R;
+    let (rt_da, rt_ha) = (r(da) * s.t(), r(ha) * s.t());
+    [
+        ("W", s.humidity_ratio(), 0.0),
+        ("Y", s.mole_fraction(), 0.0),
+        ("P_w", s.partial_pressure(), 0.0),
+        ("V", s.v(da), 0.0),
+        ("Vha", s.v(ha), 0.0),
+        ("H", s.h(da), rt_da),
+        ("Hha", s.h(ha), rt_ha),
+        ("U", s.u(da), rt_da),
+        ("Uha", s.u(ha), rt_ha),
+        ("S", s.s(da), r(da)),
+        ("Sha", s.s(ha), r(ha)),
+        ("C", s.cp(da), r(da)),
+        ("Cha", s.cp(ha), r(ha)),
+        ("CV", s.cv(da), r(da)),
+        ("CVha", s.cv(ha), r(ha)),
+        ("Z", s.z(), 0.0),
+        ("speed_of_sound", s.speed_of_sound(), 0.0),
+        ("isentropic_exponent", s.isentropic_exponent(), 0.0),
+    ]
+}
+
+/// A `humidair` row's T, p and humidity.
+fn humidair_inputs(table: &Fixture<'_>, row: usize) -> (f64, f64, Humidity) {
+    let (t, p, value) =
+        (table.value(row, "T").unwrap(), table.value(row, "p").unwrap(), table.value(row, "value").unwrap());
+    match table.printed(row, "input") {
+        Some("R") => (t, p, Humidity::Relative(value)),
+        _ => (t, p, Humidity::Ratio(value)),
+    }
+}
+
+/// Oracle: CoolProp 8.0.0's `HAPropsSI`, `fixtures/coolprop-8.0.0/all/humidair.csv` (PLAN.md M18.3), under `Parity`:
+/// at each row's T, p and humidity, W, ψ_w and p_w within DIV-0011's bound (at a relative humidity they carry f's;
+/// at a given W they hold to 1.4e-16); v, h, u, s, c_p, c_v, Z, w and the isentropic exponent within DIV-0069's, each
+/// of max(|value|, floor) with §5's floors (v8.0.0 takes its virials at δ = 1e-12 and its heat capacities and w by
+/// finite differences). The rows v8.0.0 refuses, a relative humidity where water's saturation pressure exceeds p, are
+/// counted.
+#[test]
+fn moist_air_matches_the_oracle() {
+    let (table, air) = (table(fixture!("coolprop-8.0.0/all/humidair.csv")), humid_air(DataSet::Parity));
+    let (mut missed, mut asserted, mut refused) = (Vec::new(), 0, 0);
+    for row in 0..table.rows().len() {
+        if table.printed(row, "status") != Some("ok") {
+            refused += 1;
+            continue;
+        }
+        let (t, p, humidity) = humidair_inputs(&table, row);
+        let state = air.mole_fraction(t, p, humidity).and_then(|psi| air.moist_air(t, p, psi)).unwrap();
+        for (column, got, floor) in moist_air_outputs(&state) {
+            let want = table.value(row, column).unwrap();
+            let bound = match exempt_at(DIVERGENCES, "Humid air", Kind::Humidair, column, t) {
+                Some(id) => registered(id) * want.abs().max(floor),
+                None => ToleranceClass::Prop.bound(want.abs().max(floor)).unwrap(),
+            };
+            let error = (got - want).abs();
+            if error.is_nan() || error > bound {
+                missed.push(format!("{column} at {t} K, {p} Pa, {humidity:?}: {got} against {want}"));
+            }
+        }
+        asserted += 1;
+    }
+    assert_eq!(missed, Vec::<String>::new());
+    assert_eq!((asserted, refused), (276, 80));
 }

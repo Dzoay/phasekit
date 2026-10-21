@@ -1,6 +1,6 @@
 use phasekit_core::{DataSet, DomainError, Error, Registry};
 
-use crate::{HumidAir, Humidity, Parts};
+use crate::{HumidAir, Humidity, Parts, Per};
 
 /// Humid air on core's water and Air and phasekit-iapws's IF97 water and ice, under `data`.
 fn humid_air(data: DataSet) -> HumidAir {
@@ -55,4 +55,104 @@ fn henry_stops_at_the_critical_point() {
     let above = DomainError::AboveMaxTemperature { t: 650.0, t_max: 647.096 };
     assert_eq!(crate::henry_constant(crate::Gas::N2, 650.0).unwrap_err(), above.into());
     assert!(crate::henry_constant(crate::Gas::O2, 647.096).is_ok());
+}
+
+/// The pressure at which moist air of mole fraction `psi` has molar volume `v` at `t`: the virial equation.
+fn pressure(air: &HumidAir, t: f64, v: f64, psi: f64) -> f64 {
+    let virials = air.virials(t).unwrap();
+    let (x, rt) = (1.0 - psi, crate::constants::R * t);
+    let b = x * x * virials.b_aa.value + 2.0 * x * psi * virials.b_aw.value + psi * psi * virials.b_ww.value;
+    let c = x * x * x * virials.c_aaa.value
+        + 3.0 * x * x * psi * virials.c_aaw.value
+        + 3.0 * x * psi * psi * virials.c_aww.value
+        + psi * psi * psi * virials.c_www.value;
+    rt / v * (1.0 + b / v + c / (v * v))
+}
+
+/// ROT-269 (PLAN.md M18.3): c_p, c_v and w are the state's own derivatives, against central differences of h at
+/// constant p, of u at constant v̄ and of p at constant T, Richardson-extrapolated, at dry, humid and nearly saturated
+/// air from 200 to 600 K and 10 kPa to 9 MPa, under both data sets.
+#[test]
+fn heat_capacities_and_sound_are_the_states_own_derivatives() {
+    use Per::MolHumidAir as Mol;
+    let richardson = |f: &dyn Fn(f64) -> f64, h: f64| {
+        let d = |h: f64| (f(h) - f(-h)) / (2.0 * h);
+        (4.0 * d(h / 2.0) - d(h)) / 3.0
+    };
+    for data in [DataSet::Corrected, DataSet::Parity] {
+        let air = humid_air(data);
+        for (t, p, psi) in [(200.0, 1e4, 0.0), (300.0, 101_325.0, 0.02), (350.0, 1e6, 0.03), (600.0, 9e6, 0.4)] {
+            let state = air.moist_air(t, p, psi).unwrap();
+            let v = state.v(Mol);
+            let cp = richardson(&|dt| air.moist_air(t + dt, p, psi).unwrap().h(Mol), 0.05);
+            let u_at = |dt: f64| air.moist_air(t + dt, pressure(&air, t + dt, v, psi), psi).unwrap().u(Mol);
+            let cv = richardson(&u_at, 0.05);
+            let dp_dv = richardson(&|dv| pressure(&air, t, v + dv, psi), v * 1e-4);
+            let w = phasekit_core::math::sqrt(-v * v * state.cp(Mol) / state.cv(Mol) * dp_dv / state.molar_mass());
+            for (what, got, want) in
+                [("cp", state.cp(Mol), cp), ("cv", state.cv(Mol), cv), ("w", state.speed_of_sound(), w)]
+            {
+                assert!((got / want - 1.0).abs() < 1e-8, "{data:?} {what} at {t} K, {p} Pa, ψ {psi}: {got} {want}");
+            }
+        }
+    }
+}
+
+/// Under `Corrected`, dry air's h and s are zero at 273.15 K and 101.325 kPa (PLAN.md M18.3); per kilogram of dry
+/// air, of humid air and per mole are one state's, and Z, u and the isentropic exponent follow from it.
+#[test]
+fn the_state_has_its_zero_and_its_bases() {
+    let air = humid_air(DataSet::Corrected);
+    let dry = air.moist_air(273.15, 101_325.0, 0.0).unwrap();
+    assert!(dry.h(Per::KgDryAir).abs() < 1e-9 && dry.s(Per::KgDryAir).abs() < 1e-12, "{dry:?}");
+    let state = air.moist_air(320.0, 2e5, 0.05).unwrap();
+    let (m, w) = (state.molar_mass(), state.humidity_ratio());
+    for (per_mol, per_kg_ha, per_kg_da) in [
+        (state.h(Per::MolHumidAir), state.h(Per::KgHumidAir), state.h(Per::KgDryAir)),
+        (state.s(Per::MolHumidAir), state.s(Per::KgHumidAir), state.s(Per::KgDryAir)),
+        (state.v(Per::MolHumidAir), state.v(Per::KgHumidAir), state.v(Per::KgDryAir)),
+    ] {
+        assert!((per_kg_ha * m / per_mol - 1.0).abs() < 1e-15);
+        assert!((per_kg_da / ((1.0 + w) * per_kg_ha) - 1.0).abs() < 1e-14);
+    }
+    let v = state.v(Per::MolHumidAir);
+    assert_eq!(state.u(Per::MolHumidAir), state.h(Per::MolHumidAir) - 2e5 * v);
+    assert!((state.z() - 2e5 * v / (crate::constants::R * 320.0)).abs() < 1e-15);
+    assert_eq!((state.t(), state.p(), state.mole_fraction(), state.partial_pressure()), (320.0, 2e5, 0.05, 1e4));
+    let gamma = state.isentropic_exponent();
+    let w2 = gamma * 2e5 * v / m;
+    assert!((state.speed_of_sound() * state.speed_of_sound() / w2 - 1.0).abs() < 1e-14);
+}
+
+/// Where the virial equation has no state: at 40 °C and W = 0.1 its pressure peaks at 7.86 MPa, the end of its stable
+/// branch, so 10 MPa is refused with that peak (v8.0.0's secant returns its 100th iterate); just below the peak the
+/// state is on the branch.
+#[test]
+fn a_pressure_past_the_virial_branch_is_refused() {
+    let air = humid_air(DataSet::Corrected);
+    let psi = air.mole_fraction(313.15, 1e7, Humidity::Ratio(0.1)).unwrap();
+    let p_max = match air.moist_air(313.15, 1e7, psi) {
+        Err(Error::Domain(DomainError::AboveMaxPressure { p, p_max })) if p == 1e7 => p_max,
+        other => panic!("{other:?}"),
+    };
+    assert!((p_max / 7.86e6 - 1.0).abs() < 1e-3, "{p_max}");
+    let below = air.moist_air(313.15, 0.99 * p_max, psi).unwrap();
+    assert!(below.z() > 0.0 && below.cp(Per::MolHumidAir) > 0.0, "{below:?}");
+}
+
+/// v8.0.0's range (130 to 623.15 K, 10 Pa to 10 MPa) and ψ_w in [0, 1) bound a state, each refusal typed.
+#[test]
+fn the_state_refuses_outside_its_range() {
+    let air = humid_air(DataSet::Corrected);
+    let refused = |t: f64, p: f64, psi: f64| air.moist_air(t, p, psi).unwrap_err();
+    assert_eq!(refused(129.0, 1e5, 0.0), DomainError::BelowMinTemperature { t: 129.0, t_min: 130.0 }.into());
+    assert_eq!(refused(624.0, 1e5, 0.0), DomainError::AboveMaxTemperature { t: 624.0, t_max: 623.15 }.into());
+    assert_eq!(refused(300.0, 9.0, 0.0), DomainError::BelowMinPressure { p: 9.0, p_min: 10.0 }.into());
+    assert_eq!(refused(300.0, 2e7, 0.0), DomainError::AboveMaxPressure { p: 2e7, p_max: 1e7 }.into());
+    assert!(matches!(refused(f64::NAN, 1e5, 0.0), Error::Domain(DomainError::BelowMinTemperature { .. })));
+    assert!(matches!(refused(300.0, f64::NAN, 0.0), Error::Domain(DomainError::BelowMinPressure { .. })));
+    for psi in [-0.1, 1.0, f64::NAN] {
+        assert!(matches!(refused(300.0, 1e5, psi), Error::InvalidInput { quantity: "mole fraction of water", .. }));
+    }
+    assert!(air.moist_air(130.0, 10.0, 0.0).is_ok() && air.moist_air(623.15, 1e7, 0.0).is_ok());
 }

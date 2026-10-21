@@ -8,8 +8,8 @@ use phasekit_core::internal::{
     ConductivityModel, Edit, FluidRecord, IdealTerm, LennardJones, LjSource, ViscosityModel,
 };
 use phasekit_core::{
-    Basis, DataSet, Density, DomainError, Error, FlashOptions, Input, Order, Phase, Pressure, Prop, Quality, Registry,
-    Temperature, ThermoModel, math,
+    Basis, DataSet, Density, DomainError, Error, FlashOptions, Input, Order, Pair, Phase, Pressure, Prop, Quality,
+    Registry, Temperature, ThermoModel, math,
 };
 use phasekit_verify::arbiters::{k3_values, table_text};
 use phasekit_verify::{
@@ -96,6 +96,10 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0065", div_0065),
     ("DIV-0066", div_0066),
     ("DIV-0067", div_0067),
+    ("DIV-0068", div_0068),
+    ("DIV-0069", div_0069),
+    ("DIV-0070", div_0070),
+    ("DIV-0071", div_0071),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1875,4 +1879,151 @@ fn div_0067() {
         let gap = (ours / g8_10 - 1.0).abs();
         assert!(gap > 5e-5 && gap <= 1.3e-4, "{t} K: {gap}");
     }
+}
+
+/// DIV-0070 (`UsePaper`, PLAN.md M18.3; map 07 H3): water vapour's ideal part. (1) Under `Corrected`, from IF97 region
+/// 2 above the triple point, Table 2's h_s at 90 °C holds within DIV-0071's bound and its s_s within its printed digits
+/// (`tests/humidair.rs` holds all 19 rows); (2) IAPWS-95's vapour, which v8.0.0 takes at every T, has an h 18.0 to
+/// 23.4 J/kg above IF97's from 0 to 90 °C on the liquid's triple-point zero, which at 90 °C's W_s puts h_s 29 J/kg of
+/// dry air off, past five times that bound.
+fn div_0070() {
+    let (path, text) = fixture!("paper/HumidAir/Herrmann-HVACR-2009.2.csv");
+    let table = Fixture::parse(path, text).unwrap();
+    let row = (0..table.rows().len()).find(|&r| table.value(r, "t") == Some(90.0)).unwrap();
+    let air = humid_air(DataSet::Corrected);
+    let psi = air.saturation(363.15, 101_325.0).unwrap().psi_ws;
+    let state = air.moist_air(363.15, 101_325.0, psi).unwrap();
+    let w = table.value(row, "Ws").unwrap();
+    let bound = half_unit(&table, row, "hs") + w * div_0071_per_kg_water() / 1e3;
+    let h = state.h(phasekit_humidair::Per::KgDryAir) / 1e3;
+    assert!((h - table.value(row, "hs").unwrap()).abs() <= bound, "{h}");
+    let s = state.s(phasekit_humidair::Per::KgDryAir) / 1e3;
+    assert!((s - table.value(row, "ss").unwrap()).abs() <= half_unit(&table, row, "ss"), "{s}");
+    let water = Registry::from_embedded(DataSet::Corrected).unwrap().get("Water").unwrap().clone();
+    let at = |pair, a, b| water.state(Input::new(pair, a, b, Basis::Mass).unwrap()).unwrap();
+    let zero_95 = at(Pair::QT, 0.0, 273.16).u(Basis::Mass);
+    let zero_97 = phasekit_iapws::if97::region1(273.16, 611.657).unwrap().u(Basis::Mass);
+    let gap = |t: f64| {
+        let h_97 = phasekit_iapws::if97::region2(t, 1.0).unwrap().h(Basis::Mass);
+        (at(Pair::PT, 1.0, t).h(Basis::Mass) - zero_95) - (h_97 - zero_97)
+    };
+    for t in [273.16, 303.15, 333.15, 363.15] {
+        assert!((17.9..=23.4).contains(&gap(t)), "{t} K: {}", gap(t));
+    }
+    assert!(w * gap(363.15) > 5.0 * bound * 1e3, "{}", w * gap(363.15));
+}
+
+/// The constant per kilogram of water that DIV-0071 allows h, J/kg.
+fn div_0071_per_kg_water() -> f64 {
+    match DIVERGENCES.iter().find(|d| d.id == "DIV-0071").and_then(|d| d.tolerance) {
+        Some(phasekit_verify::Tolerance::Absolute(per_kg_water)) => per_kg_water,
+        _ => f64::NAN,
+    }
+}
+
+/// DIV-0071 (`Investigate`, PLAN.md M18.3; user decision HA8): the authors' tables against `Corrected`. (1) Table 2's
+/// h_s at 90 °C is past its printed half unit, by no more than W_s times the entry's constant per kilogram of water;
+/// (2) Table 8's s is below phasekit's on all 7 rows, by more than half a printed unit on average and within the
+/// entry's bound; (3) Table 12's s at W = 0.05 is past its half unit and within the entry's bound. `tests/humidair.rs`
+/// holds every value of Tables 1, 2 and 5-14 within its printed digits or the entry's bounds. Resolution: RP-1485's
+/// report names the cause (PLAN.md §6), or the authors' unrounded values are found.
+fn div_0071() {
+    use phasekit_humidair::{Humidity, Per};
+    let air = humid_air(DataSet::Corrected);
+    let s_at = |t: f64, p: f64, w: f64| {
+        let psi = air.mole_fraction(t, p, Humidity::Ratio(w)).unwrap();
+        air.moist_air(t, p, psi).unwrap().s(Per::KgDryAir) / 1e3
+    };
+    let table = |(path, text): (&'static str, &'static str)| Fixture::parse(path, text).unwrap();
+    let row_at = |table: &Fixture<'_>, column: &str, value: f64| {
+        (0..table.rows().len()).find(|&r| table.value(r, column) == Some(value)).unwrap()
+    };
+    let bound = |path: &str| {
+        let entry = DIVERGENCES.iter().find(|d| d.id == "DIV-0071").unwrap();
+        match entry.table_tolerances.iter().find(|(file, _)| *file == path) {
+            Some((_, phasekit_verify::Tolerance::Absolute(bound))) => *bound,
+            _ => f64::NAN,
+        }
+    };
+    let table2 = table(fixture!("paper/HumidAir/Herrmann-HVACR-2009.2.csv"));
+    let row = row_at(&table2, "t", 90.0);
+    let psi = air.saturation(363.15, 101_325.0).unwrap().psi_ws;
+    let gap = air.moist_air(363.15, 101_325.0, psi).unwrap().h(Per::KgDryAir) / 1e3 - table2.value(row, "hs").unwrap();
+    let (half, w) = (half_unit(&table2, row, "hs"), table2.value(row, "Ws").unwrap());
+    assert!(gap > half && gap - half <= w * div_0071_per_kg_water() / 1e3, "{gap}");
+    let (path, text) = fixture!("paper/HumidAir/Herrmann-HVACR-2009.8.csv");
+    let table8 = table((path, text));
+    let gaps: Vec<f64> = (0..table8.rows().len())
+        .map(|r| s_at(473.15, 5e6, table8.value(r, "W").unwrap()) - table8.value(r, "s").unwrap())
+        .collect();
+    assert_eq!(gaps.len(), 7);
+    assert!(gaps.iter().all(|&gap| gap > 0.0 && gap <= bound(path)), "{gaps:?}");
+    assert!(gaps.iter().sum::<f64>() / 7.0 > half_unit(&table8, 0, "s"), "{gaps:?}");
+    let (path, text) = fixture!("paper/HumidAir/Herrmann-HVACR-2009.12.csv");
+    let table12 = table((path, text));
+    let row = row_at(&table12, "W", 0.05);
+    let gap = s_at(593.15, 2e6, 0.05) - table12.value(row, "s").unwrap();
+    assert!(gap > half_unit(&table12, row, "s") && gap <= bound(path), "{gap}");
+}
+
+/// RP-1485's humid air over core's water and air and phasekit-iapws's IF97 water and ice, under `data`.
+fn humid_air(data: DataSet) -> phasekit_humidair::HumidAir {
+    let water = Registry::from_embedded(data).unwrap().get("Water").unwrap().clone();
+    let parts = phasekit_humidair::Parts {
+        water: water.clone(),
+        air: Registry::from_embedded(data).unwrap().get("Air").unwrap().clone(),
+        liquid: phasekit_iapws::if97::water().unwrap(),
+        ice: phasekit_iapws::ice::ice(&water, data).unwrap(),
+    };
+    phasekit_humidair::HumidAir::new(parts, data).unwrap()
+}
+
+/// The row of the `humidair` kind at (T, p) with `input` = `value`.
+fn humidair_row(table: &Fixture<'_>, t: f64, p: f64, input: &str, value: f64) -> usize {
+    (0..table.rows().len())
+        .find(|&r| {
+            [table.value(r, "T"), table.value(r, "p"), table.value(r, "value")] == [Some(t), Some(p), Some(value)]
+                && table.printed(r, "input") == Some(input)
+        })
+        .unwrap()
+}
+
+/// DIV-0068 (`UsePaper`, PLAN.md M18.3): ε. (1) Under `Corrected`, ε = M_w/M_a gives Table 2's W_s at 90 °C to its
+/// printed digits (`tests/humidair.rs` holds all 31 rows); (2) v8.0.0's ε = 0.621945 with the same ψ_ws misses it, and
+/// v8.0.0's own W_s at 80 °C misses Table 2's; (3) under `Parity` ψ_w at a given W is the oracle's within `Prop`.
+fn div_0068() {
+    let corrected = humid_air(DataSet::Corrected);
+    let psi = corrected.saturation(363.15, 101_325.0).unwrap().psi_ws;
+    let table = |w: f64| (w - 1.420_235_4).abs() <= 5e-8;
+    assert!(table(corrected.humidity_ratio(psi)), "{}", corrected.humidity_ratio(psi));
+    assert!(!table(0.621_945 * psi / (1.0 - psi)));
+    let (path, text) = fixture!("coolprop-8.0.0/all/humidair.csv");
+    let oracle = Fixture::parse(path, text).unwrap();
+    let row = humidair_row(&oracle, 353.15, 101_325.0, "R", 1.0);
+    assert!((oracle.value(row, "W").unwrap() - 0.552_926_1).abs() > 5e-8);
+    let parity = humid_air(DataSet::Parity);
+    let row = humidair_row(&oracle, 293.15, 101_325.0, "W", 0.01);
+    let (ours, want) =
+        (parity.mole_fraction(293.15, 101_325.0, phasekit_humidair::Humidity::Ratio(0.01)), oracle.value(row, "Y"));
+    assert!((ours.unwrap() - want.unwrap()).abs() <= ToleranceClass::Prop.bound(want.unwrap()).unwrap());
+}
+
+/// DIV-0069 (`SkipOracle`, PLAN.md M18.3; ROT-269): humid air's states. The replacing check: c_p is the state's own
+/// T-derivative of h at constant p (against a Richardson-extrapolated central difference, within 1e-9; the crate's
+/// unit tests hold c_v and w too), and at least one exempt cell still differs: v8.0.0's speed of sound at 350 °C,
+/// 10 Pa and W = 0.001, a finite difference, beyond `Prop`.
+fn div_0069() {
+    use phasekit_humidair::Per::MolHumidAir as Mol;
+    let air = humid_air(DataSet::Parity);
+    let h = |dt: f64| air.moist_air(300.0 + dt, 101_325.0, 0.02).unwrap().h(Mol);
+    let d = |dt: f64| (h(dt) - h(-dt)) / (2.0 * dt);
+    let cp = air.moist_air(300.0, 101_325.0, 0.02).unwrap().cp(Mol);
+    assert!(((4.0 * d(0.025) - d(0.05)) / 3.0 / cp - 1.0).abs() <= 1e-9);
+    let (path, text) = fixture!("coolprop-8.0.0/all/humidair.csv");
+    let oracle = Fixture::parse(path, text).unwrap();
+    let row = humidair_row(&oracle, 623.15, 10.0, "W", 0.001);
+    let psi = air.mole_fraction(623.15, 10.0, phasekit_humidair::Humidity::Ratio(0.001)).unwrap();
+    let ours = air.moist_air(623.15, 10.0, psi).unwrap().speed_of_sound();
+    let want = oracle.value(row, "speed_of_sound").unwrap();
+    assert!((ours - want).abs() > ToleranceClass::Prop.bound(want).unwrap(), "{ours} {want}");
 }
