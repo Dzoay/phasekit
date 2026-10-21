@@ -131,11 +131,9 @@ fn the_state_has_its_zero_and_its_bases() {
 fn a_pressure_past_the_virial_branch_is_refused() {
     let air = humid_air(DataSet::Corrected);
     let psi = air.mole_fraction(313.15, 1e7, Humidity::Ratio(0.1)).unwrap();
-    let p_max = match air.moist_air(313.15, 1e7, psi) {
-        Err(Error::Domain(DomainError::AboveMaxPressure { p, p_max })) if p == 1e7 => p_max,
-        other => panic!("{other:?}"),
-    };
-    assert!((p_max / 7.86e6 - 1.0).abs() < 1e-3, "{p_max}");
+    let refused = air.moist_air(313.15, 1e7, psi);
+    let Err(Error::Domain(DomainError::AboveMaxPressure { p, p_max })) = refused else { panic!("{refused:?}") };
+    assert!(p == 1e7 && (p_max / 7.86e6 - 1.0).abs() < 1e-3, "{p}: {p_max}");
     let below = air.moist_air(313.15, 0.99 * p_max, psi).unwrap();
     assert!(below.z() > 0.0 && below.cp(Per::MolHumidAir) > 0.0, "{below:?}");
 }
