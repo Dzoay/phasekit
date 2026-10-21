@@ -776,7 +776,10 @@ so it needs no oracle (`crates/phasekit-verify/src/conformance.rs`).
 | Threads | `thread_invariance(make, inputs, threads)` | N threads racing into one fresh fluid's first use give a lone fluid's bits | `Exact` | M13.15; M9's tests wrote their own |
 
 **Families that run it:** the cubics (`tests/cubic_family.rs`, M11.6) and the mixtures (`tests/mixture_family.rs`,
-M13.15).
+M13.15). IAPWS-IF97 water (`phasekit-iapws`, M14.3) runs its capability, identity and gauge checks in
+`tests/iapws.rs`. Humid air (M18) is no `ThermoModel` (ARCHITECTURE.md §11): its parts are, and it checks its
+own outputs for gauge invariance, every output bit for bit under NBP, IIR and an arbitrary gauge of its parts
+(`tests/humidair.rs`, `every_output_is_gauge_invariant`).
 
 **Proof that the seams suffice** (from M5): `tests/new_family.rs`, an out-of-tree van der Waals family (registry, flash
 including a subcritical point, derivative outputs, exact virials, gauge, batch, compat strings, 16 threads), and

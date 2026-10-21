@@ -1,9 +1,10 @@
 //! The phase regions (PLAN.md M19.5, the site's `regions.ts` of M21.9 and #253): each a polygon whose edges are the
 //! library's lines, sampled once a fluid with every plane's axes among the outputs, so that every plane reads its axes
 //! from the same corners. Each region's phase is the library's (`State::phase`) at a state inside it; the crate names
-//! no phase itself, but for ice's three regions (M18.11, [`sample_regions_with_ice`](crate::sample_regions_with_ice)), whose data
-//! says what each is. A failed cell is left out of an edge, so where the library has no state an edge cuts across to the
-//! next state it has; on the cold side, where the melting line ends the liquid, the edge follows it.
+//! no phase itself, but for ice's three regions, whose data says what each is (M18.11,
+//! [`sample_regions_with_ice`](crate::sample_regions_with_ice)). A failed cell is left out of an edge, so where the
+//! library has no state an edge cuts across to the next state it has; on the cold side, where the melting line ends the
+//! liquid, the edge follows it.
 //!
 //! In (T, p) the regions are the four quadrants about the critical point, the low-T, low-p one split by the saturation
 //! curve into liquid, liquid + vapour and gas. T runs from the plotted lowest to T_max and p from below the saturation
