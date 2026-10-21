@@ -1122,19 +1122,21 @@ zero", not "positive".
     its SI implementation; `Style::{Long, Short}`; `Error::display(&units, style)`. `{}` is `display(&Si, Long)` and
     `{:#}` `display(&Si, Short)`. Six significant figures, trailing zeros dropped (EM4), as a decimal from 1e-4 to
     below 1e6 and otherwise as `2e9` *(decision)*; the fields keep the exact value.
-  - ARCHITECTURE.md's D12 says how an error is written. `ci/core-frozen.txt` names `m18-start`; `m18-start` is tagged
-    at the merge, with the user's approval.
+  - ARCHITECTURE.md's D12 says how an error is written. `ci/core-frozen.txt` names no tag, as between family
+    milestones, since this step changes the core; `m18-start` is tagged at the merge, with the user's approval, and
+    M28.2 names it there, as M13.2 named `m13-start`.
   - *Red:* `every_message_in_both_styles` (each variant's long and short form in SI, pinned);
     `messages_take_the_callers_units` (a test `Units` of °C, bar and kJ/kg: `T = −273.15 °C ≤ −273.15 °C`,
     `p = 20000 bar > p_max = 10000 bar`);
     `six_significant_figures` (647.0959999999873 K is written 647.096 K); `the_alternate_flag_is_the_short_form`;
     `structural_arguments_carry_no_unit`; compat's and the C shim's message checks updated to the new text.
-- **M28.2 The browser package's refusals.** A refused call throws an `Error` whose message is the long form in SI and
-  which carries the variant's code, its quantity's name and dimension, and its numbers; an output refused inside an
-  evaluation carries the same. `explain(refusal, units, style)` writes either style in the caller's units, `units` an
-  object from a dimension's key to `{label, scale, offset}`, the site's `Unit`, an absent key written in SI. js-sys
-  only if wasm-bindgen alone cannot attach the fields (DEPENDENCIES.md T2). The npm README says how. *Red:* the
-  package's Node tests on both builds: a refusal's fields, `explain` in °C and bar in both styles, an absent key in SI.
+- **M28.2 The browser package's refusals.** `ci/core-frozen.txt` names `m18-start`. A refused call throws an `Error`
+  whose message is the long form in SI and which carries the variant's code, its quantity's name and dimension, and its
+  numbers; an output refused inside an evaluation carries the same. `explain(refusal, units, style)` writes either style
+  in the caller's units, `units` an object from a dimension's key to `{label, scale, offset}`, the site's `Unit`, an
+  absent key written in SI. js-sys only if wasm-bindgen alone cannot attach the fields (DEPENDENCIES.md T2). The npm
+  README says how. *Red:* the package's Node tests on both builds: a refusal's fields, `explain` in °C and bar in both
+  styles, an absent key in SI.
 - **M28.3 The site's messages, and M28 closed.** The calculator's refusal and each refused output are written by
   `explain` in the viewer's units: the long form where the page has room, the short form in the narrow places (an
   output's cell, the diagrams' readout under the cursor). #190's restatement of the inputs in SI is dropped, since the
