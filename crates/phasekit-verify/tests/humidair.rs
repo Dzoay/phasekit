@@ -135,6 +135,7 @@ fn humid_air_checks_its_parts() {
 
 /// ROT-268: humid air is `Send + Sync`, holds its parts by value with no thread-local copy, and gives eight threads the
 /// same virials bit for bit.
+#[cfg(not(target_family = "wasm"))] // wasip2 has no thread spawning
 #[test]
 fn humid_air_is_shared_across_threads() {
     fn shared<T: Send + Sync>(_: &T) {}
