@@ -1,4 +1,4 @@
-use phasekit_core::{DataSet, DomainError, Error, Registry};
+use phasekit_core::{Basis, DataSet, Density, DomainError, Error, Input, Pressure, Registry, Temperature};
 
 use crate::{HumidAir, Humidity, Parts};
 
@@ -55,4 +55,51 @@ fn henry_stops_at_the_critical_point() {
     let above = DomainError::AboveMaxTemperature { t: 650.0, t_max: 647.096 };
     assert_eq!(crate::henry_constant(crate::Gas::N2, 650.0).unwrap_err(), above.into());
     assert!(crate::henry_constant(crate::Gas::O2, 647.096).is_ok());
+}
+
+/// Where water's saturation pressure is p or above (RP-1485 Eq. (3.25)'s note), no condensed phase is under pressure:
+/// its κ_T and Henry's constant are 0, over ice (250 K) and liquid (300 K), at p_ws itself too; above it they are its
+/// part's.
+#[test]
+fn the_condensed_phase_is_unpressed_at_and_below_saturation() {
+    let air = humid_air(DataSet::Corrected);
+    for t in [250.0, 300.0] {
+        let p_ws = air.saturation(t, 1e5).unwrap().p_ws;
+        for p in [p_ws / 2.0, p_ws] {
+            let s = air.saturation(t, p).unwrap();
+            assert_eq!((s.kappa_t, s.beta_h), (0.0, 0.0), "{t} K, {p} Pa");
+        }
+        assert!(air.saturation(t, 2.0 * p_ws).unwrap().kappa_t > 0.0, "{t} K");
+    }
+}
+
+/// Under `Parity` the liquid's κ_T is v8.0.0's: IAPWS-95's at IF97's liquid density, bit for bit, not IF97's own.
+#[test]
+fn parity_takes_iapws_95s_compressibility_at_if97s_density() {
+    let air = humid_air(DataSet::Parity);
+    let (t, p) = (Temperature::new(300.0).unwrap(), Pressure::new(1e5).unwrap());
+    let liquid = air.parts().liquid.state(Input::pt(p, t)).unwrap();
+    let density = Density::molar(liquid.rho(Basis::Molar)).unwrap();
+    let want = air.parts().water.state(Input::dt(density, t)).unwrap().isothermal_compressibility().unwrap();
+    let got = air.saturation(300.0, 1e5).unwrap().kappa_t;
+    assert_eq!(got.to_bits(), want.to_bits());
+    assert_ne!(got, liquid.isothermal_compressibility().unwrap());
+}
+
+/// Eq. (3.25)'s f settles across the range, both data sets: at 130 to 600 K and 10 Pa to 10 MPa, up to about 192 at
+/// 130 K and 10 MPa, at least 1 everywhere.
+#[test]
+fn the_enhancement_factor_settles_across_the_range() {
+    for data in [DataSet::Corrected, DataSet::Parity] {
+        let air = humid_air(data);
+        let mut largest: f64 = 0.0;
+        for t in [130.0, 200.0, 250.0, 273.16, 300.0, 350.0, 450.0, 600.0] {
+            for p in [10.0, 1e3, 1e5, 1e6, 1e7] {
+                let f = air.saturation(t, p).unwrap().f;
+                assert!(f >= 1.0, "{data:?} {t} K, {p} Pa: {f}");
+                largest = largest.max(f);
+            }
+        }
+        assert!((191.0..193.0).contains(&largest), "{data:?}: {largest}");
+    }
 }
