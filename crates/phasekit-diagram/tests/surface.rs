@@ -195,6 +195,10 @@ fn holds_the_dome(name: &str, s: &Surface) {
     }
     let used: HashSet<usize> = s.triangles.iter().flatten().copied().collect();
     assert_eq!(used.len(), s.vertices.len(), "{name}");
+    let key = |v: &SurfaceVertex, rho: f64| (v.t.to_bits(), rho.to_bits());
+    let on_dome: HashSet<_> = liquid.iter().chain(vapour).map(|&i| key(&s.vertices[i], s.vertices[i].rho)).collect();
+    let sampled_there = |v: &SurfaceVertex| v.inputs.pair == Pair::DT && on_dome.contains(&key(v, v.inputs.x));
+    assert!(!s.vertices.iter().any(sampled_there), "{name}");
 }
 
 /// The mesh spans the plotted temperatures, the critical point's row between, and its densities those of the plotted
@@ -254,4 +258,17 @@ fn a_failed_state_is_left_out_and_the_mesh_joined_across() {
     // A state whose phase the library refuses is left out too.
     let refused = sample_surface(&batch, &|inputs| batch.phase(inputs).filter(|_| inputs.y != t), &limits).unwrap();
     assert!(refused.vertices.iter().all(|v| v.t != t));
+}
+
+/// A plotted range that starts at T_c has no dome: every row is at T_c or above it, and the mesh holds.
+#[test]
+fn a_range_from_t_c_up_has_no_dome() {
+    let water = fluid("Water").unwrap();
+    let limits = Limits::of(water).unwrap();
+    let hot = Limits { t_min: limits.t_critical, ..limits };
+    let batch = FluidBatch::new(water);
+    let s = sample_surface(&batch, &|inputs| batch.phase(inputs), &hot).unwrap();
+    holds_the_dome("Water from T_c", &s);
+    assert!(s.dome.liquid.is_empty() && s.dome.triple.is_empty() && s.vertices.len() > 1000);
+    assert!(s.vertices.iter().all(|v| v.t >= limits.t_critical));
 }
