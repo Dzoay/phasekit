@@ -26,7 +26,7 @@ fn ice_takes_its_range_and_refuses_beyond() {
 }
 
 /// The two data sets are two models (their g₀₀ differs, DIV-0066), each on water's molar mass and gas constant;
-/// only PT is declared until M14.5; the limits state 273.16 K and 210 MPa.
+/// PT, QT and PQ are declared, DT not; the limits state 273.16 K and 210 MPa.
 #[test]
 fn ice_is_a_model_of_its_own_per_data_set() {
     let (corrected, parity) = (ice_on(DataSet::Corrected), ice_on(DataSet::Parity));
@@ -35,11 +35,11 @@ fn ice_is_a_model_of_its_own_per_data_set() {
     assert_eq!(corrected.model().info().molar_mass(), water.model().info().molar_mass());
     let state = corrected.state(pt(1e5, 250.0)).unwrap();
     assert_eq!(state.gas_constant(), water.model().helmholtz().unwrap().gas_constant());
-    assert_eq!(corrected.model().capabilities(), Capabilities::none().with(Pair::PT));
+    assert_eq!(corrected.model().capabilities(), Capabilities::none().with(Pair::PT).with(Pair::QT).with(Pair::PQ));
     let limits = corrected.model().limits().unwrap();
     assert_eq!((limits.t_max(), limits.p_max(), limits.t_min() > 0.0), (gibbs::T_T, P_MAX, true));
-    let qt = Input::new(Pair::QT, 0.5, 250.0, Basis::Mass).unwrap();
-    assert_eq!(corrected.state(qt).unwrap_err(), Error::Unsupported { pair: Pair::QT });
+    let dt = Input::new(Pair::DT, 900.0, 250.0, Basis::Mass).unwrap();
+    assert_eq!(corrected.state(dt).unwrap_err(), Error::Unsupported { pair: Pair::DT });
 }
 
 /// A water without a Helmholtz model has no gas constant to share: refused.
