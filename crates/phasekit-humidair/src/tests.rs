@@ -362,12 +362,53 @@ fn the_root_at_adjacent_doubles_is_the_end_nearer_zero() {
 /// most 12 asserted), where bisection takes 54.
 #[test]
 fn the_illinois_method_closes_in_superlinearly() {
-    let calls = std::cell::Cell::new(0);
+    let mut calls = 0;
     let f = |x: f64| {
-        calls.set(calls.get() + 1);
+        calls += 1;
         Ok(x * x * x - 2.0)
     };
     let root = crate::root::bracketed(f, (1.0, 2.0)).unwrap().unwrap();
     assert!((root - 1.259_921_049_894_873_2).abs() <= f64::EPSILON * 2.0, "{root}");
-    assert!(calls.get() <= 12, "{}", calls.get());
+    assert!(calls <= 12, "{calls}");
+}
+
+/// Under `Parity` the wick's water is v8.0.0's: IAPWS-95's h at IF97's liquid density, bit for bit, not IF97's own.
+#[test]
+fn parity_s_wick_is_iapws_95_at_if97_s_density() {
+    let air = humid_air(DataSet::Parity);
+    let (t, p) = (Temperature::new(300.0).unwrap(), Pressure::new(1e5).unwrap());
+    let liquid = air.parts().liquid.state(Input::pt(p, t)).unwrap();
+    let density = Density::molar(liquid.rho(Basis::Molar)).unwrap();
+    let want = air.parts().water.state(Input::dt(density, t)).unwrap().h(Basis::Mass);
+    let got = crate::wet_bulb::condensed_h(&air, crate::wet_bulb::Wick::Liquid, 300.0, 1e5).unwrap();
+    assert_eq!(got.to_bits(), want.to_bits());
+    assert_ne!(got, liquid.h(Basis::Mass));
+}
+
+/// A wet bulb out of reach is refused by its cause: air wetter than saturated (1.5 ψ_ws at 300 K) as an `InvalidState`;
+/// dry air at 130 K, whose wet bulb lies below the range, as `BelowMinTemperature`.
+#[test]
+fn a_wet_bulb_out_of_reach_is_refused_by_its_cause() {
+    let air = humid_air(DataSet::Corrected);
+    let psi_ws = air.saturation(300.0, 1e5).unwrap().psi_ws;
+    let wet = air.moist_air(300.0, 1e5, 1.5 * psi_ws).unwrap();
+    assert!(matches!(air.wet_bulb(&wet), Err(Error::InvalidState { .. })));
+    let dry = air.moist_air(130.0, 1e5, 0.0).unwrap();
+    assert!(matches!(air.wet_bulb(&dry), Err(Error::Domain(DomainError::BelowMinTemperature { .. }))));
+}
+
+/// The wet bulb's bracket tops at the stream's own T where water would not boil there (300 K at 1 atm); at 400 K, above
+/// water's boiling point, at the dew point of wetter air where the balance turns positive, below T and above the wet
+/// bulb (354.58 K and 311.00 K measured).
+#[test]
+fn the_wet_bulb_s_bracket_tops_at_the_stream_s_t_below_boiling() {
+    let air = humid_air(DataSet::Corrected);
+    let top = |t: f64| {
+        let state = air.moist_air(t, 1e5, 0.01).unwrap();
+        let stream = (1e5, state.humidity_ratio(), state.h(Per::KgDryAir));
+        (crate::wet_bulb::top(&air, &state, stream).unwrap(), air.wet_bulb(&state).unwrap())
+    };
+    assert_eq!(top(300.0).0, 300.0);
+    let (hot, wet_bulb) = top(400.0);
+    assert!(wet_bulb < hot && hot < 400.0 && (hot - 354.58).abs() < 0.01, "{hot} {wet_bulb}");
 }

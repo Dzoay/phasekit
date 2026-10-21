@@ -25,13 +25,13 @@ const TOP_STEPS: u16 = 40;
 
 /// The condensed water at the bulb.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Wick {
+pub(crate) enum Wick {
     Liquid,
     Ice,
 }
 
 /// The condensed phase's h at (`t`, `p`), J per kilogram of water.
-fn condensed_h(air: &HumidAir, wick: Wick, t: f64, p: f64) -> Result<f64, Error> {
+pub(crate) fn condensed_h(air: &HumidAir, wick: Wick, t: f64, p: f64) -> Result<f64, Error> {
     let parts = air.parts();
     if wick == Wick::Ice {
         return Ok(at(&parts.ice, t, p)?.h(Basis::Mass));
@@ -92,6 +92,8 @@ fn solved(air: &HumidAir, stream: (f64, f64, f64), wick: Wick, range: (f64, f64)
     if let Some(twb) = root::bracketed(f, (lo, hi))? {
         return Ok(twb);
     }
+    // A balance of exactly zero at the bottom is a root, which `bracketed` has returned already.
+    // equivalent mutant: replace > with >=
     if f(lo)? > 0.0 {
         return Err(phasekit_core::DomainError::BelowMinTemperature { t: lo, t_min: lo }.into());
     }
@@ -101,8 +103,10 @@ fn solved(air: &HumidAir, stream: (f64, f64, f64), wick: Wick, range: (f64, f64)
 /// The bracket's top: the stream's own T, where water would not boil there; else the dew point of ever wetter air,
 /// ψ_w halfway to 1 each step, until the balance turns positive (near pure vapour at 10 MPa the virial equation has no
 /// state, so the top cannot simply be water's boiling point).
-fn top(air: &HumidAir, state: &MoistAir, stream: (f64, f64, f64)) -> Result<f64, Error> {
+pub(crate) fn top(air: &HumidAir, state: &MoistAir, stream: (f64, f64, f64)) -> Result<f64, Error> {
     let (t, p) = (state.t(), state.p());
+    // ψ_ws is exactly 1 only at water's boiling point itself, which no stream's T reaches to the bit.
+    // equivalent mutant: replace < with <=
     if air.saturation(t, p)?.psi_ws < 1.0 {
         return Ok(t);
     }
@@ -110,7 +114,11 @@ fn top(air: &HumidAir, state: &MoistAir, stream: (f64, f64, f64)) -> Result<f64,
     for _ in 0..TOP_STEPS {
         psi = 0.5 * (1.0 + psi);
         let twb = air.dew_point(p, psi)?;
+        // A dew point falls on 273.16 K to the bit for no input but by construction.
+        // equivalent mutant: replace < with <=
         let wick = if twb < T_TRIPLE { Wick::Ice } else { Wick::Liquid };
+        // A balance of exactly zero is the wet bulb itself, which the bracket takes as its top or finds below the next.
+        // equivalent mutant: replace > with >=
         if balance(air, stream, wick, twb)? > 0.0 {
             return Ok(twb);
         }
