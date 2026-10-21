@@ -58,6 +58,10 @@ pub(super) fn temperature(p: f64) -> Result<f64, Error> {
     for _ in 0..ITERATIONS {
         let (f, df) = ln_pi(theta);
         let next = (theta - (f - target) / df).clamp(T_MIN / T_T, 1.0);
+        // Equivalent (M14.5): over θ in [0.18, 1], `/ theta` loosens the stop to at most 22 ε, and a Newton step that
+        // small leaves the next iterate's error far below an ulp, so both stops return θ to its last bits (under
+        // either, every T of `the_sublimation_equation_inverts_over_its_range` comes back within 4 ulp).
+        // equivalent mutant: replace * with / #2
         if (next - theta).abs() <= 4.0 * f64::EPSILON * theta {
             return Ok(next * T_T);
         }

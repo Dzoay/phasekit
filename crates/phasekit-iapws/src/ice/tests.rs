@@ -51,3 +51,42 @@ fn ice_needs_a_helmholtz_water() {
         Error::NoModel { prop: Prop::Constant(Constant::GasConstant) }
     );
 }
+
+/// The complex argument in (−π, π] on every quadrant and both axes, the origin's 0 and the negative real axis's +π
+/// (Eq. (1)'s logarithms take only arguments above the real axis, so the ice states reach two quadrants alone).
+#[test]
+fn the_argument_covers_every_quadrant() {
+    use std::f64::consts::{FRAC_PI_2, FRAC_PI_6, PI};
+    let r3 = phasekit_core::math::sqrt(3.0);
+    let cases = [
+        ((r3, 1.0), FRAC_PI_6),
+        ((-r3, 1.0), 5.0 * FRAC_PI_6),
+        ((-r3, -1.0), -5.0 * FRAC_PI_6),
+        ((r3, -1.0), -FRAC_PI_6),
+        ((-1.0, 0.0), PI),
+        ((0.0, 1.0), FRAC_PI_2),
+        ((0.0, -1.0), -FRAC_PI_2),
+        ((0.0, 0.0), 0.0),
+    ];
+    for ((re, im), want) in cases {
+        let got = super::gibbs::arg(re, im);
+        assert!((got - want).abs() <= 4.0 * f64::EPSILON, "arg({re}, {im}) = {got}, want {want}");
+    }
+}
+
+/// Eq. (6) and its inverse over 50 K to the triple point: each T comes back from its pressure to 4 ulp, both ends
+/// included, 611.657 Pa at the triple point; a pressure beyond either end is refused.
+#[test]
+fn the_sublimation_equation_inverts_over_its_range() {
+    for k in 0..=8 {
+        let t = sublimation::T_MIN + f64::from(k) * (gibbs::T_T - sublimation::T_MIN) / 8.0;
+        let back = sublimation::temperature(sublimation::pressure(t).unwrap()).unwrap();
+        assert!((back / t - 1.0).abs() <= 4.0 * f64::EPSILON, "{t} K comes back as {back} K");
+    }
+    let (p_min, p_t) = (sublimation::pressure(sublimation::T_MIN).unwrap(), 611.657);
+    assert_eq!(sublimation::pressure(gibbs::T_T), Ok(p_t));
+    let low = DomainError::BelowMinPressure { p: p_min / 2.0, p_min };
+    let high = DomainError::AboveMaxPressure { p: 700.0, p_max: p_t };
+    assert_eq!(sublimation::temperature(p_min / 2.0).unwrap_err(), low.into());
+    assert_eq!(sublimation::temperature(700.0).unwrap_err(), high.into());
+}
