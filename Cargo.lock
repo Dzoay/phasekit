@@ -512,6 +512,8 @@ name = "phasekit-diagram"
 version = "0.1.0"
 dependencies = [
  "phasekit-core",
+ "phasekit-humidair",
+ "phasekit-iapws",
  "phasekit-mix",
  "phasekit-verify",
 ]

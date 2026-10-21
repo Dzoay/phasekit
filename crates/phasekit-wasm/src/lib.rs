@@ -44,7 +44,7 @@ mod diagram;
 mod humid_air;
 
 pub use diagram::{Corners, Diagram, Lines, PlaneInfo, Regions, Vertices, pair_keys, planes};
-pub use humid_air::{HumidAir, HumidAirState, humid_air_keys};
+pub use humid_air::{Chart, HumidAir, HumidAirState, humid_air_keys};
 
 /// A JS `Error` with `e`'s message.
 fn js(e: impl Display) -> JsError {
