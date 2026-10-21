@@ -223,3 +223,22 @@ fn corrected_s_vapour_is_if97_s_from_the_triple_point() {
     assert_eq!(h(273.16).to_bits(), if97(273.16).to_bits());
     assert_ne!(h(273.159), if97(273.159));
 }
+
+/// The virial equation's (∂p/∂v̄)_T, which Newton takes for the molar volume, is its pressure's slope: within 1e-7 of
+/// a central difference, on the stable branch of humid air's B_m and C_m at 200, 300 and 600 K.
+#[test]
+fn the_virial_equation_s_slope_is_its_pressure_s() {
+    let air = humid_air(DataSet::Corrected);
+    for t in [200.0, 300.0, 600.0] {
+        let v = air.virials(t).unwrap();
+        let (b, c) = (v.b_aa.value, v.c_aaa.value);
+        for volume in [1e-3, 1e-2, 1e-1] {
+            let r = 8.314_472;
+            let p = |v: f64| crate::moist_air::pressure((r, t), v, (b, c));
+            let h = volume * 1e-5;
+            let central = (p(volume + h) - p(volume - h)) / (2.0 * h);
+            let slope = crate::moist_air::dp_dv((r, t), volume, (b, c));
+            assert!((slope - central).abs() <= 1e-7 * slope.abs(), "{t} K, {volume} m³/mol: {slope} {central}");
+        }
+    }
+}

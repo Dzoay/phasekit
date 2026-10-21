@@ -89,7 +89,19 @@ fn mixed(v: &Virials, psi: f64) -> (Coefficient, Coefficient) {
 /// where the equation's stable branch ends.
 fn spinodal(b: f64, c: f64) -> Option<f64> {
     let d = b * b - 3.0 * c;
+    // A root at v̄ = 0 is no end: its floor is 0, as where there is none, and p there is not finite.
+    // equivalent mutant: replace > with >=
     (d >= 0.0).then(|| math::sqrt(d) - b).filter(|v| *v > 0.0)
+}
+
+/// The virial equation's pressure RT/v̄ (1 + B/v̄ + C/v̄²) at the molar volume `v`, over (R, T) and (B, C).
+pub(crate) fn pressure((r, t): (f64, f64), v: f64, (b, c): (f64, f64)) -> f64 {
+    r * t / v * (1.0 + b / v + c / (v * v))
+}
+
+/// (∂p/∂v̄)_T of [`pressure`]: −RT/v̄² (1 + 2B/v̄ + 3C/v̄²).
+pub(crate) fn dp_dv((r, t): (f64, f64), v: f64, (b, c): (f64, f64)) -> f64 {
+    -r * t / (v * v) * (1.0 + 2.0 * b / v + 3.0 * c / (v * v))
 }
 
 /// The molar volume at which RT/v̄ (1 + B/v̄ + C/v̄²) is p on the equation's stable branch, by Newton from the ideal
@@ -97,16 +109,21 @@ fn spinodal(b: f64, c: f64) -> Option<f64> {
 /// `AboveMaxPressure` (v8.0.0's secant returns where it stops after 100 steps); `NoConvergence` if Newton has not
 /// settled.
 fn molar_volume(r: f64, t: f64, p: f64, b: f64, c: f64) -> Result<f64, Error> {
-    let pressure = |v: f64| r * t / v * (1.0 + b / v + c / (v * v));
+    let pressure = |v: f64| pressure((r, t), v, (b, c));
     let edge = spinodal(b, c);
+    // At p(v*) itself the state is the branch's end, where Newton's slope vanishes: no input reaches it to the bit but
+    // by construction, and refusing it is as fair as closing in on it.
+    // equivalent mutant: replace > with >=
     if let Some(p_max) = edge.map(pressure).filter(|p_max| p > *p_max) {
         return Err(DomainError::AboveMaxPressure { p, p_max }.into());
     }
     let floor = edge.unwrap_or(0.0);
     let mut v = (r * t / p).max(2.0 * floor);
     for _ in 0..ITERATIONS {
-        let df = -r * t / (v * v) * (1.0 + 2.0 * b / v + 3.0 * c / (v * v));
-        let newton = v - (pressure(v) - p) / df;
+        let newton = v - (pressure(v) - p) / dp_dv((r, t), v, (b, c));
+        // A Newton step landing on the branch's end itself halves the way to it instead, as one past it does: the
+        // next step goes on from there.
+        // equivalent mutant: replace > with >=
         let next = if newton > floor { newton } else { (v + floor) / 2.0 };
         if (next - v).abs() <= 4.0 * f64::EPSILON * next {
             return Ok(next);
