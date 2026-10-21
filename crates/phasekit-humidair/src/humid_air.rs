@@ -4,7 +4,8 @@
 
 use phasekit_core::{Constant, DataSet, Error, Fluid, Input, Prop, Quality, Temperature, Virials as PureVirials};
 
-use crate::constants::M_WATER;
+use crate::constants::{M_AIR, M_WATER};
+use crate::saturation::{self, Saturation};
 use crate::virials::{self, Coefficient, Virials};
 
 /// Humid air's four parts.
@@ -73,6 +74,21 @@ impl HumidAir {
             c_aaw: virials::c_aaw(t),
             c_aww: virials::c_aww(t),
         })
+    }
+}
+
+impl HumidAir {
+    /// Saturated moist air at `t` (K) and `p` (Pa): water's saturation pressure over the condensed phase, the
+    /// enhancement factor and what Eq. (3.25) took (PLAN.md M18.2).
+    pub fn saturation(&self, t: f64, p: f64) -> Result<Saturation, Error> {
+        saturation::saturation(self, t, p)
+    }
+
+    /// The humidity ratio of saturated moist air at `t` (K) and `p` (Pa), kg of water per kg of dry air:
+    /// W_s = ε ψ_ws/(1 − ψ_ws), ε = M_w/M_a.
+    pub fn saturated_humidity_ratio(&self, t: f64, p: f64) -> Result<f64, Error> {
+        let psi = self.saturation(t, p)?.psi_ws;
+        Ok(M_WATER / M_AIR * psi / (1.0 - psi))
     }
 }
 

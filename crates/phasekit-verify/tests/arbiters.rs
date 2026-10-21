@@ -45,6 +45,7 @@ fn arbiter_statuses_are_asserted() {
         ("Ice Ih", ArbiterPart::Gibbs),
         ("Humid air", ArbiterPart::Virial),
         ("Humid air", ArbiterPart::CrossVirial),
+        ("Humid air", ArbiterPart::Henry),
     ];
     let transport = ["Water", "HeavyWater"]
         .into_iter()

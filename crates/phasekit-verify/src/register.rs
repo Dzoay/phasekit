@@ -393,10 +393,12 @@ pub static DIVERGENCES: &[Divergence] = &[
         evidence: "map 12 §6.3, R8: Cvirial from delta = 1e-12 off -6.7e-5/-7.1e-5/+1.9e-5; exact Taylor path (E4); \
                    M5.6: B, dB/dT off up to 1.5e-8, 8.6e-8 (Methanol), the series confirmed from its JSON; M10.2: \
                    2.14e-7 for Oxygen's B at 56.89 K, the props kind's lowest temperatures (2026-10-13); M18.1: \
-                   HAProps_Aux's Cwww at 200 K is -5.93e-4 m6/mol2, the exact series' and IAPWS G11-15's -2.64e-4",
+                   HAProps_Aux's Cwww at 200 K is -5.93e-4 m6/mol2, the exact series' and IAPWS G11-15's -2.64e-4; M18.2: its \
+                   enhancement factor f inherits B and C through Eq. (3.25), up to 9.8e-8 off at 200 K and 5 MPa, \
+                   growing with p",
         exempt: Some(Exempt {
             kinds: &[Kind::Eos, Kind::Props, Kind::HumidairAux],
-            columns: &["Cvirial", "dCvirial_dT", "Caaa", "Cwww"],
+            columns: &["Cvirial", "dCvirial_dT", "Caaa", "Cwww", "f"],
             rows: Rows::All,
         }),
         tolerance: Some(Tolerance::Relative(3e-7)),

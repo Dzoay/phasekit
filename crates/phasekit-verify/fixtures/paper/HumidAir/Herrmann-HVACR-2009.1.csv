@@ -1,0 +1,22 @@
+# fixture: paper/v1
+# source: paper:Herrmann-HVACR-2009-tables/1
+# citation: report=Herrmann-Kretzschmar-Gatley-HVACR-15(5)-2009-tables table=1 page=1 erratum-checked=2026-10-21 pdf_sha256=fa7d1035128305543f11170583a681b82d107d736b6a0a4e97a026e43c3fac29
+# kind: Rows
+# constants: saturated moist air at 101.325 kPa, -60 to 0 °C; the supplement to HVAC&R Research 15(5) 961-986 (RP-1485)
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: t,Ws,vs,hs,ss
+# units: degC,kg/kg,m3/kg,kJ/kg,kJ/(kg K)
+# tol: in,paper,paper,paper,paper
+-60,0.0000067,0.6027,-60.325,-0.2494
+-55,0.0000129,0.6169,-55.280,-0.2260
+-50,0.0000243,0.6312,-50.222,-0.2030
+-45,0.0000445,0.6454,-45.144,-0.1805
+-40,0.0000793,0.6597,-40.031,-0.1583
+-35,0.0001379,0.6740,-34.859,-0.1364
+-30,0.0002345,0.6883,-29.593,-0.1145
+-25,0.0003905,0.7027,-24.181,-0.0924
+-20,0.0006373,0.7172,-18.542,-0.0699
+-15,0.0010207,0.7319,-12.560,-0.0465
+-10,0.0016062,0.7468,-6.070,-0.0215
+-5,0.0024863,0.7622,1.164,0.0057
+0,0.0037900,0.7780,9.475,0.0364

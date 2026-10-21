@@ -3,8 +3,9 @@
 
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
+use phasekit_core::math;
 use phasekit_core::{DataSet, Error, Fluid, Pair, Registry};
-use phasekit_humidair::{Coefficient, HumidAir, Parts, Virials};
+use phasekit_humidair::{Coefficient, Gas, HumidAir, Parts, Virials, henry_constant};
 use phasekit_verify::register::exempt_at;
 use phasekit_verify::{Cell, DIVERGENCES, Fixture, Kind, Tolerance, ToleranceClass, fixture};
 
@@ -153,6 +154,14 @@ fn humid_air_is_shared_across_threads() {
     let _: Option<Fluid> = None;
 }
 
+/// DIV-0011's registered bound, relative: v8.0.0's B from its EOS at δ = 1e-12, and what inherits it.
+fn div_0011() -> f64 {
+    match DIVERGENCES.iter().find(|d| d.id == "DIV-0011").and_then(|d| d.tolerance) {
+        Some(Tolerance::Relative(bound)) => bound,
+        other => panic!("DIV-0011 registers a relative bound: {other:?}"),
+    }
+}
+
 /// G8-10's own C_aww (Eq. (11), Table 4's bᵢ: Hyland and Wexler 1983) and its two T-derivatives at `t`, for the table's
 /// self-consistency: C = −c* e^S, S = Σ bᵢ T̄^−ⁱ, T̄ = T/100 K.
 fn g8_10_c_aww(t: f64) -> [f64; 3] {
@@ -189,10 +198,7 @@ fn g8_10_table_15_is_its_own_c_aww() {
 #[test]
 fn virials_match_the_oracle() {
     let (table, air) = (table(fixture!("coolprop-8.0.0/all/humidair_aux.csv")), humid_air(DataSet::Parity));
-    let div_0011 = match DIVERGENCES.iter().find(|d| d.id == "DIV-0011").and_then(|d| d.tolerance) {
-        Some(Tolerance::Relative(bound)) => bound,
-        other => panic!("{other:?}"),
-    };
+    let div_0011 = div_0011();
     let (mut missed, mut exempt) = (Vec::new(), 0);
     for row in 0..table.rows().len() {
         let t = table.value(row, "T").unwrap();
@@ -222,4 +228,81 @@ fn virials_match_the_oracle() {
     }
     assert_eq!(missed, Vec::<String>::new());
     assert_eq!(exempt, 2 * table.rows().len(), "C_aaa and C_www, DIV-0011's");
+}
+
+/// Arbiter: IAPWS G7-04 Table 6, ln(k_H/1 GPa) of N₂, O₂ and Ar in H₂O at 300 to 600 K, within their printed digits
+/// (PLAN.md M18.2): Eq. (3) over Eq. (4)'s vapour pressure; Ar at 600 K lies outside its fit (italic) and still holds.
+#[test]
+fn henry_is_g7_04_table_6() {
+    let table = table(fixture!("paper/HumidAir/IAPWS-G7-04.6.csv"));
+    let mut missed = Vec::new();
+    for row in 0..table.rows().len() {
+        let gas = match quantity(&table, row) {
+            "N2" => Gas::N2,
+            "O2" => Gas::O2,
+            _ => Gas::Ar,
+        };
+        let t = table.value(row, "T").unwrap();
+        let ln_k = math::ln(henry_constant(gas, t).unwrap() / 1e9);
+        missed.extend(table.check(row, "value", ln_k).err().map(|e| format!("{gas:?} at {t} K: {e:?}")));
+    }
+    assert_eq!(missed, Vec::<String>::new());
+}
+
+/// Arbiter: the authors' Tables 1 and 2 (Herrmann, Kretzschmar and Gatley 2009), W_s of saturated moist air at
+/// 101.325 kPa from −60 to 90 °C, within its printed digits under `Corrected` (PLAN.md M18.2): over ice below the
+/// triple point, over IF97's liquid above.
+#[test]
+fn saturated_humidity_ratio_is_tables_1_and_2() {
+    let air = humid_air(DataSet::Corrected);
+    let mut missed = Vec::new();
+    for table in
+        [fixture!("paper/HumidAir/Herrmann-HVACR-2009.1.csv"), fixture!("paper/HumidAir/Herrmann-HVACR-2009.2.csv")]
+    {
+        let table = table_of(table);
+        for row in 0..table.rows().len() {
+            let t = table.value(row, "t").unwrap() + 273.15;
+            let w = air.saturated_humidity_ratio(t, 101_325.0).unwrap_or(f64::NAN);
+            missed.extend(table.check(row, "Ws", w).err().map(|e| format!("{t} K: {e:?}")));
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+}
+
+/// The table at `path`, parsed (for a `fixture!` passed as a value).
+fn table_of(fixture: (&'static str, &'static str)) -> Fixture<'static> {
+    table(fixture)
+}
+
+/// Oracle: CoolProp 8.0.0's `HAProps_Aux`, `fixtures/coolprop-8.0.0/all/humidair_aux.csv` (PLAN.md M18.2), under
+/// `Parity`: p_ws and v̄_ws within `Prop`; β_H where it enters f (liquid water with p_ws below p; v8.0.0's
+/// `HAProps_Aux` returns its Henry's constant unconditionally, inf below 273.15 K); f within DIV-0011's bound, since
+/// v8.0.0's Eq. (3.25) takes its B and C at δ = 1e-12 (measured: up to 9.8e-8 at 200 K and 5 MPa, 3.9e-11 at
+/// 101.325 kPa).
+#[test]
+fn saturation_matches_the_oracle() {
+    let (table, air) = (table(fixture!("coolprop-8.0.0/all/humidair_aux.csv")), humid_air(DataSet::Parity));
+    let (mut missed, mut henry) = (Vec::new(), 0);
+    for row in 0..table.rows().len() {
+        let (t, p) = (table.value(row, "T").unwrap(), table.value(row, "p").unwrap());
+        let s = air.saturation(t, p).unwrap();
+        let mut cells = vec![("p_ws", s.p_ws), ("f", s.f), ("vbar_ws", s.v_condensed)];
+        if s.beta_h > 0.0 {
+            cells.push(("beta_H", s.beta_h));
+            henry += 1;
+        }
+        for (column, got) in cells {
+            let want = table.value(row, column).unwrap();
+            let error = (got - want).abs();
+            let bound = match exempt_at(DIVERGENCES, "Humid air", Kind::HumidairAux, column, t) {
+                Some(_) => div_0011() * want.abs(),
+                None => ToleranceClass::Prop.bound(want.abs()).unwrap(),
+            };
+            if error.is_nan() || error > bound {
+                missed.push(format!("{column} at {t} K, {p} Pa: {got} against {want} ({:.1e})", error / want.abs()));
+            }
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+    assert!(henry > 20, "{henry}");
 }

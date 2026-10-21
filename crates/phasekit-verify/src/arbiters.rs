@@ -66,6 +66,10 @@ pub enum ArbiterPart {
     Virial,
     /// Cross virial coefficients of a mixture and their T-derivatives: humid air's (PLAN.md M18).
     CrossVirial,
+    /// Henry's constants of gases in a solvent: dry air's in water (PLAN.md M18).
+    Henry,
+    /// A mixture's properties at its states: humid air's (PLAN.md M18).
+    States,
     Alpha0,
     Viscosity,
     Conductivity,
@@ -304,6 +308,9 @@ pub const TABLES: &[(&str, &str)] = &[
     crate::fixture!("paper/Water/IAPWS-R10-06-2009.6.csv"),
     crate::fixture!("paper/HumidAir/IAPWS-G11-15.7.csv"),
     crate::fixture!("paper/HumidAir/IAPWS-G8-10.15.csv"),
+    crate::fixture!("paper/HumidAir/IAPWS-G7-04.6.csv"),
+    crate::fixture!("paper/HumidAir/Herrmann-HVACR-2009.1.csv"),
+    crate::fixture!("paper/HumidAir/Herrmann-HVACR-2009.2.csv"),
     crate::fixture!("paper/Water/IAPWS-R7-97-2012.35.csv"),
     crate::fixture!("paper/Water/IAPWS-R7-97-2012.36.csv"),
     crate::fixture!("paper/HeavyWater/Herrig-JPCRD-2019.S3-4.csv"),
@@ -398,6 +405,29 @@ pub static ARBITERS: &[Arbiter] = &[
         tables: &[Table { file: "paper/HumidAir/IAPWS-G8-10.15.csv", kind: TableKind::Rows, rows: Some(27) }],
         constants: None,
         status: ArbiterStatus::SelfConsistent,
+    },
+    Arbiter {
+        fluid: "Humid air",
+        part: ArbiterPart::Henry,
+        citation: Citation { key: "IAPWS-G7-04", doi_or_report: Some("IAPWS G7-04"), role: Role::Release },
+        tables: &[Table { file: "paper/HumidAir/IAPWS-G7-04.6.csv", kind: TableKind::Rows, rows: Some(12) }],
+        constants: None,
+        status: ArbiterStatus::SelfConsistent,
+    },
+    Arbiter {
+        fluid: "Humid air",
+        part: ArbiterPart::States,
+        citation: Citation {
+            key: "Herrmann-HVACR-2009",
+            doi_or_report: Some("10.1080/10789669.2009.10390874"),
+            role: Role::PropertyPaper,
+        },
+        tables: &[
+            Table { file: "paper/HumidAir/Herrmann-HVACR-2009.1.csv", kind: TableKind::Rows, rows: Some(13) },
+            Table { file: "paper/HumidAir/Herrmann-HVACR-2009.2.csv", kind: TableKind::Rows, rows: Some(19) },
+        ],
+        constants: None,
+        status: ArbiterStatus::Transcribed,
     },
     Arbiter {
         fluid: "Ice Ih",

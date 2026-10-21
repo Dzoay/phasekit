@@ -14,8 +14,12 @@
 #![cfg_attr(not(test), deny(clippy::indexing_slicing, clippy::arithmetic_side_effects))]
 
 pub mod constants;
+mod henry;
 mod humid_air;
+mod saturation;
 mod virials;
 
+pub use henry::{Gas, henry_constant};
 pub use humid_air::{HumidAir, Parts};
+pub use saturation::Saturation;
 pub use virials::{Coefficient, Virials};
