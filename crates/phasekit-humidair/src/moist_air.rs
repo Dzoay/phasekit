@@ -118,6 +118,11 @@ fn molar_volume(r: f64, t: f64, p: f64, b: f64, c: f64) -> Result<f64, Error> {
         return Err(DomainError::AboveMaxPressure { p, p_max }.into());
     }
     let floor = edge.unwrap_or(0.0);
+    // The start only seeds Newton: from any start on the stable branch it closes on the same root to its 4-ulp stop, far
+    // inside any state's tolerance, a start left of the end halving its way back.
+    // equivalent mutant: replace * with +
+    // equivalent mutant: replace * with / #1
+    // equivalent mutant: replace / with %
     let mut v = (r * t / p).max(2.0 * floor);
     for _ in 0..ITERATIONS {
         let newton = v - (pressure(v) - p) / dp_dv((r, t), v, (b, c));
