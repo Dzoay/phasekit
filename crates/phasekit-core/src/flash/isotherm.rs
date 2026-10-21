@@ -3,6 +3,7 @@
 use crate::error::Error;
 use crate::fluid::PureFluid;
 use crate::num::math;
+use crate::quantity::Quantity;
 use crate::roots::{Tol, toms748};
 use crate::saturation::SatAccuracy;
 use crate::state::{Phase, SolvePath, State, Strategy};
@@ -95,8 +96,8 @@ pub(super) fn tx(fluid: &PureFluid, t: f64, x: f64, var: Caloric, opts: &FlashOp
             Err(e) => refused = refused.or(Some(e)),
         }
     }
-    let Some(state) = choose(&states, |s| s.rho(Basis::Molar), opts.roots())? else {
-        return Err(refused.unwrap_or(Error::InvalidInput { quantity: var.name(), value: x }));
+    let Some(state) = choose(&states, |s| s.rho(Basis::Molar), Quantity::density(Basis::Molar), opts.roots())? else {
+        return Err(refused.unwrap_or(Error::InvalidInput { quantity: var.quantity(), value: x }));
     };
     if !reproduces_x(var, r, t, x, var.of(&state)) {
         return Err(Error::NoConvergence { strategy: Strategy::Isotherm, iterations: state.path().iterations });

@@ -5,18 +5,31 @@ use core::fmt;
 
 use crate::input::Pair;
 use crate::prop::Prop;
+use crate::quantity::{Quantity, Si, Style, Units};
 use crate::state::{Phase, Strategy};
+
+mod message;
+
+pub use message::Message;
 
 /// Every failure the kernel can report. No panics on user input; no sentinels (map 12 R3).
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
-    /// A quantity failed validation: NaN, infinite, non-positive T/p/ρ, or Q outside [0, 1] (map 12 R9).
+    /// A quantity failed validation: NaN, infinite, non-positive T/p/ρ, or Q outside [0, 1] (map 12 R9), or no state
+    /// reaches it.
     InvalidInput {
         /// Which quantity.
-        quantity: &'static str,
-        /// The rejected value.
+        quantity: &'static Quantity,
+        /// The rejected value, SI.
         value: f64,
+    },
+    /// An argument that is not a physical value was refused: a count, an index, a plane, a mixture (user decision EM3).
+    InvalidArgument {
+        /// What was refused, as a sentence names it ("number of mole fractions").
+        argument: &'static str,
+        /// The refused count or index, if it has one.
+        value: Option<usize>,
     },
     /// The model does not declare this input pair (declared capability, map 01 R21).
     Unsupported {
@@ -148,33 +161,39 @@ pub enum LoadError {
     ReferenceCycle(Box<str>),
 }
 
-/// Up to four roots of an ambiguous flash, as data. Two are equal when their roots are (the unused slots are NaN).
+/// Up to four roots of an ambiguous flash, as data, with the quantity they are values of. Two are equal when their
+/// quantities and roots are; the unused slots are NaN, which no root is.
 #[derive(Clone, Copy, Debug)]
 pub struct Roots {
+    quantity: &'static Quantity,
     values: [f64; 4],
-    len: u8,
 }
 
 impl PartialEq for Roots {
     fn eq(&self, other: &Self) -> bool {
-        self.as_slice() == other.as_slice()
+        self.quantity == other.quantity && self.as_slice() == other.as_slice()
     }
 }
 
 impl Roots {
-    /// Collects up to four roots; extra roots are dropped (a flash never has more on one isotherm).
-    pub fn new(roots: &[f64]) -> Self {
+    /// Collects up to four roots of `quantity`, SI; extra roots are dropped (a flash never has more on one isotherm).
+    pub fn new(quantity: &'static Quantity, roots: &[f64]) -> Self {
         let mut values = [f64::NAN; 4];
-        let len = roots.len().min(4);
         for (value, root) in values.iter_mut().zip(roots) {
             *value = *root;
         }
-        Self { values, len: len as u8 }
+        Self { quantity, values }
+    }
+
+    /// What the roots are values of.
+    pub const fn quantity(&self) -> &'static Quantity {
+        self.quantity
     }
 
     /// The roots, in ascending order of the solved variable.
     pub fn as_slice(&self) -> &[f64] {
-        self.values.get(..usize::from(self.len)).unwrap_or_default()
+        let len = self.values.iter().take_while(|v| !v.is_nan()).count();
+        self.values.get(..len).unwrap_or_default()
     }
 }
 
@@ -190,23 +209,18 @@ impl From<LoadError> for Error {
     }
 }
 
+impl Error {
+    /// The message in `units` and `style` (user decisions EM1, EM2): `{}` is `display(&Si, Style::Long)`, `{:#}`
+    /// `display(&Si, Style::Short)`.
+    pub fn display<'a>(&'a self, units: &'a dyn Units, style: Style) -> Message<'a> {
+        Message::new(self, units, style)
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Error::InvalidInput { quantity, value } => write!(f, "invalid {quantity}: {value}"),
-            Error::Unsupported { pair } => write!(f, "input pair {pair:?} is not supported by this model"),
-            Error::Domain(e) => write!(f, "outside the validity domain: {e:?}"),
-            Error::NoConvergence { strategy, iterations } => {
-                write!(f, "{strategy:?} did not converge in {iterations} iterations")
-            }
-            Error::Ambiguous { roots } => write!(f, "several solutions: {:?}", roots.as_slice()),
-            Error::Undefined { prop, phase } => write!(f, "{prop:?} is undefined in phase {phase:?}"),
-            Error::NoModel { prop } => write!(f, "no model for {prop:?}"),
-            Error::ForeignState => f.write_str("the state was produced by a different model"),
-            Error::InvalidState { reason } => write!(f, "inconsistent state: {reason}"),
-            Error::Load(e) => write!(f, "load error: {e}"),
-            Error::Shape { expected, found } => write!(f, "buffer length {found}, expected {expected}"),
-        }
+        let style = if f.alternate() { Style::Short } else { Style::Long };
+        self.display(&Si, style).fmt(f)
     }
 }
 
@@ -228,3 +242,6 @@ impl fmt::Display for LoadError {
 
 impl std::error::Error for Error {}
 impl std::error::Error for LoadError {}
+
+#[cfg(test)]
+mod tests;

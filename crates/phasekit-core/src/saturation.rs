@@ -7,6 +7,7 @@ use crate::data::{Ancillary, PseudoPure, SaFreshness, Superancillary};
 use crate::error::{DomainError, Error, Roots};
 use crate::exec::{self, ExecPolicy, LaneKernel};
 use crate::num::{Lanes, Real, math};
+use crate::quantity::Quantity;
 use crate::roots::{Stop, Tol, toms748};
 use crate::state::Strategy;
 
@@ -255,7 +256,7 @@ impl SuperancillaryCurve {
     /// unscaled pressure ([`Self::inverse_t`]), which brackets the root on the last segment.
     fn t_at_p(&self, p: f64, inverse: impl Fn(f64) -> Option<f64>) -> Result<f64, Error> {
         if p.is_nan() {
-            return Err(Error::InvalidInput { quantity: "p", value: p });
+            return Err(Error::InvalidInput { quantity: Quantity::PRESSURE, value: p });
         }
         let raw = p / self.p;
         let (lowest, highest) = self.p_range;
@@ -283,7 +284,7 @@ impl SuperancillaryCurve {
         }
         match roots.get(..found) {
             Some(&[t]) => Ok(t),
-            other => Err(Error::Ambiguous { roots: Roots::new(other.unwrap_or_default()) }),
+            other => Err(Error::Ambiguous { roots: Roots::new(Quantity::TEMPERATURE, other.unwrap_or_default()) }),
         }
     }
 
@@ -321,7 +322,7 @@ impl SuperancillaryCurve {
         } else if t > t_max {
             DomainError::AboveMaxTemperature { t, t_max }.into()
         } else {
-            Error::InvalidInput { quantity: "T", value: t }
+            Error::InvalidInput { quantity: Quantity::TEMPERATURE, value: t }
         }
     }
 
@@ -441,7 +442,7 @@ impl SaturationCurve for PseudoPureCurve {
     fn at_t(&self, t: f64) -> Result<SatPair, Error> {
         let (t_min, t_max) = self.0.t_range;
         if t.is_nan() {
-            return Err(Error::InvalidInput { quantity: "T", value: t });
+            return Err(Error::InvalidInput { quantity: Quantity::TEMPERATURE, value: t });
         }
         if t < t_min {
             return Err(DomainError::BelowMinTemperature { t, t_min }.into());
@@ -456,7 +457,7 @@ impl SaturationCurve for PseudoPureCurve {
     /// Each side's T where its pressure ancillary is p, within that ancillary's range; refused beyond it.
     fn at_p(&self, p: f64) -> Result<SatPair, Error> {
         if p.is_nan() {
-            return Err(Error::InvalidInput { quantity: "p", value: p });
+            return Err(Error::InvalidInput { quantity: Quantity::PRESSURE, value: p });
         }
         let side = |pa: &Ancillary, rho: &Ancillary| -> Result<SatSide, Error> {
             let Some(t) = pa.invert(p) else {
@@ -591,10 +592,10 @@ mod tests {
         let curve = SuperancillaryCurve::new(synthetic(), SaFreshness::Fresh);
         let below = |t| Error::from(DomainError::BelowMinTemperature { t, t_min: 200.0 });
         let above = |t| Error::from(DomainError::AboveMaxTemperature { t, t_max: 400.0 });
-        let invalid = |t| Error::InvalidInput { quantity: "T", value: t };
+        let invalid = |t| Error::InvalidInput { quantity: Quantity::TEMPERATURE, value: t };
         assert_eq!((curve.refusal(199.9), curve.refusal(400.1)), (below(199.9), above(400.1)));
         assert_eq!((curve.refusal(200.0), curve.refusal(400.0)), (invalid(200.0), invalid(400.0)));
-        assert!(matches!(curve.refusal(f64::NAN), Error::InvalidInput { quantity: "T", .. }));
+        assert!(matches!(curve.refusal(f64::NAN), Error::InvalidInput { quantity: Quantity::TEMPERATURE, .. }));
         assert!(curve.fit(199.9).is_none() && curve.fit(400.1).is_none() && curve.fit(f64::NAN).is_none());
         for t in [200.0, 250.0, 300.0, 350.0, 400.0] {
             let (rows, x) = curve.fit(t).unwrap();
@@ -617,7 +618,7 @@ mod tests {
         assert_eq!(curve.at_t(199.9), Err(below.into()));
         let above = DomainError::AboveMaxTemperature { t: 400.1, t_max: 400.0 };
         assert_eq!(curve.at_t(400.1), Err(above.into()));
-        assert!(matches!(curve.at_t(f64::NAN), Err(Error::InvalidInput { quantity: "T", .. })));
+        assert!(matches!(curve.at_t(f64::NAN), Err(Error::InvalidInput { quantity: Quantity::TEMPERATURE, .. })));
         let sat = curve.at_t(250.0).unwrap();
         assert_eq!(sat.bubble, SatSide { t: 250.0, p: 2500.0, rho: 750.0 });
         assert_eq!(sat.dew, SatSide { t: 250.0, p: 2500.0, rho: 25.0 });
@@ -651,7 +652,7 @@ mod tests {
         assert_eq!(wide, [Ok(21.0), Ok(39.0), Ok(20.0), Ok(40.0)], "ρ″ = T/10 at T = p/10");
         assert_eq!(curve.at_p(4000.5), Err(DomainError::AboveMaxPressure { p: 4000.5, p_max: 4000.0 }.into()));
         assert_eq!(curve.at_p(1999.0), Err(DomainError::BelowMinPressure { p: 1999.0, p_min: 2000.0 }.into()));
-        assert!(matches!(curve.at_p(f64::NAN), Err(Error::InvalidInput { quantity: "p", .. })));
+        assert!(matches!(curve.at_p(f64::NAN), Err(Error::InvalidInput { quantity: Quantity::PRESSURE, .. })));
         let mut split = synthetic();
         split.extrema[2] = vec![220.0];
         let split = SuperancillaryCurve::new(split, SaFreshness::Fresh);
@@ -702,12 +703,12 @@ mod tests {
         let above = DomainError::AboveMaxTemperature { t: hi + 1e-6, t_max: hi };
         let below = DomainError::BelowMinTemperature { t: lo - 1e-6, t_min: lo };
         assert_eq!((curve.at_t(hi + 1e-6), curve.at_t(lo - 1e-6)), (Err(above.into()), Err(below.into())));
-        assert!(matches!(curve.at_t(f64::NAN), Err(Error::InvalidInput { quantity: "T", .. })));
+        assert!(matches!(curve.at_t(f64::NAN), Err(Error::InvalidInput { quantity: Quantity::TEMPERATURE, .. })));
         let p_l = &definition.p_l;
         let (p_max, p_min) = (p_l.at(p_l.t_max), p_l.at(p_l.t_min - 0.01));
         assert_eq!(curve.at_p(1e9), Err(DomainError::AboveMaxPressure { p: 1e9, p_max }.into()));
         assert_eq!(curve.at_p(1.0), Err(DomainError::BelowMinPressure { p: 1.0, p_min }.into()));
-        assert!(matches!(curve.at_p(f64::NAN), Err(Error::InvalidInput { quantity: "p", .. })));
+        assert!(matches!(curve.at_p(f64::NAN), Err(Error::InvalidInput { quantity: Quantity::PRESSURE, .. })));
     }
 
     /// PQ where p(T) dips (DIV-0016's PropyleneGlycol): over [200, 300] K p falls from 3000 to 2000 Pa, over [300, 400] K

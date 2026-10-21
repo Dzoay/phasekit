@@ -379,7 +379,7 @@ pub fn phase_si(name1: &str, value1: f64, name2: &str, value2: f64, fluid: &str)
 #[cfg(all(test, feature = "embedded"))]
 mod tests {
     use super::*;
-    use phasekit_core::Var;
+    use phasekit_core::{Quantity, Var};
 
     /// ROT-165 (map 01 R7): CoolProp returns an output equal to one of its inputs before any check, so
     /// `PropsSI("T", "T", -5, "P", 101325, "Water")` echoes −5 K. Here every input passes the kernel's gate: an
@@ -389,7 +389,7 @@ mod tests {
         let registry = Registry::from_embedded(phasekit_core::DataSet::Corrected).unwrap();
         let refused = props_si_in(&registry, "T", "T", -5.0, "P", 101_325.0, "Water");
         assert!(
-            matches!(refused, Err(CompatError::Core(Error::InvalidInput { quantity: "temperature", .. }))),
+            matches!(refused, Err(CompatError::Core(Error::InvalidInput { quantity: Quantity::TEMPERATURE, .. }))),
             "{refused:?}"
         );
         let q = props_si_in(&registry, "Q", "Q", 7.0, "T", 300.0, "Water");

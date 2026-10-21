@@ -62,7 +62,7 @@ impl SaturationCurve for Line {
     }
     fn at_p(&self, p: f64) -> Result<SatPair, Error> {
         if p == 2_500.0 {
-            return Err(Error::Ambiguous { roots: crate::error::Roots::new(&[260.0, 280.0]) });
+            return Err(Error::Ambiguous { roots: crate::error::Roots::new(Quantity::TEMPERATURE, &[260.0, 280.0]) });
         }
         self.at_t(p / 10.0)
     }
@@ -101,8 +101,8 @@ fn q_pairs_check_the_domain_and_need_a_curve() {
         assert_eq!(line.state(input), Err(refused.into()));
         assert!(line.flash(input, &extrapolate).unwrap().is_extrapolated());
     }
-    let two = Error::Ambiguous { roots: crate::error::Roots::new(&[260.0, 280.0]) };
-    assert_ne!(two, Error::Ambiguous { roots: crate::error::Roots::new(&[260.0]) });
+    let two = Error::Ambiguous { roots: crate::error::Roots::new(Quantity::TEMPERATURE, &[260.0, 280.0]) };
+    assert_ne!(two, Error::Ambiguous { roots: crate::error::Roots::new(Quantity::TEMPERATURE, &[260.0]) });
     assert_eq!(line.state(p_q(2_500.0, 0.5)), Err(two.clone()));
     assert_eq!(line.flash(p_q(2_500.0, 0.5), &FlashOptions::new().with_roots(RootPolicy::Stable)), Err(two));
     let nearest = |t| line.flash(p_q(2_500.0, 0.5), &FlashOptions::new().with_roots(RootPolicy::Nearest(t)));
@@ -112,7 +112,7 @@ fn q_pairs_check_the_domain_and_need_a_curve() {
     assert_eq!(none.state(q_t(0.5, 300.0)), Err(Error::Unsupported { pair: Pair::QT }));
     assert_eq!(none.state(p_q(3_000.0, 0.5)), Err(Error::Unsupported { pair: Pair::PQ }));
     let defined = fluid(Some(Line(SatAccuracy::Definition)));
-    assert_eq!(defined.state(q_t(0.5, 300.0)), Err(Error::InvalidInput { quantity: "Q", value: 0.5 }));
+    assert_eq!(defined.state(q_t(0.5, 300.0)), Err(Error::InvalidInput { quantity: Quantity::QUALITY, value: 0.5 }));
 }
 
 /// Issue #142 (user decision PF1): strictly inside the dome each phase carries an order-1 bundle, whose A00, A10 and

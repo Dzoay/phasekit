@@ -9,6 +9,7 @@
 use crate::data::{MeltingForm, MeltingSegment};
 use crate::error::{DomainError, Error, Roots};
 use crate::num::math;
+use crate::quantity::Quantity;
 use crate::roots::{Tol, toms748};
 use crate::state::Strategy;
 
@@ -173,7 +174,7 @@ impl MeltingCurve {
                 }
                 .into())
             }
-            several => Err(Error::Ambiguous { roots: Roots::new(several) }),
+            several => Err(Error::Ambiguous { roots: Roots::new(Quantity::PRESSURE, several) }),
         }
     }
 

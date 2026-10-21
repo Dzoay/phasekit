@@ -633,7 +633,10 @@ fn r410a_pseudo_pure_rows() {
     let dew = r410a.state(qt(1.0, 280.0)).unwrap();
     assert!(close(bubble.p(), 990_480.516_605_891) && close(dew.p(), 987_288.071_785_376_3), "{bubble:?} {dew:?}");
     assert_eq!(bubble.path().strategy, Strategy::Ancillary);
-    assert_eq!(r410a.state(qt(0.5, 280.0)), Err(Error::InvalidInput { quantity: "Q", value: 0.5 }));
+    assert_eq!(
+        r410a.state(qt(0.5, 280.0)),
+        Err(Error::InvalidInput { quantity: phasekit_core::Quantity::QUALITY, value: 0.5 })
+    );
     let t = [0.0, 0.5, 1.0].map(|q| r410a.state(pq(1e6, q)).unwrap().t());
     for (got, want) in t.iter().zip([280.316_57, 280.370_03, 280.423_48]) {
         assert!((got - want).abs() < 5e-6, "{t:?}");

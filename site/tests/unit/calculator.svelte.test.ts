@@ -215,7 +215,7 @@ describe("calculator", () => {
 
   test("a refusal restates the inputs in SI and in the shown units", async () => {
     const { calc, stop } = await setup("fluid=Water&a=P:1002500000&b=T:0");
-    expect([calc.result, calc.refusal]).toEqual([null, "invalid temperature: 0"]);
+    expect([calc.result, calc.refusal]).toEqual([null, "temperature 0 K is not above absolute zero"]);
     expect(calc.received("T", 0)).toBe("T = 0 K");
     expect(calc.received("Q", 0.5)).toBe("q = 0.5 mol/mol");
     expect(calc.received("Delta", 2)).toBe("δ = 2");

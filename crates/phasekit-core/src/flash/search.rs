@@ -5,6 +5,7 @@
 
 use crate::error::{DomainError, Error, Roots};
 use crate::fluid::PureFluid;
+use crate::quantity::Quantity;
 use crate::roots::{Root, Tol, toms748};
 use crate::state::Strategy;
 
@@ -149,10 +150,16 @@ impl Descent {
 }
 
 /// The root `policy` takes among `roots`, ascending by `key`, one rule for every pair: the only one; of several, under
-/// `Nearest(x)` the first whose key is [`nearest`]'s, else `Ambiguous` with every key. `None` without roots.
-pub(crate) fn choose<T: Copy>(roots: &[T], key: impl Fn(&T) -> f64, policy: RootPolicy) -> Result<Option<T>, Error> {
+/// `Nearest(x)` the first whose key is [`nearest`]'s, else `Ambiguous` with every key, a value of `quantity`. `None`
+/// without roots.
+pub(crate) fn choose<T: Copy>(
+    roots: &[T],
+    key: impl Fn(&T) -> f64,
+    quantity: &'static Quantity,
+    policy: RootPolicy,
+) -> Result<Option<T>, Error> {
     let keys: Vec<f64> = roots.iter().map(&key).collect();
-    let ambiguous = || Error::Ambiguous { roots: Roots::new(&keys) };
+    let ambiguous = || Error::Ambiguous { roots: Roots::new(quantity, &keys) };
     match (roots, policy) {
         ([], _) => Ok(None),
         ([one], _) => Ok(Some(*one)),
