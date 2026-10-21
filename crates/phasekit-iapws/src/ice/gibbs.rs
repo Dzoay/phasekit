@@ -82,7 +82,7 @@ impl Mul for C {
 }
 
 /// The argument of re + i·im in (−π, π], from `math::atan` (core's `math` has no atan2).
-fn arg(re: f64, im: f64) -> f64 {
+pub(super) fn arg(re: f64, im: f64) -> f64 {
     if re > 0.0 {
         math::atan(im / re)
     } else if re < 0.0 {

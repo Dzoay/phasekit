@@ -1,4 +1,4 @@
-use phasekit_core::{Basis, DomainError, Error, Phase};
+use phasekit_core::{Basis, DomainError, Error, FlashOptions, Input, Pair, Phase, RootPolicy};
 
 use super::*;
 
@@ -34,6 +34,28 @@ fn region_1_takes_its_box_and_refuses_beyond() {
     assert_eq!(region1(300.0, 3e6).unwrap().key(), KEY);
 }
 
+/// Region 2 at its bounds: 273.15 K, 1073.15 K and 100 MPa are inside, a step beyond each is refused. Its phase is gas
+/// to T_c, the critical temperature included, and above it supercritical gas to p_c, the critical pressure included, and
+/// supercritical beyond, where only a direct call reaches it (the `Fluid` stops at 623.15 K).
+#[test]
+fn region_2_takes_its_box_and_names_its_phase() {
+    for (t, p) in [(T_MIN, 600.0), (T_MAX_2, 1e5), (1000.0, P_MAX)] {
+        assert!(region2(t, p).is_ok(), "({t}, {p})");
+    }
+    let above = DomainError::AboveMaxTemperature { t: 1073.2, t_max: T_MAX_2 };
+    let over = DomainError::AboveMaxPressure { p: 100.1e6, p_max: P_MAX };
+    assert_eq!(region2(1073.2, 1e5).unwrap_err(), above.into());
+    assert_eq!(region2(1000.0, 100.1e6).unwrap_err(), over.into());
+    for (t, p, phase) in [
+        (T_C, 1e6, Phase::Gas),
+        (700.0, 1e6, Phase::SupercriticalGas),
+        (700.0, P_C, Phase::SupercriticalGas),
+        (700.0, 30e6, Phase::Supercritical),
+    ] {
+        assert_eq!(region2(t, p).unwrap().phase(), phase, "({t}, {p})");
+    }
+}
+
 /// Eqs. (30) and (31) come from one implicit equation, so each inverts the other (R7-97(2012) §8.2), here to 1e-11
 /// over the line (at T_c Eq. (31)'s square root of a near-zero discriminant leaves 1.8e-12); their ends: 273.15 K to T_c, 611.213 Pa to p_c, and a step beyond is refused.
 #[test]
@@ -57,4 +79,36 @@ fn the_saturation_equations_invert_each_other() {
     assert_eq!(saturation_temperature(611.0).unwrap_err(), low.into());
     assert_eq!(saturation_temperature(22.1e6).unwrap_err(), high.into());
     assert!(matches!(saturation_temperature(-1.0), Err(Error::InvalidInput { quantity: "p", .. })));
+}
+
+/// IF97 water as a `Fluid`: on the line PT takes the side nearer `Nearest`'s density, the liquid on a tie and under
+/// `Stable`, and is `Ambiguous` under `Strict`; 623.15 K is its top, so vapour above it is refused though region 2 holds
+/// there, and so is PQ above its saturation pressure; its limits say so.
+#[test]
+fn the_fluid_takes_the_line_by_its_roots_and_stops_at_623_k() {
+    let fluid = water().unwrap();
+    let (t, q) = (400.0, 0.5);
+    let p = saturation_pressure(t).unwrap();
+    let rho = |state: State| state.rho(Basis::Molar);
+    let (liquid, vapour) = (rho(region1(t, p).unwrap()), rho(region2(t, p).unwrap()));
+    let on_line = Input::new(Pair::PT, p, t, Basis::Molar).unwrap();
+    let side = |roots| fluid.flash(on_line, &FlashOptions::new().with_roots(roots)).map(rho);
+    for (target, want) in
+        [(2.0 * vapour, vapour), (liquid / 2.0, vapour), (0.9 * liquid, liquid), (f64::INFINITY, liquid)]
+    {
+        assert_eq!(side(RootPolicy::Nearest(target)), Ok(want), "nearest {target}");
+    }
+    assert_eq!(side(RootPolicy::Stable), Ok(liquid));
+    assert!(matches!(side(RootPolicy::Strict), Err(Error::Ambiguous { .. })));
+    let hot = DomainError::AboveMaxTemperature { t: 630.0, t_max: T_MAX_1 };
+    assert_eq!(fluid.state(Input::new(Pair::PT, 1e5, 630.0, Basis::Molar).unwrap()).unwrap_err(), hot.into());
+    let p_top = saturation_pressure(T_MAX_1).unwrap();
+    let pq = |p: f64| fluid.state(Input::new(Pair::PQ, p, q, Basis::Molar).unwrap()).map(|s| s.t());
+    assert_eq!(pq(p_top), Ok(T_MAX_1));
+    assert_eq!(pq(20e6).unwrap_err(), DomainError::AboveMaxPressure { p: 20e6, p_max: p_top }.into());
+    let limits = fluid.model().limits().unwrap();
+    assert_eq!(
+        (limits.t_min(), limits.t_max(), limits.p_max(), limits.t_triple()),
+        (T_MIN, T_MAX_1, P_MAX, Some(273.16))
+    );
 }

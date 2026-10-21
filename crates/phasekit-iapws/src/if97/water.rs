@@ -80,12 +80,13 @@ impl ThermoModel for Water {
                 Self::split(q, t, saturation_pressure(t)?)
             }
             (Pair::PQ, (p, q)) => {
-                let t = saturation_temperature(p)?;
-                if t > T_MAX_1 {
-                    let p_max = saturation_pressure(T_MAX_1)?;
+                let p_max = saturation_pressure(T_MAX_1)?;
+                if p > p_max {
                     return Err(DomainError::AboveMaxPressure { p, p_max }.into());
                 }
-                Self::split(q, t, p)
+                // Eq. (31) gives p_max's temperature 1e-11 above 623.15 K (Eqs. (30) and (31) agree to that), so the
+                // top is held at the `Fluid`'s.
+                Self::split(q, saturation_temperature(p)?.min(T_MAX_1), p)
             }
             (pair, _) => Err(Error::Unsupported { pair }),
         }
