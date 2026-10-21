@@ -112,12 +112,6 @@ fn solve(
     Ok(solved)
 }
 
-/// The lowest T a state with `target` can have: its wet bulb, which is never above T (below it a cold, dry state's
-/// own wet bulb would lie under the range); any T otherwise.
-fn at_least(target: Given) -> f64 {
-    if let Given::WetBulb(twb) = target { twb } else { T_MIN }
-}
-
 /// At T and p, the state whose `target` is the one given, by a solve in ψ_w from dry air to saturation.
 fn in_humidity(air: &HumidAir, t: f64, p: f64, target: Given) -> Result<MoistAir, Error> {
     let top = air.saturation(t, p)?.psi_ws.min(PSI_TOP);
@@ -132,20 +126,18 @@ fn in_temperature(air: &HumidAir, p: f64, humidity: Humidity, target: Given) -> 
         }
         let top = if phi > 0.0 { air.dew_point(p, PSI_TOP)? } else { T_MAX };
         let state = |t: f64| air.moist_air(t, p, air.mole_fraction(t, p, humidity)?);
-        return solve(air, (p, state), (at_least(target), top), target);
+        return solve(air, (p, state), (T_MIN, top), target);
     }
     if matches!(target, Given::Humidity(h) if !matches!(h, Humidity::Relative(_))) {
         return Err(NO_STATE);
     }
-    let psi = match humidity {
-        Humidity::DewPoint(t_dp) => air.mole_fraction(t_dp, p, humidity)?,
-        _ => air.mole_fraction(T_MAX, p, humidity)?,
-    };
+    // W, ψ_w and the dew point each fix ψ_w at any T at or above the dew point.
+    let psi = air.mole_fraction(T_MAX, p, humidity)?;
     if psi == 0.0 && matches!(target, Given::Humidity(_)) {
         return Err(Error::InvalidState { reason: "dry air's relative humidity is 0 at every temperature" });
     }
     let bottom = if psi > 0.0 { air.dew_point(p, psi)?.max(T_MIN) } else { T_MIN };
-    solve(air, (p, |t| air.moist_air(t, p, psi)), (bottom.max(at_least(target)), T_MAX), target)
+    solve(air, (p, |t| air.moist_air(t, p, psi)), (bottom, T_MAX), target)
 }
 
 impl HumidAir {
@@ -155,7 +147,6 @@ impl HumidAir {
             (Given::Temperature(t), Given::Humidity(h)) | (Given::Humidity(h), Given::Temperature(t)) => {
                 self.moist_air(t, p, self.mole_fraction(t, p, h)?)
             }
-            (Given::Temperature(_), Given::Temperature(_)) => Err(NO_STATE),
             (Given::Temperature(t), target) | (target, Given::Temperature(t)) => in_humidity(self, t, p, target),
             (relative @ Given::Humidity(Humidity::Relative(_)), Given::Humidity(h)) => {
                 in_temperature(self, p, h, relative)
