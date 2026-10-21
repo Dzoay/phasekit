@@ -201,3 +201,25 @@ fn the_enhancement_factor_settles_across_the_range() {
         assert!((191.0..193.0).contains(&largest), "{data:?}: {largest}");
     }
 }
+
+/// Under `Parity`, water vapour's ideal part sits on v8.0.0's anchor (`HumidAirProp.cpp:281-326` and `:1083`, map 15
+/// §2.1): at 473.15 K and 101.325 kPa its h is 51885.582451893446 J/mol plus the legacy −0.01102303806, and its s
+/// 141.18297895840303 J/(mol K) plus s̄₀, 0.02366427495.
+#[test]
+fn parity_s_vapour_sits_on_v8s_anchor() {
+    let air = humid_air(DataSet::Parity);
+    let part = crate::ideal::water(air.parts(), DataSet::Parity, &air.zeros, 473.15, 101_325.0).unwrap();
+    assert!((part.h - (51_885.582_451_893_446 - 0.011_023_038_06)).abs() <= 1e-9, "{}", part.h);
+    assert!((part.s - (141.182_978_958_403_03 + 0.023_664_274_95)).abs() <= 1e-12, "{}", part.s);
+}
+
+/// Under `Corrected`, water vapour's ideal part is IF97's from the triple point up, at 273.16 K itself too, and
+/// IAPWS-95's below it.
+#[test]
+fn corrected_s_vapour_is_if97_s_from_the_triple_point() {
+    let air = humid_air(DataSet::Corrected);
+    let h = |t: f64| crate::ideal::water(air.parts(), DataSet::Corrected, &air.zeros, t, 101_325.0).unwrap().h;
+    let if97 = |t: f64| crate::ideal::water_if97(&air.parts().liquid, t, 101_325.0).unwrap().h + air.zeros.h_water;
+    assert_eq!(h(273.16).to_bits(), if97(273.16).to_bits());
+    assert_ne!(h(273.159), if97(273.159));
+}
