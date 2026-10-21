@@ -59,7 +59,7 @@ pub(crate) fn p_ws(liquid: &Fluid, ice: &Fluid, t: f64) -> Result<f64, Error> {
 fn condensed(parts: &crate::Parts, data: DataSet, t: f64, p: f64, p_ws: f64) -> Result<Condensed, Error> {
     if t < T_TRIPLE {
         let solid = at(&parts.ice, t, p)?;
-        let kappa_t = if p_ws > p { 0.0 } else { solid.isothermal_compressibility()? };
+        let kappa_t = if p_ws >= p { 0.0 } else { solid.isothermal_compressibility()? };
         return Ok(Condensed { p_ws, v: 1.0 / solid.rho(Basis::Molar), kappa_t, beta_h: 0.0 });
     }
     let (p_f, v) = match data {
@@ -69,7 +69,9 @@ fn condensed(parts: &crate::Parts, data: DataSet, t: f64, p: f64, p_ws: f64) -> 
         }
         _ => (p_ws, 1.0 / saturated(&parts.liquid, 0.0, t)?.rho(Basis::Molar)),
     };
-    if p_ws > p {
+    // At p_ws itself no condensed phase is under pressure, and the liquid part's PT there is on its saturation line,
+    // which IF97 refuses as ambiguous: the κ_T term vanishes at p = p_ws whatever κ_T is.
+    if p_ws >= p {
         return Ok(Condensed { p_ws: p_f, v, kappa_t: 0.0, beta_h: 0.0 });
     }
     let liquid = at(&parts.liquid, t, p)?;
@@ -112,11 +114,20 @@ const ITERATIONS: u16 = 50;
 /// least 1, as v8.0.0 clamps it (`NoConvergence` if it has not settled, ROT-265: v8.0.0 stops silently at 100).
 fn enhancement(c: &Condensed, b: &Virials, p: f64, rt: f64) -> Result<f64, Error> {
     let residual = |f: f64| math::ln(f) - rhs(c, b, p, rt, f * c.p_ws / p);
+    // Equivalent (M18.2): the second start only sets the secant's first step. From 1 − 1e-6, or from 1e-6, where ln f
+    // is −13.8 against a right-hand side of order 1e-3, the next iterate lands near 1 and the secant settles on the same
+    // root to its 4 ulp.
+    // equivalent mutant: replace + with -
+    // equivalent mutant: replace + with *
     let (mut x1, mut x2) = (1.0, 1.0 + 1e-6);
     let mut y1 = residual(x1);
     for _ in 0..ITERATIONS {
         let y2 = residual(x2);
         let x3 = x2 - y2 * (x2 - x1) / (y2 - y1);
+        // Equivalent (M18.2): `/ x2` tightens the stop (f reaches about 192 at 130 K and 10 MPa) below an ulp, but the
+        // secant converges superlinearly and settles on x3 = x2 a step later, which moves f by its last bits at most
+        // (`the_enhancement_factor_settles_across_the_range` holds with it).
+        // equivalent mutant: replace * with / #2
         if (x3 - x2).abs() <= 4.0 * f64::EPSILON * x2 || y2 == 0.0 {
             return Ok(x3.max(1.0));
         }
