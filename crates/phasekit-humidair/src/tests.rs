@@ -259,3 +259,51 @@ fn the_enhancement_factor_settles_across_the_range() {
         assert!((191.0..193.0).contains(&largest), "{data:?}: {largest}");
     }
 }
+
+/// The dew point's bracket (ROT-266) is as tight as the module says: from the saturation temperature at p_w down to two
+/// Newton steps below it, so about twice the root's distance from its top (at most 2.06 times), over liquid and ice, at
+/// 1 atm and 10 MPa.
+#[test]
+fn the_dew_points_bracket_is_two_newton_steps_wide() {
+    let air = humid_air(DataSet::Corrected);
+    let mut widest: f64 = 0.0;
+    for p in [101_325.0, 1e7] {
+        for psi in [1e-4, 1e-3, 1e-2, 0.1] {
+            let (foot, top) = crate::dew_point::bracket(&air, (p, psi * p)).unwrap();
+            let root = air.dew_point(p, psi).unwrap();
+            assert!(foot < root && root <= top, "{p} Pa, ψ_w {psi}: {foot} {root} {top}");
+            widest = widest.max((top - foot) / (top - root));
+        }
+    }
+    assert!(widest <= 2.1, "{widest}");
+}
+
+/// The dew point at the foot of the range: where p_w is the saturation pressure at 130 K itself, it is not below the
+/// range's pressure, but f above 1 puts the root under 130 K, which the solve refuses.
+#[test]
+fn the_dew_point_at_the_range_s_foot_is_the_solve_s_refusal() {
+    let air = humid_air(DataSet::Corrected);
+    let p = 101_325.0;
+    let p_min = crate::saturation::p_ws(&air.parts().liquid, &air.parts().ice, 130.0).unwrap();
+    let psi = p_min / p;
+    assert_eq!(psi * p, p_min);
+    assert!(matches!(air.dew_point(p, psi), Err(Error::Domain(DomainError::BelowMinTemperature { .. }))));
+}
+
+/// In T: dry air by φ = 0 reaches 600 K, its h's state; W = 0 and h are dry air's state at T; a target whose state lies
+/// below W's dew point, in the fog, is refused.
+#[test]
+fn the_solve_in_t_covers_dry_air_and_stops_at_the_dew_point() {
+    let air = humid_air(DataSet::Corrected);
+    let p = 101_325.0;
+    let h = |t: f64, w: f64| {
+        air.state(p, Given::Temperature(t), Given::Humidity(Humidity::Ratio(w))).unwrap().h(Per::KgDryAir)
+    };
+    let t_at = |a: Given, b: Given| air.state(p, a, b).map(|s| s.t());
+    let dry = Given::Humidity(Humidity::Relative(0.0));
+    assert!((t_at(dry, Given::Enthalpy(h(600.0, 0.0))).unwrap() - 600.0).abs() < 1e-9);
+    let w0 = Given::Humidity(Humidity::Ratio(0.0));
+    assert!((t_at(w0, Given::Enthalpy(h(300.0, 0.0))).unwrap() - 300.0).abs() < 1e-9);
+    let w = Given::Humidity(Humidity::Ratio(0.01));
+    assert!(matches!(t_at(w, Given::Enthalpy(h(278.15, 0.01))), Err(Error::InvalidInput { .. })));
+}

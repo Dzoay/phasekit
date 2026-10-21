@@ -27,8 +27,47 @@ fn saturation_temperature(part: &Fluid, p: f64) -> Result<f64, Error> {
 fn slope(part: &Fluid, t: f64) -> Result<f64, Error> {
     let (condensed, vapour) = (saturated(part, 0.0, t)?, saturated(part, 1.0, t)?);
     let ds = vapour.s(Basis::Molar) - condensed.s(Basis::Molar);
+    // The condensed phase's volume is a few parts in 10⁵ of the vapour's at the pressures of a dew point: added, it moves
+    // the bracket's foot by as little, and the root stays bracketed.
+    // equivalent mutant: replace - with +
     let dv = 1.0 / vapour.rho(Basis::Molar) - 1.0 / condensed.rho(Basis::Molar);
     Ok(ds / dv / vapour.p())
+}
+
+/// ln(f·p_ws/p_w) at `t`, at p and water's partial pressure p_w: the dew point's residual, rising with T.
+fn ln_ratio(air: &HumidAir, (p, p_w): (f64, f64), t: f64) -> Result<f64, Error> {
+    let sat = air.saturation(t, p)?;
+    Ok(math::ln(sat.f * sat.p_ws / p_w))
+}
+
+/// The dew point's bracket at p and water's partial pressure p_w, (foot, top) (see the module's notes): the top the
+/// liquid's saturation temperature at p_w where its root is at or above the triple point, else the ice's, or the triple
+/// point where the jump crosses zero; the foot two Newton steps below the top, or the part's floor where those do not
+/// pass the root.
+pub(crate) fn bracket(air: &HumidAir, (p, p_w): (f64, f64)) -> Result<(f64, f64), Error> {
+    let parts = air.parts();
+    let ln_ratio = |t: f64| ln_ratio(air, (p, p_w), t);
+    // At p_w = p_ws at the triple point, the ice's saturation temperature at p_w is the triple point.
+    // equivalent mutant: replace < with <=
+    let below_triple = p_w < p_ws(&parts.liquid, &parts.ice, T_TRIPLE)?;
+    let (part, floor, top) = if ln_ratio(T_TRIPLE)? <= 0.0 {
+        (&parts.liquid, T_TRIPLE, saturation_temperature(&parts.liquid, p_w)?)
+    } else if below_triple {
+        (&parts.ice, T_MIN, saturation_temperature(&parts.ice, p_w)?)
+    } else {
+        (&parts.ice, T_MIN, T_TRIPLE)
+    };
+    let (slope_top, ratio) = (slope(part, top)?, ln_ratio(top)?);
+    // f is at least 1, so ln(f·p_ws/p_w) ≥ 0 at the top but for IF97's Eqs. (30) and (31), which invert each other to
+    // 1e-11: where f is 1 (nearly pure vapour), the top can fall a hair short, and a Newton step puts it past the root.
+    // A ratio of 0 moves the top by nothing.
+    // equivalent mutant: replace < with <=
+    let top = if ratio < 0.0 { top - 2.0 * ratio / slope_top } else { top };
+    let guess = (top - 2.0 * ln_ratio(top)? / slope_top).max(floor);
+    // A guess on the root itself brackets it as the floor does.
+    // equivalent mutant: replace < with <=
+    let foot = if ln_ratio(guess)? < 0.0 { guess } else { floor };
+    Ok((foot, top))
 }
 
 /// The dew or frost point of moist air at `p` with mole fraction of water `psi` (see the module's notes).
@@ -47,24 +86,7 @@ pub(crate) fn dew_point(air: &HumidAir, p: f64, psi: f64) -> Result<f64, Error> 
     if p_w < p_min {
         return Err(DomainError::BelowMinPressure { p: p_w, p_min }.into());
     }
-    let ln_ratio = |t: f64| -> Result<f64, Error> {
-        let sat = air.saturation(t, p)?;
-        Ok(math::ln(sat.f * sat.p_ws / p_w))
-    };
-    let (part, floor, top) = if ln_ratio(T_TRIPLE)? <= 0.0 {
-        (&parts.liquid, T_TRIPLE, saturation_temperature(&parts.liquid, p_w)?)
-    } else if p_w < p_ws(&parts.liquid, &parts.ice, T_TRIPLE)? {
-        (&parts.ice, T_MIN, saturation_temperature(&parts.ice, p_w)?)
-    } else {
-        (&parts.ice, T_MIN, T_TRIPLE)
-    };
-    // f is at least 1, so ln(f·p_ws/p_w) ≥ 0 at the top but for IF97's Eqs. (30) and (31), which invert each other to
-    // 1e-11: where f is 1 (nearly pure vapour), the top can fall a hair short, and a Newton step puts it past the root.
-    let (slope_top, ratio) = (slope(part, top)?, ln_ratio(top)?);
-    let top = if ratio < 0.0 { top - 2.0 * ratio / slope_top } else { top };
-    let guess = (top - 2.0 * ln_ratio(top)? / slope_top).max(floor);
-    let foot = if ln_ratio(guess)? < 0.0 { guess } else { floor };
-    root::bracketed(ln_ratio, (foot, top))?
+    root::bracketed(|t| ln_ratio(air, (p, p_w), t), bracket(air, (p, p_w))?)?
         .ok_or(Error::Domain(DomainError::BelowMinTemperature { t: T_MIN, t_min: T_MIN }))
 }
 
