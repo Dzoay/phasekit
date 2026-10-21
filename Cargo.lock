@@ -569,6 +569,7 @@ dependencies = [
  "phasekit-data",
  "phasekit-diagram",
  "phasekit-humidair",
+ "phasekit-iapws",
  "phasekit-mix",
  "phasekit-verify",
  "wasm-bindgen",

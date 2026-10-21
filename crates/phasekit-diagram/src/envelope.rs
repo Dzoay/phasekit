@@ -73,7 +73,7 @@ fn drawn(trace: &Trace, plane: Plane, critical: Option<[f64; 3]>) -> Result<Diag
     let all: Vec<&Vertex> = dome.liquid.iter().chain(&dome.vapour).chain(&dome.critical).collect();
     let x = around(extent(all.iter().map(|v| v.x)), plane.x().log);
     let y = around(extent(all.iter().map(|v| v.y)), plane.y().log);
-    Ok(Diagram { plane, dome, lines: Vec::new(), x, y })
+    Ok(Diagram { plane, dome, lines: Vec::new(), x, y, ice: None })
 }
 
 /// The points of the side at quality `q`: in the trace's order where the trace starts on it, which then runs toward

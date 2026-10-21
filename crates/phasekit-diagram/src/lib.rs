@@ -2,8 +2,8 @@
 //! the same lines (PLAN.md M19; user decisions WS4, DG1-DG3). The p–h, T–s, p–T, T–ρ and h–s planes, each with its
 //! saturation dome and isolines, as polylines whose every vertex is a state the library computed, carrying the inputs
 //! it was computed at; a mixture's traced envelope on p–T and T–ρ; and the phase regions, polygons whose corners carry
-//! every plane's axes; and humid air's psychrometric chart (M18.9) and Mollier's h–x chart (M18.10), sampled through a
-//! seam the caller fills. A line's label is its held quantity and value, a region's its phase. It draws nothing: where
+//! every plane's axes; Water's ice on its planes and among its regions (M18.11), passed as data; and humid air's
+//! psychrometric chart (M18.9) and Mollier's h–x chart (M18.10), sampled through a seam the caller fills. A line's label is its held quantity and value, a region's its phase. It draws nothing: where
 //! a label goes, the colours and the shown units are the host's.
 //!
 //! It depends on phasekit-core's public API alone (`cargo xtask gates deps`). Its arbiter is the library: a vertex is
@@ -16,6 +16,7 @@
 mod batch;
 mod diagram;
 mod envelope;
+mod ice;
 mod lines;
 mod mollier;
 mod plane;
@@ -27,6 +28,10 @@ mod regions;
 pub use batch::{Batch, FluidBatch, Inputs, Row, Vertex};
 pub use diagram::{Diagram, Dome, diagram, sample};
 pub use envelope::{Trace, envelope};
+pub use ice::{
+    ICE_FROM, Ice, IceLines, P_ICE_III, Sides, diagram_with_ice, regions_with_ice, sample_regions_with_ice,
+    sample_with_ice,
+};
 pub use lines::{Line, Segment};
 pub use mollier::{Mollier, MollierVertex, mollier};
 pub use plane::{Axis, Family, Plane, Quantity};

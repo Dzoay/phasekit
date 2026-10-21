@@ -9,10 +9,13 @@
 //!   vertices, as offsets into flat arrays.
 //! - The `Regions`: per region its phase and outline, the critical isotherm and isobar, each a `Corners` list of
 //!   runs whose corners carry T, P, Hmass, Smass and Dmass, so that every plane reads its axes from them.
+//! - Water's carry ice Ih where a page asks for it with ice's lowest temperature (`iceFrom()`, 200 K, by default;
+//!   PLAN.md M18.11): the diagram its sublimation and melting lines' two sides, sampled over a range reaching down
+//!   there, the regions the solid and its two areas. Without it they are M19.6's, as the site draws them.
 
 use phasekit_compat as compat;
 use phasekit_core::batch::ExecPolicy;
-use phasekit_core::{Pair, ThermoModel, Var};
+use phasekit_core::{DataSet, Pair, ThermoModel, Var};
 use phasekit_diagram::{self as diagram, FluidBatch, Limits, Plane, Quantity};
 use phasekit_mix::{EnvelopeOptions, Mixture, Side};
 use wasm_bindgen::prelude::*;
@@ -247,12 +250,15 @@ pub struct Diagram {
     vapour: Vertices,
     critical: Vertices,
     lines: Lines,
+    ice: [Vertices; 4],
     end: String,
     reason: String,
 }
 
 impl Diagram {
     fn of(d: &diagram::Diagram, end: String, reason: String) -> Result<Diagram, JsError> {
+        let ice = d.ice.clone().unwrap_or_default();
+        let (s, m) = (&ice.sublimation, &ice.melting);
         Ok(Diagram {
             plane: d.plane,
             x: vec![d.x.0, d.x.1],
@@ -261,9 +267,15 @@ impl Diagram {
             vapour: Vertices::of(&d.dome.vapour),
             critical: Vertices::of(&d.dome.critical),
             lines: Lines::of(&d.lines)?,
+            ice: [Vertices::of(&s.solid), Vertices::of(&s.fluid), Vertices::of(&m.solid), Vertices::of(&m.fluid)],
             end,
             reason,
         })
+    }
+
+    /// Ice's side `k`: the sublimation line's solid and vapour, the melting line's solid and liquid.
+    fn ice(&self, k: usize) -> Vertices {
+        self.ice.get(k).cloned().unwrap_or_default()
     }
 }
 
@@ -309,6 +321,31 @@ impl Diagram {
     #[wasm_bindgen(getter)]
     pub fn lines(&self) -> Lines {
         self.lines.clone()
+    }
+
+    /// Water's: the sublimation line's solid side, from ice's lowest temperature up to the triple point; empty for any
+    /// other fluid.
+    #[wasm_bindgen(getter, js_name = sublimationSolid)]
+    pub fn sublimation_solid(&self) -> Vertices {
+        self.ice(0)
+    }
+
+    /// Water's: the sublimation line's vapour side, point for point with its solid side.
+    #[wasm_bindgen(getter, js_name = sublimationVapour)]
+    pub fn sublimation_vapour(&self) -> Vertices {
+        self.ice(1)
+    }
+
+    /// Water's: ice Ih's melting line's solid side, from the triple point up in pressure to 208.566 MPa.
+    #[wasm_bindgen(getter, js_name = meltingSolid)]
+    pub fn melting_solid(&self) -> Vertices {
+        self.ice(2)
+    }
+
+    /// Water's: the melting line's liquid side, point for point with its solid side.
+    #[wasm_bindgen(getter, js_name = meltingLiquid)]
+    pub fn melting_liquid(&self) -> Vertices {
+        self.ice(3)
     }
 
     /// How a mixture's trace of its envelope ended, as `Envelope.end` says; empty for a pure fluid.
@@ -446,12 +483,33 @@ fn trace(mixture: &Mixture) -> Result<(diagram::Trace, String, String), JsError>
     Ok((diagram::Trace { t: e.t, p: e.p, rho, q, critical: e.critical, end: stop }, end, reason))
 }
 
+/// The lowest temperature of ice's lines a page asks for unless it chooses another, K (PLAN.md M18.11): 200 K, where
+/// the sublimation pressure is 0.16 Pa.
+#[wasm_bindgen(js_name = iceFrom)]
+pub fn ice_from() -> f64 {
+    diagram::ICE_FROM
+}
+
+/// Water's ice Ih from `ice_from` (K) where a page asks for it, under `Corrected` as the package's humid air (PLAN.md
+/// M18.11); refused for any other fluid.
+fn ice_of(fluid: &phasekit_core::Fluid, ice_from: Option<f64>) -> Result<Option<diagram::Ice>, JsError> {
+    let Some(t_low) = ice_from else { return Ok(None) };
+    let name = fluid.info().name();
+    if name != "Water" {
+        return Err(js(format!("ice is drawn on Water's diagrams alone, not {name}'s")));
+    }
+    let ice = phasekit_iapws::ice::ice(fluid, DataSet::Corrected).map_err(js)?;
+    Ok(Some(diagram::Ice::of(fluid, &ice, t_low).map_err(js)?))
+}
+
 #[wasm_bindgen]
 impl Fluid {
     /// Its diagram on `plane` (`ph`, `ts`, `pt`, `trho` or `hs`; PLAN.md M19.6): a pure fluid's dome and isolines, by
     /// its batch in lanes (`ExecPolicy::Simd`), the default flash options and the vertices bit for bit `evaluate`'s; or
     /// a mixture's phase envelope on `pt` and `trho`, traced as `envelope()` traces it, the other planes refused.
-    pub fn diagram(&self, plane: &str) -> Result<Diagram, JsError> {
+    /// Water's carries ice Ih from `ice_from` (K; `iceFrom()` by default) up where a page gives it, its range reaching
+    /// down there (PLAN.md M18.11); another fluid's refuses it.
+    pub fn diagram(&self, plane: &str, ice_from: Option<f64>) -> Result<Diagram, JsError> {
         alive()?;
         let unknown = || js(format!("`{plane}` is no plane: ph, ts, pt, trho or hs"));
         let plane = Plane::from_id(plane).ok_or_else(unknown)?;
@@ -460,17 +518,27 @@ impl Fluid {
             return Diagram::of(&diagram::envelope(&self.inner, &trace, plane).map_err(js)?, end, reason);
         }
         let batch = FluidBatch::new(&self.inner).with_exec(ExecPolicy::Simd);
-        let d = diagram::sample(&batch, plane, &Limits::of(&self.inner).map_err(js)?).map_err(js)?;
-        Diagram::of(&d, String::new(), String::new())
+        let limits = Limits::of(&self.inner).map_err(js)?;
+        let d = match ice_of(&self.inner, ice_from)? {
+            Some(ice) => diagram::sample_with_ice(&batch, plane, &limits, &ice),
+            None => diagram::sample(&batch, plane, &limits),
+        };
+        Diagram::of(&d.map_err(js)?, String::new(), String::new())
     }
 
     /// Its phase regions (PLAN.md M19.5): polygons whose corners carry every plane's axes, each region's phase the
     /// library's at a state inside it, and the critical isotherm and isobar. A mixture has none and is refused.
-    pub fn regions(&self) -> Result<Regions, JsError> {
+    /// Water's add ice Ih's from `ice_from` (K) where a page gives it: the solid, the solid + vapour and the solid +
+    /// liquid, after Water's six, whose floor reaches down to ice's lowest pressure (PLAN.md M18.11).
+    pub fn regions(&self, ice_from: Option<f64>) -> Result<Regions, JsError> {
         alive()?;
         if mixture_of(&self.inner).is_some() {
             return Err(js(format!("{} is a mixture: its phase regions are not drawn", self.name())));
         }
-        Regions::of(&diagram::regions(&self.inner).map_err(js)?)
+        let regions = match ice_of(&self.inner, ice_from)? {
+            Some(ice) => diagram::regions_with_ice(&self.inner, &ice),
+            None => diagram::regions(&self.inner),
+        };
+        Regions::of(&regions.map_err(js)?)
     }
 }

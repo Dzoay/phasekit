@@ -1,7 +1,8 @@
 //! The phase regions (PLAN.md M19.5, the site's `regions.ts` of M21.9 and #253): each a polygon whose edges are the
 //! library's lines, sampled once a fluid with every plane's axes among the outputs, so that every plane reads its axes
 //! from the same corners. Each region's phase is the library's (`State::phase`) at a state inside it; the crate names
-//! no phase itself. A failed cell is left out of an edge, so where the library has no state an edge cuts across to the
+//! no phase itself, but for ice's three regions (M18.11, [`sample_regions_with_ice`](crate::sample_regions_with_ice)), whose data
+//! says what each is. A failed cell is left out of an edge, so where the library has no state an edge cuts across to the
 //! next state it has; on the cold side, where the melting line ends the liquid, the edge follows it.
 //!
 //! In (T, p) the regions are the four quadrants about the critical point, the low-T, low-p one split by the saturation
@@ -57,7 +58,8 @@ pub struct Region {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Regions {
     /// Each region whose phase the library gives: above p_c and T_c, below p_c and above T_c, above p_c and below T_c,
-    /// then, where the saturated liquid's middle state is the library's, the liquid, the gas and the liquid + vapour.
+    /// then, where the saturated liquid's middle state is the library's, the liquid, the gas and the liquid + vapour;
+    /// then, with ice (M18.11), the solid, the solid + vapour and the solid + liquid.
     pub regions: Vec<Region>,
     /// The critical isotherm, up in p through the critical point, broken where a cell failed.
     pub isotherm: Vec<Vec<Corner>>,
@@ -84,6 +86,16 @@ pub fn sample_regions(
     phase: &impl Fn(Inputs) -> Option<Phase>,
     limits: &Limits,
 ) -> Result<Regions, Error> {
+    sample_regions_down_to(batch, phase, limits, f64::INFINITY)
+}
+
+/// The phase regions, their floor no higher than `p_low` (M18.11: ice's lowest pressure).
+pub(crate) fn sample_regions_down_to(
+    batch: &impl Batch,
+    phase: &impl Fn(Inputs) -> Option<Phase>,
+    limits: &Limits,
+    p_low: f64,
+) -> Result<Regions, Error> {
     let s = Sampler { batch, low: ranges(limits).t.0, t_c: limits.t_critical, p_c: limits.p_critical };
     let critical = s.states((Quantity::T, &[s.t_c]), (Quantity::Dmass, &[limits.rho_critical]))?;
     let critical = critical.into_iter().next().flatten();
@@ -101,7 +113,7 @@ pub fn sample_regions(
             p_critical,
         });
     };
-    let e = Edges::sample(&s, limits, saturated)?;
+    let e = Edges::sample(&s, limits, (saturated, p_low))?;
     let seeded = outlines(&e, &dome, (s.low, t_critical, p_critical));
     let regions = seeded.into_iter().filter_map(|(seed, outline)| region(phase(seed)?, outline));
     let isotherm = runs(e.tc_down.iter().rev().chain([&critical]).chain(&e.tc_up).copied());
@@ -258,17 +270,18 @@ struct Edges {
     cold_high: Leg,
     cold_low: Leg,
     cold_gas: Leg,
-    /// T_max, the lower of the range's lowest pressure and half the saturation pressure at the lowest T, and P_max.
+    /// T_max, the lowest of the range's lowest pressure, half the saturation pressure at the lowest T and the caller's
+    /// lowest (ice's, M18.11), and P_max.
     high: f64,
     floor: f64,
     top: f64,
 }
 
 impl Edges {
-    fn sample(s: &Sampler<'_, impl Batch>, limits: &Limits, saturated: Corner) -> Result<Edges, Error> {
+    fn sample(s: &Sampler<'_, impl Batch>, limits: &Limits, (saturated, p_low): (Corner, f64)) -> Result<Edges, Error> {
         let (low, high, top) = (s.low, limits.t_max, limits.p_max);
         let (t_c, p_c) = (s.t_c, s.p_c);
-        let floor = ranges(limits).p.0.min(saturated.p / 2.0);
+        let floor = ranges(limits).p.0.min(saturated.p / 2.0).min(p_low);
         // Below p_c an isobar is halved below its bubble temperature, T_c where the library has none: a pseudo-pure
         // fluid has no state between its bubble and dew temperatures, and a halving that landed there would climb to
         // the dew side (#253).

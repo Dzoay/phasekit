@@ -13,7 +13,7 @@ use phasekit_core::{DataSet, Pack};
 use phasekit_mix::{EnvelopeOptions, Given, Mixture, Side};
 use phasekit_verify::{Fixture, ToleranceClass};
 use phasekit_wasm::{
-    HumidAir, Registry, binary_pairs, humid_air_keys, mixture_components, output_keys, pair_keys, planes,
+    HumidAir, Registry, binary_pairs, humid_air_keys, ice_from, mixture_components, output_keys, pair_keys, planes,
     predefined_mixtures,
 };
 use wasm_bindgen::prelude::*;
@@ -539,7 +539,7 @@ fn a_fluids_diagram_is_the_crates_bit_for_bit() {
     let page = Registry::new().unwrap().fluid("Water").unwrap();
     for plane in Plane::ALL {
         let (got, want) =
-            (page.diagram(plane.id()).unwrap(), sample(&batch, plane, &Limits::of(&oracle).unwrap()).unwrap());
+            (page.diagram(plane.id(), None).unwrap(), sample(&batch, plane, &Limits::of(&oracle).unwrap()).unwrap());
         assert_eq!(
             (got.plane(), bits(got.x()), bits(got.y())),
             (plane.id().to_string(), bits(vec![want.x.0, want.x.1]), bits(vec![want.y.0, want.y.1]))
@@ -587,12 +587,12 @@ fn evaluated(page: &phasekit_wasm::Fluid, vertices: &phasekit_wasm::Vertices, (x
 fn every_vertex_is_evaluates_value_at_its_inputs() {
     let page = Registry::new().unwrap().fluid("Water").unwrap();
     for (id, axes) in [("ph", ("Hmass", "P")), ("hs", ("Smass", "Hmass"))] {
-        let d = page.diagram(id).unwrap();
+        let d = page.diagram(id, None).unwrap();
         let all = [d.liquid(), d.vapour(), d.critical(), d.lines().vertices()];
         let checked: usize = all.iter().map(|vertices| evaluated(&page, vertices, axes)).sum();
         assert!(checked > 1000, "{id}: {checked}");
     }
-    assert!(page.diagram("xy").is_err());
+    assert!(page.diagram("xy", None).is_err());
 }
 
 /// PLAN.md M19.6, M19.4's check through the exports: R410A.mix's diagram on p–T and T–ρ is its envelope as
@@ -608,7 +608,7 @@ fn a_mixtures_diagram_is_its_envelope() {
         ("pt", e.t(), e.p(), [constant("T_critical"), constant("p_critical")]),
         ("trho", e.dmass(), e.t(), [constant("rhomass_critical"), constant("T_critical")]),
     ] {
-        let d = page.diagram(id).unwrap();
+        let d = page.diagram(id, None).unwrap();
         let (liquid, vapour) = (d.liquid().xy(), d.vapour().xy());
         let dew: Vec<f64> = vapour.chunks(2).rev().flat_map(|p| p.to_vec()).collect();
         let order: Vec<f64> = liquid.iter().copied().chain(dew).collect();
@@ -617,8 +617,8 @@ fn a_mixtures_diagram_is_its_envelope() {
         assert_eq!(bits(d.critical().xy()), bits(critical.to_vec()), "{id}");
         assert_eq!((d.lines().held().len(), d.end(), d.reason()), (0, e.end(), e.reason()));
     }
-    assert!(page.diagram("ph").is_err());
-    assert!(page.regions().is_err());
+    assert!(page.diagram("ph", None).is_err());
+    assert!(page.regions(None).is_err());
 }
 
 /// PLAN.md M19.6, M19.5's checks through the exports: Water's regions are phasekit-diagram's, bit for bit, their phases
@@ -627,7 +627,7 @@ fn a_mixtures_diagram_is_its_envelope() {
 fn a_fluids_regions_are_the_crates_bit_for_bit() {
     let oracle = water();
     let want = phasekit_diagram::regions(&oracle).unwrap();
-    let got = Registry::new().unwrap().fluid("Water").unwrap().regions().unwrap();
+    let got = Registry::new().unwrap().fluid("Water").unwrap().regions(None).unwrap();
     let mut phases = got.phases();
     assert_eq!(phases, want.regions.iter().map(|g| phasekit_compat::phase_name(g.phase)).collect::<Vec<_>>());
     phases.sort();
@@ -652,6 +652,44 @@ fn a_fluids_regions_are_the_crates_bit_for_bit() {
         assert!(line.corners().chunks(5).any(|c| c == critical.as_slice()));
     }
     assert_eq!((got.t_critical(), got.p_critical()), (want.t_critical, want.p_critical));
+}
+
+/// PLAN.md M18.11: with ice from `iceFrom()` (200 K), Water's diagram on each plane is phasekit-diagram's
+/// `sample_with_ice` over the same `Ice::of`, bit for bit, ice's four sides with the rest; its regions are
+/// `regions_with_ice`'s, the solid and its two areas after Water's six; without it, no ice; another fluid refuses it.
+#[wasm_bindgen_test]
+fn water_s_diagrams_and_regions_carry_ice() {
+    use phasekit_diagram::{FluidBatch, Ice, Limits, Plane, regions_with_ice, sample_with_ice};
+    let oracle = water();
+    let ice = Ice::of(&oracle, &phasekit_iapws::ice::ice(&oracle, DataSet::Corrected).unwrap(), ice_from()).unwrap();
+    let (batch, limits) = (FluidBatch::new(&oracle).with_exec(ExecPolicy::Simd), Limits::of(&oracle).unwrap());
+    let page = Registry::new().unwrap().fluid("Water").unwrap();
+    assert_eq!(ice_from(), 200.0);
+    for plane in Plane::ALL {
+        let got = page.diagram(plane.id(), Some(ice_from())).unwrap();
+        let want = sample_with_ice(&batch, plane, &limits, &ice).unwrap();
+        let spans = |x: (f64, f64), y: (f64, f64)| (bits(vec![x.0, x.1]), bits(vec![y.0, y.1]));
+        assert_eq!((bits(got.x()), bits(got.y())), spans(want.x, want.y), "{plane:?}");
+        assert_eq!(exported(&got.liquid()), laid_out(&want.dome.liquid), "{plane:?}");
+        let segments = want.lines.iter().flat_map(|l| &l.segments);
+        assert_eq!(exported(&got.lines().vertices()), laid_out(segments.flat_map(|s| &s.vertices)), "{plane:?}");
+        let lines = want.ice.unwrap();
+        let sides = [got.sublimation_solid(), got.sublimation_vapour(), got.melting_solid(), got.melting_liquid()];
+        let (s, m) = (&lines.sublimation, &lines.melting);
+        for (side, want) in sides.iter().zip([&s.solid, &s.fluid, &m.solid, &m.fluid]) {
+            assert_eq!(exported(side), laid_out(want), "{plane:?}");
+        }
+    }
+    let regions = page.regions(Some(ice_from())).unwrap();
+    let want = regions_with_ice(&oracle, &ice).unwrap();
+    let phases = regions.phases();
+    assert_eq!(phases, want.regions.iter().map(|g| phasekit_compat::phase_name(g.phase)).collect::<Vec<_>>());
+    assert_eq!(phases[6..], ["solid", "twophase", "twophase"]);
+    let corners = want.regions.iter().flat_map(|g| &g.outline).flat_map(|c| [c.t, c.p, c.h, c.s, c.rho]);
+    assert_eq!(bits(regions.outlines().corners()), bits(corners.collect()));
+    assert_eq!(page.diagram("ph", None).unwrap().sublimation_solid().length(), 0);
+    let nitrogen = Registry::new().unwrap().fluid("Nitrogen").unwrap();
+    assert!(nitrogen.diagram("ph", Some(200.0)).is_err() && nitrogen.regions(Some(200.0)).is_err());
 }
 
 #[wasm_bindgen(inline_js = r#"
