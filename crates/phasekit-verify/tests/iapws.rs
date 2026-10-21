@@ -410,7 +410,8 @@ fn vapour_g_and_v(water: &Fluid, t: f64, p: f64) -> (f64, f64) {
 /// R14-08(2011) §6 Eq. (7a): the expanded uncertainty (k = 2) of Eq. (6)'s pressure above 130 K, relative.
 fn sublimation_uncertainty(t: f64) -> f64 {
     let x = 273.16 / t;
-    (1.1e-5_f64.powi(2) + (1e-2 * (x - 1.0)).powi(2) + (4e-4 * (x - 1.0 - x.ln())).powi(2)).sqrt()
+    let (a, b, c) = (1.1e-5, 1e-2 * (x - 1.0), 4e-4 * (x - 1.0 - math::ln(x)));
+    math::sqrt(a * a + b * b + c * c)
 }
 
 /// R14-08(2011) §3, §6: Eq. (6) was fitted to the equilibrium of R10-06(2009)'s ice and IAPWS-95's vapour from 130 K.

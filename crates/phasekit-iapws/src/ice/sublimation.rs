@@ -1,7 +1,7 @@
 //! Ice Ih's sublimation pressure, IAPWS R14-08(2011) Eq. (6): ln(p/p_t) = θ⁻¹ Σ aᵢ θ^bᵢ, θ = T/T_t, from 50 K to the
 //! triple point, and its inverse by Newton in θ, the equation's θ-derivative closed-form.
 
-use phasekit_core::{DomainError, Error, Strategy};
+use phasekit_core::{DomainError, Error, Strategy, math};
 
 use super::gibbs::T_T;
 
@@ -18,7 +18,7 @@ const TERMS: [(f64, f64); 3] =
 /// ln(p_subl/p_t) at θ and its θ-derivative.
 fn ln_pi(theta: f64) -> (f64, f64) {
     TERMS.iter().fold((0.0, 0.0), |(f, df), &(a, b)| {
-        let x = a * theta.powf(b - 1.0);
+        let x = a * math::powf(theta, b - 1.0);
         (f + x, df + (b - 1.0) * x / theta)
     })
 }
@@ -37,7 +37,7 @@ fn within(t: f64) -> Result<(), Error> {
 /// p_subl at `t` (K), Pa.
 pub(super) fn pressure(t: f64) -> Result<f64, Error> {
     within(t)?;
-    Ok(P_T * ln_pi(t / T_T).0.exp())
+    Ok(P_T * math::exp(ln_pi(t / T_T).0))
 }
 
 /// The iterations Newton may take: from θ = 1, Eq. (6)'s ln p is smooth and increasing in θ, and converges in under 10
@@ -47,7 +47,7 @@ const ITERATIONS: u16 = 40;
 /// T_subl at `p` (Pa), K: Newton in θ on Eq. (6) from the triple point, kept inside [50 K, T_t]; `NoConvergence` if it
 /// has not settled to 4 ulp of θ.
 pub(super) fn temperature(p: f64) -> Result<f64, Error> {
-    let (p_min, target) = (pressure(T_MIN)?, (p / P_T).ln());
+    let (p_min, target) = (pressure(T_MIN)?, math::ln(p / P_T));
     if p < p_min {
         return Err(DomainError::BelowMinPressure { p, p_min }.into());
     }
