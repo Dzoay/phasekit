@@ -87,7 +87,7 @@ fn water_95(water: &Fluid, data: DataSet, t: f64, p: f64) -> Result<Part, Error>
 }
 
 /// Water vapour's ideal part from the IF97 part's vapour at [`P_IDEAL`], its s carried to p with IF97's R.
-fn water_if97(liquid: &Fluid, t: f64, p: f64) -> Result<Part, Error> {
+pub(crate) fn water_if97(liquid: &Fluid, t: f64, p: f64) -> Result<Part, Error> {
     let state = liquid.state(Input::pt(Pressure::new(P_IDEAL)?, Temperature::new(t)?))?;
     Ok(Part {
         h: state.h(Basis::Molar),
