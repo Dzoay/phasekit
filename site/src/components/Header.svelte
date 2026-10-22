@@ -5,6 +5,7 @@
   const PAGES = [
     { id: "calculator", label: "Calculator" },
     { id: "diagrams", label: "Diagrams" },
+    { id: "surfaces", label: "Surfaces" },
     { id: "sweeps", label: "Sweeps" },
     { id: "benchmark", label: "Benchmark" },
     { id: "how-it-works", label: "How it works" },

@@ -133,9 +133,14 @@ impl Vertices {
     fn push(&mut self, v: &diagram::Vertex) {
         self.xy.extend([v.x, v.y]);
         self.inputs.extend([v.inputs.x, v.inputs.y]);
-        let code = Pair::ALL.iter().position(|pair| *pair == v.inputs.pair).and_then(|k| u8::try_from(k).ok());
-        self.pairs.push(code.unwrap_or(u8::MAX));
+        self.pairs.push(pair_code(v.inputs.pair));
     }
+}
+
+/// A pair's index into `pairKeys()`'s pairs.
+pub(crate) fn pair_code(pair: Pair) -> u8 {
+    let code = Pair::ALL.iter().position(|p| *p == pair).and_then(|k| u8::try_from(k).ok());
+    code.unwrap_or(u8::MAX)
 }
 
 #[wasm_bindgen]
@@ -166,7 +171,7 @@ impl Vertices {
 }
 
 /// A count or an offset into a typed array, as a `Uint32Array` holds it.
-fn offset(n: usize) -> Result<u32, JsError> {
+pub(crate) fn offset(n: usize) -> Result<u32, JsError> {
     u32::try_from(n).map_err(|_| js("the diagram has too many vertices"))
 }
 

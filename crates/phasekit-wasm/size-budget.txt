@@ -14,9 +14,12 @@
 # typed-array exports, took the builds to 2169132 and 2135626 bytes, 216686 and 198654 above main's 1952446 and
 # 1936972; each budget is that + 10 %.
 # M18.8 (SL8): humid air, phasekit-humidair and phasekit-iapws behind HAPropsSI and the HumidAir handle, took the builds
-# to 2268213 and 2229861 bytes, 99081 and 94235 above M19.6's; both stay within their budgets, which are unchanged.
-# M18.9-M18.11 (SL8): the psychrometric and Mollier charts and ice on Water's diagrams took the builds to 2382242 and
-# 2335856 bytes, 114029 and 105995 above M18.8's; both stay within their budgets, 3803 and 13332 bytes short, which are
-# unchanged.
-baseline 2386045
-simd128 2349188
+# to 2314703 and 2276385 bytes, 94677 and 90195 above main's 2220026 and 2186190 (M26.2's surface included); both
+# stay within their budgets, which are unchanged.
+# M18.9 and M18.10 (SL8): the psychrometric and Mollier charts, phasekit-diagram's humid-air lines and their
+# typed-array exports, took the builds to 2395913 and 2351575 bytes, 81210 and 75190 above M18.8's, over both budgets
+# (M26.2's surface had taken main to 2220026 and 2186190); each budget is that + 10 %.
+# M18.11 (SL8): ice on Water's diagrams, its lines and regions where a page asks, took the builds to 2428240 and
+# 2381438 bytes, 32327 and 29863 above M18.10's; both stay within their budgets, which are unchanged.
+baseline 2635504
+simd128 2586732
