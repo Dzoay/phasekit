@@ -7,7 +7,7 @@
 use phasekit_core::{Error, Fluid, Pair};
 
 use crate::batch::{Batch, FluidBatch, Inputs, Row, along};
-use crate::contour::{Bracket, Grid, bisect, zero_lines};
+use crate::contour::{Axes, Bracket, Grid, bisect, zero_lines};
 use crate::diagram::extent;
 use crate::plane::{Axis, Quantity};
 use crate::ranges::{Limits, Ranges, log_grid, ranges, values};
@@ -122,12 +122,12 @@ pub fn curves(fluid: &Fluid) -> Result<Curves, Error> {
 pub fn sample_curves(batch: &impl Batch, limits: &Limits) -> Result<Curves, Error> {
     let r = ranges(limits);
     let t = log_grid(r.t.0, limits.t_max, ROWS);
-    let grid = Grid::sample(batch, &OUTPUTS, densities(batch, &r, limits.t_max)?, t)?;
-    let low = grid.rho.first().copied().unwrap_or(f64::NAN);
+    let grid = Grid::sample(batch, &OUTPUTS, Axes::DT, (densities(batch, &r, limits.t_max)?, t))?;
+    let low = grid.x.first().copied().unwrap_or(f64::NAN);
     let curve = |characteristic: Characteristic| -> Result<Curve, Error> {
         let lines = zero_lines(batch, &OUTPUTS, &grid, &|row| characteristic.condition(row))?;
         let lines = lines.iter().map(|rows| rows.iter().filter_map(vertex).collect()).collect();
-        let zero_density = zero_density(batch, characteristic, low, &grid.t)?;
+        let zero_density = zero_density(batch, characteristic, low, &grid.y)?;
         Ok(Curve { characteristic, lines, zero_density })
     };
     let curves = Characteristic::ALL.into_iter().map(curve).collect::<Result<_, _>>()?;
@@ -198,7 +198,7 @@ fn zero_density(batch: &impl Batch, c: Characteristic, rho: f64, temperatures: &
         }
         _ => None,
     });
-    let found = bisect(batch, &VIRIALS, &field, vec![first])?;
+    let found = bisect(batch, (&VIRIALS, Axes::DT), &field, vec![first], 0.0)?;
     Ok(found.into_iter().flatten().next().and_then(|row| cell(&row, 0)))
 }
 

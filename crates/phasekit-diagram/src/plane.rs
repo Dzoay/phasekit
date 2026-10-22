@@ -33,6 +33,8 @@ pub enum Quantity {
     DpDTAtRho,
     /// The Joule–Thomson coefficient (∂T/∂p)_h, K/Pa: its inversion curve's.
     JouleThomson,
+    /// Any other output of the batch, in its own units: a property map's (M26.4), which no plane plots.
+    Output(Prop),
 }
 
 /// (∂of/∂wrt)_at.
@@ -57,6 +59,7 @@ impl Quantity {
             Quantity::DpDrhoAtT => partial(DerivVar::P, DerivVar::Dmass, DerivVar::T),
             Quantity::DpDTAtRho => partial(DerivVar::P, DerivVar::T, DerivVar::Dmass),
             Quantity::JouleThomson => partial(DerivVar::T, DerivVar::P, DerivVar::Hmass),
+            Quantity::Output(prop) => prop,
         }
     }
 
@@ -75,7 +78,8 @@ impl Quantity {
             | Quantity::DBvirialDT
             | Quantity::DpDrhoAtT
             | Quantity::DpDTAtRho
-            | Quantity::JouleThomson => return None,
+            | Quantity::JouleThomson
+            | Quantity::Output(_) => return None,
         })
     }
 }
@@ -246,6 +250,7 @@ mod tests {
             (Quantity::DpDTAtRho, partial(DerivVar::P, DerivVar::T, DerivVar::Dmass)),
             (Quantity::JouleThomson, partial(DerivVar::T, DerivVar::P, DerivVar::Hmass)),
         ];
+        let outputs = outputs.into_iter().chain([(Quantity::Output(Prop::SpeedOfSound), Prop::SpeedOfSound)]);
         for (q, prop) in outputs {
             assert_eq!((q.prop(), q.var()), (prop, None));
         }

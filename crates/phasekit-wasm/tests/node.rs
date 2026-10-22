@@ -473,6 +473,7 @@ fn key(quantity: phasekit_diagram::Quantity) -> &'static str {
         Quantity::DpDrhoAtT => "d(P)/d(Dmass)|T",
         Quantity::DpDTAtRho => "d(P)/d(T)|Dmass",
         Quantity::JouleThomson => "d(T)/d(P)|Hmass",
+        Quantity::Output(_) => "?",
     }
 }
 
