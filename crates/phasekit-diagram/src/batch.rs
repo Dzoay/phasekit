@@ -122,7 +122,7 @@ pub(crate) fn along(
     a: (Quantity, &[f64]),
     b: (Quantity, &[f64]),
 ) -> Result<Vec<Row>, Error> {
-    let unpaired = Error::InvalidInput { quantity: "input pair", value: f64::NAN };
+    let unpaired = Error::InvalidArgument { argument: "input pair", value: None };
     let (pair, swapped) = Pair::from_vars(a.0.var(), b.0.var()).ok_or(unpaired)?;
     let (x, y) = if swapped { (b.1, a.1) } else { (a.1, b.1) };
     batch.rows(outputs, pair, x, y)

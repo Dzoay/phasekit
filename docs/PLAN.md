@@ -493,7 +493,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M25 | xtask, `.gitattributes`, docs | The user's word, 2026-10-18, beside M24; its mutants step after `m24` (user decision LM6) | Lists that merge, kept as text (LM1): `ci/test-counts.txt` by a merge driver, ROT ids unique and the register merged by union, one file per decision section, mutant exclusions as markers in the code: [M25 Lists that merge](#m25-lists-that-merge) | Each step's red tests; G1-G8; `actionlint` clean |
 | M26 | `phasekit-diagram`, `phasekit-wasm`, `site/` | `m19` and M21.6 landed (the site draws from `phasekit-diagram`); the user's word (user decision DG6) | Three sets of diagrams beyond M19's planes, each computed by the library and drawn by the site: a fluid's p–v–T and u–s–v surfaces in three dimensions, drawn with three.js (user decisions DG7, DG8), characteristic curves and property maps on the planes, and three-component mixtures' ternary diagrams, the surfaces first (DG9): [M26 More diagrams](#m26-more-diagrams) | Every vertex a state the library computed; each set's arbiter; the browser package's and the page's budgets hold; tag `m26` |
 | M27 | `phasekit-iapws` | A steam use case (user decision HA1) | The rest of IF97: region 2 above 623.15 K with the B23 boundary, region 3 (SR3-03's backward v(T, p) refined by Newton, ROT-241) and region 5, the backward equations for HP, PS and HS, IF97's transport (R12-08, R15-11), and `IF97::Water` by name in compat, C and the browser package (HA5); map 07 §9's `if97-*` units | Zero-line core diff; R7-97(2012)'s other tables and SR3-03 Table 5; the `if97` oracle kind over all five regions |
-| M28 | core, every crate that builds an `Error`, `phasekit-wasm`, `site/` | The user's word, 2026-10-21; M28.1 after M18.10 lands, before M18.11 (user decision EM5) | Issue #191: error messages in the caller's units and in two styles, a long one in words and a short one stating the relation the value breaks; each number tagged with its quantity, six significant figures, `InvalidInput` split from structural arguments (user decisions EM1-EM4, EM6), three steps: [M28 Error messages](#m28-error-messages) | Every message pinned in both styles; a caller's units reach the browser package's messages; `m18-start` tagged at M28.1's merge; G1-G9 |
+| M28 | core, every crate that builds an `Error`, `phasekit-wasm`, `phasekit-compat`, `phasekit-capi`, `site/` | The user's word, 2026-10-21; M28.1 after M18.10 lands, before M18.11 (user decision EM5) | Issue #191: error messages in the caller's units and in two styles, a long one in words and a short one stating the relation the value breaks; each number tagged with its quantity, six significant figures, `InvalidInput` split from structural arguments, properties in words beside their keys, each error's stable code in core and the facades (user decisions EM1-EM4, EM6-EM13), three steps: [M28 Error messages](#m28-error-messages) | Every message pinned in both styles; a caller's units reach the browser package's messages; `m18-start` tagged at M28.1's merge; G1-G9 |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
@@ -1003,11 +1003,11 @@ sentence's room, the short form stating the relation the value breaks, for a UI'
 (EM6). Core cannot know a viewer's units (its API is SI, D5, and it keeps no global state), so a caller passes them;
 `Display` is SI. **Entry.** The user's word, 2026-10-21. M28.1 alone, since it changes the core, after M18.10 lands and
 before M18.11 (EM5): it converts humid air's refusals too, and `m18-start` is tagged at its merge, with the user's
-approval, and the core frozen from it to M18's close. M28.2 and M28.3 in one PR, a commit and a `Plan-Step:` footer
+approval (EM13), and the core frozen from it to M18's close. M28.2 and M28.3 in one PR, a commit and a `Plan-Step:` footer
 each (LM7), beside M18.11 and M18.12: they touch no core. **Prerequisites.** User decisions
-EM1-EM6. M28 does not move `MILESTONE`.
+EM1-EM13. M28 does not move `MILESTONE`.
 
-The proposed wording, which M28.1's PR shows in full for the user's review (EM2):
+The wording, which M28.1's PR shows in full for the user's review (EM2, EM7-EM10):
 
 | Error | Long | Short |
 |---|---|---|
@@ -1019,43 +1019,26 @@ The proposed wording, which M28.1's PR shows in full for the user's review (EM2)
 | above p_max | `pressure 2e9 Pa is above the maximum, 1e9 Pa` | `p = 2e9 Pa > p_max = 1e9 Pa` |
 | below the melting line | `temperature 250 K is below the melting temperature at this pressure, 251.2 K` | `T = 250 K < T_melt = 251.2 K` |
 | ambiguous | `several states fit these inputs: T = 300 K or 350 K` | `T ∈ {300 K, 350 K}` |
-| undefined | `cp is undefined in the two-phase region` | `cp: undefined, two-phase` |
+| undefined | `the isobaric heat capacity (Cpmass) is undefined for a two-phase state` | `Cpmass: undefined, two-phase` |
+| no convergence | `the density Newton iteration (DensityNewton) did not converge in 50 iterations` | `DensityNewton: no convergence in 50 iterations` |
 
 In °C a temperature's zero limit is written in °C (`T = −273.15 °C ≤ −273.15 °C`), so the long form says "absolute
 zero", not "positive".
 
-- **M28.1 Quantities, units and the two styles in core.**
-  - A `Dimension`, closed and `#[non_exhaustive]`, which a caller's units are keyed by: the site's kinds
-    (`site/src/lib/units.ts`, a specific one by its `Basis`) and what humid air refuses, since the core is frozen
-    after M28.1 (EM5): a fraction in [0, 1] (Q, a mole fraction, ψ_w, φ), a mass ratio (the humidity ratio W, kg/kg),
-    a molar mass and a specific volume; humid air's h, s and v per kilogram of dry air are mass-specific, the dry air
-    in the quantity's name. A `Quantity`, open: a name, a symbol and a dimension; core's as constants (T, p, ρ, h, s,
-    u, Q, the mole fractions), and a family crate defines its own.
-  - `InvalidInput { quantity: Quantity, value }` for physical values; structural arguments (counts, names, planes,
-    grids, a mixture's components) a variant of their own naming what was refused, with no unit (EM3). Every place that
-    builds one, in core, `phasekit-mix`, `phasekit-diagram`, `phasekit-iapws`, `phasekit-humidair`, `phasekit-verify`,
-    compat and capi, takes a quantity or the new variant. `Ambiguous`'s roots carry their quantity. `Phase` gets the
-    names a message writes; `Prop`, `Pair` and `Strategy` are written by their variant names (`Cpmass`, `PT`,
-    `DensityNewton`), a partial derivative as `∂of/∂wrt|at`, in place of their `Debug` forms.
-  - `Units`, a trait from a `Dimension` to a unit (a label, a scale and an offset, SI = value · scale + offset), `Si`
-    its SI implementation; `Style::{Long, Short}`; `Error::display(&units, style)`. `{}` is `display(&Si, Long)` and
-    `{:#}` `display(&Si, Short)`. Six significant figures, trailing zeros dropped (EM4), as a decimal from 1e-4 to
-    below 1e6 and otherwise as `2e9` *(decision)*; the fields keep the exact value.
-  - ARCHITECTURE.md's D12 says how an error is written. `ci/core-frozen.txt` names no tag, as between family
-    milestones, since this step changes the core; `m18-start` is tagged at the merge, with the user's approval, and
-    M28.2 names it there, as M13.2 named `m13-start`.
-  - *Red:* `every_message_in_both_styles` (each variant's long and short form in SI, pinned);
-    `messages_take_the_callers_units` (a test `Units` of °C, bar and kJ/kg: `T = −273.15 °C ≤ −273.15 °C`,
-    `p = 20000 bar > p_max = 10000 bar`);
-    `six_significant_figures` (647.0959999999873 K is written 647.096 K); `the_alternate_flag_is_the_short_form`;
-    `structural_arguments_carry_no_unit`; compat's and the C shim's message checks updated to the new text.
-- **M28.2 The browser package's refusals.** `ci/core-frozen.txt` names `m18-start`. A refused call throws an `Error`
-  whose message is the long form in SI and which carries the variant's code, its quantity's name and dimension, and its
-  numbers; an output refused inside an evaluation carries the same. `explain(refusal, units, style)` writes either style
+| Step | Landed |
+|---|---|
+| M28.1 | `phasekit_core::{Quantity, Dimension, Unit, Units, Si, Style, Message}` (`quantity.rs`, `error/message.rs`): a `Quantity` is a name, a symbol and a `Dimension`, held by an error as `&'static Quantity` so that `Error` keeps its 48 bytes; core's `TEMPERATURE`, `PRESSURE`, `QUALITY`, `MOLE_FRACTION`, `MOLAR_MASS` and, by basis, `density`, `enthalpy`, `entropy` and `internal_energy`, `Var::quantity(basis)`; the dimensions humid air refuses (a fraction in [0, 1], a mass ratio, a molar mass, a specific volume). `Error::InvalidInput { quantity, value }` and `Error::InvalidArgument { argument, value: Option<usize> }` for counts, indices, planes and mixtures (EM3), `Status::InvalidInput` for both; `Roots::new(quantity, roots)`, NaN the unused slots. `Error::display(&units, style)`: each number in the caller's unit of its dimension, six significant figures (EM4), a decimal from 1e-4 to below 1e6 and otherwise `2e9`, U+2212 for minus, NaN and ∞ by name; `{}` the long form in SI, `{:#}` the short (EM2, EM6). An `InvalidInput` names the first rule its value breaks (not a number, not finite, not above absolute zero, not positive, outside [0, 1]), else "out of range", so that a message never names a rule the value keeps (EM8). A property, a constant or a strategy in the long form in words beside its key, `the isobaric heat capacity (Cpmass)`, a derivative after "the derivative", in the short form by its key (EM7; `error/words.rs`). `Error::code()` and `DomainError::code()`, a stable snake_case code for each variant (`invalid_input`, `below_min_temperature`, …, the browser package's), and `Error::rule()`, the `Rule` an `InvalidInput`'s value breaks, with `Rule::code()` (`not_positive`, `out_of_range`, …), so that a facade, an agent or a solver reads them instead of the message (EM11; `error/code.rs`; the other findings of that review are issue #290). An unsupported pair's long form stays `input pair X is not supported by this model`, which the site's `liquidLiquid()` reads (MX4). `phasekit_mix::quantities` and `phasekit_humidair::quantities` hold those crates' own (humid air's h, s and v per kilogram of dry air, the dry air in the name, not a basis, and the wet-bulb temperature among them, for M18.1-M18.10's refusals); every crate that builds an error converted; D12 says how an error is written; `ci/core-frozen.txt` names no tag; the site's two pins of `invalid temperature: 0` pin `temperature 0 K is not above absolute zero`. *Red:* `every_message_in_both_styles` (21 errors, both forms, pinned), `messages_take_the_callers_units` (°C, bar, kJ/kg: `T = −273.15 °C ≤ −273.15 °C`, `p = 20000 bar > p_max = 10000 bar`), `the_alternate_flag_is_the_short_form`, `structural_arguments_carry_no_unit`, `derivatives_and_constants_by_name`, `roots_carry_their_quantity`; `a_rule_the_value_keeps_is_never_named`, `every_error_has_its_code`, `the_rule_a_value_breaks`; `six_significant_figures` and its neighbours in `quantity.rs` |
+
+- **M28.2 The facades' refusals.** `ci/core-frozen.txt` names `m18-start`. A refused call throws an `Error`
+  whose message is the long form in SI and which carries core's code (`Error::code()`, EM11), an invalid input's
+  rule, its quantity's name and dimension, and its numbers; an output refused inside an evaluation carries the same. `explain(refusal, units, style)` writes either style
   in the caller's units, `units` an object from a dimension's key to `{label, scale, offset}`, the site's `Unit`, an
   absent key written in SI. js-sys only if wasm-bindgen alone cannot attach the fields (DEPENDENCIES.md T2). The npm
-  README says how. *Red:* the package's Node tests on both builds: a refusal's fields, `explain` in °C and bar in both
-  styles, an absent key in SI.
+  README says how. `CompatError::code()` and `CompatError::rule()`, core's for a core error, compat's own for the rest,
+  which the browser package reads; `pk_last_error_code` and `pk_last_error_rule` copy out the thread's last code and rule
+  as `pk_last_error` does its message (EM12). *Red:* the package's Node tests on both builds: a refusal's fields,
+  `explain` in °C and bar in both styles, an absent key in SI; compat's codes; the C ABI's last code and rule, from Rust
+  and from `smoke.c`.
 - **M28.3 The site's messages, and M28 closed.** The calculator's refusal and each refused output are written by
   `explain` in the viewer's units: the long form where the page has room, the short form in the narrow places (an
   output's cell, the diagrams' readout under the cursor). #190's restatement of the inputs in SI is dropped, since the
@@ -1064,7 +1047,7 @@ zero", not "positive".
   against the page as it was.
 
 **Exit gate.** G1-G9 at every step; every message pinned in both styles; `gates core-frozen` since `m18-start` from
-M28.2 on. **ROT rows.** None. **User decisions implemented.** EM1-EM6.
+M28.2 on. **ROT rows.** None. **User decisions implemented.** EM1-EM13.
 
 ## 5. Cross-cutting tracks
 

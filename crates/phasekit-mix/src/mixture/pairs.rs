@@ -27,12 +27,13 @@
 use phasekit_core::density::Branch;
 use phasekit_core::{
     Basis, DerivVar, Derivs, DomainError, DomainPolicy, Error, FlashOptions, HelmholtzModel, NativeInput, Order, Pair,
-    Partial, Phase, RootPolicy, Roots, State, Strategy, ThermoModel, Var, math,
+    Partial, Phase, Quantity, RootPolicy, Roots, State, Strategy, ThermoModel, Var, math,
 };
 
 use super::{Equilibrium, Mixture, pressure};
 use crate::equilibrium;
 use crate::illinois::{End, illinois};
+use crate::quantities::VAPOUR_FRACTION;
 use crate::saturation::{self, Coexisting, Given, ln_k};
 use crate::slot;
 
@@ -134,7 +135,12 @@ fn branch_of(phase: Phase) -> Branch {
 
 /// The root `policy` takes among `states`, ascending by `key` (core's rule for every pair): the only one; of several,
 /// under `Nearest(x)` the one nearest x, else `Ambiguous` with every key. `none` without one.
-fn choose(mut states: Vec<State>, key: fn(&State) -> f64, policy: RootPolicy, none: Error) -> Result<State, Error> {
+fn choose(
+    mut states: Vec<State>,
+    (key, quantity): (fn(&State) -> f64, &'static Quantity),
+    policy: RootPolicy,
+    none: Error,
+) -> Result<State, Error> {
     states.sort_by(|a, b| key(a).total_cmp(&key(b)));
     states.dedup_by(|a, b| (key(a) - key(b)).abs() <= WIDTH * key(b).abs());
     let keys: Vec<f64> = states.iter().map(key).collect();
@@ -146,7 +152,7 @@ fn choose(mut states: Vec<State>, key: fn(&State) -> f64, policy: RootPolicy, no
             let nearest = keys.iter().enumerate().min_by(|a, b| distance(a.1).total_cmp(&distance(b.1)));
             Ok(states.remove(nearest.map_or(0, |(k, _)| k)))
         }
-        _ => Err(Error::Ambiguous { roots: Roots::new(&keys) }),
+        _ => Err(Error::Ambiguous { roots: Roots::new(quantity, &keys) }),
     }
 }
 
@@ -285,7 +291,7 @@ impl Mixture {
     fn stable_at(&self, t: f64, rho: f64) -> Result<bool, Error> {
         let b = (self.residual(t, rho, Order::Two) + Derivs::IDEAL_DELTA)
             .bundle()
-            .ok_or(Error::InvalidInput { quantity: "density", value: rho })?;
+            .ok_or(Error::InvalidInput { quantity: Quantity::density(Basis::Molar), value: rho })?;
         self.is_stable(t, rho, pressure(self.fluid.gas_constant(), t, rho, &b), &b)
     }
 
@@ -544,8 +550,8 @@ impl Mixture {
         if inside && let Some(c) = self.dome_root(Given::T(t), (var, x))? {
             states.push(self.answer(Found::Two(c), (var, x), opts, Strategy::Isotherm)?);
         }
-        let none = Error::InvalidInput { quantity: "caloric value at T", value: x };
-        choose(states, |s| s.rho(Basis::Molar), opts.roots(), none)
+        let none = Error::InvalidInput { quantity: var.quantity(Basis::Molar), value: x };
+        choose(states, (|s| s.rho(Basis::Molar), Quantity::density(Basis::Molar)), opts.roots(), none)
     }
 
     /// The densities at T where the feed's homogeneous x of `var` is the input, ascending: its isotherm in ln ρ from
@@ -597,7 +603,9 @@ impl Mixture {
         let (above, below) = by_decades(math::ln(self.limits.p_max()), &mut at)?;
         let p_max = self.limits.p_max();
         let Some(above) = above else { return Err(DomainError::AboveMaxPressure { p: p_max, p_max }.into()) };
-        let Some(below) = below else { return Err(Error::InvalidInput { quantity: "caloric value at s", value: x }) };
+        let Some(below) = below else {
+            return Err(Error::InvalidInput { quantity: var.quantity(Basis::Molar), value: x });
+        };
         let found = falsi(below, above, &mut at)?;
         self.answer(found.at, (var, x), opts, Strategy::Isentrope)
     }
@@ -642,7 +650,7 @@ impl Mixture {
     /// QS, HQ and DQ: the quality (molar, or by mass) and the input x of `var` (S, H or D).
     fn quality_line(&self, (q, basis): (f64, Basis), var: Var, x: f64, opts: &FlashOptions) -> Result<State, Error> {
         if !(0.0..=1.0).contains(&q) {
-            return Err(Error::InvalidInput { quantity: "vapour fraction", value: q });
+            return Err(Error::InvalidInput { quantity: VAPOUR_FRACTION, value: q });
         }
         // A mass quality of 0 or 1 is the molar one: `at_mass_quality` returns its first point.
         let by_mass = basis == Basis::Mass;
@@ -682,8 +690,8 @@ impl Mixture {
             .into_iter()
             .map(|c| self.answer(Found::Two(c), (var, x), opts, Strategy::Saturation))
             .collect::<Result<_, _>>()?;
-        let none = Error::InvalidInput { quantity: "value at the quality", value: x };
-        choose(states, State::t, opts.roots(), none)
+        let none = Error::InvalidInput { quantity: var.quantity(Basis::Molar), value: x };
+        choose(states, (State::t, Quantity::TEMPERATURE), opts.roots(), none)
     }
 
     /// The turn of a line of quality between two nodes, its maximum (`rising` to it) or minimum, by golden-section search
@@ -844,12 +852,14 @@ mod tests {
     fn roots_are_chosen_as_core_chooses_them() {
         let m = methane_ethane();
         let at = |rho: f64| ok(m.homogeneous(300.0, rho));
-        let none = || Error::InvalidInput { quantity: "x", value: 1.0 };
+        let none = || Error::InvalidInput { quantity: Quantity::QUALITY, value: 1.0 };
         let key = |s: &State| s.rho(Basis::Molar);
-        let pick = |rhos: &[f64], policy| choose(rhos.iter().map(|r| at(*r)).collect(), key, policy, none());
+        let pick = |rhos: &[f64], policy| {
+            choose(rhos.iter().map(|r| at(*r)).collect(), (key, Quantity::density(Basis::Molar)), policy, none())
+        };
         assert_eq!(pick(&[], RootPolicy::Strict).err(), Some(none()));
         assert_eq!(pick(&[500.0], RootPolicy::Strict).map(|s| key(&s)), Ok(500.0));
-        let ambiguous = Some(Error::Ambiguous { roots: Roots::new(&[500.0, 2000.0]) });
+        let ambiguous = Some(Error::Ambiguous { roots: Roots::new(Quantity::density(Basis::Molar), &[500.0, 2000.0]) });
         assert_eq!(pick(&[2000.0, 500.0], RootPolicy::Strict).err(), ambiguous);
         assert_eq!(pick(&[2000.0, 500.0], RootPolicy::Stable).err(), ambiguous);
         let nearest = pick(&[2000.0, 500.0, 1000.0], RootPolicy::Nearest(1400.0)).map(|s| key(&s));
@@ -1232,7 +1242,7 @@ mod tests {
         let m = methane_ethane();
         for q in [-0.1, 1.5] {
             let refused = m.quality_line((q, Basis::Molar), Var::S, 0.0, &FlashOptions::new());
-            assert_eq!(refused.err(), Some(Error::InvalidInput { quantity: "vapour fraction", value: q }));
+            assert_eq!(refused.err(), Some(Error::InvalidInput { quantity: VAPOUR_FRACTION, value: q }));
         }
     }
 }

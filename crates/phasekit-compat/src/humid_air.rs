@@ -5,7 +5,8 @@
 //! unchecked (map 07 H10, ROT-165's rule; DIV-0074). Inputs and states out of v8.0.0's range are refused as its
 //! `check_bounds` refuses them: T, T_dp and T_wb from 130 K to 350 °C, W to 10, ψ_w to 0.94145.
 
-use phasekit_core::{DataSet, DomainError, Error, Registry};
+use phasekit_core::{DataSet, DomainError, Error, Quantity, Registry};
+use phasekit_humidair::quantities::{HUMIDITY_RATIO, WATER_MOLE_FRACTION};
 use phasekit_humidair::{Given, HumidAir, Humidity, MoistAir, Parts, Per};
 
 use crate::{CompatError, FillPolicy, broadcast};
@@ -124,7 +125,7 @@ fn temperature(value: f64) -> Result<f64, Error> {
 }
 
 /// `value` within [0, `max`], else the refusal naming `quantity`.
-fn at_most(quantity: &'static str, value: f64, max: f64) -> Result<f64, Error> {
+fn at_most(quantity: &'static Quantity, value: f64, max: f64) -> Result<f64, Error> {
     if (0.0..=max).contains(&value) { Ok(value) } else { Err(Error::InvalidInput { quantity, value }) }
 }
 
@@ -133,8 +134,8 @@ fn given(name: &str, value: f64) -> Result<Given, CompatError> {
     let unknown = || CompatError::UnknownInput(name.into());
     Ok(match key(name).ok_or_else(unknown)? {
         Key::T => Given::Temperature(temperature(value)?),
-        Key::W => Given::Humidity(Humidity::Ratio(at_most("humidity ratio", value, W_MAX)?)),
-        Key::Psi => Given::Humidity(Humidity::MoleFraction(at_most("mole fraction of water", value, PSI_MAX)?)),
+        Key::W => Given::Humidity(Humidity::Ratio(at_most(HUMIDITY_RATIO, value, W_MAX)?)),
+        Key::Psi => Given::Humidity(Humidity::MoleFraction(at_most(WATER_MOLE_FRACTION, value, PSI_MAX)?)),
         Key::Rh => Given::Humidity(Humidity::Relative(value)),
         Key::Tdp => Given::Humidity(Humidity::DewPoint(temperature(value)?)),
         Key::Twb => Given::WetBulb(temperature(value)?),
@@ -165,7 +166,7 @@ fn split(inputs: [Named<'_>; 3]) -> Result<(f64, [Named<'_>; 2]), CompatError> {
 fn state(air: &HumidAir, inputs: [Named<'_>; 3]) -> Result<MoistAir, CompatError> {
     let (p, [(name1, value1), (name2, value2)]) = split(inputs)?;
     let state = air.state(p, given(name1, value1)?, given(name2, value2)?)?;
-    at_most("mole fraction of water", state.mole_fraction(), PSI_MAX)?;
+    at_most(WATER_MOLE_FRACTION, state.mole_fraction(), PSI_MAX)?;
     Ok(state)
 }
 

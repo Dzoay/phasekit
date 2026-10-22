@@ -3,6 +3,7 @@
 
 use crate::error::Error;
 use crate::input::Var;
+use crate::quantity::Quantity;
 
 /// Molar or mass basis of a specific quantity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -14,20 +15,20 @@ pub enum Basis {
     Mass,
 }
 
-pub(crate) fn finite(quantity: &'static str, value: f64) -> Result<f64, Error> {
+pub(crate) fn finite(quantity: &'static Quantity, value: f64) -> Result<f64, Error> {
     if value.is_finite() { Ok(value) } else { Err(Error::InvalidInput { quantity, value }) }
 }
 
-pub(crate) fn positive(quantity: &'static str, value: f64) -> Result<f64, Error> {
+pub(crate) fn positive(quantity: &'static Quantity, value: f64) -> Result<f64, Error> {
     if value.is_finite() && value > 0.0 { Ok(value) } else { Err(Error::InvalidInput { quantity, value }) }
 }
 
-pub(crate) fn unit_interval(quantity: &'static str, value: f64) -> Result<f64, Error> {
+pub(crate) fn unit_interval(quantity: &'static Quantity, value: f64) -> Result<f64, Error> {
     if (0.0..=1.0).contains(&value) { Ok(value) } else { Err(Error::InvalidInput { quantity, value }) }
 }
 
 macro_rules! absolute {
-    ($(#[$doc:meta])* $name:ident, $var:ident, $quantity:literal, $check:ident, $unit:literal) => {
+    ($(#[$doc:meta])* $name:ident, $var:ident, $quantity:expr, $check:ident, $unit:literal) => {
         $(#[$doc])*
         #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
         #[repr(transparent)]
@@ -52,19 +53,19 @@ macro_rules! absolute {
 
 absolute!(
     /// Absolute temperature, K (finite, > 0).
-    Temperature, T, "temperature", positive, "K"
+    Temperature, T, Quantity::TEMPERATURE, positive, "K"
 );
 absolute!(
     /// Absolute pressure, Pa (finite, > 0).
-    Pressure, P, "pressure", positive, "Pa"
+    Pressure, P, Quantity::PRESSURE, positive, "Pa"
 );
 absolute!(
     /// Vapour quality, molar basis, in [0, 1] (no −1 sentinel: single-phase states report `None`).
-    Quality, Q, "quality", unit_interval, "[0, 1]"
+    Quality, Q, Quantity::QUALITY, unit_interval, "[0, 1]"
 );
 
 macro_rules! specific {
-    ($(#[$doc:meta])* $name:ident, $var:ident, $quantity:literal, $check:ident) => {
+    ($(#[$doc:meta])* $name:ident, $var:ident, $quantity:path, $check:ident) => {
         $(#[$doc])*
         #[derive(Clone, Copy, Debug, PartialEq)]
         pub struct $name {
@@ -84,7 +85,7 @@ macro_rules! specific {
             }
             /// Validates a value in the given basis.
             pub fn with_basis(value: f64, basis: Basis) -> Result<Self, Error> {
-                $check($quantity, value).map(|value| Self { value, basis })
+                $check($quantity(basis), value).map(|value| Self { value, basis })
             }
             /// The value as given.
             pub const fn value(self) -> f64 {
@@ -107,17 +108,17 @@ macro_rules! specific {
 
 specific!(
     /// Density, mol/m³ or kg/m³ (finite, > 0).
-    Density, D, "density", positive
+    Density, D, Quantity::density, positive
 );
 specific!(
     /// Enthalpy, J/mol or J/kg (finite; its zero is the handle's reference state).
-    Enthalpy, H, "enthalpy", finite
+    Enthalpy, H, Quantity::enthalpy, finite
 );
 specific!(
     /// Entropy, J/(mol K) or J/(kg K) (finite).
-    Entropy, S, "entropy", finite
+    Entropy, S, Quantity::entropy, finite
 );
 specific!(
     /// Internal energy, J/mol or J/kg (finite).
-    InternalEnergy, U, "internal energy", finite
+    InternalEnergy, U, Quantity::internal_energy, finite
 );

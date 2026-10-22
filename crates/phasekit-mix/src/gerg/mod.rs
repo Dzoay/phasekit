@@ -96,7 +96,7 @@ pub(crate) fn component(registry: &Registry, name: &str) -> Result<(usize, Fluid
 /// GERG component `i`'s pure fluid, named after `fluid`, the registry's of the same substance, which also gives its
 /// aliases, triple point and density bound.
 pub(crate) fn pure_fluid(i: usize, fluid: &Fluid) -> Result<PureFluid, Error> {
-    let c = COMPONENTS.get(i).ok_or(Error::InvalidInput { quantity: "GERG-2008 component", value: i as f64 })?;
+    let c = COMPONENTS.get(i).ok_or(Error::InvalidArgument { argument: "GERG-2008 component", value: Some(i) })?;
     let eos = Pure::new(c, fluid.clone());
     let source = fluid.info();
     let name = format!("{PREFIX}{}", source.name());

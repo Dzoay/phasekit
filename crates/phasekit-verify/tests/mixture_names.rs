@@ -124,8 +124,8 @@ fn malformed_mixture_strings_are_refused() {
         assert!(format, "{fluid}: {:?}", call(fluid));
     }
     let invalid = |quantity, value| Err(CompatError::Core(Error::InvalidInput { quantity, value }));
-    assert_eq!(call("R32[0.7]&R125[0.2]"), invalid("sum of the mole fractions", 0.7 + 0.2));
-    assert_eq!(call("R32[1.5]&R125[-0.5]"), invalid("mole fraction", 1.5));
+    assert_eq!(call("R32[0.7]&R125[0.2]"), invalid(phasekit_mix::quantities::MOLE_FRACTION_SUM, 0.7 + 0.2));
+    assert_eq!(call("R32[1.5]&R125[-0.5]"), invalid(phasekit_core::Quantity::MOLE_FRACTION, 1.5));
     let unknown = |name: &str| Err(CompatError::Core(Error::Load(LoadError::UnknownName(name.into()))));
     assert_eq!(call("R32[0.5]&Unobtainium[0.5]"), unknown("Unobtainium"));
     assert_eq!(call("R999.mix"), unknown("R999.mix"));

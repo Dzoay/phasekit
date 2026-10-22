@@ -74,7 +74,7 @@ fn fluid_grid(hash: &mut Fnv, registry: &Registry, fluid: &Fluid, name: &str) ->
     let liquid = qt(0.0, t_low).and_then(|input| fluid.state(input).ok());
     let rho_l = liquid.map_or(3.0 * crit.rho, |s| s.rho(Basis::Molar));
     let dt = |rho: f64, t: f64| Some(Input::dt(Density::molar(rho).ok()?, Temperature::new(t).ok()?));
-    let flash = |input: Option<Input>| input.ok_or(Error::InvalidInput { quantity: "grid input", value: f64::NAN });
+    let flash = |input: Option<Input>| input.ok_or(Error::InvalidArgument { argument: "grid input", value: None });
     let mut rng = SplitMix64::new(1);
     let eos_point = |rng: &mut SplitMix64| (rng.log_uniform(1e-6 * rho_l, rho_l), rng.uniform(t_low, limits.t_max()));
     let (mut points, mut ok) = (0, 0);
