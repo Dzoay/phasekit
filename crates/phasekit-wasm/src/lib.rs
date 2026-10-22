@@ -11,7 +11,8 @@
 //!   `Fluid` has its components, composition and `Envelope`, and its two-phase `State` its `Phases`.
 //! - Diagrams (PLAN.md M19.6): `planes` lists the planes, their axes and isoline families; a `Fluid`'s
 //!   `diagram(plane)` is its dome and isolines, a mixture's its phase envelope, and `regions()` its phase regions, all
-//!   phasekit-diagram's, as typed arrays (`Diagram`, `Regions`).
+//!   phasekit-diagram's, as typed arrays (`Diagram`, `Regions`); and `surface()` its p–v–T and u–s–v surface, a
+//!   triangle mesh (`Surface`, PLAN.md M26.2).
 //! - Errors are JS `Error`s. JS's garbage collector never frees wasm memory, so `Registry` and `Fluid`, the handle
 //!   objects, are freed with `free()`; the `State` and `Batch` a call returns are values, freed the same way.
 //! - A panic, a bug, cannot be caught on wasm32 and leaves the module unusable. It reaches JavaScript as an `Error` that
@@ -38,8 +39,10 @@ use phasekit_mix::{EnvelopeEnd, EnvelopeOptions, Mixture, Side};
 use wasm_bindgen::prelude::*;
 
 mod diagram;
+mod surface;
 
 pub use diagram::{Corners, Diagram, Lines, PlaneInfo, Regions, Vertices, pair_keys, planes};
+pub use surface::Surface;
 
 /// A JS `Error` with `e`'s message.
 fn js(e: impl Display) -> JsError {
