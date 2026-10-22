@@ -542,6 +542,10 @@ mod tests {
         let all = [(1.0, 1.0), (2.0, 1.0), (2.0, 2.0), (1.0, 2.0)];
         assert_eq!(inputs(band(&inside, &value, Some((0.0, &zero)), Some((1.0, &one)))), [all.to_vec()]);
         assert!(band(&inside, &value, Some((1.0, &one)), None).is_empty());
+        // An edge that crosses both bounds has both crossings in order along it: below from a, above from c.
+        let (steep, [zero, one]) = banded([-1.0, 2.0, 2.0, -1.0]);
+        let middle = inputs(band(&steep, &value, Some((0.0, &zero)), Some((1.0, &one))));
+        assert_eq!(middle, [vec![(0.0, 0.0), (10.0, 0.0), (10.0, 0.0), (0.0, 0.0)]]);
         let (grid, [zero, _]) = banded([-1.0, 0.5, 2.0, 0.5]);
         let missing = Crossings { segments: Vec::new(), at: BTreeMap::new() };
         assert!(band(&grid, &value, Some((0.0, &zero)), Some((1.0, &missing))).is_empty());
@@ -565,11 +569,13 @@ mod tests {
         assert_eq!(densities(Crossings { segments, at: found(&[0, 2, 3]) }.lines()), [vec![2.0, 3.0]]);
     }
 
-    /// A bisected bracket's row is its end nearer zero.
+    /// A bisected bracket's row is its end nearer zero, and it stops once an end is within the stop of zero.
     #[test]
     fn a_bracket_ends_at_its_end_nearer_zero() {
         let nearer = |a: f64, b: f64| Bracket::new((a, row(1.0, 1.0)), (b, row(2.0, 1.0))).nearer().inputs.x;
         assert_eq!([nearer(0.5, -0.1), nearer(-0.1, 0.5), nearer(0.2, -0.2)], [2.0, 1.0, 1.0]);
+        let within = |stop: f64| Bracket::new((0.1, row(1.0, 1.0)), (-0.5, row(2.0, 1.0))).within(stop);
+        assert_eq!([within(0.2), within(0.1), within(0.05)], [true, true, false]);
     }
 
     /// A corner at a level lies in the band above it, as a crossing's sides take it.

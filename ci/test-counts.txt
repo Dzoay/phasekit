@@ -48,9 +48,9 @@ x86_64-unknown-linux-gnu phasekit-verify::virials 3
 wasm32-wasip2 phasekit-verify::virials 3
 x86_64-unknown-linux-gnu phasekit-verify::batch 14
 wasm32-wasip2 phasekit-verify::batch 11
-x86_64-unknown-linux-gnu phasekit-compat::lib 20
+x86_64-unknown-linux-gnu phasekit-compat::lib 21
 x86_64-unknown-linux-gnu phasekit-verify::compat 1
-wasm32-wasip2 phasekit-compat::lib 20
+wasm32-wasip2 phasekit-compat::lib 21
 wasm32-wasip2 phasekit-verify::compat 1
 x86_64-unknown-linux-gnu phasekit-verify::fastchebpure 1
 wasm32-wasip2 phasekit-verify::fastchebpure 1
@@ -74,10 +74,10 @@ x86_64-unknown-linux-gnu phasekit-verify::refstate 2
 wasm32-wasip2 phasekit-verify::refstate 2
 x86_64-unknown-linux-gnu phasekit-verify::props 5
 wasm32-wasip2 phasekit-verify::props 5
-x86_64-unknown-linux-gnu phasekit-capi::lib 27
+x86_64-unknown-linux-gnu phasekit-capi::lib 29
 x86_64-unknown-linux-gnu phasekit-capi::smoke 1
 x86_64-unknown-linux-gnu phasekit-capi::entry_points 2
-wasm32-wasip2 phasekit-capi::lib 17
+wasm32-wasip2 phasekit-capi::lib 19
 wasm32-wasip2 phasekit-capi::entry_points 2
 x86_64-unknown-linux-gnu phasekit-verify::codes 1
 wasm32-wasip2 phasekit-verify::codes 1
@@ -133,10 +133,10 @@ x86_64-unknown-linux-gnu phasekit-verify::notices 2
 wasm32-wasip2 phasekit-verify::notices 2
 x86_64-unknown-linux-gnu phasekit-verify::math 6
 wasm32-wasip2 phasekit-verify::math 6
-x86_64-unknown-linux-gnu phasekit-diagram::lib 37
+x86_64-unknown-linux-gnu phasekit-diagram::lib 40
 x86_64-unknown-linux-gnu phasekit-diagram::dome 5
 x86_64-unknown-linux-gnu phasekit-diagram::lines 8
-wasm32-wasip2 phasekit-diagram::lib 37
+wasm32-wasip2 phasekit-diagram::lib 40
 wasm32-wasip2 phasekit-diagram::dome 5
 wasm32-wasip2 phasekit-diagram::lines 8
 x86_64-unknown-linux-gnu phasekit-diagram::envelope 3
