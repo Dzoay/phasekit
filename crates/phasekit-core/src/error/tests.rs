@@ -153,6 +153,23 @@ fn the_alternate_flag_is_the_short_form() {
     assert_eq!(format!("{e:#}"), e.display(&Si, Style::Short).to_string());
 }
 
+/// A rule is named only when the value breaks it: a pressure above zero is not "not positive", and an enthalpy, which
+/// may be negative, is not either.
+#[test]
+fn a_rule_the_value_keeps_is_never_named() {
+    let cases = [
+        (invalid(Quantity::PRESSURE, 2e9), "pressure 2e9 Pa is out of range", "p = 2e9 Pa: out of range"),
+        (
+            invalid(Quantity::enthalpy(Basis::Mass), -5.0),
+            "enthalpy −5 J/kg is out of range",
+            "h = −5 J/kg: out of range",
+        ),
+    ];
+    for (error, want_long, want_short) in cases {
+        assert_eq!((long(&error), short(&error)), (want_long.to_string(), want_short.to_string()), "{error:?}");
+    }
+}
+
 /// User decision EM3: a count or an index is an argument, written without a unit.
 #[test]
 fn structural_arguments_carry_no_unit() {
