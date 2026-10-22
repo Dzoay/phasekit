@@ -7,6 +7,7 @@ use crate::exec::ExecPolicy;
 use crate::fluid::PureFluid;
 use crate::input::Pair;
 use crate::model::ThermoModel;
+use crate::quantity::Quantity;
 use crate::roots::{Tol, toms748};
 use crate::saturation::{SatAccuracy, SatPair, SatSide, SaturationCurve};
 use crate::state::{Phase, SolvePath, State, Strategy};
@@ -119,8 +120,8 @@ pub(super) fn qx(
         run_roots(&with_turns(&grid, &scan, &mut refused), &scan, polish_on, &mut roots)?;
     }
     roots.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let Some((t, iterations)) = choose(&roots, |r| r.0, opts.roots())? else {
-        return Err(refused.unwrap_or(Error::InvalidInput { quantity: var_name(var), value: var.input(x) }));
+    let Some((t, iterations)) = choose(&roots, |r| r.0, Quantity::TEMPERATURE, opts.roots())? else {
+        return Err(refused.unwrap_or(Error::InvalidInput { quantity: var.quantity(), value: var.input(x) }));
     };
     Ok(qt(fluid, q, t, opts)?.with_path(SolvePath { strategy: Strategy::Saturation, iterations }))
 }
@@ -198,11 +199,14 @@ fn run_roots(
 }
 
 /// The name a Q-pair's other input goes by.
-fn var_name(var: QVar) -> &'static str {
-    match var {
-        QVar::H => "H",
-        QVar::S => "S",
-        QVar::V => "D",
+impl QVar {
+    /// The quantity of its input, molar: h, s, or ρ for DQ.
+    const fn quantity(self) -> &'static Quantity {
+        match self {
+            QVar::H => Quantity::enthalpy(Basis::Molar),
+            QVar::S => Quantity::entropy(Basis::Molar),
+            QVar::V => Quantity::density(Basis::Molar),
+        }
     }
 }
 
@@ -266,7 +270,7 @@ fn pseudo_pure_qt(fluid: &PureFluid, sat: &SatPair, q: Quality) -> Result<State,
     } else if q.get() == 1.0 {
         sat.dew.p
     } else {
-        return Err(Error::InvalidInput { quantity: "Q", value: q.get() });
+        return Err(Error::InvalidInput { quantity: Quantity::QUALITY, value: q.get() });
     };
     split_sides(fluid, sat, q, sat.bubble.t, p)
 }

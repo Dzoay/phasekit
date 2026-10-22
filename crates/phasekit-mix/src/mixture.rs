@@ -23,13 +23,14 @@ use phasekit_core::density::Branch;
 use phasekit_core::{
     Basis, Bundle, Capabilities, Constant, CriticalOrigin, CriticalPoint, DataSet, DataTerms, Derivs, DomainPolicy,
     Error, FlashOptions, Fluid, FluidInfo, HelmholtzModel, Limits, ModelKey, NativeInput, Order, Pair, Phase, Prop,
-    Quality, Reducing, Registry, Source, State, ThermoModel, Virials, math,
+    Quality, Quantity, Reducing, Registry, Source, State, ThermoModel, Virials, math,
 };
 
 use crate::critical::{CriticalState, Criticality, critical_points};
 use crate::equilibrium::{self, Stability};
 use crate::illinois::{End, illinois};
 use crate::multifluid::not_a_number;
+use crate::quantities::{MOLE_FRACTION_SUM, VAPOUR_FRACTION};
 use crate::saturation::{self, Coexisting, Given, Saturation, Side};
 use crate::{Composition, MixtureModel, MultiFluid, Var, gerg};
 
@@ -71,14 +72,14 @@ pub struct Mixture {
 /// (ROT-193).
 fn validated(z: &[f64]) -> Result<(), Error> {
     if let Some(bad) = z.iter().find(|x| !(x.is_finite() && (0.0..=1.0).contains(*x))) {
-        return Err(Error::InvalidInput { quantity: "mole fraction", value: *bad });
+        return Err(Error::InvalidInput { quantity: Quantity::MOLE_FRACTION, value: *bad });
     }
     let sum: f64 = z.iter().sum();
     // Equivalent (M13.4): `>=` differs only at a sum exactly SUM_TOLERANCE from 1, which no sum of doubles lands on (1
     // + 1e-10 is 1.000000082740371e-10 from 1).
     // equivalent mutant: replace > with >=
     if (sum - 1.0).abs() > SUM_TOLERANCE {
-        return Err(Error::InvalidInput { quantity: "sum of the mole fractions", value: sum });
+        return Err(Error::InvalidInput { quantity: MOLE_FRACTION_SUM, value: sum });
     }
     Ok(())
 }
@@ -88,7 +89,7 @@ impl Mixture {
     pub fn new(fluid: MultiFluid, z: &[f64]) -> Result<Mixture, Error> {
         validated(z)?;
         if z.len() != fluid.len() || z.contains(&0.0) {
-            return Err(Error::InvalidInput { quantity: "number of non-zero mole fractions", value: z.len() as f64 });
+            return Err(Error::InvalidArgument { argument: "number of non-zero mole fractions", value: Some(z.len()) });
         }
         let fluids: Vec<&Fluid> = fluid.fluids().collect();
         let model = |f: &Fluid| f.model().helmholtz().map(|m| m.gas_constant()).unwrap_or(f64::NAN);
@@ -223,7 +224,8 @@ impl Mixture {
         if !inside && opts.domain() == DomainPolicy::Enforce {
             self.limits.check_t(t)?;
         }
-        let total = derivs().bundle().ok_or(Error::InvalidInput { quantity: "density", value: rho })?;
+        let total =
+            derivs().bundle().ok_or(Error::InvalidInput { quantity: Quantity::density(Basis::Molar), value: rho })?;
         let r = self.fluid.gas_constant();
         let state = State::from_total(self.info.key(), t, rho, r, molar_mass, phase, &total)?;
         Ok(if inside { state } else { state.mark_extrapolated() })
@@ -315,7 +317,7 @@ impl Mixture {
     /// phases, adding up to the feed (ROT-182). β = 0 is the bubble point, β = 1 the dew point.
     pub fn coexisting(&self, beta: f64, given: Given) -> Result<Coexisting, Error> {
         if !(0.0..=1.0).contains(&beta) {
-            return Err(Error::InvalidInput { quantity: "vapour fraction", value: beta });
+            return Err(Error::InvalidInput { quantity: VAPOUR_FRACTION, value: beta });
         }
         saturation::coexisting(self, beta, given)
     }
@@ -389,7 +391,7 @@ impl Mixture {
     fn dt(&self, t: f64, rho: f64, opts: &FlashOptions) -> Result<State, Error> {
         let b = (self.residual(t, rho, Order::Two) + Derivs::IDEAL_DELTA)
             .bundle()
-            .ok_or(Error::InvalidInput { quantity: "density", value: rho })?;
+            .ok_or(Error::InvalidInput { quantity: Quantity::density(Basis::Molar), value: rho })?;
         let p = pressure(self.fluid.gas_constant(), t, rho, &b);
         if self.is_stable(t, rho, p, &b)? {
             return self.state(t, rho, self.label(t, rho, p), opts);

@@ -33,6 +33,7 @@ use crate::fluid::PureFluid;
 use crate::input::{NativeInput, Pair, Var};
 use crate::model::ThermoModel;
 use crate::prop::Prop;
+use crate::quantity::Quantity;
 use crate::relations;
 use crate::saturation::SatPair;
 use crate::state::{Phase, SolvePath, State, Strategy};
@@ -319,7 +320,7 @@ fn pt(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<State, E
         }
         Where::Both { gas, liquid } => {
             let (g, l) = (solve(&gas)?, solve(&liquid)?);
-            match choose(&[g.0, l.0], |rho| *rho, opts.roots())? {
+            match choose(&[g.0, l.0], |rho| *rho, Quantity::density(Basis::Molar), opts.roots())? {
                 Some(rho) if rho == l.0 => (liquid, l),
                 _ => (gas, g),
             }
@@ -365,11 +366,12 @@ enum Caloric {
 
 impl Caloric {
     /// The name its input goes by.
-    fn name(self) -> &'static str {
+    /// The quantity it is, molar.
+    const fn quantity(self) -> &'static Quantity {
         match self {
-            Caloric::H => "H",
-            Caloric::S => "S",
-            Caloric::U => "U",
+            Caloric::H => Quantity::enthalpy(Basis::Molar),
+            Caloric::S => Quantity::entropy(Basis::Molar),
+            Caloric::U => Quantity::internal_energy(Basis::Molar),
         }
     }
 

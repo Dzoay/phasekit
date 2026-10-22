@@ -41,6 +41,9 @@ fn d_x_under_a_hint() {
     }
     for input in d_x(&water.state(pt(1e4, 400.0)).unwrap()) {
         let refused = water.flash(input, &with(Phase::TwoPhase));
-        assert!(matches!(refused, Err(Error::InvalidInput { quantity: "quality", .. })), "{input:?}: {refused:?}");
+        assert!(
+            matches!(refused, Err(Error::InvalidInput { quantity: Quantity::QUALITY, .. })),
+            "{input:?}: {refused:?}"
+        );
     }
 }

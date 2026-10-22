@@ -10,6 +10,7 @@ use crate::flash::FlashOptions;
 use crate::helmholtz::HelmholtzModel;
 use crate::input::{Capabilities, NativeInput};
 use crate::prop::Prop;
+use crate::quantity::{Dimension, Quantity};
 use crate::state::State;
 
 /// Content hash of a compiled model (FNV-1a 64 over its canonical bytes, map 09 hash practice): for data
@@ -172,7 +173,7 @@ impl FluidInfo {
     /// Validates the molar mass (kg/mol).
     pub fn new(name: &str, molar_mass: f64, source: Source, key: ModelKey) -> Result<Self, Error> {
         if !(molar_mass.is_finite() && molar_mass > 0.0) {
-            return Err(Error::InvalidInput { quantity: "molar mass", value: molar_mass });
+            return Err(Error::InvalidInput { quantity: Quantity::MOLAR_MASS, value: molar_mass });
         }
         let (aliases, published_critical, constants) = (Box::new([]) as Box<[Box<str>]>, None, Constants::default());
         Ok(Self { name: name.into(), aliases, molar_mass, published_critical, constants, source, key })
@@ -231,11 +232,14 @@ pub struct Limits {
     t_triple: Option<f64>,
 }
 
+/// A model's lowest temperature.
+const T_MIN: &Quantity = &Quantity::new("minimum temperature", "T_min", Dimension::Temperature);
+
 impl Limits {
     /// Validates `t_min < t_max` and `p_max > 0`.
     pub fn new(t_min: f64, t_max: f64, p_max: f64) -> Result<Self, Error> {
         if !(t_min > 0.0 && t_max > t_min && p_max > 0.0) {
-            return Err(Error::InvalidInput { quantity: "limits", value: t_min });
+            return Err(Error::InvalidInput { quantity: T_MIN, value: t_min });
         }
         Ok(Self { t_min, t_max, p_max, t_triple: None })
     }

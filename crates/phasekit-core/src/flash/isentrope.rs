@@ -56,7 +56,7 @@ pub(super) fn sx(fluid: &PureFluid, s: f64, x: f64, var: Caloric, opts: &FlashOp
     // bracket's known end and the nearest refusal beside it finds its other end ([`isentrope_bracket`]).
     let decades = core::iter::successors(Some(math::ln(p_max)), |u| Some(u - core::f64::consts::LN_10));
     let descent = Descent::down(&mut residual, decades.take(usize::from(SX_DECADES)), |residual, u| residual(u), None);
-    let invalid = || Error::InvalidInput { quantity: var.name(), value: x };
+    let invalid = || Error::InvalidInput { quantity: var.quantity(), value: x };
     let bracket = isentrope_bracket(&mut residual, descent, p_max, invalid)?;
     let root = isentrope_root(|u| raw(u).map(|(at, _)| at), &mut residual, bracket)?.converged(Strategy::Isentrope)?;
     let state = px(fluid, p_of(root.x), s, Caloric::S, opts)?;

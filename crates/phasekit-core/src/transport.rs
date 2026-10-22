@@ -28,6 +28,7 @@ use crate::fluid::Fluid;
 use crate::math;
 use crate::model::{DataTerms, Source};
 use crate::prop::Prop;
+use crate::quantity::Quantity;
 
 /// A closed list of CoolProp's hardcoded models for one slot, by the name its JSON writes (`"hardcoded": "Water"`).
 /// Tags are the names' positions in `NAMES`, never enum discriminants (ROT-055).
@@ -1384,7 +1385,7 @@ impl SurfaceTension {
     /// not taken.
     pub(crate) fn eval(&self, t: f64, t_min: f64, t_c_eos: f64) -> Result<f64, Error> {
         if !t.is_finite() {
-            return Err(Error::InvalidInput { quantity: "T", value: t });
+            return Err(Error::InvalidInput { quantity: Quantity::TEMPERATURE, value: t });
         }
         if t < t_min {
             return Err(DomainError::BelowMinTemperature { t, t_min }.into());
@@ -2045,7 +2046,7 @@ pub(crate) mod tests {
         let below = DomainError::BelowMinTemperature { t: t_min - 1.0, t_min };
         assert_eq!(fluid.model().surface_tension(t_min - 1.0), Err(below.into()), "{name}");
         let nan = fluid.model().surface_tension(f64::NAN);
-        assert!(matches!(nan, Err(Error::InvalidInput { quantity: "T", .. })), "{nan:?}");
+        assert!(matches!(nan, Err(Error::InvalidInput { quantity: Quantity::TEMPERATURE, .. })), "{nan:?}");
     }
 
     /// Rot: ROT-123 (map 10 §8.4). Water's σ is CoolProp's model, Mulero 2012's two-term fit, and its source says so,

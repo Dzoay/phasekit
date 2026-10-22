@@ -32,6 +32,7 @@ use phasekit_core::{DomainError, Error, Limits, Strategy, math};
 
 use crate::Mixture;
 use crate::equilibrium::{AtTp, normalised, solve, square};
+use crate::quantities::{HIGHEST_PRESSURE, START_PRESSURE};
 use crate::saturation::{Given, Side, fractions, meets_gate, on_branch, saturation, trivial};
 use crate::slot::{self, at, set};
 
@@ -172,12 +173,12 @@ impl Mixture {
     pub fn envelope(&self, opts: &EnvelopeOptions) -> Result<Envelope, Error> {
         let p_start = opts.p_start;
         if !(p_start.is_finite() && p_start > 0.0) {
-            return Err(Error::InvalidInput { quantity: "starting pressure", value: p_start });
+            return Err(Error::InvalidInput { quantity: START_PRESSURE, value: p_start });
         }
         if let Some(p_max) = opts.p_max
             && !(p_max.is_finite() && p_max > p_start)
         {
-            return Err(Error::InvalidInput { quantity: "highest pressure", value: p_max });
+            return Err(Error::InvalidInput { quantity: HIGHEST_PRESSURE, value: p_max });
         }
         let limits = self.range();
         let p_max = opts.p_max.map_or(limits.p_max(), |p| p.min(limits.p_max()));
@@ -343,7 +344,7 @@ impl<'a> Tracer<'a> {
         let n = self.z.len();
         let (ln_t, ln_p) = ln_tp(v, n);
         let (t, p) = (math::exp(ln_t), math::exp(ln_p));
-        let short = || Error::InvalidInput { quantity: "the envelope's unknowns", value: v.len() as f64 };
+        let short = || Error::InvalidArgument { argument: "the envelope's unknowns", value: Some(v.len()) };
         let (x, y) = fractions(self.beta, &self.z, v.get(..n).ok_or_else(short)?);
         let (for_x, for_y) =
             if self.x_denser { (Branch::Liquid, Branch::Vapour) } else { (Branch::Vapour, Branch::Liquid) };
@@ -791,10 +792,10 @@ mod tests {
         let m = library(&["Methane", "Ethane"], &[0.5, 0.5]);
         for p in [f64::NAN, 0.0, -1.0, f64::INFINITY] {
             let refused = m.envelope(&EnvelopeOptions::new().with_start_pressure(p));
-            assert!(matches!(refused, Err(Error::InvalidInput { quantity: "starting pressure", .. })), "{p}");
+            assert!(matches!(refused, Err(Error::InvalidInput { quantity: START_PRESSURE, .. })), "{p}");
         }
         let low = m.envelope(&EnvelopeOptions::new().with_max_pressure(1e5));
-        assert_eq!(low.err(), Some(Error::InvalidInput { quantity: "highest pressure", value: 1e5 }));
+        assert_eq!(low.err(), Some(Error::InvalidInput { quantity: HIGHEST_PRESSURE, value: 1e5 }));
         let bounded = ok(m.envelope(&EnvelopeOptions::new().with_max_pressure(3e6)));
         let at_bound =
             matches!(bounded.end, EnvelopeEnd::Bound(DomainError::AboveMaxPressure { p_max, .. }) if p_max == 3e6);

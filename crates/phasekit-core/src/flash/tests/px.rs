@@ -192,7 +192,7 @@ fn p_x_at_the_dome_edge_and_under_a_hint() {
     assert_eq!(with(Phase::TwoPhase), Ok(free));
     let compressed = water.state(pt(1e6, 400.0)).unwrap();
     let refused = water.flash(p_x(&compressed)[0], &FlashOptions::new().with_phase(Phase::TwoPhase));
-    assert!(matches!(refused, Err(Error::InvalidInput { quantity: "quality", .. })), "{refused:?}");
+    assert!(matches!(refused, Err(Error::InvalidInput { quantity: Quantity::QUALITY, .. })), "{refused:?}");
     let (p, two_phase) = (Pressure::new(1e6).unwrap(), FlashOptions::new().with_phase(Phase::TwoPhase));
     for ((side, q, outwards), share) in product(&[(liquid, 0.0, -1.0), (vapour, 1.0, 1.0)], &[1e-11, 1e-7]) {
         let past = |x: f64| x * (1.0 + outwards * share);
@@ -214,7 +214,7 @@ fn p_x_at_the_dome_edge_and_under_a_hint() {
 fn past_a_side_is_gated(back: &Result<State, Error>, q: f64, share: f64) -> bool {
     match back {
         Ok(state) => share < 1e-9 && state.phase() == Phase::TwoPhase && state.quality() == Some(q),
-        Err(e) => share > 1e-9 && matches!(e, Error::InvalidInput { quantity: "quality", .. }),
+        Err(e) => share > 1e-9 && matches!(e, Error::InvalidInput { quantity: Quantity::QUALITY, .. }),
     }
 }
 

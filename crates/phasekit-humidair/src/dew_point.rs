@@ -14,6 +14,7 @@
 use phasekit_core::{Basis, DomainError, Error, Fluid, Input, Pressure, Quality, math};
 
 use crate::moist_air::{P_MAX, P_MIN, T_MIN};
+use crate::quantities::WATER_MOLE_FRACTION;
 use crate::saturation::{T_TRIPLE, p_ws, saturated};
 use crate::{HumidAir, root};
 
@@ -79,7 +80,7 @@ pub(crate) fn dew_point(air: &HumidAir, p: f64, psi: f64) -> Result<f64, Error> 
         return Err(DomainError::AboveMaxPressure { p, p_max: P_MAX }.into());
     }
     if !(0.0..1.0).contains(&psi) {
-        return Err(Error::InvalidInput { quantity: "mole fraction of water", value: psi });
+        return Err(Error::InvalidInput { quantity: WATER_MOLE_FRACTION, value: psi });
     }
     let parts = air.parts();
     let (p_w, p_min) = (psi * p, p_ws(&parts.liquid, &parts.ice, T_MIN)?);

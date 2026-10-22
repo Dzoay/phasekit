@@ -98,7 +98,7 @@ fn hapropssi_is_compats() {
     let ha = |rh: f64| unsafe { HAPropsSI(w.as_ptr(), t.as_ptr(), 300.0, p.as_ptr(), 101_325.0, r.as_ptr(), rh) };
     assert_eq!((ha(0.5).to_bits(), errstring()), (want.to_bits(), String::new()));
     assert_eq!(ha(1.5), f64::INFINITY);
-    assert_eq!(errstring(), "invalid relative humidity: 1.5");
+    assert_eq!(errstring(), "relative humidity 1.5 is outside [0, 1]");
 }
 
 /// PLAN.md M10.6 (map 14: PropsSI fills +inf). A failed `PropsSI` or `Props1SI` is `_HUGE` with the `errstring` set; a

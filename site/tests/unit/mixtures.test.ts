@@ -144,7 +144,7 @@ describe("a mixture's refusals", () => {
     expect(liquidLiquid(refusal)).toBe(true);
     expect(liquidLiquid("input pair DmassT is not supported by this model")).toBe(true);
     for (const other of [
-      "Vle did not converge in 60 iterations",
+      "the vapour-liquid equilibrium solve (Vle) did not converge in 60 iterations",
       `${refusal}.`,
       `the ${refusal}`,
       "input pair  is not supported by this model",

@@ -98,7 +98,7 @@ fn gerg2008_refuses_what_it_is_not() {
     assert!(refused.to_string().contains("GERG2008::R32"), "{refused}");
     for names in [&["Methane"][..], &["Methane", "CH4"]] {
         let error = MultiFluid::gerg2008(&registry, names).unwrap_err();
-        assert!(matches!(error, Error::InvalidInput { .. }), "{names:?}: {error}");
+        assert!(matches!(error, Error::InvalidArgument { .. }), "{names:?}: {error}");
     }
     let unnormalised = gerg2008(&registry, &[("Methane", 0.5), ("Ethane", 0.4)]);
     assert!(matches!(unnormalised, Err(Error::InvalidInput { .. })));

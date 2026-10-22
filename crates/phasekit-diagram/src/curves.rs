@@ -35,19 +35,20 @@ impl Characteristic {
         Characteristic::JouleInversion,
     ];
 
-    /// Its condition at a single-phase state, dimensionless and of the derivative's sign: Z − 1; (ρ/p)(∂p/∂ρ)_T − 1,
-    /// which is (ρ/Z)(∂Z/∂ρ)_T; (p/T)(∂T/∂p)_h; and (T/p)(∂p/∂T)_ρ − 1, which is (T/Z)(∂Z/∂T)_ρ. `None` where the state
-    /// is two-phase (its Q is a value) or a cell it reads failed.
+    /// Its condition at a single-phase state, of the derivative's sign: Z − 1; (ρ/p)(∂p/∂ρ)_T − 1, which is
+    /// (ρ/Z)(∂Z/∂ρ)_T; (∂T/∂p)_h itself; and (T/p)(∂p/∂T)_ρ − 1, which is (T/Z)(∂Z/∂T)_ρ. `None` where the state is
+    /// two-phase (its Q is a value) or a cell it reads failed.
     fn condition(self, row: &Row) -> Option<f64> {
         let cell = |k: usize| cell(row, k);
         if cell(4).is_some() {
             return None;
         }
         let (p, z, t, rho) = (cell(0)?, cell(1)?, cell(2)?, cell(3)?);
+        // (p/T)(∂T/∂p)_h, dimensionless, has (∂T/∂p)_h's sign and zeros, which are all the bisection reads.
         Some(match self {
             Characteristic::Ideal => z - 1.0,
             Characteristic::Boyle => rho * cell(5)? / p - 1.0,
-            Characteristic::JouleThomsonInversion => p * cell(6)? / t,
+            Characteristic::JouleThomsonInversion => cell(6)?,
             Characteristic::JouleInversion => t * cell(7)? / p - 1.0,
         })
     }

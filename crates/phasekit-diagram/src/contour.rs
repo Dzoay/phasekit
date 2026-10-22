@@ -579,4 +579,11 @@ mod tests {
         assert_eq!(middle.iter().map(Vec::len).collect::<Vec<_>>(), [5]);
         assert_eq!(band(&grid, &value, Some((1.0, &one)), None).iter().map(Vec::len).collect::<Vec<_>>(), [3]);
     }
+
+    /// A closed line, whose ends are at one first input, keeps its order.
+    #[test]
+    fn a_closed_line_keeps_its_order() {
+        let ts = |rows: Vec<Row>| rows.iter().map(|r| r.inputs.y).collect::<Vec<_>>();
+        assert_eq!(ts(from_low_x(vec![row(1.0, 1.0), row(2.0, 2.0), row(1.0, 3.0)])), [1.0, 2.0, 3.0]);
+    }
 }

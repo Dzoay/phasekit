@@ -84,7 +84,7 @@ fn swept(f: &Fluid, sweep: Quantity, v: &Vertex) -> Result<f64, Error> {
 
 /// The plane's x and y at the state where the line holding `held` takes the sweep value `at`, by one flash.
 fn plotted_at(f: &Fluid, plane: Plane, held: (Quantity, f64), sweep: (Quantity, f64)) -> Result<(f64, f64), Error> {
-    let unpaired = Error::InvalidInput { quantity: "input pair", value: f64::NAN };
+    let unpaired = Error::InvalidArgument { argument: "input pair", value: None };
     let (pair, swapped) = held.0.var().zip(sweep.0.var()).and_then(|(x, y)| Pair::from_vars(x, y)).ok_or(unpaired)?;
     let (x, y) = if swapped { (sweep.1, held.1) } else { (held.1, sweep.1) };
     let state = f.state(Input::new(pair, x, y, Basis::Mass)?)?;
