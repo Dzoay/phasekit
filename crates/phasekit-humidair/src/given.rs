@@ -94,7 +94,7 @@ fn solve(
     let residual = |x: f64| {
         let s = state(x)?;
         match &bulb {
-            Some(bulb) => Ok(-bulb.balance((s.humidity_ratio(), s.h(Per::KgDryAir)))),
+            Some(bulb) => Ok(bulb.balance((s.humidity_ratio(), s.h(Per::KgDryAir)))),
             None => Ok(output(air, &s, target)? - value),
         }
     };

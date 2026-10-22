@@ -372,6 +372,39 @@ fn the_illinois_method_closes_in_superlinearly() {
     assert!(calls <= 12, "{calls}");
 }
 
+/// A false-position point on an end is not taken as the root: from [1, 2] with an end's value 10⁻³⁰⁰ against the other's
+/// 0.5, the point is that end, and the bisection it falls back to lands on the root, 1.5.
+#[test]
+fn a_false_position_point_on_an_end_falls_back_to_the_midpoint() {
+    let at = |end: f64, tiny: f64| move |x: f64| Ok(if x == end { tiny } else { x - 1.5 });
+    assert_eq!(crate::root::bracketed(at(1.0, -1e-300), (1.0, 2.0)).unwrap(), Some(1.5));
+    assert_eq!(crate::root::bracketed(at(2.0, 1e-300), (1.0, 2.0)).unwrap(), Some(1.5));
+}
+
+/// The narrowing stops at adjacent doubles: [1, 2] to the edge at 1.5 in 52 halvings, 54 calls with the ends, not all
+/// of its 64 steps.
+#[test]
+fn the_narrowing_stops_at_adjacent_doubles() {
+    let mut calls = 0;
+    let exists = |x: f64| {
+        calls += 1;
+        x <= 1.5
+    };
+    assert_eq!(crate::root::narrowed(exists, (1.0, 2.0)), Some((1.0, 1.5)));
+    assert_eq!(calls, 54);
+}
+
+/// A target just past the solve's range is refused, though it lies within the wet bulb's match of an end: h 10⁻⁷ J/kg
+/// above saturated air's at 300 K and 1 bar.
+#[test]
+fn a_target_just_past_the_range_is_refused() {
+    let air = humid_air(DataSet::Corrected);
+    let psi_ws = air.saturation(300.0, 1e5).unwrap().psi_ws;
+    let h = air.moist_air(300.0, 1e5, psi_ws).unwrap().h(Per::KgDryAir);
+    let past = air.state(1e5, Given::Temperature(300.0), Given::Enthalpy(h + 1e-7));
+    assert!(matches!(past, Err(Error::InvalidInput { quantity: "enthalpy", .. })), "{past:?}");
+}
+
 /// Under `Parity` the wick's water is v8.0.0's: IAPWS-95's h at IF97's liquid density, bit for bit, not IF97's own.
 #[test]
 fn parity_s_wick_is_iapws_95_at_if97_s_density() {
