@@ -403,7 +403,10 @@ fn walk(start: Edge, next: &BTreeMap<Edge, Vec<Edge>>, seen: &mut BTreeSet<Edge>
     let mut chain = vec![start];
     seen.insert(start);
     let mut at = start;
-    while let Some(&n) = next.get(&at).and_then(|ns| ns.iter().find(|n| !seen.contains(n))) {
+    // Each edge once at most: the bound keeps a mutated walk from running away (one that dropped the `!` below filled a
+    // CI runner's memory).
+    for _ in 0..next.len() {
+        let Some(&n) = next.get(&at).and_then(|ns| ns.iter().find(|n| !seen.contains(n))) else { break };
         seen.insert(n);
         chain.push(n);
         at = n;
