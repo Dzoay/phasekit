@@ -19,7 +19,9 @@ async function realEngine(): Promise<{ engine: Engine; calls: string[]; bodies: 
       calls.push(body.op);
       bodies.push(body);
       const r = handle({ ...body, id: ++id } as Request);
-      return r.ok ? Promise.resolve(r.value as Values[B["op"]]) : Promise.reject(new Error(r.error));
+      return r.ok
+        ? Promise.resolve(r.value as Values[B["op"]])
+        : Promise.reject(Object.assign(new Error(r.error.message), { refusal: r.error }));
     },
   };
   return { engine, calls, bodies };
@@ -208,7 +210,7 @@ describe("the diagrams view, before and between answers", { timeout: 30_000 }, (
     view.point(["Hmass", -1e9, "P", 1e6]);
     await answer(2);
     await tick();
-    expect([view.readout?.state, typeof view.readout?.refusal]).toEqual([null, "string"]);
+    expect([view.readout?.state, typeof view.readout?.refusal?.message]).toEqual([null, "string"]);
     // Leaving drops the flash in flight and the point that waited for it.
     view.point(at(4e5));
     view.point(at(5e5));

@@ -12,7 +12,7 @@ use phasekit_diagram::{ChartLine, ChartRange, ChartVertex, Held, HumidAirBatch, 
 use phasekit_humidair::{Given, Humidity, Per};
 use wasm_bindgen::prelude::*;
 
-use crate::{Registry, alive, js};
+use crate::{Registry, alive, js, refuse};
 
 /// Every name `HAPropsSI` and `HumidAirState.get` read, v8.0.0's aliases included, in v8.0.0's order.
 #[wasm_bindgen(js_name = humidAirKeys)]
@@ -31,9 +31,9 @@ impl Registry {
     /// Humid air over this registry's Water and Air, which needs Air's pack (`withPack`), and `phasekit-iapws`'s IF97
     /// water and ice, under `Corrected`. A handle object: free it with `free()`.
     #[wasm_bindgen(js_name = humidAir)]
-    pub fn humid_air(&self) -> Result<HumidAir, JsError> {
+    pub fn humid_air(&self) -> Result<HumidAir, JsValue> {
         alive()?;
-        Ok(HumidAir { inner: compat::humid_air_in(&self.inner, DataSet::Corrected).map_err(js)? })
+        Ok(HumidAir { inner: compat::humid_air_in(&self.inner, DataSet::Corrected).map_err(refuse)? })
     }
 }
 
@@ -52,9 +52,9 @@ impl HumidAir {
         value2: f64,
         name3: &str,
         value3: f64,
-    ) -> Result<f64, JsError> {
+    ) -> Result<f64, JsValue> {
         alive()?;
-        compat::ha_props_si_in(&self.inner, output, name1, value1, name2, value2, name3, value3).map_err(js)
+        compat::ha_props_si_in(&self.inner, output, name1, value1, name2, value2, name3, value3).map_err(refuse)
     }
 
     /// The psychrometric chart at the pressure `p` (Pa), 0 to 50 °C and W to 0.03 unless `t_min`, `t_max` (K) and
@@ -65,11 +65,11 @@ impl HumidAir {
         t_min: Option<f64>,
         t_max: Option<f64>,
         w_max: Option<f64>,
-    ) -> Result<Chart, JsError> {
+    ) -> Result<Chart, JsValue> {
         alive()?;
         let range = chart_range(t_min, t_max, w_max);
-        let chart = phasekit_diagram::psychrometric(&AtP { air: &self.inner, p }, range).map_err(js)?;
-        Chart::of(std::iter::once(&chart.saturation).chain(&chart.lines), None)
+        let chart = phasekit_diagram::psychrometric(&AtP { air: &self.inner, p }, range).map_err(refuse)?;
+        Ok(Chart::of(std::iter::once(&chart.saturation).chain(&chart.lines), None)?)
     }
 
     /// Mollier's h–x chart at the pressure `p` (Pa), over the psychrometric chart's range and its defaults (PLAN.md
@@ -80,17 +80,17 @@ impl HumidAir {
         t_min: Option<f64>,
         t_max: Option<f64>,
         w_max: Option<f64>,
-    ) -> Result<Chart, JsError> {
+    ) -> Result<Chart, JsValue> {
         alive()?;
         let range = chart_range(t_min, t_max, w_max);
-        let chart = phasekit_diagram::mollier(&AtP { air: &self.inner, p }, range).map_err(js)?;
-        Chart::of(std::iter::once(&chart.saturation).chain(&chart.lines), Some(chart.r0))
+        let chart = phasekit_diagram::mollier(&AtP { air: &self.inner, p }, range).map_err(refuse)?;
+        Ok(Chart::of(std::iter::once(&chart.saturation).chain(&chart.lines), Some(chart.r0))?)
     }
 
     /// The state at the pressure `p` (Pa) and two more inputs, as `HAPropsSI` reads them.
-    pub fn state(&self, p: f64, name1: &str, value1: f64, name2: &str, value2: f64) -> Result<HumidAirState, JsError> {
+    pub fn state(&self, p: f64, name1: &str, value1: f64, name2: &str, value2: f64) -> Result<HumidAirState, JsValue> {
         alive()?;
-        let state = compat::ha_state_in(&self.inner, p, (name1, value1), (name2, value2)).map_err(js)?;
+        let state = compat::ha_state_in(&self.inner, p, (name1, value1), (name2, value2)).map_err(refuse)?;
         Ok(HumidAirState { air: self.inner.clone(), state })
     }
 }
@@ -123,9 +123,9 @@ impl HumidAirState {
     }
 
     /// Any `HAPropsSI` output at this state.
-    pub fn get(&self, output: &str) -> Result<f64, JsError> {
+    pub fn get(&self, output: &str) -> Result<f64, JsValue> {
         alive()?;
-        compat::ha_output_at(&self.air, &self.state, output).map_err(js)
+        compat::ha_output_at(&self.air, &self.state, output).map_err(refuse)
     }
 }
 

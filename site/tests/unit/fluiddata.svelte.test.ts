@@ -330,7 +330,9 @@ describe("on the real package", () => {
       let id = 0;
       const call = (body: Record<string, unknown>): Response => handle({ ...body, id: ++id } as Request);
       const answer = (r: Response) =>
-        r.ok && (r.op === "pack" || r.op === "registry") ? r.value : Promise.reject(new Error(r.ok ? r.op : r.error));
+        r.ok && (r.op === "pack" || r.op === "registry")
+          ? r.value
+          : Promise.reject(new Error(r.ok ? r.op : r.error.message));
       const data = new FluidData(
         { index: async () => packIndex(), pack: async (file) => packBytes(file) },
         {
@@ -386,7 +388,7 @@ describe("on the real package", () => {
       r.ok
         ? (r.value as T)
         : (() => {
-            throw new Error(r.error);
+            throw new Error(r.error.message);
           })();
     const data = new FluidData(
       { index: async () => packIndex(), pack: async (file) => packBytes(file) },

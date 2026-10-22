@@ -21,7 +21,7 @@ export async function drawn(fluid: string, packs: string[] = []) {
     registry = next;
   }
   const answer = <T>(r: Response): T => {
-    if (!r.ok) throw new Error(r.error);
+    if (!r.ok) throw new Error(r.error.message);
     return r.value as T;
   };
   /** The diagram on `plane`, as the page draws it. */

@@ -82,15 +82,11 @@ test("a chosen fluid computes and stays chosen", async ({ page }) => {
   await expect(page).toHaveURL(/fluid=Nitrogen/);
 });
 
-test("a refusal restates the inputs in SI and in the viewer's units", async ({ page }) => {
-  // −273.15 °C is 0 K, which the package refuses; its message names the SI value with its unit (M28.1).
+test("a refusal is the package's, written in the viewer's units", async ({ page }) => {
+  // −273.15 °C is 0 K, which the package refuses; the page writes its message in the units shown (PLAN.md M28.3).
   await page.goto("./#/calculator?fluid=Water&a=P:1002500000&b=T:0&units=engineering");
-  const alert = page.getByRole("alert");
-  await expect(alert).toContainText("temperature 0 K is not above absolute zero");
-  const inputs = page.getByTestId("refusal-inputs");
-  await expect(inputs).toContainText("T = 0 K (−273.15 °C)");
-  await expect(inputs).toContainText("p = 1.0025 × 10⁹ Pa (10025 bar)");
+  const message = page.getByTestId("refusal-message");
+  await expect(message).toHaveText("temperature −273.15 °C is not above absolute zero");
   await page.getByRole("radio", { name: "SI" }).check();
-  await expect(inputs).toContainText("T = 0 K");
-  await expect(inputs).not.toContainText("°C");
+  await expect(message).toHaveText("temperature 0 K is not above absolute zero");
 });

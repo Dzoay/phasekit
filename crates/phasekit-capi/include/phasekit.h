@@ -92,6 +92,24 @@ extern "C" {
 size_t pk_last_error(char *buf,
                      size_t len);
 
+// Copies the code of this thread's last `pk_*` call (`invalid_input`, `below_min_temperature`, `unknown_output`,
+// `null_pointer`, …; empty if it succeeded) as [`pk_last_error`] copies its message, and returns the length needed, NUL
+// included (user decision EM12).
+//
+// # Safety
+// `buf` is null or points to `len` writable bytes.
+size_t pk_last_error_code(char *buf,
+                          size_t len);
+
+// Copies the rule an invalid input's value broke in this thread's last `pk_*` call (`not_positive`, `out_of_range`,
+// …; empty for any other outcome) as [`pk_last_error`] copies its message, and returns the length needed, NUL included
+// (user decision EM12).
+//
+// # Safety
+// `buf` is null or points to `len` writable bytes.
+size_t pk_last_error_rule(char *buf,
+                          size_t len);
+
 // A new registry of the embedded fluids under `data_set` (`PK_DATASET_CORRECTED` or `PK_DATASET_PARITY`), into
 // `*out`, which also reads CoolProp's mixture names (`HEOS::R32[0.7]&R125[0.3]`, `R410A.mix`) on that data set's
 // library. Free it with [`pk_registry_free`].
