@@ -2,9 +2,13 @@
 //! thread-local copy of a part (ROT-267, ROT-268; v8.0.0 keeps three backends per calling thread and process-wide
 //! model flags, map 07 H8, §5).
 
-use phasekit_core::{Constant, DataSet, Error, Fluid, Input, Prop, Quality, Temperature, Virials as PureVirials};
+use phasekit_core::{
+    Constant, DataSet, Error, Fluid, Gauge, Input, Prop, Quality, Temperature, Virials as PureVirials,
+};
 
 use crate::constants::M_WATER;
+use crate::ideal::{self, Zeros};
+use crate::moist_air::{self, MoistAir, Per};
 use crate::quantities::PART_MOLAR_MASS;
 use crate::saturation::{self, Saturation};
 use crate::virials::{self, Coefficient, Virials};
@@ -28,13 +32,27 @@ pub struct Parts {
 pub struct HumidAir {
     parts: Parts,
     data_set: DataSet,
+    pub(crate) zeros: Zeros,
 }
+
+/// Where `Corrected` puts dry air's h and s at zero, K and Pa (RP-1485's reference state).
+const T_ZERO: f64 = 273.15;
+const P_ZERO: f64 = 101_325.0;
 
 impl HumidAir {
     /// Humid air over `parts`, each checked: water and air need exact virials (a Helmholtz model with a closed-form
     /// `zero_density`); the liquid and ice, water's molar mass, and a saturation state each, the liquid's at 300 K
-    /// and the ice's at 250 K (the refusal is the part's own).
+    /// and the ice's at 250 K (the refusal is the part's own). Each part is kept in its model's own gauge, whatever
+    /// reference state its handle carries, so no output depends on one (ROT-104: v8.0.0's wet bulb takes the liquid's
+    /// h in the caller's).
     pub fn new(parts: Parts, data_set: DataSet) -> Result<HumidAir, Error> {
+        let native = |part: &Fluid| part.with_gauge(Gauge::NATIVE);
+        let parts = Parts {
+            water: native(&parts.water),
+            air: native(&parts.air),
+            liquid: native(&parts.liquid),
+            ice: native(&parts.ice),
+        };
         for part in [&parts.water, &parts.air] {
             pure_virials(part, 300.0)?;
         }
@@ -45,10 +63,18 @@ impl HumidAir {
             }
             part.state(Input::qt(Quality::new(0.0)?, Temperature::new(t)?))?;
         }
-        Ok(HumidAir { parts, data_set })
+        let mut air = HumidAir { parts, data_set, zeros: Zeros::default() };
+        air.zeros = match data_set {
+            DataSet::Parity => ideal::parity_zeros(&air.parts)?,
+            _ => {
+                let dry = moist_air::state(&air, &air.zeros, T_ZERO, P_ZERO, 0.0)?;
+                ideal::corrected_zeros([dry.h(Per::MolHumidAir), dry.s(Per::MolHumidAir)])
+            }
+        };
+        Ok(air)
     }
 
-    /// The parts.
+    /// The parts, each in its model's own gauge.
     pub fn parts(&self) -> &Parts {
         &self.parts
     }
@@ -85,7 +111,13 @@ impl HumidAir {
     /// The humidity ratio of saturated moist air at `t` (K) and `p` (Pa), kg of water per kg of dry air:
     /// W_s = ε ψ_ws/(1 − ψ_ws), ε = M_w/M_a.
     pub fn saturated_humidity_ratio(&self, t: f64, p: f64) -> Result<f64, Error> {
-        Ok(crate::humidity::ratio(self.saturation(t, p)?.psi_ws))
+        Ok(crate::humidity::ratio(self.data_set, self.saturation(t, p)?.psi_ws))
+    }
+
+    /// The moist-air state at `t` (K), `p` (Pa) and mole fraction of water `psi` (PLAN.md M18.3), within v8.0.0's
+    /// range: 130 to 623.15 K, 10 Pa to 10 MPa.
+    pub fn moist_air(&self, t: f64, p: f64, psi: f64) -> Result<MoistAir, Error> {
+        moist_air::state(self, &self.zeros, t, p, psi)
     }
 }
 

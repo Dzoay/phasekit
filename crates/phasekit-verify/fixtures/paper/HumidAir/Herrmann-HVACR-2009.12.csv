@@ -1,0 +1,21 @@
+# fixture: paper/v1
+# source: paper:Herrmann-HVACR-2009-tables/12
+# citation: report=Herrmann-Kretzschmar-Gatley-HVACR-15(5)-2009-tables table=12 page=6 erratum-checked=2026-10-21 pdf_sha256=fa7d1035128305543f11170583a681b82d107d736b6a0a4e97a026e43c3fac29
+# kind: Rows
+# constants: moist air at 2 MPa and 320 °C; the supplement to HVAC&R Research 15(5) 961-986 (RP-1485)
+# transcribed: Claude session A; checked: Claude session B (separate worktree)
+# columns: W,twb,v,h,s
+# units: kg/kg,degC,m3/kg,kJ/kg,kJ/(kg K)
+# tol: in,paper,paper,paper,paper
+0.00,126.92,0.086,326.68,-0.0685
+0.05,140.12,0.093,482.14,0.3586
+0.10,149.17,0.099,637.34,0.7553
+0.20,161.20,0.113,947.16,1.5209
+0.30,169.07,0.126,1256.39,2.2674
+0.40,174.71,0.140,1565.21,3.0031
+0.50,178.98,0.153,1873.73,3.7313
+0.60,182.35,0.166,2182.01,4.4542
+0.70,185.08,0.179,2490.11,5.1730
+0.80,187.34,0.192,2798.06,5.8885
+0.90,189.25,0.206,3105.89,6.6014
+1.00,190.88,0.219,3413.63,7.3122
