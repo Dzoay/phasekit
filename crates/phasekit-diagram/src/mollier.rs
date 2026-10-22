@@ -145,3 +145,54 @@ pub fn mollier(batch: &dyn HumidAirBatch, range: ChartRange) -> Result<Mollier, 
     let lines = held.into_iter().map(|h| line(batch, h, (range, r0), &square)).collect::<Result<Vec<_>, _>>()?;
     Ok(Mollier { p: batch.p(), range, r0, saturation, lines })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A batch whose saturation W is `w_s` at every T and whose h is `h(T, W)`; it has no other states.
+    struct Fake {
+        w_s: Option<f64>,
+        h: fn(f64, f64) -> Option<f64>,
+    }
+
+    impl HumidAirBatch for Fake {
+        fn p(&self) -> f64 {
+            101_325.0
+        }
+        fn ratios(&self, _: Held, t: &[f64]) -> Result<Vec<Option<f64>>, Error> {
+            Ok(vec![self.w_s; t.len()])
+        }
+        fn temperatures(&self, _: Held, w: &[f64]) -> Result<Vec<Option<f64>>, Error> {
+            Ok(vec![None; w.len()])
+        }
+        fn held_at(&self, _: f64, _: f64) -> Result<[f64; 3], Error> {
+            Err(NO_R0)
+        }
+        fn enthalpies(&self, at: &[(f64, f64)]) -> Result<Vec<Option<f64>>, Error> {
+            Ok(at.iter().map(|&(t, w)| (self.h)(t, w)).collect())
+        }
+    }
+
+    /// Saturated air with no water at 0 °C has no r₀: its slope would divide by a zero W.
+    #[test]
+    fn r0_needs_water_at_saturation() {
+        let batch = Fake { w_s: Some(0.0), h: |t, w| Some(1000.0 * t + 2.5e6 * w) };
+        assert_eq!(r0(&batch), Err(NO_R0));
+    }
+
+    /// Each h stays with its own (T, W): a point without a W takes none, and the next point keeps its own.
+    #[test]
+    fn enthalpies_skip_the_points_without_both() {
+        let batch = Fake { w_s: None, h: |t, w| Some(t + w) };
+        let h = enthalpies(&batch, &[(Some(1.0), None), (Some(2.0), Some(3.0)), (None, Some(4.0))]).unwrap();
+        assert_eq!(h, [None, Some(5.0), None]);
+    }
+
+    /// A range whose corners are drawn at one height spans 0 to 1 instead: the square must not be flat.
+    #[test]
+    fn a_flat_y_span_is_the_unit_span() {
+        let batch = Fake { w_s: Some(0.01), h: |_, _| Some(7.0) };
+        assert_eq!(y_span(&batch, (ChartRange::default(), 0.0)).unwrap(), (0.0, 1.0));
+    }
+}
