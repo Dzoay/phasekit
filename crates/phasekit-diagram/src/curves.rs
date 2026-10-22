@@ -238,8 +238,7 @@ impl<B: Batch> Chart<'_, B> {
         let pieces = match (cell(liquid, 0), cell(vapour, 0)) {
             (Some(bubble), Some(dew)) => {
                 let edge = |row: &Row, at: f64| Swept { at, row: row.clone(), edge: true };
-                let (gas, rest): (Vec<Swept>, Vec<Swept>) = single.into_iter().partition(|s| s.at < dew);
-                let dense = rest.into_iter().filter(|s| s.at > bubble);
+                let (gas, dense) = split(single, dew, bubble);
                 vec![
                     gas.into_iter().chain([edge(vapour, dew)]).collect(),
                     [edge(liquid, bubble)].into_iter().chain(dense).collect(),
@@ -257,5 +256,31 @@ impl<B: Batch> Chart<'_, B> {
     fn refined(&self, t: f64, piece: Vec<Swept>) -> Result<Vec<Swept>, Error> {
         let eval = |p: &[f64]| along(self.batch, &CHART, (Quantity::P, p), (Quantity::T, &vec![t; p.len()]));
         refine(piece, (Halving::Geometric, Sides::One), self.square, eval)
+    }
+}
+
+/// An isotherm's points below its saturated vapour's pressure, the gas, and above its saturated liquid's, the liquid:
+/// a point at either is that saturated state's, which the isotherm takes from its `QT` state.
+fn split(points: Vec<Swept>, dew: f64, bubble: f64) -> (Vec<Swept>, Vec<Swept>) {
+    let (gas, rest): (Vec<Swept>, Vec<Swept>) = points.into_iter().partition(|s| s.at < dew);
+    (gas, rest.into_iter().filter(|s| s.at > bubble).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A point at the saturated vapour's or liquid's pressure is neither the gas's nor the liquid's, and one between
+    /// them, a pseudo-pure fluid's, neither.
+    #[test]
+    fn an_isotherm_splits_at_its_saturation_pressures() {
+        let at = |p: f64| Swept {
+            at: p,
+            row: Row { cells: Vec::new(), ok: Vec::new(), inputs: Inputs { pair: Pair::PT, x: p, y: 1.0 } },
+            edge: false,
+        };
+        let (gas, liquid) = split([1.0, 2.0, 3.0, 4.0, 5.0].map(at).to_vec(), 2.0, 4.0);
+        let ps = |s: Vec<Swept>| s.iter().map(|s| s.at).collect::<Vec<_>>();
+        assert_eq!((ps(gas), ps(liquid)), (vec![1.0], vec![5.0]));
     }
 }

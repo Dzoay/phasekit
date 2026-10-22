@@ -96,10 +96,15 @@ pub(crate) fn zero_lines(
     let brackets = crossed.iter().map(|e| ends.get(e).map(|[a, b]| Bracket::new(a.clone(), b.clone()))).collect();
     let found = bisect(batch, outputs, field, brackets)?;
     let at: BTreeMap<Edge, Row> = crossed.into_iter().zip(found).filter_map(|(e, row)| Some((e, row?))).collect();
+    Ok(joined(segments, &at))
+}
+
+/// The lines the segments make where both their crossings were found, each as its crossings' rows.
+fn joined(segments: Vec<(Edge, Edge)>, at: &BTreeMap<Edge, Row>) -> Vec<Vec<Row>> {
     let kept: Vec<(Edge, Edge)> =
         segments.into_iter().filter(|(a, b)| at.contains_key(a) && at.contains_key(b)).collect();
     let rows = |chain: Vec<Edge>| chain.iter().filter_map(|e| at.get(e).cloned()).collect::<Vec<Row>>();
-    Ok(chains(&kept).into_iter().map(rows).map(from_low_density).collect())
+    chains(&kept).into_iter().map(rows).map(from_low_density).collect()
 }
 
 /// Every edge's ends with values: both nodes', or one node's and the last valued state halving toward the other found.
@@ -192,10 +197,11 @@ fn cell_segments(ends: &Ends, (i, j): Node) -> Vec<(Edge, Edge)> {
     }
 }
 
-/// Whether a saddle's centre, the mean of its lower and upper edges' ends, is on the side of the lower edge's first.
+/// Whether a saddle's centre, the mean of its lower and upper edges' ends, is on the side of the lower edge's first:
+/// the mean's sign is their sum's.
 fn centred(ends: &Ends, lower: Edge, upper: Edge) -> bool {
     let values = |e: Edge| ends.get(&e).map(|[(u, _), (v, _)]| [*u, *v]);
-    values(lower).zip(values(upper)).is_some_and(|([a, b], [d, c])| ((a + b + c + d) / 4.0 >= 0.0) == (a >= 0.0))
+    values(lower).zip(values(upper)).is_some_and(|([a, b], [d, c])| (a + b + c + d >= 0.0) == (a >= 0.0))
 }
 
 /// A crossing's bracket: its ends' field values and rows, the field's signs at them opposite.
@@ -366,5 +372,27 @@ mod tests {
         assert_eq!((gap.valued.0, gap.valued.1.inputs.x, gap.toward), (-2.0, 2.0, (4.0, 100.0)));
         gap.halve(&|_| None, &row(3.0, 100.0), (3.0, 100.0));
         assert_eq!((gap.valued.1.inputs.x, gap.toward), (2.0, (3.0, 100.0)));
+    }
+
+    /// A segment with a crossing that was not found draws nothing: the line ends at the crossing before it.
+    #[test]
+    fn a_line_ends_where_a_crossing_was_not_found() {
+        let e = |i: usize| Edge::Isotherm((i, 0));
+        let found = |edges: &[usize]| {
+            edges.iter().map(|&i| (e(i), row(f64::from(u8::try_from(i).unwrap_or(0)), 1.0))).collect()
+        };
+        let segments = vec![(e(0), e(1)), (e(1), e(2)), (e(2), e(3))];
+        let densities = |lines: Vec<Vec<Row>>| {
+            lines.iter().map(|l| l.iter().map(|r| r.inputs.x).collect()).collect::<Vec<Vec<f64>>>()
+        };
+        assert_eq!(densities(joined(segments.clone(), &found(&[0, 1, 2, 3]))), [vec![0.0, 1.0, 2.0, 3.0]]);
+        assert_eq!(densities(joined(segments, &found(&[0, 2, 3]))), [vec![2.0, 3.0]]);
+    }
+
+    /// A bisected bracket's row is its end nearer zero.
+    #[test]
+    fn a_bracket_ends_at_its_end_nearer_zero() {
+        let nearer = |a: f64, b: f64| Bracket::new((a, row(1.0, 1.0)), (b, row(2.0, 1.0))).nearer().inputs.x;
+        assert_eq!([nearer(0.5, -0.1), nearer(-0.1, 0.5), nearer(0.2, -0.2)], [2.0, 1.0, 1.0]);
     }
 }
