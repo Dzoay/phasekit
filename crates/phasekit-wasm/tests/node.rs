@@ -842,3 +842,66 @@ fn mollier_s_chart_is_hapropssis() {
     let psychrometric = air.psychrometric(101_325.0, Some(288.15), Some(298.15), Some(0.015)).unwrap();
     assert!(psychrometric.h().is_empty() && psychrometric.y().is_empty() && psychrometric.r0().is_none());
 }
+
+/// PLAN.md M26.2: a pure fluid's surface is phasekit-diagram's, bit for bit, computed here on the same build by its
+/// batch in lanes (`Exact`): Water's vertices' T, ρ, p, u, s, Q (NaN where a state has none), phases, inputs and pairs,
+/// its triangles, three indices each, and the dome's indices. A mixture's surface is refused.
+#[wasm_bindgen_test]
+fn a_fluids_surface_is_the_crates_bit_for_bit() {
+    use phasekit_diagram::{FluidBatch, Limits, sample_surface};
+    let oracle = water();
+    let batch = FluidBatch::new(&oracle).with_exec(ExecPolicy::Simd);
+    let want = sample_surface(&batch, &|inputs| batch.phase(inputs), &Limits::of(&oracle).unwrap()).unwrap();
+    let got = Registry::new().unwrap().fluid("Water").unwrap().surface().unwrap();
+    let column = |f: fn(&phasekit_diagram::SurfaceVertex) -> f64| want.vertices.iter().map(f).map(f64::to_bits);
+    assert_eq!(bits(got.t()), column(|v| v.t).collect::<Vec<_>>());
+    assert_eq!(bits(got.rho()), column(|v| v.rho).collect::<Vec<_>>());
+    assert_eq!(bits(got.p()), column(|v| v.p).collect::<Vec<_>>());
+    assert_eq!(bits(got.u()), column(|v| v.u).collect::<Vec<_>>());
+    assert_eq!(bits(got.s()), column(|v| v.s).collect::<Vec<_>>());
+    assert_eq!(bits(got.q()), column(|v| v.q.unwrap_or(f64::NAN)).collect::<Vec<_>>());
+    let names = got.phase_names();
+    let phases: Vec<&str> = got.phases().iter().map(|&k| names[usize::from(k)].as_str()).collect();
+    let want_phases: Vec<&str> = want.vertices.iter().map(|v| phasekit_compat::phase_name(v.phase)).collect();
+    assert_eq!(phases, want_phases);
+    let code = |pair| phasekit_core::Pair::ALL.iter().position(|p| *p == pair).unwrap() as u8;
+    let want_inputs: Vec<u64> = want.vertices.iter().flat_map(|v| [v.inputs.x, v.inputs.y]).map(f64::to_bits).collect();
+    assert_eq!(
+        (bits(got.inputs()), got.pairs()),
+        (want_inputs, want.vertices.iter().map(|v| code(v.inputs.pair)).collect())
+    );
+    let indices = |i: &[usize]| i.iter().map(|&k| k as u32).collect::<Vec<_>>();
+    assert_eq!(got.triangles(), indices(&want.triangles.concat()));
+    assert_eq!((got.liquid(), got.vapour()), (indices(&want.dome.liquid), indices(&want.dome.vapour)));
+    assert_eq!(
+        (got.critical(), got.triple()),
+        (indices(&Vec::from_iter(want.dome.critical)), indices(&want.dome.triple))
+    );
+    let (r410a, _) = r410a();
+    assert!(r410a.surface().is_err());
+}
+
+#[wasm_bindgen(inline_js = r#"
+export function surfaceTypes(fluid) {
+    const m = fluid.surface();
+    const n = m.T.length;
+    const typed = n > 1000 && [m.T, m.rho, m.p, m.u, m.s, m.Q, m.inputs].every((a) => a instanceof Float64Array) &&
+        m.rho.length === n && m.inputs.length === 2 * n && m.phases instanceof Uint8Array && m.pairs instanceof Uint8Array &&
+        Array.isArray(m.phaseNames) && m.triangles instanceof Uint32Array && m.triangles.length % 3 === 0 &&
+        [m.liquid, m.vapour, m.critical, m.triple].every((a) => a instanceof Uint32Array);
+    m.free();
+    return typed;
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen(js_name = surfaceTypes)]
+    fn surface_types(fluid: &JsValue) -> bool;
+}
+
+/// PLAN.md M26.2: a page reads a surface as typed arrays, the inline JS calling the exported class as a page does:
+/// `Float64Array` values, `Uint8Array` phase and pair codes, `Uint32Array` indices.
+#[wasm_bindgen_test]
+fn the_surface_is_typed_arrays() {
+    let fluid = JsValue::from(Registry::new().unwrap().fluid("Water").unwrap());
+    assert!(surface_types(&fluid));
+}

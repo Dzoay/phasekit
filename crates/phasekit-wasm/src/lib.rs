@@ -11,7 +11,8 @@
 //!   `Fluid` has its components, composition and `Envelope`, and its two-phase `State` its `Phases`.
 //! - Diagrams (PLAN.md M19.6): `planes` lists the planes, their axes and isoline families; a `Fluid`'s
 //!   `diagram(plane)` is its dome and isolines, a mixture's its phase envelope, and `regions()` its phase regions, all
-//!   phasekit-diagram's, as typed arrays (`Diagram`, `Regions`).
+//!   phasekit-diagram's, as typed arrays (`Diagram`, `Regions`); and `surface()` its p–v–T and u–s–v surface, a
+//!   triangle mesh (`Surface`, PLAN.md M26.2).
 //! - Humid air (PLAN.md M18.8): a `Registry`'s `humidAir()`, over its Water and Air (Air from a pack), is `HAPropsSI`
 //!   and `state(p, name1, value1, name2, value2)`, whose `get` takes every `HAPropsSI` output; `humidAirKeys` lists
 //!   the names.
@@ -42,9 +43,11 @@ use wasm_bindgen::prelude::*;
 
 mod diagram;
 mod humid_air;
+mod surface;
 
 pub use diagram::{Corners, Diagram, Lines, PlaneInfo, Regions, Vertices, pair_keys, planes};
 pub use humid_air::{Chart, HumidAir, HumidAirState, humid_air_keys};
+pub use surface::Surface;
 
 /// A JS `Error` with `e`'s message.
 fn js(e: impl Display) -> JsError {

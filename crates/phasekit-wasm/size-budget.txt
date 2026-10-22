@@ -14,6 +14,7 @@
 # typed-array exports, took the builds to 2169132 and 2135626 bytes, 216686 and 198654 above main's 1952446 and
 # 1936972; each budget is that + 10 %.
 # M18.8 (SL8): humid air, phasekit-humidair and phasekit-iapws behind HAPropsSI and the HumidAir handle, took the builds
-# to 2268213 and 2229861 bytes, 99081 and 94235 above M19.6's; both stay within their budgets, which are unchanged.
+# to 2314703 and 2276385 bytes, 94677 and 90195 above main's 2220026 and 2186190 (M26.2's surface included); both
+# stay within their budgets, which are unchanged.
 baseline 2386045
 simd128 2349188
