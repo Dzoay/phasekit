@@ -21,6 +21,9 @@ phasekit-core.workspace = true
 phasekit-core = { workspace = true, features = ["fluids-all"] }
 phasekit-mix.workspace = true
 phasekit-verify.workspace = true
+# The psychrometric chart's tests fill its seam from humid air (PLAN.md M18.9).
+phasekit-humidair.workspace = true
+phasekit-iapws.workspace = true
 
 [lints]
 workspace = true

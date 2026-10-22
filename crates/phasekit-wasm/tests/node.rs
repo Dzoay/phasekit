@@ -13,7 +13,8 @@ use phasekit_core::{DataSet, Pack};
 use phasekit_mix::{EnvelopeOptions, Given, Mixture, Side};
 use phasekit_verify::{Fixture, ToleranceClass};
 use phasekit_wasm::{
-    Registry, binary_pairs, humid_air_keys, mixture_components, output_keys, pair_keys, planes, predefined_mixtures,
+    HumidAir, Registry, binary_pairs, humid_air_keys, mixture_components, output_keys, pair_keys, planes,
+    predefined_mixtures,
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::wasm_bindgen_test;
@@ -758,6 +759,88 @@ fn m18_4_through_the_exports() {
         }
     }
     assert_eq!(checked, 24);
+}
+
+/// Whether a chart's vertex (T, W) on the line of `key` at `value` is `HAPropsSI`'s at its inputs at 1 atm, bit for bit:
+/// W at (T, R) on the saturation and φ lines, T at (W, the line's value) on the others.
+fn is_hapropssis(air: &HumidAir, (key, value): (&str, f64), (t, w): (f64, f64)) -> Result<bool, JsError> {
+    Ok(match key {
+        "saturation" => air.ha_props_si("W", "T", t, "P", 101_325.0, "R", 1.0)? == w,
+        "R" => air.ha_props_si("W", "T", t, "P", 101_325.0, "R", value)? == w,
+        other => air.ha_props_si("T", "W", w, "P", 101_325.0, other, value)? == t,
+    })
+}
+
+/// PLAN.md M18.9: `HumidAir.psychrometric(p)`, the chart at 1 atm over 15 to 25 °C and W to 0.015 (a smaller one than
+/// the default, for the debug build's time: each T_wb vertex is a T solve of wet bulbs), as typed arrays: every
+/// vertex is `HAPropsSI`'s at its inputs bit for bit, on the saturation and φ lines W at (T, R), on the h, v and T_wb
+/// lines T at (W, the line's value); every run is at least two vertices long.
+#[wasm_bindgen_test]
+fn the_psychrometric_chart_is_hapropssis() {
+    let air = Registry::new().unwrap().with_pack(&air_pack()).unwrap().humid_air().unwrap();
+    let chart = air.psychrometric(101_325.0, Some(288.15), Some(298.15), Some(0.015)).unwrap();
+    let (held, values, segments, starts, t, w) =
+        (chart.held(), chart.values(), chart.segments(), chart.starts(), chart.t(), chart.w());
+    assert_eq!((held[0].as_str(), held.len() + 1, t.len()), ("saturation", segments.len(), w.len()));
+    let mut checked = 0;
+    for (i, key) in held.iter().enumerate() {
+        let runs = segments[i] as usize..segments[i + 1] as usize;
+        assert!(!runs.is_empty(), "{key} {}", values[i]);
+        for run in runs {
+            let vertices = starts[run] as usize..starts[run + 1] as usize;
+            assert!(vertices.len() >= 2, "{key} {}", values[i]);
+            for k in vertices {
+                let at_inputs = is_hapropssis(&air, (key, values[i]), (t[k], w[k])).unwrap();
+                assert!(at_inputs, "{key} {} at {} K, W {}", values[i], t[k], w[k]);
+                checked += 1;
+            }
+        }
+    }
+    assert_eq!(checked, 310);
+}
+
+/// Whether a vertex (T, W, h) of Mollier's chart on the line of `key` at `value` is `HAPropsSI`'s at its inputs at 1
+/// atm, bit for bit: on the saturation and φ lines W at (T, R), on an isotherm its T, on the h and v lines T at (W, the
+/// line's value); and its h the line's value on an h line, else H at (T, W).
+fn mollier_is_hapropssis(air: &HumidAir, (key, value): (&str, f64), [t, w, h]: [f64; 3]) -> Result<bool, JsError> {
+    let on_line = match key {
+        "saturation" => air.ha_props_si("W", "T", t, "P", 101_325.0, "R", 1.0)? == w,
+        "R" => air.ha_props_si("W", "T", t, "P", 101_325.0, "R", value)? == w,
+        "T" => t == value,
+        other => air.ha_props_si("T", "W", w, "P", 101_325.0, other, value)? == t,
+    };
+    let at = if key == "H" { value } else { air.ha_props_si("H", "T", t, "P", 101_325.0, "W", w)? };
+    Ok(on_line && at == h)
+}
+
+/// PLAN.md M18.10: `HumidAir.mollier(p)`, Mollier's h–x chart over the psychrometric chart's range above, as typed
+/// arrays: every vertex is `HAPropsSI`'s at its inputs bit for bit (`mollier_is_hapropssis`) and its `Y` is
+/// `H − r0·W`; every run is at least two vertices long; the psychrometric chart has no `H`, `Y` or `r0`.
+#[wasm_bindgen_test]
+fn mollier_s_chart_is_hapropssis() {
+    let air = Registry::new().unwrap().with_pack(&air_pack()).unwrap().humid_air().unwrap();
+    let chart = air.mollier(101_325.0, Some(288.15), Some(298.15), Some(0.015)).unwrap();
+    let (held, values, segments, starts) = (chart.held(), chart.values(), chart.segments(), chart.starts());
+    let (t, w, h, y, r0) = (chart.t(), chart.w(), chart.h(), chart.y(), chart.r0().unwrap());
+    assert_eq!((held[0].as_str(), held.len() + 1), ("saturation", segments.len()));
+    assert!([w.len(), h.len(), y.len()].iter().all(|n| *n == t.len()));
+    let mut checked = 0;
+    for (i, key) in held.iter().enumerate() {
+        let runs = segments[i] as usize..segments[i + 1] as usize;
+        assert!(!runs.is_empty(), "{key} {}", values[i]);
+        for run in runs {
+            let vertices = starts[run] as usize..starts[run + 1] as usize;
+            assert!(vertices.len() >= 2, "{key} {}", values[i]);
+            for k in vertices {
+                let at_inputs = mollier_is_hapropssis(&air, (key, values[i]), [t[k], w[k], h[k]]).unwrap();
+                assert!(at_inputs && y[k] == h[k] - r0 * w[k], "{key} {} at {} K, W {}", values[i], t[k], w[k]);
+                checked += 1;
+            }
+        }
+    }
+    assert_eq!(checked, 346);
+    let psychrometric = air.psychrometric(101_325.0, Some(288.15), Some(298.15), Some(0.015)).unwrap();
+    assert!(psychrometric.h().is_empty() && psychrometric.y().is_empty() && psychrometric.r0().is_none());
 }
 
 /// PLAN.md M26.2: a pure fluid's surface is phasekit-diagram's, bit for bit, computed here on the same build by its
