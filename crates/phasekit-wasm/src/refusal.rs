@@ -63,10 +63,18 @@ pub struct Refusal {
 
 #[wasm_bindgen]
 impl Refusal {
-    /// What kind of refusal: `invalid_input`, `below_min_temperature`, `ambiguous`, `unknown_output`, …
+    /// What kind of refusal: core's code (`invalid_input`, `below_min_temperature`, `ambiguous`, …) or compat's
+    /// (`unknown_output`, …).
     #[wasm_bindgen(getter)]
     pub fn code(&self) -> String {
         code(&self.error).to_string()
+    }
+
+    /// The rule an invalid input's value breaks (`not_positive`, `out_of_range`, …), core's; otherwise none.
+    #[wasm_bindgen(getter)]
+    pub fn rule(&self) -> Option<String> {
+        let CompatError::Core(e) = &self.error else { return None };
+        e.rule().map(|rule| rule.code().to_string())
     }
 
     /// The name of the quantity its numbers are values of ("temperature"), if it has one.
@@ -115,8 +123,9 @@ pub(crate) fn refused(error: CompatError) -> JsValue {
     let refusal = Refusal { error };
     // Setting a property of a fresh `Error` cannot fail; were it to, the message alone is still thrown.
     let _ = reflect_set_numbers(&thrown, "values", refusal.values());
-    let fields: [(&str, JsValue); 4] = [
+    let fields: [(&str, JsValue); 5] = [
         ("code", refusal.code().into()),
+        ("rule", refusal.rule().into()),
         ("quantity", refusal.quantity().into()),
         ("dimension", refusal.dimension().into()),
         ("refusal", refusal.into()),
@@ -135,38 +144,8 @@ fn code(error: &CompatError) -> &'static str {
         CompatError::InvalidFluid(_) => "invalid_fluid",
         CompatError::NotAConstant(_) => "not_a_constant",
         CompatError::NotAProperty(_) => "not_a_property",
-        CompatError::Core(e) => core_code(e),
+        CompatError::Core(e) => e.code(),
         _ => "other",
-    }
-}
-
-fn core_code(error: &Error) -> &'static str {
-    match error {
-        Error::InvalidInput { .. } => "invalid_input",
-        Error::InvalidArgument { .. } => "invalid_argument",
-        Error::Unsupported { .. } => "unsupported",
-        Error::Domain(e) => domain_code(e),
-        Error::NoConvergence { .. } => "no_convergence",
-        Error::Ambiguous { .. } => "ambiguous",
-        Error::Undefined { .. } => "undefined",
-        Error::NoModel { .. } => "no_model",
-        Error::ForeignState => "foreign_state",
-        Error::InvalidState { .. } => "invalid_state",
-        Error::Load(_) => "load",
-        Error::Shape { .. } => "shape",
-        _ => "other",
-    }
-}
-
-fn domain_code(error: &DomainError) -> &'static str {
-    match error {
-        DomainError::BelowMinTemperature { .. } => "below_min_temperature",
-        DomainError::AboveMaxTemperature { .. } => "above_max_temperature",
-        DomainError::BelowMinPressure { .. } => "below_min_pressure",
-        DomainError::AboveMaxPressure { .. } => "above_max_pressure",
-        DomainError::BelowMeltingLine { .. } => "below_melting_line",
-        DomainError::MechanicallyUnstable => "mechanically_unstable",
-        _ => "domain",
     }
 }
 

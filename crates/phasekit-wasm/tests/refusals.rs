@@ -31,7 +31,7 @@ const CALLS = {
 export function fields(registry, call) {
     const e = thrown(() => CALLS[call](registry));
     const values = Array.from(e.values).join(",");
-    return [e instanceof Error, e.message, e.code, e.quantity, e.dimension, values].join("|");
+    return [e instanceof Error, e.message, e.code, e.rule, e.quantity, e.dimension, values].join("|");
 }
 export function explained(registry, call, style) {
     return thrown(() => CALLS[call](registry)).refusal.explain(ENGINEERING, style);
@@ -68,15 +68,17 @@ fn registry() -> JsValue {
     Registry::new().unwrap().into()
 }
 
-/// A refused call throws an `Error`: its message core's long form in SI, its fields the refusal's.
+/// A refused call throws an `Error`: its message core's long form in SI, its fields the refusal's, its code and an
+/// invalid input's rule core's (user decision EM11).
 #[wasm_bindgen_test]
 fn a_refusal_is_an_error_with_its_fields() {
     let r = registry();
-    let zero = "true|temperature 0 K is not above absolute zero|invalid_input|temperature|temperature|0";
+    let zero = "true|temperature 0 K is not above absolute zero|invalid_input|not_above_absolute_zero|temperature|temperature|0";
     assert_eq!(fields(&r, "zeroKelvin"), zero);
-    let above = "true|temperature 700 K is above the maximum, 647.096 K|above_max_temperature|temperature|temperature|";
+    let above =
+        "true|temperature 700 K is above the maximum, 647.096 K|above_max_temperature||temperature|temperature|";
     assert!(fields(&r, "aboveTmax").starts_with(above), "{}", fields(&r, "aboveTmax"));
-    assert_eq!(fields(&r, "unknownOutput"), "true|unknown output key `Nonsense`|unknown_output|||");
+    assert_eq!(fields(&r, "unknownOutput"), "true|unknown output key `Nonsense`|unknown_output||||");
 }
 
 /// `explain` writes core's wording in the caller's units, in either style.

@@ -26,7 +26,8 @@ registry.free();
 \`\`\`
 
 A refused call throws an \`Error\` whose message is in SI, \`temperature 0 K is not above absolute zero\`. It also
-carries \`code\` (\`invalid_input\`, \`below_min_temperature\`, …), \`quantity\`, \`dimension\` and \`values\` (SI), and
+carries \`code\` (\`invalid_input\`, \`below_min_temperature\`, …), an invalid input's \`rule\` (\`not_positive\`,
+\`out_of_range\`, …), \`quantity\`, \`dimension\` and \`values\` (SI): read those, not the message, to act on a refusal.
 \`refusal.explain(units, style)\` writes the message in a page's units, in words (\`"long"\`) or as the relation the
 value breaks (\`"short"\`): \`units\` maps a dimension (\`temperature\`, \`pressure\`, \`specificEnergy\`, …) to
 \`{ label, scale, offset }\`, SI = value · scale + offset, so \`{ temperature: { label: "°C", scale: 1, offset: 273.15 } }\`
