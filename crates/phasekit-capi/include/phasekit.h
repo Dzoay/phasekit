@@ -76,6 +76,9 @@ typedef uint64_t pk_registry;
 // One fluid of a registry ([`pk_fluid_new`]).
 typedef uint64_t pk_fluid;
 
+// Humid air over a registry's water and air ([`pk_humid_air_new`]; PLAN.md M18.7).
+typedef uint64_t pk_humid_air;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -214,6 +217,37 @@ int32_t pk_batch(pk_fluid fluid,
                  double *out,
                  int32_t *status,
                  size_t cells);
+
+// New humid air, into `*out`, over `registry`'s Water and Air and phasekit-iapws's IF97 water and ice, under the data
+// set the registry was made with (PLAN.md M18.7; RP-1485's humid air). Free it with [`pk_humid_air_free`].
+//
+// # Safety
+// `out` is null or points to writable memory for one `pk_humid_air`.
+int32_t pk_humid_air_new(pk_registry registry,
+                         pk_humid_air *out);
+
+// Frees humid air; a call already using it finishes.
+int32_t pk_humid_air_free(pk_humid_air humid_air);
+
+// CoolProp's `HAPropsSI(output, name1, value1, name2, value2, name3, value3)` over `humid_air`, into `*out`: the
+// pressure and two more inputs, v8.0.0's names and aliases, every output from the state (compat's `ha_props_si_in`).
+//
+// # Safety
+// Each string pointer points to its length's readable bytes; `out` is null or points to writable memory for one
+// `double`.
+int32_t pk_ha_props_si(pk_humid_air humid_air,
+                       const char *output,
+                       size_t output_len,
+                       const char *name1,
+                       size_t name1_len,
+                       double value1,
+                       const char *name2,
+                       size_t name2_len,
+                       double value2,
+                       const char *name3,
+                       size_t name3_len,
+                       double value3,
+                       double *out);
 
 #ifdef __cplusplus
 }  // extern "C"

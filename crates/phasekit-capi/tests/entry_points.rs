@@ -152,6 +152,15 @@ proptest! {
         // SAFETY: as above; `one` is writable.
         let status = unsafe { pk_props1_si(registry, o.0, o.1, f.0, f.1, &mut one) };
         prop_assert!(STATUSES.contains(&status) && (status == PK_OK || one == -7.0), "{status} wrote {one}");
+        let mut air = 0;
+        // SAFETY: `air` is writable.
+        prop_assert_eq!(unsafe { pk_humid_air_new(registry, &mut air) }, PK_OK);
+        let mut ha = -7.0;
+        // SAFETY: as above; `ha` is writable.
+        let status = unsafe { pk_ha_props_si(air, o.0, o.1, a.0, a.1, values[0], b.0, b.1, values[1], f.0, f.1, values[1], &mut ha) };
+        prop_assert!(STATUSES.contains(&status) && (status == PK_OK || ha == -7.0), "{status} wrote {ha}");
+        prop_assert_eq!(pk_humid_air_free(air), PK_OK);
+        prop_assert!(STATUSES.contains(&pk_humid_air_free(stale)));
         let mut gauged = 0;
         // SAFETY: as above; `gauged` is writable.
         let status = unsafe { pk_registry_with_reference(registry, f.0, f.1, a.0, a.1, &mut gauged) };
@@ -229,7 +238,7 @@ proptest! {
         unsafe { shim::PhaseSI(a, values[0], b, values[1], f, buf.as_mut_ptr(), size) };
         prop_assert!(untouched(&buf), "PhaseSI wrote past {n}");
         no_caught_panic("PhaseSI")?;
-        shim::HAPropsSI(o, a, values[0], b, values[1], f, values[1]);
+        unsafe { shim::HAPropsSI(o, a, values[0], b, values[1], f, values[1]) };
         no_caught_panic("HAPropsSI")?;
         unsafe { shim::get_global_param_string(o, buf.as_mut_ptr(), size) };
         prop_assert!(untouched(&buf), "get_global_param_string wrote past {n}");

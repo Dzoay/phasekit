@@ -8,12 +8,25 @@
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use phasekit_core::{Fluid, Registry};
+use phasekit_core::{DataSet, Fluid, Registry};
+use phasekit_humidair::HumidAir;
+
+/// A registry with the data set it was made under, which humid air needs and a registry does not report.
+pub(crate) struct Held {
+    pub(crate) registry: Registry,
+    pub(crate) data_set: DataSet,
+}
 
 /// The registries `pk_registry_*` made.
-pub(crate) fn registries() -> &'static Mutex<Table<Registry>> {
-    static REGISTRIES: Mutex<Table<Registry>> = Mutex::new(Table::new());
+pub(crate) fn registries() -> &'static Mutex<Table<Held>> {
+    static REGISTRIES: Mutex<Table<Held>> = Mutex::new(Table::new());
     &REGISTRIES
+}
+
+/// The humid air `pk_humid_air_new` made (PLAN.md M18.7).
+pub(crate) fn humid_airs() -> &'static Mutex<Table<HumidAir>> {
+    static HUMID_AIRS: Mutex<Table<HumidAir>> = Mutex::new(Table::new());
+    &HUMID_AIRS
 }
 
 /// The fluids `pk_fluid_new` made.

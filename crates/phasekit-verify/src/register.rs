@@ -396,10 +396,11 @@ pub static DIVERGENCES: &[Divergence] = &[
                    HAProps_Aux's Cwww at 200 K is -5.93e-4 m6/mol2, the exact series' and IAPWS G11-15's -2.64e-4; M18.2: its \
                    enhancement factor f inherits B and C through Eq. (3.25), up to 9.8e-8 off at 200 K and 5 MPa, \
                    growing with p; M18.3: HAPropsSI's psi_w at a relative humidity inherits f, its W, psi_w and p_w up \
-                   to 2.4e-7 off at 300 °C, 10 MPa and R = 1",
+                   to 2.4e-7 off at 300 °C, 10 MPa and R = 1; M18.5: its viscosity and conductivity there inherit \
+                   psi_w's, up to 1.5e-8 off",
         exempt: Some(Exempt {
             kinds: &[Kind::Eos, Kind::Props, Kind::HumidairAux, Kind::Humidair],
-            columns: &["Cvirial", "dCvirial_dT", "Caaa", "Cwww", "f", "W", "Y", "P_w"],
+            columns: &["Cvirial", "dCvirial_dT", "Caaa", "Cwww", "f", "W", "Y", "P_w", "M", "K"],
             rows: Rows::All,
         }),
         tolerance: Some(Tolerance::Relative(3e-7)),
@@ -1761,6 +1762,40 @@ pub static DIVERGENCES: &[Divergence] = &[
                    20 °C and 101.325 kPa, which is no dew point. phasekit refuses dry air's (BelowMinPressure, its \
                    partial pressure 0), so the humidair kind's Tdp at its 58 dry rows is not asserted (M18.4)",
         exempt: Some(Exempt { kinds: &[Kind::Humidair], columns: &["Tdp"], rows: Rows::BelowDomain }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[18],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0073",
+        fluids: &["Humid air"],
+        part: Part::Transport,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_humidair::transport"),
+        evidence: "map 07 H2 (ROT-262): v8.0.0's humid-air viscosity and conductivity take water vapour's as saturated \
+                   vapour at the total pressure, and below water's triple-point pressure (611.655 Pa) its PQ flash \
+                   runs IAPWS-95's saturation curve past its end; core refuses that state (BelowMinPressure), so \
+                   phasekit refuses mu and k there, and the humidair kind's M and K at 10 Pa are not asserted (M18.5)",
+        exempt: Some(Exempt { kinds: &[Kind::Humidair], columns: &["M", "K"], rows: Rows::BelowDomain }),
+        tolerance: None,
+        table_tolerances: &[],
+        proof: &[18],
+        status: DivStatus::Open,
+    },
+    Divergence {
+        id: "DIV-0074",
+        fluids: &["Humid air"],
+        part: Part::Algorithm,
+        arbiter: None,
+        policy: Policy::SkipOracle,
+        fix: Fix::Code("phasekit_compat::humid_air"),
+        evidence: "map 07 H10 (ROT-165's rule): v8.0.0's HAPropsSI returns an output whose key is an input's before \
+                   any check, HAPropsSI(\"T\",\"T\",300,\"P\",101325,\"R\",5) = 300 with R = 5, and P = -1 returns -1; \
+                   phasekit_compat's computes every output from the state, so those calls are refused (M18.6). No \
+                   fixture row asks for an input as output with an input out of range",
+        exempt: None,
         tolerance: None,
         table_tolerances: &[],
         proof: &[18],
