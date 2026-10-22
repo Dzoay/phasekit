@@ -176,6 +176,14 @@ describe("the surfaces view", { timeout: 30_000 }, () => {
     pending[4]?.resolve(state("old fluid"));
     await Promise.resolve();
     expect(view.readout).toBeNull();
+    // A point before the cursor left and came back is as stale as any other.
+    view.hover(5, 5);
+    view.leave();
+    view.hover(6, 6);
+    pending[7]?.resolve(state("back"));
+    pending[6]?.resolve(state("before leaving"));
+    await new Promise((settled) => setTimeout(settled));
+    expect(view.readout?.state?.phase).toBe("back");
     stop();
   });
 });

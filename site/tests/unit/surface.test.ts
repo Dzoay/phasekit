@@ -140,6 +140,10 @@ describe("the surface's placement", () => {
     expect(rho).toBeCloseTo(100, 10);
     const [, thin] = stateAt(m, 0, [0, 0.5, 0.5]);
     expect(thin).toBeCloseTo(1, 12);
+    // A later triangle's corners, in its own order.
+    const three = { ...m, triangles: new Uint32Array([0, 1, 2, 2, 0, 1, 1, 2, 0]) };
+    expect(stateAt(three, 2, [1, 0, 0])[0]).toBe(400);
+    expect(stateAt(three, 2, [0, 0, 1])[0]).toBe(300);
   });
 
   test("names each phase's surface colour token", () => {
