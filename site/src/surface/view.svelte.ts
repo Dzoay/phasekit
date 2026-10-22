@@ -2,7 +2,8 @@
 // the fluid's mesh, the package's, asked once per fluid and kept; a refusal in the package's words, a mixture's among
 // them. The component binds to it; tests/unit/surface-view.svelte.test.ts drives it.
 import { untrack } from "svelte";
-import type { Engine, StateValue, SurfaceValue } from "../engine/protocol";
+import type { Engine, Refusal, StateValue, SurfaceValue } from "../engine/protocol";
+import { refusalOf } from "../lib/refusal";
 import { kindOf, type SurfaceKind } from "./mesh";
 
 const DEFAULT_FLUID = "Water";
@@ -14,17 +15,16 @@ export const READOUT_KEYS = ["T", "P", "Dmass", "Umass", "Hmass", "Smass", "Q"] 
 export interface SurfaceReadout {
   inputs: [number, number];
   state: StateValue | null;
-  refusal: string | null;
+  /** Why the package refused the point, which the readout writes short (PLAN.md M28.3). */
+  refusal: Refusal | null;
 }
-
-const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export class SurfaceView {
   fluid = $state<string>(DEFAULT_FLUID);
   kind = $state<SurfaceKind>("pvt");
   // The mesh is replaced whole, never changed in place: raw state, which proxies none of its arrays.
   data = $state.raw<SurfaceValue | null>(null);
-  refusal = $state<string | null>(null);
+  refusal = $state<Refusal | null>(null);
   busy = $state(true);
   readout = $state.raw<SurfaceReadout | null>(null);
 
@@ -64,7 +64,7 @@ export class SurfaceView {
     const request = { op: "state" as const, fluid: this.fluid, name1: "T", value1: t, name2: "Dmass", value2: rho };
     this.#engine.call({ ...request, outputs: [...READOUT_KEYS] }).then(
       (state) => shown({ inputs, state, refusal: null }),
-      (e: unknown) => shown({ inputs, state: null, refusal: message(e) }),
+      (e: unknown) => shown({ inputs, state: null, refusal: refusalOf(e) }),
     );
   }
 
@@ -104,7 +104,7 @@ export class SurfaceView {
         if (mine === this.#sequence) [this.data, this.refusal, this.busy] = [data, null, false];
       },
       (e: unknown) => {
-        if (mine === this.#sequence) [this.data, this.refusal, this.busy] = [null, message(e), false];
+        if (mine === this.#sequence) [this.data, this.refusal, this.busy] = [null, refusalOf(e), false];
       },
     );
   }

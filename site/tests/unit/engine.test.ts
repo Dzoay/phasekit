@@ -855,7 +855,7 @@ describe("the engine's surfaces (PLAN.md M26.2)", () => {
       id: 2,
       ok: false,
       op: "surface",
-      error: expect.stringContaining("Nothing"),
+      error: expect.objectContaining({ message: expect.stringContaining("Nothing") }),
     });
     for (const h of [want, water, registry]) h.free();
   });
