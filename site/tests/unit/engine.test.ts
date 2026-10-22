@@ -151,6 +151,21 @@ function fakePk() {
       calls.handlesFreed[kind] = (calls.handlesFreed[kind] ?? 0) + 1;
     }
   }
+  class Surface extends Handle {
+    T = new Float64Array([300]);
+    rho = new Float64Array([1]);
+    p = new Float64Array([2]);
+    u = new Float64Array([3]);
+    s = new Float64Array([4]);
+    Q = new Float64Array([NaN]);
+    phases = new Uint8Array([0]);
+    phaseNames = ["gas"];
+    triangles = new Uint32Array([0, 0, 0]);
+    liquid = new Uint32Array([]);
+    vapour = new Uint32Array([]);
+    critical = new Uint32Array([]);
+    triple = new Uint32Array([]);
+  }
   class Vertices extends Handle {
     xy = new Float64Array([1, 2]);
     inputs = new Float64Array([0, 300]);
@@ -265,6 +280,9 @@ function fakePk() {
     }
     regions(): Regions {
       return new Regions();
+    }
+    surface(): Surface {
+      return new Surface();
     }
   }
   class Registry {
@@ -789,3 +807,50 @@ function arrays(d: {
     lines,
   };
 }
+
+describe("the engine's surfaces (PLAN.md M26.2)", () => {
+  test("gives a pure fluid's surface as the package does, bit for bit, and passes on a refusal", async () => {
+    const pk = await loadPk("simd");
+    const handle = createHandler(pk, "simd128");
+    const registry = new pk.Registry();
+    const water = registry.fluid("Water");
+    const want = water.surface();
+    const got = handle({ id: 1, op: "surface", fluid: "Water" });
+    expect(got).toEqual({
+      id: 1,
+      ok: true,
+      op: "surface",
+      value: {
+        T: want.T,
+        rho: want.rho,
+        p: want.p,
+        u: want.u,
+        s: want.s,
+        Q: want.Q,
+        phases: want.phases,
+        phaseNames: want.phaseNames,
+        triangles: want.triangles,
+        liquid: want.liquid,
+        vapour: want.vapour,
+        critical: want.critical,
+        triple: want.triple,
+      },
+    });
+    expect(got.ok && got.op === "surface" && got.value.T.length).toBeGreaterThan(1000);
+    expect(handle({ id: 2, op: "surface", fluid: "Nothing" })).toEqual({
+      id: 2,
+      ok: false,
+      op: "surface",
+      error: expect.stringContaining("Nothing"),
+    });
+    for (const h of [want, water, registry]) h.free();
+  });
+
+  test("frees the surface's handle once it is read", () => {
+    const { pk, calls } = fakePk();
+    const handle = createHandler(pk, "baseline");
+    const got = handle({ id: 1, op: "surface", fluid: "Water" });
+    expect(got.ok && got.op === "surface" && got.value.phaseNames).toEqual(["gas"]);
+    expect(calls.handlesFreed).toEqual({ Surface: 1 });
+  });
+});
