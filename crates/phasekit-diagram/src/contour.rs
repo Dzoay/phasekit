@@ -273,10 +273,11 @@ fn cell_segments(ends: &Ends, cell: Node) -> Vec<(Edge, Edge)> {
     }
 }
 
-/// Whether a saddle's centre, the mean of its lower and upper edges' ends, is on the side of the lower edge's first.
+/// Whether a saddle's centre, the mean of its lower and upper edges' ends, is on the side of the lower edge's first:
+/// the mean's sign is their sum's.
 fn centred(ends: &Ends, lower: Edge, upper: Edge) -> bool {
     let values = |e: Edge| ends.get(&e).map(|[(u, _), (v, _)]| [*u, *v]);
-    values(lower).zip(values(upper)).is_some_and(|([a, b], [d, c])| ((a + b + c + d) / 4.0 >= 0.0) == (a >= 0.0))
+    values(lower).zip(values(upper)).is_some_and(|([a, b], [d, c])| (a + b + c + d >= 0.0) == (a >= 0.0))
 }
 
 /// A band's bound: its level and where the field less the level crosses zero.
@@ -542,5 +543,30 @@ mod tests {
         let (grid, [zero, _]) = banded([-1.0, 0.5, 2.0, 0.5]);
         let missing = Crossings { segments: Vec::new(), at: BTreeMap::new() };
         assert!(band(&grid, &value, Some((0.0, &zero)), Some((1.0, &missing))).is_empty());
+    }
+
+    /// A segment with a crossing that was not found draws nothing: the line ends at the crossing before it.
+    #[test]
+    fn a_line_ends_where_a_crossing_was_not_found() {
+        let e = |i: usize| Edge::AlongX((i, 0));
+        let found = |edges: &[usize]| {
+            edges.iter().map(|&i| (e(i), row(f64::from(u8::try_from(i).unwrap_or(0)), 1.0))).collect()
+        };
+        let segments = vec![(e(0), e(1)), (e(1), e(2)), (e(2), e(3))];
+        let densities = |lines: Vec<Vec<Row>>| {
+            lines.iter().map(|l| l.iter().map(|r| r.inputs.x).collect()).collect::<Vec<Vec<f64>>>()
+        };
+        assert_eq!(
+            densities(Crossings { segments: segments.clone(), at: found(&[0, 1, 2, 3]) }.lines()),
+            [vec![0.0, 1.0, 2.0, 3.0]]
+        );
+        assert_eq!(densities(Crossings { segments, at: found(&[0, 2, 3]) }.lines()), [vec![2.0, 3.0]]);
+    }
+
+    /// A bisected bracket's row is its end nearer zero.
+    #[test]
+    fn a_bracket_ends_at_its_end_nearer_zero() {
+        let nearer = |a: f64, b: f64| Bracket::new((a, row(1.0, 1.0)), (b, row(2.0, 1.0))).nearer().inputs.x;
+        assert_eq!([nearer(0.5, -0.1), nearer(-0.1, 0.5), nearer(0.2, -0.2)], [2.0, 1.0, 1.0]);
     }
 }
