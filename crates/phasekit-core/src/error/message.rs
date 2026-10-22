@@ -3,7 +3,7 @@
 
 use core::fmt;
 
-use super::{DomainError, Error, Roots};
+use super::{DomainError, Error, Roots, words};
 use crate::prop::{Partial, Prop};
 use crate::quantity::{Dimension, InUnit, Quantity, Style, Units};
 use crate::state::Phase;
@@ -35,14 +35,17 @@ impl fmt::Display for Message<'_> {
             ),
             Error::Domain(e) => out.domain(e),
             Error::NoConvergence { strategy, iterations } => out.either(
-                format_args!("{strategy:?} did not converge in {iterations} iterations"),
+                format_args!(
+                    "the {} ({strategy:?}) did not converge in {iterations} iterations",
+                    words::strategy(*strategy)
+                ),
                 format_args!("{strategy:?}: no convergence in {iterations} iterations"),
             ),
             Error::Ambiguous { roots } => out.ambiguous(roots),
             Error::Undefined { prop, phase } => out.undefined(*prop, *phase),
             Error::NoModel { prop } => {
-                let prop = PropName(*prop);
-                out.either(format_args!("no model for {prop}"), format_args!("{prop}: no model"))
+                let (words, key) = (PropWords(*prop), PropName(*prop));
+                out.either(format_args!("no model for {words}"), format_args!("{key}: no model"))
             }
             Error::ForeignState => {
                 out.either(format_args!("the state was produced by a different model"), format_args!("foreign state"))
@@ -213,8 +216,8 @@ impl<'a> Out<'a, '_> {
     }
 
     fn undefined(&mut self, prop: Prop, phase: Phase) -> fmt::Result {
-        let (prop, phase) = (PropName(prop), phase_name(phase));
-        self.either(format_args!("{prop} is undefined for a {phase} state"), format_args!("{prop}: undefined, {phase}"))
+        let (words, key, phase) = (PropWords(prop), PropName(prop), phase_name(phase));
+        self.either(format_args!("{words} is undefined for a {phase} state"), format_args!("{key}: undefined, {phase}"))
     }
 }
 
@@ -229,6 +232,20 @@ const fn phase_name(phase: Phase) -> &'static str {
         Phase::SupercriticalLiquid => "supercritical liquid",
         Phase::CriticalPoint => "critical-point",
         Phase::Solid => "solid",
+    }
+}
+
+/// A property in the long form: its words and its key (`the isobaric heat capacity (Cpmass)`), a partial derivative
+/// after "the derivative" (user decision EM7).
+struct PropWords(Prop);
+
+impl fmt::Display for PropWords {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let key = PropName(self.0);
+        match words::prop(self.0) {
+            Some(words) => write!(f, "the {words} ({key})"),
+            None => write!(f, "the derivative {key}"),
+        }
     }
 }
 

@@ -87,14 +87,14 @@ fn every_message_in_both_styles() {
         ),
         (
             Error::Undefined { prop: Prop::Cpmass, phase: Phase::TwoPhase },
-            "Cpmass is undefined for a two-phase state",
+            "the isobaric heat capacity (Cpmass) is undefined for a two-phase state",
             "Cpmass: undefined, two-phase",
         ),
-        (Error::NoModel { prop: Prop::Viscosity }, "no model for Viscosity", "Viscosity: no model"),
+        (Error::NoModel { prop: Prop::Viscosity }, "no model for the viscosity (Viscosity)", "Viscosity: no model"),
         (Error::Unsupported { pair: Pair::HS }, "input pair HS is not supported by this model", "HS: unsupported"),
         (
             Error::NoConvergence { strategy: Strategy::DensityNewton, iterations: 50 },
-            "DensityNewton did not converge in 50 iterations",
+            "the density Newton iteration (DensityNewton) did not converge in 50 iterations",
             "DensityNewton: no convergence in 50 iterations",
         ),
         (Error::ForeignState, "the state was produced by a different model", "foreign state"),
@@ -165,13 +165,18 @@ fn structural_arguments_carry_no_unit() {
     assert_eq!((long(&plane), short(&plane)), ("invalid plane".into(), "invalid plane".into()));
 }
 
-/// A partial derivative is written as `∂of/∂wrt|at`, a constant by its name.
+/// A partial derivative is written as `∂of/∂wrt|at`, in the long form after "the derivative"; a constant in words and by
+/// its name.
 #[test]
 fn derivatives_and_constants_by_name() {
     let partial = Partial { of: DerivVar::Hmass, wrt: DerivVar::T, at: DerivVar::P };
     let undefined = Error::Undefined { prop: Prop::Partial(partial), phase: Phase::CriticalPoint };
-    assert_eq!(long(&undefined), "∂Hmass/∂T|P is undefined for a critical-point state");
-    assert_eq!(long(&Error::NoModel { prop: Prop::Constant(Constant::TCritical) }), "no model for TCritical");
+    assert_eq!(long(&undefined), "the derivative ∂Hmass/∂T|P is undefined for a critical-point state");
+    assert_eq!(short(&undefined), "∂Hmass/∂T|P: undefined, critical-point");
+    assert_eq!(
+        long(&Error::NoModel { prop: Prop::Constant(Constant::TCritical) }),
+        "no model for the critical temperature (TCritical)"
+    );
 }
 
 /// Roots keep their quantity: the same values of another quantity differ, and the unused slots never show.

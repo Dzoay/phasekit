@@ -482,7 +482,7 @@ build (E7).
 `Dimension`; a family crate defines its own), SI; a count or an index is an `InvalidArgument` without a unit.
 `Error::display(&units, style)` writes the message with each number in the caller's unit of its dimension, to six
 significant figures, in words (`Style::Long`) or as the relation the value breaks (`Style::Short`); `Display` is the
-long form in SI and `{:#}` the short one (user decisions EM1-EM6). No panics on input, enforced by lints (`todo`, `unimplemented`, `panic`,
+long form in SI and `{:#}` the short one (user decisions EM1-EM10). No panics on input, enforced by lints (`todo`, `unimplemented`, `panic`,
 `unwrap_used`, `expect_used` denied; `indexing_slicing` denied in `batch` and `flash`) and by property tests (E12,
 S-06). NaN is never a typed result. One `math` choke point for every `f64` transcendental, an own `powi` chain, no FMA
 but under the `fast` feature (§9). `libm` stays an opt-in feature: M9.5 applied user decision 12's rule, which makes it the default only if its

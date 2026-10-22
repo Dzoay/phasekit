@@ -1,5 +1,5 @@
 //! What a number in an [`Error`](crate::Error) is, and the units a caller writes it in (issue #191; user decisions
-//! EM1-EM6). Core's API is SI (D5) and the kernel keeps no global state, so core cannot know a viewer's units: a caller
+//! EM1-EM10). Core's API is SI (D5) and the kernel keeps no global state, so core cannot know a viewer's units: a caller
 //! passes them, keyed by [`Dimension`], and [`Si`] writes SI.
 
 use core::fmt;
