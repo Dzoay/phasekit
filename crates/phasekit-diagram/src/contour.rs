@@ -296,7 +296,6 @@ fn piece(grid: &Grid, value: Field, cell: Node, bounds: [Option<Bound>; 2]) -> O
     let [low, high] = bounds;
     let inside = |v: f64| low.is_none_or(|(l, _)| v >= l) && high.is_none_or(|(h, _)| v < h);
     let mut polygon = Vec::new();
-    let mut touched = false;
     for (edge, reversed) in perimeter(cell).into_iter().zip([false, false, true, true]) {
         let [from, to] = if reversed { rev(edge.ends()) } else { edge.ends() };
         let [u, v] = [from, to].map(|n| grid.row(n).and_then(|r| valued(value, r)));
@@ -311,10 +310,10 @@ fn piece(grid: &Grid, value: Field, cell: Node, bounds: [Option<Bound>; 2]) -> O
             }
         }
         cuts.sort_by(|a, b| a.0.total_cmp(&b.0));
-        touched |= inside(u) || !cuts.is_empty();
         polygon.extend(cuts.into_iter().map(|(_, row)| row));
     }
-    (touched && polygon.len() >= 3).then_some(polygon)
+    // A piece has a corner and the two crossings either side of it, or two crossings of each bound: three at least.
+    (!polygon.is_empty()).then_some(polygon)
 }
 
 fn rev([a, b]: [Node; 2]) -> [Node; 2] {
@@ -568,5 +567,16 @@ mod tests {
     fn a_bracket_ends_at_its_end_nearer_zero() {
         let nearer = |a: f64, b: f64| Bracket::new((a, row(1.0, 1.0)), (b, row(2.0, 1.0))).nearer().inputs.x;
         assert_eq!([nearer(0.5, -0.1), nearer(-0.1, 0.5), nearer(0.2, -0.2)], [2.0, 1.0, 1.0]);
+    }
+
+    /// A corner at a level lies in the band above it, as a crossing's sides take it.
+    #[test]
+    fn a_corner_at_a_level_is_the_band_above() {
+        let value = |r: &Row| r.cells.first().copied();
+        let (grid, [zero, one]) = banded([0.0, 0.5, 1.0, 0.5]);
+        assert!(band(&grid, &value, None, Some((0.0, &zero))).is_empty());
+        let middle = band(&grid, &value, Some((0.0, &zero)), Some((1.0, &one)));
+        assert_eq!(middle.iter().map(Vec::len).collect::<Vec<_>>(), [5]);
+        assert_eq!(band(&grid, &value, Some((1.0, &one)), None).iter().map(Vec::len).collect::<Vec<_>>(), [3]);
     }
 }

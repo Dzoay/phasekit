@@ -4,6 +4,8 @@
 //! polygon's corners are the grid's states and those vertices. It adds no numerics: every vertex is the batch's state
 //! at the inputs it carries.
 
+#[cfg(test)]
+use phasekit_core::math;
 use phasekit_core::{Error, Fluid, Pair};
 
 use crate::batch::{Batch, FluidBatch, Row, Vertex, vertex};
@@ -138,4 +140,31 @@ fn vertices(rows: &[Row]) -> Vec<Vertex> {
 /// A polygon's vertices, where every row has its vertex.
 fn whole(rows: &[Row]) -> Option<Vec<Vertex>> {
     rows.iter().map(vertex).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use phasekit_core::math;
+
+    /// Each plane's grid is in its pair's order, each input halved on its axis's scale: p and ρ at the geometric mean,
+    /// T, h and s at the arithmetic one.
+    #[test]
+    fn a_planes_grid_is_in_its_pairs_order_on_its_axes_scales() {
+        let (geometric, linear) = (Halving::Geometric, Halving::Linear);
+        let got: Vec<Axes> = Plane::ALL.into_iter().map(|p| axes(p).unwrap_or(Axes::DT)).collect();
+        let want = [
+            Axes { pair: Pair::HP, halving: [linear, geometric] },
+            Axes { pair: Pair::ST, halving: [linear, linear] },
+            Axes { pair: Pair::PT, halving: [geometric, linear] },
+            Axes { pair: Pair::DT, halving: [geometric, linear] },
+            Axes { pair: Pair::HS, halving: [linear, linear] },
+        ];
+        assert_eq!(got, want);
+        let (x, y) = inputs(Plane::Pt, (300.0, 400.0), (1e5, 1e7)).unwrap_or_default();
+        assert_eq!((x.first(), x.last(), y.first(), y.last()), (Some(&1e5), Some(&1e7), Some(&300.0), Some(&400.0)));
+        assert_eq!(x.get(32), Some(&(1e5 * math::powf(100.0, 32.0 / 63.0))));
+        let (h, p) = inputs(Plane::Ph, (0.0, 630.0), (1.0, 2.0)).unwrap_or_default();
+        assert_eq!((h.get(1), p.len()), (Some(&10.0), NODES));
+    }
 }

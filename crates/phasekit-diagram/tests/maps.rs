@@ -22,7 +22,8 @@ fn tolerance(m: &Map) -> f64 {
     LEVEL * (m.values.1 - m.values.0)
 }
 
-/// Each contour's vertex is the state at its inputs, at its level within `LEVEL` of the quantity's span over the grid;
+/// Each contour's vertex is the state at its inputs, at its level within an eighth of `LEVEL` of the quantity's span
+/// over the grid, where its bisection stops;
 /// the levels lie strictly inside that span, in order; each band's polygon vertex is a state at its inputs whose
 /// quantity lies in the band within the same.
 #[test]
@@ -38,7 +39,7 @@ fn each_contour_vertex_is_its_level() {
         for c in &m.contours {
             for v in c.lines.iter().flatten() {
                 assert!(is_flash(f, plane, v).unwrap(), "{name} {plane:?} {v:?}");
-                assert!((value(v) - c.level).abs() <= tol, "{name} {plane:?} {}: {v:?}", c.level);
+                assert!((value(v) - c.level).abs() <= tol / 8.0, "{name} {plane:?} {}: {v:?}", c.level);
             }
         }
         let bounds: Vec<_> = m.bands.iter().map(|b| (b.low, b.high)).collect();
