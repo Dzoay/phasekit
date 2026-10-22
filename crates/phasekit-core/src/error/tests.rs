@@ -205,3 +205,49 @@ fn roots_carry_their_quantity() {
     assert_ne!(t, Roots::new(Quantity::PRESSURE, &[260.0, 280.0]));
     assert_eq!(Roots::new(Quantity::PRESSURE, &[1.0, 2.0, 3.0, 4.0, 5.0]).as_slice().len(), 4);
 }
+
+/// User decision EM11: each error's stable code, a domain error's its own; the browser package's codes as they were.
+#[test]
+fn every_error_has_its_code() {
+    let cases: [(Error, &str); 18] = [
+        (invalid(Quantity::TEMPERATURE, 0.0), "invalid_input"),
+        (Error::InvalidArgument { argument: "plane", value: None }, "invalid_argument"),
+        (Error::Unsupported { pair: Pair::HS }, "unsupported"),
+        (DomainError::BelowMinTemperature { t: 200.0, t_min: 273.16 }.into(), "below_min_temperature"),
+        (DomainError::AboveMaxTemperature { t: 700.0, t_max: 647.096 }.into(), "above_max_temperature"),
+        (DomainError::BelowMinPressure { p: 100.0, p_min: 611.655 }.into(), "below_min_pressure"),
+        (DomainError::AboveMaxPressure { p: 2e9, p_max: 1e9 }.into(), "above_max_pressure"),
+        (DomainError::BelowMeltingLine { t: 250.0, t_melt: 251.165 }.into(), "below_melting_line"),
+        (DomainError::MechanicallyUnstable.into(), "mechanically_unstable"),
+        (Error::NoConvergence { strategy: Strategy::Vle, iterations: 60 }, "no_convergence"),
+        (Error::Ambiguous { roots: Roots::new(Quantity::TEMPERATURE, &[300.0, 350.0]) }, "ambiguous"),
+        (Error::Undefined { prop: Prop::Cpmass, phase: Phase::TwoPhase }, "undefined"),
+        (Error::NoModel { prop: Prop::Viscosity }, "no_model"),
+        (Error::ForeignState, "foreign_state"),
+        (Error::InvalidState { reason: "a reason" }, "invalid_state"),
+        (LoadError::UnknownName("Wtaer".into()).into(), "load"),
+        (Error::Shape { expected: 3, found: 2 }, "shape"),
+        (Error::InvalidArgument { argument: "number of mole fractions", value: Some(3) }, "invalid_argument"),
+    ];
+    for (error, code) in cases {
+        assert_eq!(error.code(), code, "{error:?}");
+    }
+}
+
+/// User decision EM11: the first rule an invalid value breaks, and its code; no rule for any other error.
+#[test]
+fn the_rule_a_value_breaks() {
+    let cases = [
+        (invalid(Quantity::TEMPERATURE, f64::NAN), Rule::NotANumber, "not_a_number"),
+        (invalid(Quantity::TEMPERATURE, f64::INFINITY), Rule::NotFinite, "not_finite"),
+        (invalid(Quantity::TEMPERATURE, 0.0), Rule::NotAboveAbsoluteZero, "not_above_absolute_zero"),
+        (invalid(Quantity::PRESSURE, -5.0), Rule::NotPositive, "not_positive"),
+        (invalid(Quantity::QUALITY, 1.5), Rule::OutsideUnitInterval, "outside_unit_interval"),
+        (invalid(Quantity::PRESSURE, 2e9), Rule::OutOfRange, "out_of_range"),
+    ];
+    for (error, rule, code) in cases {
+        assert_eq!(error.rule(), Some(rule), "{error:?}");
+        assert_eq!(rule.code(), code);
+    }
+    assert_eq!(Error::from(DomainError::MechanicallyUnstable).rule(), None);
+}

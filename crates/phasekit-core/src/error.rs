@@ -8,9 +8,11 @@ use crate::prop::Prop;
 use crate::quantity::{Quantity, Si, Style, Units};
 use crate::state::{Phase, Strategy};
 
+mod code;
 mod message;
 mod words;
 
+pub use code::Rule;
 pub use message::Message;
 
 /// Every failure the kernel can report. No panics on user input; no sentinels (map 12 R3).
