@@ -1044,7 +1044,8 @@ zero", not "positive".
 | M28.3 | The site's engine worker explains each refusal once per unit system the page offers, in both styles (`site/src/lib/refusal.ts`, `refusalOf`), and frees the package's handle; a refusal crosses to the page as `{message, explained}` (`Refusal` in `protocol.ts`), an `EngineError` carrying it, so a change of units asks the worker nothing. The calculator writes its refusal in words in the shown units (`refusalText`), each refused output short (`values.errors`), and the diagrams' readout under the cursor short; #190's restatement of the inputs in SI is dropped, since the message names them in the shown units. A mixture's refused phases keep the message. Issue #191 closed. *Red:* `tests/unit/refusal.test.ts` (the package's own refusal in both systems and styles, the handle freed even when `explain` throws, a kept refusal, a bare one), the calculator's `a refusal is the package's, in words and in the shown units` and `a refused output is the package's short form in the shown units`, and the end-to-end `a refusal is the package's, written in the viewer's units` (`temperature −273.15 °C is not above absolute zero`), red against the page as it was |
 
 **Exit gate.** G1-G9 at every step; every message pinned in both styles; `gates core-frozen` since `m18-start` from
-M28.2 on. **ROT rows.** None. **User decisions implemented.** EM1-EM13.
+M28.2 on while M18 is open; `ci/core-frozen.txt` names no tag once M18.12 closes it. **ROT rows.** None. **User
+decisions implemented.** EM1-EM13.
 
 ## 5. Cross-cutting tracks
 
