@@ -34,6 +34,11 @@ pub const ICE_FROM: f64 = 200.0;
 /// The points along each of the two lines.
 const LINE_POINTS: usize = 64;
 
+/// The lowest temperature of ice's lines, which [`Ice::of`] refuses where the sublimation line has no point (core's
+/// `Quantity`, not the diagram's axis quantity; PLAN.md M28.1).
+const T_LOW: &phasekit_core::Quantity =
+    &phasekit_core::Quantity::new("lowest temperature of ice's lines", "T_low", phasekit_core::Dimension::Temperature);
+
 /// The points along the isobar and the isotherm that close the solid.
 const EDGE_POINTS: usize = 32;
 
@@ -89,7 +94,7 @@ impl Ice {
             .collect::<Result<Vec<_>, Error>>()?;
         let ([bottom, _], [triple, _]) = match (sublimation.first(), sublimation.last()) {
             (Some(first), Some(last)) => (*first, *last),
-            _ => return Err(Error::InvalidInput { quantity: "ice's lowest temperature", value: t_low }),
+            _ => return Err(Error::InvalidInput { quantity: T_LOW, value: t_low }),
         };
         let extrapolate = FlashOptions::new().with_domain(DomainPolicy::Extrapolate);
         let melting = pressures(triple.p, P_ICE_III, LINE_POINTS)
