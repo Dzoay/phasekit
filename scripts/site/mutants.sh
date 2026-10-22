@@ -5,12 +5,12 @@
 # unless a `// Stryker disable` comment beside it gives the reason. A PR's run skips static mutants (module-level data,
 # such as the output and unit tables, whose own tests check them directly), each of which re-runs every test; the weekly
 # --all run includes them. Not mutated: the browser-only glue (main.ts, the route's hash listener, the engine worker and
-# its client), which Playwright drives, and the type-only files. Incremental: a re-run tests only what changed since the
-# last (site/reports/stryker-incremental.json).
+# its client, the surfaces' WebGL scene), which Playwright drives, and the type-only files. Incremental: a re-run tests
+# only what changed since the last (site/reports/stryker-incremental.json).
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root/site"
-skip='^src/(main\.ts|vite-env\.d\.ts|lib/route\.svelte\.ts|engine/(worker|client|pk|protocol)\.ts|pk/)'
+skip='^src/(main\.ts|vite-env\.d\.ts|lib/route\.svelte\.ts|engine/(worker|client|pk|protocol)\.ts|surface/scene\.ts|pk/)'
 static=(--ignoreStatic)
 if [ "${1:-}" = --all ]; then
   static=()
