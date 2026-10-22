@@ -1,8 +1,8 @@
 // The engine: the page's requests (protocol.ts) answered by the browser package. It adds no numerics: every value is
 // the package's, and every refusal is the package's message. It holds one registry, which each pack the page adds
 // replaces with a registry that also serves the pack's fluids (PLAN.md M21.4), and the fluid handles it has opened,
-// which outlive the registry they came from; each state, set of phases, diagram and set of regions is freed once it is
-// read, and so is each handle read from it.
+// which outlive the registry they came from; each state, set of phases, diagram, set of regions and surface is freed
+// once it is read, and so is each handle read from it.
 import { refusalOf } from "../lib/refusal";
 import type { Pk } from "./pk";
 import type {
@@ -14,6 +14,7 @@ import type {
   MixturesValue,
   Refusal,
   RegionsValue,
+  SurfaceValue,
   RegistryValue,
   Request,
   Response,
@@ -177,6 +178,24 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
       pc: r.pc,
     }));
 
+  // A fluid's surface (PLAN.md M26.2), its arrays copied out of the package's handle.
+  const surface = (name: string): SurfaceValue =>
+    freed(fluid(name).surface(), (m) => ({
+      T: m.T,
+      rho: m.rho,
+      p: m.p,
+      u: m.u,
+      s: m.s,
+      Q: m.Q,
+      phases: m.phases,
+      phaseNames: m.phaseNames,
+      triangles: m.triangles,
+      liquid: m.liquid,
+      vapour: m.vapour,
+      critical: m.critical,
+      triple: m.triple,
+    }));
+
   // A flash with a state handle made and freed, as the page makes one; then every output read from one state.
   const time = (r: Extract<Request, { op: "time" }>): TimeValue => {
     const f = fluid(r.fluid);
@@ -261,6 +280,8 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
           return { id, ok: true, op: "diagram", value: diagram(request.fluid, request.plane) };
         case "regions":
           return { id, ok: true, op: "regions", value: regions(request.fluid) };
+        case "surface":
+          return { id, ok: true, op: "surface", value: surface(request.fluid) };
         case "batch":
           return { id, ok: true, op: "batch", value: batch(request) };
         case "bench":

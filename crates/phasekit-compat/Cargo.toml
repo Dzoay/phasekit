@@ -25,6 +25,9 @@ fault-injection = []
 
 [dependencies]
 phasekit-core.workspace = true
+# HAPropsSI (PLAN.md M18.6): humid air and the IF97 water and ice it stands on.
+phasekit-humidair.workspace = true
+phasekit-iapws.workspace = true
 
 [dev-dependencies]
 # The fluid list, for tests over every embedded fluid.

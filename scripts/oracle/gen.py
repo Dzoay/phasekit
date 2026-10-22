@@ -30,7 +30,8 @@ MIXTURES_DIR = ROOT / "reference" / "CoolProp" / "dev" / "mixtures"
 FIXTURES_DIR = ROOT / "crates" / "phasekit-verify" / "fixtures"
 MANIFEST = FIXTURES_DIR / "MANIFEST.sha256"
 KINDS = ["facts", "checkpoints", "term", "eos", "crit", "sat", "flash", "transport", "sigma", "melt", "refstate", "cubic",
-         "cubic_sat", "mix_alphar", "mix_eos", "mix_crit", "mix_flash", "mix_sat", "mix_env", "props", "codes", "if97", "humidair_aux"]
+         "cubic_sat", "mix_alphar", "mix_eos", "mix_crit", "mix_flash", "mix_sat", "mix_env", "props", "codes", "if97", "humidair_aux",
+         "humidair"]
 SCRUBBED_PREFIXES = ("COOLPROP_", "PXFLASH_")
 FLUID_COUNT = 136
 
@@ -1103,6 +1104,66 @@ def humidair_aux(CP, lock, config, files, args):
     text = header("humidair_aux", lock, config, "Water Air (HAProps_Aux's own backends)", HUMIDAIR_AUX_COLUMNS,
                   HUMIDAIR_AUX_TOL, floats, units=HUMIDAIR_AUX_UNITS, grid=grid)
     return {"all/humidair_aux.csv": text + "".join(lines)}
+
+
+# The `humidair` kind (PLAN.md M18.3): CoolProp 8.0.0's moist-air states through `HAPropsSI`, at T from -60 to 350 degC
+# by p from 10 Pa to 10 MPa (v8.0.0's range), at a relative humidity (0, 0.5, 1) or a humidity ratio (0.001, 0.01, 0.1):
+# every output M18.3 serves, per kg of dry air (V, H, U, S, C, CV) and of humid air (Vha, ...). A W above v8.0.0's own
+# at saturation (T, p, R = 1) is supersaturated air, which RP-1485 does not model, and is left out. A row any of whose
+# outputs v8.0.0 refuses is `err:<class>`. M18.4 adds the wet bulb, the dew point and R, and M18.5 the viscosity and
+# conductivity, each NaN where v8.0.0 refuses it alone (R wherever water's saturation pressure exceeds p, M and K below
+# water's triple-point pressure), so that the row's other outputs stay.
+HUMIDAIR_T = [213.15, 233.15, 253.15, 273.15, 293.15, 313.15, 333.15, 353.15, 373.15, 423.15, 473.15, 523.15, 573.15,
+              623.15]
+HUMIDAIR_P = [10.0, 1e3, 101325.0, 1e6, 1e7]
+HUMIDAIR_HUMIDITY = [("R", 0.0), ("R", 0.5), ("R", 1.0), ("W", 0.001), ("W", 0.01), ("W", 0.1)]
+HUMIDAIR_OUTPUTS = [("W", "kg/kg"), ("Y", "mol/mol"), ("P_w", "Pa"), ("V", "m3/kg"), ("Vha", "m3/kg"), ("H", "J/kg"),
+                    ("Hha", "J/kg"), ("U", "J/kg"), ("Uha", "J/kg"), ("S", "J/(kg K)"), ("Sha", "J/(kg K)"),
+                    ("C", "J/(kg K)"), ("Cha", "J/(kg K)"), ("CV", "J/(kg K)"), ("CVha", "J/(kg K)"), ("Z", "-"),
+                    ("speed_of_sound", "m/s"), ("isentropic_exponent", "-")]
+HUMIDAIR_EXTRA = [("Twb", "K"), ("Tdp", "K"), ("R", "-"), ("M", "Pa s"), ("K", "W/(m K)")]
+HUMIDAIR_COLUMNS = ["T", "p", "input", "value", "status", *(name for name, _ in HUMIDAIR_OUTPUTS + HUMIDAIR_EXTRA)]
+HUMIDAIR_UNITS = ["K", "Pa", "-", "-", "-", *(unit for _, unit in HUMIDAIR_OUTPUTS + HUMIDAIR_EXTRA)]
+HUMIDAIR_TOL = ["in", "in", "label", "in", "label", *["prop"] * len(HUMIDAIR_OUTPUTS + HUMIDAIR_EXTRA)]
+
+
+def humidair_extra(HAPropsSI, t, p, key, value):
+    """The wet bulb, the dew point and R at one state, each NaN where v8.0.0 refuses it."""
+    def one(name):
+        try:
+            return HAPropsSI(name, "T", t, "P", p, key, value)
+        except Exception:  # this output alone has no value here
+            return math.nan
+    return [one(name) for name, _ in HUMIDAIR_EXTRA]
+
+
+def humidair(CP, lock, config, files, args):
+    """The `humidair` kind: all/humidair.csv."""
+    from CoolProp.HumidAirProp import HAPropsSI
+    floats, lines = [], []
+    for t in HUMIDAIR_T:
+        for p in HUMIDAIR_P:
+            try:
+                saturated = HAPropsSI("W", "T", t, "P", p, "R", 1.0)
+            except Exception:  # water's saturation pressure above p: no W is supersaturated
+                saturated = math.inf
+            for key, value in HUMIDAIR_HUMIDITY:
+                if key == "W" and value > saturated:
+                    continue
+                try:
+                    values = [HAPropsSI(name, "T", t, "P", p, key, value) for name, _ in HUMIDAIR_OUTPUTS]
+                    values, status = values + humidair_extra(HAPropsSI, t, p, key, value), "ok"
+                except Exception as exception:  # outside v8.0.0's humid-air range or no such state
+                    values = [math.nan] * len(HUMIDAIR_OUTPUTS + HUMIDAIR_EXTRA)
+                    status = f"err:{error_class(exception)}"
+                floats.extend([t, p, value, *values])
+                lines.append(",".join([cell(t), cell(p), key, cell(value), status, *map(cell, values)]) + "\n")
+    grid = (f"T in {{{','.join(map(cell, HUMIDAIR_T))}}} K x p in {{{','.join(map(cell, HUMIDAIR_P))}}} Pa x "
+            + "{" + ",".join(f"{key}={cell(value)}" for key, value in HUMIDAIR_HUMIDITY)
+            + "}, W at most v8.0.0's W at R = 1")
+    text = header("humidair", lock, config, "Water Air (HAPropsSI's own backends)", HUMIDAIR_COLUMNS, HUMIDAIR_TOL,
+                  floats, units=HUMIDAIR_UNITS, grid=grid)
+    return {"all/humidair.csv": text + "".join(lines)}
 
 
 # The `mix_alphar` kind (PLAN.md M13.3): CoolProp 8.0.0's multi-fluid residual, the gas phase imposed so that (T, rho)
@@ -2221,7 +2282,8 @@ def codes(CP, lock, config, files, args):
 
 GENERATORS = {"facts": facts, "checkpoints": checkpoints, "crit": crit, "term": term, "eos": eos, "cubic": cubic,
               "cubic_sat": cubic_sat, "mix_alphar": mix_alphar, "mix_eos": mix_eos, "mix_crit": mix_crit, "mix_flash": mix_flash, "mix_sat": mix_sat, "mix_env": mix_env, "sat": sat, "flash": flash, "sigma": sigma, "melt": melt, "transport": transport, "refstate": refstate,
-              "props": props, "codes": codes, "if97": if97, "humidair_aux": humidair_aux}
+              "props": props, "codes": codes, "if97": if97, "humidair_aux": humidair_aux,
+              "humidair": humidair}
 
 
 def write(out, files):

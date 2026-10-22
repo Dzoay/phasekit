@@ -114,6 +114,29 @@ export interface RegionsValue {
   pc: number;
 }
 
+/**
+ * A fluid's p–v–T and u–s–v surface (the package's `Fluid.surface`, PLAN.md M26.2): each vertex's state, T, ρ, p, u,
+ * s and Q (NaN where it is not two-phase), its phase as `phaseNames[phases[i]]`; the triangles, three vertex indices
+ * each; and the dome's vertex indices.
+ */
+export interface SurfaceValue {
+  T: Float64Array;
+  rho: Float64Array;
+  p: Float64Array;
+  u: Float64Array;
+  s: Float64Array;
+  Q: Float64Array;
+  phases: Uint8Array;
+  phaseNames: string[];
+  triangles: Uint32Array;
+  liquid: Uint32Array;
+  vapour: Uint32Array;
+  /** The critical point's vertex, or none. */
+  critical: Uint32Array;
+  /** The triple line's vertices, where the plotted range starts at the triple point. */
+  triple: Uint32Array;
+}
+
 /** The mean time of one run, over `runs` runs repeated for a short budget. */
 export interface Timing {
   us: number;
@@ -179,6 +202,7 @@ export type Request =
   | { id: number; op: "components"; name: string }
   | { id: number; op: "diagram"; fluid: string; plane: string }
   | { id: number; op: "regions"; fluid: string }
+  | { id: number; op: "surface"; fluid: string }
   | {
       id: number;
       op: "batch";
@@ -226,6 +250,7 @@ export interface Values {
   components: string[];
   diagram: DiagramValue;
   regions: RegionsValue;
+  surface: SurfaceValue;
   batch: BatchValue;
   bench: BenchValue;
 }

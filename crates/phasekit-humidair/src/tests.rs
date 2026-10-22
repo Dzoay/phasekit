@@ -1,6 +1,7 @@
 use phasekit_core::{Basis, DataSet, Density, DomainError, Error, Input, Pressure, Registry, Temperature};
 
-use crate::{HumidAir, Humidity, Parts};
+use crate::quantities::{ENTHALPY_PER_DRY_AIR, WATER_MOLE_FRACTION};
+use crate::{Given, HumidAir, Humidity, Parts, Per};
 
 /// Humid air on core's water and Air and phasekit-iapws's IF97 water and ice, under `data`.
 fn humid_air(data: DataSet) -> HumidAir {
@@ -63,6 +64,162 @@ fn henry_stops_at_the_critical_point() {
     assert!(crate::henry_constant(crate::Gas::O2, 647.096).is_ok());
 }
 
+/// The pressure at which moist air of mole fraction `psi` has molar volume `v` at `t`: the virial equation.
+fn pressure(air: &HumidAir, t: f64, v: f64, psi: f64) -> f64 {
+    let virials = air.virials(t).unwrap();
+    let (x, rt) = (1.0 - psi, crate::constants::R * t);
+    let b = x * x * virials.b_aa.value + 2.0 * x * psi * virials.b_aw.value + psi * psi * virials.b_ww.value;
+    let c = x * x * x * virials.c_aaa.value
+        + 3.0 * x * x * psi * virials.c_aaw.value
+        + 3.0 * x * psi * psi * virials.c_aww.value
+        + psi * psi * psi * virials.c_www.value;
+    rt / v * (1.0 + b / v + c / (v * v))
+}
+
+/// ROT-269 (PLAN.md M18.3): c_p, c_v and w are the state's own derivatives, against central differences of h at
+/// constant p, of u at constant v̄ and of p at constant T, Richardson-extrapolated, at dry, humid and nearly saturated
+/// air from 200 to 600 K and 10 kPa to 9 MPa, under both data sets.
+#[test]
+fn heat_capacities_and_sound_are_the_states_own_derivatives() {
+    use Per::MolHumidAir as Mol;
+    let richardson = |f: &dyn Fn(f64) -> f64, h: f64| {
+        let d = |h: f64| (f(h) - f(-h)) / (2.0 * h);
+        (4.0 * d(h / 2.0) - d(h)) / 3.0
+    };
+    for data in [DataSet::Corrected, DataSet::Parity] {
+        let air = humid_air(data);
+        for (t, p, psi) in [(200.0, 1e4, 0.0), (300.0, 101_325.0, 0.02), (350.0, 1e6, 0.03), (600.0, 9e6, 0.4)] {
+            let state = air.moist_air(t, p, psi).unwrap();
+            let v = state.v(Mol);
+            let cp = richardson(&|dt| air.moist_air(t + dt, p, psi).unwrap().h(Mol), 0.05);
+            let u_at = |dt: f64| air.moist_air(t + dt, pressure(&air, t + dt, v, psi), psi).unwrap().u(Mol);
+            let cv = richardson(&u_at, 0.05);
+            let dp_dv = richardson(&|dv| pressure(&air, t, v + dv, psi), v * 1e-4);
+            let w = phasekit_core::math::sqrt(-v * v * state.cp(Mol) / state.cv(Mol) * dp_dv / state.molar_mass());
+            for (what, got, want) in
+                [("cp", state.cp(Mol), cp), ("cv", state.cv(Mol), cv), ("w", state.speed_of_sound(), w)]
+            {
+                assert!((got / want - 1.0).abs() < 1e-8, "{data:?} {what} at {t} K, {p} Pa, ψ {psi}: {got} {want}");
+            }
+        }
+    }
+}
+
+/// Under `Corrected`, dry air's h and s are zero at 273.15 K and 101.325 kPa (PLAN.md M18.3); per kilogram of dry
+/// air, of humid air and per mole are one state's, and Z, u and the isentropic exponent follow from it.
+#[test]
+fn the_state_has_its_zero_and_its_bases() {
+    let air = humid_air(DataSet::Corrected);
+    let dry = air.moist_air(273.15, 101_325.0, 0.0).unwrap();
+    assert!(dry.h(Per::KgDryAir).abs() < 1e-9 && dry.s(Per::KgDryAir).abs() < 1e-12, "{dry:?}");
+    let state = air.moist_air(320.0, 2e5, 0.05).unwrap();
+    let (m, w) = (state.molar_mass(), state.humidity_ratio());
+    for (per_mol, per_kg_ha, per_kg_da) in [
+        (state.h(Per::MolHumidAir), state.h(Per::KgHumidAir), state.h(Per::KgDryAir)),
+        (state.s(Per::MolHumidAir), state.s(Per::KgHumidAir), state.s(Per::KgDryAir)),
+        (state.v(Per::MolHumidAir), state.v(Per::KgHumidAir), state.v(Per::KgDryAir)),
+    ] {
+        assert!((per_kg_ha * m / per_mol - 1.0).abs() < 1e-15);
+        assert!((per_kg_da / ((1.0 + w) * per_kg_ha) - 1.0).abs() < 1e-14);
+    }
+    let v = state.v(Per::MolHumidAir);
+    assert_eq!(state.u(Per::MolHumidAir), state.h(Per::MolHumidAir) - 2e5 * v);
+    assert!((state.z() - 2e5 * v / (crate::constants::R * 320.0)).abs() < 1e-15);
+    assert_eq!((state.t(), state.p(), state.mole_fraction(), state.partial_pressure()), (320.0, 2e5, 0.05, 1e4));
+    let gamma = state.isentropic_exponent();
+    let w2 = gamma * 2e5 * v / m;
+    assert!((state.speed_of_sound() * state.speed_of_sound() / w2 - 1.0).abs() < 1e-14);
+}
+
+/// Where the virial equation has no state: at 40 °C and W = 0.1 its pressure peaks at 7.86 MPa, the end of its stable
+/// branch, so 10 MPa is refused with that peak (v8.0.0's secant returns its 100th iterate); just below the peak the
+/// state is on the branch.
+#[test]
+fn a_pressure_past_the_virial_branch_is_refused() {
+    let air = humid_air(DataSet::Corrected);
+    let psi = air.mole_fraction(313.15, 1e7, Humidity::Ratio(0.1)).unwrap();
+    let refused = air.moist_air(313.15, 1e7, psi);
+    let Err(Error::Domain(DomainError::AboveMaxPressure { p, p_max })) = refused else { panic!("{refused:?}") };
+    assert!(p == 1e7 && (p_max / 7.86e6 - 1.0).abs() < 1e-3, "{p}: {p_max}");
+    let below = air.moist_air(313.15, 0.99 * p_max, psi).unwrap();
+    assert!(below.z() > 0.0 && below.cp(Per::MolHumidAir) > 0.0, "{below:?}");
+}
+
+/// v8.0.0's range (130 to 623.15 K, 10 Pa to 10 MPa) and ψ_w in [0, 1) bound a state, each refusal typed.
+#[test]
+fn the_state_refuses_outside_its_range() {
+    let air = humid_air(DataSet::Corrected);
+    let refused = |t: f64, p: f64, psi: f64| air.moist_air(t, p, psi).unwrap_err();
+    assert_eq!(refused(129.0, 1e5, 0.0), DomainError::BelowMinTemperature { t: 129.0, t_min: 130.0 }.into());
+    assert_eq!(refused(624.0, 1e5, 0.0), DomainError::AboveMaxTemperature { t: 624.0, t_max: 623.15 }.into());
+    assert_eq!(refused(300.0, 9.0, 0.0), DomainError::BelowMinPressure { p: 9.0, p_min: 10.0 }.into());
+    assert_eq!(refused(300.0, 2e7, 0.0), DomainError::AboveMaxPressure { p: 2e7, p_max: 1e7 }.into());
+    assert!(matches!(refused(f64::NAN, 1e5, 0.0), Error::Domain(DomainError::BelowMinTemperature { .. })));
+    assert!(matches!(refused(300.0, f64::NAN, 0.0), Error::Domain(DomainError::BelowMinPressure { .. })));
+    for psi in [-0.1, 1.0, f64::NAN] {
+        assert!(matches!(refused(300.0, 1e5, psi), Error::InvalidInput { quantity: WATER_MOLE_FRACTION, .. }));
+    }
+    assert!(air.moist_air(130.0, 10.0, 0.0).is_ok() && air.moist_air(623.15, 1e7, 0.0).is_ok());
+}
+
+/// The dew point of saturated air at T is T, over liquid water above the triple point and over ice below (the frost
+/// point), to 1e-12; dry air has none (ROT-272), refused with its partial pressure, 0; ψ_w and p out of range are
+/// refused.
+#[test]
+fn the_dew_point_is_saturation_at_the_water_content() {
+    let air = humid_air(DataSet::Corrected);
+    for (t, p) in [(200.0, 1e4), (250.0, 101_325.0), (273.16, 1e5), (300.0, 101_325.0), (350.0, 1e6), (450.0, 5e6)] {
+        let psi = air.saturation(t, p).unwrap().psi_ws;
+        let t_dp = air.dew_point(p, psi).unwrap();
+        assert!((t_dp / t - 1.0).abs() <= 1e-12, "{t} K, {p} Pa: {t_dp}");
+    }
+    assert!(matches!(air.dew_point(1e5, 0.0), Err(Error::Domain(DomainError::BelowMinPressure { p, .. })) if p == 0.0));
+    let refused = Error::InvalidInput { quantity: WATER_MOLE_FRACTION, value: 1.0 };
+    assert_eq!(air.dew_point(1e5, 1.0).unwrap_err(), refused);
+    assert_eq!(air.dew_point(5.0, 0.1).unwrap_err(), DomainError::BelowMinPressure { p: 5.0, p_min: 10.0 }.into());
+    assert_eq!(air.dew_point(2e7, 0.1).unwrap_err(), DomainError::AboveMaxPressure { p: 2e7, p_max: 1e7 }.into());
+}
+
+/// The wet bulb of saturated air is its own T; an unsaturated stream's lies between its dew point and its T, an
+/// ice-bulb below the triple point. At 1 atm and W = 0.002 the triple point's gap is about a third of a kelvin wide:
+/// no state has a wet bulb of 273.10 K, while 272.50 K and 273.30 K each give one, whose wet bulb it is.
+#[test]
+fn the_wet_bulb_lies_between_the_dew_point_and_t() {
+    let air = humid_air(DataSet::Corrected);
+    for (t, p) in [(250.0, 101_325.0), (300.0, 101_325.0), (350.0, 1e6)] {
+        let saturated = air.moist_air(t, p, air.saturation(t, p).unwrap().psi_ws).unwrap();
+        assert!((air.wet_bulb(&saturated).unwrap() / t - 1.0).abs() <= 1e-12, "{t} K");
+        let psi = air.saturation(t, p).unwrap().psi_ws / 2.0;
+        let twb = air.wet_bulb(&air.moist_air(t, p, psi).unwrap()).unwrap();
+        assert!(air.dew_point(p, psi).unwrap() < twb && twb < t, "{t} K: {twb}");
+    }
+    let w = Given::Humidity(Humidity::Ratio(0.002));
+    let gap = air.state(101_325.0, w, Given::WetBulb(273.10)).unwrap_err();
+    assert!(matches!(gap, Error::InvalidState { reason } if reason.contains("gap")), "{gap:?}");
+    for twb in [272.5, 273.3] {
+        let state = air.state(101_325.0, w, Given::WetBulb(twb)).unwrap();
+        assert!((air.wet_bulb(&state).unwrap() - twb).abs() < 1e-9, "{twb} K");
+    }
+}
+
+/// A pair without T or a humidity, two temperatures, two humidities that each fix ψ_w, two φ, and dry air with φ fix
+/// no state: each refused as such.
+#[test]
+fn a_pair_that_fixes_no_state_is_refused() {
+    let air = humid_air(DataSet::Corrected);
+    let (t, w, phi) = (Given::Temperature(300.0), Humidity::Ratio(0.01), Humidity::Relative(0.5));
+    for (a, b) in [
+        (Given::Enthalpy(5e4), Given::Entropy(100.0)),
+        (Given::Volume(0.9), Given::WetBulb(290.0)),
+        (t, t),
+        (Given::Humidity(w), Given::Humidity(Humidity::DewPoint(280.0))),
+        (Given::Humidity(phi), Given::Humidity(phi)),
+        (Given::Humidity(Humidity::Ratio(0.0)), Given::Humidity(phi)),
+    ] {
+        assert!(matches!(air.state(101_325.0, a, b), Err(Error::InvalidState { .. })), "{a:?}, {b:?}");
+    }
+}
+
 /// Where water's saturation pressure is p or above (RP-1485 Eq. (3.25)'s note), no condensed phase is under pressure:
 /// its κ_T and Henry's constant are 0, over ice (250 K) and liquid (300 K), at p_ws itself too; above it they are its
 /// part's.
@@ -108,4 +265,190 @@ fn the_enhancement_factor_settles_across_the_range() {
         }
         assert!((191.0..193.0).contains(&largest), "{data:?}: {largest}");
     }
+}
+
+/// The dew point's bracket (ROT-266) is as tight as the module says: from the saturation temperature at p_w down to two
+/// Newton steps below it, so about twice the root's distance from its top (at most 2.06 times), over liquid and ice, at
+/// 1 atm and 10 MPa.
+#[test]
+fn the_dew_points_bracket_is_two_newton_steps_wide() {
+    let air = humid_air(DataSet::Corrected);
+    let mut widest: f64 = 0.0;
+    for p in [101_325.0, 1e7] {
+        for psi in [1e-4, 1e-3, 1e-2, 0.1] {
+            let (foot, top) = crate::dew_point::bracket(&air, (p, psi * p)).unwrap();
+            let root = air.dew_point(p, psi).unwrap();
+            assert!(foot < root && root <= top, "{p} Pa, ψ_w {psi}: {foot} {root} {top}");
+            widest = widest.max((top - foot) / (top - root));
+        }
+    }
+    assert!(widest <= 2.1, "{widest}");
+}
+
+/// The dew point at the foot of the range: where p_w is the saturation pressure at 130 K itself, it is not below the
+/// range's pressure, but f above 1 puts the root under 130 K, which the solve refuses.
+#[test]
+fn the_dew_point_at_the_range_s_foot_is_the_solve_s_refusal() {
+    let air = humid_air(DataSet::Corrected);
+    let p = 101_325.0;
+    let p_min = crate::saturation::p_ws(&air.parts().liquid, &air.parts().ice, 130.0).unwrap();
+    let psi = p_min / p;
+    assert_eq!(psi * p, p_min);
+    assert!(matches!(air.dew_point(p, psi), Err(Error::Domain(DomainError::BelowMinTemperature { .. }))));
+}
+
+/// In T: dry air by φ = 0 reaches 600 K, its h's state; W = 0 and h are dry air's state at T; a target whose state lies
+/// below W's dew point, in the fog, is refused.
+#[test]
+fn the_solve_in_t_covers_dry_air_and_stops_at_the_dew_point() {
+    let air = humid_air(DataSet::Corrected);
+    let p = 101_325.0;
+    let h = |t: f64, w: f64| {
+        air.state(p, Given::Temperature(t), Given::Humidity(Humidity::Ratio(w))).unwrap().h(Per::KgDryAir)
+    };
+    let t_at = |a: Given, b: Given| air.state(p, a, b).map(|s| s.t());
+    let dry = Given::Humidity(Humidity::Relative(0.0));
+    assert!((t_at(dry, Given::Enthalpy(h(600.0, 0.0))).unwrap() - 600.0).abs() < 1e-9);
+    let w0 = Given::Humidity(Humidity::Ratio(0.0));
+    assert!((t_at(w0, Given::Enthalpy(h(300.0, 0.0))).unwrap() - 300.0).abs() < 1e-9);
+    let w = Given::Humidity(Humidity::Ratio(0.01));
+    assert!(matches!(t_at(w, Given::Enthalpy(h(278.15, 0.01))), Err(Error::InvalidInput { .. })));
+}
+
+/// Under `Parity`, water vapour's ideal part sits on v8.0.0's anchor (`HumidAirProp.cpp:281-326` and `:1083`, map 15
+/// §2.1): at 473.15 K and 101.325 kPa its h is 51885.582451893446 J/mol plus the legacy −0.01102303806, and its s
+/// 141.18297895840303 J/(mol K) plus s̄₀, 0.02366427495.
+#[test]
+fn parity_s_vapour_sits_on_v8s_anchor() {
+    let air = humid_air(DataSet::Parity);
+    let part = crate::ideal::water(air.parts(), DataSet::Parity, &air.zeros, 473.15, 101_325.0).unwrap();
+    assert!((part.h - (51_885.582_451_893_446 - 0.011_023_038_06)).abs() <= 1e-9, "{}", part.h);
+    assert!((part.s - (141.182_978_958_403_03 + 0.023_664_274_95)).abs() <= 1e-12, "{}", part.s);
+}
+
+/// Under `Corrected`, water vapour's ideal part is IF97's from the triple point up, at 273.16 K itself too, and
+/// IAPWS-95's below it.
+#[test]
+fn corrected_s_vapour_is_if97_s_from_the_triple_point() {
+    let air = humid_air(DataSet::Corrected);
+    let h = |t: f64| crate::ideal::water(air.parts(), DataSet::Corrected, &air.zeros, t, 101_325.0).unwrap().h;
+    let if97 = |t: f64| crate::ideal::water_if97(&air.parts().liquid, t, 101_325.0).unwrap().h + air.zeros.h_water;
+    assert_eq!(h(273.16).to_bits(), if97(273.16).to_bits());
+    assert_ne!(h(273.159), if97(273.159));
+}
+
+/// The virial equation's (∂p/∂v̄)_T, which Newton takes for the molar volume, is its pressure's slope: within 1e-7 of
+/// a central difference, on the stable branch of humid air's B_m and C_m at 200, 300 and 600 K.
+#[test]
+fn the_virial_equation_s_slope_is_its_pressure_s() {
+    let air = humid_air(DataSet::Corrected);
+    for t in [200.0, 300.0, 600.0] {
+        let v = air.virials(t).unwrap();
+        let (b, c) = (v.b_aa.value, v.c_aaa.value);
+        for volume in [1e-3, 1e-2, 1e-1] {
+            let r = 8.314_472;
+            let p = |v: f64| crate::moist_air::pressure((r, t), v, (b, c));
+            let h = volume * 1e-5;
+            let central = (p(volume + h) - p(volume - h)) / (2.0 * h);
+            let slope = crate::moist_air::dp_dv((r, t), volume, (b, c));
+            assert!((slope - central).abs() <= 1e-7 * slope.abs(), "{t} K, {volume} m³/mol: {slope} {central}");
+        }
+    }
+}
+
+/// The bracketed root at adjacent doubles is the end with the smaller value: x − 1 − 2⁻⁵⁴ between 1 and the next double
+/// up is 1, whose value is a third of the other's.
+#[test]
+fn the_root_at_adjacent_doubles_is_the_end_nearer_zero() {
+    let f = |x: f64| Ok((x - 1.0) - f64::EPSILON / 4.0);
+    assert_eq!(crate::root::bracketed(f, (1.0, 1.0 + f64::EPSILON)).unwrap(), Some(1.0));
+    assert_eq!(crate::root::bracketed(f, (1.0 + f64::EPSILON, 1.0)).unwrap(), Some(1.0));
+}
+
+/// The Illinois method closes in superlinearly: the cube root of 2 from [1, 2] to adjacent doubles in 10 evaluations (at
+/// most 12 asserted), where bisection takes 54.
+#[test]
+fn the_illinois_method_closes_in_superlinearly() {
+    let mut calls = 0;
+    let f = |x: f64| {
+        calls += 1;
+        Ok(x * x * x - 2.0)
+    };
+    let root = crate::root::bracketed(f, (1.0, 2.0)).unwrap().unwrap();
+    assert!((root - 1.259_921_049_894_873_2).abs() <= f64::EPSILON * 2.0, "{root}");
+    assert!(calls <= 12, "{calls}");
+}
+
+/// A false-position point on an end is not taken as the root: from [1, 2] with an end's value 10⁻³⁰⁰ against the other's
+/// 0.5, the point is that end, and the bisection it falls back to lands on the root, 1.5.
+#[test]
+fn a_false_position_point_on_an_end_falls_back_to_the_midpoint() {
+    let at = |end: f64, tiny: f64| move |x: f64| Ok(if x == end { tiny } else { x - 1.5 });
+    assert_eq!(crate::root::bracketed(at(1.0, -1e-300), (1.0, 2.0)).unwrap(), Some(1.5));
+    assert_eq!(crate::root::bracketed(at(2.0, 1e-300), (1.0, 2.0)).unwrap(), Some(1.5));
+}
+
+/// The narrowing stops at adjacent doubles: [1, 2] to the edge at 1.5 in 52 halvings, 54 calls with the ends, not all
+/// of its 64 steps.
+#[test]
+fn the_narrowing_stops_at_adjacent_doubles() {
+    let mut calls = 0;
+    let exists = |x: f64| {
+        calls += 1;
+        x <= 1.5
+    };
+    assert_eq!(crate::root::narrowed(exists, (1.0, 2.0)), Some((1.0, 1.5)));
+    assert_eq!(calls, 54);
+}
+
+/// A target just past the solve's range is refused, though it lies within the wet bulb's match of an end: h 10⁻⁷ J/kg
+/// above saturated air's at 300 K and 1 bar.
+#[test]
+fn a_target_just_past_the_range_is_refused() {
+    let air = humid_air(DataSet::Corrected);
+    let psi_ws = air.saturation(300.0, 1e5).unwrap().psi_ws;
+    let h = air.moist_air(300.0, 1e5, psi_ws).unwrap().h(Per::KgDryAir);
+    let past = air.state(1e5, Given::Temperature(300.0), Given::Enthalpy(h + 1e-7));
+    assert!(matches!(past, Err(Error::InvalidInput { quantity: ENTHALPY_PER_DRY_AIR, .. })), "{past:?}");
+}
+
+/// Under `Parity` the wick's water is v8.0.0's: IAPWS-95's h at IF97's liquid density, bit for bit, not IF97's own.
+#[test]
+fn parity_s_wick_is_iapws_95_at_if97_s_density() {
+    let air = humid_air(DataSet::Parity);
+    let (t, p) = (Temperature::new(300.0).unwrap(), Pressure::new(1e5).unwrap());
+    let liquid = air.parts().liquid.state(Input::pt(p, t)).unwrap();
+    let density = Density::molar(liquid.rho(Basis::Molar)).unwrap();
+    let want = air.parts().water.state(Input::dt(density, t)).unwrap().h(Basis::Mass);
+    let got = crate::wet_bulb::condensed_h(&air, crate::wet_bulb::Wick::Liquid, 300.0, 1e5).unwrap();
+    assert_eq!(got.to_bits(), want.to_bits());
+    assert_ne!(got, liquid.h(Basis::Mass));
+}
+
+/// A wet bulb out of reach is refused by its cause: air wetter than saturated (1.5 ψ_ws at 300 K) as an `InvalidState`;
+/// dry air at 130 K, whose wet bulb lies below the range, as `BelowMinTemperature`.
+#[test]
+fn a_wet_bulb_out_of_reach_is_refused_by_its_cause() {
+    let air = humid_air(DataSet::Corrected);
+    let psi_ws = air.saturation(300.0, 1e5).unwrap().psi_ws;
+    let wet = air.moist_air(300.0, 1e5, 1.5 * psi_ws).unwrap();
+    assert!(matches!(air.wet_bulb(&wet), Err(Error::InvalidState { .. })));
+    let dry = air.moist_air(130.0, 1e5, 0.0).unwrap();
+    assert!(matches!(air.wet_bulb(&dry), Err(Error::Domain(DomainError::BelowMinTemperature { .. }))));
+}
+
+/// The wet bulb's bracket tops at the stream's own T where water would not boil there (300 K at 1 atm); at 400 K, above
+/// water's boiling point, at the dew point of wetter air where the balance turns positive, below T and above the wet
+/// bulb (354.58 K and 311.00 K measured).
+#[test]
+fn the_wet_bulb_s_bracket_tops_at_the_stream_s_t_below_boiling() {
+    let air = humid_air(DataSet::Corrected);
+    let top = |t: f64| {
+        let state = air.moist_air(t, 1e5, 0.01).unwrap();
+        let stream = (1e5, state.humidity_ratio(), state.h(Per::KgDryAir));
+        (crate::wet_bulb::top(&air, &state, stream).unwrap(), air.wet_bulb(&state).unwrap())
+    };
+    assert_eq!(top(300.0).0, 300.0);
+    let (hot, wet_bulb) = top(400.0);
+    assert!(wet_bulb < hot && hot < 400.0 && (hot - 354.58).abs() < 0.01, "{hot} {wet_bulb}");
 }

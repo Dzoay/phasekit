@@ -72,6 +72,22 @@ int main(void) {
         CHECK(strcmp(message, "R32[0.697615]&R125[0.302385]") == 0);
         CHECK(pk_fluid_free(r410a) == PK_OK);
     }
+    {
+        /* Humid air (PLAN.md M18.7): map 11's HAPropsSI("H","T",300,"P",1e5,"R",0) = 27013.112479771713 J/kg on the
+         * Parity registry; phi = 1.5 refused, with the typed error's message; the handle stale once freed. */
+        pk_registry parity = 0;
+        pk_humid_air air = 0;
+        double h = 0.0;
+        CHECK(pk_registry_new(PK_DATASET_PARITY, &parity) == PK_OK);
+        CHECK(pk_humid_air_new(parity, &air) == PK_OK && air != 0);
+        CHECK(pk_ha_props_si(air, "H", 1, "T", 1, 300.0, "P", 1, 1e5, "R", 1, 0.0, &h) == PK_OK);
+        CHECK(fabs(h / 27013.112479771713 - 1.0) < 1e-9);
+        CHECK(pk_ha_props_si(air, "H", 1, "T", 1, 300.0, "P", 1, 1e5, "R", 1, 1.5, &h) == PK_INVALID_INPUT);
+        CHECK(pk_last_error(message, sizeof message) > 1 && strcmp(message, "relative humidity 1.5 is outside [0, 1]") == 0);
+        CHECK(pk_humid_air_free(air) == PK_OK && pk_humid_air_free(air) == PK_STALE_HANDLE);
+        CHECK(pk_ha_props_si(air, "H", 1, "T", 1, 300.0, "P", 1, 1e5, "R", 1, 0.0, &h) == PK_STALE_HANDLE);
+        CHECK(pk_registry_free(parity) == PK_OK);
+    }
     CHECK(pk_fluid_free(water) == PK_OK && pk_fluid_free(water) == PK_STALE_HANDLE);
     CHECK(pk_registry_free(registry) == PK_OK && pk_registry_free(registry) == PK_STALE_HANDLE);
     CHECK(props(registry, "T", "P", 101325.0, "Q", 0.0, "Water", &t) == PK_STALE_HANDLE);

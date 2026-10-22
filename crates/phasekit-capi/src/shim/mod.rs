@@ -26,8 +26,11 @@ use std::ffi::{CStr, c_char, c_int, c_long};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::LazyLock;
 
-use phasekit_compat::{fluid_in, output_names, phase_si_with, props_si_with, props1_si_in};
+use phasekit_compat::{
+    fluid_in, ha_props_si_in, humid_air_in, output_names, phase_si_with, props_si_with, props1_si_in,
+};
 use phasekit_core::{DataSet, Error, Fluid, Registry};
+use phasekit_humidair::HumidAir;
 
 pub use codes::{input_pair_code, parameter_code, parameter_names};
 use config::Value;
@@ -35,9 +38,6 @@ pub use config::{Kind, config_keys};
 
 /// CoolProp's `_HUGE`: what `PropsSI`, `Props1SI` and `HAPropsSI` return on failure.
 const HUGE: f64 = f64::INFINITY;
-
-/// The `errstring` `HAPropsSI` sets: humid air is not in v0.1, so it is a stub until the humid-air milestone (D11).
-pub const HAPROPSSI_MESSAGE: &str = "HAPropsSI is not available in this version of phasekit";
 
 /// Runs a shim function's body: its value, or `failed` with the `errstring` set to the failure (a caught panic too);
 /// under the FP guard, which clears the sticky flags on return as v8.0.0's does (user decision 9b; [`crate::fp`]).
@@ -177,20 +177,35 @@ pub unsafe extern "C" fn PhaseSI(
     })
 }
 
-/// CoolProp's `HAPropsSI`: a stub until the humid-air milestone (D11). It returns `_HUGE` and sets the `errstring` to
-/// [`HAPROPSSI_MESSAGE`]; the symbol exists so hosts that bind every symbol at load time still load.
+/// The shim's humid air (PLAN.md M18.7): over [`REGISTRY`]'s Water and Air, under `Corrected`, built on first use.
+static HUMID_AIR: LazyLock<Result<HumidAir, String>> =
+    LazyLock::new(|| humid_air_in(registry()?, DataSet::Corrected).map_err(|e| e.to_string()));
+
+/// CoolProp's `HAPropsSI(Output, Name1, Prop1, Name2, Prop2, Name3, Prop3)`: compat's `ha_props_si_in` over the shim's
+/// humid air (PLAN.md M18.7; D11): v8.0.0's names, every output from the state, `_HUGE` on failure with the `errstring`
+/// set to the typed error's message.
+///
+/// # Safety
+/// Each string is null or NUL-terminated.
 #[allow(unsafe_code)]
 #[cfg_attr(feature = "coolproplib-shim", unsafe(no_mangle))]
-pub extern "C" fn HAPropsSI(
-    _output: *const c_char,
-    _name1: *const c_char,
-    _prop1: f64,
-    _name2: *const c_char,
-    _prop2: f64,
-    _name3: *const c_char,
-    _prop3: f64,
+pub unsafe extern "C" fn HAPropsSI(
+    output: *const c_char,
+    name1: *const c_char,
+    prop1: f64,
+    name2: *const c_char,
+    prop2: f64,
+    name3: *const c_char,
+    prop3: f64,
 ) -> f64 {
-    run(HUGE, || Err(HAPROPSSI_MESSAGE.to_string()))
+    run(HUGE, || {
+        // SAFETY: the caller's contract.
+        let (output, name1, name2, name3) = unsafe {
+            (c_str(output, "Output")?, c_str(name1, "Name1")?, c_str(name2, "Name2")?, c_str(name3, "Name3")?)
+        };
+        let air = HUMID_AIR.as_ref().map_err(Clone::clone)?;
+        ha_props_si_in(air, output, name1, prop1, name2, prop2, name3, prop3).map_err(|e| e.to_string())
+    })
 }
 
 /// A global parameter: `version`, `errstring` (read and cleared), `warnstring` (always empty), `FluidsList` (also
