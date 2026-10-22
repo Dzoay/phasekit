@@ -27,6 +27,7 @@ const CALLS = {
     aboveTmax: (r) => r.PropsSI("Hmass", "T", 700, "Q", 0.5, "Water"),
     unknownOutput: (r) => r.PropsSI("Nonsense", "T", 300, "P", 1e5, "Water"),
     outputAtState: (r) => r.fluid("Water").flash("T", 300, "P", 1e5).get("SurfaceTension"),
+    humidAir: (r) => r.humidAir(),
 };
 export function fields(registry, call) {
     const e = thrown(() => CALLS[call](registry));
@@ -79,6 +80,9 @@ fn a_refusal_is_an_error_with_its_fields() {
         "true|temperature 700 K is above the maximum, 647.096 K|above_max_temperature||temperature|temperature|";
     assert!(fields(&r, "aboveTmax").starts_with(above), "{}", fields(&r, "aboveTmax"));
     assert_eq!(fields(&r, "unknownOutput"), "true|unknown output key `Nonsense`|unknown_output||||");
+    // Humid air's calls refuse alike: the package embeds no Air.
+    let humid = "true|load error: Air is not embedded; enable `fluid-air`|load||||";
+    assert_eq!(fields(&r, "humidAir"), humid);
 }
 
 /// `explain` writes core's wording in the caller's units, in either style.

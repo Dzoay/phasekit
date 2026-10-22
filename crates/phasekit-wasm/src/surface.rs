@@ -8,7 +8,7 @@ use phasekit_diagram::{self as diagram, FluidBatch, Limits, SurfaceVertex};
 use wasm_bindgen::prelude::*;
 
 use crate::diagram::{offset, pair_code};
-use crate::{Fluid, alive, js, mixture_of};
+use crate::{Fluid, alive, js, mixture_of, refuse};
 
 /// A surface's mesh, as flat arrays: vertex `i`'s state is `T[i]`, `rho[i]`, `p[i]`, `u[i]`, `s[i]` and `Q[i]`, its
 /// phase `phaseNames[phases[i]]`, its inputs `inputs[2i]` and `inputs[2i + 1]` of the pair `pairs[i]`; triangle `j` is
@@ -172,13 +172,13 @@ impl Fluid {
     /// Its p–v–T and u–s–v surface (PLAN.md M26.2): phasekit-diagram's mesh, by its batch in lanes
     /// (`ExecPolicy::Simd`) and the default flash options, each vertex's phase the library's at its inputs. A mixture
     /// has none and is refused.
-    pub fn surface(&self) -> Result<Surface, JsError> {
+    pub fn surface(&self) -> Result<Surface, JsValue> {
         alive()?;
         if mixture_of(&self.inner).is_some() {
-            return Err(js(format!("{} is a mixture: its surface is not drawn", self.name())));
+            return Err(js(format!("{} is a mixture: its surface is not drawn", self.name())).into());
         }
         let batch = FluidBatch::new(&self.inner).with_exec(ExecPolicy::Simd);
-        let limits = Limits::of(&self.inner).map_err(js)?;
-        Surface::of(&diagram::sample_surface(&batch, &|inputs| batch.phase(inputs), &limits).map_err(js)?)
+        let limits = Limits::of(&self.inner).map_err(refuse)?;
+        Ok(Surface::of(&diagram::sample_surface(&batch, &|inputs| batch.phase(inputs), &limits).map_err(refuse)?)?)
     }
 }
