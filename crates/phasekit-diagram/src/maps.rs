@@ -4,8 +4,6 @@
 //! polygon's corners are the grid's states and those vertices. It adds no numerics: every vertex is the batch's state
 //! at the inputs it carries.
 
-#[cfg(test)]
-use phasekit_core::math;
 use phasekit_core::{Error, Fluid, Pair};
 
 use crate::batch::{Batch, FluidBatch, Row, Vertex, vertex};
