@@ -468,6 +468,7 @@ dependencies = [
  "cc",
  "phasekit-compat",
  "phasekit-core",
+ "phasekit-humidair",
  "phasekit-mix",
  "proptest",
 ]
@@ -478,6 +479,8 @@ version = "0.1.0"
 dependencies = [
  "phasekit-core",
  "phasekit-data",
+ "phasekit-humidair",
+ "phasekit-iapws",
 ]
 
 [[package]]
@@ -509,6 +512,8 @@ name = "phasekit-diagram"
 version = "0.1.0"
 dependencies = [
  "phasekit-core",
+ "phasekit-humidair",
+ "phasekit-iapws",
  "phasekit-mix",
  "phasekit-verify",
 ]
@@ -563,6 +568,7 @@ dependencies = [
  "phasekit-core",
  "phasekit-data",
  "phasekit-diagram",
+ "phasekit-humidair",
  "phasekit-mix",
  "phasekit-verify",
  "wasm-bindgen",

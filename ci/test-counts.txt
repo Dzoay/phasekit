@@ -9,7 +9,7 @@ x86_64-unknown-linux-gnu phasekit-verify::gibbs_seam 3
 x86_64-unknown-linux-gnu phasekit-verify::lazy_load 13
 x86_64-unknown-linux-gnu phasekit-verify::new_family 15
 x86_64-unknown-linux-gnu phasekit-verify::register 12
-x86_64-unknown-linux-gnu phasekit-xtask::main 184
+x86_64-unknown-linux-gnu phasekit-xtask::main 185
 x86_64-unknown-linux-gnu phasekit-core::doc 2
 wasm32-wasip2 phasekit-core::lib 268
 wasm32-wasip2 phasekit-verify::lib 71
@@ -133,10 +133,10 @@ x86_64-unknown-linux-gnu phasekit-verify::notices 2
 wasm32-wasip2 phasekit-verify::notices 2
 x86_64-unknown-linux-gnu phasekit-verify::math 6
 wasm32-wasip2 phasekit-verify::math 6
-x86_64-unknown-linux-gnu phasekit-diagram::lib 31
+x86_64-unknown-linux-gnu phasekit-diagram::lib 36
 x86_64-unknown-linux-gnu phasekit-diagram::dome 5
 x86_64-unknown-linux-gnu phasekit-diagram::lines 8
-wasm32-wasip2 phasekit-diagram::lib 31
+wasm32-wasip2 phasekit-diagram::lib 36
 wasm32-wasip2 phasekit-diagram::dome 5
 wasm32-wasip2 phasekit-diagram::lines 8
 x86_64-unknown-linux-gnu phasekit-diagram::envelope 3
@@ -150,10 +150,12 @@ x86_64-unknown-linux-gnu phasekit-verify::iapws 16
 wasm32-wasip2 phasekit-iapws::lib 10
 wasm32-wasip2 phasekit-verify::iapws 15
 x86_64-unknown-linux-gnu phasekit-humidair::lib 27
-x86_64-unknown-linux-gnu phasekit-verify::humidair 18
+x86_64-unknown-linux-gnu phasekit-verify::humidair 24
 wasm32-wasip2 phasekit-humidair::lib 27
-wasm32-wasip2 phasekit-verify::humidair 17
+wasm32-wasip2 phasekit-verify::humidair 23
 x86_64-unknown-linux-gnu phasekit-diagram::surface 7
 wasm32-wasip2 phasekit-diagram::surface 7
+x86_64-unknown-linux-gnu phasekit-diagram::psychro 4
+wasm32-wasip2 phasekit-diagram::psychro 4
 x86_64-unknown-linux-gnu phasekit-diagram::curves 4
 wasm32-wasip2 phasekit-diagram::curves 4

@@ -26,6 +26,8 @@ phasekit-compat.workspace = true
 phasekit-core.workspace = true
 # Mixture names over the embedded registries (PLAN.md M13.14; user decision MX5).
 phasekit-mix.workspace = true
+# Humid air's handle (PLAN.md M18.7).
+phasekit-humidair.workspace = true
 
 # `c_smoke` builds tests/c/smoke.c with the platform's C compiler, which `cc` finds (MSVC's too; tier T3, PLAN.md M10.4).
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]

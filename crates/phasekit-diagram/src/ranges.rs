@@ -153,7 +153,7 @@ fn ceil_log10(x: f64) -> i32 {
 
 /// d3-array 3.2.4's `ticks(a, b, 8)`, which the site's linear scales called (M21.2): multiples of 1, 2 or 5 times a
 /// power of ten, the step nearest (b − a)/8 in its logarithm, from the first at or above a to the last at or below b.
-fn ticks((a, b): (f64, f64)) -> Vec<f64> {
+pub(crate) fn ticks((a, b): (f64, f64)) -> Vec<f64> {
     if a.partial_cmp(&b) != Some(std::cmp::Ordering::Less) {
         return Vec::new();
     }
