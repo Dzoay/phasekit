@@ -37,6 +37,11 @@ int main(void) {
     CHECK(props(registry, "X", "T", 300.0, "P", 1e5, "Water", &t) == PK_UNKNOWN_KEY);
     CHECK(pk_last_error(message, sizeof message) == strlen("unknown output key `X`") + 1);
     CHECK(strcmp(message, "unknown output key `X`") == 0);
+    CHECK(pk_last_error_code(message, sizeof message) == strlen("unknown_output") + 1);
+    CHECK(strcmp(message, "unknown_output") == 0);
+    CHECK(pk_last_error_rule(message, sizeof message) == 1 && message[0] == '\0');
+    CHECK(props(registry, "D", "T", -5.0, "P", 1e5, "Water", &t) == PK_INVALID_INPUT);
+    CHECK(pk_last_error_rule(message, sizeof message) > 1 && strcmp(message, "not_above_absolute_zero") == 0);
 
     CHECK(pk_fluid_new(registry, "R718", 4, &water) == PK_OK);
     CHECK(pk_fluid_name(water, name, sizeof name, &needed) == PK_OK && strcmp(name, "Water") == 0);
