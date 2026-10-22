@@ -610,7 +610,14 @@ fn compat_strings_reach_the_new_family() {
     assert_eq!(props_si_in(&reg, "P", "Dmolar", rho, "T", t, "HEOS::vdw").unwrap(), p);
     // HT is declared since M7.5: an h that no state at T holds is refused, typed, through the strings too.
     let refused = props_si_in(&reg, "P", "H", 1e3, "T", t, "vdw");
-    assert!(matches!(refused, Err(CompatError::Core(Error::InvalidInput { quantity: "H", .. }))), "{refused:?}");
+    assert!(
+        matches!(
+            refused,
+            Err(CompatError::Core(Error::InvalidInput { quantity, .. }))
+                if quantity == phasekit_core::Quantity::enthalpy(phasekit_core::Basis::Molar)
+        ),
+        "{refused:?}"
+    );
 }
 
 #[test]

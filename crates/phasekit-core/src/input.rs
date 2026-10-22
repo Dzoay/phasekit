@@ -4,6 +4,7 @@
 
 use crate::error::Error;
 use crate::fluid::Gauge;
+use crate::quantity::Quantity;
 use crate::units::{
     Basis, Density, Enthalpy, Entropy, InternalEnergy, Pressure, Quality, Temperature, finite, positive, unit_interval,
 };
@@ -29,16 +30,26 @@ pub enum Var {
 }
 
 impl Var {
-    /// Validates a raw value of this variable: the rule of its newtype, applied once at the edge.
-    fn validate(self, v: f64) -> Result<f64, Error> {
+    /// Validates a raw value of this variable, given in `basis`: the rule of its newtype, applied once at the edge.
+    fn validate(self, v: f64, basis: Basis) -> Result<f64, Error> {
+        let quantity = self.quantity(basis);
         match self {
-            Var::T => positive("temperature", v),
-            Var::P => positive("pressure", v),
-            Var::Q => unit_interval("quality", v),
-            Var::D => positive("density", v),
-            Var::H => finite("enthalpy", v),
-            Var::S => finite("entropy", v),
-            Var::U => finite("internal energy", v),
+            Var::T | Var::P | Var::D => positive(quantity, v),
+            Var::Q => unit_interval(quantity, v),
+            Var::H | Var::S | Var::U => finite(quantity, v),
+        }
+    }
+
+    /// The quantity a value of this variable is, given in `basis` (a basis-free T, p or Q ignores it).
+    pub const fn quantity(self, basis: Basis) -> &'static Quantity {
+        match self {
+            Var::T => Quantity::TEMPERATURE,
+            Var::P => Quantity::PRESSURE,
+            Var::Q => Quantity::QUALITY,
+            Var::D => Quantity::density(basis),
+            Var::H => Quantity::enthalpy(basis),
+            Var::S => Quantity::entropy(basis),
+            Var::U => Quantity::internal_energy(basis),
         }
     }
 
@@ -74,7 +85,8 @@ impl Input {
     /// Validates raw values in pair order; `basis` applies to D, H, S and U.
     pub fn new(pair: Pair, x: f64, y: f64, basis: Basis) -> Result<Input, Error> {
         let (vx, vy) = pair.vars();
-        Ok(Input { pair, x: (vx.validate(x)?, vx.basis_of(basis)), y: (vy.validate(y)?, vy.basis_of(basis)) })
+        let (bx, by) = (vx.basis_of(basis), vy.basis_of(basis));
+        Ok(Input { pair, x: (vx.validate(x, bx)?, bx), y: (vy.validate(y, by)?, by) })
     }
 
     /// The physical pair.

@@ -1,5 +1,6 @@
 use phasekit_core::{Basis, DataSet, Density, DomainError, Error, Input, Pressure, Registry, Temperature};
 
+use crate::quantities::{ENTHALPY_PER_DRY_AIR, WATER_MOLE_FRACTION};
 use crate::{Given, HumidAir, Humidity, Parts, Per};
 
 /// Humid air on core's water and Air and phasekit-iapws's IF97 water and ice, under `data`.
@@ -40,9 +41,15 @@ fn the_humidity_measures_name_one_state() {
 fn impossible_humidities_are_refused() {
     let air = humid_air(DataSet::Corrected);
     let refused = |h: Humidity| air.mole_fraction(300.0, 101_325.0, h).unwrap_err();
-    assert!(matches!(refused(Humidity::Ratio(-1e-3)), Error::InvalidInput { quantity: "humidity ratio", .. }));
+    assert!(matches!(
+        refused(Humidity::Ratio(-1e-3)),
+        Error::InvalidInput { quantity: crate::quantities::HUMIDITY_RATIO, .. }
+    ));
     assert!(matches!(refused(Humidity::MoleFraction(1.0)), Error::InvalidInput { .. }));
-    assert!(matches!(refused(Humidity::Relative(1.01)), Error::InvalidInput { quantity: "relative humidity", .. }));
+    assert!(matches!(
+        refused(Humidity::Relative(1.01)),
+        Error::InvalidInput { quantity: crate::quantities::RELATIVE_HUMIDITY, .. }
+    ));
     assert!(matches!(refused(Humidity::Relative(-0.1)), Error::InvalidInput { .. }));
     let warm = DomainError::AboveMaxTemperature { t: 301.0, t_max: 300.0 };
     assert_eq!(refused(Humidity::DewPoint(301.0)), warm.into());
@@ -150,7 +157,7 @@ fn the_state_refuses_outside_its_range() {
     assert!(matches!(refused(f64::NAN, 1e5, 0.0), Error::Domain(DomainError::BelowMinTemperature { .. })));
     assert!(matches!(refused(300.0, f64::NAN, 0.0), Error::Domain(DomainError::BelowMinPressure { .. })));
     for psi in [-0.1, 1.0, f64::NAN] {
-        assert!(matches!(refused(300.0, 1e5, psi), Error::InvalidInput { quantity: "mole fraction of water", .. }));
+        assert!(matches!(refused(300.0, 1e5, psi), Error::InvalidInput { quantity: WATER_MOLE_FRACTION, .. }));
     }
     assert!(air.moist_air(130.0, 10.0, 0.0).is_ok() && air.moist_air(623.15, 1e7, 0.0).is_ok());
 }
@@ -167,8 +174,8 @@ fn the_dew_point_is_saturation_at_the_water_content() {
         assert!((t_dp / t - 1.0).abs() <= 1e-12, "{t} K, {p} Pa: {t_dp}");
     }
     assert!(matches!(air.dew_point(1e5, 0.0), Err(Error::Domain(DomainError::BelowMinPressure { p, .. })) if p == 0.0));
-    let quantity = "mole fraction of water";
-    assert_eq!(air.dew_point(1e5, 1.0).unwrap_err(), Error::InvalidInput { quantity, value: 1.0 });
+    let refused = Error::InvalidInput { quantity: WATER_MOLE_FRACTION, value: 1.0 };
+    assert_eq!(air.dew_point(1e5, 1.0).unwrap_err(), refused);
     assert_eq!(air.dew_point(5.0, 0.1).unwrap_err(), DomainError::BelowMinPressure { p: 5.0, p_min: 10.0 }.into());
     assert_eq!(air.dew_point(2e7, 0.1).unwrap_err(), DomainError::AboveMaxPressure { p: 2e7, p_max: 1e7 }.into());
 }
@@ -402,7 +409,7 @@ fn a_target_just_past_the_range_is_refused() {
     let psi_ws = air.saturation(300.0, 1e5).unwrap().psi_ws;
     let h = air.moist_air(300.0, 1e5, psi_ws).unwrap().h(Per::KgDryAir);
     let past = air.state(1e5, Given::Temperature(300.0), Given::Enthalpy(h + 1e-7));
-    assert!(matches!(past, Err(Error::InvalidInput { quantity: "enthalpy", .. })), "{past:?}");
+    assert!(matches!(past, Err(Error::InvalidInput { quantity: ENTHALPY_PER_DRY_AIR, .. })), "{past:?}");
 }
 
 /// Under `Parity` the wick's water is v8.0.0's: IAPWS-95's h at IF97's liquid density, bit for bit, not IF97's own.

@@ -8,7 +8,7 @@
 //! molar volumes follow from Ψ's derivatives by Michelsen and Mollerup's relations.
 
 use phasekit_core::batch::{ExecPolicy, RealKernel, run_kernel};
-use phasekit_core::{Constant, Derivs, Error, HelmholtzModel, Order, Prop, Real};
+use phasekit_core::{Basis, Constant, Derivs, Error, HelmholtzModel, Order, Prop, Quantity, Real};
 
 use crate::MultiFluid;
 use crate::data::DepartureData;
@@ -54,7 +54,7 @@ fn degree(order: Order) -> Result<usize, Error> {
         Order::One => Ok(1),
         Order::Two => Ok(2),
         Order::Three => Ok(3),
-        _ => Err(Error::InvalidInput { quantity: "order of composition derivatives", value: 4.0 }),
+        _ => Err(Error::InvalidArgument { argument: "order of composition derivatives", value: Some(4) }),
     }
 }
 
@@ -157,7 +157,7 @@ fn psi<R: Real>(
     for d in model.departures.iter() {
         let jet = departure_jet(d.function, tau0, delta0, k);
         let part = compose(&|a, b| jet.derivative(a, b).unwrap_or(R::from_f64(f64::NAN)));
-        let absent = || Error::InvalidInput { quantity: "a departure's component", value: d.i as f64 };
+        let absent = || Error::InvalidArgument { argument: "a departure's component", value: Some(d.i) };
         let (xi, xj) = (r.fractions.get(d.i).ok_or_else(absent)?, r.fractions.get(d.j).ok_or_else(absent)?);
         alpha = &alpha + &(&(xi * xj) * &part.scale(R::from_f64(d.f)));
     }
@@ -192,10 +192,10 @@ impl MultiFluid {
     /// before their composition derivatives checks each phase with it in turn, so its refusals come in the same order.
     pub(crate) fn composition_order(&self, t: f64, rho: f64, x: &[f64], order: Order) -> Result<usize, Error> {
         if x.len() != self.len() {
-            return Err(Error::InvalidInput { quantity: "number of mole fractions", value: x.len() as f64 });
+            return Err(Error::InvalidArgument { argument: "number of mole fractions", value: Some(x.len()) });
         }
         if !(t > 0.0 && rho > 0.0 && t.is_finite() && rho.is_finite()) {
-            return Err(Error::InvalidInput { quantity: "density for composition derivatives", value: rho });
+            return Err(Error::InvalidInput { quantity: Quantity::density(Basis::Molar), value: rho });
         }
         degree(order)
     }

@@ -8,9 +8,12 @@
 //! boiling point at p. Each output rises with its unknown there, so a target no state on the range reaches is
 //! refused, naming it.
 
-use phasekit_core::Error;
+use phasekit_core::{Error, Quantity};
 
 use crate::moist_air::{T_MAX, T_MIN};
+use crate::quantities::{
+    ENTHALPY_PER_DRY_AIR, ENTROPY_PER_DRY_AIR, RELATIVE_HUMIDITY, VOLUME_PER_DRY_AIR, WET_BULB_TEMPERATURE,
+};
 use crate::wet_bulb::Bulb;
 use crate::{HumidAir, Humidity, MoistAir, Per, root};
 
@@ -55,14 +58,14 @@ fn output(air: &HumidAir, state: &MoistAir, target: Given) -> Result<f64, Error>
     }
 }
 
-/// `target`'s value as given, and its name for a refusal.
-fn wanted(target: Given) -> Result<(f64, &'static str), Error> {
+/// `target`'s value as given, and its quantity for a refusal.
+fn wanted(target: Given) -> Result<(f64, &'static Quantity), Error> {
     match target {
-        Given::Enthalpy(h) => Ok((h, "enthalpy")),
-        Given::Entropy(s) => Ok((s, "entropy")),
-        Given::Volume(v) => Ok((v, "volume")),
-        Given::WetBulb(t) => Ok((t, "wet-bulb temperature")),
-        Given::Humidity(Humidity::Relative(phi)) => Ok((phi, "relative humidity")),
+        Given::Enthalpy(h) => Ok((h, ENTHALPY_PER_DRY_AIR)),
+        Given::Entropy(s) => Ok((s, ENTROPY_PER_DRY_AIR)),
+        Given::Volume(v) => Ok((v, VOLUME_PER_DRY_AIR)),
+        Given::WetBulb(t) => Ok((t, WET_BULB_TEMPERATURE)),
+        Given::Humidity(Humidity::Relative(phi)) => Ok((phi, RELATIVE_HUMIDITY)),
         _ => Err(NO_STATE),
     }
 }

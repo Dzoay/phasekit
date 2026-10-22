@@ -160,7 +160,7 @@ fn honours_the_hint(water: &Fluid, truth: &State, pair: Pair, hint: Phase) -> us
     } else if hint == phase && !(pair == Pair::PT && phase == Phase::TwoPhase) {
         assert!(states.iter().any(|s| is_truth(s, truth)), "{at}");
     } else if hint == Phase::TwoPhase && phase != Phase::TwoPhase {
-        let refused = matches!(result, Err(Error::InvalidInput { quantity: "quality", .. }))
+        let refused = matches!(result, Err(Error::InvalidInput { quantity: Quantity::QUALITY, .. }))
             || result == no_quality(Phase::TwoPhase);
         assert!(refused || !states.is_empty(), "{at}");
     } else {

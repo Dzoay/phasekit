@@ -74,7 +74,7 @@ fn imposed_two_phase_dt_matches_qt() {
         let rho = water.state(q_t(q, 400.0)).unwrap().rho(m);
         let at = |share: f64| water.flash(dt(rho * (1.0 + outwards * share), 400.0), &two_phase);
         assert!(at(1e-10).is_ok_and(|s| s.phase() == Phase::TwoPhase && s.quality() == Some(q)), "{:?}", at(1e-10));
-        assert!(matches!(at(1e-6), Err(Error::InvalidInput { quantity: "quality", .. })), "{:?}", at(1e-6));
+        assert!(matches!(at(1e-6), Err(Error::InvalidInput { quantity: Quantity::QUALITY, .. })), "{:?}", at(1e-6));
     }
 }
 

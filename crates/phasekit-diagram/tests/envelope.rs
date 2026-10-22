@@ -19,7 +19,7 @@ static MIXTURES: LazyLock<Result<Registry, Error>> =
 /// The mixture's trace from its bubble point at 1 bar, as the crate takes it: the feed's molar density times its molar
 /// mass, Q 0 at a bubble point and 1 at a dew point, and the error that ended it where it did not close.
 fn trace(fluid: &Fluid) -> Result<Trace, Error> {
-    let not_a_mixture = Error::InvalidInput { quantity: "mixture", value: f64::NAN };
+    let not_a_mixture = Error::InvalidArgument { argument: "mixture", value: None };
     let mixture: &Mixture = (fluid.model() as &dyn Any).downcast_ref().ok_or(not_a_mixture)?;
     let e = mixture.envelope(&EnvelopeOptions::new())?;
     let end = match e.end {

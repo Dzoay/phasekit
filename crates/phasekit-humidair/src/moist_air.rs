@@ -7,6 +7,7 @@ use phasekit_core::{DomainError, Error, Strategy, math};
 
 use crate::constants::{M_AIR, M_WATER, R};
 use crate::ideal::{self, R_AIR, Zeros};
+use crate::quantities::WATER_MOLE_FRACTION;
 use crate::virials::{Coefficient, Virials};
 use crate::{HumidAir, humidity};
 
@@ -64,7 +65,7 @@ fn checked(t: f64, p: f64, psi: f64) -> Result<(), Error> {
         return Err(DomainError::AboveMaxPressure { p, p_max: P_MAX }.into());
     }
     if !(0.0..1.0).contains(&psi) {
-        return Err(Error::InvalidInput { quantity: "mole fraction of water", value: psi });
+        return Err(Error::InvalidInput { quantity: WATER_MOLE_FRACTION, value: psi });
     }
     Ok(())
 }

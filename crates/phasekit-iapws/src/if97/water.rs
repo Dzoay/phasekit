@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use phasekit_core::{
-    Capabilities, DataTerms, DomainError, Error, FlashOptions, Fluid, FluidInfo, Limits, NativeInput, Pair, Quality,
-    RootPolicy, Roots, Source, State, ThermoModel,
+    Basis, Capabilities, DataTerms, DomainError, Error, FlashOptions, Fluid, FluidInfo, Limits, NativeInput, Pair,
+    Quality, Quantity, RootPolicy, Roots, Source, State, ThermoModel,
 };
 
 use super::{KEY, MOLAR_MASS, P_MAX, T_MAX_1, T_MIN, region1, region2, saturation_pressure, saturation_temperature};
@@ -38,11 +38,13 @@ impl Water {
             return region2(t, p);
         }
         let (liquid, vapour) = (region1(t, p)?, region2(t, p)?);
-        let rho = |s: &State| s.rho(phasekit_core::Basis::Molar);
+        let rho = |s: &State| s.rho(Basis::Molar);
         match roots {
             RootPolicy::Nearest(target) if (rho(&vapour) - target).abs() < (rho(&liquid) - target).abs() => Ok(vapour),
             RootPolicy::Nearest(_) | RootPolicy::Stable => Ok(liquid),
-            _ => Err(Error::Ambiguous { roots: Roots::new(&[rho(&liquid), rho(&vapour)]) }),
+            _ => Err(Error::Ambiguous {
+                roots: Roots::new(Quantity::density(Basis::Molar), &[rho(&liquid), rho(&vapour)]),
+            }),
         }
     }
 

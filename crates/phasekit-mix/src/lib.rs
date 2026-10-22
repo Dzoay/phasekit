@@ -25,6 +25,7 @@ mod mixture;
 mod multifluid;
 mod names;
 mod phases;
+pub mod quantities;
 mod reducing;
 mod saturation;
 mod slot;

@@ -149,7 +149,9 @@ fn holds(outcome: &Outcome, want: Want) -> bool {
         (Pass | Edge, Outcome::Pass) => true,
         (NoQ | Edge, Outcome::Refused(e)) => no_quality(e),
         (Ambig, Outcome::Refused(e)) => matches!(e, Error::Ambiguous { .. }),
-        (BadQ, Outcome::Refused(e)) => matches!(e, Error::InvalidInput { quantity: "Q", .. }),
+        (BadQ, Outcome::Refused(e)) => {
+            matches!(e, Error::InvalidInput { quantity: phasekit_core::Quantity::QUALITY, .. })
+        }
         (Other, Outcome::Fail(_) | Outcome::Refused(_)) => true,
         _ => false,
     }

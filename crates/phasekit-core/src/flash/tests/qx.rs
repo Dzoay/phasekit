@@ -191,9 +191,9 @@ fn a_q_pair_without_a_root_is_invalid_input() {
     let water = embedded("Water");
     let (one, zero) = (Quality::new(1.0).unwrap(), Quality::new(0.0).unwrap());
     let cases = [
-        (Input::hq(Enthalpy::molar(60_000.0).unwrap(), one), "H", 60_000.0),
-        (Input::qs(zero, Entropy::molar(500.0).unwrap()), "S", 500.0),
-        (Input::dq(Density::molar(60_000.0).unwrap(), zero), "D", 60_000.0),
+        (Input::hq(Enthalpy::molar(60_000.0).unwrap(), one), Quantity::enthalpy(Basis::Molar), 60_000.0),
+        (Input::qs(zero, Entropy::molar(500.0).unwrap()), Quantity::entropy(Basis::Molar), 500.0),
+        (Input::dq(Density::molar(60_000.0).unwrap(), zero), Quantity::density(Basis::Molar), 60_000.0),
     ];
     for (input, quantity, value) in cases {
         assert_eq!(water.state(input), Err(Error::InvalidInput { quantity, value }), "{input:?}");

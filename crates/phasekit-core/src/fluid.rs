@@ -12,6 +12,7 @@ use crate::input::{Capabilities, Input, NativeInput, Pair, Var};
 use crate::melting::MeltingCurve;
 use crate::model::{CriticalOrigin, CriticalPoint, FluidInfo, Limits, ThermoModel};
 use crate::prop::{Constant, DerivVar, Partial, Prop, SecondPartial};
+use crate::quantity::{Dimension, Quantity};
 use crate::saturation::SatAccuracy;
 use crate::saturation::SaturationCurve;
 use crate::state::State;
@@ -26,6 +27,10 @@ pub struct Gauge {
     ds: f64,
 }
 
+/// A gauge's offsets, molar.
+const GAUGE_DH: &Quantity = &Quantity::new("gauge's enthalpy offset", "Δh", Dimension::Energy(Basis::Molar));
+const GAUGE_DS: &Quantity = &Quantity::new("gauge's entropy offset", "Δs", Dimension::Entropy(Basis::Molar));
+
 impl Gauge {
     /// The model's own zero.
     pub const NATIVE: Gauge = Gauge { dh: 0.0, ds: 0.0 };
@@ -34,7 +39,8 @@ impl Gauge {
         if dh.is_finite() && ds.is_finite() {
             Ok(Self { dh, ds })
         } else {
-            Err(Error::InvalidInput { quantity: "gauge", value: if dh.is_finite() { ds } else { dh } })
+            let (quantity, value) = if dh.is_finite() { (GAUGE_DS, ds) } else { (GAUGE_DH, dh) };
+            Err(Error::InvalidInput { quantity, value })
         }
     }
     /// Enthalpy (and internal-energy) offset, J/mol.
