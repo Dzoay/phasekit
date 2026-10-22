@@ -1108,10 +1108,10 @@ def humidair_aux(CP, lock, config, files, args):
 
 # The `humidair` kind (PLAN.md M18.3): CoolProp 8.0.0's moist-air states through `HAPropsSI`, at T from -60 to 350 degC
 # by p from 10 Pa to 10 MPa (v8.0.0's range), at a relative humidity (0, 0.5, 1) or a humidity ratio (0.001, 0.01, 0.1):
-# every output M18.3 serves, per kg of dry air (V, H, U, S, C, CV) and of humid air (Vha, ...). Not R, M18.2's, which
-# v8.0.0 refuses wherever water's saturation pressure exceeds p. A W above v8.0.0's own at saturation (T, p, R = 1) is
-# supersaturated air, which RP-1485 does not model, and is left out. A row any of whose outputs v8.0.0 refuses is
-# `err:<class>`.
+# every output M18.3 serves, per kg of dry air (V, H, U, S, C, CV) and of humid air (Vha, ...). A W above v8.0.0's own
+# at saturation (T, p, R = 1) is supersaturated air, which RP-1485 does not model, and is left out. A row any of whose
+# outputs v8.0.0 refuses is `err:<class>`. M18.4 adds the wet bulb, the dew point and R, each NaN where v8.0.0 refuses
+# it alone (R wherever water's saturation pressure exceeds p), so that the row's other outputs stay.
 HUMIDAIR_T = [213.15, 233.15, 253.15, 273.15, 293.15, 313.15, 333.15, 353.15, 373.15, 423.15, 473.15, 523.15, 573.15,
               623.15]
 HUMIDAIR_P = [10.0, 1e3, 101325.0, 1e6, 1e7]
@@ -1120,9 +1120,20 @@ HUMIDAIR_OUTPUTS = [("W", "kg/kg"), ("Y", "mol/mol"), ("P_w", "Pa"), ("V", "m3/k
                     ("Hha", "J/kg"), ("U", "J/kg"), ("Uha", "J/kg"), ("S", "J/(kg K)"), ("Sha", "J/(kg K)"),
                     ("C", "J/(kg K)"), ("Cha", "J/(kg K)"), ("CV", "J/(kg K)"), ("CVha", "J/(kg K)"), ("Z", "-"),
                     ("speed_of_sound", "m/s"), ("isentropic_exponent", "-")]
-HUMIDAIR_COLUMNS = ["T", "p", "input", "value", "status", *(name for name, _ in HUMIDAIR_OUTPUTS)]
-HUMIDAIR_UNITS = ["K", "Pa", "-", "-", "-", *(unit for _, unit in HUMIDAIR_OUTPUTS)]
-HUMIDAIR_TOL = ["in", "in", "label", "in", "label", *["prop"] * len(HUMIDAIR_OUTPUTS)]
+HUMIDAIR_EXTRA = [("Twb", "K"), ("Tdp", "K"), ("R", "-")]
+HUMIDAIR_COLUMNS = ["T", "p", "input", "value", "status", *(name for name, _ in HUMIDAIR_OUTPUTS + HUMIDAIR_EXTRA)]
+HUMIDAIR_UNITS = ["K", "Pa", "-", "-", "-", *(unit for _, unit in HUMIDAIR_OUTPUTS + HUMIDAIR_EXTRA)]
+HUMIDAIR_TOL = ["in", "in", "label", "in", "label", *["prop"] * len(HUMIDAIR_OUTPUTS + HUMIDAIR_EXTRA)]
+
+
+def humidair_extra(HAPropsSI, t, p, key, value):
+    """The wet bulb, the dew point and R at one state, each NaN where v8.0.0 refuses it."""
+    def one(name):
+        try:
+            return HAPropsSI(name, "T", t, "P", p, key, value)
+        except Exception:  # this output alone has no value here
+            return math.nan
+    return [one(name) for name, _ in HUMIDAIR_EXTRA]
 
 
 def humidair(CP, lock, config, files, args):
@@ -1140,9 +1151,10 @@ def humidair(CP, lock, config, files, args):
                     continue
                 try:
                     values = [HAPropsSI(name, "T", t, "P", p, key, value) for name, _ in HUMIDAIR_OUTPUTS]
-                    status = "ok"
+                    values, status = values + humidair_extra(HAPropsSI, t, p, key, value), "ok"
                 except Exception as exception:  # outside v8.0.0's humid-air range or no such state
-                    values, status = [math.nan] * len(HUMIDAIR_OUTPUTS), f"err:{error_class(exception)}"
+                    values = [math.nan] * len(HUMIDAIR_OUTPUTS + HUMIDAIR_EXTRA)
+                    status = f"err:{error_class(exception)}"
                 floats.extend([t, p, value, *values])
                 lines.append(",".join([cell(t), cell(p), key, cell(value), status, *map(cell, values)]) + "\n")
     grid = (f"T in {{{','.join(map(cell, HUMIDAIR_T))}}} K x p in {{{','.join(map(cell, HUMIDAIR_P))}}} Pa x "

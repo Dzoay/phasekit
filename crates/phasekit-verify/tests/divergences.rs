@@ -100,6 +100,7 @@ const PROOFS: &[(&str, fn())] = &[
     ("DIV-0069", div_0069),
     ("DIV-0070", div_0070),
     ("DIV-0071", div_0071),
+    ("DIV-0072", div_0072),
 ];
 
 /// The value of a `facts/register.csv` row (the oracle side of every entry, M1.13).
@@ -1964,6 +1965,22 @@ fn div_0071() {
     let row = row_at(&table12, "W", 0.05);
     let gap = s_at(593.15, 2e6, 0.05) - table12.value(row, "s").unwrap();
     assert!(gap > half_unit(&table12, row, "s") && gap <= bound(path), "{gap}");
+}
+
+/// DIV-0072 (`SkipOracle`, PLAN.md M18.4; ROT-272): dry air's dew point. (1) phasekit refuses it, naming the partial
+/// pressure, 0; (2) v8.0.0's at 20 °C and 101.325 kPa is about 149.4 K, where saturated air holds water (ψ_ws > 0), so it
+/// is no dew point of ψ_w = 0; (3) moist air's dew point is the T at which saturation holds its ψ_w, to 1e-12.
+fn div_0072() {
+    let air = humid_air(DataSet::Parity);
+    let refused = air.dew_point(101_325.0, 0.0);
+    assert!(matches!(refused, Err(Error::Domain(DomainError::BelowMinPressure { p, .. })) if p == 0.0), "{refused:?}");
+    let (path, text) = fixture!("coolprop-8.0.0/all/humidair.csv");
+    let oracle = Fixture::parse(path, text).unwrap();
+    let t_dp = oracle.value(humidair_row(&oracle, 293.15, 101_325.0, "R", 0.0), "Tdp").unwrap();
+    assert!((t_dp - 149.4).abs() < 0.1, "{t_dp}");
+    assert!(air.saturation(t_dp, 101_325.0).unwrap().psi_ws > 0.0);
+    let psi = air.saturation(290.0, 101_325.0).unwrap().psi_ws;
+    assert!((air.dew_point(101_325.0, psi).unwrap() / 290.0 - 1.0).abs() <= 1e-12);
 }
 
 /// RP-1485's humid air over core's water and air and phasekit-iapws's IF97 water and ice, under `data`.

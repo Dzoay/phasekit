@@ -40,12 +40,12 @@ struct Condensed {
 }
 
 /// `part`'s state at Q = `q` on its saturation line at T.
-fn saturated(part: &Fluid, q: f64, t: f64) -> Result<State, Error> {
+pub(crate) fn saturated(part: &Fluid, q: f64, t: f64) -> Result<State, Error> {
     part.state(Input::qt(Quality::new(q)?, Temperature::new(t)?))
 }
 
 /// `part`'s state at (T, p).
-fn at(part: &Fluid, t: f64, p: f64) -> Result<State, Error> {
+pub(crate) fn at(part: &Fluid, t: f64, p: f64) -> Result<State, Error> {
     part.state(Input::pt(Pressure::new(p)?, Temperature::new(t)?))
 }
 
@@ -76,9 +76,16 @@ fn condensed(parts: &crate::Parts, data: DataSet, t: f64, p: f64, p_ws: f64) -> 
     }
     let liquid = at(&parts.liquid, t, p)?;
     let kappa_t = match data {
+        // IAPWS-95's at IF97's density, as v8.0.0 takes it. Just above saturation that density can lie inside
+        // IAPWS-95's own dome (the two liquids differ in their last digits), where κ_T is undefined: there IF97's own,
+        // whose share of ln f, κ_T·p_ws(p − p_ws)·v̄/RT, is small (v8.0.0 dodges IF97's band with a correlation, map
+        // 07 H11).
         DataSet::Parity => {
             let density = phasekit_core::Density::molar(liquid.rho(Basis::Molar))?;
-            parts.water.state(Input::dt(density, Temperature::new(t)?))?.isothermal_compressibility()?
+            match parts.water.state(Input::dt(density, Temperature::new(t)?))?.isothermal_compressibility() {
+                Err(Error::Undefined { .. }) => liquid.isothermal_compressibility()?,
+                kappa_t => kappa_t?,
+            }
         }
         _ => liquid.isothermal_compressibility()?,
     };

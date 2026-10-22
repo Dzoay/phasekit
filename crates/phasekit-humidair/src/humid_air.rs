@@ -2,7 +2,9 @@
 //! thread-local copy of a part (ROT-267, ROT-268; v8.0.0 keeps three backends per calling thread and process-wide
 //! model flags, map 07 H8, §5).
 
-use phasekit_core::{Constant, DataSet, Error, Fluid, Input, Prop, Quality, Temperature, Virials as PureVirials};
+use phasekit_core::{
+    Constant, DataSet, Error, Fluid, Gauge, Input, Prop, Quality, Temperature, Virials as PureVirials,
+};
 
 use crate::constants::M_WATER;
 use crate::ideal::{self, Zeros};
@@ -42,8 +44,17 @@ const P_ZERO: f64 = 101_325.0;
 impl HumidAir {
     /// Humid air over `parts`, each checked: water and air need exact virials (a Helmholtz model with a closed-form
     /// `zero_density`); the liquid and ice, water's molar mass, and a saturation state each, the liquid's at 300 K
-    /// and the ice's at 250 K (the refusal is the part's own).
+    /// and the ice's at 250 K (the refusal is the part's own). Each part is kept in its model's own gauge, whatever
+    /// reference state its handle carries, so no output depends on one (ROT-104: v8.0.0's wet bulb takes the liquid's
+    /// h in the caller's).
     pub fn new(parts: Parts, data_set: DataSet) -> Result<HumidAir, Error> {
+        let native = |part: &Fluid| part.with_gauge(Gauge::NATIVE);
+        let parts = Parts {
+            water: native(&parts.water),
+            air: native(&parts.air),
+            liquid: native(&parts.liquid),
+            ice: native(&parts.ice),
+        };
         for part in [&parts.water, &parts.air] {
             pure_virials(part, 300.0)?;
         }
@@ -65,7 +76,7 @@ impl HumidAir {
         Ok(air)
     }
 
-    /// The parts.
+    /// The parts, each in its model's own gauge.
     pub fn parts(&self) -> &Parts {
         &self.parts
     }
