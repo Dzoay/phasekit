@@ -64,8 +64,11 @@ fn curve(all: &[Curve], c: Characteristic) -> Option<&Curve> {
     all.iter().find(|curve| curve.characteristic == c)
 }
 
+/// The fluids whose ranges the Joule inversion curve crosses, at liquid-like densities toward T_max.
+const JOULE: [&str; 4] = ["n-Propane", "CarbonDioxide", "Nitrogen", "Air"];
+
 /// Each curve's vertex is the `DT` state at its inputs and a root of the curve's condition, within `ROOT`; the ideal,
-/// Boyle and Joule–Thomson inversion curves cross every fluid's range.
+/// Boyle and Joule–Thomson inversion curves cross every fluid's range, and the Joule inversion curve `JOULE`'s.
 #[test]
 fn each_vertex_meets_its_curves_condition() {
     for name in FLUIDS {
@@ -74,7 +77,7 @@ fn each_vertex_meets_its_curves_condition() {
         let order: Vec<Characteristic> = all.iter().map(|c| c.characteristic).collect();
         assert_eq!(order, Characteristic::ALL, "{name}");
         for c in &all {
-            let crossing = c.characteristic != Characteristic::JouleInversion;
+            let crossing = c.characteristic != Characteristic::JouleInversion || JOULE.contains(&name);
             assert!(!crossing || c.lines.iter().any(|l| l.len() > 10), "{name} {:?}", c.characteristic);
             for v in c.lines.iter().flatten() {
                 assert!(v.inputs.pair == Pair::DT && is_flash(f, v).unwrap(), "{name} {:?} {v:?}", c.characteristic);

@@ -395,4 +395,11 @@ mod tests {
         let nearer = |a: f64, b: f64| Bracket::new((a, row(1.0, 1.0)), (b, row(2.0, 1.0))).nearer().inputs.x;
         assert_eq!([nearer(0.5, -0.1), nearer(-0.1, 0.5), nearer(0.2, -0.2)], [2.0, 1.0, 1.0]);
     }
+
+    /// A closed line, whose ends are at one density, keeps its order.
+    #[test]
+    fn a_closed_line_keeps_its_order() {
+        let ts = |rows: Vec<Row>| rows.iter().map(|r| r.inputs.y).collect::<Vec<_>>();
+        assert_eq!(ts(from_low_density(vec![row(1.0, 1.0), row(2.0, 2.0), row(1.0, 3.0)])), [1.0, 2.0, 3.0]);
+    }
 }
