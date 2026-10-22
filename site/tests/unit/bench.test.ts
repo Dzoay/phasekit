@@ -113,7 +113,7 @@ describe("the benchmark's comparison", () => {
       const grid = benchGrid(pair, l, 400);
       const run = (handle: typeof simd) => {
         const r = handle({ id: 2, op: "bench", fluid: "n-Propane", outputs: [...BENCH_OUTPUTS], ...grid } as Request);
-        if (!r.ok || r.op !== "bench") throw new Error(r.ok ? r.op : r.error);
+        if (!r.ok || r.op !== "bench") throw new Error(r.ok ? r.op : r.error.message);
         return r.value;
       };
       const [a, b] = [run(baseline), run(simd)];

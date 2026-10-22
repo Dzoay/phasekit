@@ -2,10 +2,11 @@
 // computes from them. The component only binds to it; tests/unit/calculator.svelte.test.ts drives it, wiring included.
 // The view lives in the URL (`fluid=Water&a=P:101325&b=Q:0&units=engineering`, values in SI).
 import { untrack } from "svelte";
-import type { Engine, StateValue, TimeValue } from "../engine/protocol";
+import type { Engine, Refusal, StateValue, TimeValue } from "../engine/protocol";
 import { formatNumber } from "./format";
 import type { Preset } from "./fluids";
 import { INPUTS, OUTPUTS, output } from "./outputs";
+import { refusalOf, say } from "./refusal";
 import { displayUnit, fromSI, toSI, type System, type Unit } from "./units";
 
 /** Every output key the calculator asks for. */
@@ -42,23 +43,27 @@ export class Calculator {
   aText = $state("");
   bText = $state("");
 
-  // The state: the latest request's answer, or its refusal in the package's words.
+  // The state: the latest request's answer, or its refusal, which the package explains in the shown units.
   result = $state<StateValue | null>(null);
-  refusal = $state<string | null>(null);
+  refusal = $state<Refusal | null>(null);
   busy = $state(true);
   timing = $state<TimeValue | null>(null);
 
-  /** The answered outputs, and the package's reason for each refused one. */
+  /** The answered outputs, and the package's reason for each refused one, short and in the shown units. */
   readonly values = $derived.by(() => {
     const map = new Map<string, number>();
     const errors = new Map<string, string>();
     for (const [i, key] of KEYS.entries()) {
       const value = this.result?.values[i];
+      const refused = this.result?.errors[i];
       if (typeof value === "number" && !Number.isNaN(value)) map.set(key, value);
-      else if (this.result) errors.set(key, this.result.errors[i] ?? "not defined at this state");
+      else if (this.result) errors.set(key, refused ? say(refused, this.system, "short") : "not defined at this state");
     }
     return { map, errors };
   });
+
+  /** The refusal of the state in words, in the shown units (PLAN.md M28.3); "" while there is none. */
+  readonly refusalText = $derived(this.refusal ? say(this.refusal, this.system, "long") : "");
 
   readonly #engine: Engine;
   readonly #timingDelayMs: number;
@@ -122,16 +127,6 @@ export class Calculator {
     this.#showInputs();
   }
 
-  /** An input as the package received it, in SI, with the shown unit beside it where that differs: the package's
-   *  messages name SI values (#191). */
-  received(key: string, value: number): string {
-    const o = output(key);
-    if (!o) return `${key} = ${formatNumber(value)}`;
-    const [si, shown] = [displayUnit(o.kind, "si"), this.unitOf(key)];
-    const inSI = `${o.symbol.replace("_", "")} = ${formatNumber(value)}${si.label ? ` ${si.label}` : ""}`;
-    return shown.label === si.label ? inSI : `${inSI} (${formatNumber(fromSI(value, shown))} ${shown.label})`;
-  }
-
   /** The wiring: the route loads the view, the view writes the URL, the inputs compute the state, and a settled state
    *  is timed. Returns the function that disconnects it. */
   connect(route: { readonly params: URLSearchParams }, write: (params: URLSearchParams) => void): () => void {
@@ -180,8 +175,7 @@ export class Calculator {
         if (mine === this.#sequence) [this.result, this.refusal, this.busy] = [value, null, false];
       },
       (e: unknown) => {
-        if (mine === this.#sequence)
-          [this.result, this.refusal, this.busy] = [null, e instanceof Error ? e.message : String(e), false];
+        if (mine === this.#sequence) [this.result, this.refusal, this.busy] = [null, refusalOf(e), false];
       },
     );
   }

@@ -43,15 +43,22 @@ use wasm_bindgen::prelude::*;
 
 mod diagram;
 mod humid_air;
+mod refusal;
 mod surface;
 
 pub use diagram::{Corners, Diagram, Lines, PlaneInfo, Regions, Vertices, pair_keys, planes};
 pub use humid_air::{Chart, HumidAir, HumidAirState, humid_air_keys};
+pub use refusal::Refusal;
 pub use surface::Surface;
 
 /// A JS `Error` with `e`'s message.
 fn js(e: impl Display) -> JsError {
     JsError::new(&e.to_string())
+}
+
+/// The JS `Error` a refusal throws: core's long message in SI, with the refusal as data ([`Refusal`]; PLAN.md M28.2).
+fn refuse(e: impl Into<compat::CompatError>) -> JsValue {
+    refusal::refused(e.into())
 }
 
 /// What a panic's `Error` and every refusal after it end with.
@@ -116,8 +123,8 @@ pub fn binary_pairs() -> Vec<String> {
 /// a name that is no mixture name. A malformed mixture name, or an unknown predefined one, is refused as `fluid` refuses
 /// it.
 #[wasm_bindgen(js_name = mixtureComponents)]
-pub fn mixture_components(name: &str) -> Result<Vec<String>, JsError> {
-    let components = phasekit_mix::components(name).transpose().map_err(js)?;
+pub fn mixture_components(name: &str) -> Result<Vec<String>, JsValue> {
+    let components = phasekit_mix::components(name).transpose().map_err(refuse)?;
     Ok(components.unwrap_or_default().into_iter().map(String::from).collect())
 }
 
@@ -137,9 +144,9 @@ impl Registry {
     /// The embedded fluids, CoolProp's data with the published corrections (user decision 2), and CoolProp's mixture
     /// names over them and the packs added later (`HEOS::CarbonDioxide[0.5]&Nitrogen[0.5]`, `R410A.mix`; PLAN.md M13.14).
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Result<Registry, JsError> {
+    pub fn new() -> Result<Registry, JsValue> {
         alive()?;
-        let embedded = phasekit_core::Registry::from_embedded(DataSet::Corrected).map_err(js)?;
+        let embedded = phasekit_core::Registry::from_embedded(DataSet::Corrected).map_err(refuse)?;
         let inner = phasekit_mix::with_mixtures(&embedded, DataSet::Corrected);
         // The panic test's build (PLAN.md M24.2): names that panic on purpose where a call reaches a model.
         #[cfg(feature = "fault-injection")]
@@ -149,21 +156,21 @@ impl Registry {
 
     /// A new registry that also serves the fluids of a pack (E6): its bytes as fetched. This one is unchanged.
     #[wasm_bindgen(js_name = withPack)]
-    pub fn with_pack(&self, bytes: &[u8]) -> Result<Registry, JsError> {
+    pub fn with_pack(&self, bytes: &[u8]) -> Result<Registry, JsValue> {
         alive()?;
-        let pack = Pack::new(bytes.into()).map_err(js)?;
-        Ok(Registry { inner: self.inner.with_source(Box::new(pack), DataSet::Corrected).map_err(js)? })
+        let pack = Pack::new(bytes.into()).map_err(|e| refuse(phasekit_core::Error::Load(e)))?;
+        Ok(Registry { inner: self.inner.with_source(Box::new(pack), DataSet::Corrected).map_err(refuse)? })
     }
 
     /// A new registry in which the fluid `fluid` names reports in the reference state named `reference`: CoolProp's
     /// `IIR`, `ASHRAE`, `NBP`, or `DEF` (and `RESET`) for the model's own (E10). This one is unchanged.
     #[wasm_bindgen(js_name = withReference)]
-    pub fn with_reference(&self, fluid: &str, reference: &str) -> Result<Registry, JsError> {
+    pub fn with_reference(&self, fluid: &str, reference: &str) -> Result<Registry, JsValue> {
         alive()?;
         let state = compat::parse_reference_state(reference)
             .ok_or_else(|| js(format!("`{reference}` is not IIR, ASHRAE, NBP, DEF or RESET")))?;
-        let name = compat::fluid_in(&self.inner, fluid).map_err(js)?.info().name().to_string();
-        Ok(Registry { inner: self.inner.with_reference(&name, state).map_err(js)? })
+        let name = compat::fluid_in(&self.inner, fluid).map_err(refuse)?.info().name().to_string();
+        Ok(Registry { inner: self.inner.with_reference(&name, state).map_err(refuse)? })
     }
 
     /// CoolProp's `PropsSI(output, name1, value1, name2, value2, fluid)`: the compat strings' keys and checks.
@@ -176,17 +183,17 @@ impl Registry {
         name2: &str,
         value2: f64,
         fluid: &str,
-    ) -> Result<f64, JsError> {
+    ) -> Result<f64, JsValue> {
         alive()?;
-        compat::props_si_in(&self.inner, output, name1, value1, name2, value2, fluid).map_err(js)
+        compat::props_si_in(&self.inner, output, name1, value1, name2, value2, fluid).map_err(refuse)
     }
 
     /// CoolProp's `Props1SI(output, fluid)`: a state-independent output (T_critical, p_triple, …); a state-dependent one
     /// is refused. The site reads a fluid's limits with it (PLAN.md M21.2).
     #[wasm_bindgen(js_name = Props1SI)]
-    pub fn props1_si(&self, output: &str, fluid: &str) -> Result<f64, JsError> {
+    pub fn props1_si(&self, output: &str, fluid: &str) -> Result<f64, JsValue> {
         alive()?;
-        compat::props1_si_in(&self.inner, output, fluid).map_err(js)
+        compat::props1_si_in(&self.inner, output, fluid).map_err(refuse)
     }
 
     /// The canonical name of every fluid it serves, decoded or not, each once, the newest pack's first and the embedded
@@ -202,9 +209,9 @@ impl Registry {
     }
 
     /// The fluid a fluid string names (a name, alias or CAS number). A handle object: free it with `free()`.
-    pub fn fluid(&self, name: &str) -> Result<Fluid, JsError> {
+    pub fn fluid(&self, name: &str) -> Result<Fluid, JsValue> {
         alive()?;
-        Ok(Fluid { inner: compat::fluid_in(&self.inner, name).map_err(js)? })
+        Ok(Fluid { inner: compat::fluid_in(&self.inner, name).map_err(refuse)? })
     }
 }
 
@@ -239,19 +246,19 @@ impl Fluid {
 
     /// A mixture's phase envelope (PLAN.md M13.12, M21.5), traced from its bubble or dew point at 1 bar, else at its
     /// lowest temperature, to where it closes or meets a bound of the model. A pure fluid has none and is refused.
-    pub fn envelope(&self) -> Result<Envelope, JsError> {
+    pub fn envelope(&self) -> Result<Envelope, JsValue> {
         alive()?;
         let mixture = mixture_of(&self.inner)
             .ok_or_else(|| js(format!("{} is no mixture: it has no phase envelope", self.name())))?;
         let molar_mass = mixture.info().molar_mass();
-        Ok(Envelope { inner: mixture.envelope(&EnvelopeOptions::new()).map_err(js)?, molar_mass })
+        Ok(Envelope { inner: mixture.envelope(&EnvelopeOptions::new()).map_err(refuse)?, molar_mass })
     }
 
     /// The typed flash: the state at the values of two input keys, in either order as `PropsSI`'s.
-    pub fn flash(&self, name1: &str, value1: f64, name2: &str, value2: f64) -> Result<State, JsError> {
+    pub fn flash(&self, name1: &str, value1: f64, name2: &str, value2: f64) -> Result<State, JsValue> {
         alive()?;
         let state =
-            compat::flash_si(&self.inner, (name1, value1), (name2, value2), &FlashOptions::new()).map_err(js)?;
+            compat::flash_si(&self.inner, (name1, value1), (name2, value2), &FlashOptions::new()).map_err(refuse)?;
         Ok(State { fluid: self.inner.clone(), state })
     }
 
@@ -266,14 +273,14 @@ impl Fluid {
         values1: &[f64],
         name2: &str,
         values2: &[f64],
-    ) -> Result<Batch, JsError> {
+    ) -> Result<Batch, JsValue> {
         alive()?;
         let keys: Vec<&str> = outputs.iter().map(String::as_str).collect();
         let cells = values1.len().checked_mul(keys.len()).ok_or_else(|| js("the batch has too many cells"))?;
         let (mut values, mut cell) = (vec![0.0; cells], vec![Status::Ok; cells]);
         let (input1, input2) = ((name1, values1), (name2, values2));
         compat::batch_si_with(&self.inner, ExecPolicy::Simd, &keys, input1, input2, &mut values, &mut cell)
-            .map_err(js)?;
+            .map_err(refuse)?;
         Ok(Batch { values, status: cell.into_iter().map(compat::status_code).collect(), outputs: keys.len() })
     }
 }
@@ -306,20 +313,20 @@ impl State {
     }
 
     /// Any `PropsSI` output key at this state.
-    pub fn get(&self, output: &str) -> Result<f64, JsError> {
+    pub fn get(&self, output: &str) -> Result<f64, JsValue> {
         alive()?;
-        compat::output_at(&self.fluid, &self.state, output).map_err(js)
+        compat::output_at(&self.fluid, &self.state, output).map_err(refuse)
     }
 
     /// Each phase's mole fractions, where this is a mixture's two-phase state (PLAN.md M21.5): phasekit-mix's
     /// `Mixture::phases`, which solves them again at its quality, so a solve that fails refuses the call. Undefined for
     /// a single phase or a pure fluid.
-    pub fn phases(&self) -> Result<Option<Phases>, JsError> {
+    pub fn phases(&self) -> Result<Option<Phases>, JsValue> {
         alive()?;
         let Some(mixture) = mixture_of(&self.fluid) else {
             return Ok(None);
         };
-        Ok(mixture.phases(&self.state).map_err(js)?.map(|c| Phases { liquid: c.x, vapour: c.y }))
+        Ok(mixture.phases(&self.state).map_err(refuse)?.map(|c| Phases { liquid: c.x, vapour: c.y }))
     }
 }
 

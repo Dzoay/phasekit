@@ -13,10 +13,20 @@ fn s(text: &str) -> (*const c_char, usize) {
 
 /// This thread's last error.
 fn last() -> String {
+    copied(pk_last_error)
+}
+
+/// What `copy`, `pk_last_error` or one of its kin, copies out.
+fn copied(copy: unsafe extern "C" fn(*mut c_char, usize) -> usize) -> String {
     let mut buf = [0 as c_char; 512];
     // SAFETY: `buf` is 512 writable bytes.
-    let n = unsafe { pk_last_error(buf.as_mut_ptr(), buf.len()) };
+    let n = unsafe { copy(buf.as_mut_ptr(), buf.len()) };
     String::from_utf8_lossy(&buf[..n - 1].iter().map(|&c| c as u8).collect::<Vec<_>>()).into_owned()
+}
+
+/// This thread's last code and rule.
+fn last_code_and_rule() -> (String, String) {
+    (copied(pk_last_error_code), copied(pk_last_error_rule))
 }
 
 /// A new registry's handle.
@@ -222,6 +232,51 @@ fn a_panic_on_the_call_path_is_pk_panic() {
         assert_eq!(pk_fluid_free(handle), PK_OK);
     }
     assert_eq!(pk_registry_free(registry), PK_OK);
+}
+
+/// User decision EM12: the last call's code and rule, core's for a kernel error, compat's for a key, the ABI's own for
+/// its arguments, and both empty after a success.
+#[test]
+fn the_last_error_has_its_code_and_rule() {
+    let registry = new_registry_handle();
+    let cases = [
+        ("D", ("T", 0.0), "invalid_input", "not_above_absolute_zero"),
+        ("D", ("T", 700.0), "", ""),
+        ("Y", ("T", 300.0), "unknown_output", ""),
+        ("D", ("T", 1e4), "above_max_temperature", ""),
+    ];
+    for (output, t, code, rule) in cases {
+        props(registry, output, t, ("P", 1e5), "Water");
+        assert_eq!(last_code_and_rule(), (code.into(), rule.into()), "{output} {t:?}");
+    }
+    let mut handle = 0;
+    // SAFETY: `handle` is writable.
+    assert_eq!(unsafe { pk_registry_new(7, &mut handle) }, PK_INVALID_INPUT);
+    assert_eq!(last_code_and_rule(), ("invalid_argument".into(), String::new()));
+    assert_eq!(pk_registry_free(0), PK_STALE_HANDLE);
+    assert_eq!(last_code_and_rule(), ("stale_handle".into(), String::new()));
+    assert_eq!(pk_registry_free(registry), PK_OK);
+    assert_eq!(last_code_and_rule(), (String::new(), String::new()));
+}
+
+/// User decision EM12: each refusal the ABI makes itself has its status's code; its only `PK_INVALID_INPUT` is an
+/// argument.
+#[test]
+fn the_abis_own_refusals_have_their_codes() {
+    let codes = [
+        (PK_INVALID_INPUT, "invalid_argument"),
+        (PK_UNKNOWN_KEY, "unknown_key"),
+        (PK_NULL_POINTER, "null_pointer"),
+        (PK_BAD_LENGTH, "bad_length"),
+        (PK_BAD_UTF8, "bad_utf8"),
+        (PK_STALE_HANDLE, "stale_handle"),
+        (PK_BUFFER_TOO_SMALL, "buffer_too_small"),
+        (PK_PANIC, "panic"),
+        (PK_OTHER, "other"),
+    ];
+    for (status, code) in codes {
+        assert_eq!(abi_code(status), code, "{status}");
+    }
 }
 
 /// Rot: ROT-148 (map 11 F5; CoolProp's process-wide errstring reports or swallows another thread's message). The last
@@ -446,7 +501,7 @@ fn pk_batch_refuses_a_bad_call_whole() {
     all(target_os = "linux", target_env = "gnu", any(target_arch = "x86_64", target_arch = "aarch64")),
     all(target_os = "windows", target_arch = "x86_64")
 ))]
-const EXPORTS: [&str; 11] = [
+const EXPORTS: [&str; 13] = [
     "pk_props_si",
     "pk_props1_si",
     "pk_phase_si",
@@ -458,6 +513,8 @@ const EXPORTS: [&str; 11] = [
     "pk_fluid_new",
     "pk_fluid_free",
     "pk_last_error",
+    "pk_last_error_code",
+    "pk_last_error_rule",
 ];
 
 /// Calls the export `name` with good arguments on `registry` and its Water `fluid`: its status, or -1 if `pk_props_si`'s
@@ -507,6 +564,8 @@ fn call_export(name: &str, (registry, fluid, reference): (pk_registry, pk_fluid,
             "pk_registry_free" => pk_registry_free(*handle),
             "pk_fluid_new" => pk_fluid_new(registry, w, wl, handle),
             "pk_fluid_free" => pk_fluid_free(*handle),
+            "pk_last_error_code" => i32::try_from(pk_last_error_code(buf.as_mut_ptr(), 64)).unwrap_or(-1) - 1,
+            "pk_last_error_rule" => i32::try_from(pk_last_error_rule(buf.as_mut_ptr(), 64)).unwrap_or(-1) - 1,
             _ => i32::try_from(pk_last_error(buf.as_mut_ptr(), 64)).unwrap_or(-1) - 1,
         }
     }

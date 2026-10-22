@@ -18,6 +18,7 @@
   import { getEngine } from "../engine/client";
   import { formatNumber } from "../lib/format";
   import { output } from "../lib/outputs";
+  import { say } from "../lib/refusal";
   import { route, writeParams } from "../lib/route.svelte";
   import { SYSTEMS, fromSI } from "../lib/units";
   import { DIAGRAMS, MIXTURE_DIAGRAMS } from "../diagram/planes";
@@ -440,7 +441,9 @@
       {#if reading}
         <p class="status">Phase <strong data-testid="readout-phase">{reading.phase}</strong></p>
       {:else if view.readout?.refusal}
-        <p class="status">The package refused this point: <code>{view.readout.refusal}</code></p>
+        <p class="status" data-testid="readout-refusal">
+          The package refused this point: <code>{say(view.readout.refusal, view.system, "short")}</code>
+        </p>
       {:else}
         <p class="status">Move over the plot.</p>
       {/if}

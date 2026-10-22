@@ -29,7 +29,7 @@ scope.onmessage = (event) => {
         id: request.id,
         ok: false,
         op: request.op,
-        error: `the engine failed to load: ${String(e)}`,
+        error: { message: `the engine failed to load: ${String(e)}`, explained: {} },
       }),
   );
 };

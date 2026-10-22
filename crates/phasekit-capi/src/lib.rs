@@ -35,7 +35,7 @@ use phasekit_compat::{
     props1_si_in,
 };
 use phasekit_core::batch::Status;
-use phasekit_core::{DataSet, Error, Fluid, Registry};
+use phasekit_core::{DataSet, Error, Fluid, Registry, Rule};
 use phasekit_humidair::HumidAir;
 
 mod fp;
@@ -108,11 +108,32 @@ pub const PK_DATASET_PARITY: i32 = 1;
 struct Fail {
     status: i32,
     message: String,
+    /// The refusal's code: core's or compat's, else the ABI's own for its status ([`abi_code`]).
+    code: &'static str,
+    /// An invalid input's rule, core's; "" for any other refusal.
+    rule: &'static str,
 }
 
 impl Fail {
+    /// The ABI's own refusal of an argument: its code is its status's.
     fn new(status: i32, message: impl Into<String>) -> Self {
-        Fail { status, message: message.into() }
+        Fail { status, message: message.into(), code: abi_code(status), rule: "" }
+    }
+}
+
+/// The code of a refusal the ABI makes itself, by its status (user decision EM12). Its only `PK_INVALID_INPUT` is an
+/// unknown data set, an argument, not a quantity.
+const fn abi_code(status: i32) -> &'static str {
+    match status {
+        PK_INVALID_INPUT => "invalid_argument",
+        PK_UNKNOWN_KEY => "unknown_key",
+        PK_NULL_POINTER => "null_pointer",
+        PK_BAD_LENGTH => "bad_length",
+        PK_BAD_UTF8 => "bad_utf8",
+        PK_STALE_HANDLE => "stale_handle",
+        PK_BUFFER_TOO_SMALL => "buffer_too_small",
+        PK_PANIC => "panic",
+        _ => "other",
     }
 }
 
@@ -132,13 +153,14 @@ impl From<CompatError> for Fail {
             CompatError::Core(e) => kernel_status(e),
             _ => PK_UNKNOWN_KEY,
         };
-        Fail::new(status, e.to_string())
+        let rule = e.rule().map_or("", Rule::code);
+        Fail { status, message: e.to_string(), code: e.code(), rule }
     }
 }
 
 impl From<Error> for Fail {
     fn from(e: Error) -> Self {
-        Fail::new(kernel_status(&e), e.to_string())
+        Fail::from(CompatError::Core(e))
     }
 }
 
@@ -148,15 +170,15 @@ fn guard(body: impl FnOnce() -> Result<(), Fail>) -> i32 {
     let _fp = fp::Guard::new(false);
     match catch_unwind(AssertUnwindSafe(body)) {
         Ok(Ok(())) => {
-            last_error::set("");
+            last_error::set("", "", "");
             PK_OK
         }
         Ok(Err(fail)) => {
-            last_error::set(&fail.message);
+            last_error::set(&fail.message, fail.code, fail.rule);
             fail.status
         }
         Err(_) => {
-            last_error::set("a panic was caught at the C boundary; please report it");
+            last_error::set("a panic was caught at the C boundary; please report it", abi_code(PK_PANIC), "");
             PK_PANIC
         }
     }
@@ -323,11 +345,49 @@ fn new_registry(registry: Registry, data_set: DataSet) -> Result<pk_registry, Fa
 #[cfg(not(feature = "coolproplib-shim"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pk_last_error(buf: *mut c_char, len: usize) -> usize {
+    // SAFETY: the caller's contract.
+    unsafe { copy_out(&last_error::get(), buf, len) }
+}
+
+/// Copies the code of this thread's last `pk_*` call (`invalid_input`, `below_min_temperature`, `unknown_output`,
+/// `null_pointer`, …; empty if it succeeded) as [`pk_last_error`] copies its message, and returns the length needed, NUL
+/// included (user decision EM12).
+///
+/// # Safety
+/// `buf` is null or points to `len` writable bytes.
+#[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pk_last_error_code(buf: *mut c_char, len: usize) -> usize {
+    // SAFETY: the caller's contract.
+    unsafe { copy_out(last_error::code(), buf, len) }
+}
+
+/// Copies the rule an invalid input's value broke in this thread's last `pk_*` call (`not_positive`, `out_of_range`,
+/// …; empty for any other outcome) as [`pk_last_error`] copies its message, and returns the length needed, NUL included
+/// (user decision EM12).
+///
+/// # Safety
+/// `buf` is null or points to `len` writable bytes.
+#[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pk_last_error_rule(buf: *mut c_char, len: usize) -> usize {
+    // SAFETY: the caller's contract.
+    unsafe { copy_out(last_error::rule(), buf, len) }
+}
+
+/// Copies `text` with a NUL into the buffer of `len` bytes at `buf`, if it fits; returns the length needed.
+///
+/// # Safety
+/// `buf` is null or points to `len` writable bytes.
+#[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
+unsafe fn copy_out(text: &str, buf: *mut c_char, len: usize) -> usize {
     let _fp = fp::Guard::new(false);
-    let message = last_error::get();
     // SAFETY: the caller's contract; a null `needed` is allowed.
-    let _ = unsafe { put_text(&message, (buf, len), std::ptr::null_mut()) };
-    message.len().saturating_add(1)
+    let _ = unsafe { put_text(text, (buf, len), std::ptr::null_mut()) };
+    text.len().saturating_add(1)
 }
 
 /// A new registry of the embedded fluids under `data_set` (`PK_DATASET_CORRECTED` or `PK_DATASET_PARITY`), into

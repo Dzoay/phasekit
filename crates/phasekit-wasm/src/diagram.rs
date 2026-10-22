@@ -17,7 +17,7 @@ use phasekit_diagram::{self as diagram, FluidBatch, Limits, Plane, Quantity};
 use phasekit_mix::{EnvelopeOptions, Mixture, Side};
 use wasm_bindgen::prelude::*;
 
-use crate::{Fluid, alive, end_name, end_reason, js, mixture_of};
+use crate::{Fluid, alive, end_name, end_reason, js, mixture_of, refuse};
 
 /// A quantity's key, as `PropsSI` names it.
 fn key(quantity: Quantity) -> &'static str {
@@ -446,8 +446,8 @@ impl Regions {
 }
 
 /// A mixture's traced envelope as phasekit-diagram takes it (DG3), and how and why the trace ended.
-fn trace(mixture: &Mixture) -> Result<(diagram::Trace, String, String), JsError> {
-    let e = mixture.envelope(&EnvelopeOptions::new()).map_err(js)?;
+fn trace(mixture: &Mixture) -> Result<(diagram::Trace, String, String), JsValue> {
+    let e = mixture.envelope(&EnvelopeOptions::new()).map_err(refuse)?;
     let (end, reason) = (end_name(&e.end).to_string(), end_reason(&e.end));
     let m = mixture.info().molar_mass();
     let rho = e.rho_bulk.iter().map(|rho| rho * m).collect();
@@ -465,26 +465,26 @@ impl Fluid {
     /// Its diagram on `plane` (`ph`, `ts`, `pt`, `trho` or `hs`; PLAN.md M19.6): a pure fluid's dome and isolines, by
     /// its batch in lanes (`ExecPolicy::Simd`), the default flash options and the vertices bit for bit `evaluate`'s; or
     /// a mixture's phase envelope on `pt` and `trho`, traced as `envelope()` traces it, the other planes refused.
-    pub fn diagram(&self, plane: &str) -> Result<Diagram, JsError> {
+    pub fn diagram(&self, plane: &str) -> Result<Diagram, JsValue> {
         alive()?;
         let unknown = || js(format!("`{plane}` is no plane: ph, ts, pt, trho or hs"));
         let plane = Plane::from_id(plane).ok_or_else(unknown)?;
         if let Some(mixture) = mixture_of(&self.inner) {
             let (trace, end, reason) = trace(mixture)?;
-            return Diagram::of(&diagram::envelope(&self.inner, &trace, plane).map_err(js)?, end, reason);
+            return Ok(Diagram::of(&diagram::envelope(&self.inner, &trace, plane).map_err(refuse)?, end, reason)?);
         }
         let batch = FluidBatch::new(&self.inner).with_exec(ExecPolicy::Simd);
-        let d = diagram::sample(&batch, plane, &Limits::of(&self.inner).map_err(js)?).map_err(js)?;
-        Diagram::of(&d, String::new(), String::new())
+        let d = diagram::sample(&batch, plane, &Limits::of(&self.inner).map_err(refuse)?).map_err(refuse)?;
+        Ok(Diagram::of(&d, String::new(), String::new())?)
     }
 
     /// Its phase regions (PLAN.md M19.5): polygons whose corners carry every plane's axes, each region's phase the
     /// library's at a state inside it, and the critical isotherm and isobar. A mixture has none and is refused.
-    pub fn regions(&self) -> Result<Regions, JsError> {
+    pub fn regions(&self) -> Result<Regions, JsValue> {
         alive()?;
         if mixture_of(&self.inner).is_some() {
-            return Err(js(format!("{} is a mixture: its phase regions are not drawn", self.name())));
+            return Err(js(format!("{} is a mixture: its phase regions are not drawn", self.name())).into());
         }
-        Regions::of(&diagram::regions(&self.inner).map_err(js)?)
+        Ok(Regions::of(&diagram::regions(&self.inner).map_err(refuse)?)?)
     }
 }

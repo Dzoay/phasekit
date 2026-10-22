@@ -15,7 +15,9 @@ async function realEngine(): Promise<{ engine: Engine; calls: Body[] }> {
     call<B extends Body>(body: B): Promise<Values[B["op"]]> {
       calls.push(body);
       const r = handle({ ...body, id: ++id } as Request);
-      return r.ok ? Promise.resolve(r.value as Values[B["op"]]) : Promise.reject(new Error(r.error));
+      return r.ok
+        ? Promise.resolve(r.value as Values[B["op"]])
+        : Promise.reject(Object.assign(new Error(r.error.message), { refusal: r.error }));
     },
   };
   return { engine, calls };
@@ -84,7 +86,7 @@ describe("the surfaces view", { timeout: 30_000 }, () => {
   test("shows a refusal in the package's words, and no mesh", async () => {
     const { view, stop } = await setup("fluid=Nothing");
     expect(view.data).toBeNull();
-    expect(view.refusal).toContain("Nothing");
+    expect(view.refusal?.message).toContain("Nothing");
     stop();
   });
 
@@ -112,7 +114,9 @@ describe("the surfaces view", { timeout: 30_000 }, () => {
     await new Promise((settled) => setTimeout(settled));
     expect([view.data, view.refusal, view.busy]).toEqual([null, null, true]);
     pending[2]?.reject("C refused");
-    await vi.waitFor(() => expect([view.data, view.refusal, view.busy]).toEqual([null, "C refused", false]));
+    await vi.waitFor(() =>
+      expect([view.data, view.refusal, view.busy]).toEqual([null, { message: "C refused", explained: {} }, false]),
+    );
     // A's mesh was kept, though its answer came late.
     route.params = new URLSearchParams("fluid=A");
     flushSync();

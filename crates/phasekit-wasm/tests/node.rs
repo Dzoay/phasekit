@@ -774,7 +774,7 @@ fn m18_4_through_the_exports() {
 
 /// Whether a chart's vertex (T, W) on the line of `key` at `value` is `HAPropsSI`'s at its inputs at 1 atm, bit for bit:
 /// W at (T, R) on the saturation and φ lines, T at (W, the line's value) on the others.
-fn is_hapropssis(air: &HumidAir, (key, value): (&str, f64), (t, w): (f64, f64)) -> Result<bool, JsError> {
+fn is_hapropssis(air: &HumidAir, (key, value): (&str, f64), (t, w): (f64, f64)) -> Result<bool, JsValue> {
     Ok(match key {
         "saturation" => air.ha_props_si("W", "T", t, "P", 101_325.0, "R", 1.0)? == w,
         "R" => air.ha_props_si("W", "T", t, "P", 101_325.0, "R", value)? == w,
@@ -813,7 +813,7 @@ fn the_psychrometric_chart_is_hapropssis() {
 /// Whether a vertex (T, W, h) of Mollier's chart on the line of `key` at `value` is `HAPropsSI`'s at its inputs at 1
 /// atm, bit for bit: on the saturation and φ lines W at (T, R), on an isotherm its T, on the h and v lines T at (W, the
 /// line's value); and its h the line's value on an h line, else H at (T, W).
-fn mollier_is_hapropssis(air: &HumidAir, (key, value): (&str, f64), [t, w, h]: [f64; 3]) -> Result<bool, JsError> {
+fn mollier_is_hapropssis(air: &HumidAir, (key, value): (&str, f64), [t, w, h]: [f64; 3]) -> Result<bool, JsValue> {
     let on_line = match key {
         "saturation" => air.ha_props_si("W", "T", t, "P", 101_325.0, "R", 1.0)? == w,
         "R" => air.ha_props_si("W", "T", t, "P", 101_325.0, "R", value)? == w,

@@ -18,7 +18,7 @@ async function realEngine() {
     call<B extends Body>(body: B): Promise<Values[B["op"]]> {
       calls.push(body.op);
       const r = handle({ ...body, id: ++id } as Request);
-      return r.ok ? Promise.resolve(r.value as Values[B["op"]]) : Promise.reject(new Error(r.error));
+      return r.ok ? Promise.resolve(r.value as Values[B["op"]]) : Promise.reject(new Error(r.error.message));
     },
   };
   return { engine, calls };

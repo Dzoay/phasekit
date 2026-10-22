@@ -8,6 +8,7 @@
   import { getEngine } from "../engine/client";
   import { formatNumber } from "../lib/format";
   import { output } from "../lib/outputs";
+  import { say } from "../lib/refusal";
   import { route, writeParams } from "../lib/route.svelte";
   import { displayUnit, fromSI } from "../lib/units";
   import {
@@ -174,7 +175,7 @@
     data-vertices={view.data?.T.length ?? 0}
   ></canvas>
   {#if view.refusal}
-    <p class="refusal" role="alert">{view.refusal}</p>
+    <p class="refusal" role="alert">{say(view.refusal, "si", "long")}</p>
   {:else if view.busy}
     <p class="status muted">Computing the surface…</p>
   {/if}
@@ -191,7 +192,7 @@
           >
         </p>
       {:else if view.readout?.refusal}
-        <p class="reading">The package refused this point: <code>{view.readout.refusal}</code></p>
+        <p class="reading">The package refused this point: <code>{say(view.readout.refusal, "si", "short")}</code></p>
       {:else}
         <p class="reading muted">Move over the surface.</p>
       {/if}
