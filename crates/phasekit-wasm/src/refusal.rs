@@ -63,18 +63,17 @@ pub struct Refusal {
 
 #[wasm_bindgen]
 impl Refusal {
-    /// What kind of refusal: core's code (`invalid_input`, `below_min_temperature`, `ambiguous`, …) or compat's
-    /// (`unknown_output`, …).
+    /// What kind of refusal: compat's code (`CompatError::code()`): core's (`invalid_input`, `below_min_temperature`,
+    /// …) or compat's own (`unknown_output`, …).
     #[wasm_bindgen(getter)]
     pub fn code(&self) -> String {
-        code(&self.error).to_string()
+        self.error.code().to_string()
     }
 
     /// The rule an invalid input's value breaks (`not_positive`, `out_of_range`, …), core's; otherwise none.
     #[wasm_bindgen(getter)]
     pub fn rule(&self) -> Option<String> {
-        let CompatError::Core(e) = &self.error else { return None };
-        e.rule().map(|rule| rule.code().to_string())
+        self.error.rule().map(|rule| rule.code().to_string())
     }
 
     /// The name of the quantity its numbers are values of ("temperature"), if it has one.
@@ -134,19 +133,6 @@ pub(crate) fn refused(error: CompatError) -> JsValue {
         let _ = reflect_set(&thrown, key, &value);
     }
     thrown
-}
-
-fn code(error: &CompatError) -> &'static str {
-    match error {
-        CompatError::UnknownOutput(_) => "unknown_output",
-        CompatError::UnknownInput(_) => "unknown_input",
-        CompatError::InvalidPair(..) => "invalid_pair",
-        CompatError::InvalidFluid(_) => "invalid_fluid",
-        CompatError::NotAConstant(_) => "not_a_constant",
-        CompatError::NotAProperty(_) => "not_a_property",
-        CompatError::Core(e) => e.code(),
-        _ => "other",
-    }
 }
 
 /// The quantity a refusal's numbers are values of.
