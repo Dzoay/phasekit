@@ -274,6 +274,26 @@ mod tests {
         assert_eq!(check("", &core, "phasekit-compat", false).unwrap_err().len(), 3, "an empty tree fails closed");
     }
 
+    /// PLAN.md M18.6: compat's `HAPropsSI` pulls in phasekit-iapws and phasekit-humidair, which pass with no feature
+    /// and fail the gate, by name, with one.
+    #[test]
+    fn humid_air_s_crates_pass_with_no_feature() {
+        let core = core_list(DATA).unwrap();
+        let humid = |humidair: &str| {
+            format!(
+                "{}phasekit-iapws v0.0.0 (/w/crates/phasekit-iapws)
+phasekit-humidair v0.0.0 \
+                 (/w/crates/phasekit-humidair){humidair}\n",
+                tree("core,fluid-nitrogen,fluid-water")
+            )
+        };
+        assert_eq!(check(&humid(""), &core, "phasekit-compat", false), Ok(()));
+        assert_eq!(
+            check(&humid(" [default]"), &core, "phasekit-compat", false).unwrap_err(),
+            ["phasekit-humidair enables default beyond the fluids-core set (E7)"]
+        );
+    }
+
     /// PLAN.md M12.4: core's `simd` feature, or `fearless_simd` itself, in a fluids-core build fails the gate by name.
     #[test]
     fn the_simd_feature_stays_out_of_the_fluids_core_build() {
