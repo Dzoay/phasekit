@@ -118,7 +118,7 @@ fn scaled(log: bool, v: f64) -> f64 {
 fn phase_on(f: &Fluid, plane: Plane, (x, y): Point) -> Result<Phase, Error> {
     let (qx, qy) = (plane.x().quantity, plane.y().quantity);
     let unpaired = Error::InvalidArgument { argument: "plane", value: None };
-    let (pair, swapped) = Pair::from_vars(qx.var(), qy.var()).ok_or(unpaired)?;
+    let (pair, swapped) = qx.var().zip(qy.var()).and_then(|(x, y)| Pair::from_vars(x, y)).ok_or(unpaired)?;
     let (a, b) = if swapped { (y, x) } else { (x, y) };
     Ok(f.state(Input::new(pair, a, b, Basis::Mass)?)?.phase())
 }

@@ -47,8 +47,9 @@ fn critical_of(constant: impl Fn(Constant) -> Result<f64, Error>) -> Option<[f64
 /// The envelope on `plane`, with the model's critical point `critical`, T_c, p_c and ρ_c, where it is drawn.
 fn drawn(trace: &Trace, plane: Plane, critical: Option<[f64; 3]>) -> Result<Diagram, Error> {
     if !matches!(plane, Plane::Pt | Plane::TRho) {
-        let (x, y) = (plane.x().quantity.var(), plane.y().quantity.var());
-        return Err(Error::Unsupported { pair: Pair::from_vars(x, y).map_or(Pair::PT, |(pair, _)| pair) });
+        let vars = plane.x().quantity.var().zip(plane.y().quantity.var());
+        let pair = vars.and_then(|(x, y)| Pair::from_vars(x, y)).map_or(Pair::PT, |(pair, _)| pair);
+        return Err(Error::Unsupported { pair });
     }
     let n = trace.t.len();
     if let Some(found) = [trace.p.len(), trace.rho.len(), trace.q.len()].into_iter().find(|&len| len != n) {
