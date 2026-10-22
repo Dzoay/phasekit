@@ -478,6 +478,8 @@ version = "0.1.0"
 dependencies = [
  "phasekit-core",
  "phasekit-data",
+ "phasekit-humidair",
+ "phasekit-iapws",
 ]
 
 [[package]]

@@ -88,6 +88,21 @@ Where phasekit differs from v8.0.0 on mixtures:
   `get_phase_envelope_data()`) is `Mixture::envelope`, in the browser package `Fluid.envelope()`, each point named by
   side and its end typed (ROT-188, ROT-189).
 
+## Humid air
+
+`phasekit_compat::ha_props_si(output, name1, value1, name2, value2, name3, value3)` is v8.0.0's `HAPropsSI` over the
+embedded registry under `Corrected`; `ha_props_si_in` takes any `HumidAir` (`humid_air_in` builds one from a registry
+and a data set), and `ha_props_si_vec_in` takes vectors with a `FillPolicy`. Its names and aliases are v8.0.0's, spelled
+exactly. Where it differs:
+
+- **No echo.** An output whose key is an input's is computed from the state, so an input out of range is refused,
+  where v8.0.0 returns it as given (DIV-0074).
+- **Inputs.** The pressure and two of T, W, ψ_w, φ, T_dp, T_wb, and h, s or v per kilogram of dry air, in the pairs
+  `HumidAir::state` takes. v8.0.0 also solves for any other output given with T or a humidity; those names are
+  unknown inputs here.
+- **Dry air has no dew point**, where v8.0.0 returns about 149.4 K (DIV-0072), and below water's triple-point
+  pressure the viscosity and conductivity are refused (DIV-0073).
+
 ## The CoolPropLib.h shim
 
 The Tier A shim is a build of `phasekit-capi` with the `coolproplib-shim` feature (D11). It is distributed as

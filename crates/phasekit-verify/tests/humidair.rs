@@ -792,3 +792,233 @@ fn the_oracle_across_input_pairs() {
     assert_eq!(missed, Vec::<String>::new());
     assert_eq!((checked, refused, exempt), (674, 96, 58));
 }
+
+/// Oracle: the `humidair` rows' viscosity and thermal conductivity (PLAN.md M18.5; provisional, user decision HA3),
+/// under `Parity`: at a given W within `TransportDirect` (measured: 9.3e-15), at a given R within DIV-0011's bound,
+/// ψ_w carrying f's difference (1.5e-8). Below water's triple-point pressure phasekit refuses them (DIV-0073), and
+/// those cells are counted.
+#[test]
+fn transport_matches_the_oracle() {
+    let (oracle, air) = (table(fixture!("coolprop-8.0.0/all/humidair.csv")), humid_air(DataSet::Parity));
+    let (mut missed, mut checked, mut exempt) = (Vec::new(), 0, 0);
+    for row in (0..oracle.rows().len()).filter(|&r| oracle.printed(r, "status") == Some("ok")) {
+        let (t, p, humidity) = humidair_inputs(&oracle, row);
+        let state = air.moist_air(t, p, air.mole_fraction(t, p, humidity).unwrap()).unwrap();
+        for (column, got) in [("M", air.viscosity(&state)), ("K", air.conductivity(&state))] {
+            let want = oracle.value(row, column).unwrap();
+            let bound = match (humidity, exempt_at(DIVERGENCES, "Humid air", Kind::Humidair, column, t)) {
+                (Humidity::Ratio(_), _) => ToleranceClass::TransportDirect.bound(want.abs()).unwrap(),
+                (_, Some(id)) => registered(id) * want.abs(),
+                _ => f64::NAN,
+            };
+            match got {
+                Err(Error::Domain(_)) if p < 611.655 && transport_exempt() => exempt += 1,
+                Ok(got) if (got - want).abs() <= bound => checked += 1,
+                got => missed.push(format!("{column} at {t} K, {p} Pa, {humidity:?}: {got:?} against {want}")),
+            }
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+    assert_eq!((checked, exempt), (456, 96));
+}
+
+/// Whether the register exempts the `humidair` kind's M and K below water's triple-point pressure.
+fn transport_exempt() -> bool {
+    DIVERGENCES.iter().any(|d| d.exempt.is_some_and(|e| e.kinds == [Kind::Humidair] && e.columns == ["M", "K"]))
+}
+
+/// The direct API's value of the `HAPropsSI` key `column` at `state`.
+fn api_value(air: &HumidAir, state: &MoistAir, column: &str) -> Result<f64, Error> {
+    let (t, p, psi) = (state.t(), state.p(), state.mole_fraction());
+    let (da, ha) = (Per::KgDryAir, Per::KgHumidAir);
+    Ok(match column {
+        "T" => t,
+        "P" => p,
+        "W" => state.humidity_ratio(),
+        "Y" => psi,
+        "P_w" => state.partial_pressure(),
+        "R" => air.relative_humidity(t, p, psi)?,
+        "Tdp" => air.dew_point(p, psi)?,
+        "Twb" => air.wet_bulb(state)?,
+        "H" => state.h(da),
+        "Hha" => state.h(ha),
+        "U" => state.u(da),
+        "Uha" => state.u(ha),
+        "S" => state.s(da),
+        "Sha" => state.s(ha),
+        "V" => state.v(da),
+        "Vha" => state.v(ha),
+        "M" => air.viscosity(state)?,
+        "K" => air.conductivity(state)?,
+        "C" => state.cp(da),
+        "Cha" => state.cp(ha),
+        "CV" => state.cv(da),
+        "CVha" => state.cv(ha),
+        "Z" => state.z(),
+        "speed_of_sound" => state.speed_of_sound(),
+        _ => state.isentropic_exponent(),
+    })
+}
+
+/// Oracle: the `humidair` rows through the strings (PLAN.md M18.6), under `Parity`: at every answered row, each of its
+/// columns by `HAPropsSI` from the row's T, p and humidity is the direct API's, bit for bit, or both refuse; the direct
+/// API's are held to v8.0.0's by the tests above.
+#[test]
+fn the_humidair_rows_through_the_strings() {
+    let (oracle, air) = (table(fixture!("coolprop-8.0.0/all/humidair.csv")), humid_air(DataSet::Parity));
+    let columns: Vec<&str> = oracle.columns().iter().skip(5).copied().collect();
+    let (mut missed, mut checked) = (Vec::new(), 0);
+    for row in (0..oracle.rows().len()).filter(|&r| oracle.printed(r, "status") == Some("ok")) {
+        let (t, p, humidity) = humidair_inputs(&oracle, row);
+        let state = air.moist_air(t, p, air.mole_fraction(t, p, humidity).unwrap()).unwrap();
+        let (input, value) = (oracle.printed(row, "input").unwrap(), oracle.value(row, "value").unwrap());
+        for &column in &columns {
+            let via = phasekit_compat::ha_props_si_in(&air, column, "T", t, "P", p, input, value);
+            let direct = api_value(&air, &state, column);
+            let same = match (&via, &direct) {
+                (Ok(a), Ok(b)) => a.to_bits() == b.to_bits(),
+                (Err(_), Err(_)) => true,
+                _ => false,
+            };
+            if same { checked += 1 } else { missed.push(format!("{column} at row {row}: {via:?} against {direct:?}")) }
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+    assert_eq!(checked, 276 * 23);
+}
+
+/// v8.0.0's names grouped by key, the first in each group the oracle's column (`Name2Type`, map 07 §2.3).
+const ALIASES: [&[&str]; 25] = [
+    &["W", "Omega", "HumRat"],
+    &["Y", "psi_w"],
+    &["Tdp", "T_dp", "DewPoint", "D"],
+    &["Twb", "T_wb", "WetBulb", "B"],
+    &["H", "Enthalpy", "Hda"],
+    &["Hha"],
+    &["U", "InternalEnergy", "Uda"],
+    &["Uha"],
+    &["S", "Entropy", "Sda"],
+    &["Sha"],
+    &["R", "RH", "RelHum"],
+    &["T", "Tdb", "T_db"],
+    &["P"],
+    &["V", "Vda"],
+    &["Vha"],
+    &["M", "mu", "Visc"],
+    &["K", "k", "Conductivity"],
+    &["C", "cp"],
+    &["Cha", "cp_ha"],
+    &["CV"],
+    &["CVha", "cv_ha"],
+    &["P_w"],
+    &["isentropic_exponent"],
+    &["speed_of_sound"],
+    &["Z"],
+];
+
+/// Every name `HAPropsSI` reads is one of [`ALIASES`]' (PLAN.md M18.6): as an output, each alias gives its key's value
+/// bit for bit at 300 K, 101.325 kPa and φ = 0.5; as an input, with the pressure and T or W, each name `HumidAir::state`
+/// takes gives the state back, every other name is refused as no input.
+#[test]
+fn every_name_and_alias_is_its_key() {
+    use phasekit_compat::{CompatError, ha_names, ha_props_si_in};
+    let air = humid_air(DataSet::Parity);
+    let names: Vec<&str> = ha_names().collect();
+    let grouped: Vec<&str> = ALIASES.iter().flat_map(|group| group.iter().copied()).collect();
+    assert_eq!((names.len(), grouped.len()), (52, 52));
+    assert!(names.iter().all(|name| grouped.contains(name)), "{names:?}");
+    let at = |output: &str| ha_props_si_in(&air, output, "T", 300.0, "P", 101_325.0, "R", 0.5);
+    let state = air.moist_air(300.0, 101_325.0, air.mole_fraction(300.0, 101_325.0, Humidity::Relative(0.5)).unwrap());
+    let state = state.unwrap();
+    let inputs = ["W", "Y", "Tdp", "Twb", "H", "S", "R", "T", "V"];
+    for group in ALIASES {
+        let want = at(group[0]).unwrap();
+        for &name in group {
+            assert_eq!(at(name).map(f64::to_bits), Ok(want.to_bits()), "{name}");
+            let known = if group[0] == "T" { ("W", state.humidity_ratio()) } else { ("T", 300.0) };
+            let back = ha_props_si_in(&air, "Y", name, want, "P", 101_325.0, known.0, known.1);
+            if inputs.contains(&group[0]) {
+                let psi = back.unwrap();
+                assert!((psi - state.mole_fraction()).abs() <= 1e-9 * state.mole_fraction(), "{name}: {psi}");
+            } else if name != "P" {
+                assert_eq!(back, Err(CompatError::UnknownInput(name.into())), "{name}");
+            }
+        }
+    }
+}
+
+/// `HAPropsSI`'s refusals (PLAN.md M18.6): no pressure, an unknown output or input, two inputs that fix no state, and
+/// inputs and states out of v8.0.0's range (T from 130 K to 350 °C, W to 10, ψ_w to 0.94145, φ to 1); an output equal
+/// to an input is computed, not echoed (DIV-0074), so φ = 5 is refused where v8.0.0 returns T as given. T's range takes
+/// its ends, and the pressure may be any of the three inputs.
+#[test]
+fn ha_props_si_refuses() {
+    use phasekit_compat::{CompatError, ha_props_si_in};
+    let air = humid_air(DataSet::Parity);
+    let call = |o: &str, (n1, v1): (&str, f64), (n2, v2): (&str, f64), (n3, v3): (&str, f64)| {
+        ha_props_si_in(&air, o, n1, v1, n2, v2, n3, v3)
+    };
+    let (t, p, r) = (("T", 300.0), ("P", 101_325.0), ("R", 0.5));
+    let invalid_state =
+        |result: Result<f64, CompatError>| matches!(result, Err(CompatError::Core(Error::InvalidState { .. })));
+    assert!(invalid_state(call("H", t, r, ("W", 0.01))), "no pressure");
+    assert_eq!(call("Q", t, p, r), Err(CompatError::UnknownOutput("Q".into())));
+    assert_eq!(call("H", ("Tc", 300.0), p, r), Err(CompatError::UnknownInput("Tc".into())));
+    assert!(invalid_state(call("H", t, p, ("T_db", 310.0))), "two temperatures");
+    assert!(invalid_state(call("H", ("W", 0.01), p, ("Y", 0.01))), "two water contents");
+    let range = [
+        (call("H", ("T", 129.0), p, r), "T"),
+        (call("H", ("T", 624.0), p, r), "T"),
+        (call("H", t, p, ("W", 10.5)), "W"),
+        (call("H", t, p, ("Y", 0.95)), "Y"),
+        (call("H", t, p, ("R", 1.5)), "R"),
+        (call("T", t, p, ("R", 5.0)), "echo"),
+        (call("H", t, p, ("Tdp", 120.0)), "Tdp"),
+    ];
+    for (result, case) in range {
+        assert!(
+            matches!(result, Err(CompatError::Core(Error::Domain(_) | Error::InvalidInput { .. }))),
+            "{case}: {result:?}"
+        );
+    }
+    assert_eq!(call("T", t, p, r), Ok(300.0));
+    let (dry, h) = (("W", 0.0), call("H", t, p, r).map(f64::to_bits));
+    assert!(call("H", ("T", 130.0), p, dry).is_ok() && call("H", ("T", 623.15), p, dry).is_ok(), "T's range ends");
+    assert_eq!(
+        (call("H", p, t, r).map(f64::to_bits), call("H", t, r, p).map(f64::to_bits)),
+        (h.clone(), h),
+        "P's place"
+    );
+}
+
+/// `HAPropsSI` over vectors (PLAN.md M18.6): a length-1 operand broadcasts, each point is the scalar call's bit for bit,
+/// a failed point follows the fill policy but where every point failed (the first failure), any other length mismatch
+/// is `Shape`; and the embedded registry's
+/// `ha_props_si` is `Corrected`'s.
+#[test]
+fn ha_props_si_over_vectors_and_the_embedded_registry() {
+    use phasekit_compat::{CompatError, FillPolicy, ha_props_si, ha_props_si_in, ha_props_si_vec_in};
+    let air = humid_air(DataSet::Parity);
+    let t = [300.0, 100.0, 310.0];
+    let call = |fill| ha_props_si_vec_in(&air, "H", ("T", &t), ("P", &[101_325.0]), ("R", &[0.5]), fill);
+    let one = |t| ha_props_si_in(&air, "H", "T", t, "P", 101_325.0, "R", 0.5);
+    let inf = call(FillPolicy::Inf).unwrap();
+    assert_eq!(
+        inf.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+        [one(300.0).unwrap().to_bits(), f64::INFINITY.to_bits(), one(310.0).unwrap().to_bits()]
+    );
+    assert!(call(FillPolicy::Nan).unwrap()[1].is_nan());
+    assert_eq!(call(FillPolicy::Error), Err(one(100.0).unwrap_err()));
+    let none = |fill| ha_props_si_vec_in(&air, "H", ("T", &[100.0, 120.0]), ("P", &[101_325.0]), ("R", &[0.5]), fill);
+    assert_eq!(
+        (none(FillPolicy::Inf), none(FillPolicy::Nan)),
+        (Err(one(100.0).unwrap_err()), Err(one(100.0).unwrap_err()))
+    );
+    let shape = ha_props_si_vec_in(&air, "H", ("T", &t), ("P", &[1e5, 2e5]), ("R", &[0.5]), FillPolicy::Inf);
+    assert_eq!(shape, Err(CompatError::Core(Error::Shape { expected: 3, found: 2 })));
+    let corrected = humid_air(DataSet::Corrected);
+    assert_eq!(
+        ha_props_si("H", "T", 300.0, "P", 1e5, "R", 0.0),
+        ha_props_si_in(&corrected, "H", "T", 300.0, "P", 1e5, "R", 0.0)
+    );
+}
