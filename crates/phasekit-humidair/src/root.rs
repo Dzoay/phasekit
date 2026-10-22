@@ -13,7 +13,7 @@ const EDGE_STEPS: u16 = 64;
 
 /// `range` narrowed, at the end where `exists` fails, to the last point where it holds, by bisection; `None` where it
 /// holds at neither end. At high p the virial equation has no state at low T or high ψ_w: its branch ends there.
-pub(crate) fn narrowed(exists: impl Fn(f64) -> bool, (lo, hi): (f64, f64)) -> Option<(f64, f64)> {
+pub(crate) fn narrowed(mut exists: impl FnMut(f64) -> bool, (lo, hi): (f64, f64)) -> Option<(f64, f64)> {
     let (lo_ok, hi_ok) = (exists(lo), exists(hi));
     if lo_ok == hi_ok {
         return lo_ok.then_some((lo, hi));
@@ -36,6 +36,8 @@ pub(crate) fn bracketed(
     (lo, hi): (f64, f64),
 ) -> Result<Option<f64>, Error> {
     let mut bracket = Bracket { a: (lo, f(lo)?), b: (hi, f(hi)?), side: 0 };
+    // An end's value of zero fails its own `!= 0.0`, so a zero on either side of `> 0.0` reaches the same branch.
+    // equivalent mutant: replace > with >=
     if (bracket.a.1 > 0.0) == (bracket.b.1 > 0.0) && bracket.a.1 != 0.0 && bracket.b.1 != 0.0 {
         return Ok(None);
     }
