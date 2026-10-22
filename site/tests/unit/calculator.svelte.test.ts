@@ -219,6 +219,14 @@ describe("calculator", () => {
     expect(calc.refusalText).toBe("temperature 0 K is not above absolute zero");
     calc.setSystem("engineering");
     expect(calc.refusalText).toBe("temperature −273.15 °C is not above absolute zero");
+    // A refused state has no outputs, so none of them is refused on its own.
+    expect(calc.values.errors.size).toBe(0);
+    stop();
+  });
+
+  test("an answered state has no refusal text", async () => {
+    const { calc, stop } = await setup("fluid=Water&a=T:300&b=P:100000");
+    expect([calc.result?.phase, calc.refusal, calc.refusalText]).toEqual(["liquid", null, ""]);
     stop();
   });
 
