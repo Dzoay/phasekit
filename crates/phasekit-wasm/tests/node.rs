@@ -12,7 +12,9 @@ use phasekit_core::batch::{ExecPolicy, Status};
 use phasekit_core::{DataSet, Pack};
 use phasekit_mix::{EnvelopeOptions, Given, Mixture, Side};
 use phasekit_verify::{Fixture, ToleranceClass};
-use phasekit_wasm::{Registry, binary_pairs, mixture_components, output_keys, pair_keys, planes, predefined_mixtures};
+use phasekit_wasm::{
+    Registry, binary_pairs, humid_air_keys, mixture_components, output_keys, pair_keys, planes, predefined_mixtures,
+};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -57,6 +59,15 @@ export function props1Error(registry, key) {
         return e.message;
     }
 }
+export function humidAir(registry) {
+    const air = registry.humidAir();
+    const h = air.HAPropsSI("H", "T", 300, "P", 101325, "R", 0.5);
+    const state = air.state(101325, "T", 300, "R", 0.5);
+    const same = state.get("H") === h && state.T === 300 && state.P === 101325 && state.W > 0;
+    state.free();
+    air.free();
+    return same ? h : NaN;
+}
 export function errorMessage(registry) {
     try {
         registry.PropsSI("X", "T", 300, "P", 1e5, "Water");
@@ -80,6 +91,8 @@ extern "C" {
     fn props1_error(registry: &JsValue, key: &str) -> String;
     #[wasm_bindgen(js_name = errorMessage)]
     fn error_message(registry: &JsValue) -> String;
+    #[wasm_bindgen(js_name = humidAir)]
+    fn humid_air_js(registry: &JsValue) -> f64;
 }
 
 /// `test_wasm.mjs:8-12`: Water's normal boiling point is in [373.124, 373.125] K; a bad key is a JS `Error`.
@@ -666,6 +679,85 @@ extern "C" {
 fn the_diagram_and_the_regions_are_typed_arrays() {
     let fluid = JsValue::from(Registry::new().unwrap().fluid("Water").unwrap());
     assert!(diagram_types(&fluid));
+}
+
+/// Air's pack, which humid air needs: the package does not embed Air (PLAN.md M18.8).
+fn air_pack() -> Vec<u8> {
+    pack("Air", include_bytes!("../../phasekit-data/blobs/air.bin"))
+}
+
+/// The page's humid air, natively: the embedded fluids with Air's pack, as compat builds it.
+fn native_air() -> phasekit_humidair::HumidAir {
+    let embedded = phasekit_core::Registry::from_embedded(DataSet::Corrected).unwrap();
+    let registry = embedded.with_source(Box::new(Pack::new(air_pack().into()).unwrap()), DataSet::Corrected).unwrap();
+    phasekit_compat::humid_air_in(&registry, DataSet::Corrected).unwrap()
+}
+
+/// PLAN.md M18.8: humid air needs Air's pack (the package's own registry has none, and is refused). With it,
+/// `HAPropsSI` through the JS bindings is compat's over the same fluids bit for bit, and so is every `HAPropsSI` output
+/// of a state, refusals alike.
+#[wasm_bindgen_test]
+fn humid_air_on_air_s_pack_is_compats() {
+    let registry = Registry::new().unwrap();
+    assert!(registry.humid_air().is_err(), "the package embeds no Air");
+    let native = native_air();
+    let want = phasekit_compat::ha_props_si_in(&native, "H", "T", 300.0, "P", 101_325.0, "R", 0.5).unwrap();
+    let page = JsValue::from(registry.with_pack(&air_pack()).unwrap());
+    assert_eq!(humid_air_js(&page).to_bits(), want.to_bits());
+    let air = Registry::new().unwrap().with_pack(&air_pack()).unwrap().humid_air().unwrap();
+    let state = air.state(101_325.0, "T", 300.0, "R", 0.5).unwrap();
+    let native_state = phasekit_compat::ha_state_in(&native, 101_325.0, ("T", 300.0), ("R", 0.5)).unwrap();
+    let keys = humid_air_keys();
+    assert_eq!(keys.len(), 52);
+    for key in &keys {
+        let (via, direct) = (state.get(key).ok(), phasekit_compat::ha_output_at(&native, &native_state, key).ok());
+        assert_eq!(via.map(f64::to_bits), direct.map(f64::to_bits), "{key}");
+    }
+}
+
+/// The authors' Tables 7 and 12 (200 °C, 2 MPa; 320 °C, 2 MPa), read as the package's tests run: compiled in.
+const HUMID_AIR_TABLES: [((&str, &str), f64, f64); 2] = [
+    (
+        (
+            "paper/HumidAir/Herrmann-HVACR-2009.7.csv",
+            include_str!("../../phasekit-verify/fixtures/paper/HumidAir/Herrmann-HVACR-2009.7.csv"),
+        ),
+        473.15,
+        2e6,
+    ),
+    (
+        (
+            "paper/HumidAir/Herrmann-HVACR-2009.12.csv",
+            include_str!("../../phasekit-verify/fixtures/paper/HumidAir/Herrmann-HVACR-2009.12.csv"),
+        ),
+        593.15,
+        2e6,
+    ),
+];
+
+/// M18.4's checks through the exports (PLAN.md M18.8): Tables 7 and 12's t_wb, and Table 7's φ, by `HAPropsSI` within
+/// their printed digits; and each row's state back from its h and W through `state`, T within `Flash`.
+#[wasm_bindgen_test]
+fn m18_4_through_the_exports() {
+    let air = Registry::new().unwrap().with_pack(&air_pack()).unwrap().humid_air().unwrap();
+    let mut checked = 0;
+    for ((path, text), t, p) in HUMID_AIR_TABLES {
+        let table = Fixture::parse(path, text).unwrap();
+        for row in 0..table.rows().len() {
+            let w = table.value(row, "W").unwrap();
+            let twb = air.ha_props_si("Twb", "T", t, "P", p, "W", w).unwrap() - 273.15;
+            assert!(table.check(row, "twb", twb).is_ok(), "{path} row {row}: {twb}");
+            if table.columns().contains(&"phi") {
+                let phi = 100.0 * air.ha_props_si("R", "T", t, "P", p, "W", w).unwrap();
+                assert!(table.check(row, "phi", phi).is_ok(), "{path} row {row}: {phi}");
+            }
+            let h = air.ha_props_si("H", "T", t, "P", p, "W", w).unwrap();
+            let back = air.state(p, "H", h, "W", w).unwrap();
+            assert!((back.t() - t).abs() <= ToleranceClass::Flash.bound(t).unwrap(), "{path} row {row}: {}", back.t());
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 24);
 }
 
 /// PLAN.md M26.2: a pure fluid's surface is phasekit-diagram's, bit for bit, computed here on the same build by its
