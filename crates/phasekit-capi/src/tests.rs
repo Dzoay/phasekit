@@ -259,6 +259,26 @@ fn the_last_error_has_its_code_and_rule() {
     assert_eq!(last_code_and_rule(), (String::new(), String::new()));
 }
 
+/// User decision EM12: each refusal the ABI makes itself has its status's code; its only `PK_INVALID_INPUT` is an
+/// argument.
+#[test]
+fn the_abis_own_refusals_have_their_codes() {
+    let codes = [
+        (PK_INVALID_INPUT, "invalid_argument"),
+        (PK_UNKNOWN_KEY, "unknown_key"),
+        (PK_NULL_POINTER, "null_pointer"),
+        (PK_BAD_LENGTH, "bad_length"),
+        (PK_BAD_UTF8, "bad_utf8"),
+        (PK_STALE_HANDLE, "stale_handle"),
+        (PK_BUFFER_TOO_SMALL, "buffer_too_small"),
+        (PK_PANIC, "panic"),
+        (PK_OTHER, "other"),
+    ];
+    for (status, code) in codes {
+        assert_eq!(abi_code(status), code, "{status}");
+    }
+}
+
 /// Rot: ROT-148 (map 11 F5; CoolProp's process-wide errstring reports or swallows another thread's message). The last
 /// error is per thread: a failure on one thread leaves another's empty, and each reads its own.
 #[cfg(not(target_family = "wasm"))]
