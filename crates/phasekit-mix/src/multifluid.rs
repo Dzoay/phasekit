@@ -16,6 +16,7 @@ use crate::departure;
 use crate::generated::{CAS, DEPARTURES, PAIRS};
 use crate::gerg;
 use crate::mixture::R_CODATA;
+use crate::quantities::{BINARY_PARAMETER, DEPARTURE_WEIGHT};
 use crate::reducing::ReducingFunctions;
 use crate::slot::at;
 
@@ -132,9 +133,9 @@ impl MultiFluid {
             .map(|c| cas(c.fluid.info().name()).ok_or_else(|| unknown(c.fluid.info().name())))
             .collect::<Result<Vec<_>, _>>()?;
         if components.len() < 2 || keys.iter().enumerate().any(|(i, k)| keys.iter().take(i).any(|j| j == k)) {
-            return Err(Error::InvalidInput {
-                quantity: "number of distinct components",
-                value: components.len() as f64,
+            return Err(Error::InvalidArgument {
+                argument: "number of distinct components",
+                value: Some(components.len()),
             });
         }
         let (mut parameters, mut departures) = (Vec::new(), Vec::new());
@@ -164,7 +165,7 @@ impl MultiFluid {
         let resolved = names.iter().map(|name| gerg::component(registry, name)).collect::<Result<Vec<_>, _>>()?;
         let index: Vec<usize> = resolved.iter().map(|(i, _)| *i).collect();
         if index.len() < 2 || index.iter().enumerate().any(|(k, i)| index.iter().take(k).any(|j| j == i)) {
-            return Err(Error::InvalidInput { quantity: "number of distinct components", value: index.len() as f64 });
+            return Err(Error::InvalidArgument { argument: "number of distinct components", value: Some(index.len()) });
         }
         let mut components = Vec::with_capacity(resolved.len());
         for (i, fluid) in &resolved {
@@ -240,7 +241,7 @@ impl MultiFluid {
     /// `order`, at fixed composition. `x` has one fraction per component.
     pub fn residual(&self, x: &[f64], t: f64, rho: f64, order: Order) -> Result<Derivs, Error> {
         if x.len() != self.components.len() {
-            return Err(Error::InvalidInput { quantity: "number of mole fractions", value: x.len() as f64 });
+            return Err(Error::InvalidArgument { argument: "number of mole fractions", value: Some(x.len()) });
         }
         Ok(self.residual_at(x, t, rho, order))
     }
@@ -302,14 +303,14 @@ impl MultiFluid {
         let Binary { beta_t, gamma_t, beta_v, gamma_v, f } = binary;
         let parameters = [beta_t, gamma_t, beta_v, gamma_v];
         if let Some(bad) = parameters.into_iter().find(|p| !(p.is_finite() && *p > 0.0)) {
-            return Err(Error::InvalidInput { quantity: "binary parameter", value: bad });
+            return Err(Error::InvalidInput { quantity: BINARY_PARAMETER, value: bad });
         }
-        let pair = Error::InvalidInput { quantity: "binary pair's component", value: i.max(j) as f64 };
+        let pair = Error::InvalidArgument { argument: "binary pair's component", value: Some(i.max(j)) };
         let reducing = self.reducing.with_parameters(i, j, parameters).ok_or(pair)?;
         let (a, b) = (i.min(j), i.max(j));
         let has_departure = self.departures.iter().any(|d| (d.i, d.j) == (a, b));
         if !f.is_finite() || (f != 0.0 && !has_departure) {
-            return Err(Error::InvalidInput { quantity: "departure function's F", value: f });
+            return Err(Error::InvalidInput { quantity: DEPARTURE_WEIGHT, value: f });
         }
         let departures = self
             .departures

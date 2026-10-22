@@ -21,6 +21,7 @@ mod humid_air;
 mod humidity;
 mod ideal;
 mod moist_air;
+pub mod quantities;
 mod root;
 mod saturation;
 mod transport;

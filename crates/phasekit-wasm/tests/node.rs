@@ -454,7 +454,11 @@ fn a_mixture_has_its_components_composition_and_envelope() {
     assert!(water.envelope().is_err());
     let bound = Registry::new().unwrap().fluid("CarbonDioxide[0.5]&Nitrogen[0.5]").unwrap().envelope().unwrap();
     assert!(bound.t().len() > 10 && bound.critical_t().is_some() && bound.end() == "bound", "{}", bound.t().len());
-    assert!(bound.reason().contains("BelowMinTemperature"), "{}", bound.reason());
+    assert!(
+        bound.reason().starts_with("temperature") && bound.reason().contains("below the minimum"),
+        "{}",
+        bound.reason()
+    );
 }
 
 /// PLAN.md M21.5: a mixture's two-phase state has each phase's mole fractions, phasekit-mix's `Mixture::phases` bit for

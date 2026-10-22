@@ -239,7 +239,8 @@ function fakePk() {
     }
     // A mixture's two-phase state has phases, its one-phase state none; the "Unsolved" mixture's refuses them.
     phases(): Phases | undefined {
-      if (this.#mixed === "Unsolved") throw new Error("Vle did not converge in 60 iterations");
+      if (this.#mixed === "Unsolved")
+        throw new Error("the vapour-liquid equilibrium solve (Vle) did not converge in 60 iterations");
       return this.#mixed === "Split" ? new Phases() : undefined;
     }
     free(): void {
@@ -657,7 +658,7 @@ describe("the engine's mixtures (PLAN.md M21.5)", () => {
           feed: [0.5, 0.5],
           liquid: null,
           vapour: null,
-          error: "Vle did not converge in 60 iterations",
+          error: "the vapour-liquid equilibrium solve (Vle) did not converge in 60 iterations",
         },
       },
     });

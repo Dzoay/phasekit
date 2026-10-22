@@ -1,4 +1,4 @@
-use phasekit_core::{Basis, DomainError, Error, FlashOptions, Input, Pair, Phase, RootPolicy};
+use phasekit_core::{Basis, DomainError, Error, FlashOptions, Input, Pair, Phase, Quantity, RootPolicy};
 
 use super::*;
 
@@ -27,8 +27,8 @@ fn region_1_takes_its_box_and_refuses_beyond() {
     assert_eq!(region1(273.0, 1e5).unwrap_err(), below.into());
     assert_eq!(region1(623.2, 30e6).unwrap_err(), above.into());
     assert_eq!(region1(300.0, 100.1e6).unwrap_err(), over.into());
-    assert_eq!(region1(300.0, 0.0).unwrap_err(), Error::InvalidInput { quantity: "p", value: 0.0 });
-    assert!(matches!(region1(f64::NAN, 1e5), Err(Error::InvalidInput { quantity: "T", .. })));
+    assert_eq!(region1(300.0, 0.0).unwrap_err(), Error::InvalidInput { quantity: Quantity::PRESSURE, value: 0.0 });
+    assert!(matches!(region1(f64::NAN, 1e5), Err(Error::InvalidInput { quantity: Quantity::TEMPERATURE, .. })));
     assert_eq!(region1(300.0, P_C).unwrap().phase(), Phase::Liquid);
     assert_eq!(region1(300.0, 22.1e6).unwrap().phase(), Phase::SupercriticalLiquid);
     assert_eq!(region1(300.0, 3e6).unwrap().key(), KEY);
@@ -78,7 +78,7 @@ fn the_saturation_equations_invert_each_other() {
     let high = DomainError::AboveMaxPressure { p: 22.1e6, p_max: P_C };
     assert_eq!(saturation_temperature(611.0).unwrap_err(), low.into());
     assert_eq!(saturation_temperature(22.1e6).unwrap_err(), high.into());
-    assert!(matches!(saturation_temperature(-1.0), Err(Error::InvalidInput { quantity: "p", .. })));
+    assert!(matches!(saturation_temperature(-1.0), Err(Error::InvalidInput { quantity: Quantity::PRESSURE, .. })));
 }
 
 /// IF97 water as a `Fluid`: on the line PT takes the side nearer `Nearest`'s density, the liquid on a tie and under

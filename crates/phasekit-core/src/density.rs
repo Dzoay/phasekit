@@ -21,8 +21,10 @@ use crate::flash::RootPolicy;
 use crate::flash::search::choose;
 use crate::helmholtz::HelmholtzModel;
 use crate::num::math;
+use crate::quantity::Quantity;
 use crate::roots::newton_converged;
 use crate::state::Strategy;
+use crate::units::Basis;
 
 /// Newton iterations allowed.
 const MAX_ITER: u16 = 50;
@@ -227,6 +229,9 @@ pub fn solve(eos: &dyn HelmholtzModel, t: f64, p: f64, branch: Branch, seed: Opt
 /// dome): each is converged to [`STEP_TOL`].
 const SAME_ROOT: f64 = 1e-12;
 
+/// What a density root is.
+const DENSITY: &Quantity = Quantity::density(Basis::Molar);
+
 /// Every distinct root [`solve`] reaches from the two branches' far ends at (T, p), ascending: two where a vapour and a
 /// liquid (each stable or metastable) coexist on the isotherm, one elsewhere, none where neither converges. Never a root
 /// on the unstable branch between them (ROT-181).
@@ -236,9 +241,11 @@ pub fn roots(eos: &dyn HelmholtzModel, t: f64, p: f64) -> Roots {
         // Equivalent (M13.1): `>=` differs only at two roots exactly SAME_ROOT apart in ln ρ, between two converged
         // Newton solves, which no state reaches.
         // equivalent mutant: replace > with >=
-        (Some(v), Some(l)) if (math::ln(l) - math::ln(v)).abs() > SAME_ROOT => Roots::new(&[v.min(l), v.max(l)]),
-        (Some(one), _) | (None, Some(one)) => Roots::new(&[one]),
-        (None, None) => Roots::new(&[]),
+        (Some(v), Some(l)) if (math::ln(l) - math::ln(v)).abs() > SAME_ROOT => {
+            Roots::new(DENSITY, &[v.min(l), v.max(l)])
+        }
+        (Some(one), _) | (None, Some(one)) => Roots::new(DENSITY, &[one]),
+        (None, None) => Roots::new(DENSITY, &[]),
     }
 }
 
@@ -255,7 +262,7 @@ pub fn select(eos: &dyn HelmholtzModel, t: f64, p: f64, policy: RootPolicy) -> R
             };
             several.iter().copied().min_by(|a, b| gibbs(a).total_cmp(&gibbs(b)))
         }
-        (all, policy) => choose(all, |rho| *rho, policy)?,
+        (all, policy) => choose(all, |rho| *rho, DENSITY, policy)?,
     };
     chosen.ok_or(failed(0))
 }

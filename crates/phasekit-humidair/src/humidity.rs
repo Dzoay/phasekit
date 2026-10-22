@@ -2,10 +2,11 @@
 //! RP-1485 relates them (v8.0.0's `MoleFractionWater` and `RelativeHumidity`, map 07 §3.3): W = εψ/(1 − ψ),
 //! ε = M_w/M_a; φ = ψ p/(f p_ws); at the dew or frost point T_dp, ψ = f(T_dp, p) p_ws(T_dp)/p.
 
-use phasekit_core::{DataSet, DomainError, Error};
+use phasekit_core::{DataSet, DomainError, Error, Quantity};
 
 use crate::HumidAir;
 use crate::constants::{M_AIR, M_WATER};
+use crate::quantities::{HUMIDITY_RATIO, RELATIVE_HUMIDITY, WATER_MOLE_FRACTION};
 
 /// A moist-air state's humidity.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -36,7 +37,7 @@ pub(crate) fn ratio(data: DataSet, psi: f64) -> f64 {
 }
 
 /// `value` within [0, `max`], else the refusal naming `quantity`.
-fn checked(quantity: &'static str, value: f64, max: f64) -> Result<f64, Error> {
+fn checked(quantity: &'static Quantity, value: f64, max: f64) -> Result<f64, Error> {
     if (0.0..=max).contains(&value) { Ok(value) } else { Err(Error::InvalidInput { quantity, value }) }
 }
 
@@ -44,9 +45,9 @@ impl HumidAir {
     /// ψ_w at `t` (K) and `p` (Pa) for `humidity`: W ≥ 0, 0 ≤ ψ_w < 1, 0 ≤ φ ≤ 1, a dew point no warmer than T.
     pub fn mole_fraction(&self, t: f64, p: f64, humidity: Humidity) -> Result<f64, Error> {
         match humidity {
-            Humidity::Ratio(w) => Ok(checked("humidity ratio", w, f64::INFINITY)? / (epsilon(self.data_set()) + w)),
-            Humidity::MoleFraction(psi) => checked("mole fraction of water", psi, 1.0 - f64::EPSILON),
-            Humidity::Relative(phi) => Ok(checked("relative humidity", phi, 1.0)? * self.saturation(t, p)?.psi_ws),
+            Humidity::Ratio(w) => Ok(checked(HUMIDITY_RATIO, w, f64::INFINITY)? / (epsilon(self.data_set()) + w)),
+            Humidity::MoleFraction(psi) => checked(WATER_MOLE_FRACTION, psi, 1.0 - f64::EPSILON),
+            Humidity::Relative(phi) => Ok(checked(RELATIVE_HUMIDITY, phi, 1.0)? * self.saturation(t, p)?.psi_ws),
             Humidity::DewPoint(t_dp) => {
                 if t_dp > t {
                     return Err(DomainError::AboveMaxTemperature { t: t_dp, t_max: t }.into());

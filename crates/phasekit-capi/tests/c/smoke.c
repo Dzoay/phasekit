@@ -78,7 +78,7 @@ int main(void) {
         CHECK(pk_ha_props_si(air, "H", 1, "T", 1, 300.0, "P", 1, 1e5, "R", 1, 0.0, &h) == PK_OK);
         CHECK(fabs(h / 27013.112479771713 - 1.0) < 1e-9);
         CHECK(pk_ha_props_si(air, "H", 1, "T", 1, 300.0, "P", 1, 1e5, "R", 1, 1.5, &h) == PK_INVALID_INPUT);
-        CHECK(pk_last_error(message, sizeof message) > 1 && strcmp(message, "invalid relative humidity: 1.5") == 0);
+        CHECK(pk_last_error(message, sizeof message) > 1 && strcmp(message, "relative humidity 1.5 is outside [0, 1]") == 0);
         CHECK(pk_humid_air_free(air) == PK_OK && pk_humid_air_free(air) == PK_STALE_HANDLE);
         CHECK(pk_ha_props_si(air, "H", 1, "T", 1, 300.0, "P", 1, 1e5, "R", 1, 0.0, &h) == PK_STALE_HANDLE);
         CHECK(pk_registry_free(parity) == PK_OK);

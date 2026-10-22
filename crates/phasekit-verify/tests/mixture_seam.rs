@@ -10,9 +10,9 @@ use phasekit_compat::{batch_si, props_si_in};
 use phasekit_core::batch::{self, BatchRequest, Status};
 use phasekit_core::density::{self, Branch};
 use phasekit_core::{
-    Basis, Bundle, Capabilities, DataTerms, Derivs, Error, FlashOptions, Fluid, FluidInfo, HelmholtzModel, Input,
-    ModelKey, NativeInput, Order, Pair, Phase, Prop, Quality, Registry, Resolver, RootPolicy, Source, State,
-    Temperature, ThermoModel, math,
+    Basis, Bundle, Capabilities, DataTerms, Derivs, Dimension, Error, FlashOptions, Fluid, FluidInfo, HelmholtzModel,
+    Input, ModelKey, NativeInput, Order, Pair, Phase, Prop, Quality, Quantity, Registry, Resolver, RootPolicy, Source,
+    State, Temperature, ThermoModel, math,
 };
 
 const R: f64 = 8.314_462_618;
@@ -138,6 +138,9 @@ fn a_mass_quality_reaches_the_family_from_rust_compat_and_batch() {
     assert_eq!((out, status), ([q], [Status::Ok]));
 }
 
+/// What `ToyResolver` refuses: a composition whose fractions do not sum to 1.
+const MOLE_FRACTION_SUM: &Quantity = &Quantity::new("mole fractions' sum", "Σx", Dimension::Dimensionless);
+
 /// Reads `ToyA[z]&ToyB[w]`: a `ToyMix` at A's fraction z, refused unless z + w = 1.
 #[derive(Debug)]
 struct ToyResolver;
@@ -146,7 +149,7 @@ impl Resolver for ToyResolver {
     fn resolve(&self, name: &str, _registry: &Registry) -> Option<Result<Arc<dyn ThermoModel>, Error>> {
         let (z, w) = name.strip_prefix("ToyA[")?.strip_suffix(']')?.split_once("]&ToyB[")?;
         let (z, w) = (z.parse::<f64>().ok()?, w.parse::<f64>().ok()?);
-        let refused = Error::InvalidInput { quantity: "mole fractions' sum", value: z + w };
+        let refused = Error::InvalidInput { quantity: MOLE_FRACTION_SUM, value: z + w };
         Some(if z + w == 1.0 { Ok(Arc::new(ToyMix::new(name, z)) as Arc<dyn ThermoModel>) } else { Err(refused) })
     }
 }
@@ -160,7 +163,7 @@ fn a_composed_name_resolves_to_the_family_s_model() {
     let state = mix.unwrap().flash(qt(0.4, 300.0), &FlashOptions::new());
     let direct = ToyMix::new("direct", 0.5).split(300.0, 0.4).map(|s| s.h(Basis::Mass));
     assert_eq!(state.map(|s| s.h(Basis::Mass)), direct);
-    let refused = Error::InvalidInput { quantity: "mole fractions' sum", value: 0.5 + 0.6 };
+    let refused = Error::InvalidInput { quantity: MOLE_FRACTION_SUM, value: 0.5 + 0.6 };
     assert_eq!(reg.resolve("ToyA[0.5]&ToyB[0.6]").err(), Some(refused));
     assert!(reg.resolve("Water").is_ok() && reg.get("ToyA[0.5]&ToyB[0.5]").is_err());
 }

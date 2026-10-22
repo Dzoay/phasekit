@@ -46,7 +46,7 @@ pub enum Status {
 impl From<&Error> for Status {
     fn from(e: &Error) -> Self {
         match e {
-            Error::InvalidInput { .. } => Status::InvalidInput,
+            Error::InvalidInput { .. } | Error::InvalidArgument { .. } => Status::InvalidInput,
             Error::Unsupported { .. } => Status::Unsupported,
             Error::Domain(_) => Status::Domain,
             Error::NoConvergence { .. } => Status::NoConvergence,
