@@ -3,7 +3,7 @@
 //! saturation dome and isolines, as polylines whose every vertex is a state the library computed, carrying the inputs
 //! it was computed at; a mixture's traced envelope on p–T and T–ρ; and the phase regions, polygons whose corners carry
 //! every plane's axes; and a fluid's thermodynamic surface, a triangle mesh whose vertices carry p, v and T and Gibbs's
-//! u, s and v (M26). A line's label is its held quantity and value, a region's its phase. It draws nothing: where a
+//! u, s and v (M26); and its characteristic curves and compressibility chart. A line's label is its held quantity and value, a region's its phase. It draws nothing: where a
 //! label goes, the colours and the shown units are the host's.
 //!
 //! It depends on phasekit-core's public API alone (`cargo xtask gates deps`). Its arbiter is the library: a vertex is
@@ -14,6 +14,8 @@
 #![cfg_attr(not(test), deny(clippy::indexing_slicing, clippy::arithmetic_side_effects))]
 
 mod batch;
+mod contour;
+mod curves;
 mod diagram;
 mod envelope;
 mod lines;
@@ -24,6 +26,7 @@ mod regions;
 mod surface;
 
 pub use batch::{Batch, FluidBatch, Inputs, Row, Vertex};
+pub use curves::{Characteristic, Curve, CurveVertex, Curves, Isotherm, curves, sample_curves};
 pub use diagram::{Diagram, Dome, diagram, sample};
 pub use envelope::{Trace, envelope};
 pub use lines::{Line, Segment};

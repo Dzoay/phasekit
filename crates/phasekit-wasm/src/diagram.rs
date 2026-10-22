@@ -29,6 +29,12 @@ fn key(quantity: Quantity) -> &'static str {
         Quantity::Dmass => "Dmass",
         Quantity::Q => "Q",
         Quantity::Umass => "Umass",
+        Quantity::Z => "Z",
+        Quantity::Bvirial => "Bvirial",
+        Quantity::DBvirialDT => "dBvirial_dT",
+        Quantity::DpDrhoAtT => "d(P)/d(Dmass)|T",
+        Quantity::DpDTAtRho => "d(P)/d(T)|Dmass",
+        Quantity::JouleThomson => "d(T)/d(P)|Hmass",
     }
 }
 

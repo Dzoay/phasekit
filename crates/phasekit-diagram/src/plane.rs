@@ -2,9 +2,9 @@
 //! the isoline families each draws. At most three families beside quality's, the most a colour-blind-safe palette
 //! keeps apart when every pair can sit side by side; no family holds a quantity its plane plots.
 
-use phasekit_core::{Prop, Var};
+use phasekit_core::{DerivVar, Partial, Prop, Var};
 
-/// A quantity a plane plots, or a line holds, per unit mass where it has a basis.
+/// A quantity a plane plots, or a line holds, or a curve's condition reads, per unit mass where it has a basis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Quantity {
     /// Temperature, K.
@@ -21,6 +21,23 @@ pub enum Quantity {
     Q,
     /// Specific internal energy, J/kg: a surface's (PLAN.md M26.1), which no plane plots.
     Umass,
+    /// The compressibility factor Z = p/(ρRT): the compressibility chart's and the ideal curve's (M26.3).
+    Z,
+    /// The second virial coefficient B, m³/mol: where the ideal and Boyle curves meet zero density (M26.3).
+    Bvirial,
+    /// dB/dT, m³/(mol·K): where the Joule–Thomson and Joule inversion curves meet zero density.
+    DBvirialDT,
+    /// (∂p/∂ρ)_T, Pa·m³/kg: the Boyle curve's.
+    DpDrhoAtT,
+    /// (∂p/∂T)_ρ, Pa/K: the Joule inversion curve's.
+    DpDTAtRho,
+    /// The Joule–Thomson coefficient (∂T/∂p)_h, K/Pa: its inversion curve's.
+    JouleThomson,
+}
+
+/// (∂of/∂wrt)_at.
+const fn partial(of: DerivVar, wrt: DerivVar, at: DerivVar) -> Prop {
+    Prop::Partial(Partial { of, wrt, at })
 }
 
 impl Quantity {
@@ -34,12 +51,18 @@ impl Quantity {
             Quantity::Dmass => Prop::Dmass,
             Quantity::Q => Prop::Q,
             Quantity::Umass => Prop::Umass,
+            Quantity::Z => Prop::Z,
+            Quantity::Bvirial => Prop::Bvirial,
+            Quantity::DBvirialDT => Prop::DBvirialDT,
+            Quantity::DpDrhoAtT => partial(DerivVar::P, DerivVar::Dmass, DerivVar::T),
+            Quantity::DpDTAtRho => partial(DerivVar::P, DerivVar::T, DerivVar::Dmass),
+            Quantity::JouleThomson => partial(DerivVar::T, DerivVar::P, DerivVar::Hmass),
         }
     }
 
-    /// The input variable it is, its basis the batch's (mass).
-    pub const fn var(self) -> Var {
-        match self {
+    /// The input variable it is, its basis the batch's (mass); `None` for an output that is no input.
+    pub const fn var(self) -> Option<Var> {
+        Some(match self {
             Quantity::T => Var::T,
             Quantity::P => Var::P,
             Quantity::Hmass => Var::H,
@@ -47,7 +70,13 @@ impl Quantity {
             Quantity::Dmass => Var::D,
             Quantity::Q => Var::Q,
             Quantity::Umass => Var::U,
-        }
+            Quantity::Z
+            | Quantity::Bvirial
+            | Quantity::DBvirialDT
+            | Quantity::DpDrhoAtT
+            | Quantity::DpDTAtRho
+            | Quantity::JouleThomson => return None,
+        })
     }
 }
 
@@ -206,7 +235,19 @@ mod tests {
         let props = [Prop::T, Prop::P, Prop::Hmass, Prop::Smass, Prop::Dmass, Prop::Q, Prop::Umass];
         let vars = [Var::T, Var::P, Var::H, Var::S, Var::D, Var::Q, Var::U];
         for ((q, prop), var) in all.into_iter().zip(props).zip(vars) {
-            assert_eq!((q.prop(), q.var()), (prop, var));
+            assert_eq!((q.prop(), q.var()), (prop, Some(var)));
+        }
+        let partial = |of, wrt, at| Prop::Partial(Partial { of, wrt, at });
+        let outputs = [
+            (Quantity::Z, Prop::Z),
+            (Quantity::Bvirial, Prop::Bvirial),
+            (Quantity::DBvirialDT, Prop::DBvirialDT),
+            (Quantity::DpDrhoAtT, partial(DerivVar::P, DerivVar::Dmass, DerivVar::T)),
+            (Quantity::DpDTAtRho, partial(DerivVar::P, DerivVar::T, DerivVar::Dmass)),
+            (Quantity::JouleThomson, partial(DerivVar::T, DerivVar::P, DerivVar::Hmass)),
+        ];
+        for (q, prop) in outputs {
+            assert_eq!((q.prop(), q.var()), (prop, None));
         }
     }
 }

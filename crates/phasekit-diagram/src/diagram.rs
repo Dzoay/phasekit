@@ -90,8 +90,8 @@ fn vertices(rows: &[Row]) -> Vec<Vertex> {
 }
 
 /// The span of each quantity an axis can plot: of T and p the plotted range, of Q [0, 1], and of h, s and ρ the least
-/// and greatest values the dome and the range's corners gave, cells 2, 3 and 4 of their rows; of u, which no plane
-/// plots, none.
+/// and greatest values the dome and the range's corners gave, cells 2, 3 and 4 of their rows; of u and the curves'
+/// outputs, which no plane plots, none.
 struct Spans {
     ranges: Ranges,
     h: (f64, f64),
@@ -118,7 +118,13 @@ impl Spans {
             Quantity::Hmass => self.h,
             Quantity::Smass => self.s,
             Quantity::Dmass => self.d,
-            Quantity::Umass => (f64::INFINITY, f64::NEG_INFINITY),
+            Quantity::Umass
+            | Quantity::Z
+            | Quantity::Bvirial
+            | Quantity::DBvirialDT
+            | Quantity::DpDrhoAtT
+            | Quantity::DpDTAtRho
+            | Quantity::JouleThomson => (f64::INFINITY, f64::NEG_INFINITY),
         }
     }
 }

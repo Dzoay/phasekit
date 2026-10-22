@@ -76,8 +76,8 @@ fn widest(limits: &Limits, sweep: Quantity, on_dome: bool) -> f64 {
 fn swept(f: &Fluid, sweep: Quantity, v: &Vertex) -> Result<f64, Error> {
     let i = v.inputs;
     match i.pair.vars() {
-        (a, _) if a == sweep.var() => Ok(i.x),
-        (_, b) if b == sweep.var() => Ok(i.y),
+        (a, _) if Some(a) == sweep.var() => Ok(i.x),
+        (_, b) if Some(b) == sweep.var() => Ok(i.y),
         _ => f.prop(&f.state(i.input()?)?, sweep.prop()),
     }
 }
@@ -85,7 +85,7 @@ fn swept(f: &Fluid, sweep: Quantity, v: &Vertex) -> Result<f64, Error> {
 /// The plane's x and y at the state where the line holding `held` takes the sweep value `at`, by one flash.
 fn plotted_at(f: &Fluid, plane: Plane, held: (Quantity, f64), sweep: (Quantity, f64)) -> Result<(f64, f64), Error> {
     let unpaired = Error::InvalidInput { quantity: "input pair", value: f64::NAN };
-    let (pair, swapped) = Pair::from_vars(held.0.var(), sweep.0.var()).ok_or(unpaired)?;
+    let (pair, swapped) = held.0.var().zip(sweep.0.var()).and_then(|(x, y)| Pair::from_vars(x, y)).ok_or(unpaired)?;
     let (x, y) = if swapped { (sweep.1, held.1) } else { (held.1, sweep.1) };
     let state = f.state(Input::new(pair, x, y, Basis::Mass)?)?;
     Ok((f.prop(&state, plane.x().quantity.prop())?, f.prop(&state, plane.y().quantity.prop())?))
