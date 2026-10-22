@@ -260,6 +260,8 @@ fn decimal(f: &mut fmt::Formatter<'_>, digits: &str, exponent: i32) -> fmt::Resu
 fn scientific(f: &mut fmt::Formatter<'_>, digits: &str, exponent: i32) -> fmt::Result {
     let (first, rest) = digits.split_at(1.min(digits.len()));
     let point = if rest.is_empty() { "" } else { "." };
+    // `scientific` writes only numbers outside [1e-4, 1e6), so its exponent is never 0.
+    // equivalent mutant: replace < with <=
     let sign = if exponent < 0 { "−" } else { "" };
     write!(f, "{first}{point}{rest}e{sign}{}", exponent.unsigned_abs())
 }

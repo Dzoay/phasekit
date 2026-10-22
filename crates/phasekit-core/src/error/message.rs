@@ -3,9 +3,9 @@
 
 use core::fmt;
 
-use super::{DomainError, Error, Roots, words};
+use super::{DomainError, Error, Roots, Rule, words};
 use crate::prop::{Partial, Prop};
-use crate::quantity::{Dimension, InUnit, Quantity, Style, Units};
+use crate::quantity::{InUnit, Quantity, Style, Units};
 use crate::state::Phase;
 
 /// An error written in a caller's units and style ([`Error::display`]).
@@ -67,35 +67,6 @@ struct Out<'a, 'b> {
     short: bool,
 }
 
-/// Which rule an invalid value breaks; the first that it does, so a message never claims a rule the value keeps.
-enum Breach {
-    NotANumber,
-    Infinite,
-    AbsoluteZero,
-    NotPositive,
-    OutsideUnitInterval,
-    OutOfRange,
-}
-
-impl Breach {
-    fn of(quantity: &Quantity, value: f64) -> Self {
-        let dimension = quantity.dimension();
-        if value.is_nan() {
-            Breach::NotANumber
-        } else if value.is_infinite() {
-            Breach::Infinite
-        } else if dimension == Dimension::Temperature && value <= 0.0 {
-            Breach::AbsoluteZero
-        } else if dimension.is_positive() && value <= 0.0 {
-            Breach::NotPositive
-        } else if dimension == Dimension::Fraction && !(0.0..=1.0).contains(&value) {
-            Breach::OutsideUnitInterval
-        } else {
-            Breach::OutOfRange
-        }
-    }
-}
-
 /// A limit a value is beyond: `temperature 200 K is below the minimum, 273.16 K`, `T = 200 K < T_min = 273.16 K`.
 struct Bound {
     quantity: &'static Quantity,
@@ -120,26 +91,26 @@ impl<'a> Out<'a, '_> {
     }
 
     fn invalid_input(&mut self, quantity: &Quantity, value: f64) -> fmt::Result {
-        let breach = Breach::of(quantity, value);
+        let rule = Rule::of(quantity, value);
         let (v, zero, one) = (self.value(quantity, value), self.value(quantity, 0.0), self.value(quantity, 1.0));
         if self.short {
             let symbol = quantity.symbol();
-            match breach {
-                Breach::NotANumber => write!(self.f, "{symbol} = NaN"),
-                Breach::Infinite => write!(self.f, "{symbol} = {v}"),
-                Breach::AbsoluteZero | Breach::NotPositive => write!(self.f, "{symbol} = {v} ≤ {zero}"),
-                Breach::OutsideUnitInterval => write!(self.f, "{symbol} = {v} ∉ [{zero}, {one}]"),
-                Breach::OutOfRange => write!(self.f, "{symbol} = {v}: out of range"),
+            match rule {
+                Rule::NotANumber => write!(self.f, "{symbol} = NaN"),
+                Rule::NotFinite => write!(self.f, "{symbol} = {v}"),
+                Rule::NotAboveAbsoluteZero | Rule::NotPositive => write!(self.f, "{symbol} = {v} ≤ {zero}"),
+                Rule::OutsideUnitInterval => write!(self.f, "{symbol} = {v} ∉ [{zero}, {one}]"),
+                Rule::OutOfRange => write!(self.f, "{symbol} = {v}: out of range"),
             }
         } else {
             let name = quantity.name();
-            match breach {
-                Breach::NotANumber => write!(self.f, "{name} is not a number"),
-                Breach::Infinite => write!(self.f, "{name} {v} is not finite"),
-                Breach::AbsoluteZero => write!(self.f, "{name} {v} is not above absolute zero"),
-                Breach::NotPositive => write!(self.f, "{name} {v} is not positive"),
-                Breach::OutsideUnitInterval => write!(self.f, "{name} {v} is outside [{zero}, {one}]"),
-                Breach::OutOfRange => write!(self.f, "{name} {v} is out of range"),
+            match rule {
+                Rule::NotANumber => write!(self.f, "{name} is not a number"),
+                Rule::NotFinite => write!(self.f, "{name} {v} is not finite"),
+                Rule::NotAboveAbsoluteZero => write!(self.f, "{name} {v} is not above absolute zero"),
+                Rule::NotPositive => write!(self.f, "{name} {v} is not positive"),
+                Rule::OutsideUnitInterval => write!(self.f, "{name} {v} is outside [{zero}, {one}]"),
+                Rule::OutOfRange => write!(self.f, "{name} {v} is out of range"),
             }
         }
     }
