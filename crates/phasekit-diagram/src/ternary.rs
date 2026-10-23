@@ -434,6 +434,18 @@ mod tests {
         assert!(d.region.len() < whole.region.len() && !d.region.is_empty());
     }
 
+    /// One crossing whose midpoint fails, on the edge along z₁ = 1/2 across z₀ = LO, splits that line in two there,
+    /// and leaves out the pieces of the two triangles that share the edge; the line at HI stays whole.
+    #[test]
+    fn a_single_missing_crossing_splits_its_line() {
+        let one = |z: [f64; 3]| (z[0] * 24.0).fract() != 0.0 && z[1] == 0.5;
+        let d = ternary(&Band::new(one)).unwrap();
+        let whole = ternary(&Band::new(never)).unwrap();
+        assert_eq!((d.binodal.len(), whole.binodal.len()), (3, 2));
+        assert!(d.binodal.iter().all(|line| line.len() >= 2));
+        assert_eq!(d.region.len() + 2, whole.region.len());
+    }
+
     /// One phase everywhere: no binodal, tie line or region. Two everywhere: every triangle whole, every third feed
     /// a tie line's, no binodal.
     #[test]
