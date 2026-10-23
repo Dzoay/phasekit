@@ -513,13 +513,14 @@ fn assert_shapes_are_refused(name: &str, eos: &dyn HelmholtzModel, (t, rho): (&[
     let parallel = ExecPolicy::Parallel { chunk: NonZeroUsize::new(16).unwrap() };
     let (mut short, mut out) = (vec![Derivs::zero(Order::Two); t.len() - 1], vec![Derivs::zero(Order::Two); t.len()]);
     let (n, m) = (t.len(), t.len() - 1);
-    for (shape, (expected, found)) in [
-        (eos.residual_batch(t, rho, Order::Two, &mut short, ExecPolicy::Reference), (n, m)),
-        (eos.residual_batch(t, &rho[1..], Order::Two, &mut out, ExecPolicy::Simd), (n, m)),
-        (eos.ideal_batch(t, rho, Order::Two, &mut short, ExecPolicy::Simd), (n, m)),
-        (eos.ideal_batch(&t[1..], rho, Order::Two, &mut out, parallel), (m, n)),
+    let (input, output) = ("second input", "output");
+    for (shape, (buffer, expected, found)) in [
+        (eos.residual_batch(t, rho, Order::Two, &mut short, ExecPolicy::Reference), (output, n, m)),
+        (eos.residual_batch(t, &rho[1..], Order::Two, &mut out, ExecPolicy::Simd), (input, n, m)),
+        (eos.ideal_batch(t, rho, Order::Two, &mut short, ExecPolicy::Simd), (output, n, m)),
+        (eos.ideal_batch(&t[1..], rho, Order::Two, &mut out, parallel), (input, m, n)),
     ] {
-        assert_eq!(shape, Err(Error::Shape { expected, found }), "{name}");
+        assert_eq!(shape, Err(Error::Shape { buffer, expected, found }), "{name}");
     }
     assert!(eos.residual_batch(&[], &[], Order::Two, &mut [], parallel).is_ok(), "{name}: empty batch");
     assert!(eos.ideal_batch(&[], &[], Order::Two, &mut [], ExecPolicy::Simd).is_ok(), "{name}: empty α⁰ batch");
@@ -708,10 +709,13 @@ fn assert_kernel_shapes_are_refused(columns: &[Vec<f64>]) {
     for exec in [ExecPolicy::Reference, parallel, ExecPolicy::Simd] {
         let mut out = vec![0.0; 65];
         let short_input = batch::run_kernel(&EveryMethod, &[&columns[0], &columns[1][1..]], &mut [&mut out], exec);
-        assert!(matches!(short_input, Err(Error::Shape { expected: 65, found: 64 })), "{exec:?}: {short_input:?}");
+        assert!(matches!(short_input, Err(Error::Shape { expected: 65, found: 64, .. })), "{exec:?}: {short_input:?}");
         let mut short = vec![0.0; 64];
         let short_output = batch::run_kernel(&EveryMethod, &[&columns[0]], &mut [&mut out, &mut short], exec);
-        assert!(matches!(short_output, Err(Error::Shape { expected: 65, found: 64 })), "{exec:?}: {short_output:?}");
+        assert!(
+            matches!(short_output, Err(Error::Shape { expected: 65, found: 64, .. })),
+            "{exec:?}: {short_output:?}"
+        );
         let empty = batch::run_kernel(&EveryMethod, &[&[]], &mut [&mut []], exec);
         assert!(empty.is_ok(), "{exec:?}: empty batch {empty:?}");
     }
@@ -813,7 +817,7 @@ fn the_errors_slice_has_one_slot_a_point() {
         let (mut out, mut status) = (vec![0.0; 14], vec![Status::Ok; 14]);
         let mut errors = vec![None; slots];
         let refused = batch::evaluate_detailed(water, &req, &mut out, &mut status, &mut errors);
-        assert_eq!(refused, Err(Error::Shape { expected: 7, found: slots }));
+        assert_eq!(refused, Err(Error::Shape { buffer: "errors", expected: 7, found: slots }));
         assert!(errors.iter().all(Option::is_none) && out.iter().all(|v| *v == 0.0));
     }
 }

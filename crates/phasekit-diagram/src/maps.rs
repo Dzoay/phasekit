@@ -117,7 +117,7 @@ fn inputs(plane: Plane, x: (f64, f64), y: (f64, f64)) -> Result<(Vec<f64>, Vec<f
 
 /// The input pair of the plane's quantities, and whether its order is theirs swapped.
 fn pair(plane: Plane) -> Result<(Pair, bool), Error> {
-    let unpaired = Error::InvalidArgument { argument: "input pair", value: None };
+    let unpaired = Error::InvalidArgument { argument: crate::batch::INPUT_PAIR, value: None };
     let vars = plane.x().quantity.var().zip(plane.y().quantity.var());
     vars.and_then(|(x, y)| Pair::from_vars(x, y)).ok_or(unpaired)
 }

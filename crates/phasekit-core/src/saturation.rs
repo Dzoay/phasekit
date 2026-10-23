@@ -364,7 +364,7 @@ impl SuperancillaryCurve {
         let mut lanes = roots.into_iter().zip(sat).zip(p.0);
         core::array::from_fn(|_| match lanes.next() {
             Some(((t, sat), p)) => t.and(sat).map(|sat| sat.at_pressure(p)),
-            None => Err(Error::Shape { expected: W, found: 0 }),
+            None => Err(Error::Shape { buffer: "lane", expected: W, found: 0 }),
         })
     }
 }
@@ -762,7 +762,7 @@ mod tests {
                 assert_eq!(bits(got), bits(&point(*x)), "{what} {how} at {x}");
             }
         };
-        let unset = || vec![Err(Error::Shape { expected: 0, found: 0 }); x.len()];
+        let unset = || vec![Err(Error::Shape { buffer: "lane", expected: 0, found: 0 }); x.len()];
         let mut out = unset();
         crate::exec::run_lanes::<_, 2>(kernel, x, x, &mut out);
         check(&out, "2 lanes");

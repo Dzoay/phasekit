@@ -3,7 +3,7 @@
 //! Crate-private except the Gibbs seam: users reach these through `State` and `Fluid::prop`.
 
 use crate::derivs::{Bundle, Derivs, SLOTS, idx};
-use crate::error::{DomainError, Error};
+use crate::error::{DomainError, Error, Instability};
 use crate::model::Reducing;
 use crate::num::math;
 use crate::prop::DerivVar;
@@ -356,7 +356,8 @@ pub struct GibbsDerivs {
 /// properties. Refuses mechanically unstable input (g_p ≤ 0 or g_pp ≥ 0).
 pub fn bundle_from_gibbs(r: f64, t: f64, p: f64, g: &GibbsDerivs) -> Result<(f64, Bundle), Error> {
     if !(g.g_p > 0.0 && g.g_pp < 0.0) {
-        return Err(DomainError::MechanicallyUnstable.into());
+        let condition = if g.g_p > 0.0 { Instability::GibbsCompressibility } else { Instability::GibbsVolume };
+        return Err(DomainError::MechanicallyUnstable { condition }.into());
     }
     let v = g.g_p;
     let rt = r * t;

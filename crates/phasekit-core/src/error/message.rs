@@ -3,7 +3,7 @@
 
 use core::fmt;
 
-use super::{DomainError, Error, Limit, Roots, Rule, words};
+use super::{Argument, DomainError, Error, Instability, Limit, Roots, Rule, words};
 use crate::prop::{Partial, Prop};
 use crate::quantity::{InUnit, Quantity, Style, Units};
 use crate::state::Phase;
@@ -13,17 +13,25 @@ pub struct Message<'a> {
     error: &'a Error,
     units: &'a dyn Units,
     style: Style,
+    subject: Option<&'a str>,
 }
 
 impl<'a> Message<'a> {
     pub(super) fn new(error: &'a Error, units: &'a dyn Units, style: Style) -> Self {
-        Self { error, units, style }
+        Self { error, units, style, subject: None }
+    }
+
+    /// The message with a domain limit written as `subject`'s (`below Water's minimum, 273.16 K`) in the long form,
+    /// which a facade passes the fluid's name to (PLAN.md M29.5); the short form is unchanged.
+    pub fn of(mut self, subject: &'a str) -> Self {
+        self.subject = Some(subject);
+        self
     }
 }
 
 impl fmt::Display for Message<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut out = Out { f, units: self.units, short: self.style == Style::Short };
+        let mut out = Out { f, units: self.units, short: self.style == Style::Short, subject: self.subject };
         match self.error {
             Error::InvalidInput { quantity, value } => out.invalid_input(quantity, *value),
             Error::Unreachable { quantity, value, limit, bound, given } => {
@@ -55,9 +63,9 @@ impl fmt::Display for Message<'_> {
             }
             Error::InvalidState { reason } => out.f.write_fmt(format_args!("inconsistent state: {reason}")),
             Error::Load(e) => out.either(format_args!("load error: {e}"), format_args!("{e}")),
-            Error::Shape { expected, found } => out.either(
-                format_args!("buffer length {found}, expected {expected}"),
-                format_args!("length {found} ≠ {expected}"),
+            Error::Shape { buffer, expected, found } => out.either(
+                format_args!("the {buffer} buffer has length {found}, expected {expected}"),
+                format_args!("{buffer}: length {found} ≠ {expected}"),
             ),
         }
     }
@@ -68,6 +76,8 @@ struct Out<'a, 'b> {
     f: &'a mut fmt::Formatter<'b>,
     units: &'a dyn Units,
     short: bool,
+    /// Whose limits a domain error names, if the caller said.
+    subject: Option<&'a str>,
 }
 
 /// A limit a value is beyond: `temperature 200 K is below the minimum, 273.16 K`, `T = 200 K < T_min = 273.16 K`.
@@ -80,6 +90,8 @@ struct Bound {
     name: &'static str,
     /// The limit's subscript in the short form ("min").
     subscript: &'static str,
+    /// The input the limit is taken at, if it depends on one (the melting temperature's pressure).
+    at: Option<(&'static Quantity, f64)>,
 }
 
 impl<'a> Out<'a, '_> {
@@ -140,10 +152,19 @@ impl<'a> Out<'a, '_> {
         )
     }
 
-    fn invalid_argument(&mut self, argument: &str, value: Option<usize>) -> fmt::Result {
+    /// `number of mole fractions 3 is invalid: expected one for each component`, `number of mole fractions = 3:
+    /// expected one for each component` (PLAN.md M29.5).
+    fn invalid_argument(&mut self, argument: &Argument, value: Option<usize>) -> fmt::Result {
+        let (name, expected) = (argument.name(), argument.expected());
         match value {
-            Some(n) => write!(self.f, "invalid {argument}: {n}"),
-            None => write!(self.f, "invalid {argument}"),
+            Some(n) => self.either(
+                format_args!("{name} {n} is invalid: expected {expected}"),
+                format_args!("{name} = {n}: expected {expected}"),
+            ),
+            None => self.either(
+                format_args!("{name} is invalid: expected {expected}"),
+                format_args!("{name}: expected {expected}"),
+            ),
         }
     }
 
@@ -151,44 +172,58 @@ impl<'a> Out<'a, '_> {
         let (t, p) = (Quantity::TEMPERATURE, Quantity::PRESSURE);
         let bound = match *e {
             DomainError::BelowMinTemperature { t: value, t_min } => {
-                Bound { quantity: t, value, limit: t_min, above: false, name: "minimum", subscript: "min" }
+                Bound { quantity: t, value, limit: t_min, above: false, name: "minimum", subscript: "min", at: None }
             }
             DomainError::AboveMaxTemperature { t: value, t_max } => {
-                Bound { quantity: t, value, limit: t_max, above: true, name: "maximum", subscript: "max" }
+                Bound { quantity: t, value, limit: t_max, above: true, name: "maximum", subscript: "max", at: None }
             }
             DomainError::BelowMinPressure { p: value, p_min } => {
-                Bound { quantity: p, value, limit: p_min, above: false, name: "minimum", subscript: "min" }
+                Bound { quantity: p, value, limit: p_min, above: false, name: "minimum", subscript: "min", at: None }
             }
             DomainError::AboveMaxPressure { p: value, p_max } => {
-                Bound { quantity: p, value, limit: p_max, above: true, name: "maximum", subscript: "max" }
+                Bound { quantity: p, value, limit: p_max, above: true, name: "maximum", subscript: "max", at: None }
             }
-            DomainError::BelowMeltingLine { t: value, t_melt } => Bound {
+            DomainError::BelowMeltingLine { t: value, t_melt, p: at } => Bound {
                 quantity: t,
                 value,
                 limit: t_melt,
                 above: false,
-                name: "melting temperature at this pressure",
+                name: "melting temperature",
                 subscript: "melt",
+                at: Some((p, at)),
             },
-            DomainError::MechanicallyUnstable => {
+            DomainError::MechanicallyUnstable { condition } => {
+                let condition = instability(condition);
                 return self.either(
-                    format_args!("the state is mechanically unstable: dp/dρ ≤ 0 or c_v ≤ 0"),
-                    format_args!("unstable: dp/dρ ≤ 0 or c_v ≤ 0"),
+                    format_args!("the state is mechanically unstable: {condition}"),
+                    format_args!("unstable: {condition}"),
                 );
             }
         };
         self.bound(&bound)
     }
 
+    /// `temperature 250 K is below Water's melting temperature at 2e8 Pa, 251.2 K`,
+    /// `T = 250 K < T_melt(p = 2e8 Pa) = 251.2 K`; "the" where no subject is given.
     fn bound(&mut self, b: &Bound) -> fmt::Result {
         let (name, symbol) = (b.quantity.name(), b.quantity.symbol());
         let (v, limit) = (self.value(b.quantity, b.value), self.value(b.quantity, b.limit));
         let (side, relation) = if b.above { ("above", ">") } else { ("below", "<") };
         let (what, subscript) = (b.name, b.subscript);
-        self.either(
-            format_args!("{name} {v} is {side} the {what}, {limit}"),
-            format_args!("{symbol} = {v} {relation} {symbol}_{subscript} = {limit}"),
-        )
+        let whose = Whose(self.subject);
+        match b.at {
+            Some((quantity, at)) => {
+                let (at_symbol, at) = (quantity.symbol(), self.value(quantity, at));
+                self.either(
+                    format_args!("{name} {v} is {side} {whose} {what} at {at}, {limit}"),
+                    format_args!("{symbol} = {v} {relation} {symbol}_{subscript}({at_symbol} = {at}) = {limit}"),
+                )
+            }
+            None => self.either(
+                format_args!("{name} {v} is {side} {whose} {what}, {limit}"),
+                format_args!("{symbol} = {v} {relation} {symbol}_{subscript} = {limit}"),
+            ),
+        }
     }
 
     fn ambiguous(&mut self, roots: &Roots) -> fmt::Result {
@@ -214,6 +249,29 @@ impl<'a> Out<'a, '_> {
     fn undefined(&mut self, prop: Prop, phase: Phase) -> fmt::Result {
         let (words, key, phase) = (PropWords(prop), PropName(prop), phase_name(phase));
         self.either(format_args!("{words} is undefined for a {phase} state"), format_args!("{key}: undefined, {phase}"))
+    }
+}
+
+/// A limit's owner in the long form: `Water's`, or `the` where the caller named none.
+struct Whose<'a>(Option<&'a str>);
+
+impl fmt::Display for Whose<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Some(subject) => write!(f, "{subject}'s"),
+            None => f.write_str("the"),
+        }
+    }
+}
+
+/// The stability condition a state fails, as a message writes it.
+const fn instability(condition: Instability) -> &'static str {
+    match condition {
+        Instability::DpDrhoAtT => "(∂p/∂ρ)_T ≤ 0",
+        Instability::Cv => "c_v ≤ 0",
+        Instability::DpDrhoAtS => "(∂p/∂ρ)_s ≤ 0",
+        Instability::GibbsVolume => "g_p ≤ 0",
+        Instability::GibbsCompressibility => "g_pp ≥ 0",
     }
 }
 

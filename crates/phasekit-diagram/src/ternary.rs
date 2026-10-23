@@ -164,7 +164,7 @@ fn splits(verdicts: &Verdicts, node: Node) -> Option<bool> {
 fn classify(batch: &dyn TernaryBatch, feeds: &[[f64; 3]]) -> Result<Vec<Option<Phases>>, Error> {
     let phases = batch.phases(feeds)?;
     if phases.len() != feeds.len() {
-        return Err(Error::Shape { expected: feeds.len(), found: phases.len() });
+        return Err(Error::Shape { buffer: "phases", expected: feeds.len(), found: phases.len() });
     }
     Ok(phases)
 }
@@ -278,6 +278,9 @@ pub fn ternary(batch: &dyn TernaryBatch) -> Result<Ternary, Error> {
 mod tests {
     use super::*;
     use std::cell::RefCell;
+
+    /// What a test equilibrium refuses.
+    const FEED: &phasekit_core::Argument = &phasekit_core::Argument::new("feed", "a test feed");
 
     /// The band's bounds in z₀: a feed between them splits.
     const LO: f64 = 0.3;
@@ -485,13 +488,13 @@ mod tests {
             }
             fn phases(&self, feeds: &[[f64; 3]]) -> Result<Vec<Option<Phases>>, Error> {
                 if self.0 {
-                    return Err(Error::InvalidArgument { argument: "feed", value: None });
+                    return Err(Error::InvalidArgument { argument: FEED, value: None });
                 }
                 Ok(vec![Some(Phases::Single); feeds.len().saturating_sub(1)])
             }
         }
-        assert_eq!(ternary(&Short(false)), Err(Error::Shape { expected: 325, found: 324 }));
-        let refused = Error::InvalidArgument { argument: "feed", value: None };
+        assert_eq!(ternary(&Short(false)), Err(Error::Shape { buffer: "phases", expected: 325, found: 324 }));
+        let refused = Error::InvalidArgument { argument: FEED, value: None };
         assert_eq!(ternary(&Short(true)), Err(refused));
     }
 }

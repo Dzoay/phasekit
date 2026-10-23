@@ -8,6 +8,9 @@ use phasekit_core::batch::Status;
 use phasekit_core::{
     Basis, Density, Enthalpy, Error, Fluid, Input, Order, Pressure, Quality, Registry, State, Temperature, math,
 };
+
+/// A grid point without an input.
+const GRID_INPUT: &phasekit_core::Argument = &phasekit_core::Argument::new("grid input", "a point of the grid");
 use phasekit_verify::{SplitMix64, fixture};
 
 /// The hash every target reproduces with `libm` (VERIFICATION.md §9.4): the four agreed at M9.4.
@@ -74,7 +77,7 @@ fn fluid_grid(hash: &mut Fnv, registry: &Registry, fluid: &Fluid, name: &str) ->
     let liquid = qt(0.0, t_low).and_then(|input| fluid.state(input).ok());
     let rho_l = liquid.map_or(3.0 * crit.rho, |s| s.rho(Basis::Molar));
     let dt = |rho: f64, t: f64| Some(Input::dt(Density::molar(rho).ok()?, Temperature::new(t).ok()?));
-    let flash = |input: Option<Input>| input.ok_or(Error::InvalidArgument { argument: "grid input", value: None });
+    let flash = |input: Option<Input>| input.ok_or(Error::InvalidArgument { argument: GRID_INPUT, value: None });
     let mut rng = SplitMix64::new(1);
     let eos_point = |rng: &mut SplitMix64| (rng.log_uniform(1e-6 * rho_l, rho_l), rng.uniform(t_low, limits.t_max()));
     let (mut points, mut ok) = (0, 0);

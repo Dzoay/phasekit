@@ -1015,7 +1015,7 @@ fn ha_props_si_over_vectors_and_the_embedded_registry() {
         (Err(one(100.0).unwrap_err()), Err(one(100.0).unwrap_err()))
     );
     let shape = ha_props_si_vec_in(&air, "H", ("T", &t), ("P", &[1e5, 2e5]), ("R", &[0.5]), FillPolicy::Inf);
-    assert_eq!(shape, Err(CompatError::Core(Error::Shape { expected: 3, found: 2 })));
+    assert_eq!(shape, Err(CompatError::Core(Error::Shape { buffer: "values", expected: 3, found: 2 })));
     let corrected = humid_air(DataSet::Corrected);
     assert_eq!(
         ha_props_si("H", "T", 300.0, "P", 1e5, "R", 0.0),

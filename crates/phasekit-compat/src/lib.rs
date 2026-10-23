@@ -281,7 +281,7 @@ pub fn props_si_vec_in(
     let plan = Plan::new(registry, output, name1, name2, fluid)?;
     let n = values1.len().max(values2.len());
     if [values1.len(), values2.len()].into_iter().any(|len| len != 1 && len != n) {
-        return Err(Error::Shape { expected: n, found: values1.len().min(values2.len()) }.into());
+        return Err(Error::Shape { buffer: "values", expected: n, found: values1.len().min(values2.len()) }.into());
     }
     let (mut out, mut first) = (Vec::with_capacity(n), None);
     for i in 0..n {
@@ -632,7 +632,7 @@ mod tests {
         assert_eq!(vec("D", &[300.0, -5.0, 400.0], &p, FillPolicy::Error), Err(bad.clone()));
         assert_eq!(vec("D", &[-5.0, -6.0], &p, FillPolicy::Inf), Err(bad));
         assert_eq!(vec("D", &[300.0], &[101_325.0, 101_325.0], FillPolicy::Inf), Ok(vec![cold, cold]));
-        let shape = Err(CompatError::Core(Error::Shape { expected: 3, found: 2 }));
+        let shape = Err(CompatError::Core(Error::Shape { buffer: "values", expected: 3, found: 2 }));
         assert_eq!(vec("D", &[300.0, 400.0, 500.0], &[1e5, 2e5], FillPolicy::Inf), shape);
         let tc = props1_si_in(&registry, "Tcrit", "Water").unwrap();
         assert_eq!(vec("Tcrit", &[300.0, 400.0], &p, FillPolicy::Inf), Ok(vec![tc, tc]));
@@ -734,7 +734,10 @@ mod tests {
         assert_eq!(call(&["Phase"], "P"), Err(CompatError::NotAProperty("Phase".into())));
         assert_eq!(call(&["Hmass", "X"], "P"), Err(CompatError::UnknownOutput("X".into())));
         assert_eq!(call(&["Hmass"], "T"), Err(CompatError::InvalidPair("T".into(), "T".into())));
-        assert_eq!(call(&["Hmass", "P"], "P"), Err(CompatError::Core(Error::Shape { expected: 6, found: 3 })));
+        assert_eq!(
+            call(&["Hmass", "P"], "P"),
+            Err(CompatError::Core(Error::Shape { buffer: "out", expected: 6, found: 3 }))
+        );
         assert_eq!(out, [7.0; 3], "a refused call writes no cell");
         assert_eq!(
             format!("{}", CompatError::NotAProperty("Phase".into())),

@@ -6,7 +6,7 @@
 mod common;
 
 use common::{CASES, Tamper, fail, fluid, is_flash, plotted_range};
-use phasekit_core::{Basis, Error, Fluid, Input, Pair, Phase, Prop, math};
+use phasekit_core::{Argument, Basis, Error, Fluid, Input, Pair, Phase, Prop, math};
 use phasekit_diagram::{Diagram, FluidBatch, Limits, Line, Plane, Quantity, Row, Segment, Vertex, diagram, sample};
 use phasekit_verify::tolerance::{ToleranceClass, Window};
 
@@ -20,7 +20,8 @@ fn tdpq(f: &Fluid, input: Input) -> Result<[f64; 4], Error> {
 /// The input of the plane's coordinates at the vertex, D, H and S per unit mass.
 fn plotted(plane: Plane, v: &Vertex) -> Result<Input, Error> {
     let (x, y) = (plane.x().quantity, plane.y().quantity);
-    let unpaired = Error::InvalidArgument { argument: "plane", value: None };
+    const PLANE: &Argument = &Argument::new("plane", "one whose quantities make an input pair");
+    let unpaired = Error::InvalidArgument { argument: PLANE, value: None };
     let (pair, swapped) = x.var().zip(y.var()).and_then(|(x, y)| Pair::from_vars(x, y)).ok_or(unpaired)?;
     let (a, b) = if swapped { (v.y, v.x) } else { (v.x, v.y) };
     Input::new(pair, a, b, Basis::Mass)

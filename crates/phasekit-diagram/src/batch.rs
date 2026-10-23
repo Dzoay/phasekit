@@ -3,7 +3,7 @@
 //! `Extrapolated` (a flagged value, PLAN.md M10.8); any other status leaves a gap.
 
 use phasekit_core::batch::{BatchRequest, ExecPolicy, Status, evaluate};
-use phasekit_core::{Basis, Error, FlashOptions, Fluid, Input, Pair, Phase, Prop};
+use phasekit_core::{Argument, Basis, Error, FlashOptions, Fluid, Input, Pair, Phase, Prop};
 
 use crate::plane::Quantity;
 
@@ -93,7 +93,7 @@ impl Batch for FluidBatch<'_> {
     fn rows(&self, outputs: &[Quantity], pair: Pair, x: &[f64], y: &[f64]) -> Result<Vec<Row>, Error> {
         let props: Vec<Prop> = outputs.iter().map(|q| q.prop()).collect();
         let request = BatchRequest::new(pair, Basis::Mass, x, y, &props).with_flash(self.flash).with_exec(self.exec);
-        let cells = request.cells().ok_or(Error::Shape { expected: usize::MAX, found: x.len() })?;
+        let cells = request.cells().ok_or(Error::Shape { buffer: "out", expected: usize::MAX, found: x.len() })?;
         let (mut values, mut status) = (vec![0.0; cells], vec![Status::Ok; cells]);
         evaluate(self.fluid, &request, &mut values, &mut status)?;
         Ok(split(pair, x, y, &values, &status, outputs.len()))
@@ -115,6 +115,10 @@ fn is_value(status: &Status) -> bool {
     matches!(status, Status::Ok | Status::Extrapolated)
 }
 
+/// A plane's or a call's two quantities, which must make an input pair.
+pub(crate) const INPUT_PAIR: &Argument =
+    &Argument::new("input pair", "two quantities that make one (of T, p, ρ, h, s, u and Q)");
+
 /// Rows of `outputs` at the points two quantities' values give, in either order: the batch of the pair they make.
 pub(crate) fn along(
     batch: &impl Batch,
@@ -122,7 +126,7 @@ pub(crate) fn along(
     a: (Quantity, &[f64]),
     b: (Quantity, &[f64]),
 ) -> Result<Vec<Row>, Error> {
-    let unpaired = Error::InvalidArgument { argument: "input pair", value: None };
+    let unpaired = Error::InvalidArgument { argument: INPUT_PAIR, value: None };
     let vars = a.0.var().zip(b.0.var());
     let (pair, swapped) = vars.and_then(|(a, b)| Pair::from_vars(a, b)).ok_or(unpaired)?;
     let (x, y) = if swapped { (b.1, a.1) } else { (a.1, b.1) };

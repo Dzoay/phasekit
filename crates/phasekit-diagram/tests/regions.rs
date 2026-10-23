@@ -10,7 +10,7 @@ mod common;
 use std::cell::RefCell;
 
 use common::{Tamper, fail, fluid, plotted_range};
-use phasekit_core::{Basis, Error, Fluid, Input, Pair, Phase, Prop, math};
+use phasekit_core::{Argument, Basis, Error, Fluid, Input, Pair, Phase, Prop, math};
 use phasekit_diagram::{
     Batch, Corner, FluidBatch, Inputs, Limits, Plane, Quantity, Regions, Row, regions, sample_regions,
 };
@@ -117,7 +117,8 @@ fn scaled(log: bool, v: f64) -> f64 {
 /// The library's phase at the plane's coordinates (x, y), by the plane's own pair.
 fn phase_on(f: &Fluid, plane: Plane, (x, y): Point) -> Result<Phase, Error> {
     let (qx, qy) = (plane.x().quantity, plane.y().quantity);
-    let unpaired = Error::InvalidArgument { argument: "plane", value: None };
+    const PLANE: &Argument = &Argument::new("plane", "one whose quantities make an input pair");
+    let unpaired = Error::InvalidArgument { argument: PLANE, value: None };
     let (pair, swapped) = qx.var().zip(qy.var()).and_then(|(x, y)| Pair::from_vars(x, y)).ok_or(unpaired)?;
     let (a, b) = if swapped { (y, x) } else { (x, y) };
     Ok(f.state(Input::new(pair, a, b, Basis::Mass)?)?.phase())

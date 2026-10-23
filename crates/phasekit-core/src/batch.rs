@@ -144,7 +144,7 @@ pub fn evaluate_detailed(
     errors: &mut [Option<Error>],
 ) -> Result<BatchSummary, Error> {
     if errors.len() != req.points() {
-        return Err(Error::Shape { expected: req.points(), found: errors.len() });
+        return Err(Error::Shape { buffer: "errors", expected: req.points(), found: errors.len() });
     }
     errors.fill(None);
     run(fluid, req, (out, status), errors)
@@ -158,10 +158,11 @@ fn run(
     errors: &mut [Option<Error>],
 ) -> Result<BatchSummary, Error> {
     let (n, m) = (req.x.len(), req.outputs.len());
-    let cells = req.cells().ok_or(Error::Shape { expected: usize::MAX, found: out.len() })?;
-    for (expected, found) in [(n, req.y.len()), (cells, out.len()), (cells, status.len())] {
+    let cells = req.cells().ok_or(Error::Shape { buffer: "out", expected: usize::MAX, found: out.len() })?;
+    for (buffer, expected, found) in [("y", n, req.y.len()), ("out", cells, out.len()), ("status", cells, status.len())]
+    {
         if found != expected {
-            return Err(Error::Shape { expected, found });
+            return Err(Error::Shape { buffer, expected, found });
         }
     }
     if cells == 0 {
@@ -244,14 +245,15 @@ fn run_groups(
     // The hook writes each group's states here and the rows read them in place: one array for the chunk, so that no
     // group moves an array of states (moving them cost a mixture's DT batch up to 17 % in the default build's record).
     let mut states: [Result<State, Error>; HOOK_GROUP] =
-        core::array::from_fn(|_| Err(Error::Shape { expected: 0, found: 0 }));
+        core::array::from_fn(|_| Err(Error::Shape { buffer: "group", expected: 0, found: 0 }));
     let groups = xs
         .chunks(HOOK_GROUP)
         .zip(ys.chunks(HOOK_GROUP))
         .zip(out.chunks_mut(HOOK_GROUP.saturating_mul(m)).zip(status.chunks_mut(HOOK_GROUP.saturating_mul(m))));
     for (g, ((xs, ys), (out, status))) in groups.enumerate() {
         let points: [Result<NativeInput, Error>; HOOK_GROUP] = core::array::from_fn(|k| {
-            let (x, y) = xs.get(k).zip(ys.get(k)).ok_or(Error::Shape { expected: HOOK_GROUP, found: k })?;
+            let (x, y) =
+                xs.get(k).zip(ys.get(k)).ok_or(Error::Shape { buffer: "group", expected: HOOK_GROUP, found: k })?;
             fluid.native(req.input(*x, *y)?)
         });
         flash_passed(fluid, req, &points, &mut states);
@@ -276,7 +278,7 @@ fn gauged(fluid: &Fluid, state: Option<&Result<State, Error>>) -> Result<State, 
     match state {
         Some(Ok(state)) => Ok(state.with_gauge(fluid.gauge())),
         Some(Err(error)) => Err(error.clone()),
-        None => Err(Error::Shape { expected: HOOK_GROUP, found: 0 }),
+        None => Err(Error::Shape { buffer: "group", expected: HOOK_GROUP, found: 0 }),
     }
 }
 

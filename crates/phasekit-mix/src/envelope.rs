@@ -32,7 +32,7 @@ use phasekit_core::{DomainError, Error, Limits, Strategy, math};
 
 use crate::Mixture;
 use crate::equilibrium::{AtTp, normalised, solve, square};
-use crate::quantities::{HIGHEST_PRESSURE, START_PRESSURE};
+use crate::quantities::{ENVELOPE_UNKNOWNS, HIGHEST_PRESSURE, START_PRESSURE};
 use crate::saturation::{Given, Side, fractions, meets_gate, on_branch, saturation, trivial};
 use crate::slot::{self, at, set};
 
@@ -344,7 +344,7 @@ impl<'a> Tracer<'a> {
         let n = self.z.len();
         let (ln_t, ln_p) = ln_tp(v, n);
         let (t, p) = (math::exp(ln_t), math::exp(ln_p));
-        let short = || Error::InvalidArgument { argument: "the envelope's unknowns", value: Some(v.len()) };
+        let short = || Error::InvalidArgument { argument: ENVELOPE_UNKNOWNS, value: Some(v.len()) };
         let (x, y) = fractions(self.beta, &self.z, v.get(..n).ok_or_else(short)?);
         let (for_x, for_y) =
             if self.x_denser { (Branch::Liquid, Branch::Vapour) } else { (Branch::Vapour, Branch::Liquid) };

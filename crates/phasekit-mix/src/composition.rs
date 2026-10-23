@@ -10,6 +10,8 @@
 use phasekit_core::batch::{ExecPolicy, RealKernel, run_kernel};
 use phasekit_core::{Basis, Constant, Derivs, Error, HelmholtzModel, Order, Prop, Quantity, Real};
 
+use crate::quantities::{DEPARTURE_COMPONENT, DERIVATIVE_ORDER, MOLE_FRACTIONS};
+
 use crate::MultiFluid;
 use crate::data::DepartureData;
 use crate::departure::{self, Jet};
@@ -54,7 +56,7 @@ fn degree(order: Order) -> Result<usize, Error> {
         Order::One => Ok(1),
         Order::Two => Ok(2),
         Order::Three => Ok(3),
-        _ => Err(Error::InvalidArgument { argument: "order of composition derivatives", value: Some(4) }),
+        _ => Err(Error::InvalidArgument { argument: DERIVATIVE_ORDER, value: Some(4) }),
     }
 }
 
@@ -157,7 +159,7 @@ fn psi<R: Real>(
     for d in model.departures.iter() {
         let jet = departure_jet(d.function, tau0, delta0, k);
         let part = compose(&|a, b| jet.derivative(a, b).unwrap_or(R::from_f64(f64::NAN)));
-        let absent = || Error::InvalidArgument { argument: "a departure's component", value: Some(d.i) };
+        let absent = || Error::InvalidArgument { argument: DEPARTURE_COMPONENT, value: Some(d.i) };
         let (xi, xj) = (r.fractions.get(d.i).ok_or_else(absent)?, r.fractions.get(d.j).ok_or_else(absent)?);
         alpha = &alpha + &(&(xi * xj) * &part.scale(R::from_f64(d.f)));
     }
@@ -192,7 +194,7 @@ impl MultiFluid {
     /// before their composition derivatives checks each phase with it in turn, so its refusals come in the same order.
     pub(crate) fn composition_order(&self, t: f64, rho: f64, x: &[f64], order: Order) -> Result<usize, Error> {
         if x.len() != self.len() {
-            return Err(Error::InvalidArgument { argument: "number of mole fractions", value: Some(x.len()) });
+            return Err(Error::InvalidArgument { argument: MOLE_FRACTIONS, value: Some(x.len()) });
         }
         if !(t > 0.0 && rho > 0.0 && t.is_finite() && rho.is_finite()) {
             return Err(Error::InvalidInput { quantity: Quantity::density(Basis::Molar), value: rho });

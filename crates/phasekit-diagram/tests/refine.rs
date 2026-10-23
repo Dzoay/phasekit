@@ -6,7 +6,7 @@
 mod common;
 
 use common::{CASES, Tamper, fluid, plotted_range};
-use phasekit_core::{Basis, Error, Fluid, Input, Pair, math};
+use phasekit_core::{Argument, Basis, Error, Fluid, Input, Pair, math};
 use phasekit_diagram::{Axis, Diagram, FluidBatch, Inputs, Limits, Plane, Quantity, Row, Vertex, diagram, sample};
 
 /// How far a midpoint may lie from its chord in the plane's unit square.
@@ -84,7 +84,9 @@ fn swept(f: &Fluid, sweep: Quantity, v: &Vertex) -> Result<f64, Error> {
 
 /// The plane's x and y at the state where the line holding `held` takes the sweep value `at`, by one flash.
 fn plotted_at(f: &Fluid, plane: Plane, held: (Quantity, f64), sweep: (Quantity, f64)) -> Result<(f64, f64), Error> {
-    let unpaired = Error::InvalidArgument { argument: "input pair", value: None };
+    const INPUT_PAIR: &Argument =
+        &Argument::new("input pair", "two quantities that make one (of T, p, ρ, h, s, u and Q)");
+    let unpaired = Error::InvalidArgument { argument: INPUT_PAIR, value: None };
     let (pair, swapped) = held.0.var().zip(sweep.0.var()).and_then(|(x, y)| Pair::from_vars(x, y)).ok_or(unpaired)?;
     let (x, y) = if swapped { (sweep.1, held.1) } else { (held.1, sweep.1) };
     let state = f.state(Input::new(pair, x, y, Basis::Mass)?)?;
