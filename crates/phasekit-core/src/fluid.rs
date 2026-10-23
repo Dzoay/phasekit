@@ -413,8 +413,13 @@ impl Fluid {
     /// and the result is stamped with this handle's gauge.
     pub fn flash(&self, input: Input, opts: &FlashOptions) -> Result<State, Error> {
         let flashed = self.model.flash(self.native(input)?, opts);
-        let m = self.info().molar_mass();
-        Ok(flashed.map_err(|e| input.caller_error(e, m, self.gauge))?.with_gauge(self.gauge))
+        Ok(flashed.map_err(|e| self.caller_error(input, e))?.with_gauge(self.gauge))
+    }
+
+    /// The model's refusal of `input` in the caller's terms ([`Input::caller_error`]): this handle's molar mass and
+    /// gauge.
+    pub(crate) fn caller_error(&self, input: Input, error: Error) -> Error {
+        input.caller_error(error, self.info().molar_mass(), self.gauge)
     }
 
     /// Flash with default options.

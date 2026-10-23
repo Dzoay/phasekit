@@ -756,3 +756,64 @@ fn assert_batch_is_per_point(
         assert_eq!(bits(got), bits(&want), "{name} {part:?} {order:?} {exec:?} point {i}: T {} ρ {}", t[i], rho[i]);
     }
 }
+
+/// Water's HT points at mass basis (h, T) with every refusal a pure fluid gives there: h above and below every state at
+/// 300 K (`Unreachable`), an infinite h (`InvalidInput`; a NaN's error is not equal to itself), T below the triple
+/// point (`Domain`), a two-phase state whose c_p is `Undefined`, a compressed liquid's h, which a two-phase state at
+/// 300 K has too (`Ambiguous`), and the vapour at 400 K, which has none.
+const REFUSALS: ([f64; 7], [f64; 7]) =
+    ([1e7, -1e7, f64::INFINITY, 1e5, 1e6, 1.2e5, 2.73e6], [300.0, 300.0, 300.0, 200.0, 300.0, 300.0, 400.0]);
+
+/// The outputs of [`a_batch_keeps_each_points_error`]: c_p is undefined in the dome.
+const DETAIL_OUTPUTS: [Prop; 2] = [Prop::T, Prop::Cpmass];
+
+/// PLAN.md M29.4 (user decision EM17): `evaluate_detailed` keeps each point's error as the scalar path returns it, the
+/// flash's or else its first refused output's, `None` for a point without one (a stale slot overwritten), under every
+/// executor; its cells and statuses are `evaluate`'s bit for bit.
+#[test]
+fn a_batch_keeps_each_points_error() {
+    let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
+    let water = registry.get("Water").unwrap();
+    let (x, y) = REFUSALS;
+    let req = BatchRequest::new(Pair::HT, Basis::Mass, &x, &y, &DETAIL_OUTPUTS);
+    let scalar: Vec<Option<Error>> = x
+        .iter()
+        .zip(&y)
+        .map(|(h, t)| {
+            let state = Input::new(Pair::HT, *h, *t, Basis::Mass).and_then(|input| water.state(input));
+            match state {
+                Err(e) => Some(e),
+                Ok(state) => DETAIL_OUTPUTS.iter().find_map(|prop| water.prop(&state, *prop).err()),
+            }
+        })
+        .collect();
+    assert!(scalar.iter().filter(|e| e.is_some()).count() == 6 && scalar.last() == Some(&None), "{scalar:?}");
+    let chunk = NonZeroUsize::new(2).unwrap();
+    for exec in [ExecPolicy::Reference, ExecPolicy::Parallel { chunk }, ExecPolicy::Simd] {
+        let req = req.with_exec(exec);
+        let (mut out, mut status) = (vec![0.0; 14], vec![Status::Ok; 14]);
+        let mut errors = vec![Some(Error::ForeignState); 7];
+        let detailed = batch::evaluate_detailed(water, &req, &mut out, &mut status, &mut errors).unwrap();
+        assert_eq!(errors, scalar, "{exec:?}");
+        let (mut plain, mut plain_status) = (vec![0.0; 14], vec![Status::Ok; 14]);
+        let summary = batch::evaluate(water, &req, &mut plain, &mut plain_status).unwrap();
+        let bits = |v: &[f64]| v.iter().map(|c| c.to_bits()).collect::<Vec<_>>();
+        assert_eq!((bits(&out), status, detailed), (bits(&plain), plain_status, summary), "{exec:?}");
+    }
+}
+
+/// The errors slice has one slot a point: one more or one less is `Shape`, nothing written.
+#[test]
+fn the_errors_slice_has_one_slot_a_point() {
+    let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
+    let water = registry.get("Water").unwrap();
+    let (x, y) = REFUSALS;
+    let req = BatchRequest::new(Pair::HT, Basis::Mass, &x, &y, &DETAIL_OUTPUTS);
+    for slots in [6, 8] {
+        let (mut out, mut status) = (vec![0.0; 14], vec![Status::Ok; 14]);
+        let mut errors = vec![None; slots];
+        let refused = batch::evaluate_detailed(water, &req, &mut out, &mut status, &mut errors);
+        assert_eq!(refused, Err(Error::Shape { expected: 7, found: slots }));
+        assert!(errors.iter().all(Option::is_none) && out.iter().all(|v| *v == 0.0));
+    }
+}
