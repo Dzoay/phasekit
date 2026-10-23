@@ -41,15 +41,21 @@ use phasekit_core::{DataSet, FlashOptions, Pack, ThermoModel};
 use phasekit_mix::{EnvelopeEnd, EnvelopeOptions, Mixture, Side};
 use wasm_bindgen::prelude::*;
 
+mod curves;
 mod diagram;
 mod humid_air;
+mod maps;
 mod refusal;
 mod surface;
+mod ternary;
 
+pub use curves::{CurveRuns, Curves};
 pub use diagram::{Corners, Diagram, Lines, PlaneInfo, Regions, Vertices, pair_keys, planes};
 pub use humid_air::{Chart, HumidAir, HumidAirState, humid_air_keys};
+pub use maps::{PropertyMap, Runs};
 pub use refusal::Refusal;
 pub use surface::Surface;
+pub use ternary::Ternary;
 
 /// A JS `Error` with `e`'s message.
 fn js(e: impl Display) -> JsError {
