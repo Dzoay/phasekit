@@ -133,10 +133,10 @@ x86_64-unknown-linux-gnu phasekit-verify::notices 2
 wasm32-wasip2 phasekit-verify::notices 2
 x86_64-unknown-linux-gnu phasekit-verify::math 6
 wasm32-wasip2 phasekit-verify::math 6
-x86_64-unknown-linux-gnu phasekit-diagram::lib 40
+x86_64-unknown-linux-gnu phasekit-diagram::lib 50
 x86_64-unknown-linux-gnu phasekit-diagram::dome 5
 x86_64-unknown-linux-gnu phasekit-diagram::lines 8
-wasm32-wasip2 phasekit-diagram::lib 40
+wasm32-wasip2 phasekit-diagram::lib 50
 wasm32-wasip2 phasekit-diagram::dome 5
 wasm32-wasip2 phasekit-diagram::lines 8
 x86_64-unknown-linux-gnu phasekit-diagram::envelope 3
@@ -161,5 +161,7 @@ x86_64-unknown-linux-gnu phasekit-diagram::curves 4
 wasm32-wasip2 phasekit-diagram::curves 4
 x86_64-unknown-linux-gnu phasekit-diagram::maps 2
 wasm32-wasip2 phasekit-diagram::maps 2
+x86_64-unknown-linux-gnu phasekit-diagram::ternary 3
+wasm32-wasip2 phasekit-diagram::ternary 3
 x86_64-unknown-linux-gnu phasekit-diagram::ice 5
 wasm32-wasip2 phasekit-diagram::ice 5

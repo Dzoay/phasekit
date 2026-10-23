@@ -379,15 +379,16 @@ impl Bracket {
 }
 
 /// The segments joined into chains of edges: open chains from their ends first, then closed ones, each returning to
-/// its first edge. Each edge lies in at most two cells, so in at most two segments.
-fn chains(segments: &[(Edge, Edge)]) -> Vec<Vec<Edge>> {
-    let mut next: BTreeMap<Edge, Vec<Edge>> = BTreeMap::new();
+/// its first edge. Each edge lies in at most two cells, so in at most two segments (a grid's, or a ternary lattice's
+/// triangles').
+pub(crate) fn chains<E: Copy + Ord>(segments: &[(E, E)]) -> Vec<Vec<E>> {
+    let mut next: BTreeMap<E, Vec<E>> = BTreeMap::new();
     for &(a, b) in segments {
         next.entry(a).or_default().push(b);
         next.entry(b).or_default().push(a);
     }
     let ends = next.iter().filter(|(_, n)| n.len() == 1).map(|(&e, _)| e);
-    let starts: Vec<Edge> = ends.chain(next.keys().copied()).collect();
+    let starts: Vec<E> = ends.chain(next.keys().copied()).collect();
     let mut seen = BTreeSet::new();
     let mut all = Vec::new();
     for start in starts {
@@ -399,7 +400,7 @@ fn chains(segments: &[(Edge, Edge)]) -> Vec<Vec<Edge>> {
 }
 
 /// The chain from `start`, each edge's unseen neighbour next, closed where its last edge neighbours its first.
-fn walk(start: Edge, next: &BTreeMap<Edge, Vec<Edge>>, seen: &mut BTreeSet<Edge>) -> Vec<Edge> {
+fn walk<E: Copy + Ord>(start: E, next: &BTreeMap<E, Vec<E>>, seen: &mut BTreeSet<E>) -> Vec<E> {
     let mut chain = vec![start];
     seen.insert(start);
     let mut at = start;
