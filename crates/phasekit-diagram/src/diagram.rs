@@ -52,7 +52,42 @@ pub fn sample(batch: &impl Batch, plane: Plane, limits: &Limits) -> Result<Diagr
 
 /// The diagram over the plotted range `r`.
 pub(crate) fn sample_over(batch: &impl Batch, plane: Plane, limits: &Limits, r: Ranges) -> Result<Diagram, Error> {
-    let outputs = [plane.x().quantity, plane.y().quantity, Quantity::Hmass, Quantity::Smass, Quantity::Dmass];
+    let outputs = outputs(plane);
+    let DomeSides { liquid, vapour, temperatures, spans } = dome_sides(batch, plane, limits, r)?;
+    let (t_c, rho_c) = ([limits.t_critical], [limits.rho_critical]);
+    let critical = along(batch, &outputs, (Quantity::T, &t_c), (Quantity::Dmass, &rho_c))?;
+    let dome =
+        Dome { liquid: vertices(&liquid), vapour: vertices(&vapour), critical: critical.first().and_then(vertex) };
+    let sweeps = |q: Quantity| match q {
+        Quantity::T => lin_grid(r.t.0, r.t.1, SWEEP_POINTS),
+        _ => log_grid(r.p.0, r.p.1, SWEEP_POINTS),
+    };
+    let lines = lines(batch, plane, &spans.square(plane), &|q| spans.get(q), &sweeps, &temperatures)?;
+    Ok(Diagram { plane, dome, lines, x: spans.get(plane.x().quantity), y: spans.get(plane.y().quantity), ice: None })
+}
+
+/// The spans of the plane's axes, as its diagram's (`Diagram::x` and `Diagram::y`), without its lines.
+pub(crate) fn axes_spans(batch: &impl Batch, plane: Plane, limits: &Limits) -> Result<[(f64, f64); 2], Error> {
+    let spans = dome_sides(batch, plane, limits, ranges(limits))?.spans;
+    Ok([spans.get(plane.x().quantity), spans.get(plane.y().quantity)])
+}
+
+/// The batch's outputs on a plane: its x and y, then h, s and ρ for the spans.
+fn outputs(plane: Plane) -> [Quantity; 5] {
+    [plane.x().quantity, plane.y().quantity, Quantity::Hmass, Quantity::Smass, Quantity::Dmass]
+}
+
+/// The dome's sides on a plane, refined where they bend on it, the temperatures they start on, and the spans of the
+/// axes over them and the plotted range's corners.
+struct DomeSides {
+    liquid: Vec<Row>,
+    vapour: Vec<Row>,
+    temperatures: Vec<f64>,
+    spans: Spans,
+}
+
+fn dome_sides(batch: &impl Batch, plane: Plane, limits: &Limits, r: Ranges) -> Result<DomeSides, Error> {
+    let outputs = outputs(plane);
     let temperatures = dome_temperatures(dome_start(batch, &r, limits.t_triple)?, limits.t_critical, DOME_POINTS);
     let side = |q: f64| move |t: &[f64]| along(batch, &outputs, (Quantity::T, t), (Quantity::Q, &vec![q; t.len()]));
     let (liquid, vapour) = (side(0.0)(&temperatures)?, side(1.0)(&temperatures)?);
@@ -64,17 +99,8 @@ pub(crate) fn sample_over(batch: &impl Batch, plane: Plane, limits: &Limits, r: 
         Ok(all.into_iter().map(|p| p.row).collect())
     };
     let (liquid, vapour) = (refined(liquid, 0.0)?, refined(vapour, 1.0)?);
-    let (t_c, rho_c) = ([limits.t_critical], [limits.rho_critical]);
-    let critical = along(batch, &outputs, (Quantity::T, &t_c), (Quantity::Dmass, &rho_c))?;
     let spans = Spans::of(r, &[&liquid, &vapour, &corners]);
-    let dome =
-        Dome { liquid: vertices(&liquid), vapour: vertices(&vapour), critical: critical.first().and_then(vertex) };
-    let sweeps = |q: Quantity| match q {
-        Quantity::T => lin_grid(r.t.0, r.t.1, SWEEP_POINTS),
-        _ => log_grid(r.p.0, r.p.1, SWEEP_POINTS),
-    };
-    let lines = lines(batch, plane, &spans.square(plane), &|q| spans.get(q), &sweeps, &temperatures)?;
-    Ok(Diagram { plane, dome, lines, x: spans.get(plane.x().quantity), y: spans.get(plane.y().quantity), ice: None })
+    Ok(DomeSides { liquid, vapour, temperatures, spans })
 }
 
 /// The temperatures a side of the dome starts on, which the quality lines start on too: closing in on T_c, they reach
@@ -98,8 +124,8 @@ fn vertices(rows: &[Row]) -> Vec<Vertex> {
 }
 
 /// The span of each quantity an axis can plot: of T and p the plotted range, of Q [0, 1], and of h, s and ρ the least
-/// and greatest values the dome and the range's corners gave, cells 2, 3 and 4 of their rows; of u, which no plane
-/// plots, none.
+/// and greatest values the dome and the range's corners gave, cells 2, 3 and 4 of their rows; of u and the curves'
+/// outputs, which no plane plots, none.
 struct Spans {
     ranges: Ranges,
     h: (f64, f64),
@@ -126,7 +152,14 @@ impl Spans {
             Quantity::Hmass => self.h,
             Quantity::Smass => self.s,
             Quantity::Dmass => self.d,
-            Quantity::Umass => (f64::INFINITY, f64::NEG_INFINITY),
+            Quantity::Umass
+            | Quantity::Z
+            | Quantity::Bvirial
+            | Quantity::DBvirialDT
+            | Quantity::DpDrhoAtT
+            | Quantity::DpDTAtRho
+            | Quantity::JouleThomson
+            | Quantity::Output(_) => (f64::INFINITY, f64::NEG_INFINITY),
         }
     }
 }
