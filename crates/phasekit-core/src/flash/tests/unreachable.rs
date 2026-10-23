@@ -30,7 +30,7 @@ const CASES: [Case; 10] = [
 /// input as the caller gave them, mass basis; the limit; and a bound the flash reaches, moved inside by 1e-9 of it
 /// (one root, or several where the bound is a turn of x). The bound is the equation of state's extreme along the
 /// search, which can lie outside the domain (Water's s at 300 K is least at the isotherm's densest end, above p_max), so
-/// it is reached under `Extrapolate`.
+/// it is reached under `Extrapolate`; 1e-6 of it past the bound is refused.
 #[test]
 fn an_unreachable_value_names_its_bound() {
     let native = embedded("Water");
@@ -44,12 +44,14 @@ fn an_unreachable_value_names_its_bound() {
             };
             let want = (var.quantity(Basis::Mass), value, limit, (given.quantity(Basis::Mass), at));
             assert_eq!((quantity, v, l, g), want, "{value}");
-            let inside = match limit {
-                Limit::Max => bound - 1e-9 * bound.abs(),
-                Limit::Min => bound + 1e-9 * bound.abs(),
-            };
-            let reached = water.flash(make(inside).unwrap(), &extrapolate);
-            assert!(matches!(reached, Ok(_) | Err(Error::Ambiguous { .. })), "{value} at {inside}: {reached:?}");
+            let inward = if limit == Limit::Max { -bound.abs() } else { bound.abs() };
+            let reached = water.flash(make(bound + 1e-9 * inward).unwrap(), &extrapolate);
+            assert!(matches!(reached, Ok(_) | Err(Error::Ambiguous { .. })), "{value} inside {bound}: {reached:?}");
+            let beyond = water.flash(make(bound - 1e-6 * inward).unwrap(), &extrapolate);
+            assert!(
+                matches!(beyond, Err(Error::Unreachable { limit: l, .. }) if l == limit),
+                "past {bound}: {beyond:?}"
+            );
         }
     }
 }

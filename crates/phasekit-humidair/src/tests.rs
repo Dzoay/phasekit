@@ -414,7 +414,7 @@ fn a_target_just_past_the_range_is_refused() {
     let Err(Error::Unreachable { quantity: ENTHALPY_PER_DRY_AIR, limit: Limit::Max, bound, .. }) = past else {
         panic!("{past:?}")
     };
-    assert!((bound - h).abs() <= 1e-9 * h, "{bound} against {h}");
+    assert!((bound - h).abs() <= 1e-9, "{bound} against {h}");
 }
 
 /// Under `Parity` the wick's water is v8.0.0's: IAPWS-95's h at IF97's liquid density, bit for bit, not IF97's own.

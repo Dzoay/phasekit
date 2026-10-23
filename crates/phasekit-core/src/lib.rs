@@ -88,7 +88,7 @@ pub use model::{
 pub use num::{Jet4, Real};
 pub use prop::{Constant, DerivVar, Partial, Prop, SecondPartial};
 pub use quantity::{Dimension, Quantity, Si, Style, Unit, Units};
-pub use registry::{Registry, Resolver};
+pub use registry::{Registry, Resolver, nearest_names};
 pub use relations::{GibbsDerivs, bundle_from_gibbs};
 pub use saturation::{SatAccuracy, SatPair, SatSide, SaturationCurve};
 pub use state::{Phase, SolvePath, State, Strategy};

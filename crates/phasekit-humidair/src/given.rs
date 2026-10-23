@@ -89,6 +89,8 @@ fn unreachable(
     given: (&'static Quantity, f64),
 ) -> Error {
     let r = if ends.0.abs() <= ends.1.abs() { ends.0 } else { ends.1 };
+    // Equivalent (M29.2): neither end's residual is 0, which would be a root.
+    // equivalent mutant: replace < with <=
     let limit = if r < 0.0 { Limit::Max } else { Limit::Min };
     Error::Unreachable { quantity, value, limit, bound: value + r, given }
 }

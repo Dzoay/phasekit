@@ -164,6 +164,9 @@ struct Reached(Option<f64>);
 impl Reached {
     /// Notes a residual; one that is not finite is not a state's.
     fn see(&mut self, residual: f64) {
+        // Equivalent (M29.2): with no root every residual has one sign, so two of equal size are one residual, and
+        // keeping the later of them changes nothing.
+        // equivalent mutant: replace < with <=
         if residual.is_finite() && self.0.is_none_or(|r| residual.abs() < r.abs()) {
             self.0 = Some(residual);
         }
@@ -173,6 +176,8 @@ impl Reached {
     /// none.
     fn refusal(self, (quantity, x): (&'static Quantity, f64), given: (&'static Quantity, f64)) -> Error {
         let Some(r) = self.0 else { return Error::InvalidInput { quantity, value: x } };
+        // Equivalent (M29.2): the residual is not 0, which would be a root.
+        // equivalent mutant: replace < with <=
         let limit = if r < 0.0 { Limit::Max } else { Limit::Min };
         Error::Unreachable { quantity, value: x, limit, bound: x + r, given }
     }
