@@ -5,6 +5,7 @@
 use phasekit_core::{Error, Fluid};
 
 use crate::batch::{Batch, FluidBatch, Row, Vertex, along, vertex};
+use crate::ice::IceLines;
 use crate::lines::{Line, lines};
 use crate::plane::{Plane, Quantity};
 use crate::ranges::{Limits, Ranges, dome_temperatures, lin_grid, log_grid, ranges};
@@ -35,6 +36,8 @@ pub struct Diagram {
     pub x: (f64, f64),
     /// The span of the vertical axis.
     pub y: (f64, f64),
+    /// Water's ice, where [`sample_with_ice`](crate::sample_with_ice) added it (M18.11).
+    pub ice: Option<IceLines>,
 }
 
 /// The fluid's diagram on `plane`, by its own batch under the default options.
@@ -44,9 +47,13 @@ pub fn diagram(fluid: &Fluid, plane: Plane) -> Result<Diagram, Error> {
 
 /// The diagram on `plane` of the fluid whose batch and limits these are.
 pub fn sample(batch: &impl Batch, plane: Plane, limits: &Limits) -> Result<Diagram, Error> {
-    let r = ranges(limits);
+    sample_over(batch, plane, limits, ranges(limits))
+}
+
+/// The diagram over the plotted range `r`.
+pub(crate) fn sample_over(batch: &impl Batch, plane: Plane, limits: &Limits, r: Ranges) -> Result<Diagram, Error> {
     let outputs = outputs(plane);
-    let DomeSides { liquid, vapour, temperatures, spans } = dome_sides(batch, plane, limits)?;
+    let DomeSides { liquid, vapour, temperatures, spans } = dome_sides(batch, plane, limits, r)?;
     let (t_c, rho_c) = ([limits.t_critical], [limits.rho_critical]);
     let critical = along(batch, &outputs, (Quantity::T, &t_c), (Quantity::Dmass, &rho_c))?;
     let dome =
@@ -56,12 +63,12 @@ pub fn sample(batch: &impl Batch, plane: Plane, limits: &Limits) -> Result<Diagr
         _ => log_grid(r.p.0, r.p.1, SWEEP_POINTS),
     };
     let lines = lines(batch, plane, &spans.square(plane), &|q| spans.get(q), &sweeps, &temperatures)?;
-    Ok(Diagram { plane, dome, lines, x: spans.get(plane.x().quantity), y: spans.get(plane.y().quantity) })
+    Ok(Diagram { plane, dome, lines, x: spans.get(plane.x().quantity), y: spans.get(plane.y().quantity), ice: None })
 }
 
 /// The spans of the plane's axes, as its diagram's (`Diagram::x` and `Diagram::y`), without its lines.
 pub(crate) fn axes_spans(batch: &impl Batch, plane: Plane, limits: &Limits) -> Result<[(f64, f64); 2], Error> {
-    let spans = dome_sides(batch, plane, limits)?.spans;
+    let spans = dome_sides(batch, plane, limits, ranges(limits))?.spans;
     Ok([spans.get(plane.x().quantity), spans.get(plane.y().quantity)])
 }
 
@@ -79,10 +86,9 @@ struct DomeSides {
     spans: Spans,
 }
 
-fn dome_sides(batch: &impl Batch, plane: Plane, limits: &Limits) -> Result<DomeSides, Error> {
-    let r = ranges(limits);
+fn dome_sides(batch: &impl Batch, plane: Plane, limits: &Limits, r: Ranges) -> Result<DomeSides, Error> {
     let outputs = outputs(plane);
-    let temperatures = dome_temperatures(dome_start(batch, &r)?, limits.t_critical, DOME_POINTS);
+    let temperatures = dome_temperatures(dome_start(batch, &r, limits.t_triple)?, limits.t_critical, DOME_POINTS);
     let side = |q: f64| move |t: &[f64]| along(batch, &outputs, (Quantity::T, t), (Quantity::Q, &vec![q; t.len()]));
     let (liquid, vapour) = (side(0.0)(&temperatures)?, side(1.0)(&temperatures)?);
     let (t, p) = ([r.t.0, r.t.0, r.t.1, r.t.1], [r.p.0, r.p.1, r.p.0, r.p.1]);
@@ -105,11 +111,12 @@ const DOME_POINTS: usize = 120;
 const SWEEP_POINTS: usize = 32;
 
 /// Where the dome enters the plotted pressures: at the saturation temperature of the lowest, or at the lowest plotted
-/// temperature if that is higher or the batch has no such state.
-fn dome_start(batch: &impl Batch, r: &Ranges) -> Result<f64, Error> {
+/// temperature if that is higher or the batch has no such state, and not below the triple point (`t_triple`), where a
+/// range reaching down to ice's lowest temperature (M18.11) starts below the dome.
+fn dome_start(batch: &impl Batch, r: &Ranges, t_triple: f64) -> Result<f64, Error> {
     let lowest = along(batch, &[Quantity::T], (Quantity::P, &[r.p.0]), (Quantity::Q, &[0.0]))?;
     let t = lowest.first().filter(|row| row.ok.first() == Some(&true)).and_then(|row| row.cells.first().copied());
-    Ok(t.map_or(r.t.0, |t| r.t.0.max(t)))
+    Ok(t.map_or(r.t.0, |t| r.t.0.max(t)).max(t_triple))
 }
 
 fn vertices(rows: &[Row]) -> Vec<Vertex> {

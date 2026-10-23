@@ -24,6 +24,8 @@ phasekit-mix.workspace = true
 phasekit-diagram.workspace = true
 # Humid air (PLAN.md M18.8): HAPropsSI and the HumidAir handle.
 phasekit-humidair.workspace = true
+# Ice Ih on Water's diagrams (PLAN.md M18.11).
+phasekit-iapws.workspace = true
 wasm-bindgen = "0.2.129"
 
 # wasm-bindgen-test runs the tests under Node (tier T3); verify gives them its tolerance classes and fixtures. Neither

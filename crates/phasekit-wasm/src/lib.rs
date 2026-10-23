@@ -53,7 +53,7 @@ mod surface;
 mod ternary;
 
 pub use curves::{CurveRuns, Curves};
-pub use diagram::{Corners, Diagram, Lines, PlaneInfo, Regions, Vertices, pair_keys, planes};
+pub use diagram::{Corners, Diagram, Lines, PlaneInfo, Regions, Vertices, ice_from, pair_keys, planes};
 pub use humid_air::{Chart, HumidAir, HumidAirState, humid_air_keys};
 pub use maps::{PropertyMap, Runs};
 pub use refusal::Refusal;

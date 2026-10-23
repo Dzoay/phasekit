@@ -163,3 +163,5 @@ x86_64-unknown-linux-gnu phasekit-diagram::maps 2
 wasm32-wasip2 phasekit-diagram::maps 2
 x86_64-unknown-linux-gnu phasekit-diagram::ternary 3
 wasm32-wasip2 phasekit-diagram::ternary 3
+x86_64-unknown-linux-gnu phasekit-diagram::ice 5
+wasm32-wasip2 phasekit-diagram::ice 5
