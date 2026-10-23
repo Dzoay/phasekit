@@ -36,6 +36,7 @@ that.
 | Area | What works |
 |---|---|
 | Fluids | All 136 CoolProp 8.0.0 pure and pseudo-pure fluids on their Helmholtz equations of state; van der Waals, SRK and Peng-Robinson cubics of each pure fluid (`phasekit-cubic`); IAPWS-IF97 water below 623.15 K and ice Ih with its sublimation curve (`phasekit-iapws`, the Rust API only) |
+| Humid air | ASHRAE RP-1485's humid air, a virial mixture of dry air and water vapour (`phasekit-humidair`): states from the pressure and any two of T, a humidity, h, s, v and the wet bulb, dew and wet-bulb points, provisional viscosity and conductivity; CoolProp's `HAPropsSI` strings in Rust, the C ABI and its shim, and the browser package; the psychrometric and Mollier h–x charts' geometry |
 | Mixtures | Multi-fluid Helmholtz mixtures with CoolProp 8.0.0's binary pairs and predefined mixtures, and GERG-2008 (`phasekit-mix`): vapour-liquid equilibrium (a PT flash with a stability test, bubble and dew points, any quality), critical points, phase envelopes and all 19 input pairs; CoolProp's mixture strings (`HEOS::R32[0.7]&R125[0.3]`, `R410A.mix`) in `PropsSI`, the C ABI and the browser package |
 | Inputs | All 19 input pairs, below the triple point refused unless a call asks to extrapolate |
 | Outputs | Thermodynamic properties with first and second partial derivatives, exact virials, transport properties and surface tension where models exist, melting lines, reference states |
@@ -48,8 +49,8 @@ that.
   package in your browser. The calculator and the diagrams (p–h, T–s, p–T, T–ρ and h–s, with phase regions and a
   state picked under the cursor) are there; sweeps, an in-browser benchmark, all 136 fluids and mixtures follow.
 
-**Later** ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)): humid air (next), the rest of IAPWS-IF97, PC-SAFT, Python
-and incompressibles.
+**Later** ([PLAN.md §4](docs/PLAN.md#4-post-01-roadmap)): the rest of IAPWS-IF97, PC-SAFT, Python and
+incompressibles.
 
 ## Trying it
 

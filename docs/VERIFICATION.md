@@ -776,7 +776,10 @@ so it needs no oracle (`crates/phasekit-verify/src/conformance.rs`).
 | Threads | `thread_invariance(make, inputs, threads)` | N threads racing into one fresh fluid's first use give a lone fluid's bits | `Exact` | M13.15; M9's tests wrote their own |
 
 **Families that run it:** the cubics (`tests/cubic_family.rs`, M11.6) and the mixtures (`tests/mixture_family.rs`,
-M13.15).
+M13.15). IAPWS-IF97 water (`phasekit-iapws`, M14.3) runs its capability, identity and gauge checks in
+`tests/iapws.rs`. Humid air (M18) is no `ThermoModel` (ARCHITECTURE.md §11): its parts are, and it checks its
+own outputs for gauge invariance, every output bit for bit under NBP, IIR and an arbitrary gauge of its parts
+(`tests/humidair.rs`, `every_output_is_gauge_invariant`).
 
 **Proof that the seams suffice** (from M5): `tests/new_family.rs`, an out-of-tree van der Waals family (registry, flash
 including a subcritical point, derivative outputs, exact virials, gauge, batch, compat strings, 16 threads), and
@@ -925,6 +928,12 @@ This section is the one definition of the bench harness, the C++ baseline and th
   built with `--features phasekit-core/libm` or `fast` (`phasekit_verify::backend::case`), and the lanes under `fast`
   are `simd_fast`, so one results file holds every build: the `simd` and `fast` builds' benches run first, then
   `cargo xtask bench --record`.
+- **Family workloads (M14, M18, phasekit only, no §7 target):** `benches/iapws.rs`, `if97_pt/{region 1,region 2}`,
+  IF97 water's PT flash plus h and c_p beside v8.0.0's 750 ns a point (map 07 R8); `benches/humidair.rs`,
+  `humidair_hapropssi/{H,W,Tdp,Twb}` at (T, p, φ) and `humidair_hapropssi/T` at (h, p, φ), compat's `HAPropsSI` over
+  humid air under `Corrected` at 1 atm on a SplitMix64 grid (T from 273.15 to 323.15 K, φ from 0.1 to 0.9), beside
+  v8.0.0's costs a call (map 07 §3.3: H 7.5 µs, W 6.8 µs, T_dp 132 µs, T_wb 152 µs, T(H, R) 203 µs). Each file's module
+  comment defines its grid.
 - **C++ baseline (M1.15):** CoolProp v8.0.0 built Release, no `-march`, like the wheels (kernel-performance §2.9), from
   a throwaway clone of `reference/CoolProp` in a scratch directory, because CoolProp's configure writes generated
   headers and data into its own source tree (`CMakeLists.txt:557-559`, `dev/generate_headers.py`). The harness
