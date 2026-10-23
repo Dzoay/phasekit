@@ -51,17 +51,19 @@ export const CURVE_PLANES: Readonly<Partial<Record<DiagramId, readonly [keyof Cu
 function runsOf(r: CurveRunsValue, pairKeys: readonly string[], cut: boolean): CurveState[][] {
   const quality = (i: number) => pairKeys[2 * (r.pairs[i] as number)] === "Q";
   const out: CurveState[][] = [];
-  for (let k = 0; k + 1 < r.starts.length; k++) {
+  r.starts.subarray(1).forEach((end, k) => {
+    const start = r.starts[k] as number;
     let run: CurveState[] = [];
-    for (let i = r.starts[k] as number; i < (r.starts[k + 1] as number); i++) {
-      if (cut && run.length > 0 && quality(i) && quality(i - 1)) {
+    for (let i = start; i < end; i++) {
+      // A cut at a run's first vertex, after another run's saturated state, leaves an empty run, which the chart drops.
+      if (cut && quality(i) && quality(i - 1)) {
         out.push(run);
         run = [];
       }
       run.push({ T: r.T[i] as number, rho: r.rho[i] as number, p: r.p[i] as number, Z: r.Z[i] as number });
     }
     out.push(run);
-  }
+  });
   return out;
 }
 
@@ -101,10 +103,10 @@ export interface MapData {
 /** Each run's vertices. */
 function runVertices(r: RunsValue, pairKeys: readonly string[]): Vertex[][] {
   const all = vertices(r.vertices, pairKeys);
-  return Array.from({ length: r.starts.length - 1 }, (_, k) => all.slice(r.starts[k], r.starts[k + 1]));
+  return Array.from(r.starts.subarray(1), (end, k) => all.slice(r.starts[k], end));
 }
 
-const bound = (v: number | undefined) => (v === undefined || Number.isNaN(v) ? null : v);
+const bound = (v: number) => (Number.isNaN(v) ? null : v);
 
 /** The package's map as the page draws it. */
 export function readMap(m: MapValue): MapData {
@@ -117,7 +119,7 @@ export function readMap(m: MapValue): MapData {
     contours: Array.from(m.levels, (_, i) => lines.slice(m.contours[i], m.contours[i + 1])),
     bands: Array.from(m.low, (low, j) => ({
       low: bound(low),
-      high: bound(m.high[j]),
+      high: bound(m.high[j] as number),
       polygons: polygons.slice(m.bands[j], m.bands[j + 1]),
     })),
   };

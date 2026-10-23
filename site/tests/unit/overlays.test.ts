@@ -16,8 +16,8 @@ import {
 import { diagram, type Diagram } from "../../src/diagram/planes";
 import type { DiagramData } from "../../src/diagram/data";
 
-// Pair 0 is (D, T), pair 1 (Q, T), pair 2 (P, T).
-const PAIR_KEYS = ["Dmass", "T", "Q", "T", "P", "T"];
+// Pair 0 is (D, T), pair 1 (P, T), pair 2 (Q, T).
+const PAIR_KEYS = ["Dmass", "T", "P", "T", "Q", "T"];
 
 function runs(states: [number, number, number, number, number][][]): CurveRunsValue {
   const all = states.flat();
@@ -40,8 +40,8 @@ const CURVES_VALUE: CurvesValue = {
   curves: new Uint32Array([0, 2, 3]),
   lines: runs([
     [
-      [300, 1, 1e5, 1, 0],
-      [310, 2, 2e5, 1, 0],
+      [300, 1, 1e5, 1, 2],
+      [310, 2, 2e5, 1, 2],
     ],
     [[320, 3, 3e5, 1, 0]],
     [
@@ -49,18 +49,24 @@ const CURVES_VALUE: CurvesValue = {
       [340, 5, 5e5, 1.2, 0],
     ],
   ]),
-  isotherms: new Float64Array([100, 200]),
-  // 100 K: two vapour states, the saturated vapour and liquid (QT), then the liquid; 200 K: two states.
+  isotherms: new Float64Array([100, 150, 200, 250]),
+  // 100 K: a vapour state, the saturated vapour and liquid (QT), then a liquid state; 150 K: no state; 200 K: two
+  // states, the last a QT one; 250 K: two states, the first a QT one, which follows 200 K's and cuts nothing.
   chart: runs([
     [
-      [100, 1, 1e4, 0.99, 2],
-      [100, 2, 2e4, 0.95, 1],
-      [100, 800, 2e4, 0.004, 1],
-      [100, 810, 1e6, 0.1, 2],
+      [100, 1, 1e4, 0.99, 1],
+      [100, 2, 2e4, 0.95, 2],
+      [100, 800, 2e4, 0.004, 2],
+      [100, 810, 1e6, 0.1, 1],
+    ],
+    [],
+    [
+      [200, 1, 1e4, 1, 1],
+      [200, 2, 1e6, 0.9, 2],
     ],
     [
-      [200, 1, 1e4, 1, 2],
-      [200, 2, 1e6, 0.9, 2],
+      [250, 1, 1e4, 1, 2],
+      [250, 2, 1e6, 0.9, 1],
     ],
   ]),
   pairKeys: PAIR_KEYS,
@@ -90,7 +96,9 @@ describe("the curves' reader", () => {
           [800, 810],
         ],
       ],
+      [150, []],
       [200, [[1, 2]]],
+      [250, [[1, 2]]],
     ]);
   });
 
@@ -114,7 +122,7 @@ const MAP_VALUE: MapValue = {
     vertices: {
       xy: new Float64Array([250, 1e5, 260, 2e5, 270, 1e6, 280, 2e6, 290, 3e6, 300, 4e6]),
       inputs: new Float64Array([1e5, 250, 2e5, 260, 1e6, 270, 2e6, 280, 3e6, 290, 4e6, 300]),
-      pairs: new Uint8Array([2, 2, 2, 2, 2, 2]),
+      pairs: new Uint8Array([1, 1, 1, 1, 1, 1]),
     },
   },
   low: new Float64Array([NaN, 10, 100]),
@@ -125,7 +133,7 @@ const MAP_VALUE: MapValue = {
     vertices: {
       xy: new Float64Array([200, 1e4, 300, 1e4, 200, 1e5, 300, 1e6, 400, 1e6, 400, 1e7]),
       inputs: new Float64Array([1e4, 200, 1e4, 300, 1e5, 200, 1e6, 300, 1e6, 400, 1e7, 400]),
-      pairs: new Uint8Array([2, 2, 2, 2, 2, 2]),
+      pairs: new Uint8Array([1, 1, 1, 1, 1, 1]),
     },
   },
   pairKeys: PAIR_KEYS,
@@ -158,6 +166,8 @@ describe("a map's colours", () => {
     expect(channels("#0a14FF")).toEqual([10, 20, 255]);
     expect(channels("currentColor")).toBeNull();
     expect(channels("#0a14f")).toBeNull();
+    // Whole colours only: nothing before the function or the hash, nothing after the six digits.
+    for (const other of ["xrgb(1, 2, 3)", "x#0a14ff", "#0a14ff00"]) expect(channels(other), other).toBeNull();
   });
 
   test("ramps its bands evenly from the low colour to the high one", () => {
@@ -231,5 +241,41 @@ describe("the overlays drawn", () => {
     ]);
     expect(m.labels.map((l) => l.text)).toEqual(["10 kg/m³", "100 kg/m³"]);
     expect(buildModel(pt, empty, options(pt)).bands).toEqual([]);
+  });
+
+  test("draws no curve it does not know, and places no label that would overlap one placed", () => {
+    // Two curves of one point each, the same: the second's label has nowhere to go.
+    const twin: CurvesValue = {
+      ...CURVES_VALUE,
+      names: ["Ideal", "Mystery", "Boyle"],
+      zeroDensity: new Float64Array([NaN, NaN, NaN]),
+      curves: new Uint32Array([0, 1, 2, 3]),
+      lines: runs([[[300, 1, 1e5, 1, 0]], [[320, 3, 3e5, 1, 0]], [[300, 1, 1e5, 1, 0]]]),
+    };
+    const pt = diagram("pt") as Diagram;
+    const m = buildModel(pt, empty, { ...options(pt), curves: readCurves(twin) });
+    expect(m.strokes.slice(1).map((s) => s.colour)).toEqual(["--curve-1", "--curve-2"]);
+    expect(m.labels).toHaveLength(1);
+    expect(m.labels[0]?.text).toBe("Ideal curve (Z = 1)");
+  });
+
+  test("places no contour label that would overlap one placed", () => {
+    const one = MAP_VALUE.lines.vertices;
+    // Each level's line is one point, the same.
+    const map = readMap({
+      ...MAP_VALUE,
+      contours: new Uint32Array([0, 1, 2]),
+      lines: {
+        starts: new Uint32Array([0, 1, 2]),
+        vertices: {
+          xy: new Float64Array([250, 1e5, 250, 1e5]),
+          inputs: one.inputs.subarray(0, 4),
+          pairs: one.pairs.subarray(0, 2),
+        },
+      },
+    });
+    const pt = diagram("pt") as Diagram;
+    const m = buildModel(pt, empty, { ...options(pt), map });
+    expect(m.labels.map((l) => l.text)).toEqual(["10 kg/m³"]);
   });
 });

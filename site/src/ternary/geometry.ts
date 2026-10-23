@@ -61,8 +61,8 @@ export function triangle(width: number): Triangle {
 /** The height of the box the triangle needs, its names below and above it included. */
 export const boxHeight = (t: Triangle): number => t.bottom + 40;
 
-/** Where a composition lies: the first fraction toward the bottom right, the second up. */
-export function place([a, b]: Fractions, t: Triangle): [number, number] {
+/** Where a composition lies: the first fraction toward the bottom right, the second up; the third is the rest. */
+export function place([a, b]: readonly [number, number, ...number[]], t: Triangle): [number, number] {
   return [t.left + (a + b / 2) * t.side, t.bottom - ((b * Math.sqrt(3)) / 2) * t.side];
 }
 
@@ -79,9 +79,9 @@ export function gridLines(t: Triangle): [[number, number], [number, number]][] {
   const out: [[number, number], [number, number]][] = [];
   for (let k = 1; k < 10; k++) {
     const f = k / 10;
-    out.push([place([f, 0, 1 - f], t), place([f, 1 - f, 0], t)]);
-    out.push([place([0, f, 1 - f], t), place([1 - f, f, 0], t)]);
-    out.push([place([0, 1 - f, f], t), place([1 - f, 0, f], t)]);
+    out.push([place([f, 0], t), place([f, 1 - f], t)]);
+    out.push([place([0, f], t), place([1 - f, f], t)]);
+    out.push([place([0, 1 - f], t), place([1 - f, 0], t)]);
   }
   return out;
 }

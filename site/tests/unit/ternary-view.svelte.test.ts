@@ -6,6 +6,7 @@ import { createHandler } from "../../src/engine/handler";
 import type { Body, Engine, Request, Values } from "../../src/engine/protocol";
 import { TernaryView } from "../../src/ternary/view.svelte";
 import { loadPk, packBytes } from "../pk";
+import { drain, heldEngine, ternaryAt } from "./late";
 
 async function realEngine(): Promise<{ engine: Engine; calls: Body[] }> {
   const handle = createHandler(await loadPk("simd"), "simd128");
@@ -108,5 +109,27 @@ describe("the ternary view", { timeout: 120_000 }, () => {
     flushSync();
     expect([late.busy, late.refusal, late.choices]).toEqual([true, null, []]);
     stop2();
+  });
+
+  test("is busy again for a T it has not loaded, and drops a late answer for one no longer chosen", async () => {
+    const { engine, pending } = heldEngine();
+    const route = $state({ params: new URLSearchParams("T=250") });
+    const view = new TernaryView(engine);
+    const stop = view.connect(route, () => {});
+    flushSync();
+    view.set("T", 260);
+    flushSync();
+    pending[1]?.resolve(ternaryAt(260));
+    await drain();
+    flushSync();
+    expect([view.busy, view.data?.T]).toEqual([false, 260]);
+    pending[0]?.resolve(ternaryAt(250));
+    await drain();
+    flushSync();
+    expect(view.data?.T).toBe(260);
+    view.set("T", 270);
+    flushSync();
+    expect(view.busy).toBe(true);
+    stop();
   });
 });

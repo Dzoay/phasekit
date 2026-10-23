@@ -68,8 +68,11 @@ function logTicks(scale: ReturnType<typeof scaleLog<number>>): Tick[] {
   const [lo, hi] = scale.domain() as [number, number];
   const decades: number[] = [];
   for (let k = Math.ceil(Math.log10(lo)); k <= Math.floor(Math.log10(hi)); k++) decades.push(10 ** k);
-  const values = decades.length >= 2 ? decades : scale.ticks(4);
-  return values.map((v) => ({ at: scale(v), text: decades.length >= 2 ? decadeText(v) : formatNumber(v) }));
+  const decade = decades.length >= 2;
+  return (decade ? decades : scale.ticks(4)).map((v) => ({
+    at: scale(v),
+    text: decade ? decadeText(v) : formatNumber(v),
+  }));
 }
 
 function path(points: [number, number][], style: Omit<Path, "d" | "label">, label: string | null): Path {
@@ -125,8 +128,8 @@ export function rampToken(j: number, n: number): string {
 export function zChart(chart: readonly ChartIsotherm[], f: Frame, colour: (token: string) => string): Chart {
   const states: CurveState[] = chart.flatMap((i) => i.runs.flat());
   const p = extent(states.map((s) => s.p)) ?? [1, 10];
-  const zs = states.map((s) => s.Z).filter(Number.isFinite);
-  const z: [number, number] = zs.length > 0 ? [Math.min(0, ...zs), Math.max(1.1, ...zs)] : [0, 1.1];
+  const zs = states.map((s) => s.Z);
+  const z: [number, number] = [Math.min(0, ...zs), Math.max(1.1, ...zs)];
   const x = scaleLog().domain(p).range([f.left, f.right]);
   const y = scaleLinear().domain(z).range([f.bottom, f.top]).nice();
   const at = (s: CurveState): [number, number] => [x(s.p), (y as Scale)(s.Z)];
@@ -150,6 +153,7 @@ const LABEL_GAP = 12;
 
 /** The paths with only those labels kept that are `LABEL_GAP` apart, taken in order. */
 export function apart(paths: Path[]): Path[] {
+  // Stryker disable next-line ArrayDeclaration: a stray entry that is no number is no label's height, and keeps none away.
   const kept: number[] = [];
   return paths.map((p) => {
     if (!p.label) return p;

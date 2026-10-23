@@ -6,6 +6,7 @@ import { CurvesView } from "../../src/curves/view.svelte";
 import { createHandler } from "../../src/engine/handler";
 import type { Body, Engine, Request, Values } from "../../src/engine/protocol";
 import { loadPk } from "../pk";
+import { curvesOf, drain, emptyDiagram, heldEngine } from "./late";
 
 async function realEngine(): Promise<{ engine: Engine; calls: Body[] }> {
   const handle = createHandler(await loadPk("simd"), "simd128");
@@ -93,6 +94,31 @@ describe("the curves view", { timeout: 60_000 }, () => {
     await new Promise((r) => setTimeout(r, 10));
     flushSync();
     expect([view.busy, view.refusal]).toEqual([true, null]);
+    stop();
+  });
+
+  test("is busy again for a fluid it has not loaded, and drops a late answer for one no longer chosen", async () => {
+    const { engine, pending } = heldEngine();
+    const route = $state({ params: new URLSearchParams("fluid=Water") });
+    const view = new CurvesView(engine);
+    const stop = view.connect(route, () => {});
+    flushSync();
+    view.fluid = "Nitrogen";
+    flushSync();
+    // Nitrogen's answer first, then Water's, late.
+    pending[2]?.resolve(curvesOf("Nitrogen"));
+    pending[3]?.resolve(emptyDiagram());
+    await drain();
+    flushSync();
+    expect([view.busy, view.data?.curves.curves[0]?.name]).toEqual([false, "Nitrogen"]);
+    pending[0]?.resolve(curvesOf("Water"));
+    pending[1]?.resolve(emptyDiagram());
+    await drain();
+    flushSync();
+    expect(view.data?.curves.curves[0]?.name).toBe("Nitrogen");
+    view.fluid = "Argon";
+    flushSync();
+    expect(view.busy).toBe(true);
     stop();
   });
 });

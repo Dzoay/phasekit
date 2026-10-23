@@ -8,6 +8,7 @@ import { DiagramView, READOUT_KEYS } from "../../src/diagram/view.svelte";
 import { createHandler } from "../../src/engine/handler";
 import type { Body, Engine, Request, Values } from "../../src/engine/protocol";
 import { loadPk, packBytes } from "../pk";
+import { curvesOf, drain, emptyDiagram, heldEngine, mapOf } from "./late";
 
 async function realEngine(): Promise<{ engine: Engine; calls: string[]; bodies: Body[] }> {
   const handle = createHandler(await loadPk("simd"), "simd128");
@@ -593,6 +594,57 @@ describe("the curves and maps over a diagram (PLAN.md M26.6)", { timeout: 60_000
     await new Promise((r) => setTimeout(r, 10));
     flushSync();
     expect(view.mapData?.key).toBe("Smass");
+    stop();
+  });
+
+  test("shows no curves of the fluid before while another's load, and drops a late answer", async () => {
+    const { engine, pending } = heldEngine();
+    const route = $state({ params: new URLSearchParams("fluid=Water&d=pt&curves=1") });
+    const view = new DiagramView(engine);
+    const stop = view.connect(route, () => {});
+    flushSync();
+    const curves = (fluid: string) => pending.filter((p) => p.body.op === "curves" && p.body.fluid === fluid);
+    curves("Water")[0]?.resolve(curvesOf("Water"));
+    await drain();
+    flushSync();
+    expect(view.curveData?.curves[0]?.name).toBe("Water");
+    view.fluid = "Nitrogen";
+    flushSync();
+    expect(view.curveData).toBeNull();
+    view.fluid = "Argon";
+    flushSync();
+    curves("Argon")[0]?.resolve(curvesOf("Argon"));
+    await drain();
+    curves("Nitrogen")[0]?.resolve(curvesOf("Nitrogen"));
+    await drain();
+    flushSync();
+    expect(view.curveData?.curves[0]?.name).toBe("Argon");
+    for (const p of pending) if (p.body.op === "diagram") p.resolve(emptyDiagram());
+    stop();
+  });
+
+  test("clears a map's refusal for the next map, and drops a late refusal", async () => {
+    const { engine, pending } = heldEngine();
+    const route = $state({ params: new URLSearchParams("fluid=Water&d=ph&map=T") });
+    const view = new DiagramView(engine);
+    const stop = view.connect(route, () => {});
+    flushSync();
+    const maps = (key: string) => pending.filter((p) => p.body.op === "map" && p.body.output === key);
+    maps("T")[0]?.reject(new Error("refused T"));
+    await drain();
+    flushSync();
+    expect(view.mapRefusal).toBe("refused T");
+    view.setMap("Smass");
+    flushSync();
+    expect(view.mapRefusal).toBeNull();
+    view.setMap("Hmass");
+    flushSync();
+    maps("Hmass")[0]?.resolve(mapOf("Hmass"));
+    await drain();
+    maps("Smass")[0]?.reject(new Error("refused Smass"));
+    await drain();
+    flushSync();
+    expect([view.mapRefusal, view.mapData?.key]).toEqual([null, "Hmass"]);
     stop();
   });
 });

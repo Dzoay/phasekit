@@ -9,10 +9,10 @@ import { readTernary, type TernaryData } from "./geometry";
 
 const DEFAULT = { mixture: "R407C.mix", T: 273.15, p: 5e5 } as const;
 
-/** A positive finite number from the URL, or the default. */
+/** A positive finite number from the URL, or the default; `Number` reads a missing or blank one as 0. */
 function positive(raw: string | null, fallback: number): number {
   const v = Number(raw);
-  return raw !== null && raw.trim() !== "" && Number.isFinite(v) && v > 0 ? v : fallback;
+  return Number.isFinite(v) && v > 0 ? v : fallback;
 }
 
 export class TernaryView {
