@@ -54,7 +54,7 @@ describe("engine", () => {
       const [value, error] = [got.value.values[i], got.value.errors[i]];
       if (typeof want === "number")
         expect(value !== null && value !== undefined && sameBits(value, want), key).toBe(true);
-      else expect([value, error], key).toEqual([null, want]);
+      else expect([value, error?.message], key).toEqual([null, want]);
     }
     state.free();
     fluid.free();
@@ -74,7 +74,10 @@ describe("engine", () => {
       outputs: ["T"],
     });
     expect(got.ok).toBe(false);
-    expect(!got.ok && got.error.length > 0 && got.error.includes("Unobtainium"), JSON.stringify(got)).toBe(true);
+    expect(
+      !got.ok && got.error.message.length > 0 && got.error.message.includes("Unobtainium"),
+      JSON.stringify(got),
+    ).toBe(true);
   });
 
   test("reports its build", async () => {
@@ -338,7 +341,7 @@ describe("the engine's handles", () => {
       value: {
         phase: "liquid",
         values: [1, null, null],
-        errors: [null, "not here", "a bare string"],
+        errors: [null, { message: "not here", explained: {} }, { message: "a bare string", explained: {} }],
         mixture: null,
       },
     });
@@ -353,7 +356,7 @@ describe("the engine's handles", () => {
   test("answers a refused fluid with the package's message", () => {
     const { pk } = fakePk();
     const got = createHandler(pk, "baseline")({ id: 9, op: "time", fluid: "Nothing", ...at, outputs: [] });
-    expect(got).toEqual({ id: 9, ok: false, op: "time", error: "unknown fluid Nothing" });
+    expect(got).toEqual({ id: 9, ok: false, op: "time", error: { message: "unknown fluid Nothing", explained: {} } });
   });
 });
 
@@ -499,9 +502,19 @@ describe("the engine's packs (PLAN.md M21.4)", () => {
     const corrupt = packBytes("r32.pack");
     corrupt.set([(corrupt.at(-1) as number) ^ 1], corrupt.length - 1);
     const refused = handle({ id: 1, op: "pack", bytes: corrupt });
-    expect(refused).toEqual({ id: 1, ok: false, op: "pack", error: expect.stringContaining("checksum") });
+    expect(refused).toEqual({
+      id: 1,
+      ok: false,
+      op: "pack",
+      error: expect.objectContaining({ message: expect.stringContaining("checksum") }),
+    });
     const twice = handle({ id: 2, op: "pack", bytes: packBytes("water.pack") });
-    expect(twice).toEqual({ id: 2, ok: false, op: "pack", error: expect.stringContaining("already registered") });
+    expect(twice).toEqual({
+      id: 2,
+      ok: false,
+      op: "pack",
+      error: expect.objectContaining({ message: expect.stringContaining("already registered") }),
+    });
     expect(handle({ id: 3, op: "registry" })).toEqual({
       id: 3,
       ok: true,
@@ -602,7 +615,7 @@ describe("the engine's mixtures (PLAN.md M21.5)", () => {
       id: 3,
       ok: false,
       op: "components",
-      error: expect.stringContaining("R999.mix"),
+      error: expect.objectContaining({ message: expect.stringContaining("R999.mix") }),
     });
   });
 
@@ -620,13 +633,13 @@ describe("the engine's mixtures (PLAN.md M21.5)", () => {
       id: 4,
       ok: false,
       op: "diagram",
-      error: "input pair HP is not supported by this model",
+      error: expect.objectContaining({ message: "input pair HP is not supported by this model" }),
     });
     expect(handle({ id: 5, op: "regions", fluid: "R410A.mix" })).toEqual({
       id: 5,
       ok: false,
       op: "regions",
-      error: `${fluid.name} is a mixture: its phase regions are not drawn`,
+      error: { message: `${fluid.name} is a mixture: its phase regions are not drawn`, explained: {} },
     });
     for (const h of [want, fluid, registry]) h.free();
   });
@@ -708,7 +721,7 @@ describe("the engine's diagrams (PLAN.md M21.6)", () => {
       id: 3,
       ok: false,
       op: "diagram",
-      error: "`xy` is no plane: ph, ts, pt, trho or hs",
+      error: expect.objectContaining({ message: "`xy` is no plane: ph, ts, pt, trho or hs" }),
     });
     for (const h of [want, r, water, registry]) h.free();
   });
@@ -760,7 +773,7 @@ describe("the engine's diagrams (PLAN.md M21.6)", () => {
       id: 3,
       ok: false,
       op: "diagram",
-      error: "`xy` is no plane",
+      error: expect.objectContaining({ message: "`xy` is no plane" }),
     });
   });
 });
@@ -842,7 +855,7 @@ describe("the engine's surfaces (PLAN.md M26.2)", () => {
       id: 2,
       ok: false,
       op: "surface",
-      error: expect.stringContaining("Nothing"),
+      error: expect.objectContaining({ message: expect.stringContaining("Nothing") }),
     });
     for (const h of [want, water, registry]) h.free();
   });

@@ -17,11 +17,15 @@ const CONFIG: &str = "crates/phasekit-capi/cbindgen.toml";
 const EXPORTS: [&str; 2] = ["crates/phasekit-capi/src/lib.rs", "crates/phasekit-capi/src/shim/mod.rs"];
 
 /// The exports that may run without a catch, each with its reason.
-const UNCAUGHT: [(&str, &str); 1] = [(
-    "pk_last_error",
-    "copies the thread's last error into the caller's buffer, and nothing in it panics short of an allocation \
-     failure, which aborts",
-)];
+const UNCAUGHT: [(&str, &str); 3] = [
+    (
+        "pk_last_error",
+        "copies the thread's last error into the caller's buffer, and nothing in it panics short of an allocation \
+         failure, which aborts",
+    ),
+    ("pk_last_error_code", "copies the thread's last code into the caller's buffer, as pk_last_error does"),
+    ("pk_last_error_rule", "copies the thread's last rule into the caller's buffer, as pk_last_error does"),
+];
 
 /// CoolProp's Tier A names, exactly what the shim's build exports (D11; map 11 U11; PLAN.md M10.6).
 const TIER_A: [&str; 11] = [

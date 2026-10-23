@@ -108,14 +108,8 @@
     {#if calc.refusal}
       <div class="card refusal" role="alert">
         <strong>The package refused this state.</strong>
-        <p data-testid="refusal-inputs">
-          It works in SI, and received {calc.received(calc.aKey, calc.aValue)} and {calc.received(
-            calc.bKey,
-            calc.bValue,
-          )}.
-        </p>
-        <p class="message"><span class="muted">Its message, in SI:</span> <code>{calc.refusal}</code></p>
-        {#if fluidData.parts.has(calc.fluid) && liquidLiquid(calc.refusal)}
+        <p class="message" data-testid="refusal-message"><code>{calc.refusalText}</code></p>
+        {#if fluidData.parts.has(calc.fluid) && liquidLiquid(calc.refusal.message)}
           <p data-testid="liquid-liquid">
             A mixture takes every input pair, so this is its refusal of two liquid phases, or of three phases: phasekit
             computes the equilibrium of a vapour and a liquid only.

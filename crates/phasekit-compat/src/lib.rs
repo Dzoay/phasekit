@@ -15,7 +15,7 @@
 use core::fmt;
 
 use phasekit_core::batch::{self, BatchRequest, BatchSummary, ExecPolicy, Status};
-use phasekit_core::{Basis, Error, FlashOptions, Fluid, Input, LoadError, Pair, Prop, Registry, State};
+use phasekit_core::{Basis, Error, FlashOptions, Fluid, Input, LoadError, Pair, Prop, Registry, Rule, State};
 
 #[cfg(feature = "fault-injection")]
 pub mod fault;
@@ -63,6 +63,30 @@ pub enum CompatError {
     NotAProperty(String),
     /// The kernel refused the call.
     Core(Error),
+}
+
+impl CompatError {
+    /// The refusal's stable code: core's for a kernel error (`invalid_input`, `below_min_temperature`, …), else
+    /// compat's own (`unknown_output`, `invalid_pair`, …) (user decision EM12).
+    pub const fn code(&self) -> &'static str {
+        match self {
+            CompatError::UnknownOutput(_) => "unknown_output",
+            CompatError::UnknownInput(_) => "unknown_input",
+            CompatError::InvalidPair(..) => "invalid_pair",
+            CompatError::InvalidFluid(_) => "invalid_fluid",
+            CompatError::NotAConstant(_) => "not_a_constant",
+            CompatError::NotAProperty(_) => "not_a_property",
+            CompatError::Core(e) => e.code(),
+        }
+    }
+
+    /// The rule an invalid input's value breaks, core's; `None` for any other refusal.
+    pub fn rule(&self) -> Option<Rule> {
+        match self {
+            CompatError::Core(e) => e.rule(),
+            _ => None,
+        }
+    }
 }
 
 impl From<Error> for CompatError {
@@ -385,6 +409,26 @@ pub fn phase_si(name1: &str, value1: f64, name2: &str, value2: f64, fluid: &str)
 mod tests {
     use super::*;
     use phasekit_core::{Quantity, Var};
+
+    /// User decision EM12: a refusal's stable code, core's for a kernel error and compat's own for a string; an invalid
+    /// input's rule, core's.
+    #[test]
+    fn every_refusal_has_its_code() {
+        let zero = Error::InvalidInput { quantity: Quantity::TEMPERATURE, value: 0.0 };
+        let cases = [
+            (CompatError::UnknownOutput("Y".into()), "unknown_output", None),
+            (CompatError::UnknownInput("Y".into()), "unknown_input", None),
+            (CompatError::InvalidPair("T".into(), "T".into()), "invalid_pair", None),
+            (CompatError::InvalidFluid("A&B".into()), "invalid_fluid", None),
+            (CompatError::NotAConstant("Hmass".into()), "not_a_constant", None),
+            (CompatError::NotAProperty("Phase".into()), "not_a_property", None),
+            (CompatError::Core(zero), "invalid_input", Some(Rule::NotAboveAbsoluteZero)),
+            (CompatError::Core(Error::ForeignState), "foreign_state", None),
+        ];
+        for (error, code, rule) in cases {
+            assert_eq!((error.code(), error.rule()), (code, rule), "{error:?}");
+        }
+    }
 
     /// ROT-165 (map 01 R7): CoolProp returns an output equal to one of its inputs before any check, so
     /// `PropsSI("T", "T", -5, "P", 101325, "Water")` echoes −5 K. Here every input passes the kernel's gate: an

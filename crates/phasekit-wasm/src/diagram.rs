@@ -20,7 +20,7 @@ use phasekit_diagram::{self as diagram, FluidBatch, Limits, Plane, Quantity};
 use phasekit_mix::{EnvelopeOptions, Mixture, Side};
 use wasm_bindgen::prelude::*;
 
-use crate::{Fluid, alive, end_name, end_reason, js, mixture_of};
+use crate::{Fluid, alive, end_name, end_reason, js, mixture_of, refuse};
 
 /// A quantity's key, as `PropsSI` names it.
 fn key(quantity: Quantity) -> &'static str {
@@ -475,8 +475,8 @@ impl Regions {
 }
 
 /// A mixture's traced envelope as phasekit-diagram takes it (DG3), and how and why the trace ended.
-fn trace(mixture: &Mixture) -> Result<(diagram::Trace, String, String), JsError> {
-    let e = mixture.envelope(&EnvelopeOptions::new()).map_err(js)?;
+fn trace(mixture: &Mixture) -> Result<(diagram::Trace, String, String), JsValue> {
+    let e = mixture.envelope(&EnvelopeOptions::new()).map_err(refuse)?;
     let (end, reason) = (end_name(&e.end).to_string(), end_reason(&e.end));
     let m = mixture.info().molar_mass();
     let rho = e.rho_bulk.iter().map(|rho| rho * m).collect();
@@ -498,14 +498,14 @@ pub fn ice_from() -> f64 {
 
 /// Water's ice Ih from `ice_from` (K) where a page asks for it, under `Corrected` as the package's humid air (PLAN.md
 /// M18.11); refused for any other fluid.
-fn ice_of(fluid: &phasekit_core::Fluid, ice_from: Option<f64>) -> Result<Option<diagram::Ice>, JsError> {
+fn ice_of(fluid: &phasekit_core::Fluid, ice_from: Option<f64>) -> Result<Option<diagram::Ice>, JsValue> {
     let Some(t_low) = ice_from else { return Ok(None) };
     let name = fluid.info().name();
     if name != "Water" {
-        return Err(js(format!("ice is drawn on Water's diagrams alone, not {name}'s")));
+        return Err(js(format!("ice is drawn on Water's diagrams alone, not {name}'s")).into());
     }
-    let ice = phasekit_iapws::ice::ice(fluid, DataSet::Corrected).map_err(js)?;
-    Ok(Some(diagram::Ice::of(fluid, &ice, t_low).map_err(js)?))
+    let ice = phasekit_iapws::ice::ice(fluid, DataSet::Corrected).map_err(refuse)?;
+    Ok(Some(diagram::Ice::of(fluid, &ice, t_low).map_err(refuse)?))
 }
 
 #[wasm_bindgen]
@@ -515,36 +515,36 @@ impl Fluid {
     /// a mixture's phase envelope on `pt` and `trho`, traced as `envelope()` traces it, the other planes refused.
     /// Water's carries ice Ih from `ice_from` (K; `iceFrom()` by default) up where a page gives it, its range reaching
     /// down there (PLAN.md M18.11); another fluid's refuses it.
-    pub fn diagram(&self, plane: &str, ice_from: Option<f64>) -> Result<Diagram, JsError> {
+    pub fn diagram(&self, plane: &str, ice_from: Option<f64>) -> Result<Diagram, JsValue> {
         alive()?;
         let unknown = || js(format!("`{plane}` is no plane: ph, ts, pt, trho or hs"));
         let plane = Plane::from_id(plane).ok_or_else(unknown)?;
         if let Some(mixture) = mixture_of(&self.inner) {
             let (trace, end, reason) = trace(mixture)?;
-            return Diagram::of(&diagram::envelope(&self.inner, &trace, plane).map_err(js)?, end, reason);
+            return Ok(Diagram::of(&diagram::envelope(&self.inner, &trace, plane).map_err(refuse)?, end, reason)?);
         }
         let batch = FluidBatch::new(&self.inner).with_exec(ExecPolicy::Simd);
-        let limits = Limits::of(&self.inner).map_err(js)?;
+        let limits = Limits::of(&self.inner).map_err(refuse)?;
         let d = match ice_of(&self.inner, ice_from)? {
             Some(ice) => diagram::sample_with_ice(&batch, plane, &limits, &ice),
             None => diagram::sample(&batch, plane, &limits),
         };
-        Diagram::of(&d.map_err(js)?, String::new(), String::new())
+        Ok(Diagram::of(&d.map_err(refuse)?, String::new(), String::new())?)
     }
 
     /// Its phase regions (PLAN.md M19.5): polygons whose corners carry every plane's axes, each region's phase the
     /// library's at a state inside it, and the critical isotherm and isobar. A mixture has none and is refused.
     /// Water's add ice Ih's from `ice_from` (K) where a page gives it: the solid, the solid + vapour and the solid +
     /// liquid, after Water's six, whose floor reaches down to ice's lowest pressure (PLAN.md M18.11).
-    pub fn regions(&self, ice_from: Option<f64>) -> Result<Regions, JsError> {
+    pub fn regions(&self, ice_from: Option<f64>) -> Result<Regions, JsValue> {
         alive()?;
         if mixture_of(&self.inner).is_some() {
-            return Err(js(format!("{} is a mixture: its phase regions are not drawn", self.name())));
+            return Err(js(format!("{} is a mixture: its phase regions are not drawn", self.name())).into());
         }
         let regions = match ice_of(&self.inner, ice_from)? {
             Some(ice) => diagram::regions_with_ice(&self.inner, &ice),
             None => diagram::regions(&self.inner),
         };
-        Regions::of(&regions.map_err(js)?)
+        Ok(Regions::of(&regions.map_err(refuse)?)?)
     }
 }
