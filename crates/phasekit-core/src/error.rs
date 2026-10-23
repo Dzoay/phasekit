@@ -10,10 +10,12 @@ use crate::state::{Phase, Strategy};
 
 mod code;
 mod message;
+mod remedy;
 mod words;
 
 pub use code::Rule;
 pub use message::Message;
+pub use remedy::Remedy;
 
 /// Every failure the kernel can report. No panics on user input; no sentinels (map 12 R3).
 #[derive(Clone, Debug, PartialEq)]

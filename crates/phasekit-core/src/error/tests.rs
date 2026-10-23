@@ -251,3 +251,34 @@ fn the_rule_a_value_breaks() {
     }
     assert_eq!(Error::from(DomainError::MechanicallyUnstable).rule(), None);
 }
+
+/// User decision EM15: what a caller can do about each error, by its stable code, most direct first.
+#[test]
+fn every_error_has_its_remedies() {
+    let cases: [(Error, &[&str]); 20] = [
+        (invalid(Quantity::TEMPERATURE, 0.0), &[]),
+        (Error::InvalidArgument { argument: "plane", value: None }, &[]),
+        (Error::Unsupported { pair: Pair::HS }, &["declared_pair"]),
+        (DomainError::BelowMinTemperature { t: 200.0, t_min: 273.16 }.into(), &["extrapolate"]),
+        (DomainError::AboveMaxTemperature { t: 700.0, t_max: 647.096 }.into(), &["extrapolate"]),
+        (DomainError::BelowMinPressure { p: 100.0, p_min: 611.655 }.into(), &["extrapolate"]),
+        (DomainError::AboveMaxPressure { p: 2e9, p_max: 1e9 }.into(), &["extrapolate"]),
+        (DomainError::BelowMeltingLine { t: 250.0, t_melt: 251.165 }.into(), &["extrapolate"]),
+        (DomainError::MechanicallyUnstable.into(), &[]),
+        (Error::NoConvergence { strategy: Strategy::Vle, iterations: 60 }, &["warm_start", "other_pair"]),
+        (Error::Ambiguous { roots: Roots::new(Quantity::TEMPERATURE, &[300.0, 350.0]) }, &["choose_root"]),
+        (Error::Undefined { prop: Prop::Cpmass, phase: Phase::TwoPhase }, &["saturated_phases"]),
+        (Error::Undefined { prop: Prop::Q, phase: Phase::Liquid }, &[]),
+        (Error::NoModel { prop: Prop::Viscosity }, &[]),
+        (Error::ForeignState, &[]),
+        (Error::InvalidState { reason: "a reason" }, &[]),
+        (LoadError::UnknownName("Wtaer".into()).into(), &["nearest_name"]),
+        (LoadError::MissingPart("transport").into(), &[]),
+        (Error::Shape { expected: 3, found: 2 }, &[]),
+        (Error::InvalidArgument { argument: "number of mole fractions", value: Some(3) }, &[]),
+    ];
+    for (error, codes) in cases {
+        let got: Vec<_> = error.remedies().iter().map(|r| r.code()).collect();
+        assert_eq!(got, codes, "{error:?}");
+    }
+}
