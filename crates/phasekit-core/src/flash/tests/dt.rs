@@ -23,7 +23,7 @@ fn extrapolation_is_opt_in_flagged_and_never_extends_a_fit() {
     // Without a hint, outside 200-380 K the fit is not evaluated under either policy (it panics if it is): the
     // generic VLE of the EOS is asked, and the toy EOS has no loop there.
     for (t, opts) in [(172.0, extrapolate), (190.0, enforce), (190.0, extrapolate)] {
-        assert_eq!(fluid.flash(dt(t), &opts), Err(Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 }));
+        assert_eq!(fluid.flash(dt(t), &opts), Err(Error::no_convergence(Strategy::Vle, 0)));
     }
     assert_eq!(fluid.flash(dt(300.0), &enforce).unwrap().phase(), Phase::Liquid);
 

@@ -18,7 +18,7 @@ use super::quality::{curve_at_p, split_sides};
 use super::search::{root_in_t, toms748_kept};
 use super::{
     AT_LOWEST_T, Caloric, DomainPolicy, FlashOptions, T_TOL, accept, check_p, no_quality, reproduces_x, solve_branch,
-    t_search, total, two_phase, within_domain,
+    t_search, total, two_phase, unreproduced_x, within_domain,
 };
 
 /// P+X: PH, PS and PU (PLAN.md M7.3; map 03 §3.1, §9 `flash::px`). The saturation at p ([`saturation_at_p`]) splits
@@ -177,10 +177,10 @@ fn isobar(fluid: &PureFluid, p: f64, x: f64, var: Caloric, opts: &FlashOptions, 
     let (branch, rho) = walk.density(t)?;
     let b = total(fluid, t, rho)?;
     if !crate::density::reproduces(r, t, rho, p, &b) {
-        return Err(Error::NoConvergence { strategy: Strategy::DensityNewton, iterations });
+        return Err(crate::density::unreproduced(r, (t, rho), p, &b, iterations));
     }
     if !reproduces_x(var, r, t, x, var.at(r, t, &b)) {
-        return Err(Error::NoConvergence { strategy: Strategy::Isobar, iterations });
+        return Err(unreproduced_x((Strategy::Isobar, iterations), var, r, (t, rho), (x, var.at(r, t, &b))));
     }
     if opts.phase_hint().is_none() {
         accept(r, t, &b)?;

@@ -258,7 +258,7 @@ pub(crate) fn stable_root(model: &dyn HelmholtzModel, t: f64, p: f64) -> Result<
     let [dilute, dense] = match roots(model, t, p)[..] {
         [dilute, dense] => [dilute, dense],
         [one] => return Ok(one),
-        _ => return Err(Error::NoConvergence { strategy: Strategy::DensityNewton, iterations: 0 }),
+        _ => return Err(Error::no_convergence(Strategy::DensityNewton, 0)),
     };
     let rising = |from: f64, to: f64| rising(model, t, from, to);
     let gibbs = |rho: f64| {
@@ -524,7 +524,7 @@ pub(crate) struct Split {
 /// verdict. `None` where the converged β lies outside (0, 1), Rachford–Rice has no root or the phases fall together:
 /// a single phase.
 pub(crate) fn split(mixture: &Mixture, t: f64, p: f64, z: &[f64], mut ln_k: Vec<f64>) -> Result<Option<Split>, Error> {
-    let failed = |iterations| Error::NoConvergence { strategy: Strategy::Vle, iterations };
+    let failed = |iterations| Error::no_convergence(Strategy::Vle, iterations);
     let mut history: Vec<Vec<f64>> = Vec::new();
     for iteration in 0..200_u16 {
         let Some(beta) = rachford_rice(z, &ln_k) else { return Ok(None) };
@@ -591,7 +591,7 @@ fn accelerate(ln_k: &mut [f64], step: &[f64], last: &[f64]) {
 /// Jacobian is J_ij = (δ_ij/y_i − 1 + Φ^V_ij)/β + (δ_ij/x_i − 1 + Φ^L_ij)/(1 − β), Φ = n ∂ln φ/∂n, and in l its
 /// negative. Each step is shortened to keep every amount in (0, z_i). It ends where every |F_i| is within the gate.
 fn newton(mixture: &Mixture, t: f64, p: f64, z: &[f64], ln_k: &[f64]) -> Result<Split, Error> {
-    let failed = |iterations| Error::NoConvergence { strategy: Strategy::Vle, iterations };
+    let failed = |iterations| Error::no_convergence(Strategy::Vle, iterations);
     let beta = rachford_rice(z, ln_k).ok_or(failed(0))?;
     let (x, y) = phases(z, ln_k, beta);
     // Equivalent (M13.8): `<=` differs only at β exactly 1/2, which no solve meets.

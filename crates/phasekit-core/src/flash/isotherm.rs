@@ -11,7 +11,7 @@ use crate::units::Basis;
 
 use super::phase::{labelling_critical, saturation_at_t};
 use super::search::{Reached, choose};
-use super::{Caloric, DomainPolicy, FlashOptions, T_ITER, T_TOL, check_t, dt, reproduces_x, total};
+use super::{Caloric, DomainPolicy, FlashOptions, T_ITER, T_TOL, check_t, dt, reproduces_x, total, unreproduced_x};
 
 /// The decades of ρ below the model's largest density that T+X searches.
 const TX_DECADES: u16 = 15;
@@ -106,7 +106,8 @@ pub(super) fn tx(fluid: &PureFluid, t: f64, x: f64, var: Caloric, opts: &FlashOp
         return Err(refused.unwrap_or_else(|| reached.refusal((var.quantity(), x), |v| v, (Quantity::TEMPERATURE, t))));
     };
     if !reproduces_x(var, r, t, x, var.of(&state)) {
-        return Err(Error::NoConvergence { strategy: Strategy::Isotherm, iterations: state.path().iterations });
+        let at = (t, state.rho(Basis::Molar));
+        return Err(unreproduced_x((Strategy::Isotherm, state.path().iterations), var, r, at, (x, var.of(&state))));
     }
     Ok(state)
 }

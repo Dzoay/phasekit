@@ -136,7 +136,7 @@ fn molar_volume(r: f64, t: f64, p: f64, b: f64, c: f64) -> Result<f64, Error> {
         }
         v = next;
     }
-    Err(Error::NoConvergence { strategy: Strategy::External, iterations: ITERATIONS })
+    Err(Error::no_convergence(Strategy::External, ITERATIONS))
 }
 
 /// x ln x, 0 at x = 0.

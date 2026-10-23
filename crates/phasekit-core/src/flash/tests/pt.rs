@@ -2,6 +2,7 @@
 //! the saturation pressure.
 
 use super::*;
+use crate::error::Remedy;
 
 /// ROT-074 (map 03 §6): PT's state is built at the density its solve returned, so its own p is the input to the
 /// rounding of p's terms; CoolProp's PT of Nitrogen at 10 MPa and 200 K reports p 3.3e-9 off.
@@ -285,4 +286,17 @@ fn pt_starts_at_the_cubics_density() {
         assert!((back.rho(Basis::Molar) / (1.5 * c.rho) - 1.0).abs() < 1e-12, "{name}: {back:?}");
         assert!(back.path().iterations <= 4, "{name}: {:?}", back.path());
     }
+}
+
+/// User decision EM19: PT's failure on a bracketed branch, whose Newton starts from the guess, lists a warm start; on a
+/// branch without a bracket, which starts from its own seed, it does not.
+#[test]
+fn only_a_bracketed_branch_takes_the_guess() {
+    let stalled = Error::stalled(Strategy::DensityNewton, 3, (300.0, 5e4), 1e-3);
+    let branch = |bracket| Branch { phase: Phase::Liquid, bracket, seed: 5e4, liquid: true };
+    let bracketed = guessed(&branch(Some((4e4, 6e4))), stalled.clone());
+    assert_eq!(bracketed.remedies(), [Remedy::WarmStart, Remedy::OtherPair]);
+    assert_eq!(guessed(&branch(None), stalled.clone()), stalled);
+    let other = Error::Unsupported { pair: Pair::PT };
+    assert_eq!(guessed(&branch(Some((4e4, 6e4))), other.clone()), other);
 }

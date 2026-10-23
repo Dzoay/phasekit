@@ -140,7 +140,7 @@ fn enhancement(c: &Condensed, b: &Virials, p: f64, rt: f64) -> Result<f64, Error
         }
         (x1, y1, x2) = (x2, y2, x3);
     }
-    Err(Error::NoConvergence { strategy: Strategy::External, iterations: ITERATIONS })
+    Err(Error::no_convergence(Strategy::External, ITERATIONS))
 }
 
 /// Saturated moist air at (T, p) over `parts`, under `data` (PLAN.md M18.2).

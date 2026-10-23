@@ -103,7 +103,7 @@ impl Point {
 
 /// The failure every path reports: the VLE did not converge.
 fn failed(iterations: u16) -> Error {
-    Error::NoConvergence { strategy: Strategy::Vle, iterations }
+    Error::no_convergence(Strategy::Vle, iterations)
 }
 
 /// The residual gate and the answer: p′ = p″ and g′ = g″ within [`GATE`] of their scales and two distinct phases, else
@@ -500,7 +500,7 @@ mod tests {
         let (record, fluid) = model("Water");
         let sat = record.superancillary_curve().unwrap().at_t(450.0).unwrap();
         let far = (sat.bubble.rho, sat.dew.rho * 3.0);
-        let refused = Err(Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 });
+        let refused = Err(Error::no_convergence(Strategy::Vle, 0));
         assert_eq!(solve_t(fluid.eos(), 450.0, far, 0), refused, "the vapour window misses the root");
     }
     /// A phase point from its density and bundle entries (the others 0).

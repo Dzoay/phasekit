@@ -99,7 +99,7 @@ fn every_message_in_both_styles() {
         (Error::NoModel { prop: Prop::Viscosity }, "no model for the viscosity (Viscosity)", "Viscosity: no model"),
         (Error::Unsupported { pair: Pair::HS }, "input pair HS is not supported by this model", "HS: unsupported"),
         (
-            Error::NoConvergence { strategy: Strategy::DensityNewton, iterations: 50 },
+            Error::no_convergence(Strategy::DensityNewton, 50),
             "the density Newton iteration (DensityNewton) did not converge in 50 iterations",
             "DensityNewton: no convergence in 50 iterations",
         ),
@@ -248,7 +248,7 @@ fn every_error_has_its_code() {
         (DomainError::AboveMaxPressure { p: 2e9, p_max: 1e9 }.into(), "above_max_pressure"),
         (DomainError::BelowMeltingLine { t: 250.0, t_melt: 251.165 }.into(), "below_melting_line"),
         (DomainError::MechanicallyUnstable.into(), "mechanically_unstable"),
-        (Error::NoConvergence { strategy: Strategy::Vle, iterations: 60 }, "no_convergence"),
+        (Error::no_convergence(Strategy::Vle, 60), "no_convergence"),
         (Error::Ambiguous { roots: Roots::new(Quantity::TEMPERATURE, &[300.0, 350.0]) }, "ambiguous"),
         (Error::Undefined { prop: Prop::Cpmass, phase: Phase::TwoPhase }, "undefined"),
         (Error::NoModel { prop: Prop::Viscosity }, "no_model"),
@@ -284,7 +284,7 @@ fn the_rule_a_value_breaks() {
 /// User decision EM15: what a caller can do about each error, by its stable code, most direct first.
 #[test]
 fn every_error_has_its_remedies() {
-    let cases: [(Error, &[&str]); 21] = [
+    let cases: [(Error, &[&str]); 24] = [
         (invalid(Quantity::TEMPERATURE, 0.0), &[]),
         (unreachable(), &["other_pair"]),
         (Error::InvalidArgument { argument: "plane", value: None }, &[]),
@@ -295,7 +295,10 @@ fn every_error_has_its_remedies() {
         (DomainError::AboveMaxPressure { p: 2e9, p_max: 1e9 }.into(), &["extrapolate"]),
         (DomainError::BelowMeltingLine { t: 250.0, t_melt: 251.165 }.into(), &["extrapolate"]),
         (DomainError::MechanicallyUnstable.into(), &[]),
-        (Error::NoConvergence { strategy: Strategy::Vle, iterations: 60 }, &["other_pair"]),
+        (Error::no_convergence(Strategy::Vle, 60), &["other_pair"]),
+        (Error::stalled(Strategy::DensityNewton, 3, (300.0, 5e4), 1e-3), &["other_pair"]),
+        (Error::stalled(Strategy::DensityNewton, 3, (300.0, 5e4), 1e-3).taking_guess(), &["warm_start", "other_pair"]),
+        (Error::no_convergence(Strategy::DensityNewton, 0).taking_guess(), &["other_pair"]),
         (Error::Ambiguous { roots: Roots::new(Quantity::TEMPERATURE, &[300.0, 350.0]) }, &["choose_root"]),
         (Error::Undefined { prop: Prop::Cpmass, phase: Phase::TwoPhase }, &["saturated_phases"]),
         (Error::Undefined { prop: Prop::Q, phase: Phase::Liquid }, &[]),

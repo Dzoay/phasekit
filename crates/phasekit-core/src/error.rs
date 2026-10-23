@@ -57,12 +57,17 @@ pub enum Error {
     },
     /// Outside the model's validity domain (checked per call unless `DomainPolicy::Extrapolate`).
     Domain(DomainError),
-    /// A solver exhausted its iterations or lost its bracket (map 03 §6).
+    /// A solver exhausted its iterations or lost its bracket (map 03 §6), and where it stopped (user decision EM18).
+    /// Build it with [`Error::no_convergence`] or [`Error::stalled`].
     NoConvergence {
         /// The strategy that failed.
         strategy: Strategy,
         /// Iterations spent.
         iterations: u16,
+        /// Where the solver stopped, if it evaluated an iterate.
+        last: Option<Iterate>,
+        /// Whether a retry's `FlashOptions::with_guess` reaches this solve (PT's density Newton; user decision EM19).
+        takes_guess: bool,
     },
     /// The input pair has several physical solutions, or a curve several values (two melting pressures at one T on
     /// Water's curve); they are returned as data (map 03 §6).
@@ -101,6 +106,19 @@ pub enum Error {
         /// Supplied length.
         found: usize,
     },
+}
+
+/// Where a solver stopped (user decision EM18): its last iterate's (T, ρ_molar), which a retry can pass to
+/// `FlashOptions::with_guess` where the solve takes it, and the relative residual there of the input it was solving for
+/// (p's, or a caloric value's relative to its scale).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Iterate {
+    /// Temperature, K.
+    pub t: f64,
+    /// Molar density, mol/m³.
+    pub rho: f64,
+    /// The relative residual of the solved input there, signed: the iterate's value less the input's, over its scale.
+    pub residual: f64,
 }
 
 /// Which end of a range a value lies beyond.
@@ -238,6 +256,29 @@ impl From<LoadError> for Error {
 }
 
 impl Error {
+    /// `strategy`'s `NoConvergence` after `iterations`, with no iterate to report.
+    pub const fn no_convergence(strategy: Strategy, iterations: u16) -> Error {
+        Error::NoConvergence { strategy, iterations, last: None, takes_guess: false }
+    }
+
+    /// `strategy`'s `NoConvergence` after `iterations`, stopped at `last`, (T, ρ_molar), with the relative `residual`
+    /// there of the input it was solving for (user decision EM18).
+    pub const fn stalled(strategy: Strategy, iterations: u16, (t, rho): (f64, f64), residual: f64) -> Error {
+        let last = Some(Iterate { t, rho, residual });
+        Error::NoConvergence { strategy, iterations, last, takes_guess: false }
+    }
+
+    /// This error, marked as a `NoConvergence` of a solve that takes `FlashOptions::with_guess`, so that its remedies
+    /// list a warm start (user decision EM19); any other error as it is.
+    pub fn taking_guess(self) -> Error {
+        match self {
+            Error::NoConvergence { strategy, iterations, last, .. } => {
+                Error::NoConvergence { strategy, iterations, last, takes_guess: true }
+            }
+            other => other,
+        }
+    }
+
     /// The message in `units` and `style` (user decisions EM1, EM2): `{}` is `display(&Si, Style::Long)`, `{:#}`
     /// `display(&Si, Style::Short)`.
     pub fn display<'a>(&'a self, units: &'a dyn Units, style: Style) -> Message<'a> {

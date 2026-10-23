@@ -176,7 +176,7 @@ mod tests {
     /// error; the other planes are `Unsupported`, their pair named.
     #[test]
     fn a_trace_without_a_point_is_refused_in_its_own_words() {
-        let failed = Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 };
+        let failed = Error::no_convergence(Strategy::Vle, 0);
         let empty = Trace { end: Some(failed.clone()), ..Trace::default() };
         assert_eq!(drawn(&empty, Plane::Pt, Some(CRITICAL)), Err(failed));
         assert!(matches!(drawn(&Trace::default(), Plane::Pt, None), Err(Error::InvalidArgument { .. })));

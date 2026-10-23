@@ -82,7 +82,7 @@ fn conformal_state(x: &TransportInputs<'_>, reference: &PureFluid) -> Result<Con
         _ => (1.0, 1.0),
     };
     let (mut t0, mut rho0) = (t / f, rho * h);
-    let fail = |iterations| Error::NoConvergence { strategy: Strategy::Conformal, iterations };
+    let fail = |iterations| Error::no_convergence(Strategy::Conformal, iterations);
     let done = |t0, rho0, residual: f64, iterations| {
         if residual <= TOLERANCE { Ok(Conformal { t: t0, rho: rho0, iterations }) } else { Err(fail(iterations)) }
     };
