@@ -80,6 +80,28 @@ describe("engine", () => {
     ).toBe(true);
   });
 
+  test("offers the fluid names nearest an unknown one (PLAN.md M29.7)", async () => {
+    const handle = createHandler(await loadPk("simd"), "simd128");
+    const ask = (fluid: string) =>
+      handle({ id: 3, op: "state", fluid, name1: "T", value1: 300, name2: "P", value2: 1e5, outputs: ["T"] });
+    const typo = ask("Watr");
+    expect(!typo.ok && typo.error.nearest, JSON.stringify(typo)).toEqual(["Water"]);
+    expect(!typo.ok && typo.error.remedies).toEqual(["nearest_name"]);
+    const hot = handle({
+      id: 4,
+      op: "state",
+      fluid: "Water",
+      name1: "T",
+      value1: 3000,
+      name2: "P",
+      value2: 1e5,
+      outputs: ["T"],
+    });
+    expect(!hot.ok && hot.error.remedies).toEqual(["extrapolate"]);
+    expect(!hot.ok && hot.error.nearest).toBeUndefined();
+    expect(!hot.ok && hot.error.explained.si?.long).toBe("temperature 3000 K is above Water's maximum, 2000 K");
+  });
+
   test("reports its build", async () => {
     const handle = createHandler(await loadPk("baseline"), "baseline");
     const got = handle({ id: 3, op: "info" });

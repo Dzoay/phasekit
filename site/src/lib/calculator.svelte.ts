@@ -120,6 +120,11 @@ export class Calculator {
     this.#showInputs();
   }
 
+  /** Shows the state of `fluid` at the same inputs: "did you mean" (PLAN.md M29.7). */
+  pick(fluid: string): void {
+    this.fluid = fluid;
+  }
+
   apply(preset: Preset): void {
     this.fluid = preset.fluid;
     [this.aKey, this.aValue] = preset.a;

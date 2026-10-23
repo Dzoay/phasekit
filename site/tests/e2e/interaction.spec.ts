@@ -90,3 +90,16 @@ test("a refusal is the package's, written in the viewer's units", async ({ page 
   await page.getByRole("radio", { name: "SI" }).check();
   await expect(message).toHaveText("temperature 0 K is not above absolute zero");
 });
+
+test("a refusal offers its remedy, and an unknown fluid the names nearest it", async ({ page }) => {
+  // PLAN.md M29.7: the package's remedies in the site's terms, and "did you mean" for a fluid the registry lacks.
+  await page.goto("./#/calculator?fluid=Water&a=P:100000&b=T:3000");
+  await expect(page.getByTestId("refusal-message")).toHaveText("temperature 3000 K is above Water's maximum, 2000 K");
+  await expect(page.getByTestId("remedy")).toContainText("does not extrapolate");
+  await page.goto("./#/calculator?fluid=Watr&a=P:100000&b=T:300");
+  const nearest = page.getByTestId("did-you-mean");
+  await expect(nearest).toContainText("Did you mean");
+  await nearest.getByRole("button", { name: "Water" }).click();
+  await expect(page.getByTestId("phase")).toHaveText("liquid");
+  await expect(page).toHaveURL(/fluid=Water&/);
+});

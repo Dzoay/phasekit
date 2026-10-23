@@ -224,6 +224,19 @@ describe("calculator", () => {
     stop();
   });
 
+  test("a refusal offers its remedy, and an unknown fluid the names nearest it (PLAN.md M29.7)", async () => {
+    const hot = await setup("fluid=Water&a=T:3000&b=P:100000");
+    expect(hot.calc.refusal?.remedies).toEqual(["extrapolate"]);
+    expect(hot.calc.refusalText).toBe("temperature 3000 K is above Water's maximum, 2000 K");
+    hot.stop();
+    const { calc, stop } = await setup("fluid=Watr&a=T:300&b=P:100000");
+    expect([calc.refusal?.nearest, calc.refusal?.remedies]).toEqual([["Water"], ["nearest_name"]]);
+    calc.pick("Water");
+    await settle(calc);
+    expect([calc.fluid, calc.refusal, calc.result?.phase]).toEqual(["Water", null, "liquid"]);
+    stop();
+  });
+
   test("an answered state has no refusal text", async () => {
     const { calc, stop } = await setup("fluid=Water&a=T:300&b=P:100000");
     expect([calc.result?.phase, calc.refusal, calc.refusalText]).toEqual(["liquid", null, ""]);

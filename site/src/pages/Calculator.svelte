@@ -11,6 +11,7 @@
   import { PRESETS } from "../lib/fluids";
   import { formatNumber, formatTime } from "../lib/format";
   import { liquidLiquid } from "../lib/mixtures";
+  import { remedyText } from "../lib/refusal";
   import { GROUPS, HEADLINE, INPUTS, output, type Output } from "../lib/outputs";
   import { route, writeParams } from "../lib/route.svelte";
   import { SYSTEMS, fromSI } from "../lib/units";
@@ -109,6 +110,18 @@
       <div class="card refusal" role="alert">
         <strong>The package refused this state.</strong>
         <p class="message" data-testid="refusal-message"><code>{calc.refusalText}</code></p>
+        {#each (calc.refusal.remedies ?? []).map(remedyText).filter((t) => t !== null) as text (text)}
+          <p data-testid="remedy">{text}</p>
+        {/each}
+        {#if calc.refusal.nearest?.length}
+          <p data-testid="did-you-mean">
+            Did you mean
+            {#each calc.refusal.nearest as name, i (name)}
+              {#if i > 0},{/if}
+              <button type="button" class="link" onclick={() => calc.pick(name)}>{name}</button>
+            {/each}?
+          </p>
+        {/if}
         {#if fluidData.parts.has(calc.fluid) && liquidLiquid(calc.refusal.message)}
           <p data-testid="liquid-liquid">
             A mixture takes every input pair, so this is its refusal of two liquid phases, or of three phases: phasekit
