@@ -77,7 +77,7 @@
   nav a {
     color: var(--fg-muted);
     text-decoration: none;
-    padding: 5px 10px;
+    padding: 5px 8px;
     border-radius: var(--radius-sm);
     font-size: 14px;
     font-weight: 500;
