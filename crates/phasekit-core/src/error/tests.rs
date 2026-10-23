@@ -295,7 +295,7 @@ fn every_error_has_its_remedies() {
         (DomainError::AboveMaxPressure { p: 2e9, p_max: 1e9 }.into(), &["extrapolate"]),
         (DomainError::BelowMeltingLine { t: 250.0, t_melt: 251.165 }.into(), &["extrapolate"]),
         (DomainError::MechanicallyUnstable.into(), &[]),
-        (Error::NoConvergence { strategy: Strategy::Vle, iterations: 60 }, &["warm_start", "other_pair"]),
+        (Error::NoConvergence { strategy: Strategy::Vle, iterations: 60 }, &["other_pair"]),
         (Error::Ambiguous { roots: Roots::new(Quantity::TEMPERATURE, &[300.0, 350.0]) }, &["choose_root"]),
         (Error::Undefined { prop: Prop::Cpmass, phase: Phase::TwoPhase }, &["saturated_phases"]),
         (Error::Undefined { prop: Prop::Q, phase: Phase::Liquid }, &[]),

@@ -48,7 +48,8 @@ impl Error {
             Error::Unsupported { .. } => &[Remedy::DeclaredPair],
             Error::Domain(DomainError::MechanicallyUnstable) => &[],
             Error::Domain(_) => &[Remedy::Extrapolate],
-            Error::NoConvergence { .. } => &[Remedy::WarmStart, Remedy::OtherPair],
+            // Only PT's density solve takes a guess (user decision EM19): M29.3 lists `warm_start` there.
+            Error::NoConvergence { .. } => &[Remedy::OtherPair],
             Error::Ambiguous { .. } => &[Remedy::ChooseRoot],
             Error::Undefined { phase: Phase::TwoPhase, .. } => &[Remedy::SaturatedPhases],
             Error::Load(LoadError::UnknownName(_)) => &[Remedy::NearestName],

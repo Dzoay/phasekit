@@ -1,6 +1,7 @@
 //! The Q-pairs QS, HQ and DQ on the saturation curve (PLAN.md M7.7).
 
 use super::*;
+#[cfg(feature = "fluids-all")]
 use crate::error::Limit;
 
 /// The Q-pair input of `var` for `state` at its quality `q` (molar).
