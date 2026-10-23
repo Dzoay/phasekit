@@ -61,8 +61,8 @@ impl TernaryBatch for Components<'_> {
 }
 
 /// A ternary diagram, as flat arrays in mole fractions, three a point in the components' order (`components`):
-/// the binodal's line `k` is the points of `binodal` from `lines[k]` to `lines[k + 1]`, each a feed that splits,
-/// `outside` the feed at its bracket's other end, one phase; tie line `j` joins `liquid[3j..3j + 3]` and
+/// the binodal's line `k` is the points of `binodal` from `lines[k]` to `lines[k + 1]`, each a feed that splits, its
+/// vapour fraction `binodalBeta`, `outside` the feed at its bracket's other end, one phase; tie line `j` joins `liquid[3j..3j + 3]` and
 /// `vapour[3j..3j + 3]`, the phases of the feed `feeds[3j..3j + 3]`, `beta[j]` its vapour's molar fraction; the
 /// region's polygon `i` is the points of `region` from `polygons[i]` to `polygons[i + 1]`.
 #[wasm_bindgen]
@@ -73,6 +73,7 @@ pub struct Ternary {
     p: f64,
     lines: Vec<u32>,
     binodal: Vec<f64>,
+    binodal_beta: Vec<f64>,
     outside: Vec<f64>,
     feeds: Vec<f64>,
     beta: Vec<f64>,
@@ -90,6 +91,7 @@ impl Ternary {
             p: d.p,
             lines: vec![0],
             binodal: Vec::new(),
+            binodal_beta: Vec::new(),
             outside: Vec::new(),
             feeds: Vec::new(),
             beta: Vec::new(),
@@ -101,6 +103,7 @@ impl Ternary {
         for line in &d.binodal {
             for v in line {
                 out.binodal.extend(v.feed);
+                out.binodal_beta.push(v.split.beta);
                 out.outside.extend(v.outside);
             }
             out.lines.push(offset(out.binodal.len() / 3)?);
@@ -149,6 +152,13 @@ impl Ternary {
     #[wasm_bindgen(getter)]
     pub fn binodal(&self) -> Vec<f64> {
         self.binodal.clone()
+    }
+
+    /// Each binodal point's vapour fraction: near 0 on the bubble side, where the feed is nearly all liquid, near 1 on
+    /// the dew side.
+    #[wasm_bindgen(getter, js_name = binodalBeta)]
+    pub fn binodal_beta(&self) -> Vec<f64> {
+        self.binodal_beta.clone()
     }
 
     /// Each binodal point's feed outside the region, one phase, within the binodal's resolution of it.

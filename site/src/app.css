@@ -52,6 +52,18 @@
   --surface-supercritical-liquid: light-dark(#5fb8a6, #3f9a88);
   --surface-supercritical: light-dark(#9b87d6, #7d68ba);
   --surface-supercritical-gas: light-dark(#d98aa0, #bb6a82);
+  /* Brown's characteristic curves (PLAN.md M26.6): four hues apart from the isolines', each 3:1 on the surface, each
+     with its own dash and a direct label. */
+  --curve-1: light-dark(#7c4dcc, #a687ec);
+  --curve-2: light-dark(#c0307f, #e46aad);
+  --curve-3: light-dark(#9a5b12, #d39243);
+  --curve-4: light-dark(#4a6178, #94a9bf);
+  /* A map's bands (PLAN.md M26.6): one hue from pale to mid, under contour lines in --fg-muted, whose labels give the
+     levels; the regions' tints are off while a map shows. */
+  --map-low: light-dark(#f1f6fc, #141b26);
+  --map-high: light-dark(#8db6e6, #35598a);
+  /* A ternary diagram's two-phase region (PLAN.md M26.6). */
+  --ternary-region: light-dark(#dbe7f6, #1d2a3d);
   --shadow:
     0 1px 2px light-dark(rgb(16 24 40 / 6%), rgb(0 0 0 / 40%)),
     0 4px 16px light-dark(rgb(16 24 40 / 5%), rgb(0 0 0 / 25%));

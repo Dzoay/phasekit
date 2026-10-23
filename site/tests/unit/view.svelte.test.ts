@@ -484,3 +484,115 @@ describe("a mixture's diagrams", { timeout: 30_000 }, () => {
     stop();
   });
 });
+
+describe("the curves and maps over a diagram (PLAN.md M26.6)", { timeout: 60_000 }, () => {
+  test("reads and writes the curves and the map in the URL, and ignores an output the map does not offer", () => {
+    const view = new DiagramView({ call: () => new Promise(() => {}) });
+    view.load(new URLSearchParams("fluid=Water&d=pt&curves=1&map=Smass"));
+    expect([view.curves, view.map]).toEqual([true, "Smass"]);
+    expect(view.params().toString()).toBe("fluid=Water&d=pt&curves=1&map=Smass");
+    view.load(new URLSearchParams("curves=yes&map=Phase"));
+    expect([view.curves, view.map]).toEqual([false, null]);
+    expect(view.params().toString()).toBe("fluid=Water&d=ph");
+    view.setMap("Hmass");
+    expect(view.map).toBe("Hmass");
+    view.setMap("nothing");
+    expect(view.map).toBeNull();
+    view.toggleCurves();
+    expect(view.curves).toBe(true);
+  });
+
+  test("asks for a fluid's curves once while they are shown, and none while they are not", async () => {
+    const { view, calls, stop } = await setup("fluid=Nitrogen&d=pt&curves=1");
+    await vi.waitFor(() => {
+      flushSync();
+      expect(view.curveData).not.toBeNull();
+    });
+    expect(view.curveData?.curves.map((c) => c.name)).toEqual([
+      "Ideal",
+      "Boyle",
+      "JouleThomsonInversion",
+      "JouleInversion",
+    ]);
+    view.toggleCurves();
+    flushSync();
+    expect(view.curveData).toBeNull();
+    view.toggleCurves();
+    flushSync();
+    expect(view.curveData).not.toBeNull();
+    expect(calls.filter((c) => c === "curves")).toHaveLength(1);
+    stop();
+  });
+
+  test("asks for an output's map on the diagram's plane once, keeps it, and keeps a refusal in the package's words", async () => {
+    const { view, calls, stop } = await setup("fluid=n-Propane&d=trho&map=P");
+    await vi.waitFor(() => {
+      flushSync();
+      expect(view.mapData).not.toBeNull();
+    });
+    expect([view.mapData?.key, view.mapRefusal]).toEqual(["P", null]);
+    expect(view.mapData?.levels.length).toBeGreaterThan(3);
+    view.setMap(null);
+    flushSync();
+    expect(view.mapData).toBeNull();
+    view.setMap("P");
+    flushSync();
+    expect(view.mapData?.key).toBe("P");
+    expect(calls.filter((c) => c === "map")).toHaveLength(1);
+    view.fluid = "Nothing";
+    flushSync();
+    await vi.waitFor(() => {
+      flushSync();
+      expect(view.mapRefusal).toMatch(/Nothing/);
+    });
+    expect(view.mapData).toBeNull();
+    stop();
+  });
+
+  test("drops a map that arrives after another was chosen", async () => {
+    const answers: ((v: unknown) => void)[] = [];
+    const engine: Engine = {
+      call<B extends Body>(body: B): Promise<Values[B["op"]]> {
+        if (body.op !== "map") return new Promise(() => {});
+        return new Promise((resolve) => answers.push(resolve as (v: unknown) => void));
+      },
+    };
+    const route = $state({ params: new URLSearchParams("fluid=Water&d=ph&map=T") });
+    const view = new DiagramView(engine);
+    const stop = view.connect(route, () => {});
+    flushSync();
+    view.setMap("Smass");
+    flushSync();
+    const map = (key: string) => ({
+      plane: "ph",
+      key,
+      values: new Float64Array([0, 1]),
+      x: new Float64Array([0, 1]),
+      y: new Float64Array([0, 1]),
+      levels: new Float64Array(),
+      contours: new Uint32Array([0]),
+      lines: {
+        starts: new Uint32Array([0]),
+        vertices: { xy: new Float64Array(), inputs: new Float64Array(), pairs: new Uint8Array() },
+      },
+      low: new Float64Array([NaN]),
+      high: new Float64Array([NaN]),
+      bands: new Uint32Array([0, 0]),
+      polygons: {
+        starts: new Uint32Array([0]),
+        vertices: { xy: new Float64Array(), inputs: new Float64Array(), pairs: new Uint8Array() },
+      },
+      pairKeys: [],
+    });
+    answers[1]?.(map("Smass"));
+    answers[0]?.(map("T"));
+    await vi.waitFor(() => {
+      flushSync();
+      expect(view.mapData?.key).toBe("Smass");
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    flushSync();
+    expect(view.mapData?.key).toBe("Smass");
+    stop();
+  });
+});

@@ -1059,6 +1059,7 @@ fn a_mixtures_ternary_is_the_crates_bit_for_bit() {
     assert!(!vertices.is_empty() && !want.tie_lines.is_empty());
     assert_eq!(bits(got.binodal()), flat(vertices.iter().map(|v| v.feed).collect()));
     assert_eq!(bits(got.outside()), flat(vertices.iter().map(|v| v.outside).collect()));
+    assert_eq!(bits(got.binodal_beta()), bits(vertices.iter().map(|v| v.split.beta).collect()));
     let lines = want.binodal.iter().fold(vec![0u32], |mut o, l| {
         o.push(o.last().unwrap() + l.len() as u32);
         o
@@ -1092,7 +1093,7 @@ export function moreDiagramTypes(propane, registry) {
         [m.lines, m.polygons].every((r) => r.starts instanceof Uint32Array && r.vertices.xy instanceof Float64Array);
     m.free();
     const t = registry.ternary("R407C.mix", 273.15, 4e5);
-    const ternary = [t.binodal, t.outside, t.feeds, t.beta, t.liquid, t.vapour, t.region].every((a) => a instanceof Float64Array) &&
+    const ternary = [t.binodal, t.binodalBeta, t.outside, t.feeds, t.beta, t.liquid, t.vapour, t.region].every((a) => a instanceof Float64Array) &&
         [t.lines, t.polygons].every((a) => a instanceof Uint32Array) && t.binodal.length % 3 === 0 && t.region.length > 0 &&
         Array.isArray(t.components) && typeof t.T === "number";
     t.free();

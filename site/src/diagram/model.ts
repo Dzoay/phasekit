@@ -4,11 +4,12 @@
 // the critical isotherm and isobar, and a label inside each region. And the CSV of its vertices.
 import { formatNumber, superscript } from "../lib/format";
 import { output, type Output } from "../lib/outputs";
-import { fromSI, type System } from "../lib/units";
+import { displayUnit, fromSI, type System } from "../lib/units";
 import type { Diagram, Key } from "./planes";
 import type { AxisKey, Corner, DiagramData, Regions, Vertex } from "./data";
 import { clip, deepest, inside, thin } from "./geometry";
 import type { Plot, Scale } from "./scales";
+import { CURVES, CURVE_PLANES, bandColour, type CurveState, type CurvesData, type MapData } from "./overlays";
 import { CRITICAL_LINE, PHASES, lineLabel, styleOf, unitOfKey } from "./style";
 
 export type Point = [number, number];
@@ -37,6 +38,8 @@ export interface RegionLabel {
 
 export interface Model {
   plot: Plot;
+  /** A map's bands, under everything (PLAN.md M26.6). */
+  bands: { points: Point[]; colour: string }[];
   fills: Fill[];
   /** The colour of a halo under each line, which keeps it clear of the tints; null without regions. */
   halo: string | null;
@@ -107,6 +110,18 @@ export interface Options {
   colour: (token: string) => string;
   /** The fluid's phase regions, when they are shown. */
   regions?: Regions | null;
+  /** The fluid's characteristic curves, when they are shown; drawn on p–T and T–ρ only (PLAN.md M26.6). */
+  curves?: CurvesData | null;
+  /** An output's map, when one is shown: its bands under everything, its contour lines over them. */
+  map?: MapData | null;
+}
+
+/** A map's level in its output's shown unit, as its contour's label reads. */
+export function mapLabel(key: string, value: number, system: System): string {
+  const o = output(key);
+  if (!o) return formatNumber(value);
+  const unit = displayUnit(o.kind, system);
+  return `${formatNumber(fromSI(value, unit))}${unit.label ? ` ${unit.label}` : ""}`;
 }
 
 /** A decade tick: plain from a thousandth to a thousand, a power of ten past that. */
@@ -186,6 +201,29 @@ export function buildModel(d: Diagram, data: DiagramData, o: Options): Model {
     const shown = points.filter(inside);
     return [shown.at(-1), shown[0]].filter((e): e is Point => e !== undefined);
   };
+  const map = o.map;
+  const bands = map ? mapBands(map, px, o.colour) : [];
+  if (map) {
+    const contour = { colour: o.colour("--fg-muted"), dash: [] as number[], width: 1 };
+    map.contours.forEach((lines, i) => {
+      const points = lines.map((l) => l.map(px));
+      for (const p of points) strokes.push({ points: p, ...contour });
+      const label = place(mapLabel(map.key, map.levels[i] as number, o.system), near(points.flat()), o.plot, placed);
+      if (label) labels.push(label);
+    });
+  }
+  const axes = CURVE_PLANES[d.id];
+  if (o.curves && axes) {
+    const at = (s: CurveState): Point => [o.x(fromSI(s[axes[0]], ux)), o.y(fromSI(s[axes[1]], uy))];
+    for (const curve of o.curves.curves) {
+      const style = CURVES[curve.name];
+      if (!style) continue;
+      const points = curve.lines.map((l) => l.map(at));
+      for (const p of points) strokes.push({ points: p, colour: o.colour(style.colour), dash: style.dash, width: 2 });
+      const label = place(style.name, near(points.flat()), o.plot, placed);
+      if (label) labels.push(label);
+    }
+  }
   const regions = o.regions;
   if (regions && fills.length > 0) {
     for (const [runs, symbol, held, value] of [
@@ -222,8 +260,9 @@ export function buildModel(d: Diagram, data: DiagramData, o: Options): Model {
   const symbol = (k: Key) => (output(k) as Output).symbol;
   return {
     plot: o.plot,
+    bands,
     fills,
-    halo: fills.length > 0 ? o.colour("--surface") : null,
+    halo: fills.length + bands.length > 0 ? o.colour("--surface") : null,
     strokes,
     dots: dot ? [{ x: dot[0], y: dot[1], r: 4, colour: ink }] : [],
     labels,
@@ -232,6 +271,19 @@ export function buildModel(d: Diagram, data: DiagramData, o: Options): Model {
     yTicks: ticks(o.y, d.y.log, o.plot.top, o.plot.bottom, () => 18),
     titles: { x: `${symbol(d.x.key)} / ${ux.label}`, y: `${symbol(d.y.key)} / ${uy.label}` },
   };
+}
+
+/** A map's bands as fills, each polygon its band's colour on a ramp from `--map-low` to `--map-high`. */
+function mapBands(
+  map: MapData,
+  px: (v: Vertex) => Point,
+  colour: (token: string) => string,
+): { points: Point[]; colour: string }[] {
+  const [low, high] = [colour("--map-low"), colour("--map-high")];
+  return map.bands.flatMap((band, j) => {
+    const fill = bandColour(j, map.bands.length, low, high);
+    return band.polygons.map((p) => ({ points: p.map(px), colour: fill }));
+  });
 }
 
 const round = (v: number) => Math.round(v * 10) / 10;
@@ -260,7 +312,7 @@ export function renderSvg(m: Model, o: SvgOptions): string {
     `<path d="${pathOf(s.points)}" fill="none" stroke="${colour}" stroke-width="${width}"${
       s.dash.length > 0 ? ` stroke-dasharray="${s.dash.join(" ")}"` : ""
     }/>`;
-  const fills = m.fills.map((f) => `<path d="${pathOf(f.points)}Z" fill="${f.colour}"/>`);
+  const fills = [...m.bands, ...m.fills].map((f) => `<path d="${pathOf(f.points)}Z" fill="${f.colour}"/>`);
   const halos = m.halo === null ? [] : m.strokes.map((s) => stroke(s, m.halo as string, s.width + 2));
   const paths = m.strokes.map((s) => stroke(s, s.colour, s.width));
   const names = m.regionLabels.map(

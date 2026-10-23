@@ -19,5 +19,9 @@
 # M18.9 and M18.10 (SL8): the psychrometric and Mollier charts, phasekit-diagram's humid-air lines and their
 # typed-array exports, took the builds to 2395913 and 2351575 bytes, 81210 and 75190 above M18.8's, over both budgets
 # (M26.2's surface had taken main to 2220026 and 2186190); each budget is that + 10 %.
-baseline 2635504
-simd128 2586732
+# M26.6 (SL8): a fluid's characteristic curves and property maps, and a three-component mixture's ternary diagram,
+# phasekit-diagram's M26.3-M26.5 with their typed-array exports and the ternary's equilibria from phasekit-mix, took
+# the builds to 2717122 and 2660157 bytes, 287434 and 275298 above M26.5's 2429688 and 2384859, over both budgets;
+# each budget is that + 10 %.
+baseline 2988834
+simd128 2926173

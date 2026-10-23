@@ -6,7 +6,8 @@
   import { select } from "d3-selection";
   import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
   import { untrack } from "svelte";
-  import { buildModel, renderSvg, toCsv } from "../diagram/model";
+  import { buildModel, mapLabel, renderSvg, toCsv } from "../diagram/model";
+  import { CURVES, CURVE_PLANES, MAP_OUTPUTS } from "../diagram/overlays";
   import { GRID_LEVELS, describeGrid, gridValues, snap, step } from "../diagram/grid";
   import { baseScales, readoutAt, shownAt } from "../diagram/scales";
   import { CRITICAL_LINE, PHASES, styleOf, unitOfKey } from "../diagram/style";
@@ -75,8 +76,19 @@
     void theme;
     if (!view.data || !zoomed) return null;
     const hidden = new Set(view.hidden);
-    const regions = view.regions ? view.phases : null;
-    return buildModel(view.diagram, view.data, { ...zoomed, system: view.system, hidden, colour, regions });
+    // A map's bands take the place of the regions' tints, which would hide them.
+    const map = view.mixture ? null : view.mapData;
+    const regions = view.regions && !map ? view.phases : null;
+    const curves = view.mixture ? null : view.curveData;
+    return buildModel(view.diagram, view.data, {
+      ...zoomed,
+      system: view.system,
+      hidden,
+      colour,
+      regions,
+      curves,
+      map,
+    });
   });
 
   // The snap grid in the shown units, over what the plot shows now (PLAN.md M21.8).
@@ -112,8 +124,8 @@
     context.rect(left, top, right - left, bottom - top);
     context.clip();
     [context.lineJoin, context.lineCap] = ["round", "round"];
-    // The phase regions' tints under everything.
-    for (const fill of model.fills) {
+    // A map's bands and the phase regions' tints under everything.
+    for (const fill of [...model.bands, ...model.fills]) {
       context.beginPath();
       fill.points.forEach(([x, y], i) => (i === 0 ? context.moveTo(x, y) : context.lineTo(x, y)));
       context.closePath();
@@ -542,6 +554,70 @@
       {/if}
     </section>
 
+    <section class="card overlays" class:hidden={view.mixture !== null}>
+      <h2>Curves and maps</h2>
+      <label class="check" class:muted={!CURVE_PLANES[view.id]}>
+        <input type="checkbox" checked={view.curves} onchange={() => view.toggleCurves()} />
+        Characteristic curves
+      </label>
+      {#if view.curves}
+        {#if CURVE_PLANES[view.id]}
+          <ul data-testid="curves-legend" data-curves={view.curveData ? "ready" : "loading"}>
+            {#each Object.values(CURVES) as c (c.name)}
+              <li>
+                <svg width="28" height="10" aria-hidden="true">
+                  <line
+                    x1="0"
+                    x2="28"
+                    y1="5"
+                    y2="5"
+                    stroke="var({c.colour})"
+                    stroke-width="2"
+                    stroke-dasharray={c.dash.join(" ")}
+                  />
+                </svg>
+                {c.name}
+              </li>
+            {/each}
+          </ul>
+          <p class="note">
+            The parts inside this plot; <a href="#/curves?fluid={encodeURIComponent(view.fluid)}">whole</a> on their own view.
+          </p>
+        {:else}
+          <p class="note">Drawn on the p–T and T–ρ diagrams.</p>
+        {/if}
+      {/if}
+      <label class="map">
+        <span>Map</span>
+        <select
+          data-testid="map-output"
+          value={view.map ?? ""}
+          onchange={(e) => view.setMap(e.currentTarget.value || null)}
+        >
+          <option value="">None</option>
+          {#each MAP_OUTPUTS as key (key)}
+            <option value={key}>{output(key)?.label ?? key}</option>
+          {/each}
+        </select>
+      </label>
+      {#if view.map}
+        <p
+          class="note"
+          data-testid="map-state"
+          data-map={view.mapData ? "ready" : view.mapRefusal ? "refused" : "loading"}
+        >
+          {#if view.mapRefusal}
+            {view.mapRefusal}
+          {:else if view.mapData}
+            Bands between contours at {mapLabel(view.map, view.mapData.levels[0] ?? NaN, view.system)} to
+            {mapLabel(view.map, view.mapData.levels.at(-1) ?? NaN, view.system)}.
+          {:else}
+            Sampling the map…
+          {/if}
+        </p>
+      {/if}
+    </section>
+
     <section class="card grid">
       <h2>Grid</h2>
       <label class="check">
@@ -771,6 +847,8 @@
   }
 
   .phases .check,
+  .overlays .check,
+  .overlays .map,
   .grid .check,
   .grid .density {
     display: flex;
@@ -801,8 +879,24 @@
     visibility: hidden;
   }
 
-  .phases.hidden {
+  .phases.hidden,
+  .overlays.hidden {
     display: none;
+  }
+
+  .overlays .check.muted {
+    color: var(--fg-muted);
+  }
+
+  .overlays .map select {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .overlays .note {
+    margin: 0 0 8px;
+    font-size: 12.5px;
+    color: var(--fg-muted);
   }
 
   .trace {
@@ -856,6 +950,7 @@
   }
 
   .phases ul,
+  .overlays ul,
   .legend ul {
     list-style: none;
     margin: 0;
@@ -866,6 +961,7 @@
   }
 
   .phases li,
+  .overlays li,
   .legend li,
   .legend label {
     display: flex;
