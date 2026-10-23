@@ -79,7 +79,7 @@ pub(crate) enum Halving {
 }
 
 impl Halving {
-    fn mid(self, a: f64, b: f64) -> f64 {
+    pub(crate) fn mid(self, a: f64, b: f64) -> f64 {
         match self {
             Halving::Linear => (a + b) / 2.0,
             Halving::Geometric => math::sqrt(a * b),

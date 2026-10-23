@@ -46,7 +46,8 @@ impl Corner {
             | Quantity::DBvirialDT
             | Quantity::DpDrhoAtT
             | Quantity::DpDTAtRho
-            | Quantity::JouleThomson => None,
+            | Quantity::JouleThomson
+            | Quantity::Output(_) => None,
         }
     }
 }

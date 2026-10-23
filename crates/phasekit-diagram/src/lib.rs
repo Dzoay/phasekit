@@ -3,9 +3,10 @@
 //! saturation dome and isolines, as polylines whose every vertex is a state the library computed, carrying the inputs
 //! it was computed at; a mixture's traced envelope on p–T and T–ρ; and the phase regions, polygons whose corners carry
 //! every plane's axes; a fluid's thermodynamic surface, a triangle mesh whose vertices carry p, v and T and Gibbs's u,
-//! s and v (M26), and its characteristic curves and compressibility chart; and humid air's psychrometric chart (M18.9)
-//! and Mollier's h–x chart (M18.10), sampled through a seam the caller fills. A line's label is its held quantity and
-//! value, a region's its phase. It draws nothing: where a label goes, the colours and the shown units are the host's.
+//! s and v (M26), its characteristic curves and compressibility chart, and any output's map over a plane, its contours
+//! and bands; and humid air's psychrometric chart (M18.9) and Mollier's h–x chart (M18.10), sampled through a seam the
+//! caller fills. A line's label is its held quantity and value, a region's its phase. It draws nothing: where a label
+//! goes, the colours and the shown units are the host's.
 //!
 //! It depends on phasekit-core's public API alone (`cargo xtask gates deps`). Its arbiter is the library: a vertex is
 //! the batch's value at its inputs, bit for bit.
@@ -20,6 +21,7 @@ mod curves;
 mod diagram;
 mod envelope;
 mod lines;
+mod maps;
 mod mollier;
 mod plane;
 mod psychro;
@@ -33,6 +35,7 @@ pub use curves::{Characteristic, Curve, CurveVertex, Curves, Isotherm, curves, s
 pub use diagram::{Diagram, Dome, diagram, sample};
 pub use envelope::{Trace, envelope};
 pub use lines::{Line, Segment};
+pub use maps::{Band, Contour, LEVEL, Map, map, sample_map};
 pub use mollier::{Mollier, MollierVertex, mollier};
 pub use plane::{Axis, Family, Plane, Quantity};
 pub use psychro::{ChartLine, ChartRange, ChartVertex, Held, HumidAirBatch, Psychrometric, psychrometric};
