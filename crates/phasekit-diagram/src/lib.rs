@@ -4,7 +4,8 @@
 //! it was computed at; a mixture's traced envelope on p–T and T–ρ; and the phase regions, polygons whose corners carry
 //! every plane's axes; a fluid's thermodynamic surface, a triangle mesh whose vertices carry p, v and T and Gibbs's u,
 //! s and v (M26), its characteristic curves and compressibility chart, and any output's map over a plane, its contours
-//! and bands; and humid air's psychrometric chart (M18.9) and Mollier's h–x chart (M18.10), sampled through a seam the
+//! and bands; a three-component mixture's ternary diagram, its binodal, tie lines and two-phase region (M26.5); and
+//! humid air's psychrometric chart (M18.9) and Mollier's h–x chart (M18.10), the last three sampled through a seam the
 //! caller fills. A line's label is its held quantity and value, a region's its phase. It draws nothing: where a label
 //! goes, the colours and the shown units are the host's.
 //!
@@ -29,6 +30,7 @@ mod ranges;
 mod refine;
 mod regions;
 mod surface;
+mod ternary;
 
 pub use batch::{Batch, FluidBatch, Inputs, Row, Vertex};
 pub use curves::{Characteristic, Curve, CurveVertex, Curves, Isotherm, curves, sample_curves};
@@ -42,3 +44,4 @@ pub use psychro::{ChartLine, ChartRange, ChartVertex, Held, HumidAirBatch, Psych
 pub use ranges::Limits;
 pub use regions::{Corner, Region, Regions, regions, sample_regions};
 pub use surface::{Surface, SurfaceDome, SurfaceVertex, sample_surface, surface};
+pub use ternary::{BinodalVertex, Phases, RESOLUTION, Split, Ternary, TernaryBatch, TieLine, ternary};
