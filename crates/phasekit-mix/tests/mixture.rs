@@ -197,7 +197,9 @@ fn an_unreachable_value_names_its_bound() {
     let mix = mixture(&registry, &[("R32", 0.5), ("R125", 0.5)], DataSet::Corrected).unwrap();
     let extrapolate = FlashOptions::new().with_domain(phasekit_core::DomainPolicy::Extrapolate);
     type Make = fn(f64) -> Result<Input, Error>;
-    let cases: [(Make, f64, Limit, (&Quantity, f64), bool); 3] = [
+    /// The input, the value, the limit, the given input, and whether the flash reaches the bound.
+    type Case = (Make, f64, Limit, (&'static Quantity, f64), bool);
+    let cases: [Case; 3] = [
         (|h| Input::new(Pair::HT, h, 300.0, Basis::Mass), 1e7, Limit::Max, (Quantity::TEMPERATURE, 300.0), true),
         (|h| Input::new(Pair::HT, h, 300.0, Basis::Mass), -1e7, Limit::Min, (Quantity::TEMPERATURE, 300.0), false),
         (|h| Input::new(Pair::HQ, h, 0.5, Basis::Mass), -1e7, Limit::Min, (Quantity::QUALITY, 0.5), true),
