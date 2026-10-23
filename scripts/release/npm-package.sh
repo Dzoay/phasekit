@@ -31,7 +31,12 @@ carries \`code\` (\`invalid_input\`, \`below_min_temperature\`, …), an invalid
 \`refusal.explain(units, style)\` writes the message in a page's units, in words (\`"long"\`) or as the relation the
 value breaks (\`"short"\`): \`units\` maps a dimension (\`temperature\`, \`pressure\`, \`specificEnergy\`, …) to
 \`{ label, scale, offset }\`, SI = value · scale + offset, so \`{ temperature: { label: "°C", scale: 1, offset: 273.15 } }\`
-gives \`T = −273.15 °C ≤ −273.15 °C\`; a dimension it lacks is written in SI.
+gives \`T = −273.15 °C ≤ −273.15 °C\`; a dimension it lacks is written in SI, and a third argument, a fluid's name, writes
+a domain limit as its (\`above Water's maximum\`). \`remedies\` says what the caller can do (\`extrapolate\`,
+\`choose_root\`, \`saturated_phases\`, \`other_pair\`, \`nearest_name\`, …), \`limit\` (\`"max"\` or \`"min"\`) which end of a
+range the value lies beyond, \`refusal.last\` where a stalled solve stopped; \`registry.nearest(name, k)\` offers the
+fluid names nearest an unknown one, and \`fluid.evaluateDetailed(...)\` is \`evaluate\` with each point's refusal as
+\`codes\`, \`rules\`, \`limits\` and \`numbers\`.
 
 Free the handle objects (\`Registry\`, \`Fluid\`) with \`free()\`. A panic, a bug, ends the module: its call throws an
 \`Error\` naming it, \`panicked()\` then returns its message, and every later call refuses; load the module anew.

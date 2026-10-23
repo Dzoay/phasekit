@@ -31,11 +31,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use phasekit_compat::{
-    CompatError, batch_si, fluid_in, ha_props_si_in, humid_air_in, parse_reference_state, phase_si_in, props_si_in,
-    props1_si_in,
+    CompatError, batch_si, batch_si_detailed, fluid_in, ha_props_si_in, humid_air_in, parse_reference_state,
+    phase_si_in, props_si_in, props1_si_in,
 };
-use phasekit_core::batch::Status;
-use phasekit_core::{DataSet, Error, Fluid, Registry, Rule};
+use phasekit_core::batch::{ExecPolicy, Status};
+use phasekit_core::{DataSet, Error, Fluid, Limit, Registry, Remedy, Rule};
 use phasekit_humidair::HumidAir;
 
 mod fp;
@@ -59,6 +59,58 @@ pub type pk_fluid = u64;
 /// Humid air over a registry's water and air ([`pk_humid_air_new`]; PLAN.md M18.7).
 #[allow(non_camel_case_types, reason = "a C type name")]
 pub type pk_humid_air = u64;
+
+/// A refused point of [`pk_batch_detailed`], as a flat record (PLAN.md M29.6; user decision EM17): its code and an
+/// invalid input's rule, NUL-terminated, the end of the range its value lies beyond (`PK_LIMIT_*`) and up to four
+/// numbers, SI, NaN in the slots it does not use: an invalid input's value; an unreachable value, its bound and the
+/// given input's value; a domain error's value and its limit (and the melting temperature's pressure); an ambiguous
+/// input's roots; a stalled solve's last T, ρ (mol/m³) and residual. A point without an error has an empty code.
+#[allow(non_camel_case_types, reason = "a C type name")]
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct pk_refusal {
+    /// The refusal's code (`invalid_input`, `unreachable`, …), NUL-terminated.
+    pub code: [c_char; 32],
+    /// An invalid input's rule (`not_positive`, …), NUL-terminated; empty for any other refusal.
+    pub rule: [c_char; 32],
+    /// `PK_LIMIT_MAX`, `PK_LIMIT_MIN` or `PK_LIMIT_NONE`.
+    pub limit: i32,
+    /// The refusal's numbers.
+    pub values: [f64; 4],
+}
+
+/// [`pk_refusal`]'s `limit` where its value lies beyond no end of a range.
+pub const PK_LIMIT_NONE: i32 = 0;
+/// [`pk_refusal`]'s `limit` where its value lies above the range's highest value.
+pub const PK_LIMIT_MAX: i32 = 1;
+/// [`pk_refusal`]'s `limit` where its value lies below the range's lowest value.
+pub const PK_LIMIT_MIN: i32 = -1;
+
+impl pk_refusal {
+    /// A point's record: its error's, or an empty one.
+    fn of(error: Option<&Error>) -> Self {
+        let mut record = pk_refusal { code: [0; 32], rule: [0; 32], limit: PK_LIMIT_NONE, values: [f64::NAN; 4] };
+        if let Some(error) = error {
+            let detail = phasekit_compat::detail(error);
+            put_code(&mut record.code, detail.code);
+            put_code(&mut record.rule, detail.rule);
+            record.limit = match detail.limit {
+                Some(Limit::Max) => PK_LIMIT_MAX,
+                Some(Limit::Min) => PK_LIMIT_MIN,
+                _ => PK_LIMIT_NONE,
+            };
+            record.values = detail.values;
+        }
+        record
+    }
+}
+
+/// `code` into `slot`, NUL-terminated: every code is ASCII and shorter than the slot.
+fn put_code(slot: &mut [c_char; 32], code: &str) {
+    for (to, byte) in slot.iter_mut().take(31).zip(code.bytes()) {
+        *to = c_char::from_ne_bytes([byte]);
+    }
+}
 
 /// Success.
 pub const PK_OK: i32 = 0;
@@ -112,12 +164,14 @@ struct Fail {
     code: &'static str,
     /// An invalid input's rule, core's; "" for any other refusal.
     rule: &'static str,
+    /// What the caller can do, compat's (user decision EM15); none for the ABI's own refusals.
+    remedies: &'static [Remedy],
 }
 
 impl Fail {
     /// The ABI's own refusal of an argument: its code is its status's.
     fn new(status: i32, message: impl Into<String>) -> Self {
-        Fail { status, message: message.into(), code: abi_code(status), rule: "" }
+        Fail { status, message: message.into(), code: abi_code(status), rule: "", remedies: &[] }
     }
 }
 
@@ -154,7 +208,7 @@ impl From<CompatError> for Fail {
             _ => PK_UNKNOWN_KEY,
         };
         let rule = e.rule().map_or("", Rule::code);
-        Fail { status, message: e.to_string(), code: e.code(), rule }
+        Fail { status, message: e.to_string(), code: e.code(), rule, remedies: e.remedies() }
     }
 }
 
@@ -170,15 +224,15 @@ fn guard(body: impl FnOnce() -> Result<(), Fail>) -> i32 {
     let _fp = fp::Guard::new(false);
     match catch_unwind(AssertUnwindSafe(body)) {
         Ok(Ok(())) => {
-            last_error::set("", "", "");
+            last_error::set("", "", "", &[]);
             PK_OK
         }
         Ok(Err(fail)) => {
-            last_error::set(&fail.message, fail.code, fail.rule);
+            last_error::set(&fail.message, fail.code, fail.rule, fail.remedies);
             fail.status
         }
         Err(_) => {
-            last_error::set("a panic was caught at the C boundary; please report it", abi_code(PK_PANIC), "");
+            last_error::set("a panic was caught at the C boundary; please report it", abi_code(PK_PANIC), "", &[]);
             PK_PANIC
         }
     }
@@ -375,6 +429,21 @@ pub unsafe extern "C" fn pk_last_error_code(buf: *mut c_char, len: usize) -> usi
 pub unsafe extern "C" fn pk_last_error_rule(buf: *mut c_char, len: usize) -> usize {
     // SAFETY: the caller's contract.
     unsafe { copy_out(last_error::rule(), buf, len) }
+}
+
+/// Copies what the caller can do about this thread's last `pk_*` call, its remedies' codes comma-separated
+/// (`choose_root`, `extrapolate`, `warm_start,other_pair`, …; empty if it succeeded or there is none), as
+/// [`pk_last_error`] copies its message, and returns the length needed, NUL included (PLAN.md M29.6; user decision
+/// EM15).
+///
+/// # Safety
+/// `buf` is null or points to `len` writable bytes.
+#[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pk_last_error_remedies(buf: *mut c_char, len: usize) -> usize {
+    // SAFETY: the caller's contract.
+    unsafe { copy_out(&last_error::remedies(), buf, len) }
 }
 
 /// Copies `text` with a NUL into the buffer of `len` bytes at `buf`, if it fits; returns the length needed.
@@ -655,6 +724,95 @@ pub unsafe extern "C" fn pk_batch(
             *code = status_code(cell);
         }
         Ok(())
+    })
+}
+
+/// [`pk_batch`], with each point's refusal in `refusals[i]`, one record a point ([`pk_refusal`]; PLAN.md M29.6, user
+/// decision EM17): the error of its flash, else of its first refused output, as the scalar path refuses it; an empty
+/// code for a point without one. `refusals_len` other than `n` refuses the whole call, as a bad `cells` does.
+///
+/// # Safety
+/// As [`pk_batch`]'s; `refusals` points to `refusals_len` writable records that overlap nothing else.
+#[allow(unsafe_code, clippy::too_many_arguments, reason = "each buffer with its length, as every pk_* call")]
+#[cfg(not(feature = "coolproplib-shim"))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pk_batch_detailed(
+    fluid: pk_fluid,
+    outputs: *const *const c_char,
+    output_lens: *const usize,
+    m: usize,
+    name1: *const c_char,
+    name1_len: usize,
+    values1: *const f64,
+    name2: *const c_char,
+    name2_len: usize,
+    values2: *const f64,
+    n: usize,
+    out: *mut f64,
+    status: *mut i32,
+    cells: usize,
+    refusals: *mut pk_refusal,
+    refusals_len: usize,
+) -> i32 {
+    guard(|| {
+        // SAFETY: the caller's contract.
+        let (keys, input1, input2) = unsafe {
+            (
+                keys(outputs, output_lens, m)?,
+                (text(name1, name1_len, "name1")?, values(values1, n, "values1")?),
+                (text(name2, name2_len, "name2")?, values(values2, n, "values2")?),
+            )
+        };
+        if n.checked_mul(m) != Some(cells) || refusals_len != n {
+            let shape = format!("{n} points of {m} outputs are not {cells} cells and {refusals_len} refusals");
+            return Err(Fail::new(PK_BAD_LENGTH, shape));
+        }
+        // SAFETY: the caller's contract.
+        let (out, status, refusals) = unsafe {
+            (
+                values_mut(out, cells, "out")?,
+                values_mut(status, cells, "status")?,
+                values_mut(refusals, refusals_len, "refusals")?,
+            )
+        };
+        let (mut cell, mut errors) = (vec![Status::Ok; cells], vec![None; n]);
+        let fluid = self::fluid(fluid)?;
+        batch_si_detailed(&fluid, ExecPolicy::Reference, &keys, [input1, input2], (out, &mut cell), &mut errors)?;
+        for (code, cell) in status.iter_mut().zip(cell) {
+            *code = status_code(cell);
+        }
+        for (record, error) in refusals.iter_mut().zip(&errors) {
+            *record = pk_refusal::of(error.as_ref());
+        }
+        Ok(())
+    })
+}
+
+/// Up to `k` of `registry`'s fluid names nearest `name` (`name_len` bytes), comma-separated, nearest first, into `buf`
+/// as [`pk_phase_si`] writes its name, `*needed` the length with its NUL: what to offer for a name the registry does
+/// not hold (PLAN.md M29.6; user decision EM15). Empty where none is near.
+///
+/// # Safety
+/// `name` points to `name_len` readable bytes; `buf` to `len` writable bytes; `needed` is null or writable for one
+/// `size_t`.
+#[allow(unsafe_code)]
+#[cfg(not(feature = "coolproplib-shim"))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pk_registry_nearest(
+    registry: pk_registry,
+    name: *const c_char,
+    name_len: usize,
+    k: usize,
+    buf: *mut c_char,
+    len: usize,
+    needed: *mut usize,
+) -> i32 {
+    guard(|| {
+        // SAFETY: the caller's contract.
+        let name = unsafe { text(name, name_len, "name")? };
+        let nearest = self::registry(registry)?.nearest(name, k).join(",");
+        // SAFETY: the caller's contract.
+        unsafe { put_text(&nearest, (buf, len), needed) }
     })
 }
 

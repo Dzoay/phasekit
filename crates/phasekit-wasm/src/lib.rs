@@ -217,6 +217,12 @@ impl Registry {
         self.inner.loaded().map(String::from).collect()
     }
 
+    /// Up to `k` of its fluid names nearest `name`, nearest first, for a "did you mean" (core's `Registry::nearest`;
+    /// PLAN.md M29.6): none where none is near.
+    pub fn nearest(&self, name: &str, k: usize) -> Vec<String> {
+        self.inner.nearest(name, k).into_iter().map(String::from).collect()
+    }
+
     /// The fluid a fluid string names (a name, alias or CAS number). A handle object: free it with `free()`.
     pub fn fluid(&self, name: &str) -> Result<Fluid, JsValue> {
         alive()?;
@@ -290,7 +296,32 @@ impl Fluid {
         let (input1, input2) = ((name1, values1), (name2, values2));
         compat::batch_si_with(&self.inner, ExecPolicy::Simd, &keys, input1, input2, &mut values, &mut cell)
             .map_err(refuse)?;
-        Ok(Batch { values, status: cell.into_iter().map(compat::status_code).collect(), outputs: keys.len() })
+        let status = cell.into_iter().map(compat::status_code).collect();
+        Ok(Batch { values, status, outputs: keys.len(), refusals: Vec::new() })
+    }
+
+    /// [`evaluate`](Self::evaluate), with each point's refusal as data (PLAN.md M29.6; user decision EM17): the batch's
+    /// `codes`, `rules`, `limits` and `numbers`, one entry (four numbers) a point, empty for a point without one.
+    #[wasm_bindgen(js_name = evaluateDetailed)]
+    pub fn evaluate_detailed(
+        &self,
+        outputs: Vec<String>,
+        name1: &str,
+        values1: &[f64],
+        name2: &str,
+        values2: &[f64],
+    ) -> Result<Batch, JsValue> {
+        alive()?;
+        let keys: Vec<&str> = outputs.iter().map(String::as_str).collect();
+        let cells = values1.len().checked_mul(keys.len()).ok_or_else(|| js("the batch has too many cells"))?;
+        let (mut values, mut cell) = (vec![0.0; cells], vec![Status::Ok; cells]);
+        let mut errors = vec![None; values1.len()];
+        let inputs = [(name1, values1), (name2, values2)];
+        compat::batch_si_detailed(&self.inner, ExecPolicy::Simd, &keys, inputs, (&mut values, &mut cell), &mut errors)
+            .map_err(refuse)?;
+        let status = cell.into_iter().map(compat::status_code).collect();
+        let refusals = errors.iter().map(|e| e.as_ref().map(compat::detail)).collect();
+        Ok(Batch { values, status, outputs: keys.len(), refusals })
     }
 }
 
@@ -467,6 +498,8 @@ pub struct Batch {
     values: Vec<f64>,
     status: Vec<u8>,
     outputs: usize,
+    /// Each point's refusal, from `evaluateDetailed`; empty from `evaluate`.
+    refusals: Vec<Option<compat::Detail>>,
 }
 
 #[wasm_bindgen]
@@ -488,5 +521,29 @@ impl Batch {
     #[wasm_bindgen(getter)]
     pub fn outputs(&self) -> usize {
         self.outputs
+    }
+
+    /// Each point's refusal's code (`unreachable`, …), "" for a point without one; empty from `evaluate`.
+    #[wasm_bindgen(getter)]
+    pub fn codes(&self) -> Vec<String> {
+        self.refusals.iter().map(|d| d.map_or("", |d| d.code).to_string()).collect()
+    }
+
+    /// Each point's invalid input's rule (`not_positive`, …), else "".
+    #[wasm_bindgen(getter)]
+    pub fn rules(&self) -> Vec<String> {
+        self.refusals.iter().map(|d| d.map_or("", |d| d.rule).to_string()).collect()
+    }
+
+    /// Each point's limit, as an `Int8Array`: 1 above the range's highest value, −1 below its lowest, 0 neither.
+    #[wasm_bindgen(getter)]
+    pub fn limits(&self) -> Vec<i8> {
+        self.refusals.iter().map(|d| d.and_then(|d| d.limit).map_or(0, refusal::limit_sign)).collect()
+    }
+
+    /// Each point's four numbers, SI, NaN where unused (compat's `Detail`), as a `Float64Array` of 4N.
+    #[wasm_bindgen(getter)]
+    pub fn numbers(&self) -> Vec<f64> {
+        self.refusals.iter().flat_map(|d| d.map_or([f64::NAN; 4], |d| d.values)).collect()
     }
 }

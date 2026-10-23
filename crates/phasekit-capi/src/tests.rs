@@ -501,7 +501,7 @@ fn pk_batch_refuses_a_bad_call_whole() {
     all(target_os = "linux", target_env = "gnu", any(target_arch = "x86_64", target_arch = "aarch64")),
     all(target_os = "windows", target_arch = "x86_64")
 ))]
-const EXPORTS: [&str; 13] = [
+const EXPORTS: [&str; 16] = [
     "pk_props_si",
     "pk_props1_si",
     "pk_phase_si",
@@ -515,6 +515,9 @@ const EXPORTS: [&str; 13] = [
     "pk_last_error",
     "pk_last_error_code",
     "pk_last_error_rule",
+    "pk_last_error_remedies",
+    "pk_batch_detailed",
+    "pk_registry_nearest",
 ];
 
 /// Calls the export `name` with good arguments on `registry` and its Water `fluid`: its status, or -1 if `pk_props_si`'s
@@ -566,6 +569,17 @@ fn call_export(name: &str, (registry, fluid, reference): (pk_registry, pk_fluid,
             "pk_fluid_free" => pk_fluid_free(*handle),
             "pk_last_error_code" => i32::try_from(pk_last_error_code(buf.as_mut_ptr(), 64)).unwrap_or(-1) - 1,
             "pk_last_error_rule" => i32::try_from(pk_last_error_rule(buf.as_mut_ptr(), 64)).unwrap_or(-1) - 1,
+            "pk_last_error_remedies" => i32::try_from(pk_last_error_remedies(buf.as_mut_ptr(), 64)).unwrap_or(-1) - 1,
+            "pk_registry_nearest" => {
+                pk_registry_nearest(registry, s("Watr").0, 4, 1, buf.as_mut_ptr(), 64, &mut needed)
+            }
+            "pk_batch_detailed" => {
+                let (o, st) = (out.as_mut_ptr(), cells.as_mut_ptr());
+                let mut refusal = [pk_refusal::of(None)];
+                let (tk, pk) = (s("T").0, s("P").0);
+                let (kp, lp, rp) = (keys.as_ptr(), lens.as_ptr(), refusal.as_mut_ptr());
+                pk_batch_detailed(fluid, kp, lp, 1, tk, 1, t.as_ptr(), pk, 1, p.as_ptr(), 1, o, st, 1, rp, 1)
+            }
             _ => i32::try_from(pk_last_error(buf.as_mut_ptr(), 64)).unwrap_or(-1) - 1,
         }
     }
@@ -605,6 +619,77 @@ fn pk_exports_restore_the_callers_fp_environment() {
     assert!(host.2 == INVALID || cfg!(target_arch = "aarch64"), "the trap was not enabled: {host:?}");
     for (name, status, environment) in after {
         assert_eq!((status, environment), (PK_OK, host), "{name}");
+    }
+    assert_eq!(pk_registry_free(registry), PK_OK);
+}
+
+/// PLAN.md M29.6 (user decision EM15): the last call's remedies, comma-separated, compat's; empty after a success.
+#[test]
+fn the_last_error_has_its_remedies() {
+    let registry = new_registry_handle();
+    let cases = [
+        ("D", ("T", 1e4), "extrapolate"),
+        ("Y", ("T", 300.0), "nearest_name"),
+        ("D", ("T", 0.0), ""),
+        ("D", ("T", 700.0), ""),
+    ];
+    for (output, t, remedies) in cases {
+        props(registry, output, t, ("P", 1e5), "Water");
+        assert_eq!(copied(pk_last_error_remedies), remedies, "{output} {t:?}");
+    }
+    assert_eq!(pk_registry_free(registry), PK_OK);
+}
+
+/// The registry's names nearest a name it does not hold, comma-separated; none near gibberish.
+#[test]
+fn the_names_nearest_a_typo() {
+    let registry = new_registry_handle();
+    let nearest = |name: &str| {
+        let (mut buf, mut needed) = ([0 as c_char; 128], 0);
+        // SAFETY: the name is its own length's bytes; `buf` is 128 writable bytes.
+        let status =
+            unsafe { pk_registry_nearest(registry, s(name).0, name.len(), 2, buf.as_mut_ptr(), 128, &mut needed) };
+        let bytes: Vec<u8> = buf[..needed - 1].iter().map(|&c| c as u8).collect();
+        (status, String::from_utf8(bytes).unwrap())
+    };
+    assert_eq!(nearest("Watr"), (PK_OK, "Water".into()));
+    assert_eq!(nearest("qqqqqqqqqqqq"), (PK_OK, String::new()));
+    assert_eq!(pk_registry_free(registry), PK_OK);
+}
+
+/// User decision EM17: `pk_batch_detailed` writes `pk_batch`'s cells and statuses and each point's refusal as a record
+/// (a clean point's code empty); refusals of another length than the points refuse the call.
+#[test]
+fn a_batch_keeps_each_refusal() {
+    let registry = new_registry_handle();
+    let water = fluid_handle(registry, "Water");
+    let (t, p) = ([300.0, -1.0, 1e4], [1e5, 1e5, 1e5]);
+    let ((keys, lens), (mut out, mut cells)) = (([s("Hmass").0], [5]), ([0.0; 3], [0; 3]));
+    let mut refusals = [pk_refusal::of(None); 3];
+    let run = |refusals: &mut [pk_refusal], out: &mut [f64; 3], cells: &mut [i32; 3]| {
+        let (tk, pk, kp, lp) = (s("T").0, s("P").0, keys.as_ptr(), lens.as_ptr());
+        let (o, st, rp, rn) = (out.as_mut_ptr(), cells.as_mut_ptr(), refusals.as_mut_ptr(), refusals.len());
+        // SAFETY: every buffer holds what the call reads or writes.
+        unsafe { pk_batch_detailed(water, kp, lp, 1, tk, 1, t.as_ptr(), pk, 1, p.as_ptr(), 3, o, st, 3, rp, rn) }
+    };
+    assert_eq!(run(&mut refusals, &mut out, &mut cells), PK_OK);
+    let text = |chars: &[c_char; 32]| {
+        let bytes: Vec<u8> = chars.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
+        String::from_utf8(bytes).unwrap()
+    };
+    let read: Vec<_> = refusals.iter().map(|r| (text(&r.code), text(&r.rule), r.limit)).collect();
+    let want = [
+        (String::new(), String::new(), PK_LIMIT_NONE),
+        ("invalid_input".into(), "not_above_absolute_zero".into(), PK_LIMIT_NONE),
+        ("above_max_temperature".into(), String::new(), PK_LIMIT_MAX),
+    ];
+    assert_eq!(read, want);
+    assert_eq!(refusals[2].values[..2], [1e4, 2000.0]);
+    assert!(refusals[0].values.iter().all(|v| v.is_nan()));
+    assert_eq!(cells[0], PK_OK);
+    assert_eq!(run(&mut refusals[..2], &mut out, &mut cells), PK_BAD_LENGTH);
+    for handle in [water] {
+        assert_eq!(pk_fluid_free(handle), PK_OK);
     }
     assert_eq!(pk_registry_free(registry), PK_OK);
 }

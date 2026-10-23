@@ -8,6 +8,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// [`pk_refusal`]'s `limit` where its value lies beyond no end of a range.
+#define PK_LIMIT_NONE 0
+
+// [`pk_refusal`]'s `limit` where its value lies above the range's highest value.
+#define PK_LIMIT_MAX 1
+
+// [`pk_refusal`]'s `limit` where its value lies below the range's lowest value.
+#define PK_LIMIT_MIN -1
+
 // Success.
 #define PK_OK 0
 
@@ -76,6 +85,22 @@ typedef uint64_t pk_registry;
 // One fluid of a registry ([`pk_fluid_new`]).
 typedef uint64_t pk_fluid;
 
+// A refused point of [`pk_batch_detailed`], as a flat record (PLAN.md M29.6; user decision EM17): its code and an
+// invalid input's rule, NUL-terminated, the end of the range its value lies beyond (`PK_LIMIT_*`) and up to four
+// numbers, SI, NaN in the slots it does not use: an invalid input's value; an unreachable value, its bound and the
+// given input's value; a domain error's value and its limit (and the melting temperature's pressure); an ambiguous
+// input's roots; a stalled solve's last T, ρ (mol/m³) and residual. A point without an error has an empty code.
+typedef struct pk_refusal {
+  // The refusal's code (`invalid_input`, `unreachable`, …), NUL-terminated.
+  char code[32];
+  // An invalid input's rule (`not_positive`, …), NUL-terminated; empty for any other refusal.
+  char rule[32];
+  // `PK_LIMIT_MAX`, `PK_LIMIT_MIN` or `PK_LIMIT_NONE`.
+  int32_t limit;
+  // The refusal's numbers.
+  double values[4];
+} pk_refusal;
+
 // Humid air over a registry's water and air ([`pk_humid_air_new`]; PLAN.md M18.7).
 typedef uint64_t pk_humid_air;
 
@@ -109,6 +134,16 @@ size_t pk_last_error_code(char *buf,
 // `buf` is null or points to `len` writable bytes.
 size_t pk_last_error_rule(char *buf,
                           size_t len);
+
+// Copies what the caller can do about this thread's last `pk_*` call, its remedies' codes comma-separated
+// (`choose_root`, `extrapolate`, `warm_start,other_pair`, …; empty if it succeeded or there is none), as
+// [`pk_last_error`] copies its message, and returns the length needed, NUL included (PLAN.md M29.6; user decision
+// EM15).
+//
+// # Safety
+// `buf` is null or points to `len` writable bytes.
+size_t pk_last_error_remedies(char *buf,
+                              size_t len);
 
 // A new registry of the embedded fluids under `data_set` (`PK_DATASET_CORRECTED` or `PK_DATASET_PARITY`), into
 // `*out`, which also reads CoolProp's mixture names (`HEOS::R32[0.7]&R125[0.3]`, `R410A.mix`) on that data set's
@@ -235,6 +270,44 @@ int32_t pk_batch(pk_fluid fluid,
                  double *out,
                  int32_t *status,
                  size_t cells);
+
+// [`pk_batch`], with each point's refusal in `refusals[i]`, one record a point ([`pk_refusal`]; PLAN.md M29.6, user
+// decision EM17): the error of its flash, else of its first refused output, as the scalar path refuses it; an empty
+// code for a point without one. `refusals_len` other than `n` refuses the whole call, as a bad `cells` does.
+//
+// # Safety
+// As [`pk_batch`]'s; `refusals` points to `refusals_len` writable records that overlap nothing else.
+int32_t pk_batch_detailed(pk_fluid fluid,
+                          const char *const *outputs,
+                          const size_t *output_lens,
+                          size_t m,
+                          const char *name1,
+                          size_t name1_len,
+                          const double *values1,
+                          const char *name2,
+                          size_t name2_len,
+                          const double *values2,
+                          size_t n,
+                          double *out,
+                          int32_t *status,
+                          size_t cells,
+                          struct pk_refusal *refusals,
+                          size_t refusals_len);
+
+// Up to `k` of `registry`'s fluid names nearest `name` (`name_len` bytes), comma-separated, nearest first, into `buf`
+// as [`pk_phase_si`] writes its name, `*needed` the length with its NUL: what to offer for a name the registry does
+// not hold (PLAN.md M29.6; user decision EM15). Empty where none is near.
+//
+// # Safety
+// `name` points to `name_len` readable bytes; `buf` to `len` writable bytes; `needed` is null or writable for one
+// `size_t`.
+int32_t pk_registry_nearest(pk_registry registry,
+                            const char *name,
+                            size_t name_len,
+                            size_t k,
+                            char *buf,
+                            size_t len,
+                            size_t *needed);
 
 // New humid air, into `*out`, over `registry`'s Water and Air and phasekit-iapws's IF97 water and ice, under the data
 // set the registry was made with (PLAN.md M18.7; RP-1485's humid air). Free it with [`pk_humid_air_free`].

@@ -3,7 +3,7 @@
 //! `refusal` whose `explain(units, style)` writes core's wording in the caller's units.
 
 use phasekit_compat::CompatError;
-use phasekit_core::{Basis, Dimension, DomainError, Error, Quantity, Style, Unit, Units};
+use phasekit_core::{Basis, Dimension, DomainError, Error, Limit, Quantity, Style, Unit, Units};
 use wasm_bindgen::prelude::*;
 
 // The three JS functions a refusal needs, declared here rather than through js-sys, whose declarations of every JS
@@ -100,18 +100,44 @@ impl Refusal {
         values(&self.error)
     }
 
+    /// What the caller can do, as codes (`choose_root`, `extrapolate`, …; PLAN.md M29.6, user decision EM15), most direct
+    /// first; none for a refusal the inputs cannot change.
+    #[wasm_bindgen(getter)]
+    pub fn remedies(&self) -> Vec<String> {
+        self.error.remedies().iter().map(|r| r.code().to_string()).collect()
+    }
+
+    /// Which end of a range the value lies beyond, "max" or "min", for an unreachable value or a domain limit.
+    #[wasm_bindgen(getter)]
+    pub fn limit(&self) -> Option<String> {
+        let CompatError::Core(e) = &self.error else { return None };
+        phasekit_compat::detail(e).limit.map(|l| if limit_sign(l) > 0 { "max" } else { "min" }.to_string())
+    }
+
+    /// Where a stalled solve stopped (user decision EM18): its last T, ρ (mol/m³) and the residual there, as a
+    /// `Float64Array`; empty for any other refusal.
+    #[wasm_bindgen(getter)]
+    pub fn last(&self) -> Vec<f64> {
+        match &self.error {
+            CompatError::Core(Error::NoConvergence { last: Some(last), .. }) => vec![last.t, last.rho, last.residual],
+            _ => Vec::new(),
+        }
+    }
+
     /// The message in `units` and `style` ("long" or "short"): `units` maps a dimension's key to `{label, scale,
-    /// offset}`, SI = value · scale + offset; a dimension it lacks is written in SI.
-    pub fn explain(&self, units: &JsValue, style: &str) -> Result<String, JsError> {
+    /// offset}`, SI = value · scale + offset; a dimension it lacks is written in SI. With `subject`, a domain limit is
+    /// written as its (`below Water's minimum`, PLAN.md M29.5).
+    pub fn explain(&self, units: &JsValue, style: &str, subject: Option<String>) -> Result<String, JsError> {
         let style = match style {
             "long" => Style::Long,
             "short" => Style::Short,
             other => return Err(JsError::new(&format!("`{other}` is not a style: \"long\" or \"short\""))),
         };
         let table = Table::read(units)?;
-        Ok(match &self.error {
-            CompatError::Core(e) => e.display(&table, style).to_string(),
-            other => other.to_string(),
+        Ok(match (&self.error, subject.as_deref()) {
+            (CompatError::Core(e), Some(subject)) => e.display(&table, style).of(subject).to_string(),
+            (CompatError::Core(e), None) => e.display(&table, style).to_string(),
+            (other, _) => other.to_string(),
         })
     }
 }
@@ -122,8 +148,10 @@ pub(crate) fn refused(error: CompatError) -> JsValue {
     let refusal = Refusal { error };
     // Setting a property of a fresh `Error` cannot fail; were it to, the message alone is still thrown.
     let _ = reflect_set_numbers(&thrown, "values", refusal.values());
-    let fields: [(&str, JsValue); 5] = [
+    let fields: [(&str, JsValue); 7] = [
         ("code", refusal.code().into()),
+        ("remedies", refusal.remedies().into()),
+        ("limit", refusal.limit().into()),
         ("rule", refusal.rule().into()),
         ("quantity", refusal.quantity().into()),
         ("dimension", refusal.dimension().into()),
@@ -219,5 +247,13 @@ impl Units for Table {
             || Unit::si(dimension.si_label()),
             |(_, label, scale, offset)| Unit { label, scale: *scale, offset: *offset },
         )
+    }
+}
+
+/// A limit's sign: 1 above the range's highest value, −1 below its lowest.
+pub(crate) const fn limit_sign(limit: Limit) -> i8 {
+    match limit {
+        Limit::Max => 1,
+        Limit::Min => -1,
     }
 }
