@@ -469,7 +469,7 @@ conformance kit (VERIFICATION.md §10) and, where marked, a **zero-line core dif
 v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
       ├─ M13 mixtures ────── M19 diagram geometry ── M26 more diagrams
       ├─ M14 ice, IF97 water ─ M18 humid air (its chart drawn at M21.11; M28 error messages before M18.11); M27 the
-      │    rest of IF97 on demand
+      │    rest of IF97 on demand; M29 error remedies after M18
       ├─ M21 site: M21.1-M21.10 landed; M21.11 and M21.12 after M18
       └─ M12 SIMD spike, M16 Python, M17 INCOMP; on demand: Tier B shim, WIT, network service, materials
 ```
@@ -494,6 +494,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M26 | `phasekit-diagram`, `phasekit-wasm`, `site/` | `m19` and M21.6 landed (the site draws from `phasekit-diagram`); the user's word (user decision DG6) | Three sets of diagrams beyond M19's planes, each computed by the library and drawn by the site: a fluid's p–v–T and u–s–v surfaces in three dimensions, drawn with three.js (user decisions DG7, DG8), characteristic curves and property maps on the planes, and three-component mixtures' ternary diagrams, the surfaces first (DG9): [M26 More diagrams](#m26-more-diagrams) | Every vertex a state the library computed; each set's arbiter; the browser package's and the page's budgets hold; tag `m26` |
 | M27 | `phasekit-iapws` | A steam use case (user decision HA1) | The rest of IF97: region 2 above 623.15 K with the B23 boundary, region 3 (SR3-03's backward v(T, p) refined by Newton, ROT-241) and region 5, the backward equations for HP, PS and HS, IF97's transport (R12-08, R15-11), and `IF97::Water` by name in compat, C and the browser package (HA5); map 07 §9's `if97-*` units | Zero-line core diff; R7-97(2012)'s other tables and SR3-03 Table 5; the `if97` oracle kind over all five regions |
 | M28 | core, every crate that builds an `Error`, `phasekit-wasm`, `phasekit-compat`, `phasekit-capi`, `site/` | The user's word, 2026-10-21; M28.1 after M18.10 lands, before M18.11 (user decision EM5) | Issue #191: error messages in the caller's units and in two styles, a long one in words and a short one stating the relation the value breaks; each number tagged with its quantity, six significant figures, `InvalidInput` split from structural arguments, properties in words beside their keys, each error's stable code in core and the facades (user decisions EM1-EM4, EM6-EM13), three steps: [M28 Error messages](#m28-error-messages) | Every message pinned in both styles; a caller's units reach the browser package's messages; `m18-start` tagged at M28.1's merge; G1-G9 |
+| M29 | core, every crate that builds an `Error`, `phasekit-compat`, `phasekit-capi`, `phasekit-wasm`, `site/` | The user's word, 2026-10-23 (user decision EM14); its core steps after `m18` | Issue #290: the remedy for each refusal as stable codes and the nearest names to an unknown one (EM15), a value no state reaches named as unreachable with its bound, side and the pair's other input (EM16), the stalled solver's last iterate and residual (EM18), each refused point's error kept by a batch (EM17), and the wording fixes; seven steps: [M29 Error remedies](#m29-error-remedies) | Every new field pinned and in both styles where it is written; each bound a value the library reaches; a batch's errors the scalar flash's; G1-G9 |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
 | — | WIT component | A concrete non-Rust WASI host (user decision 8) | `wit-bindgen` component over compat (R17) | Host smoke test |
 | — | Network service facade | A consumer needs phasekit over the network (BRIEF "connected") | A thin HTTP or RPC service over compat in its own crate; never core (ARCHITECTURE.md §1) | Service smoke test; core diff zero |
@@ -1009,6 +1010,100 @@ zero", not "positive".
 **Exit gate.** G1-G9 at every step; every message pinned in both styles; `gates core-frozen` since `m18-start` from
 M28.2 on while M18 is open; `ci/core-frozen.txt` names no tag once M18.12 closes it. **ROT rows.** None. **User
 decisions implemented.** EM1-EM13.
+
+### M29 Error remedies
+
+**Goal.** Issue #290, the rest of the review of M28.1's messages (EM11): a refusal says what the caller can do, a
+value no state reaches says where the reachable range ends, a stalled solver says where it stopped, a batch keeps each
+refused point's error, and the messages the review found vague say what they mean (user decisions EM14-EM18). An
+agent or a simulator reads the fields, not the wording; each facade writes a remedy in its own API's terms, so core
+holds codes, not advice. **Entry.** The user's word, 2026-10-23 (EM14). M29.1-M29.5 change the core, which is frozen
+from `m18-start` to M18's close (EM5), so they land after `m18`; they may be built beside M18.12. M29.1 and M29.2 in
+one PR, M29.3 and M29.4 in one, M29.5 alone, M29.6 and M29.7 in one, a commit and a `Plan-Step:` footer each (LM7).
+**Prerequisites.** M28; `m18` tagged and `ci/core-frozen.txt` naming no tag. M29 does not move `MILESTONE`. `Error`
+stays at most 48 bytes (`lib.rs`'s assertion): a new field that would grow it is a `&'static` descriptor, as
+`Quantity` is. Each PR shows every new or changed message in full, in both styles, for the user's review (EM2).
+
+- **M29.1 Remedies and the nearest names.** `phasekit_core::Remedy` (`error/remedy.rs`), each with a stable snake_case
+  code (`Remedy::code()`), and `Error::remedies() -> &'static [Remedy]` (EM15):
+  - `Ambiguous`: `choose_root` (`RootPolicy::Nearest` or `Stable`, or a phase hint);
+  - a `Domain` limit: `extrapolate` (`DomainPolicy::Extrapolate`, the state flagged `Extrapolated`);
+  - `NoConvergence`: `warm_start` (`FlashOptions::with_guess`, from M29.3's `last`), then `other_pair`;
+  - `Undefined` for a two-phase state: `saturated_phases` (the saturated liquid's and vapour's properties, or Q);
+  - `Unsupported`: `declared_pair` (a pair the model declares);
+  - `Load(UnknownName)`: `nearest_name`;
+  - every other error: none.
+
+  `Registry::nearest(name, k)`: the registry's names and aliases nearest to `name`, case folded, by the optimal string
+  alignment distance, at most k, nearest first and ties in the registry's order, none farther than a third of the
+  longer name's length. A facade calls it to write "did you mean". Mixture names (`phasekit-mix`'s resolver) are M29.6's.
+  *Red:* `every_error_has_its_remedies` (each variant's list pinned), `the_nearest_names_to_a_typo` (`Watr` → `Water`,
+  `r134` → `R134a`, `propane` → `n-Propane` by its alias), `nothing_is_near_gibberish`.
+- **M29.2 Unreachable values.** `Error::Unreachable { quantity, value, limit, bound, given }` (EM16): `limit`, a
+  `Limit::{Max, Min}`, says which end of the reachable range the value lies beyond, `bound` is the extreme the solver
+  reached at the given input, and `given` the pair's other input as a `(&'static Quantity, f64)`. Code `unreachable`,
+  no `rule()`, `Status::InvalidInput` in a batch, remedies `other_pair`. Every site that now refuses a value no state
+  reaches with `InvalidInput` and `Rule::OutOfRange` builds it instead: core's isotherm (HT, ST, TU), isentrope (HS,
+  SU) and quality (QS, HQ, DQ) searches, `phasekit-mix`'s outer solves (`mixture/pairs.rs`) and humid air's `given.rs`. `InvalidInput` keeps
+  the values that break a rule, and `out_of_range` stays for a model's own refusals with no state to measure against.
+  The proposed wording: `enthalpy 1e7 J/kg is above the highest reached at temperature 300 K, 2.54932e6 J/kg` and
+  `h = 1e7 J/kg > h_max(T = 300 K) = 2.54932e6 J/kg` (the numbers the step's). *Red:*
+  `an_unreachable_value_names_its_bound` (Water's HT, ST and TU above and below, its HS and QS, R410A's and humid air's: the limit,
+  the bound and the given input pinned), `the_bound_is_reached` (the flash at the given input and the bound, moved
+  inside by 10⁻⁹ relatively, succeeds and gives the bound back within `Flash`), `every_message_in_both_styles` gains
+  the variant.
+- **M29.3 Where a stalled solver stopped.** `Error::NoConvergence` gains `last: Option<(f64, f64)>`, the last
+  iterate's (T, ρ_molar), and `residual`, the relative residual there of the input the solver was solving for, NaN
+  where it has none (EM18). Each of the sites that build it fills them where its solver has an iterate (a flash's
+  density and temperature Newtons, the isobar, isotherm and isentrope searches, the saturation and mixture solves);
+  where it has none (a bracket lost before its first iterate) `last` is `None`. A retry passes `last` to
+  `FlashOptions::with_guess`. The message is unchanged: the fields are data. Where a cap is a constant, the step passes it into
+  the loop, so that a module's tests can run it below its need. *Red:* `a_stalled_solve_says_where_it_stopped` (each
+  solver's loop capped below its need, each `last` a state whose input is within `residual` of the request, by the
+  library's own DT at `last`), `a_lost_bracket_has_no_last`.
+- **M29.4 Each refused point's error in a batch.** `batch::evaluate_detailed(fluid, req, out, status, errors)`,
+  `errors: &mut [Option<Error>]` one slot a point (EM17): the point's flash error, else its first refused output's,
+  `None` for a point without one; `Shape` names it when its length is not the points'. `evaluate` is
+  `evaluate_detailed` without the slots, its cost unchanged (`gates perf`); every `ExecPolicy`, lanes and rayon
+  included, writes the same errors. *Red:* `a_batch_keeps_each_points_error` (each slot the scalar flash's or output's
+  error, under each policy, over a grid with every refusal a pure fluid gives), `a_clean_point_has_no_error`,
+  `the_errors_slice_has_one_slot_a_point`, `evaluate_is_evaluate_detailed` (the same bits in `out` and `status`).
+- **M29.5 The wording fixes.** Each shown in both styles in the PR:
+  - `DomainError::BelowMeltingLine` gains `p`: `… below the melting temperature at 2e8 Pa, 251.2 K`,
+    `T = 250 K < T_melt(p = 2e8 Pa) = 251.2 K`.
+  - `DomainError::MechanicallyUnstable` gains the condition that failed, an `Instability`: (∂p/∂ρ)_T ≤ 0, c_v ≤ 0,
+    (∂p/∂ρ)_s ≤ 0 (the speed of sound's and Γ's) or a Gibbs model's g_p ≤ 0 or g_pp ≥ 0; the message names that one.
+  - `Error::Shape` names the buffer: `the status buffer has length 2, expected 3`.
+  - `Error::InvalidArgument` takes an `&'static Argument` (its name and what is allowed, as a `Quantity` holds a name
+    and a symbol) in place of its `&str`, so that `invalid input pair` and the browser package's `invalid plane` give
+    the value refused, where there is one, and what is allowed (`input pair TQ is not one of the plane's: PH, PT`).
+  - `phasekit_mix::quantities`: `BINARY_PARAMETER` becomes the four GERG parameters `β_T`, `γ_T`, `β_v` and `γ_v`, each
+    with its own symbol, and `HIGHEST_PRESSURE`'s symbol becomes `p_stop`, which reads as no domain limit.
+  - Whose limit: `Message::of(subject)` writes a domain limit as the subject's (`below Water's minimum, 273.16 K`;
+    the short form unchanged), and the facades pass the fluid's name.
+
+  *Red:* `every_message_in_both_styles` re-pinned with each change, `which_instability`, `the_buffer_is_named`,
+  `an_argument_says_what_is_allowed`, `a_limit_is_its_fluids`.
+- **M29.6 The facades.** Compat's `CompatError::remedies()`, core's for a kernel error and compat's own for the rest
+  (an unknown output: `nearest_name` over the output names), and its unknown-fluid message with "did you mean", from
+  `Registry::nearest` and `phasekit-mix`'s resolver. The C ABI: `pk_last_error_remedies` (the codes, comma-separated,
+  copied out as `pk_last_error_code` is) and `pk_batch_detailed`, whose `pk_refusal` record a point holds its code,
+  rule, limit and up to four numbers (the value and its limit or bound, the given input, or the roots; NaN the unused),
+  in the committed header and `gates abi`. The browser package: a refusal's `remedies`, `nearest`, and an unreachable
+  value's `limit`, `bound` and `given`, a stalled solve's `last` and `residual`; `Fluid.batch(…, {details: true})`
+  returns each refused point's code, rule and numbers as typed arrays. The size budgets are re-measured (SL8). *Red:*
+  compat's `every_refusal_has_its_remedies`, capi's `the_last_error_has_its_remedies`, `a_batch_keeps_each_refusal`
+  and `smoke.c`'s checks, which do not compile before; `tests/refusals.rs`'s new fields and a detailed batch under
+  Node on both builds.
+- **M29.7 The site, and M29 closed.** The calculator writes a refusal's remedies in the site's terms beside its message
+  (a root to choose, extrapolation to allow, the saturated phases to read) and "did you mean" for an unknown fluid in a
+  link that picks it; the sweeps say, under the cursor, why a point is missing (its code and the bound or limit, short).
+  Issue #290 closed. *Red:* the calculator's `a refusal offers its remedy` and `an unknown fluid offers the nearest`, the
+  sweeps' `a missing point says why`, and the end-to-end check of the first, red against the page as it was.
+
+**Exit gate.** G1-G9 at every step; every new field pinned, and every new or changed message in both styles; each
+`Unreachable` bound reached by the flash; a batch's errors the scalar flash's under every policy; `Error` at most 48
+bytes. **ROT rows.** None. **User decisions implemented.** EM14-EM18.
 
 ## 5. Cross-cutting tracks
 
