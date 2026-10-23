@@ -60,11 +60,11 @@ fn corner(s: &State) -> Corner {
     Corner { t: s.t(), p: s.p(), h: s.h(Basis::Mass), s: s.s(Basis::Mass), rho: s.rho(Basis::Mass) }
 }
 
-/// The corner of `fluid`'s state at (p, T) under `opts`: its p and T the inputs, which a Gibbs model's own p can miss
-/// by an ulp.
+/// The corner of `fluid`'s state at (p, T) under `opts`: its p the input, which a Gibbs model's own p can miss by an
+/// ulp (its T is the input's).
 fn at_pt(fluid: &Fluid, (p, t): (f64, f64), opts: &FlashOptions) -> Result<Corner, Error> {
     let s = fluid.flash(Input::pt(Pressure::new(p)?, Temperature::new(t)?), opts)?;
-    Ok(Corner { p, t, ..corner(&s) })
+    Ok(Corner { p, ..corner(&s) })
 }
 
 /// `n` pressures from `a` to `b`, evenly in their logarithm, both ends exactly: `log_grid`'s first can be an ulp off
