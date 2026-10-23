@@ -304,7 +304,7 @@ impl Mixture {
                 });
             }
         }
-        Err(Error::NoConvergence { strategy: phasekit_core::Strategy::Vle, iterations: 0 })
+        Err(Error::no_convergence(phasekit_core::Strategy::Vle, 0))
     }
 
     /// The bubble or dew point at a given T or p (PLAN.md M13.9): the other of T and p, the feed's density and the
@@ -364,7 +364,7 @@ impl Mixture {
             }
             (b0, f0, b1) = (b1, f1, secant((b0, f0), (b1, f1)));
         }
-        Err(Error::NoConvergence { strategy: phasekit_core::Strategy::Vle, iterations: MASS_STEPS as u16 })
+        Err(Error::no_convergence(phasekit_core::Strategy::Vle, MASS_STEPS as u16))
     }
 
     /// QT and PQ (PLAN.md M13.9, M13.10): the two phases at the given quality, molar or by mass, and T or p. Under
@@ -574,7 +574,7 @@ fn bracket(
             hi = End::new(hi.x + widen, g(hi.x + widen)?);
         }
     }
-    Err(Error::NoConvergence { strategy: phasekit_core::Strategy::Vle, iterations: ISOCHORIC_STEPS as u16 })
+    Err(Error::no_convergence(phasekit_core::Strategy::Vle, ISOCHORIC_STEPS as u16))
 }
 
 /// The pressure of a homogeneous state at (T, ρ) of total derivatives `b`: ρRT(1 + δα^r_δ), Z being `b.a01`.
@@ -742,8 +742,10 @@ impl ThermoModel for Mixture {
                     Phase::Liquid | Phase::SupercriticalLiquid => Branch::Liquid,
                     _ => Branch::Vapour,
                 };
+                // The branch's Newton starts from the guess, so a retry from its last iterate reaches it (EM19).
                 let guess = opts.guess().map(|(_, rho)| rho);
-                self.state(y, equilibrium::branch_root(self, y, x, branch, guess)?, phase, opts)
+                let rho = equilibrium::branch_root(self, y, x, branch, guess).map_err(Error::taking_guess)?;
+                self.state(y, rho, phase, opts)
             }
             _ => Err(Error::Unsupported { pair }),
         }
@@ -903,7 +905,7 @@ mod tests {
             Ok((1.0, Equilibrium::Single { rho: u }))
         };
         let refused = bracket(0.0, &mut never).map(|(lo, hi)| (lo.x, hi.x));
-        let want = Err(Error::NoConvergence { strategy: phasekit_core::Strategy::Vle, iterations: 40 });
+        let want = Err(Error::no_convergence(phasekit_core::Strategy::Vle, 40));
         assert!(refused == want && calls == 1 + ISOCHORIC_STEPS, "{refused:?} {calls}");
     }
 

@@ -10,7 +10,7 @@ use crate::units::Basis;
 
 use super::isobar::px;
 use super::search::{Descent, Point, Reached, at_or_below, bisect_to_refusal, positive, toms748_kept};
-use super::{Caloric, DomainPolicy, FlashOptions, T_TOL, reproduces_x};
+use super::{Caloric, DomainPolicy, FlashOptions, T_TOL, reproduces_x, unreproduced_x};
 
 /// The share of its scale (`Caloric::scale`) within which x(PS(p, s)) is x while HS and SU seek their bracket: just
 /// above the noise PS's own tolerance on T leaves in x (c·T·1e-14, under 1e-13 of RT), far inside class `Flash`.
@@ -68,7 +68,8 @@ pub(super) fn sx(fluid: &PureFluid, s: f64, x: f64, var: Caloric, opts: &FlashOp
     let root = isentrope_root(|u| raw(u).map(|(at, _)| at), &mut residual, bracket)?.converged(Strategy::Isentrope)?;
     let state = px(fluid, p_of(root.x), s, Caloric::S, opts)?;
     if !reproduces_x(var, r, state.t(), x, var.of(&state)) {
-        return Err(Error::NoConvergence { strategy: Strategy::Isentrope, iterations: root.iterations });
+        let at = (state.t(), state.rho(Basis::Molar));
+        return Err(unreproduced_x((Strategy::Isentrope, root.iterations), var, r, at, (x, var.of(&state))));
     }
     Ok(state.with_path(SolvePath { strategy: Strategy::Isentrope, iterations: root.iterations }))
 }
@@ -137,5 +138,5 @@ fn isentrope_root(
             None => towards_refusal(residual, a, at, positive).ok_or(e)?,
         };
     }
-    Err(Error::NoConvergence { strategy: Strategy::Isentrope, iterations: 0 })
+    Err(Error::no_convergence(Strategy::Isentrope, 0))
 }

@@ -130,6 +130,33 @@ pub fn evaluate(
     out: &mut [f64],
     status: &mut [Status],
 ) -> Result<BatchSummary, Error> {
+    run(fluid, req, (out, status), &mut [])
+}
+
+/// [`evaluate`], keeping each point's error in `errors`, one slot a point (PLAN.md M29.4; user decision EM17): the
+/// error of its flash, else of its first refused output, as the scalar path returns it, and `None` for a point without
+/// one. Under every [`ExecPolicy`] the same errors; nothing is allocated for a point without one.
+pub fn evaluate_detailed(
+    fluid: &Fluid,
+    req: &BatchRequest<'_>,
+    out: &mut [f64],
+    status: &mut [Status],
+    errors: &mut [Option<Error>],
+) -> Result<BatchSummary, Error> {
+    if errors.len() != req.points() {
+        return Err(Error::Shape { expected: req.points(), found: errors.len() });
+    }
+    errors.fill(None);
+    run(fluid, req, (out, status), errors)
+}
+
+/// [`evaluate`]'s and [`evaluate_detailed`]'s driver; `errors` is empty where they are not kept.
+fn run(
+    fluid: &Fluid,
+    req: &BatchRequest<'_>,
+    (out, status): (&mut [f64], &mut [Status]),
+    errors: &mut [Option<Error>],
+) -> Result<BatchSummary, Error> {
     let (n, m) = (req.x.len(), req.outputs.len());
     let cells = req.cells().ok_or(Error::Shape { expected: usize::MAX, found: out.len() })?;
     for (expected, found) in [(n, req.y.len()), (cells, out.len()), (cells, status.len())] {
@@ -142,21 +169,31 @@ pub fn evaluate(
     }
     // At most `n` points per chunk, so `chunk * m` is at most `cells`.
     let chunk = chunk_points(req.exec, n);
+    let width = chunk.saturating_mul(m);
     #[cfg(feature = "rayon")]
     // Equivalent (M9.1): with `<=` a batch of one chunk goes to rayon, whose parallel iterator runs a single piece
     // inline on the calling thread: the same thread and bits.
     // equivalent mutant: replace < with <=
     if chunk < n {
-        let (points, outs) =
-            (req.x.par_chunks(chunk).zip(req.y.par_chunks(chunk)), out.par_chunks_mut(chunk.saturating_mul(m)));
-        let chunks = points.zip(outs.zip(status.par_chunks_mut(chunk.saturating_mul(m))));
-        let failed = chunks.map(|((xs, ys), (out, status))| run_chunk(fluid, req, xs, ys, out, status)).sum();
+        let rows = req.x.par_chunks(chunk).zip(req.y.par_chunks(chunk));
+        let rows = rows.zip(out.par_chunks_mut(width).zip(status.par_chunks_mut(width)));
+        let failed = if errors.is_empty() {
+            rows.map(|(points, cells)| run_chunk(fluid, req, points, cells, &mut [])).sum()
+        } else {
+            let rows = rows.zip(errors.par_chunks_mut(chunk));
+            rows.map(|((points, cells), errors)| run_chunk(fluid, req, points, cells, errors)).sum()
+        };
         return Ok(BatchSummary { points: n, failed_cells: failed });
     }
     // One chunk, or no rayon: the chunks in turn on the calling thread, with the boundaries rayon's would have.
-    let (points, outs) = (req.x.chunks(chunk).zip(req.y.chunks(chunk)), out.chunks_mut(chunk.saturating_mul(m)));
-    let chunks = points.zip(outs.zip(status.chunks_mut(chunk.saturating_mul(m))));
-    let failed = chunks.map(|((xs, ys), (out, status))| run_chunk(fluid, req, xs, ys, out, status)).sum();
+    let rows = req.x.chunks(chunk).zip(req.y.chunks(chunk));
+    let rows = rows.zip(out.chunks_mut(width).zip(status.chunks_mut(width)));
+    let mut failed = 0_usize;
+    for (k, (points, cells)) in rows.enumerate() {
+        let from = k.saturating_mul(chunk);
+        let errors = errors.get_mut(from..from.saturating_add(chunk).min(errors.len())).unwrap_or_default();
+        failed = failed.saturating_add(run_chunk(fluid, req, points, cells, errors));
+    }
     Ok(BatchSummary { points: n, failed_cells: failed })
 }
 
@@ -165,21 +202,20 @@ pub fn evaluate(
 fn run_chunk(
     fluid: &Fluid,
     req: &BatchRequest<'_>,
-    xs: &[f64],
-    ys: &[f64],
-    out: &mut [f64],
-    status: &mut [Status],
+    (xs, ys): (&[f64], &[f64]),
+    (out, status): (&mut [f64], &mut [Status]),
+    errors: &mut [Option<Error>],
 ) -> usize {
     if req.exec == ExecPolicy::Simd {
-        return run_groups(fluid, req, (xs, ys), out, status);
+        return run_groups(fluid, req, (xs, ys), (out, status), errors);
     }
     let m = req.outputs.len();
     let mut failed = 0_usize;
     let rows = out.chunks_exact_mut(m).zip(status.chunks_exact_mut(m));
-    for ((x, y), (out, status)) in xs.iter().zip(ys).zip(rows) {
+    for (k, ((x, y), (out, status))) in xs.iter().zip(ys).zip(rows).enumerate() {
         // The single gate (validation, basis, gauge), then the model: exactly the scalar path.
         let state = req.input(*x, *y).and_then(|input| fluid.flash(input, &req.flash));
-        failed = failed.saturating_add(write_row(fluid, req, &state, out, status));
+        failed = failed.saturating_add(write_row(fluid, req, &state, (out, status), errors.get_mut(k)));
     }
     failed
 }
@@ -200,8 +236,8 @@ fn run_groups(
     fluid: &Fluid,
     req: &BatchRequest<'_>,
     (xs, ys): (&[f64], &[f64]),
-    out: &mut [f64],
-    status: &mut [Status],
+    (out, status): (&mut [f64], &mut [Status]),
+    errors: &mut [Option<Error>],
 ) -> usize {
     let m = req.outputs.len();
     let mut failed = 0_usize;
@@ -213,7 +249,7 @@ fn run_groups(
         .chunks(HOOK_GROUP)
         .zip(ys.chunks(HOOK_GROUP))
         .zip(out.chunks_mut(HOOK_GROUP.saturating_mul(m)).zip(status.chunks_mut(HOOK_GROUP.saturating_mul(m))));
-    for ((xs, ys), (out, status)) in groups {
+    for (g, ((xs, ys), (out, status))) in groups.enumerate() {
         let points: [Result<NativeInput, Error>; HOOK_GROUP] = core::array::from_fn(|k| {
             let (x, y) = xs.get(k).zip(ys.get(k)).ok_or(Error::Shape { expected: HOOK_GROUP, found: k })?;
             fluid.native(req.input(*x, *y)?)
@@ -221,9 +257,15 @@ fn run_groups(
         flash_passed(fluid, req, &points, &mut states);
         let mut states = states.iter();
         let rows = out.chunks_exact_mut(m).zip(status.chunks_exact_mut(m));
-        for (point, (out, status)) in points.into_iter().zip(rows) {
-            let state = point.and_then(|_| gauged(fluid, states.next()));
-            failed = failed.saturating_add(write_row(fluid, req, &state, out, status));
+        for (k, ((point, (x, y)), cells)) in points.into_iter().zip(xs.iter().zip(ys)).zip(rows).enumerate() {
+            // A model's refusal in the caller's terms, as `Fluid::flash` writes it.
+            let caller = |e: Error| match req.input(*x, *y) {
+                Ok(input) => fluid.caller_error(input, e),
+                Err(_) => e,
+            };
+            let state = point.and_then(|_| gauged(fluid, states.next()).map_err(caller));
+            let slot = errors.get_mut(g.saturating_mul(HOOK_GROUP).saturating_add(k));
+            failed = failed.saturating_add(write_row(fluid, req, &state, cells, slot));
         }
     }
     failed
@@ -263,18 +305,26 @@ fn write_row(
     fluid: &Fluid,
     req: &BatchRequest<'_>,
     state: &Result<State, Error>,
-    out: &mut [f64],
-    status: &mut [Status],
+    (out, status): (&mut [f64], &mut [Status]),
+    slot: Option<&mut Option<Error>>,
 ) -> usize {
     let mut failed = 0_usize;
     let ok = if state.as_ref().is_ok_and(State::is_extrapolated) { Status::Extrapolated } else { Status::Ok };
+    let mut first = None;
     for ((o, s), prop) in out.iter_mut().zip(status.iter_mut()).zip(req.outputs) {
         let value = state.as_ref().map_err(Clone::clone).and_then(|st| fluid.prop(st, *prop));
         (*o, *s) = match value {
             Ok(v) => (v, ok),
-            Err(e) => (f64::NAN, Status::from(&e)),
+            Err(e) => {
+                let cell = Status::from(&e);
+                first = first.or(Some(e));
+                (f64::NAN, cell)
+            }
         };
         failed = failed.saturating_add(usize::from(!matches!(*s, Status::Ok | Status::Extrapolated)));
+    }
+    if let Some(slot) = slot {
+        *slot = first;
     }
     failed
 }

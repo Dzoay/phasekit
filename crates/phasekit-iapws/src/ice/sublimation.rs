@@ -67,5 +67,5 @@ pub(super) fn temperature(p: f64) -> Result<f64, Error> {
         }
         theta = next;
     }
-    Err(Error::NoConvergence { strategy: Strategy::External, iterations: ITERATIONS })
+    Err(Error::no_convergence(Strategy::External, ITERATIONS))
 }

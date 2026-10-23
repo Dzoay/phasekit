@@ -48,7 +48,8 @@ impl Error {
             Error::Unsupported { .. } => &[Remedy::DeclaredPair],
             Error::Domain(DomainError::MechanicallyUnstable) => &[],
             Error::Domain(_) => &[Remedy::Extrapolate],
-            // Only PT's density solve takes a guess (user decision EM19): M29.3 lists `warm_start` there.
+            // Only a solve that takes the guess is warm-started by it (user decision EM19).
+            Error::NoConvergence { last: Some(_), takes_guess: true, .. } => &[Remedy::WarmStart, Remedy::OtherPair],
             Error::NoConvergence { .. } => &[Remedy::OtherPair],
             Error::Ambiguous { .. } => &[Remedy::ChooseRoot],
             Error::Undefined { phase: Phase::TwoPhase, .. } => &[Remedy::SaturatedPhases],

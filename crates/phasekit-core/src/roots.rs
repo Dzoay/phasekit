@@ -72,11 +72,7 @@ pub(crate) struct Root {
 impl Root {
     /// The root if the solver converged, else `Error::NoConvergence` naming `strategy`: no iterate is accepted silently.
     pub(crate) fn converged(self, strategy: Strategy) -> Result<Root, Error> {
-        if self.stop == Stop::Converged {
-            Ok(self)
-        } else {
-            Err(Error::NoConvergence { strategy, iterations: self.iterations })
-        }
+        if self.stop == Stop::Converged { Ok(self) } else { Err(Error::no_convergence(strategy, self.iterations)) }
     }
 }
 
@@ -438,7 +434,7 @@ mod tests {
     fn exhausted_iterations_are_an_error() {
         let root = toms748(|x| math::exp(x) - 1e10, -10.0, 40.0, Tol::Relative(1e-15), 1);
         assert_eq!(root.stop, Stop::MaxIterations, "{root:?}");
-        let refused = Err(Error::NoConvergence { strategy: Strategy::Vle, iterations: 1 });
+        let refused = Err(Error::no_convergence(Strategy::Vle, 1));
         assert_eq!(root.converged(Strategy::Vle), refused);
         let root = newton(|x| (wallis(x), 3.0 * x * x - 2.0), (2.0, 3.0), 2.9, Tol::Relative(1e-15), 1e-12, 2);
         assert_eq!((root.stop, root.iterations), (Stop::MaxIterations, 2), "{root:?}");
@@ -468,7 +464,7 @@ mod tests {
         let root = toms748(nan_above, 2.0, 3.0, Tol::Relative(1e-15), 50);
         assert_eq!((root.stop, root.x, root.iterations), (Stop::NotFinite, 3.0, 0), "the end where f is NaN: {root:?}");
         assert!(root.f.is_nan(), "{root:?}");
-        let refused = Err(Error::NoConvergence { strategy: Strategy::Vle, iterations: root.iterations });
+        let refused = Err(Error::no_convergence(Strategy::Vle, root.iterations));
         assert_eq!(root.converged(Strategy::Vle), refused);
         let root = newton(|x| (nan_above(x), 3.0 * x * x - 2.0), (2.0, 3.0), 2.01, Tol::Relative(1e-15), 1e-12, 50);
         assert_eq!(root.stop, Stop::NotFinite, "{root:?}");
