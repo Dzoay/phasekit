@@ -954,3 +954,201 @@ fn the_surface_is_typed_arrays() {
     let fluid = JsValue::from(Registry::new().unwrap().fluid("Water").unwrap());
     assert!(surface_types(&fluid));
 }
+
+/// PLAN.md M26.6: a pure fluid's characteristic curves and compressibility chart are phasekit-diagram's, bit for bit,
+/// computed here on the same build by its batch in lanes (`Exact`): Water's four curves, their lines' vertices and
+/// inputs, where they meet zero density, and the chart's isotherms. A mixture's are refused.
+#[wasm_bindgen_test]
+fn a_fluids_curves_are_the_crates_bit_for_bit() {
+    use phasekit_diagram::{CurveVertex, FluidBatch, Limits, sample_curves};
+    let oracle = water();
+    let batch = FluidBatch::new(&oracle).with_exec(ExecPolicy::Simd);
+    let want = sample_curves(&batch, &Limits::of(&oracle).unwrap()).unwrap();
+    let got = Registry::new().unwrap().fluid("Water").unwrap().curves().unwrap();
+    let names: Vec<String> = want.curves.iter().map(|c| format!("{:?}", c.characteristic)).collect();
+    assert_eq!(got.names(), names);
+    let zero: Vec<f64> = want.curves.iter().map(|c| c.zero_density.unwrap_or(f64::NAN)).collect();
+    assert_eq!(bits(got.zero_density()), bits(zero));
+    let runs = |runs: &[&[CurveVertex]]| {
+        let mut starts = vec![0u32];
+        let all: Vec<&CurveVertex> = runs.iter().flat_map(|r| r.iter()).collect();
+        runs.iter().for_each(|r| starts.push(starts.last().unwrap() + r.len() as u32));
+        let column = |f: fn(&CurveVertex) -> f64| all.iter().map(|v| f(v).to_bits()).collect::<Vec<_>>();
+        let inputs: Vec<u64> = all.iter().flat_map(|v| [v.inputs.x, v.inputs.y]).map(f64::to_bits).collect();
+        (starts, [column(|v| v.t), column(|v| v.rho), column(|v| v.p), column(|v| v.z)], inputs)
+    };
+    let exported = |r: &phasekit_wasm::CurveRuns| {
+        (r.starts(), [bits(r.t()), bits(r.rho()), bits(r.p()), bits(r.z())], bits(r.inputs()))
+    };
+    let lines: Vec<&[CurveVertex]> = want.curves.iter().flat_map(|c| c.lines.iter().map(Vec::as_slice)).collect();
+    assert_eq!(exported(&got.lines()), runs(&lines));
+    let mut curves = vec![0u32];
+    want.curves.iter().for_each(|c| curves.push(curves.last().unwrap() + c.lines.len() as u32));
+    assert_eq!(got.curves(), curves);
+    let chart: Vec<&[CurveVertex]> = want.compressibility.iter().map(|i| i.vertices.as_slice()).collect();
+    assert_eq!(exported(&got.chart()), runs(&chart));
+    assert_eq!(bits(got.isotherms()), bits(want.compressibility.iter().map(|i| i.t).collect()));
+    let (r410a, _) = r410a();
+    assert!(r410a.curves().is_err());
+}
+
+/// PLAN.md M26.6: a property map is phasekit-diagram's, bit for bit, on the same build (`Exact`): n-Propane's p on
+/// T–ρ, its levels and contour lines, its bands' bounds and polygons, its spans. An unknown plane or output, the phase
+/// and a mixture are refused.
+#[wasm_bindgen_test]
+fn a_fluids_map_is_the_crates_bit_for_bit() {
+    use phasekit_diagram::{FluidBatch, Limits, Plane, Quantity, Vertex, sample_map};
+    let oracle = phasekit_core::Registry::from_embedded(DataSet::Corrected).unwrap().get("n-Propane").unwrap().clone();
+    let batch = FluidBatch::new(&oracle).with_exec(ExecPolicy::Simd);
+    let want = sample_map(&batch, Plane::TRho, Quantity::P, &Limits::of(&oracle).unwrap()).unwrap();
+    let fluid = Registry::new().unwrap().fluid("n-Propane").unwrap();
+    let got = fluid.map("trho", "P").unwrap();
+    assert_eq!((got.plane(), got.key()), ("trho".to_string(), "P".to_string()));
+    assert_eq!(bits(got.values()), bits(vec![want.values.0, want.values.1]));
+    assert_eq!((bits(got.x()), bits(got.y())), (bits(vec![want.x.0, want.x.1]), bits(vec![want.y.0, want.y.1])));
+    assert_eq!(bits(got.levels()), bits(want.contours.iter().map(|c| c.level).collect()));
+    let runs = |runs: Vec<&Vec<Vertex>>| {
+        let mut starts = vec![0u32];
+        runs.iter().for_each(|r| starts.push(starts.last().unwrap() + r.len() as u32));
+        let xy: Vec<u64> = runs.iter().flat_map(|r| r.iter().flat_map(|v| [v.x, v.y])).map(f64::to_bits).collect();
+        let inputs = runs.iter().flat_map(|r| r.iter().flat_map(|v| [v.inputs.x, v.inputs.y])).map(f64::to_bits);
+        (starts, xy, inputs.collect::<Vec<u64>>())
+    };
+    let exported = |r: phasekit_wasm::Runs| (r.starts(), bits(r.vertices().xy()), bits(r.vertices().inputs()));
+    assert_eq!(exported(got.lines()), runs(want.contours.iter().flat_map(|c| &c.lines).collect()));
+    assert_eq!(exported(got.polygons()), runs(want.bands.iter().flat_map(|b| &b.polygons).collect()));
+    let offsets = |counts: Vec<usize>| {
+        counts.iter().fold(vec![0u32], |mut o, &n| {
+            o.push(o.last().unwrap() + n as u32);
+            o
+        })
+    };
+    assert_eq!(got.contours(), offsets(want.contours.iter().map(|c| c.lines.len()).collect()));
+    assert_eq!(got.bands(), offsets(want.bands.iter().map(|b| b.polygons.len()).collect()));
+    let bound = |b: Option<f64>| b.unwrap_or(f64::NAN).to_bits();
+    assert_eq!(bits(got.low()), want.bands.iter().map(|b| bound(b.low)).collect::<Vec<_>>());
+    assert_eq!(bits(got.high()), want.bands.iter().map(|b| bound(b.high)).collect::<Vec<_>>());
+    for (plane, output) in [("xy", "P"), ("trho", "X"), ("trho", "Phase")] {
+        assert!(fluid.map(plane, output).is_err(), "{plane} {output}");
+    }
+    let (r410a, _) = r410a();
+    assert!(r410a.map("pt", "Hmass").is_err());
+}
+
+/// The library's pair parameters' equilibrium at (T, p) of R407C's components, as the package fills the ternary's seam.
+struct Components {
+    registry: phasekit_core::Registry,
+    t: f64,
+    p: f64,
+}
+
+impl phasekit_diagram::TernaryBatch for Components {
+    fn t(&self) -> f64 {
+        self.t
+    }
+
+    fn p(&self) -> f64 {
+        self.p
+    }
+
+    fn phases(&self, feeds: &[[f64; 3]]) -> Result<Vec<Option<phasekit_diagram::Phases>>, phasekit_core::Error> {
+        use phasekit_diagram::{Phases, Split};
+        let one = |z: [f64; 3]| -> Option<Phases> {
+            let parts: Vec<(&str, f64)> = ["R32", "R125", "R134a"].into_iter().zip(z).collect();
+            let fluid = phasekit_mix::mixture(&self.registry, &parts, DataSet::Corrected).ok()?;
+            let Some(mixture) = (fluid.model() as &dyn Any).downcast_ref::<Mixture>() else {
+                let input =
+                    phasekit_core::Input::new(phasekit_core::Pair::PT, self.p, self.t, phasekit_core::Basis::Mass);
+                return fluid.state(input.ok()?).ok().map(|_| Phases::Single);
+            };
+            let present: Vec<usize> = (0..3).filter(|&i| z[i] > 0.0).collect();
+            let whole = |part: &[f64]| {
+                let mut out = [0.0; 3];
+                present.iter().zip(part).for_each(|(&i, &x)| out[i] = x);
+                out
+            };
+            match mixture.equilibrium(self.t, self.p).ok()? {
+                phasekit_mix::Equilibrium::Split { beta, x, y, .. } => {
+                    Some(Phases::Split(Split { beta, liquid: whole(&x), vapour: whole(&y) }))
+                }
+                _ => Some(Phases::Single),
+            }
+        };
+        Ok(feeds.iter().map(|&z| one(z)).collect())
+    }
+}
+
+/// PLAN.md M26.6: R407C's ternary diagram at 273.15 K and 4 bar is phasekit-diagram's on phasekit-mix's equilibria, bit
+/// for bit (`Exact`): its components, the binodal's lines and their outside feeds, the tie lines and the region's
+/// polygons, in mole fractions three a point. A pure fluid and a binary mixture are refused.
+#[wasm_bindgen_test]
+fn a_mixtures_ternary_is_the_crates_bit_for_bit() {
+    let mut registry = phasekit_core::Registry::from_embedded(DataSet::Corrected).unwrap();
+    for bytes in [r32_pack(), r125_pack()] {
+        registry = registry.with_source(Box::new(Pack::new(bytes.into()).unwrap()), DataSet::Corrected).unwrap();
+    }
+    let want = phasekit_diagram::ternary(&Components { registry, t: 273.15, p: 4e5 }).unwrap();
+    let page = Registry::new().unwrap().with_pack(&r32_pack()).unwrap().with_pack(&r125_pack()).unwrap();
+    let got = page.ternary("R407C.mix", 273.15, 4e5).unwrap();
+    assert_eq!(got.components(), ["R32", "R125", "R134a"]);
+    assert_eq!((got.t(), got.p()), (273.15, 4e5));
+    let flat = |points: Vec<[f64; 3]>| bits(points.concat());
+    let vertices: Vec<&phasekit_diagram::BinodalVertex> = want.binodal.iter().flatten().collect();
+    assert!(!vertices.is_empty() && !want.tie_lines.is_empty());
+    assert_eq!(bits(got.binodal()), flat(vertices.iter().map(|v| v.feed).collect()));
+    assert_eq!(bits(got.outside()), flat(vertices.iter().map(|v| v.outside).collect()));
+    assert_eq!(bits(got.binodal_beta()), bits(vertices.iter().map(|v| v.split.beta).collect()));
+    let lines = want.binodal.iter().fold(vec![0u32], |mut o, l| {
+        o.push(o.last().unwrap() + l.len() as u32);
+        o
+    });
+    assert_eq!(got.lines(), lines);
+    assert_eq!(bits(got.feeds()), flat(want.tie_lines.iter().map(|l| l.feed).collect()));
+    assert_eq!(bits(got.beta()), bits(want.tie_lines.iter().map(|l| l.split.beta).collect()));
+    assert_eq!(bits(got.liquid()), flat(want.tie_lines.iter().map(|l| l.split.liquid).collect()));
+    assert_eq!(bits(got.vapour()), flat(want.tie_lines.iter().map(|l| l.split.vapour).collect()));
+    assert_eq!(bits(got.region()), flat(want.region.concat()));
+    let polygons = want.region.iter().fold(vec![0u32], |mut o, r| {
+        o.push(o.last().unwrap() + r.len() as u32);
+        o
+    });
+    assert_eq!(got.polygons(), polygons);
+    for name in ["Water", "R410A.mix"] {
+        assert!(page.ternary(name, 273.15, 4e5).is_err(), "{name}");
+    }
+}
+
+#[wasm_bindgen(inline_js = r#"
+export function moreDiagramTypes(propane, registry) {
+    const c = propane.curves();
+    const curves = [c.zeroDensity, c.isotherms].every((a) => a instanceof Float64Array) && c.curves instanceof Uint32Array &&
+        Array.isArray(c.names) && [c.lines, c.chart].every((r) => r.starts instanceof Uint32Array &&
+            [r.T, r.rho, r.p, r.Z, r.inputs].every((a) => a instanceof Float64Array) && r.pairs instanceof Uint8Array);
+    c.free();
+    const m = propane.map("trho", "P");
+    const map = [m.values, m.x, m.y, m.levels, m.low, m.high].every((a) => a instanceof Float64Array) &&
+        [m.contours, m.bands].every((a) => a instanceof Uint32Array) &&
+        [m.lines, m.polygons].every((r) => r.starts instanceof Uint32Array && r.vertices.xy instanceof Float64Array);
+    m.free();
+    const t = registry.ternary("R407C.mix", 273.15, 4e5);
+    const ternary = [t.binodal, t.binodalBeta, t.outside, t.feeds, t.beta, t.liquid, t.vapour, t.region].every((a) => a instanceof Float64Array) &&
+        [t.lines, t.polygons].every((a) => a instanceof Uint32Array) && t.binodal.length % 3 === 0 && t.region.length > 0 &&
+        Array.isArray(t.components) && typeof t.T === "number";
+    t.free();
+    return [curves, map, ternary];
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen(js_name = moreDiagramTypes)]
+    fn more_diagram_types(propane: &JsValue, registry: &JsValue) -> Vec<JsValue>;
+}
+
+/// PLAN.md M26.6: a page reads the curves, a map and a ternary diagram as typed arrays, the inline JS calling the
+/// exported classes as a page does.
+#[wasm_bindgen_test]
+fn the_curves_maps_and_ternaries_are_typed_arrays() {
+    let registry = Registry::new().unwrap().with_pack(&r32_pack()).unwrap().with_pack(&r125_pack()).unwrap();
+    let propane = JsValue::from(registry.fluid("n-Propane").unwrap());
+    let all = more_diagram_types(&propane, &JsValue::from(registry));
+    assert_eq!(all.iter().map(|v| v.as_bool()).collect::<Vec<_>>(), [Some(true); 3]);
+}

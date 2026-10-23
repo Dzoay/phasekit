@@ -20,6 +20,14 @@
     {#await import("./pages/Surfaces.svelte") then page}
       <page.default />
     {/await}
+  {:else if route.page === "curves"}
+    {#await import("./pages/Curves.svelte") then page}
+      <page.default />
+    {/await}
+  {:else if route.page === "ternary"}
+    {#await import("./pages/Ternary.svelte") then page}
+      <page.default />
+    {/await}
   {:else if route.page === "sweeps"}
     {#await import("./pages/Sweeps.svelte") then page}
       <page.default />

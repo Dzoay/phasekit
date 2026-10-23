@@ -22,5 +22,9 @@
 # M18.11 (SL8): ice on Water's diagrams, its lines and regions where a page asks, took the builds to 2428240 and
 # 2381438 bytes, 32327 and 29863 above M18.10's; with M26.3's curves and M26.4's maps merged in from main, 2462338 and
 # 2414962. Both stay within their budgets, which are unchanged.
-baseline 2635504
-simd128 2586732
+# M26.6 (SL8): a fluid's characteristic curves and property maps, and a three-component mixture's ternary diagram,
+# phasekit-diagram's M26.3-M26.5 with their typed-array exports and the ternary's equilibria from phasekit-mix, took
+# the builds to 2749346 and 2689958 bytes, 287008 and 274996 above main's 2462338 and 2414962 (M18.11's ice
+# included), over both budgets; each budget is that + 10 %.
+baseline 3024281
+simd128 2958954

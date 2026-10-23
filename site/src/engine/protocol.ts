@@ -137,6 +137,81 @@ export interface SurfaceValue {
   triple: Uint32Array;
 }
 
+/** Runs of curve states, as the package's `CurveRuns`: run k the vertices from `starts[k]` to `starts[k + 1]`, each
+ *  vertex's T, ρ, p and Z, its inputs, two a vertex, and its pair, an index into `pairKeys()`' pairs. */
+export interface CurveRunsValue {
+  starts: Uint32Array;
+  T: Float64Array;
+  rho: Float64Array;
+  p: Float64Array;
+  Z: Float64Array;
+  inputs: Float64Array;
+  pairs: Uint8Array;
+}
+
+/** A fluid's characteristic curves and compressibility chart (the package's `Fluid.curves`, PLAN.md M26.6): curve i is
+ *  `names[i]`, its lines the runs of `lines` from `curves[i]` to `curves[i + 1]`, meeting zero density at
+ *  `zeroDensity[i]` (NaN where it does not); isotherm j of the chart is at `isotherms[j]`, run j of `chart`. */
+export interface CurvesValue {
+  names: string[];
+  zeroDensity: Float64Array;
+  curves: Uint32Array;
+  lines: CurveRunsValue;
+  isotherms: Float64Array;
+  chart: CurveRunsValue;
+  /** Each input pair's two keys, pair after pair (the package's `pairKeys()`). */
+  pairKeys: string[];
+}
+
+/** Runs of vertices, as the package's `Runs`: run k the vertices from `starts[k]` to `starts[k + 1]`. */
+export interface RunsValue {
+  starts: Uint32Array;
+  vertices: VerticesValue;
+}
+
+/** An output's map over a plane (the package's `Fluid.map`, PLAN.md M26.6): level i's contour lines the runs of
+ *  `lines` from `contours[i]` to `contours[i + 1]`; band j, from `low[j]` up to `high[j]` (NaN where unbounded), its
+ *  polygons the runs of `polygons` from `bands[j]` to `bands[j + 1]`. */
+export interface MapValue {
+  plane: string;
+  key: string;
+  /** The output's least and greatest over the map's grid. */
+  values: Float64Array;
+  x: Float64Array;
+  y: Float64Array;
+  levels: Float64Array;
+  contours: Uint32Array;
+  lines: RunsValue;
+  low: Float64Array;
+  high: Float64Array;
+  bands: Uint32Array;
+  polygons: RunsValue;
+  /** Each input pair's two keys, pair after pair (the package's `pairKeys()`). */
+  pairKeys: string[];
+}
+
+/** A three-component mixture's ternary diagram at one T and p (the package's `Registry.ternary`, PLAN.md M26.6), in
+ *  mole fractions, three a point in `components`' order: the binodal's line k the points from `lines[k]` to
+ *  `lines[k + 1]`, each with its vapour fraction `binodalBeta` and the feed `outside` it; tie line j from `liquid` to `vapour`, the phases of `feeds`, β its
+ *  vapour's fraction; the two-phase region's polygon i the points of `region` from `polygons[i]` to `polygons[i + 1]`. */
+export interface TernaryValue {
+  components: string[];
+  T: number;
+  p: number;
+  lines: Uint32Array;
+  binodal: Float64Array;
+  binodalBeta: Float64Array;
+  outside: Float64Array;
+  feeds: Float64Array;
+  beta: Float64Array;
+  liquid: Float64Array;
+  vapour: Float64Array;
+  polygons: Uint32Array;
+  region: Float64Array;
+  /** The mixture's own mole fractions, which the diagram marks. */
+  feed: number[];
+}
+
 /** The mean time of one run, over `runs` runs repeated for a short budget. */
 export interface Timing {
   us: number;
@@ -203,6 +278,10 @@ export type Request =
   | { id: number; op: "diagram"; fluid: string; plane: string }
   | { id: number; op: "regions"; fluid: string }
   | { id: number; op: "surface"; fluid: string }
+  | { id: number; op: "curves"; fluid: string }
+  | { id: number; op: "map"; fluid: string; plane: string; output: string }
+  // A three-component mixture's name as the fluid, so that its components' packs are added first.
+  | { id: number; op: "ternary"; fluid: string; T: number; p: number }
   | {
       id: number;
       op: "batch";
@@ -251,6 +330,9 @@ export interface Values {
   diagram: DiagramValue;
   regions: RegionsValue;
   surface: SurfaceValue;
+  curves: CurvesValue;
+  map: MapValue;
+  ternary: TernaryValue;
   batch: BatchValue;
   bench: BenchValue;
 }

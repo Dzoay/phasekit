@@ -2,7 +2,7 @@
 // the package's, and every refusal is the package's message. It holds one registry, which each pack the page adds
 // replaces with a registry that also serves the pack's fluids (PLAN.md M21.4), and the fluid handles it has opened,
 // which outlive the registry they came from; each state, set of phases, diagram, set of regions and surface is freed
-// once it is read, and so is each handle read from it.
+// once it is read, and so are each set of curves, map and ternary diagram, and each handle read from it.
 import { refusalOf } from "../lib/refusal";
 import type { Pk } from "./pk";
 import type {
@@ -10,11 +10,16 @@ import type {
   BenchValue,
   Build,
   CornersValue,
+  CurveRunsValue,
+  CurvesValue,
   DiagramValue,
+  MapValue,
   MixturesValue,
   Refusal,
   RegionsValue,
+  RunsValue,
   SurfaceValue,
+  TernaryValue,
   RegistryValue,
   Request,
   Response,
@@ -29,6 +34,8 @@ import type {
 type Registry = Pk["Registry"]["prototype"];
 type Fluid = Pk["Fluid"]["prototype"];
 type State = Pk["State"]["prototype"];
+type CurveRuns = Pk["CurveRuns"]["prototype"];
+type Runs = Pk["Runs"]["prototype"];
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -196,6 +203,61 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
       triple: m.triple,
     }));
 
+  // A curve run list's arrays, copied out of the package's handle.
+  const curveRuns = (r: CurveRuns): CurveRunsValue =>
+    freed(r, (c) => ({ starts: c.starts, T: c.T, rho: c.rho, p: c.p, Z: c.Z, inputs: c.inputs, pairs: c.pairs }));
+
+  // A fluid's characteristic curves and compressibility chart (PLAN.md M26.6).
+  const curves = (name: string): CurvesValue =>
+    freed(fluid(name).curves(), (c) => ({
+      names: c.names,
+      zeroDensity: c.zeroDensity,
+      curves: c.curves,
+      lines: curveRuns(c.lines),
+      isotherms: c.isotherms,
+      chart: curveRuns(c.chart),
+      pairKeys: pk.pairKeys(),
+    }));
+
+  const runs = (r: Runs): RunsValue => freed(r, (x) => ({ starts: x.starts, vertices: vertices(x.vertices) }));
+
+  // A fluid's map of an output over a plane (PLAN.md M26.6).
+  const map = (r: Extract<Request, { op: "map" }>): MapValue =>
+    freed(fluid(r.fluid).map(r.plane, r.output), (m) => ({
+      plane: m.plane,
+      key: m.key,
+      values: m.values,
+      x: m.x,
+      y: m.y,
+      levels: m.levels,
+      contours: m.contours,
+      lines: runs(m.lines),
+      low: m.low,
+      high: m.high,
+      bands: m.bands,
+      polygons: runs(m.polygons),
+      pairKeys: pk.pairKeys(),
+    }));
+
+  // A three-component mixture's ternary diagram (PLAN.md M26.6), its components' packs added first by the client.
+  const ternary = (r: Extract<Request, { op: "ternary" }>): TernaryValue =>
+    freed(reg().ternary(r.fluid, r.T, r.p), (t) => ({
+      components: t.components,
+      T: t.T,
+      p: t.p,
+      lines: t.lines,
+      binodal: t.binodal,
+      binodalBeta: t.binodalBeta,
+      outside: t.outside,
+      feeds: t.feeds,
+      beta: t.beta,
+      liquid: t.liquid,
+      vapour: t.vapour,
+      polygons: t.polygons,
+      region: t.region,
+      feed: [...fluid(r.fluid).composition],
+    }));
+
   // A flash with a state handle made and freed, as the page makes one; then every output read from one state.
   const time = (r: Extract<Request, { op: "time" }>): TimeValue => {
     const f = fluid(r.fluid);
@@ -282,6 +344,12 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
           return { id, ok: true, op: "regions", value: regions(request.fluid) };
         case "surface":
           return { id, ok: true, op: "surface", value: surface(request.fluid) };
+        case "curves":
+          return { id, ok: true, op: "curves", value: curves(request.fluid) };
+        case "map":
+          return { id, ok: true, op: "map", value: map(request) };
+        case "ternary":
+          return { id, ok: true, op: "ternary", value: ternary(request) };
         case "batch":
           return { id, ok: true, op: "batch", value: batch(request) };
         case "bench":

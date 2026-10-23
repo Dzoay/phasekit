@@ -368,6 +368,7 @@ describe("the dome and the files", () => {
   test("writes an SVG exactly", () => {
     const tiny: Model = {
       plot: { left: 10, top: 5, right: 90, bottom: 45 },
+      bands: [],
       fills: [],
       halo: null,
       regionLabels: [],
@@ -536,6 +537,7 @@ describe("the phase regions in the model (PLAN.md M21.9)", () => {
   test("writes them into the SVG under the lines, the names over them", () => {
     const tiny: Model = {
       plot: { left: 10, top: 5, right: 90, bottom: 45 },
+      bands: [],
       fills: [
         {
           points: [

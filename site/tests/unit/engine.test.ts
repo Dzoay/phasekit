@@ -868,3 +868,130 @@ describe("the engine's surfaces (PLAN.md M26.2)", () => {
     expect(calls.handlesFreed).toEqual({ Surface: 1 });
   });
 });
+
+describe("the engine's curves, maps and ternary diagrams (PLAN.md M26.6)", { timeout: 60_000 }, () => {
+  test("gives a fluid's curves and chart as the package does, bit for bit, and passes on a refusal", async () => {
+    const pk = await loadPk("simd");
+    const handle = createHandler(pk, "simd128");
+    const registry = new pk.Registry();
+    const nitrogen = registry.fluid("Nitrogen");
+    const want = nitrogen.curves();
+    const got = handle({ id: 1, op: "curves", fluid: "Nitrogen" });
+    const runs = (r: (typeof pk.CurveRuns)["prototype"]) => ({
+      starts: r.starts,
+      T: r.T,
+      rho: r.rho,
+      p: r.p,
+      Z: r.Z,
+      inputs: r.inputs,
+      pairs: r.pairs,
+    });
+    expect(got).toEqual({
+      id: 1,
+      ok: true,
+      op: "curves",
+      value: {
+        names: want.names,
+        zeroDensity: want.zeroDensity,
+        curves: want.curves,
+        lines: runs(want.lines),
+        isotherms: want.isotherms,
+        chart: runs(want.chart),
+        pairKeys: pk.pairKeys(),
+      },
+    });
+    expect(got.ok && got.op === "curves" && got.value.names).toEqual([
+      "Ideal",
+      "Boyle",
+      "JouleThomsonInversion",
+      "JouleInversion",
+    ]);
+    expect(handle({ id: 2, op: "curves", fluid: "Nothing" })).toMatchObject({ id: 2, ok: false, op: "curves" });
+    for (const h of [want, nitrogen, registry]) h.free();
+  });
+
+  test("gives a fluid's map as the package does, bit for bit, and passes on a refusal", async () => {
+    const pk = await loadPk("simd");
+    const handle = createHandler(pk, "simd128");
+    const registry = new pk.Registry();
+    const propane = registry.fluid("n-Propane");
+    const want = propane.map("trho", "P");
+    const got = handle({ id: 1, op: "map", fluid: "n-Propane", plane: "trho", output: "P" });
+    const runs = (r: (typeof pk.Runs)["prototype"]) => ({
+      starts: r.starts,
+      vertices: { xy: r.vertices.xy, inputs: r.vertices.inputs, pairs: r.vertices.pairs },
+    });
+    expect(got).toEqual({
+      id: 1,
+      ok: true,
+      op: "map",
+      value: {
+        plane: "trho",
+        key: "P",
+        values: want.values,
+        x: want.x,
+        y: want.y,
+        levels: want.levels,
+        contours: want.contours,
+        lines: runs(want.lines),
+        low: want.low,
+        high: want.high,
+        bands: want.bands,
+        polygons: runs(want.polygons),
+        pairKeys: pk.pairKeys(),
+      },
+    });
+    expect(handle({ id: 2, op: "map", fluid: "n-Propane", plane: "xy", output: "P" })).toMatchObject({
+      ok: false,
+      op: "map",
+      error: expect.objectContaining({ message: expect.stringContaining("xy") }),
+    });
+    for (const h of [want, propane, registry]) h.free();
+  });
+
+  test("gives a mixture's ternary diagram as the package does, bit for bit, with its own composition", async () => {
+    const pk = await loadPk("simd");
+    const handle = createHandler(pk, "simd128");
+    let registry = new pk.Registry();
+    for (const [id, file] of [
+      [1, "r32.pack"],
+      [2, "r125.pack"],
+    ] as const) {
+      expect(handle({ id, op: "pack", bytes: packBytes(file) }).ok).toBe(true);
+      const next = registry.withPack(packBytes(file));
+      registry.free();
+      registry = next;
+    }
+    const want = registry.ternary("R407C.mix", 273.15, 4e5);
+    const feed = registry.fluid("R407C.mix");
+    const got = handle({ id: 3, op: "ternary", fluid: "R407C.mix", T: 273.15, p: 4e5 });
+    expect(got).toEqual({
+      id: 3,
+      ok: true,
+      op: "ternary",
+      value: {
+        components: ["R32", "R125", "R134a"],
+        T: 273.15,
+        p: 4e5,
+        lines: want.lines,
+        binodal: want.binodal,
+        binodalBeta: want.binodalBeta,
+        outside: want.outside,
+        feeds: want.feeds,
+        beta: want.beta,
+        liquid: want.liquid,
+        vapour: want.vapour,
+        polygons: want.polygons,
+        region: want.region,
+        feed: [...feed.composition],
+      },
+    });
+    expect(got.ok && got.op === "ternary" && got.value.region.length).toBeGreaterThan(0);
+    expect(handle({ id: 4, op: "ternary", fluid: "Water", T: 273.15, p: 4e5 })).toMatchObject({
+      ok: false,
+      op: "ternary",
+      error: expect.objectContaining({ message: expect.stringContaining("three-component") }),
+    });
+    for (const h of [want, feed, registry]) h.free();
+  });
+});

@@ -26,6 +26,7 @@ const PAIRS: [string, string, number][] = [
   ["--iso-1", "--surface", 3],
   ["--iso-2", "--surface", 3],
   ["--iso-3", "--surface", 3],
+  ...[1, 2, 3, 4].map((k): [string, string, number] => [`--curve-${k}`, "--surface", 3]),
   // The sweeps' ramp (PLAN.md M21.3).
   ...[1, 2, 3, 4, 5, 6].map((k): [string, string, number] => [`--seq-${k}`, "--surface", 3]),
   // The phase regions' names, and the lines' labels, on each tint (PLAN.md M21.9).

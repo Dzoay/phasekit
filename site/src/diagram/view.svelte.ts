@@ -9,6 +9,7 @@ import { refusalOf } from "../lib/refusal";
 import type { System } from "../lib/units";
 import { readDiagram, readRegions, type DiagramData, type EnvelopeInfo, type Regions } from "./data";
 import { GRID_LEVELS } from "./grid";
+import { MAP_OUTPUTS, readCurves, readMap, type CurvesData, type MapData } from "./overlays";
 import { MIXTURE_DIAGRAMS, diagram, type Diagram, type DiagramId, type Key } from "./planes";
 
 /** What the readout shows of the state under the cursor, beside its phase. */
@@ -48,6 +49,14 @@ export class DiagramView {
   /** Whether the plot is tinted by phase (PLAN.md M21.9), and the fluid's regions once they are sampled. */
   regions = $state(false);
   phases = $state.raw<Regions | null>(null);
+  /** Whether the characteristic curves are drawn, on p–T and T–ρ (PLAN.md M26.6), and the fluid's once sampled. */
+  curves = $state(false);
+  curveData = $state.raw<CurvesData | null>(null);
+  /** The output a map shows (`map=Smass`), or none; its map on the diagram's plane once sampled, or the package's
+   *  refusal. */
+  map = $state<string | null>(null);
+  mapData = $state.raw<MapData | null>(null);
+  mapRefusal = $state<string | null>(null);
 
   // The geometry and the readout are replaced whole, never changed in place: raw state, which proxies neither its
   // thousands of vertices nor the cache's copies, so a cached diagram is the same object again.
@@ -64,6 +73,10 @@ export class DiagramView {
   readonly #cache = new Map<string, DiagramData>();
   readonly #regionCache = new Map<string, Regions>();
   readonly #components = new Map<string, Promise<string[]>>();
+  readonly #curveCache = new Map<string, CurvesData>();
+  readonly #mapCache = new Map<string, MapData>();
+  #curveSequence = 0;
+  #mapSequence = 0;
   #sequence = 0;
   #regionSequence = 0;
   #pointer = 0;
@@ -82,6 +95,9 @@ export class DiagramView {
     this.snap = params.get("snap") === "1";
     this.grid = gridLevel(params.get("grid"));
     this.regions = params.get("regions") === "1";
+    this.curves = params.get("curves") === "1";
+    const map = params.get("map");
+    this.map = MAP_OUTPUTS.some((k) => k === map) ? map : null;
     this.hidden = String(params.get("hide"))
       .split(",")
       .filter((k): k is Key => FAMILIES.includes(k as Key));
@@ -94,6 +110,8 @@ export class DiagramView {
     if (this.snap) params.set("snap", "1");
     if (this.grid !== DEFAULT.grid) params.set("grid", String(this.grid));
     if (this.regions) params.set("regions", "1");
+    if (this.curves) params.set("curves", "1");
+    if (this.map) params.set("map", this.map);
     return params;
   }
 
@@ -123,6 +141,15 @@ export class DiagramView {
 
   toggleRegions(): void {
     this.regions = !this.regions;
+  }
+
+  toggleCurves(): void {
+    this.curves = !this.curves;
+  }
+
+  /** Show `key`'s map, or none for null or an output the map does not offer. */
+  setMap(key: string | null): void {
+    this.map = MAP_OUTPUTS.some((k) => k === key) ? key : null;
   }
 
   setGrid(level: number): void {
@@ -189,6 +216,8 @@ export class DiagramView {
       $effect(() => write(this.params()));
       $effect(() => this.#load(this.fluid, this.id));
       $effect(() => this.#loadRegions(this.fluid, this.regions));
+      $effect(() => this.#loadCurves(this.fluid, this.curves));
+      $effect(() => this.#loadMap(this.fluid, this.id, this.map));
     });
   }
 
@@ -262,6 +291,52 @@ export class DiagramView {
         if (mine === this.#regionSequence) this.phases = regions;
       },
       () => undefined,
+    );
+  }
+
+  // The fluid's characteristic curves while they are shown: from the cache, or the package's; a late answer is dropped,
+  // and a refused one (a mixture's) shows none.
+  #loadCurves(fluid: string, shown: boolean): void {
+    // Stryker disable next-line UpdateOperator: as the pointer's.
+    const mine = ++this.#curveSequence;
+    const cached = this.#curveCache.get(fluid);
+    if (!shown || cached) {
+      this.curveData = shown ? (cached as CurvesData) : null;
+      return;
+    }
+    untrack(() => (this.curveData = null));
+    this.#engine.call({ op: "curves", fluid }).then(
+      (value) => {
+        const curves = readCurves(value);
+        this.#curveCache.set(fluid, curves);
+        if (mine === this.#curveSequence) this.curveData = curves;
+      },
+      () => undefined,
+    );
+  }
+
+  // The output's map on the diagram's plane while one is chosen: from the cache, or the package's; a late answer is
+  // dropped, and a refusal is kept in the package's words.
+  #loadMap(fluid: string, id: DiagramId, output: string | null): void {
+    // Stryker disable next-line UpdateOperator: as the pointer's.
+    const mine = ++this.#mapSequence;
+    const key = `${fluid}/${id}/${output}`;
+    const cached = this.#mapCache.get(key);
+    untrack(() => (this.mapRefusal = null));
+    if (!output || cached) {
+      this.mapData = output ? (cached as MapData) : null;
+      return;
+    }
+    untrack(() => (this.mapData = null));
+    this.#engine.call({ op: "map", fluid, plane: id, output }).then(
+      (value) => {
+        const map = readMap(value);
+        this.#mapCache.set(key, map);
+        if (mine === this.#mapSequence) this.mapData = map;
+      },
+      (e: unknown) => {
+        if (mine === this.#mapSequence) this.mapRefusal = message(e);
+      },
     );
   }
 }

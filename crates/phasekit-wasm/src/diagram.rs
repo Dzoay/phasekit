@@ -23,7 +23,7 @@ use wasm_bindgen::prelude::*;
 use crate::{Fluid, alive, end_name, end_reason, js, mixture_of, refuse};
 
 /// A quantity's key, as `PropsSI` names it.
-fn key(quantity: Quantity) -> &'static str {
+pub(crate) fn key(quantity: Quantity) -> &'static str {
     match quantity {
         Quantity::T => "T",
         Quantity::P => "P",
@@ -138,7 +138,7 @@ impl Vertices {
         out
     }
 
-    fn push(&mut self, v: &diagram::Vertex) {
+    pub(crate) fn push(&mut self, v: &diagram::Vertex) {
         self.xy.extend([v.x, v.y]);
         self.inputs.extend([v.inputs.x, v.inputs.y]);
         self.pairs.push(pair_code(v.inputs.pair));

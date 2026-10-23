@@ -73,7 +73,7 @@ export interface Regions {
 }
 
 /** The vertices, each with its pair's keys from `pairKeys`. */
-function vertices(v: VerticesValue, pairKeys: readonly string[]): Vertex[] {
+export function vertices(v: VerticesValue, pairKeys: readonly string[]): Vertex[] {
   return Array.from(v.pairs, (pair, k) => ({
     x: v.xy[2 * k] as number,
     y: v.xy[2 * k + 1] as number,
