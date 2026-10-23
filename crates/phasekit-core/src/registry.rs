@@ -7,7 +7,7 @@
 //! contend; a failed decode is cached. A slot holds strong handles to the slots its lazy parts need (ECS
 //! reference fluids), resolved and checked for cycles when the layer is built (E5, S-05).
 
-use core::cmp::Ordering;
+use core::cmp::{Ordering, Reverse};
 use std::sync::{Arc, OnceLock};
 
 use crate::data::{DataSet, DataSource, FluidId, FluidRecord};
@@ -398,6 +398,24 @@ impl Registry {
         })
     }
 
+    /// Up to `k` canonical names nearest to `name`, for a "did you mean" (user decision EM15): [`nearest_names`] over
+    /// each fluid's names, aliases and CAS numbers. Nothing is decoded.
+    pub fn nearest(&self, name: &str, k: usize) -> Vec<&str> {
+        nearest_names(name, self.keys(), k)
+    }
+
+    /// Every lower-case key (name, alias, CAS number) of every layer, with its fluid's canonical name.
+    fn keys(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.layers.iter().rev().flat_map(|layer| -> Box<dyn Iterator<Item = (&str, &str)> + '_> {
+            match layer {
+                Layer::Data(d) => {
+                    Box::new(d.keys.iter().filter_map(|(k, i)| d.slots.get(*i as usize).map(|s| (&**k, &*s.name))))
+                }
+                Layer::Model(m) => Box::new(m.keys.iter().map(|k| (&**k, m.fluid.info().name()))),
+            }
+        })
+    }
+
     /// Decodes the named fluids now (servers warming up).
     pub fn preload(&self, names: &[&str]) -> Result<(), Error> {
         names.iter().try_for_each(|n| self.get(n).map(|_| ()))
@@ -481,6 +499,68 @@ impl Registry {
     }
 }
 
+/// Up to `k` of the names `keys` give, nearest to `name` (user decision EM15): each `(key, name)` a spelling of a name
+/// (its alias, say), by the optimal string alignment distance from `name` to the name's nearest key, ASCII case folded,
+/// none farther than a third of the longer; nearest first, of equally near the one sharing the longer prefix with `name`
+/// (a truncated name, `r134` → `R134a`), then by name. What a facade offers as "did you mean": the registry's fluids
+/// ([`Registry::nearest`]), compat's output keys.
+pub fn nearest_names<'a>(name: &str, keys: impl IntoIterator<Item = (&'a str, &'a str)>, k: usize) -> Vec<&'a str> {
+    let folded = name.to_ascii_lowercase();
+    let mut near: Vec<((usize, Reverse<usize>), &str)> = Vec::new();
+    for (key, canonical) in keys {
+        let key = key.to_ascii_lowercase();
+        let distance = osa_distance(&folded, &key);
+        if distance > key.chars().count().max(folded.chars().count()) / 3 {
+            continue;
+        }
+        let prefix = folded.chars().zip(key.chars()).take_while(|(a, b)| a == b).count();
+        let closeness = (distance, Reverse(prefix));
+        match near.iter_mut().find(|(_, n)| *n == canonical) {
+            Some(seen) => seen.0 = seen.0.min(closeness),
+            None => near.push((closeness, canonical)),
+        }
+    }
+    near.sort_unstable();
+    near.into_iter().take(k).map(|(_, n)| n).collect()
+}
+
+/// The optimal string alignment distance between `a` and `b`, by char: insertions, deletions, substitutions and
+/// transpositions of neighbours, each 1, no substring edited twice. Row by row, keeping the two rows before.
+fn osa_distance(a: &str, b: &str) -> usize {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let (mut before, mut last): (Vec<usize>, Vec<usize>) = (Vec::new(), (0..=b.len()).collect());
+    for i in 0..a.len() {
+        let mut row = Vec::with_capacity(last.len());
+        row.push(i.saturating_add(1));
+        for j in 0..b.len() {
+            let cell = osa_cell(&row, &last, &before, j, osa_costs(&a, &b, i, j));
+            row.push(cell);
+        }
+        before = core::mem::replace(&mut last, row);
+    }
+    last.last().copied().unwrap_or(0)
+}
+
+/// The substitution's cost at (`i`, `j`), and whether `a`'s chars i − 1 and i are `b`'s j and j − 1 swapped.
+fn osa_costs(a: &[char], b: &[char], i: usize, j: usize) -> (usize, bool) {
+    let cost = usize::from(a.get(i) != b.get(j));
+    let swapped = match (i.checked_sub(1), j.checked_sub(1)) {
+        (Some(pi), Some(pj)) => cost == 1 && a.get(i) == b.get(pj) && a.get(pi) == b.get(j),
+        _ => false,
+    };
+    (cost, swapped)
+}
+
+/// The table's next cell in `row`, at column `j` + 1, from the row so far, the `last` row and the one `before` it.
+fn osa_cell(row: &[usize], last: &[usize], before: &[usize], j: usize, (cost, swapped): (usize, bool)) -> usize {
+    let at = |v: &[usize], k: usize| v.get(k).copied().unwrap_or(usize::MAX);
+    let deleted = at(last, j.saturating_add(1)).saturating_add(1);
+    let inserted = row.last().copied().unwrap_or(usize::MAX).saturating_add(1);
+    let edit = deleted.min(inserted).min(at(last, j).saturating_add(cost));
+    let transposed = j.checked_sub(1).filter(|_| swapped).map_or(usize::MAX, |k| at(before, k).saturating_add(1));
+    edit.min(transposed)
+}
+
 /// `NotEmbedded { feature }` for a CoolProp fluid whose Cargo feature is off.
 #[cfg(feature = "embedded")]
 fn not_embedded(name: &str) -> Option<LoadError> {
@@ -512,6 +592,63 @@ mod tests {
         assert_eq!(reg.canonical_name("R1234ze(E)"), Some("R1234ze(E)"));
         assert_eq!(reg.canonical_name("unobtainium"), None);
         assert_eq!(reg.loaded().count(), 0);
+    }
+
+    /// User decision EM15: the names nearest to a typo, a fluid once by its nearest key (n-Propane by its alias
+    /// `propane`), nearest first; a canonical name's own spelling is its nearest.
+    #[test]
+    fn the_nearest_names_to_a_typo() {
+        let reg = Registry::embedded().unwrap();
+        assert_eq!(reg.nearest("Watr", 3).first(), Some(&"Water"));
+        assert_eq!(reg.nearest("WATER", 1), ["Water"]);
+        assert_eq!(reg.nearest("r134", 1), ["R134a"]);
+        assert_eq!(reg.nearest("propan", 1), ["n-Propane"]);
+        let near = reg.nearest("R12", 8);
+        assert!(near.len() > 1 && near.first() == Some(&"R12"), "{near:?}");
+        let mut unique = near.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), near.len(), "{near:?}");
+        assert!(reg.nearest("Watr", 0).is_empty());
+    }
+
+    /// The optimal string alignment distance: insertions, deletions, substitutions, and a transposition of neighbours
+    /// as one edit, no substring edited twice (`ca` → `abc` is 3, not the 2 of the unrestricted distance).
+    #[test]
+    fn osa_distances() {
+        let cases = [
+            ("water", "water", 0),
+            ("wtaer", "water", 1),
+            ("watr", "water", 1),
+            ("ca", "abc", 3),
+            ("kitten", "sitting", 3),
+            ("", "abc", 3),
+            ("abc", "", 3),
+            ("ab", "ba", 1),
+            ("abcd", "badc", 2),
+        ];
+        for (a, b, want) in cases {
+            assert_eq!(osa_distance(a, b), want, "{a} → {b}");
+        }
+    }
+
+    /// `nearest_names`: a name within a third of the longer is offered, one past it is not; a name offered once, at its
+    /// nearest key; equally near names by their shared prefix, then by name.
+    #[test]
+    fn nearest_names_cut_at_a_third_and_rank() {
+        let water = [("water", "Water"), ("h2o", "Water")];
+        assert_eq!(nearest_names("Watr", water, 3), ["Water"]);
+        assert!(nearest_names("Wtr", water, 3).is_empty(), "two edits from five letters");
+        let keys = [("abcdef", "X"), ("abcdefg", "X"), ("abcdeg", "Zed"), ("abcdeh", "Alpha")];
+        assert_eq!(nearest_names("abcdef", keys, 5), ["X", "Alpha", "Zed"]);
+        assert_eq!(nearest_names("abc", [("abd", "B"), ("xbc", "A")], 5), ["B", "A"]);
+    }
+
+    /// Nothing is near a name that is near nothing, and an empty registry has nothing near.
+    #[test]
+    fn nothing_is_near_gibberish() {
+        assert!(Registry::embedded().unwrap().nearest("qqqqqqqqqqqq", 5).is_empty());
+        assert!(Registry::empty().nearest("Water", 5).is_empty());
     }
 
     /// A source that counts blob reads per fluid.

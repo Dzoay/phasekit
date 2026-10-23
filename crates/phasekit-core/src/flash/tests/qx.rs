@@ -1,6 +1,8 @@
 //! The Q-pairs QS, HQ and DQ on the saturation curve (PLAN.md M7.7).
 
 use super::*;
+#[cfg(feature = "fluids-all")]
+use crate::error::Limit;
 
 /// The Q-pair input of `var` for `state` at its quality `q` (molar).
 #[cfg(feature = "fluids-all")]
@@ -183,11 +185,12 @@ fn a_root_on_a_grid_node_is_one_root() {
     assert!((state.t() / t - 1.0).abs() < 1e-9 && state.quality() == Some(0.0), "{state:?}");
 }
 
-/// M7.7: an x that no saturated state at Q holds is `InvalidInput`, naming the input: HQ at Q = 1 above Water's
-/// largest h″, QS at Q = 0 above its s at the critical point, DQ at Q = 0 above its largest ρ′.
+/// M7.7: an x that no saturated state at Q holds is refused, naming the input: HQ at Q = 1 above Water's largest h″,
+/// QS at Q = 0 above its s at the critical point, DQ at Q = 0 above its largest ρ′. Since M29.2 it is `Unreachable`,
+/// above the extreme the scan reached, at the quality.
 #[cfg(feature = "fluids-all")]
 #[test]
-fn a_q_pair_without_a_root_is_invalid_input() {
+fn a_q_pair_without_a_root_is_unreachable() {
     let water = embedded("Water");
     let (one, zero) = (Quality::new(1.0).unwrap(), Quality::new(0.0).unwrap());
     let cases = [
@@ -196,7 +199,12 @@ fn a_q_pair_without_a_root_is_invalid_input() {
         (Input::dq(Density::molar(60_000.0).unwrap(), zero), Quantity::density(Basis::Molar), 60_000.0),
     ];
     for (input, quantity, value) in cases {
-        assert_eq!(water.state(input), Err(Error::InvalidInput { quantity, value }), "{input:?}");
+        let refused = water.state(input);
+        let Err(Error::Unreachable { quantity: q, value: v, limit: Limit::Max, bound, given }) = refused else {
+            panic!("{input:?}: {refused:?}")
+        };
+        assert_eq!((q, v, given.0), (quantity, value, Quantity::QUALITY), "{input:?}");
+        assert!(bound < value, "{input:?}: {bound}");
     }
 }
 

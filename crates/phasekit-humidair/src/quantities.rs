@@ -22,3 +22,5 @@ pub const VOLUME_PER_DRY_AIR: &Quantity =
     &Quantity::new("volume per kilogram of dry air", "v", Dimension::SpecificVolume(Basis::Mass));
 /// The wet-bulb (ice-bulb below the triple point) temperature, T_wb.
 pub const WET_BULB_TEMPERATURE: &Quantity = &Quantity::new("wet-bulb temperature", "T_wb", Dimension::Temperature);
+/// The dew point (over liquid water) or frost point (over ice), T_dp, which a moist-air state can be given by.
+pub const DEW_POINT: &Quantity = &Quantity::new("dew point", "T_dp", Dimension::Temperature);

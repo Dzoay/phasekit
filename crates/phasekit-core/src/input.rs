@@ -69,6 +69,15 @@ impl Var {
             _ => v,
         }
     }
+
+    /// Converts a molar value to `basis` with the molar mass `m` (kg/mol): [`to_molar`](Self::to_molar)'s inverse.
+    pub(crate) fn molar_to(self, v: f64, basis: Basis, m: f64) -> f64 {
+        match (self, basis) {
+            (Var::D, Basis::Mass) => v * m,
+            (Var::H | Var::S | Var::U, Basis::Mass) => v / m,
+            _ => v,
+        }
+    }
 }
 
 /// One validated input: a pair and two values in pair order, each with the basis it was given in.
@@ -122,6 +131,24 @@ impl Input {
             _ => Basis::Molar,
         };
         NativeInput { pair: self.pair, x, y, quality_basis }
+    }
+}
+
+impl Input {
+    /// A model's refusal in the caller's terms (user decision EM16): an [`Error::Unreachable`] from a model names its
+    /// value and the pair's other input as this input gives them, and its bound in their basis and in `gauge`; any
+    /// other error as it is.
+    pub(crate) fn caller_error(&self, error: Error, m: f64, gauge: Gauge) -> Error {
+        let Error::Unreachable { quantity, limit, bound, .. } = error else { return error };
+        let (vx, vy) = self.pair.vars();
+        let ((var, (value, basis)), (other, (at, at_basis))) = if vx.quantity(Basis::Molar) == quantity {
+            ((vx, self.x), (vy, self.y))
+        } else {
+            ((vy, self.y), (vx, self.x))
+        };
+        let bound = var.molar_to(gauge.to_handle(var, bound), basis, m);
+        let given = (other.quantity(at_basis), at);
+        Error::Unreachable { quantity: var.quantity(basis), value, limit, bound, given }
     }
 }
 

@@ -3,7 +3,7 @@
 
 use core::fmt;
 
-use super::{DomainError, Error, Roots, Rule, words};
+use super::{DomainError, Error, Limit, Roots, Rule, words};
 use crate::prop::{Partial, Prop};
 use crate::quantity::{InUnit, Quantity, Style, Units};
 use crate::state::Phase;
@@ -26,6 +26,9 @@ impl fmt::Display for Message<'_> {
         let mut out = Out { f, units: self.units, short: self.style == Style::Short };
         match self.error {
             Error::InvalidInput { quantity, value } => out.invalid_input(quantity, *value),
+            Error::Unreachable { quantity, value, limit, bound, given } => {
+                out.unreachable(quantity, (*value, *bound), *limit, *given)
+            }
             Error::InvalidArgument { argument, value } => out.invalid_argument(argument, *value),
             // The site reads a mixture's liquid-liquid refusal by this long form (`site/src/lib/mixtures.ts`, user
             // decision MX4): it stays as it was.
@@ -113,6 +116,28 @@ impl<'a> Out<'a, '_> {
                 Rule::OutOfRange => write!(self.f, "{name} {v} is out of range"),
             }
         }
+    }
+
+    /// `enthalpy 1e7 J/kg is above the highest a state reaches at temperature 300 K, 2.54932e6 J/kg`,
+    /// `h = 1e7 J/kg > h_max(T = 300 K) = 2.54932e6 J/kg` (user decision EM16).
+    fn unreachable(
+        &mut self,
+        quantity: &Quantity,
+        (value, bound): (f64, f64),
+        limit: Limit,
+        (given, at): (&Quantity, f64),
+    ) -> fmt::Result {
+        let (v, b, at) = (self.value(quantity, value), self.value(quantity, bound), self.value(given, at));
+        let (name, symbol, given_name, given_symbol) =
+            (quantity.name(), quantity.symbol(), given.name(), given.symbol());
+        let (side, extreme, relation, subscript) = match limit {
+            Limit::Max => ("above", "highest", ">", "max"),
+            Limit::Min => ("below", "lowest", "<", "min"),
+        };
+        self.either(
+            format_args!("{name} {v} is {side} the {extreme} a state reaches at {given_name} {at}, {b}"),
+            format_args!("{symbol} = {v} {relation} {symbol}_{subscript}({given_symbol} = {at}) = {b}"),
+        )
     }
 
     fn invalid_argument(&mut self, argument: &str, value: Option<usize>) -> fmt::Result {

@@ -139,7 +139,7 @@ pub(crate) fn refused(error: CompatError) -> JsValue {
 fn quantity_of(error: &CompatError) -> Option<&'static Quantity> {
     let CompatError::Core(e) = error else { return None };
     match e {
-        Error::InvalidInput { quantity, .. } => Some(*quantity),
+        Error::InvalidInput { quantity, .. } | Error::Unreachable { quantity, .. } => Some(*quantity),
         Error::Ambiguous { roots } => Some(roots.quantity()),
         Error::Domain(d) => domain_quantity(d),
         _ => None,
@@ -160,6 +160,7 @@ fn values(error: &CompatError) -> Vec<f64> {
     let CompatError::Core(e) = error else { return Vec::new() };
     match e {
         Error::InvalidInput { value, .. } => vec![*value],
+        Error::Unreachable { value, bound, .. } => vec![*value, *bound],
         Error::Ambiguous { roots } => roots.as_slice().to_vec(),
         Error::Domain(d) => domain_values(d),
         _ => Vec::new(),

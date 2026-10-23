@@ -3,11 +3,13 @@
 use crate::error::{DomainError, Error};
 use crate::fluid::PureFluid;
 use crate::num::math;
+use crate::quantity::Quantity;
 use crate::roots::{Root, Tol};
 use crate::state::{SolvePath, State, Strategy};
+use crate::units::Basis;
 
 use super::isobar::px;
-use super::search::{Descent, Point, at_or_below, bisect_to_refusal, positive, toms748_kept};
+use super::search::{Descent, Point, Reached, at_or_below, bisect_to_refusal, positive, toms748_kept};
 use super::{Caloric, DomainPolicy, FlashOptions, T_TOL, reproduces_x};
 
 /// The share of its scale (`Caloric::scale`) within which x(PS(p, s)) is x while HS and SU seek their bracket: just
@@ -56,7 +58,12 @@ pub(super) fn sx(fluid: &PureFluid, s: f64, x: f64, var: Caloric, opts: &FlashOp
     // bracket's known end and the nearest refusal beside it finds its other end ([`isentrope_bracket`]).
     let decades = core::iter::successors(Some(math::ln(p_max)), |u| Some(u - core::f64::consts::LN_10));
     let descent = Descent::down(&mut residual, decades.take(usize::from(SX_DECADES)), |residual, u| residual(u), None);
-    let invalid = || Error::InvalidInput { quantity: var.quantity(), value: x };
+    let given = (Quantity::entropy(Basis::Molar), s);
+    let invalid = |above: Option<Point>| {
+        let mut reached = Reached::default();
+        above.into_iter().for_each(|(_, r)| reached.see(r));
+        reached.refusal((var.quantity(), x), |v| v, given)
+    };
     let bracket = isentrope_bracket(&mut residual, descent, p_max, invalid)?;
     let root = isentrope_root(|u| raw(u).map(|(at, _)| at), &mut residual, bracket)?.converged(Strategy::Isentrope)?;
     let state = px(fluid, p_of(root.x), s, Caloric::S, opts)?;
@@ -72,12 +79,12 @@ pub(super) fn sx(fluid: &PureFluid, s: f64, x: f64, var: Caloric, opts: &FlashOp
 /// come back (at the triple point's temperature water's s(p) turns at 38.6 MPa), or end in it (under the triple point's
 /// pressure), and a root at such an edge (a state at the triple point's temperature) is reached there, its residual
 /// within the noise. Without a bracket: `AboveMaxPressure` at pmax where x lies above x(pmax), else the descent's first
-/// failure, or `invalid`.
+/// failure, or `invalid` of its last point above x, the lowest x it reached.
 fn isentrope_bracket(
     residual: &mut impl FnMut(f64) -> Result<f64, Error>,
     descent: Descent,
     p_max: f64,
-    invalid: impl FnOnce() -> Error,
+    invalid: impl FnOnce(Option<Point>) -> Error,
 ) -> Result<(Point, Point), Error> {
     let (above, below, refused) = (descent.above, descent.below, descent.refused);
     let found = match (above, below) {
@@ -95,7 +102,7 @@ fn isentrope_bracket(
         }
         (None, None) => None,
     };
-    found.ok_or_else(|| descent.failed_earlier.or(descent.failed).unwrap_or_else(invalid))
+    found.ok_or_else(|| descent.failed_earlier.or(descent.failed).unwrap_or_else(|| invalid(above)))
 }
 
 /// HS's and SU's bisection in ln p from a known end, `held`, towards a refusal: the held end and the first point on the

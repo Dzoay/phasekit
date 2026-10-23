@@ -10,10 +10,12 @@ use crate::state::{Phase, Strategy};
 
 mod code;
 mod message;
+mod remedy;
 mod words;
 
 pub use code::Rule;
 pub use message::Message;
+pub use remedy::Remedy;
 
 /// Every failure the kernel can report. No panics on user input; no sentinels (map 12 R3).
 #[derive(Clone, Debug, PartialEq)]
@@ -26,6 +28,20 @@ pub enum Error {
         quantity: &'static Quantity,
         /// The rejected value, SI.
         value: f64,
+    },
+    /// No state reaches the value at the pair's other input (user decision EM16): it lies beyond `limit`'s end of the
+    /// range of states the solver reached there, whose extreme is `bound`.
+    Unreachable {
+        /// Which quantity.
+        quantity: &'static Quantity,
+        /// The value no state reaches, SI.
+        value: f64,
+        /// Which end of the reached range the value lies beyond.
+        limit: Limit,
+        /// The extreme of `quantity` the solver reached at the given input, SI.
+        bound: f64,
+        /// The pair's other input: its quantity and value, SI.
+        given: (&'static Quantity, f64),
     },
     /// An argument that is not a physical value was refused: a count, an index, a plane, a mixture (user decision EM3).
     InvalidArgument {
@@ -85,6 +101,15 @@ pub enum Error {
         /// Supplied length.
         found: usize,
     },
+}
+
+/// Which end of a range a value lies beyond.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Limit {
+    /// Above its highest value.
+    Max,
+    /// Below its lowest value.
+    Min,
 }
 
 /// Validity-domain failures (materials S4: `BelowMeltingLine` exists from day one).

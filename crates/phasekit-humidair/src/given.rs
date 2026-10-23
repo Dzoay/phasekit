@@ -8,11 +8,12 @@
 //! boiling point at p. Each output rises with its unknown there, so a target no state on the range reaches is
 //! refused, naming it.
 
-use phasekit_core::{Error, Quantity};
+use phasekit_core::{Error, Limit, Quantity};
 
 use crate::moist_air::{T_MAX, T_MIN};
 use crate::quantities::{
-    ENTHALPY_PER_DRY_AIR, ENTROPY_PER_DRY_AIR, RELATIVE_HUMIDITY, VOLUME_PER_DRY_AIR, WET_BULB_TEMPERATURE,
+    DEW_POINT, ENTHALPY_PER_DRY_AIR, ENTROPY_PER_DRY_AIR, HUMIDITY_RATIO, RELATIVE_HUMIDITY, VOLUME_PER_DRY_AIR,
+    WATER_MOLE_FRACTION, WET_BULB_TEMPERATURE,
 };
 use crate::wet_bulb::Bulb;
 use crate::{HumidAir, Humidity, MoistAir, Per, root};
@@ -70,6 +71,30 @@ fn wanted(target: Given) -> Result<(f64, &'static Quantity), Error> {
     }
 }
 
+/// A humidity as a refusal names the given input.
+const fn given_humidity(humidity: Humidity) -> (&'static Quantity, f64) {
+    match humidity {
+        Humidity::Ratio(w) => (HUMIDITY_RATIO, w),
+        Humidity::MoleFraction(psi) => (WATER_MOLE_FRACTION, psi),
+        Humidity::Relative(phi) => (RELATIVE_HUMIDITY, phi),
+        Humidity::DewPoint(t) => (DEW_POINT, t),
+    }
+}
+
+/// `value` of `quantity` beyond both ends of a solve's range, whose residuals (the target there less `value`) are
+/// `ends`, as `Unreachable` at the end nearer it (PLAN.md M29.2; user decision EM16).
+fn unreachable(
+    (quantity, value): (&'static Quantity, f64),
+    ends: (f64, f64),
+    given: (&'static Quantity, f64),
+) -> Error {
+    let r = if ends.0.abs() <= ends.1.abs() { ends.0 } else { ends.1 };
+    // Equivalent (M29.2): neither end's residual is 0, which would be a root.
+    // equivalent mutant: replace < with <=
+    let limit = if r < 0.0 { Limit::Max } else { Limit::Min };
+    Error::Unreachable { quantity, value, limit, bound: value + r, given }
+}
+
 /// `range` narrowed to where `value` has one (`root::narrowed`): at high p the virial equation has no state at low T or
 /// high ψ_w, and near pure vapour at 10 MPa Eq. (3.25)'s f, which a wet bulb takes, does not settle. Where neither end
 /// has one, the lower end's refusal.
@@ -80,13 +105,14 @@ fn existing(value: impl Fn(f64) -> Result<f64, Error>, range: (f64, f64)) -> Res
     }
 }
 
-/// The state among `state(x)` for x over `range` at `p` whose `target` is the one given, or the refusal naming it. A
-/// wet bulb is solved on its balance at the given bulb temperature, a state a step (`wet_bulb::Bulb`), then checked: a
-/// target in the triple point's gap, or one whose balance has its root on the other wick's side, is refused.
+/// The state among `state(x)` for x over `range` at `p` whose `target` is the one given, or the refusal naming it: a
+/// target beyond both ends of the range `Unreachable` at the `given` input other than p. A wet bulb is solved on its
+/// balance at the given bulb temperature, a state a step (`wet_bulb::Bulb`), then checked: a target in the triple
+/// point's gap, or one whose balance has its root on the other wick's side, is refused.
 fn solve(
     air: &HumidAir,
     (p, state): (f64, impl Fn(f64) -> Result<MoistAir, Error>),
-    range: (f64, f64),
+    (range, given): ((f64, f64), (&'static Quantity, f64)),
     target: Given,
 ) -> Result<MoistAir, Error> {
     let (value, quantity) = wanted(target)?;
@@ -105,8 +131,11 @@ fn solve(
     let matches = |s: &MoistAir| output(air, s, target).is_ok_and(|v| (v - value).abs() <= WET_BULB_MATCH);
     let Some(x) = root::bracketed(residual, range)? else {
         // A wet bulb at an end of the range (dry air, saturation) balances there only to its rounding.
+        if bulb.is_none() {
+            return Err(unreachable((quantity, value), (residual(range.0)?, residual(range.1)?), given));
+        }
         let ends = [range.0, range.1].into_iter().filter_map(|x| state(x).ok());
-        return ends.into_iter().find(|s| bulb.is_some() && matches(s)).ok_or(Error::InvalidInput { quantity, value });
+        return ends.into_iter().find(matches).ok_or(Error::InvalidInput { quantity, value });
     };
     let solved = state(x)?;
     if bulb.is_some() && !matches(&solved) {
@@ -118,7 +147,7 @@ fn solve(
 /// At T and p, the state whose `target` is the one given, by a solve in ψ_w from dry air to saturation.
 fn in_humidity(air: &HumidAir, t: f64, p: f64, target: Given) -> Result<MoistAir, Error> {
     let top = air.saturation(t, p)?.psi_ws.min(PSI_TOP);
-    solve(air, (p, |psi| air.moist_air(t, p, psi)), (0.0, top), target)
+    solve(air, (p, |psi| air.moist_air(t, p, psi)), ((0.0, top), (Quantity::TEMPERATURE, t)), target)
 }
 
 /// At p, with `humidity`, the state whose `target` is the one given, by a solve in T.
@@ -129,7 +158,7 @@ fn in_temperature(air: &HumidAir, p: f64, humidity: Humidity, target: Given) -> 
         }
         let top = if phi > 0.0 { air.dew_point(p, PSI_TOP)? } else { T_MAX };
         let state = |t: f64| air.moist_air(t, p, air.mole_fraction(t, p, humidity)?);
-        return solve(air, (p, state), (T_MIN, top), target);
+        return solve(air, (p, state), ((T_MIN, top), given_humidity(humidity)), target);
     }
     if matches!(target, Given::Humidity(h) if !matches!(h, Humidity::Relative(_))) {
         return Err(NO_STATE);
@@ -140,7 +169,7 @@ fn in_temperature(air: &HumidAir, p: f64, humidity: Humidity, target: Given) -> 
         return Err(Error::InvalidState { reason: "dry air's relative humidity is 0 at every temperature" });
     }
     let bottom = if psi > 0.0 { air.dew_point(p, psi)?.max(T_MIN) } else { T_MIN };
-    solve(air, (p, |t| air.moist_air(t, p, psi)), (bottom, T_MAX), target)
+    solve(air, (p, |t| air.moist_air(t, p, psi)), ((bottom, T_MAX), given_humidity(humidity)), target)
 }
 
 impl HumidAir {

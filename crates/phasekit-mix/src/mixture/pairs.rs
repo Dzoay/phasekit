@@ -26,8 +26,8 @@
 
 use phasekit_core::density::Branch;
 use phasekit_core::{
-    Basis, DerivVar, Derivs, DomainError, DomainPolicy, Error, FlashOptions, HelmholtzModel, NativeInput, Order, Pair,
-    Partial, Phase, Quantity, RootPolicy, Roots, State, Strategy, ThermoModel, Var, math,
+    Basis, DerivVar, Derivs, DomainError, DomainPolicy, Error, FlashOptions, HelmholtzModel, Limit, NativeInput, Order,
+    Pair, Partial, Phase, Quantity, RootPolicy, Roots, State, Strategy, ThermoModel, Var, math,
 };
 
 use super::{Equilibrium, Mixture, pressure};
@@ -153,6 +153,33 @@ fn choose(
             Ok(states.remove(nearest.map_or(0, |(k, _)| k)))
         }
         _ => Err(Error::Ambiguous { roots: Roots::new(quantity, &keys) }),
+    }
+}
+
+/// The residual x(state) − x nearest zero of those a search saw: where it found no root, every state's x lies on one
+/// side of x, and this one's is the extreme it reached (PLAN.md M29.2; user decision EM16).
+#[derive(Clone, Copy, Debug, Default)]
+struct Reached(Option<f64>);
+
+impl Reached {
+    /// Notes a residual; one that is not finite is not a state's.
+    fn see(&mut self, residual: f64) {
+        // Equivalent (M29.2): with no root every residual has one sign, so two of equal size are one residual, and
+        // keeping the later of them changes nothing.
+        // equivalent mutant: replace < with <=
+        if residual.is_finite() && self.0.is_none_or(|r| residual.abs() < r.abs()) {
+            self.0 = Some(residual);
+        }
+    }
+
+    /// x of `quantity`, beyond every state the search saw at `given`, as `Unreachable`; `InvalidInput` where it saw
+    /// none.
+    fn refusal(self, (quantity, x): (&'static Quantity, f64), given: (&'static Quantity, f64)) -> Error {
+        let Some(r) = self.0 else { return Error::InvalidInput { quantity, value: x } };
+        // Equivalent (M29.2): the residual is not 0, which would be a root.
+        // equivalent mutant: replace < with <=
+        let limit = if r < 0.0 { Limit::Max } else { Limit::Min };
+        Error::Unreachable { quantity, value: x, limit, bound: x + r, given }
     }
 }
 
@@ -538,8 +565,11 @@ impl Mixture {
         let mut states = Vec::new();
         // A homogeneous root that is not stable lies inside the dome, which then holds a root of its own.
         let mut inside = hint == Some(Phase::TwoPhase);
+        let mut reached = Reached::default();
         if hint != Some(Phase::TwoPhase) {
-            for rho in self.homogeneous_roots(t, var, x)? {
+            let roots;
+            (roots, reached) = self.homogeneous_roots(t, var, x)?;
+            for rho in roots {
                 if self.kept((t, rho), (var, x), hint)? {
                     states.push(self.answer(Found::Single(t, rho), (var, x), opts, Strategy::Isotherm)?);
                 } else {
@@ -550,14 +580,20 @@ impl Mixture {
         if inside && let Some(c) = self.dome_root(Given::T(t), (var, x))? {
             states.push(self.answer(Found::Two(c), (var, x), opts, Strategy::Isotherm)?);
         }
-        let none = Error::InvalidInput { quantity: var.quantity(Basis::Molar), value: x };
+        // No homogeneous root: x lies beyond every state of the feed at T, the dome's (the lever rule's) among them.
+        let none = if inside {
+            Error::InvalidInput { quantity: var.quantity(Basis::Molar), value: x }
+        } else {
+            reached.refusal((var.quantity(Basis::Molar), x), (Quantity::TEMPERATURE, t))
+        };
         choose(states, (|s| s.rho(Basis::Molar), Quantity::density(Basis::Molar)), opts.roots(), none)
     }
 
     /// The densities at T where the feed's homogeneous x of `var` is the input, ascending: its isotherm in ln ρ from
     /// `DECADES` below the model's largest density to it, on a grid of `NODES_PER_DECADE` (at least `CELLS` cells), each
-    /// cell cut where (∂x/∂ρ)_T changes sign, each monotonic piece's root by the regula falsi.
-    fn homogeneous_roots(&self, t: f64, var: Var, x: f64) -> Result<Vec<f64>, Error> {
+    /// cell cut where (∂x/∂ρ)_T changes sign, each monotonic piece's root by the regula falsi; with them, the residual
+    /// nearest zero of the nodes and turns.
+    fn homogeneous_roots(&self, t: f64, var: Var, x: f64) -> Result<(Vec<f64>, Reached), Error> {
         let top = math::ln(self.rho_max(t));
         let bottom = top - DECADES * core::f64::consts::LN_10;
         let cells = (DECADES * NODES_PER_DECADE).max(CELLS);
@@ -566,16 +602,19 @@ impl Mixture {
             Ok((value(&state, var) - x, slope(&state, var)?))
         };
         let node = |k: f64| if k >= cells { top } else { bottom + k * (top - bottom) / cells };
-        let mut roots = Vec::new();
+        let (mut roots, mut reached) = (Vec::new(), Reached::default());
         let (mut a, mut at_a) = (bottom, at(bottom)?);
+        reached.see(at_a.0);
         for k in 1..=cells as usize {
             let b = node(k as f64);
             let at_b = at(b)?;
+            reached.see(at_b.0);
             let (lo, hi) = (End::new(a, (at_a.0, ())), End::new(b, (at_b.0, ())));
             let pieces = if turns_between(at_a.1, at_b.1) {
                 let mut turn = |u: f64| at(u).map(|v| (v.1, ()));
                 let u = falsi(End::new(a, (at_a.1, ())), End::new(b, (at_b.1, ())), &mut turn)?.x;
                 let at_turn = End::new(u, (at(u)?.0, ()));
+                reached.see(at_turn.value);
                 vec![(lo, at_turn.clone()), (at_turn, hi)]
             } else {
                 vec![(lo, hi)]
@@ -588,7 +627,7 @@ impl Mixture {
             }
             (a, at_a) = (b, at_b);
         }
-        Ok(roots)
+        Ok((roots, reached))
     }
 
     /// HS and SU: s, and the input x of `var` (H or U). Along the isentrope h and u rise with p ((∂h/∂p)_s = v), so p is
@@ -604,7 +643,10 @@ impl Mixture {
         let p_max = self.limits.p_max();
         let Some(above) = above else { return Err(DomainError::AboveMaxPressure { p: p_max, p_max }.into()) };
         let Some(below) = below else {
-            return Err(Error::InvalidInput { quantity: var.quantity(Basis::Molar), value: x });
+            let mut reached = Reached::default();
+            reached.see(above.value);
+            let given = (Quantity::entropy(Basis::Molar), s);
+            return Err(reached.refusal((var.quantity(Basis::Molar), x), given));
         };
         let found = falsi(below, above, &mut at)?;
         self.answer(found.at, (var, x), opts, Strategy::Isentrope)
@@ -672,6 +714,8 @@ impl Mixture {
             line.push(End::new(c.t, (at(&c)?, c)));
         }
         cut_turns(&mut line, |a, b, rising| self.turn((a, b), rising, &refined, &at))?;
+        let mut reached = Reached::default();
+        line.iter().for_each(|end| reached.see(end.value));
         let mut roots: Vec<Coexisting> = Vec::new();
         for pair in line.windows(2) {
             let [lo, hi] = pair else { continue };
@@ -690,7 +734,7 @@ impl Mixture {
             .into_iter()
             .map(|c| self.answer(Found::Two(c), (var, x), opts, Strategy::Saturation))
             .collect::<Result<_, _>>()?;
-        let none = Error::InvalidInput { quantity: var.quantity(Basis::Molar), value: x };
+        let none = reached.refusal((var.quantity(Basis::Molar), x), (Quantity::QUALITY, q));
         choose(states, (State::t, Quantity::TEMPERATURE), opts.roots(), none)
     }
 
@@ -1171,11 +1215,11 @@ mod tests {
         let width = 6.0 * core::f64::consts::LN_10 / 400.0;
         let (u_min, at_min) = minimum(coarse.0 - width, coarse.0 + width);
         let x = at_min + 1.0;
-        let roots = ok(m.homogeneous_roots(t, Var::U, x));
+        let roots = ok(m.homogeneous_roots(t, Var::U, x)).0;
         let r = m.fluid.gas_constant();
         let each = roots.iter().all(|rho| reproduces(Var::U, r, x, &ok(m.homogeneous(t, *rho))));
         assert!(roots.len() == 2 && roots[0] < math::exp(u_min) && math::exp(u_min) < roots[1] && each, "{roots:?}");
-        assert!(ok(m.homogeneous_roots(t, Var::U, at_min - 1.0)).is_empty());
+        assert!(ok(m.homogeneous_roots(t, Var::U, at_min - 1.0)).0.is_empty());
         assert!(matches!(m.isotherm(t, Var::U, x, &FlashOptions::new()), Err(Error::Ambiguous { .. })));
         let nearest = ok(m.isotherm(t, Var::U, x, &FlashOptions::new().with_roots(RootPolicy::Nearest(roots[1]))));
         assert!((nearest.rho(Basis::Molar) / roots[1] - 1.0).abs() <= 1e-12);
@@ -1189,11 +1233,11 @@ mod tests {
         let m = methane_ethane();
         let rho = 1e-6;
         let s = value(&ok(m.homogeneous(300.0, rho)), Var::S);
-        let roots = ok(m.homogeneous_roots(300.0, Var::S, s));
+        let roots = ok(m.homogeneous_roots(300.0, Var::S, s)).0;
         assert!(roots.len() == 1 && (roots[0] / rho - 1.0).abs() <= 1e-9, "{roots:?}");
         let top = math::exp(math::ln(m.rho_max(300.0)));
         let s_top = value(&ok(m.homogeneous(300.0, top)), Var::S);
-        assert_eq!(ok(m.homogeneous_roots(300.0, Var::S, s_top)), vec![top]);
+        assert_eq!(ok(m.homogeneous_roots(300.0, Var::S, s_top)).0, vec![top]);
     }
 
     /// HS's descent in ln p runs by decades from the model's highest pressure through `DECADES` of them: library
