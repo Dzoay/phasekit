@@ -44,6 +44,7 @@ impl Error {
     /// What the caller can do, most direct first; none for an error the caller cannot change by its inputs.
     pub const fn remedies(&self) -> &'static [Remedy] {
         match self {
+            Error::Unreachable { .. } => &[Remedy::OtherPair],
             Error::Unsupported { .. } => &[Remedy::DeclaredPair],
             Error::Domain(DomainError::MechanicallyUnstable) => &[],
             Error::Domain(_) => &[Remedy::Extrapolate],

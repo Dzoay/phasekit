@@ -59,6 +59,15 @@ impl Gauge {
             Var::T | Var::P | Var::Q | Var::D => v,
         }
     }
+
+    /// Shifts a molar value from the model's native gauge to this one: [`to_native`](Self::to_native)'s inverse.
+    pub(crate) fn to_handle(self, var: Var, v: f64) -> f64 {
+        match var {
+            Var::H | Var::U => v + self.dh,
+            Var::S => v + self.ds,
+            Var::T | Var::P | Var::Q | Var::D => v,
+        }
+    }
 }
 
 /// CoolProp's reference states (map 01 §3), plus a custom anchor usable by ANY model (a solid included).
@@ -403,7 +412,9 @@ impl Fluid {
     /// Flash in this handle's gauge: the input is normalised once, the model flashes in its native gauge,
     /// and the result is stamped with this handle's gauge.
     pub fn flash(&self, input: Input, opts: &FlashOptions) -> Result<State, Error> {
-        Ok(self.model.flash(self.native(input)?, opts)?.with_gauge(self.gauge))
+        let flashed = self.model.flash(self.native(input)?, opts);
+        let m = self.info().molar_mass();
+        Ok(flashed.map_err(|e| input.caller_error(e, m, self.gauge))?.with_gauge(self.gauge))
     }
 
     /// Flash with default options.

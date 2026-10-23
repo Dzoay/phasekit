@@ -17,6 +17,12 @@ fn invalid(quantity: &'static Quantity, value: f64) -> Error {
     Error::InvalidInput { quantity, value }
 }
 
+/// Water's h at 300 K above every state's.
+fn unreachable() -> Error {
+    let given = (Quantity::TEMPERATURE, 300.0);
+    Error::Unreachable { quantity: Quantity::enthalpy(Basis::Mass), value: 1e7, limit: Limit::Max, bound: 2.5e6, given }
+}
+
 /// The engineer's units of the site's second system: °C, bar, kJ.
 struct Engineering;
 
@@ -131,6 +137,28 @@ fn messages_take_the_callers_units() {
             "h = 10000 kJ/kg: out of range",
         ),
         (
+            Error::Unreachable {
+                quantity: Quantity::enthalpy(Basis::Mass),
+                value: 1e7,
+                limit: Limit::Max,
+                bound: 2.5493e6,
+                given: (Quantity::TEMPERATURE, 300.0),
+            },
+            "enthalpy 10000 kJ/kg is above the highest a state reaches at temperature 26.85 °C, 2549.3 kJ/kg",
+            "h = 10000 kJ/kg > h_max(T = 26.85 °C) = 2549.3 kJ/kg",
+        ),
+        (
+            Error::Unreachable {
+                quantity: Quantity::entropy(Basis::Mass),
+                value: -1e5,
+                limit: Limit::Min,
+                bound: -0.5,
+                given: (Quantity::QUALITY, 0.5),
+            },
+            "entropy −100000 J/(kg·K) is below the lowest a state reaches at quality 0.5, −0.5 J/(kg·K)",
+            "s = −100000 J/(kg·K) < s_min(Q = 0.5) = −0.5 J/(kg·K)",
+        ),
+        (
             Error::Ambiguous { roots: Roots::new(Quantity::TEMPERATURE, &[273.15, 373.15]) },
             "several states fit these inputs: T = 0 °C or 100 °C",
             "T ∈ {0 °C, 100 °C}",
@@ -209,8 +237,9 @@ fn roots_carry_their_quantity() {
 /// User decision EM11: each error's stable code, a domain error's its own; the browser package's codes as they were.
 #[test]
 fn every_error_has_its_code() {
-    let cases: [(Error, &str); 18] = [
+    let cases: [(Error, &str); 19] = [
         (invalid(Quantity::TEMPERATURE, 0.0), "invalid_input"),
+        (unreachable(), "unreachable"),
         (Error::InvalidArgument { argument: "plane", value: None }, "invalid_argument"),
         (Error::Unsupported { pair: Pair::HS }, "unsupported"),
         (DomainError::BelowMinTemperature { t: 200.0, t_min: 273.16 }.into(), "below_min_temperature"),
@@ -255,8 +284,9 @@ fn the_rule_a_value_breaks() {
 /// User decision EM15: what a caller can do about each error, by its stable code, most direct first.
 #[test]
 fn every_error_has_its_remedies() {
-    let cases: [(Error, &[&str]); 20] = [
+    let cases: [(Error, &[&str]); 21] = [
         (invalid(Quantity::TEMPERATURE, 0.0), &[]),
+        (unreachable(), &["other_pair"]),
         (Error::InvalidArgument { argument: "plane", value: None }, &[]),
         (Error::Unsupported { pair: Pair::HS }, &["declared_pair"]),
         (DomainError::BelowMinTemperature { t: 200.0, t_min: 273.16 }.into(), &["extrapolate"]),

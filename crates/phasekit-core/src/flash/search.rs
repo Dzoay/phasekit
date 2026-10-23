@@ -3,7 +3,7 @@
 //! [`bisect_to_refusal`]) and the choice among roots by `RootPolicy` ([`choose`]); and on them the search in T of P+X
 //! and D+X ([`root_in_t`]).
 
-use crate::error::{DomainError, Error, Roots};
+use crate::error::{DomainError, Error, Limit, Roots};
 use crate::fluid::PureFluid;
 use crate::quantity::Quantity;
 use crate::roots::{Root, Tol, toms748};
@@ -13,6 +13,35 @@ use super::{RootPolicy, T_ITER, T_TOL};
 
 /// A point of a search: its abscissa and its residual there.
 pub(super) type Point = (f64, f64);
+
+/// The residual x(state) − x nearest zero of those a search saw: where it found no root, every state's x lies on one
+/// side of x, and this one's is the extreme it reached (user decision EM16).
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Reached(Option<f64>);
+
+impl Reached {
+    /// Notes a residual; one that is not finite is not a state's.
+    pub(super) fn see(&mut self, residual: f64) {
+        if residual.is_finite() && self.0.is_none_or(|r| residual.abs() < r.abs()) {
+            self.0 = Some(residual);
+        }
+    }
+
+    /// x of `quantity`, beyond every state the search saw at `given`, as [`Error::Unreachable`]; `input` writes an x
+    /// (and the extreme) as the pair's input (DQ's ρ from its v); `invalid` where the search saw none.
+    pub(super) fn refusal(
+        self,
+        (quantity, x): (&'static Quantity, f64),
+        input: impl Fn(f64) -> f64,
+        given: (&'static Quantity, f64),
+    ) -> Error {
+        let value = input(x);
+        let Some(r) = self.0 else { return Error::InvalidInput { quantity, value } };
+        let bound = input(x + r);
+        let limit = if value > bound { Limit::Max } else { Limit::Min };
+        Error::Unreachable { quantity, value, limit, bound, given }
+    }
+}
 
 /// Whether a residual lies above zero, on the far side of the root from a descent's end; NaN does not.
 pub(super) fn positive(at: f64) -> bool {

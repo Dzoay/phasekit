@@ -1017,34 +1017,11 @@ one PR, M29.3 and M29.4 in one, M29.5 alone, M29.6 and M29.7 in one, a commit an
 stays at most 48 bytes (`lib.rs`'s assertion): a new field that would grow it is a `&'static` descriptor, as
 `Quantity` is. Each PR shows every new or changed message in full, in both styles, for the user's review (EM2).
 
-- **M29.1 Remedies and the nearest names.** `phasekit_core::Remedy` (`error/remedy.rs`), each with a stable snake_case
-  code (`Remedy::code()`), and `Error::remedies() -> &'static [Remedy]` (EM15):
-  - `Ambiguous`: `choose_root` (`RootPolicy::Nearest` or `Stable`, or a phase hint);
-  - a `Domain` limit: `extrapolate` (`DomainPolicy::Extrapolate`, the state flagged `Extrapolated`);
-  - `NoConvergence`: `warm_start` (`FlashOptions::with_guess`, from M29.3's `last`), then `other_pair`;
-  - `Undefined` for a two-phase state: `saturated_phases` (the saturated liquid's and vapour's properties, or Q);
-  - `Unsupported`: `declared_pair` (a pair the model declares);
-  - `Load(UnknownName)`: `nearest_name`;
-  - every other error: none.
+| Step | Landed |
+|---|---|
+| M29.1 | `phasekit_core::Remedy` (`error/remedy.rs`) with its stable code (`choose_root`, `extrapolate`, `warm_start`, `other_pair`, `saturated_phases`, `declared_pair`, `nearest_name`) and `Error::remedies()` (EM15): `Ambiguous` a root to choose; a domain limit `extrapolate` (`MechanicallyUnstable` none); `NoConvergence` `warm_start` then `other_pair`; `Undefined` for a two-phase state its saturated phases (for any other phase none); `Unsupported` a declared pair; an unknown name the nearest; M29.2's `Unreachable` another pair; every other error none. `Registry::nearest(name, k)`: the canonical names whose name, alias or CAS number is nearest `name` by the optimal string alignment distance, ASCII case folded, none farther than a third of the longer, nearest first, of equally near the one sharing the longer prefix with `name` (so `r134` is `R134a`, not `R114`), then in `names()`' order; nothing decoded. *Red:* `every_error_has_its_remedies`, `the_nearest_names_to_a_typo` (`Watr` → `Water`, `r134` → `R134a`, `propan` → `n-Propane` by its alias), `a_remedy_works_when_followed` (Water's domain refusals at 3000 K, 260 K and 2 GPa flashed under `Extrapolate`, PT's two roots at psat each by `Nearest`, a two-phase c_p from the saturated phases); `nothing_is_near_gibberish` passed against the stub |
+| M29.2 | `Error::Unreachable { quantity, value, limit, bound, given }` and `Limit::{Max, Min}` (EM16): code `unreachable`, no rule, remedy `other_pair`, `Status::InvalidInput` in a batch; long `enthalpy 1e7 J/kg is above the highest a state reaches at temperature 300 K, 2.55143e6 J/kg`, short `h = 1e7 J/kg > h_max(T = 300 K) = 2.55143e6 J/kg`. The bound is the residual nearest zero of every state the search saw (`search::Reached`): core's isotherm (HT, ST, TU) its grid's nodes, its cells' turns and the dome's edges; its isentrope (HS, SU) the last pressure above x; its Q-pairs (QS, HQ, DQ) their nodes and turns, DQ's ρ from v; `phasekit-mix`'s isotherm (where no homogeneous root exists), isentrope and quality line the same; humid air's solve in ψ_w or T its range's nearer end, `given` the solve's T or humidity (a new `DEW_POINT` quantity), a wet bulb still `InvalidInput`. The bound is the equation of state's extreme along the search and can lie outside the domain (Water's s at 300 K is least at the isotherm's densest end, above p_max), so it is reached under `Extrapolate`. `Fluid::flash` writes a model's `Unreachable` in the caller's terms (`Input::caller_error`): the value and the other input as given, the bound in their basis and the handle's gauge; until M29.2 a refused value was reported molar and in the native gauge (1e7 J/kg as 180152.68 J/mol). The browser package's refusal carries an unreachable value's quantity and `[value, bound]`. *Red:* `an_unreachable_value_names_its_bound` (Water's HT, ST and TU above and below, QS above and below, HQ and DQ above, at its native gauge and at NBP's, each bound reached within 1e-9 under `Extrapolate`; an R32/R125 mixture's HT and HQ), `an_unreachable_value_in_both_styles`; `a_q_pair_without_a_root_is_unreachable` (was `…_is_invalid_input`), humid air's `a_target_just_past_the_range_is_refused` (its bound saturated air's h within 1e-9) and `the_solve_in_t_covers_dry_air_and_stops_at_the_dew_point`, and `compat_strings_reach_the_new_family` updated |
 
-  `Registry::nearest(name, k)`: the registry's names and aliases nearest to `name`, case folded, by the optimal string
-  alignment distance, at most k, nearest first and ties in the registry's order, none farther than a third of the
-  longer name's length. A facade calls it to write "did you mean". Mixture names (`phasekit-mix`'s resolver) are M29.6's.
-  *Red:* `every_error_has_its_remedies` (each variant's list pinned), `the_nearest_names_to_a_typo` (`Watr` → `Water`,
-  `r134` → `R134a`, `propane` → `n-Propane` by its alias), `nothing_is_near_gibberish`.
-- **M29.2 Unreachable values.** `Error::Unreachable { quantity, value, limit, bound, given }` (EM16): `limit`, a
-  `Limit::{Max, Min}`, says which end of the reachable range the value lies beyond, `bound` is the extreme the solver
-  reached at the given input, and `given` the pair's other input as a `(&'static Quantity, f64)`. Code `unreachable`,
-  no `rule()`, `Status::InvalidInput` in a batch, remedies `other_pair`. Every site that now refuses a value no state
-  reaches with `InvalidInput` and `Rule::OutOfRange` builds it instead: core's isotherm (HT, ST, TU), isentrope (HS,
-  SU) and quality (QS, HQ, DQ) searches, `phasekit-mix`'s outer solves (`mixture/pairs.rs`) and humid air's `given.rs`. `InvalidInput` keeps
-  the values that break a rule, and `out_of_range` stays for a model's own refusals with no state to measure against.
-  The proposed wording: `enthalpy 1e7 J/kg is above the highest reached at temperature 300 K, 2.54932e6 J/kg` and
-  `h = 1e7 J/kg > h_max(T = 300 K) = 2.54932e6 J/kg` (the numbers the step's). *Red:*
-  `an_unreachable_value_names_its_bound` (Water's HT, ST and TU above and below, its HS and QS, R410A's and humid air's: the limit,
-  the bound and the given input pinned), `the_bound_is_reached` (the flash at the given input and the bound, moved
-  inside by 10⁻⁹ relatively, succeeds and gives the bound back within `Flash`), `every_message_in_both_styles` gains
-  the variant.
 - **M29.3 Where a stalled solver stopped.** `Error::NoConvergence` gains `last: Option<(f64, f64)>`, the last
   iterate's (T, ρ_molar), and `residual`, the relative residual there of the input the solver was solving for, NaN
   where it has none (EM18). Each of the sites that build it fills them where its solver has an iterate (a flash's

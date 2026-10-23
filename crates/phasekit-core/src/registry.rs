@@ -427,9 +427,9 @@ impl Registry {
     fn keys(&self) -> impl Iterator<Item = (&str, &str)> {
         self.layers.iter().rev().flat_map(|layer| -> Box<dyn Iterator<Item = (&str, &str)> + '_> {
             match layer {
-                Layer::Data(d) => Box::new(
-                    d.keys.iter().filter_map(|(k, i)| d.slots.get(*i as usize).map(|s| (&**k, &*s.name))),
-                ),
+                Layer::Data(d) => {
+                    Box::new(d.keys.iter().filter_map(|(k, i)| d.slots.get(*i as usize).map(|s| (&**k, &*s.name))))
+                }
                 Layer::Model(m) => Box::new(m.keys.iter().map(|k| (&**k, m.fluid.info().name()))),
             }
         })

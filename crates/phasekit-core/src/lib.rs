@@ -76,7 +76,7 @@ pub use num::math;
 
 pub use data::{Blob, DataSet, DataSource, FluidId, Pack};
 pub use derivs::{Bundle, Derivs, Order, PointDerivs, Virials};
-pub use error::{DomainError, Error, LoadError, Message, Remedy, Roots, Rule};
+pub use error::{DomainError, Error, Limit, LoadError, Message, Remedy, Roots, Rule};
 pub use flash::{DomainPolicy, FlashOptions, RootPolicy};
 pub use fluid::{Fluid, Gauge, PureFluid, PureFluidBuilder, ReferenceState};
 pub use helmholtz::HelmholtzModel;

@@ -59,6 +59,7 @@ impl Error {
     pub const fn code(&self) -> &'static str {
         match self {
             Error::InvalidInput { .. } => "invalid_input",
+            Error::Unreachable { .. } => "unreachable",
             Error::InvalidArgument { .. } => "invalid_argument",
             Error::Unsupported { .. } => "unsupported",
             Error::Domain(e) => e.code(),

@@ -39,6 +39,8 @@ mod qx;
 #[cfg(feature = "fluids-all")]
 mod remedy;
 mod tx;
+#[cfg(feature = "fluids-all")]
+mod unreachable;
 
 /// A curve fitted over 200-380 K that fails the test if it is ever evaluated outside that range.
 #[derive(Debug)]

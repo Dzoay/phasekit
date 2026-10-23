@@ -1,4 +1,4 @@
-use phasekit_core::{Basis, DataSet, Density, DomainError, Error, Input, Pressure, Registry, Temperature};
+use phasekit_core::{Basis, DataSet, Density, DomainError, Error, Input, Limit, Pressure, Registry, Temperature};
 
 use crate::quantities::{ENTHALPY_PER_DRY_AIR, WATER_MOLE_FRACTION};
 use crate::{Given, HumidAir, Humidity, Parts, Per};
@@ -312,7 +312,9 @@ fn the_solve_in_t_covers_dry_air_and_stops_at_the_dew_point() {
     let w0 = Given::Humidity(Humidity::Ratio(0.0));
     assert!((t_at(w0, Given::Enthalpy(h(300.0, 0.0))).unwrap() - 300.0).abs() < 1e-9);
     let w = Given::Humidity(Humidity::Ratio(0.01));
-    assert!(matches!(t_at(w, Given::Enthalpy(h(278.15, 0.01))), Err(Error::InvalidInput { .. })));
+    let fog = t_at(w, Given::Enthalpy(h(278.15, 0.01)));
+    let given = (crate::quantities::HUMIDITY_RATIO, 0.01);
+    assert!(matches!(fog, Err(Error::Unreachable { limit: Limit::Min, given: g, .. }) if g == given), "{fog:?}");
 }
 
 /// Under `Parity`, water vapour's ideal part sits on v8.0.0's anchor (`HumidAirProp.cpp:281-326` and `:1083`, map 15
@@ -402,14 +404,17 @@ fn the_narrowing_stops_at_adjacent_doubles() {
 }
 
 /// A target just past the solve's range is refused, though it lies within the wet bulb's match of an end: h 10⁻⁷ J/kg
-/// above saturated air's at 300 K and 1 bar.
+/// above saturated air's at 300 K and 1 bar is `Unreachable`, saturated air's h the bound (PLAN.md M29.2).
 #[test]
 fn a_target_just_past_the_range_is_refused() {
     let air = humid_air(DataSet::Corrected);
     let psi_ws = air.saturation(300.0, 1e5).unwrap().psi_ws;
     let h = air.moist_air(300.0, 1e5, psi_ws).unwrap().h(Per::KgDryAir);
     let past = air.state(1e5, Given::Temperature(300.0), Given::Enthalpy(h + 1e-7));
-    assert!(matches!(past, Err(Error::InvalidInput { quantity: ENTHALPY_PER_DRY_AIR, .. })), "{past:?}");
+    let Err(Error::Unreachable { quantity: ENTHALPY_PER_DRY_AIR, limit: Limit::Max, bound, .. }) = past else {
+        panic!("{past:?}")
+    };
+    assert!((bound - h).abs() <= 1e-9 * h, "{bound} against {h}");
 }
 
 /// Under `Parity` the wick's water is v8.0.0's: IAPWS-95's h at IF97's liquid density, bit for bit, not IF97's own.

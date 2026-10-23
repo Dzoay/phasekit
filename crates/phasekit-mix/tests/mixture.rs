@@ -3,8 +3,8 @@
 #![allow(clippy::unwrap_used)] // test-crate helpers outside #[test] fns (unwrap is denied in library code)
 
 use phasekit_core::{
-    Basis, DataSet, Density, Derivs, Error, FlashOptions, Fluid, Input, Order, Phase, Pressure, Registry, Temperature,
-    math,
+    Basis, DataSet, Density, Derivs, Error, FlashOptions, Fluid, Input, Limit, Order, Pair, Phase, Pressure, Quantity,
+    Registry, Temperature, math,
 };
 use phasekit_mix::{R_CODATA, mixture};
 
@@ -184,6 +184,31 @@ fn states_outside_the_limits_are_refused_unless_extrapolated() {
     let opts = FlashOptions::new().with_phase(Phase::Gas).with_domain(phasekit_core::DomainPolicy::Extrapolate);
     assert!(mix.flash(hot, &opts).unwrap().is_extrapolated());
     assert!(!mix.flash(dt(100.0, 320.0), &opts).unwrap().is_extrapolated());
+}
+
+/// A value no state of the feed reaches names the extreme its search reached (PLAN.md M29.2; user decision EM16): an h
+/// at 300 K above every state's and an h at Q = 0.5 below every saturated state's, each as the caller gave it, mass
+/// basis; the bound is reached, moved inside by 1e-9 of it, under `Extrapolate`.
+#[test]
+fn an_unreachable_value_names_its_bound() {
+    let registry = registry();
+    let mix = mixture(&registry, &[("R32", 0.5), ("R125", 0.5)], DataSet::Corrected).unwrap();
+    let extrapolate = FlashOptions::new().with_domain(phasekit_core::DomainPolicy::Extrapolate);
+    type Make = fn(f64) -> Result<Input, Error>;
+    let cases: [(Make, f64, Limit, (&Quantity, f64)); 2] = [
+        (|h| Input::new(Pair::HT, h, 300.0, Basis::Mass), 1e7, Limit::Max, (Quantity::TEMPERATURE, 300.0)),
+        (|h| Input::new(Pair::HQ, h, 0.5, Basis::Mass), -1e7, Limit::Min, (Quantity::QUALITY, 0.5)),
+    ];
+    for (make, value, limit, given) in cases {
+        let refused = mix.state(make(value).unwrap());
+        let Err(Error::Unreachable { quantity, value: v, limit: l, bound, given: g }) = refused else {
+            panic!("{value}: {refused:?}")
+        };
+        assert_eq!((quantity, v, l, g), (Quantity::enthalpy(Basis::Mass), value, limit, given), "{value}");
+        let inside = if limit == Limit::Max { bound - 1e-9 * bound.abs() } else { bound + 1e-9 * bound.abs() };
+        let reached = mix.flash(make(inside).unwrap(), &extrapolate);
+        assert!(matches!(reached, Ok(_) | Err(Error::Ambiguous { .. })), "{value} at {inside}: {reached:?}");
+    }
 }
 
 /// With a phase hint, PT finds the hinted branch's density and gives back the state DT gives there; without one, DT

@@ -13,7 +13,7 @@ use crate::saturation::{SatAccuracy, SatPair, SatSide, SaturationCurve};
 use crate::state::{Phase, SolvePath, State, Strategy};
 use crate::units::{Basis, Quality};
 
-use super::search::{Point, choose, nearest};
+use super::search::{Point, Reached, choose, nearest};
 use super::{
     DomainPolicy, FlashOptions, GROUP, RootPolicy, T_ITER, T_TOL, above_melting_line, phase_bundle, phase_bundle_of,
     phase_order, two_phase, two_phase_from, within_domain,
@@ -116,12 +116,16 @@ pub(super) fn qx(
     // its curve's top: R410A), and each turn between a run's nodes where golden-section search puts it.
     let (runs, mut refused) = scan_runs(qx_nodes(lo, hi), &scan);
     let (mut roots, polish_on) = (Vec::new(), calorics.is_some().then_some(&exact));
+    let mut reached = Reached::default();
     for grid in runs {
-        run_roots(&with_turns(&grid, &scan, &mut refused), &scan, polish_on, &mut roots)?;
+        let nodes = with_turns(&grid, &scan, &mut refused);
+        nodes.iter().for_each(|(_, r)| reached.see(*r));
+        run_roots(&nodes, &scan, polish_on, &mut roots)?;
     }
     roots.sort_by(|a, b| a.0.total_cmp(&b.0));
     let Some((t, iterations)) = choose(&roots, |r| r.0, Quantity::TEMPERATURE, opts.roots())? else {
-        return Err(refused.unwrap_or(Error::InvalidInput { quantity: var.quantity(), value: var.input(x) }));
+        let given = (Quantity::QUALITY, q);
+        return Err(refused.unwrap_or_else(|| reached.refusal((var.quantity(), x), |v| var.input(v), given)));
     };
     Ok(qt(fluid, q, t, opts)?.with_path(SolvePath { strategy: Strategy::Saturation, iterations }))
 }

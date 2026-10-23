@@ -10,7 +10,7 @@ use crate::state::{Phase, SolvePath, State, Strategy};
 use crate::units::Basis;
 
 use super::phase::{labelling_critical, saturation_at_t};
-use super::search::choose;
+use super::search::{Reached, choose};
 use super::{Caloric, DomainPolicy, FlashOptions, T_ITER, T_TOL, check_t, dt, reproduces_x, total};
 
 /// The decades of ρ below the model's largest density that T+X searches.
@@ -59,6 +59,7 @@ pub(super) fn tx(fluid: &PureFluid, t: f64, x: f64, var: Caloric, opts: &FlashOp
         },
     };
     let mut roots: Vec<(f64, u16)> = Vec::new();
+    let mut reached = Reached::default();
     let mut stretches: Vec<(f64, f64)> = Vec::new();
     match dome {
         Some(sat) => {
@@ -68,6 +69,8 @@ pub(super) fn tx(fluid: &PureFluid, t: f64, x: f64, var: Caloric, opts: &FlashOp
             if (xl.min(xv)..=xl.max(xv)).contains(&x) {
                 roots.push((-math::ln(vl + (x - xl) / (xv - xl) * (vv - vl)), 0));
             }
+            reached.see(xl - x);
+            reached.see(xv - x);
             stretches.push((bottom, math::ln(sat.dew.rho).max(bottom)));
             stretches.push((math::ln(sat.bubble.rho).min(top), top));
         }
@@ -80,9 +83,12 @@ pub(super) fn tx(fluid: &PureFluid, t: f64, x: f64, var: Caloric, opts: &FlashOp
     // A stretch is empty where the dome reaches the axis's end (from = to, never beyond it).
     for (from, to) in stretches.into_iter().filter(|(from, to)| from != to) {
         let (mut a, mut at_a) = (from, point(from)?);
+        reached.see(at_a.0);
         for b in tx_nodes(from, to).skip(1) {
             let at_b = point(b)?;
-            roots.extend(cell_roots(&point, (a, at_a), (b, at_b))?);
+            let (found, turn) = cell_roots(&point, (a, at_a), (b, at_b))?;
+            roots.extend(found);
+            turn.into_iter().chain([at_b.0]).for_each(|r| reached.see(r));
             (a, at_a) = (b, at_b);
         }
     }
@@ -97,7 +103,7 @@ pub(super) fn tx(fluid: &PureFluid, t: f64, x: f64, var: Caloric, opts: &FlashOp
         }
     }
     let Some(state) = choose(&states, |s| s.rho(Basis::Molar), Quantity::density(Basis::Molar), opts.roots())? else {
-        return Err(refused.unwrap_or(Error::InvalidInput { quantity: var.quantity(), value: x }));
+        return Err(refused.unwrap_or_else(|| reached.refusal((var.quantity(), x), |v| v, (Quantity::TEMPERATURE, t))));
     };
     if !reproduces_x(var, r, t, x, var.of(&state)) {
         return Err(Error::NoConvergence { strategy: Strategy::Isotherm, iterations: state.path().iterations });
@@ -114,15 +120,18 @@ pub(super) fn tx_nodes(from: f64, to: f64) -> impl Iterator<Item = f64> {
     (0..=cells as u32).map(move |k| if f64::from(k) >= cells { to } else { from + f64::from(k) * step })
 }
 
+/// A cell's roots in ln ρ with their iterations, and the residual at its turn, if it has one.
+type CellRoots = (Vec<(f64, u16)>, Option<f64>);
+
 /// The roots of x(ln ρ) − x in one grid cell of an isotherm's single phase, from its ends' residuals and slopes
 /// (`point`): the cell is cut at a turn of x where the slope changes sign, and each monotonic piece holds at most one
-/// root (TOMS 748 in ln ρ to [`T_TOL`]).
+/// root (TOMS 748 in ln ρ to [`T_TOL`]). With them, the residual at the turn, if the cell has one.
 fn cell_roots(
     point: &impl Fn(f64) -> Result<(f64, f64), Error>,
     (a, at_a): (f64, (f64, f64)),
     (b, at_b): (f64, (f64, f64)),
-) -> Result<Vec<(f64, u16)>, Error> {
-    let mut pieces = vec![(a, at_a.0, b, at_b.0)];
+) -> Result<CellRoots, Error> {
+    let (mut pieces, mut at) = (vec![(a, at_a.0, b, at_b.0)], None);
     // Equivalent (M7.5): a cell is cut at a turn where its ends' slopes have opposite signs; `a/b < 0` is the same
     // test, and `<= 0` differs only where a slope is exactly 0 at a node, where the cut falls on that node and the
     // pieces hold the same roots.
@@ -133,6 +142,7 @@ fn cell_roots(
         let turn = turn.converged(Strategy::Isotherm)?.x;
         let at_turn = point(turn)?.0;
         pieces = vec![(a, at_a.0, turn, at_turn), (turn, at_turn, b, at_b.0)];
+        at = Some(at_turn);
     }
     let mut roots = Vec::new();
     for (lo, at_lo, hi, at_hi) in pieces {
@@ -145,5 +155,5 @@ fn cell_roots(
             roots.push((root.x, root.iterations));
         }
     }
-    Ok(roots)
+    Ok((roots, at))
 }
