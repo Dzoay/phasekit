@@ -20,6 +20,7 @@
 # typed-array exports, took the builds to 2395913 and 2351575 bytes, 81210 and 75190 above M18.8's, over both budgets
 # (M26.2's surface had taken main to 2220026 and 2186190); each budget is that + 10 %.
 # M18.11 (SL8): ice on Water's diagrams, its lines and regions where a page asks, took the builds to 2428240 and
-# 2381438 bytes, 32327 and 29863 above M18.10's; both stay within their budgets, which are unchanged.
+# 2381438 bytes, 32327 and 29863 above M18.10's; with M26.3's curves and M26.4's maps merged in from main, 2462338 and
+# 2414962. Both stay within their budgets, which are unchanged.
 baseline 2635504
 simd128 2586732
