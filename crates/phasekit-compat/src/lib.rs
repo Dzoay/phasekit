@@ -21,10 +21,12 @@ use phasekit_core::{Basis, Error, FlashOptions, Fluid, Input, LoadError, Pair, P
 pub mod fault;
 mod humid_air;
 mod keys;
+mod refusal;
 
 #[cfg(feature = "embedded")]
 pub use humid_air::ha_props_si;
 pub use humid_air::{ha_names, ha_output_at, ha_props_si_in, ha_props_si_vec_in, ha_state_in, humid_air_in};
+pub use refusal::{Detail, detail, nearest};
 
 pub use keys::{
     OUTPUT_COUNT, Output, output_names, pair_name, parse_derivative, parse_input, parse_output, parse_pair_name,
@@ -323,10 +325,23 @@ pub fn batch_si_with(
     fluid: &Fluid,
     exec: ExecPolicy,
     outputs: &[&str],
-    (name1, values1): (&str, &[f64]),
-    (name2, values2): (&str, &[f64]),
+    input1: (&str, &[f64]),
+    input2: (&str, &[f64]),
     out: &mut [f64],
     status: &mut [Status],
+) -> Result<BatchSummary, CompatError> {
+    batch_si_detailed(fluid, exec, outputs, [input1, input2], (out, status), &mut [])
+}
+
+/// [`batch_si_with`], keeping each point's error in `errors`, one slot a point ([`batch::evaluate_detailed`]; PLAN.md
+/// M29.6), or none where `errors` is empty; a facade copies each out as a [`Detail`].
+pub fn batch_si_detailed(
+    fluid: &Fluid,
+    exec: ExecPolicy,
+    outputs: &[&str],
+    [(name1, values1), (name2, values2)]: [(&str, &[f64]); 2],
+    (out, status): (&mut [f64], &mut [Status]),
+    errors: &mut [Option<Error>],
 ) -> Result<BatchSummary, CompatError> {
     let property = |key: &&str| match parse_output(key) {
         Some(Output::Prop(prop)) => Ok(prop),
@@ -337,7 +352,10 @@ pub fn batch_si_with(
     let Keys { pair, swapped, basis, quality_basis } = pair_of(name1, name2)?;
     let (x, y) = if swapped { (values2, values1) } else { (values1, values2) };
     let request = BatchRequest::new(pair, basis, x, y, &props).with_exec(exec).with_quality_basis(quality_basis);
-    Ok(batch::evaluate(fluid, &request, out, status)?)
+    if errors.is_empty() {
+        return Ok(batch::evaluate(fluid, &request, out, status)?);
+    }
+    Ok(batch::evaluate_detailed(fluid, &request, out, status, errors)?)
 }
 
 /// Point `i` of a vector operand, a length-1 one at every point.

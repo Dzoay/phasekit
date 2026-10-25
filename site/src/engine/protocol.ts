@@ -15,6 +15,10 @@ export interface Explained {
 export interface Refusal {
   message: string;
   explained: Partial<Record<System, Explained>>;
+  /** What the viewer can do, the package's remedy codes (PLAN.md M29.7), most direct first. */
+  remedies?: readonly string[];
+  /** For a fluid name the registry does not hold, the names nearest it. */
+  nearest?: readonly string[];
 }
 
 export interface Info {

@@ -40,6 +40,21 @@ export function explained(registry, call, style) {
 export function inSI(registry, call, units) {
     return thrown(() => CALLS[call](registry)).refusal.explain(units, "short");
 }
+export function remedied(registry, call) {
+    const e = thrown(() => CALLS[call](registry));
+    return [Array.from(e.remedies).join(","), e.limit, Array.from(e.refusal.remedies).join(",")].join("|");
+}
+export function ofFluid(registry, call) {
+    return thrown(() => CALLS[call](registry)).refusal.explain(ENGINEERING, "long", "Water");
+}
+export function nearest(registry, name) {
+    return registry.nearest(name, 2).join(",");
+}
+export function detailed(registry) {
+    const batch = registry.fluid("Water").evaluateDetailed(["Hmass"], "T", [300, -1, 700], "P", [1e5, 1e5, 2e9]);
+    const numbers = Array.from(batch.numbers).map((v) => (Number.isNaN(v) ? "" : String(v))).join(",");
+    return [batch.codes.join(","), batch.rules.join(","), Array.from(batch.limits).join(","), numbers].join("|");
+}
 export function noUnits() {
     return {};
 }
@@ -56,6 +71,11 @@ extern "C" {
     fn explained(registry: &JsValue, call: &str, style: &str) -> String;
     #[wasm_bindgen(js_name = inSI)]
     fn in_si(registry: &JsValue, call: &str, units: JsValue) -> String;
+    fn remedied(registry: &JsValue, call: &str) -> String;
+    #[wasm_bindgen(js_name = ofFluid)]
+    fn of_fluid(registry: &JsValue, call: &str) -> String;
+    fn nearest(registry: &JsValue, name: &str) -> String;
+    fn detailed(registry: &JsValue) -> String;
     #[wasm_bindgen(js_name = noUnits)]
     fn no_units() -> JsValue;
     #[wasm_bindgen(js_name = halfUnits)]
@@ -112,4 +132,34 @@ fn explain_refuses_what_it_cannot_read() {
     assert_eq!(style, "`tiny` is not a style: \"long\" or \"short\"");
     let unit = refused_explain(&r, half_units(), "long");
     assert_eq!(unit, "units.temperature is not {label, scale, offset} with a finite, non-zero scale");
+}
+
+/// PLAN.md M29.6 (user decisions EM15, EM16): a refusal's remedies on the thrown `Error` and its `refusal`, and the end
+/// of the range a domain limit is; compat's for an unknown key.
+#[wasm_bindgen_test]
+fn a_refusal_carries_its_remedies() {
+    let r = registry();
+    assert_eq!(remedied(&r, "aboveTmax"), "extrapolate|max|extrapolate");
+    assert_eq!(remedied(&r, "unknownOutput"), "nearest_name||nearest_name");
+    assert_eq!(remedied(&r, "zeroKelvin"), "||");
+}
+
+/// PLAN.md M29.5: `explain` writes a domain limit as the subject's the page names.
+#[wasm_bindgen_test]
+fn explain_names_whose_limit() {
+    let r = registry();
+    assert_eq!(of_fluid(&r, "aboveTmax"), "temperature 426.85 °C is above Water's maximum, 373.946 °C");
+}
+
+/// The registry's names nearest a typo.
+#[wasm_bindgen_test]
+fn the_names_nearest_a_typo() {
+    assert_eq!(nearest(&registry(), "Watr"), "Water");
+}
+
+/// User decision EM17: `evaluateDetailed`'s refusals, a point each: its code, rule, limit and four numbers.
+#[wasm_bindgen_test]
+fn a_detailed_batch_keeps_each_refusal() {
+    let want = ",invalid_input,above_max_pressure|,not_above_absolute_zero,|0,0,1|,,,,-1,,,,2000000000,1000000000,,";
+    assert_eq!(detailed(&registry()), want);
 }

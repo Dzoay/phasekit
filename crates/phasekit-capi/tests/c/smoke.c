@@ -57,6 +57,23 @@ int main(void) {
         CHECK(pk_batch(water, keys, lens, 2, "T", 1, ts, "P", 1, ps, 2, out, cells, 3) == PK_BAD_LENGTH);
     }
     {
+        /* Remedies and refusals as data (PLAN.md M29.6): the last error's remedies, the names nearest a typo, and a
+         * detailed batch's record of each point's refusal. */
+        const char *keys[1] = {"Hmass"};
+        size_t lens[1] = {5};
+        double ts[2] = {300.0, 1e4}, ps[2] = {101325.0, 101325.0}, out[2];
+        int32_t cells[2];
+        pk_refusal refusals[2];
+        CHECK(props(registry, "D", "T", 1e4, "P", 1e5, "Water", &t) == PK_DOMAIN);
+        CHECK(pk_last_error_remedies(message, sizeof message) > 1 && strcmp(message, "extrapolate") == 0);
+        CHECK(pk_registry_nearest(registry, "Watr", 4, 2, message, sizeof message, &needed) == PK_OK);
+        CHECK(strcmp(message, "Water") == 0);
+        CHECK(pk_batch_detailed(water, keys, lens, 1, "T", 1, ts, "P", 1, ps, 2, out, cells, 2, refusals, 2) == PK_OK);
+        CHECK(refusals[0].code[0] == '\0' && cells[0] == PK_OK);
+        CHECK(strcmp(refusals[1].code, "above_max_temperature") == 0 && refusals[1].limit == PK_LIMIT_MAX);
+        CHECK(refusals[1].values[0] == 1e4 && refusals[1].values[1] == 2000.0 && isnan(refusals[1].values[2]));
+    }
+    {
         /* Mixture strings (PLAN.md M13.14): v8.0.0's density of R410A at 300 K and 1 bar by name and by composition
          * (fixtures/coolprop-8.0.0/facts/mixtures.csv); the registry's R410A.mix is its Corrected mole fractions, within
          * 1e-12 of v8.0.0's. A handle on one, and its name. */
