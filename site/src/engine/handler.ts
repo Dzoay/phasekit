@@ -356,7 +356,8 @@ export function createHandler(pk: Pk, build: Build): (request: Request) => Respo
           return { id, ok: true, op: "bench", value: bench(request) };
       }
     } catch (e) {
-      const subject = "fluid" in request && typeof request.fluid === "string" ? request.fluid : undefined;
+      // Every request that names a fluid names it as a string (protocol.ts); one that names none has no subject.
+      const subject = (request as { fluid?: string }).fluid;
       const refusal = refusalOf(e, subject);
       if (subject !== undefined && refusal.remedies?.includes("nearest_name"))
         refusal.nearest = reg().nearest(subject, 3);

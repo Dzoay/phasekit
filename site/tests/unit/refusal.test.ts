@@ -71,6 +71,7 @@ describe("refusals", () => {
     }
     expect(remedyText("other_pair")).toBe(remedyText("declared_pair"));
     expect(remedyText("saturated_phases")).toContain("quality to 0 or 1");
+    expect(remedyText("extrapolate")).toContain("does not extrapolate");
     for (const code of ["choose_root", "warm_start", "nearest_name", "nonsense"]) expect(remedyText(code)).toBeNull();
   });
 
