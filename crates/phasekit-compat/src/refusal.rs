@@ -83,10 +83,14 @@ fn domain_numbers(error: &DomainError) -> (Option<Limit>, Vec<f64>) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "embedded")]
+    use phasekit_core::DataSet;
+    #[cfg(feature = "embedded")]
     use phasekit_core::batch::{ExecPolicy, Status};
-    use phasekit_core::{DataSet, Quantity, Roots, Strategy};
+    use phasekit_core::{Quantity, Roots, Strategy};
 
     use super::*;
+    #[cfg(feature = "embedded")]
     use crate::{batch_si_detailed, fluid_in};
 
     /// PLAN.md M29.6 (user decision EM15): a refusal's remedies, core's for a kernel error and compat's own for a key.
@@ -109,6 +113,7 @@ mod tests {
     /// The names nearest an unknown fluid (the registry's) and an unknown output key (compat's); none for any other
     /// refusal.
     #[test]
+    #[cfg(feature = "embedded")]
     fn nearest_fluids_and_outputs() {
         let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
         let unknown = fluid_in(&registry, "Watr").unwrap_err();
@@ -150,6 +155,7 @@ mod tests {
 
     /// `batch_si_detailed` keeps each point's error as core's detailed batch does; without slots it is `batch_si_with`.
     #[test]
+    #[cfg(feature = "embedded")]
     fn a_detailed_batch_keeps_each_error() {
         let registry = Registry::from_embedded(DataSet::Corrected).unwrap();
         let water = fluid_in(&registry, "Water").unwrap();
