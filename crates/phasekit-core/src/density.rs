@@ -136,7 +136,7 @@ impl Last {
     fn failed(&self, iterations: u16) -> Error {
         match self.at {
             Some((rho, pressure)) => {
-                Error::stalled(Strategy::DensityNewton, iterations, (self.t, rho), (pressure - self.p) / self.p)
+                Error::stalled(Strategy::DensityNewton, iterations, (self.t, rho), relative_residual(pressure, self.p))
             }
             None => failed(iterations),
         }
@@ -206,8 +206,14 @@ impl LnBracket {
 /// A density solve whose root at (T, ρ), with total bundle `b`, does not reproduce `p`: stalled there, with p's relative
 /// residual.
 pub(crate) fn unreproduced(r: f64, (t, rho): (f64, f64), p: f64, b: &Bundle, iterations: u16) -> Error {
-    let residual = (crate::relations::pressure(r, t, rho, b) - p) / p;
+    let residual = relative_residual(crate::relations::pressure(r, t, rho, b), p);
     Error::stalled(Strategy::DensityNewton, iterations, (t, rho), residual)
+}
+
+/// The residual of `got` against the input `p`, relative to `p` and signed: what a stalled p solve reports (user
+/// decision EM18).
+pub(crate) fn relative_residual(got: f64, p: f64) -> f64 {
+    (got - p) / p
 }
 
 /// A density solve's `NoConvergence` after `iterations`.
@@ -484,6 +490,13 @@ mod tests {
         assert!(quadratically_done(1e-9, 1e-4));
         assert!(!quadratically_done(1e-6, 1e-3) && !quadratically_done(1e-9, f64::INFINITY));
         assert!(!quadratically_done(2e-6, 1.0) && !quadratically_done(1e-15, 2e-15));
+    }
+
+    /// User decision EM18: a stalled p solve's residual is signed and relative to the input, exactly: (1.5 − 2) / 2.
+    #[test]
+    fn a_relative_residual_is_signed_and_scaled_by_the_input() {
+        assert_eq!(relative_residual(1.5, 2.0), -0.25);
+        assert_eq!(relative_residual(3e6, 2e6), 0.5);
     }
 
     /// The residual's scale, exactly: |3 − 1| / (2·5·(1 + |−0.5|)) = 2/15.

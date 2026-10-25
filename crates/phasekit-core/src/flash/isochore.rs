@@ -51,7 +51,12 @@ pub(super) fn dp(fluid: &PureFluid, rho: f64, p: f64, opts: &FlashOptions) -> Re
         root_in_t(fluid, t_search(fluid), ((None, None), AT_LOWEST_T * p), Strategy::Isochore, residual)?;
     let state = dt(fluid, t, rho, opts)?;
     if !reproduces_p(p, state.p()) {
-        return Err(Error::stalled(Strategy::Isochore, iterations, (t, rho), (state.p() - p) / p));
+        return Err(Error::stalled(
+            Strategy::Isochore,
+            iterations,
+            (t, rho),
+            crate::density::relative_residual(state.p(), p),
+        ));
     }
     Ok(state.with_path(SolvePath { strategy: Strategy::Isochore, iterations }))
 }

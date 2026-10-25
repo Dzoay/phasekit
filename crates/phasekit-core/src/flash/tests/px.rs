@@ -6,6 +6,22 @@ use crate::flash::cubic::Cubic;
 #[cfg(feature = "fluids-all")]
 use crate::flash::isobar::{Span, cubic_seed, pt_state};
 
+/// User decision EM18: a stalled X solve reports x's residual signed and relative to its scale, exactly: |x| where it
+/// passes RT for h and R for s, else RT or R.
+#[test]
+fn a_stalled_x_solve_reports_its_residual_over_the_scale() {
+    let at = (300.0, 5e4);
+    let stalled = |var, (x, got)| unreproduced_x((Strategy::Isobar, 4), var, 8.0, at, (x, got));
+    let residual = |var, x_got| match stalled(var, x_got) {
+        Error::NoConvergence { last: Some(last), .. } => last.residual,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(residual(Caloric::H, (1e6, 1.5e6)), 0.5);
+    assert_eq!(residual(Caloric::H, (1.0, -1199.0)), -0.5);
+    assert_eq!(residual(Caloric::S, (2.0, 6.0)), 0.5);
+    assert_eq!(stalled(Caloric::U, (1e6, 1e6)), Error::stalled(Strategy::Isobar, 4, at, 0.0));
+}
+
 /// The P+X inputs of `state`, molar: (p, h), (p, s) and (p, u).
 #[cfg(feature = "fluids-all")]
 fn p_x(state: &State) -> [Input; 3] {
