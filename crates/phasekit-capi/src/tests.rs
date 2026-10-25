@@ -688,8 +688,6 @@ fn a_batch_keeps_each_refusal() {
     assert!(refusals[0].values.iter().all(|v| v.is_nan()));
     assert_eq!(cells[0], PK_OK);
     assert_eq!(run(&mut refusals[..2], &mut out, &mut cells), PK_BAD_LENGTH);
-    for handle in [water] {
-        assert_eq!(pk_fluid_free(handle), PK_OK);
-    }
+    assert_eq!(pk_fluid_free(water), PK_OK);
     assert_eq!(pk_registry_free(registry), PK_OK);
 }
