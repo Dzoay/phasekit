@@ -388,7 +388,7 @@ fn segment_root(
     };
     let root = toms748(|t| p_of(t) - raw, lo, hi, Tol::Absolute(0.0), 100);
     if root.stop != Stop::Converged {
-        return Err(Error::NoConvergence { strategy: Strategy::Superancillary, iterations: root.iterations });
+        return Err(Error::no_convergence(Strategy::Superancillary, root.iterations));
     }
     Ok(Some(root.x))
 }

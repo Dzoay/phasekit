@@ -53,7 +53,7 @@ fn system(eos: &dyn HelmholtzModel, t: f64, rho: f64) -> Option<([f64; 2], [[f64
 
 /// The critical point (T, ρ, p) of `eos` from the guess (T₀, ρ₀), else `NoConvergence { Vle }`.
 pub(crate) fn numerical(eos: &dyn HelmholtzModel, t0: f64, rho0: f64) -> Result<(f64, f64, f64), Error> {
-    let failed = |iterations| Error::NoConvergence { strategy: Strategy::Vle, iterations };
+    let failed = |iterations| Error::no_convergence(Strategy::Vle, iterations);
     let (mut t, mut rho, mut previous) = (t0, rho0, f64::INFINITY);
     for iteration in 1..=MAX_ITER {
         let (k, jacobian) = system(eos, t, rho).ok_or(failed(iteration))?;

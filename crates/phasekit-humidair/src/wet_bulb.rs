@@ -123,7 +123,7 @@ pub(crate) fn top(air: &HumidAir, state: &MoistAir, stream: (f64, f64, f64)) -> 
             return Ok(twb);
         }
     }
-    Err(Error::NoConvergence { strategy: phasekit_core::Strategy::External, iterations: TOP_STEPS })
+    Err(Error::no_convergence(phasekit_core::Strategy::External, TOP_STEPS))
 }
 
 /// The wet-bulb temperature of `state` (see the module's notes).

@@ -10,6 +10,7 @@ use super::phase::{Region, region};
 use super::search::root_in_t;
 use super::{
     AT_LOWEST_T, Caloric, DomainPolicy, FlashOptions, check_p, dt, reproduces_p, reproduces_x, t_search, total,
+    unreproduced_x,
 };
 
 /// D+X: DH, DS and DU (PLAN.md M7.4; map 03 §3.1, §9 `flash::dx`). Along the isochore x(T) is DT's ([`isochore_x`]): a
@@ -29,7 +30,7 @@ pub(super) fn dx(fluid: &PureFluid, rho: f64, x: f64, var: Caloric, opts: &Flash
     let state = dt(fluid, t, rho, opts)?;
     let r = fluid.eos().gas_constant();
     if !reproduces_x(var, r, t, x, var.of(&state)) {
-        return Err(Error::NoConvergence { strategy: Strategy::Isochore, iterations });
+        return Err(unreproduced_x((Strategy::Isochore, iterations), var, r, (t, rho), (x, var.of(&state))));
     }
     Ok(state.with_path(SolvePath { strategy: Strategy::Isochore, iterations }))
 }
@@ -50,7 +51,12 @@ pub(super) fn dp(fluid: &PureFluid, rho: f64, p: f64, opts: &FlashOptions) -> Re
         root_in_t(fluid, t_search(fluid), ((None, None), AT_LOWEST_T * p), Strategy::Isochore, residual)?;
     let state = dt(fluid, t, rho, opts)?;
     if !reproduces_p(p, state.p()) {
-        return Err(Error::NoConvergence { strategy: Strategy::Isochore, iterations });
+        return Err(Error::stalled(
+            Strategy::Isochore,
+            iterations,
+            (t, rho),
+            crate::density::relative_residual(state.p(), p),
+        ));
     }
     Ok(state.with_path(SolvePath { strategy: Strategy::Isochore, iterations }))
 }

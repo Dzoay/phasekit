@@ -311,7 +311,10 @@ fn pt(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<State, E
     }
     let eos = fluid.eos();
     let (r, m, key) = (eos.gas_constant(), fluid.info().molar_mass(), fluid.info().key());
-    let solve = |branch: &Branch| solve_branch(fluid, p, t, branch, opts.guess().map_or(branch.seed, |(_, rho)| rho));
+    let solve = |branch: &Branch| {
+        let seed = opts.guess().map_or(branch.seed, |(_, rho)| rho);
+        solve_branch(fluid, p, t, branch, seed).map_err(|e| guessed(branch, e))
+    };
     // At psat `Nearest` picks the root nearer its density; `Strict` and `Stable` (neither is more stable) return both.
     let (branch, (rho, path)) = match pt_branch(fluid, p, t, opts)? {
         Where::One(branch) => {
@@ -329,7 +332,7 @@ fn pt(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<State, E
     let b = total(fluid, t, rho)?;
     if branch.phase != Phase::CriticalPoint {
         if !crate::density::reproduces(r, t, rho, p, &b) {
-            return Err(Error::NoConvergence { strategy: Strategy::DensityNewton, iterations: path.iterations });
+            return Err(guessed(&branch, crate::density::unreproduced(r, (t, rho), p, &b, path.iterations)));
         }
         if opts.phase_hint().is_none() {
             accept(r, t, &b)?;
@@ -337,6 +340,12 @@ fn pt(fluid: &PureFluid, p: f64, t: f64, opts: &FlashOptions) -> Result<State, E
     }
     let state = State::single(key, t, rho, r, m, branch.phase, &b, path)?;
     Ok(if check.is_ok() { state } else { state.mark_extrapolated() })
+}
+
+/// A PT solve's failure on `branch`: a bracketed branch's Newton starts from the guess, so its `NoConvergence` is one a
+/// retry from its last iterate reaches (user decision EM19); a branch without a bracket starts from its own seed.
+fn guessed(branch: &Branch, e: Error) -> Error {
+    if branch.bracket.is_some() { e.taking_guess() } else { e }
 }
 
 /// The density on `branch` at (T, p) and the path of its solve: a bracketed branch from `seed` (outside the bracket,
@@ -418,6 +427,18 @@ impl Caloric {
     fn scale(self, r: f64, t: f64, x: f64) -> f64 {
         x.abs().max(if self == Caloric::S { r } else { r * t })
     }
+}
+
+/// `strategy`'s `NoConvergence` after `iterations` at a state at (T, ρ) whose x of `var` is `got` against the input `x`:
+/// stalled there, with x's residual relative to its scale (user decision EM18).
+fn unreproduced_x(
+    (strategy, iterations): (Strategy, u16),
+    var: Caloric,
+    r: f64,
+    (t, rho): (f64, f64),
+    (x, got): (f64, f64),
+) -> Error {
+    Error::stalled(strategy, iterations, (t, rho), (got - x) / var.scale(r, t, x))
 }
 
 /// The relative tolerance on T of a P+X or D+X solve: a hundredth of class `Flash`'s 1e-9 even where

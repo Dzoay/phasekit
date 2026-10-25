@@ -299,7 +299,7 @@ impl<'a> Tracer<'a> {
     /// `t_min`, run up in ln T, into the range (#256); the first of them at or above `t_min` that converges as the
     /// trace's own point, specified in ln p.
     fn start(mixture: &'a Mixture, p_start: f64, t_min: f64) -> Result<(Tracer<'a>, Point, usize), Error> {
-        let mut last = Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 };
+        let mut last = Error::no_convergence(Strategy::Vle, 0);
         let n = mixture.composition().len();
         let (ln_t, ln_p) = (n, n.saturating_add(1));
         let at_p = [(Side::Bubble, Given::P(p_start), ln_p), (Side::Dew, Given::P(p_start), ln_p)];
@@ -395,8 +395,7 @@ impl<'a> Tracer<'a> {
     /// trivial solution refused.
     fn correct(&mut self, mut v: Vec<f64>, (spec, target): (usize, f64)) -> Result<Point, Error> {
         let n = self.z.len();
-        let failed =
-            |iterations: usize| Error::NoConvergence { strategy: Strategy::Vle, iterations: iterations as u16 };
+        let failed = |iterations: usize| Error::no_convergence(Strategy::Vle, iterations as u16);
         set(&mut v, spec, target);
         for iterations in 0..CORRECTOR_STEPS {
             let (f, at) = self.equations(&v)?;
@@ -460,7 +459,7 @@ impl<'a> Tracer<'a> {
                     let step = adapted(h, next.iterations);
                     return Ok((next, step));
                 }
-                Ok(next) => Error::NoConvergence { strategy: Strategy::Vle, iterations: next.iterations as u16 },
+                Ok(next) => Error::no_convergence(Strategy::Vle, next.iterations as u16),
                 Err(e) => e,
             };
             (self.seeds, self.x_denser) = (seeds, denser);
@@ -550,8 +549,7 @@ impl<'a> Tracer<'a> {
     fn trace(mut self, (first, up): (Point, usize), limits: &Limits, (p_max, points): (f64, usize)) -> Envelope {
         let n = self.z.len();
         let mut env = Envelope::empty(n);
-        let failed =
-            |iterations: usize| Error::NoConvergence { strategy: Strategy::Vle, iterations: iterations as u16 };
+        let failed = |iterations: usize| Error::no_convergence(Strategy::Vle, iterations as u16);
         let ln_start = ln_tp(&first.v, n).1;
         let mut highest = ln_start;
         self.record(&mut env, &first);
@@ -701,7 +699,7 @@ mod tests {
         let (mut tracer, _) = ok(Tracer::from_point(&m, Side::Bubble, &s));
         let (ln_t, ln_p) = (math::ln(400.0), math::ln(1e6));
         let refused = tracer.correct(vec![0.0, 0.0, ln_t, ln_p], (3, ln_p));
-        assert_eq!(refused.err(), Some(Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 }));
+        assert_eq!(refused.err(), Some(Error::no_convergence(Strategy::Vle, 0)));
         assert_eq!(ln_k(&[0.1, -0.2, ln_t, ln_p], 2), [0.1, -0.2]);
         assert!(ln_k(&[0.1], 2).is_empty());
     }
@@ -801,7 +799,7 @@ mod tests {
             matches!(bounded.end, EnvelopeEnd::Bound(DomainError::AboveMaxPressure { p_max, .. }) if p_max == 3e6);
         assert!(at_bound && bounded.p.iter().all(|p| *p <= 3e6) && bounded.critical.is_none(), "{:?}", bounded.end);
         let short = ok(m.envelope(&EnvelopeOptions::new().with_max_points(5)));
-        let stopped = Error::NoConvergence { strategy: Strategy::Vle, iterations: 5 };
+        let stopped = Error::no_convergence(Strategy::Vle, 5);
         assert!(
             short.len() == 5 && short.end == EnvelopeEnd::NoConvergence(stopped),
             "{} {:?}",

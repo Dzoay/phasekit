@@ -37,7 +37,7 @@ impl fmt::Display for Message<'_> {
                 format_args!("{pair:?}: unsupported"),
             ),
             Error::Domain(e) => out.domain(e),
-            Error::NoConvergence { strategy, iterations } => out.either(
+            Error::NoConvergence { strategy, iterations, .. } => out.either(
                 format_args!(
                     "the {} ({strategy:?}) did not converge in {iterations} iterations",
                     words::strategy(*strategy)

@@ -48,7 +48,7 @@ pub(crate) fn bracketed(
         let c = bracket.trial();
         bracket.update(c, f(c)?);
     }
-    Err(Error::NoConvergence { strategy: Strategy::External, iterations: ITERATIONS })
+    Err(Error::no_convergence(Strategy::External, ITERATIONS))
 }
 
 /// [`bracketed`]'s state: the ends with their values, and which end moved last (−1 b, 1 a, 0 neither).

@@ -393,7 +393,7 @@ impl Mixture {
                 return self.branch_root_in_t(p, Branch::Vapour, (dew.t, hi), (var, x));
             }
             let split = saturation::in_beta(self, given, (bubble, dew), &at)?;
-            return split.map(Found::Two).ok_or(Error::NoConvergence { strategy: Strategy::Isobar, iterations: 0 });
+            return split.map(Found::Two).ok_or(Error::no_convergence(Strategy::Isobar, 0));
         }
         if hint != Some(Phase::TwoPhase) {
             // The feed on its stable root at each T, or on the hinted phase's branch.
@@ -409,7 +409,7 @@ impl Mixture {
             }
         }
         let split = self.dome_root(given, (var, x))?;
-        split.map(Found::Two).ok_or(Error::NoConvergence { strategy: Strategy::Isobar, iterations: 0 })
+        split.map(Found::Two).ok_or(Error::no_convergence(Strategy::Isobar, 0))
     }
 
     /// The root in T between `lo` and `hi` of x of `var` at p on `branch`, each density seeded by the last: a liquid's
@@ -463,7 +463,7 @@ impl Mixture {
         if reproduces(var, self.fluid.gas_constant(), x, &state) {
             Ok(state)
         } else {
-            Err(Error::NoConvergence { strategy: path, iterations: 0 })
+            Err(Error::no_convergence(path, 0))
         }
     }
 
@@ -535,7 +535,7 @@ impl Mixture {
         specs: [(Var, f64); 2],
         path: Strategy,
     ) -> Result<Coexisting, Error> {
-        let failed = |iterations| Error::NoConvergence { strategy: path, iterations };
+        let failed = |iterations| Error::no_convergence(path, iterations);
         let mut last = End::new(t0, at(t0)?);
         let factor = toward_root(last.value);
         let mut bracketed = None;
@@ -657,7 +657,7 @@ impl Mixture {
     /// that would leave β outside (0, 1) halved.
     fn dome_newton(&self, by_t: bool, specs: [(Var, f64); 2], seed: Coexisting) -> Result<Coexisting, Error> {
         let r = self.fluid.gas_constant();
-        let failed = |iterations| Error::NoConvergence { strategy: Strategy::Vle, iterations };
+        let failed = |iterations| Error::no_convergence(Strategy::Vle, iterations);
         let at = |u: f64, beta: f64, from: &Coexisting| -> Result<Coexisting, Error> {
             let v = math::exp(u);
             let (given, seed) =
@@ -866,7 +866,7 @@ mod tests {
     #[test]
     fn descents_by_decades_bracket_the_input() {
         let (top, ln10) = (10.0, core::f64::consts::LN_10);
-        let failed = || Error::NoConvergence { strategy: Strategy::Isentrope, iterations: 0 };
+        let failed = || Error::no_convergence(Strategy::Isentrope, 0);
         let xs = |bracket: Bracket<()>| (bracket.0.map(|e| e.x), bracket.1.map(|e| e.x));
         let decade = |k: f64| top - k * ln10;
         let root = decade(2.5);
@@ -965,7 +965,7 @@ mod tests {
             // A search that never ends fails here instead of filling memory (a mutant of the descent's step once
             // grew this vector by gigabytes in the 300 s before cargo-mutants' timeout).
             if visited.len() > 4 * STEPS {
-                return Err(Error::NoConvergence { strategy: Strategy::Vle, iterations: STEPS as u16 });
+                return Err(Error::no_convergence(Strategy::Vle, STEPS as u16));
             }
             Ok((t - 0.3 * hi, ()))
         }));
@@ -1140,11 +1140,7 @@ mod tests {
         // Each point after the first is seeded by the last one, below it.
         let seeded = |t: f64, near: Option<&Coexisting>| t == lo || near.is_some_and(|c| c.t < t);
         let below = |t: f64, near: Option<&Coexisting>| {
-            if t < 260.0 && seeded(t, near) {
-                Ok(node(t))
-            } else {
-                Err(Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 })
-            }
+            if t < 260.0 && seeded(t, near) { Ok(node(t)) } else { Err(Error::no_convergence(Strategy::Vle, 0)) }
         };
         let nodes = ok(m.line_nodes(&below));
         let step = (top - lo) / LINE_CELLS as f64;
@@ -1152,17 +1148,12 @@ mod tests {
         assert!(nodes[0].t == lo && nodes.windows(2).all(|w| w[0].t < w[1].t) && last < 260.0, "{nodes:?}");
         assert!(260.0 - last <= step / math::powi(2.0, LINE_HALVINGS as i32), "{last}");
         let everywhere = |t: f64, near: Option<&Coexisting>| {
-            if seeded(t, near) {
-                Ok(node(t))
-            } else {
-                Err(Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 })
-            }
+            if seeded(t, near) { Ok(node(t)) } else { Err(Error::no_convergence(Strategy::Vle, 0)) }
         };
         let nodes = ok(m.line_nodes(&everywhere));
         assert!(nodes.len() == LINE_CELLS + 1 && nodes.last().map(|c| c.t) == Some(top));
         assert_eq!(nodes[1].t, lo + step);
-        let nowhere =
-            |_: f64, _: Option<&Coexisting>| Err(Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 });
+        let nowhere = |_: f64, _: Option<&Coexisting>| Err(Error::no_convergence(Strategy::Vle, 0));
         assert!(m.line_nodes(&nowhere).is_err());
     }
 
@@ -1277,7 +1268,7 @@ mod tests {
             ok(m.isotherm(200.0, Var::H, split.h(Basis::Molar), &FlashOptions::new().with_phase(Phase::TwoPhase)));
         assert!(by_t.quality().is_some_and(|q| (q - 0.4).abs() <= 1e-8), "{by_t:?}");
         let wrong = m.answer(Found::Single(200.0, rho), (Var::H, h + 1.0), &FlashOptions::new(), Strategy::Isobar);
-        assert_eq!(wrong.err(), Some(Error::NoConvergence { strategy: Strategy::Isobar, iterations: 0 }));
+        assert_eq!(wrong.err(), Some(Error::no_convergence(Strategy::Isobar, 0)));
     }
 
     /// A quality outside [0, 1] is refused before any solve.

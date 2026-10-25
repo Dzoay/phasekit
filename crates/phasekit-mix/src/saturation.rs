@@ -377,7 +377,7 @@ fn marched(mixture: &Mixture, side: Side, given: Given) -> Result<Coexisting, Er
 /// doubled `MARCH_OUT` times; the last error where none is.
 fn below(mixture: &Mixture, side: Side, given: Given) -> Result<Coexisting, Error> {
     let (z, u) = (mixture.composition().to_vec(), ln_given(given));
-    let mut last = Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 };
+    let mut last = Error::no_convergence(Strategy::Vle, 0);
     let mut h = MARCH_FIRST;
     for _ in 0..MARCH_OUT {
         let at = given_at(given, u - h);
@@ -397,7 +397,7 @@ fn below(mixture: &Mixture, side: Side, given: Given) -> Result<Coexisting, Erro
 fn up_to(mixture: &Mixture, side: Side, given: Given, mut c: Coexisting) -> Result<Coexisting, Error> {
     let target = ln_given(given);
     let mut h = f64::INFINITY;
-    let mut last = Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 };
+    let mut last = Error::no_convergence(Strategy::Vle, 0);
     let mut prev: Option<Coexisting> = None;
     for _ in 0..MARCH_SOLVES {
         let left = target - ln_of(&c, given);
@@ -418,11 +418,7 @@ fn up_to(mixture: &Mixture, side: Side, given: Given, mut c: Coexisting) -> Resu
 fn liquid_denser(c: Coexisting) -> Result<Coexisting, Error> {
     // Equivalent (#257): `>=` differs only at equal densities, the trivial solution, which Newton refuses first.
     // equivalent mutant: replace > with >=
-    if c.rho_liquid > c.rho_vapour {
-        Ok(c)
-    } else {
-        Err(Error::NoConvergence { strategy: Strategy::Vle, iterations: 0 })
-    }
+    if c.rho_liquid > c.rho_vapour { Ok(c) } else { Err(Error::no_convergence(Strategy::Vle, 0)) }
 }
 
 /// The two phases of `mixture` at vapour fraction `beta` in [0, 1] and `given` T or p: from Wilson's seed at β; else,
@@ -708,7 +704,7 @@ impl<'a> Solver<'a> {
     /// Newton's method on the N + 1 equations in (ln K, ln X) from `seed` (T, p, ln K), each step cut to 0.5 in ln K and
     /// 0.1 in ln X, to the residual gate; or, stalled at the rounding floor, the best of its iterates there ([`Floor`]).
     fn newton(&mut self, given: Given, (mut t, mut p, mut ln_k): (f64, f64, Vec<f64>)) -> Result<Coexisting, Error> {
-        let failed = |iterations| Error::NoConvergence { strategy: Strategy::Vle, iterations };
+        let failed = |iterations| Error::no_convergence(Strategy::Vle, iterations);
         let n = self.z.len();
         let mut floor = Floor::default();
         for iteration in 0..NEWTON_STEPS {

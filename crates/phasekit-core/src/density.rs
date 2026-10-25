@@ -61,21 +61,34 @@ pub(crate) fn bracketed(
     eos: &dyn HelmholtzModel,
     t: f64,
     p: f64,
-    (lo, hi): (f64, f64),
+    bracket: (f64, f64),
     seed: f64,
 ) -> Result<(f64, u16), Error> {
+    bracketed_within(eos, (t, p), bracket, seed, MAX_BRACKETED)
+}
+
+/// [`bracketed`] within `cap` iterations; a failure names the last iterate it evaluated (user decision EM18).
+fn bracketed_within(
+    eos: &dyn HelmholtzModel,
+    (t, p): (f64, f64),
+    (lo, hi): (f64, f64),
+    seed: f64,
+    cap: u16,
+) -> Result<(f64, u16), Error> {
     let rt = eos.gas_constant() * t;
+    let mut last = Last::new(t, p);
     let mut bracket = LnBracket { below: math::ln(lo), above: math::ln(hi), confirmed: [false; 2] };
     let start = math::ln(seed);
     let mut u = if bracket.holds(start) { start } else { bracket.middle() };
     let mut previous = f64::INFINITY;
-    for iteration in 1..=MAX_BRACKETED {
+    for iteration in 1..=cap {
         let rho = math::exp(u);
-        let b = (eos.residual(t, rho, Order::Two) + Derivs::IDEAL_DELTA).bundle().ok_or(failed(iteration))?;
+        let b = (eos.residual(t, rho, Order::Two) + Derivs::IDEAL_DELTA).bundle().ok_or(last.failed(iteration))?;
         let (pressure, slope) = (rho * rt * b.a01, rho * rt * (2.0 * b.a01 + b.a02));
         if !pressure.is_finite() {
-            return Err(failed(iteration));
+            return Err(last.failed(iteration));
         }
+        last.at(rho, pressure);
         if pressure == p {
             return Ok((rho, iteration));
         }
@@ -83,7 +96,7 @@ pub(crate) fn bracketed(
         // equivalent mutant: replace < with <=
         bracket.take(u, pressure < p);
         if let Some(closed) = bracket.closed(iteration) {
-            return closed;
+            return closed.map_err(|_| last.failed(iteration));
         }
         let next = u + (p - pressure) / slope;
         // Equivalent (M7.1): a zero slope gives a step of ±∞ or NaN, which the bracket refuses, so the solve bisects
@@ -99,7 +112,35 @@ pub(crate) fn bracketed(
         }
         (u, previous) = (next, step);
     }
-    Err(failed(MAX_BRACKETED))
+    Err(last.failed(cap))
+}
+
+/// A density solve's last evaluated iterate, at (T, p): its ρ and its p(T, ρ), once it has one.
+struct Last {
+    t: f64,
+    p: f64,
+    at: Option<(f64, f64)>,
+}
+
+impl Last {
+    fn new(t: f64, p: f64) -> Self {
+        Self { t, p, at: None }
+    }
+
+    /// Notes the iterate ρ, whose p(T, ρ) is `pressure`.
+    fn at(&mut self, rho: f64, pressure: f64) {
+        self.at = Some((rho, pressure));
+    }
+
+    /// The solve's `NoConvergence` after `iterations`, stopped at the last iterate with p's relative residual there.
+    fn failed(&self, iterations: u16) -> Error {
+        match self.at {
+            Some((rho, pressure)) => {
+                Error::stalled(Strategy::DensityNewton, iterations, (self.t, rho), relative_residual(pressure, self.p))
+            }
+            None => failed(iterations),
+        }
+    }
 }
 
 /// Whether [`bracketed`]'s Newton stops after a step of `length` with the residual's scaled `size` and the last step
@@ -162,9 +203,22 @@ impl LnBracket {
     }
 }
 
+/// A density solve whose root at (T, ρ), with total bundle `b`, does not reproduce `p`: stalled there, with p's relative
+/// residual.
+pub(crate) fn unreproduced(r: f64, (t, rho): (f64, f64), p: f64, b: &Bundle, iterations: u16) -> Error {
+    let residual = relative_residual(crate::relations::pressure(r, t, rho, b), p);
+    Error::stalled(Strategy::DensityNewton, iterations, (t, rho), residual)
+}
+
+/// The residual of `got` against the input `p`, relative to `p` and signed: what a stalled p solve reports (user
+/// decision EM18).
+pub(crate) fn relative_residual(got: f64, p: f64) -> f64 {
+    (got - p) / p
+}
+
 /// A density solve's `NoConvergence` after `iterations`.
 fn failed(iterations: u16) -> Error {
-    Error::NoConvergence { strategy: Strategy::DensityNewton, iterations }
+    Error::no_convergence(Strategy::DensityNewton, iterations)
 }
 
 /// The acceptance gate's "inputs reproduced" (D6) for a density solve: |p(T, ρ) − p| at most this much of the larger of
@@ -199,7 +253,7 @@ pub(crate) fn liquid_above(eos: &dyn HelmholtzModel, t: f64, p: f64, lo: f64) ->
             return bracketed(eos, t, p, (lo, hi), lo);
         }
     }
-    Err(Error::NoConvergence { strategy: Strategy::DensityNewton, iterations: 0 })
+    Err(Error::no_convergence(Strategy::DensityNewton, 0))
 }
 
 /// The branch of an isotherm a density solve follows.
@@ -222,7 +276,8 @@ pub fn solve(eos: &dyn HelmholtzModel, t: f64, p: f64, branch: Branch, seed: Opt
         None => newton(eos, t, p, far_end(eos, t, p, liquid))?,
     };
     let b = (eos.residual(t, rho, Order::Two) + Derivs::IDEAL_DELTA).bundle().ok_or(failed(iterations))?;
-    if reproduces(eos.gas_constant(), t, rho, p, &b) { Ok(rho) } else { Err(failed(iterations)) }
+    let r = eos.gas_constant();
+    if reproduces(r, t, rho, p, &b) { Ok(rho) } else { Err(unreproduced(r, (t, rho), p, &b, iterations)) }
 }
 
 /// Two roots closer than this in ln ρ are one, reached from both ends (above the critical temperature, or off the
@@ -294,19 +349,26 @@ fn scaled_residual(pressure: f64, p: f64, rho: f64, rt: f64, a01: f64) -> f64 {
 
 /// Newton from `seed`, refused at the first unstable or non-finite iterate; with its iterations.
 fn newton(eos: &dyn HelmholtzModel, t: f64, p: f64, seed: f64) -> Result<(f64, u16), Error> {
+    newton_within(eos, (t, p), seed, MAX_ITER)
+}
+
+/// [`newton`] within `cap` iterations; a failure names the last iterate it evaluated (user decision EM18).
+fn newton_within(eos: &dyn HelmholtzModel, (t, p): (f64, f64), seed: f64, cap: u16) -> Result<(f64, u16), Error> {
     let rt = eos.gas_constant() * t;
     let (mut u, mut previous) = (math::ln(seed), f64::INFINITY);
-    for iteration in 1..=MAX_ITER {
+    let mut last = Last::new(t, p);
+    for iteration in 1..=cap {
         let rho = math::exp(u);
         let d = eos.ideal(t, rho, Order::Two) + eos.residual(t, rho, Order::Two);
-        let b = d.bundle().ok_or(failed(iteration))?;
+        let b = d.bundle().ok_or(last.failed(iteration))?;
         let (pressure, slope) = (rho * rt * b.a01, rho * rt * (2.0 * b.a01 + b.a02));
         // Equivalent in practice: a slope (∂p/∂ln ρ)_T exactly 0 from double arithmetic at an iterate never occurs, so
         // `>` and `>=` agree; slopes of either sign are tested.
         // equivalent mutant: replace > with >=
         if !(pressure.is_finite() && slope > 0.0) {
-            return Err(failed(iteration));
+            return Err(last.failed(iteration));
         }
+        last.at(rho, pressure);
         let step = (p - pressure) / slope;
         let size = scaled_residual(pressure, p, rho, rt, b.a01);
         u += step.clamp(-MAX_STEP, MAX_STEP);
@@ -315,12 +377,72 @@ fn newton(eos: &dyn HelmholtzModel, t: f64, p: f64, seed: f64) -> Result<(f64, u
         }
         previous = step.abs();
     }
-    Err(failed(MAX_ITER))
+    Err(last.failed(cap))
 }
 
 #[cfg(all(test, feature = "fluids-all"))]
 mod tests {
     use super::*;
+
+    /// Water's compiled equation of state (`Parity`).
+    fn water() -> Result<crate::fluid::PureFluid, Error> {
+        let registry = crate::Registry::from_embedded(crate::DataSet::Parity)?;
+        crate::internal::record(&registry, "Water")?.compile()
+    }
+
+    /// p(T, ρ) of `eos`.
+    fn p_at(eos: &dyn HelmholtzModel, t: f64, rho: f64) -> f64 {
+        let d = eos.ideal(t, rho, Order::One) + eos.residual(t, rho, Order::One);
+        d.get(0, 1).map_or(f64::NAN, |a01| rho * eos.gas_constant() * t * a01)
+    }
+
+    /// User decision EM18: a density solve capped below its need names its last iterate, (T, ρ), and p's relative
+    /// residual there, which is the library's own p at that iterate: Newton from the liquid's far end at 400 K and
+    /// 1 MPa, and the bracketed Newton for the vapour at 300 K and 1 kPa, each stopped after one iteration.
+    #[test]
+    fn a_stalled_solve_says_where_it_stopped() {
+        let fluid = water().unwrap();
+        let eos = fluid.eos();
+        let ideal = 1e3 / (eos.gas_constant() * 300.0);
+        let stalled = [
+            ((400.0, 1e6), newton_within(eos, (400.0, 1e6), eos.rho_max(400.0), 1)),
+            ((300.0, 1e3), bracketed_within(eos, (300.0, 1e3), (1e-3 * ideal, 10.0 * ideal), 3.0 * ideal, 1)),
+        ];
+        for ((t, p), solved) in stalled {
+            let Err(Error::NoConvergence { strategy, iterations: 1, last: Some(last), .. }) = solved else {
+                panic!("{t} K: {solved:?}")
+            };
+            assert_eq!((strategy, last.t), (Strategy::DensityNewton, t), "{t} K");
+            let residual = p_at(eos, t, last.rho) / p - 1.0;
+            assert!(residual != 0.0 && (residual / last.residual - 1.0).abs() <= 1e-12, "{t} K: {last:?}, {residual}");
+        }
+    }
+
+    /// A solve that never evaluates an iterate has none to name: the liquid's bracket grown 100 times past Water's
+    /// largest density at 300 K without reaching 1e30 Pa.
+    #[test]
+    fn a_lost_bracket_has_no_last() {
+        let fluid = water().unwrap();
+        let eos = fluid.eos();
+        let lost = liquid_above(eos, 300.0, 1e30, eos.rho_max(300.0));
+        assert_eq!(lost, Err(Error::no_convergence(Strategy::DensityNewton, 0)));
+        assert!(matches!(lost, Err(Error::NoConvergence { last: None, .. })));
+    }
+
+    /// User decision EM19: a solve stalled after two iterations converges when restarted from its last iterate, to the
+    /// density the uncapped solve finds (Water's liquid at 400 K and 1 MPa).
+    #[test]
+    fn a_stalled_solve_converges_from_its_last() {
+        let fluid = water().unwrap();
+        let eos = fluid.eos();
+        let far = eos.rho_max(400.0);
+        let Err(Error::NoConvergence { last: Some(last), .. }) = newton_within(eos, (400.0, 1e6), far, 2) else {
+            panic!("converged in two iterations")
+        };
+        let (from_last, _) = newton(eos, 400.0, 1e6, last.rho).unwrap();
+        let (from_far, _) = newton(eos, 400.0, 1e6, far).unwrap();
+        assert!((from_last / from_far - 1.0).abs() < 1e-14, "{from_last} against {from_far}");
+    }
 
     /// Water at 400 K (saturation 245.77 kPa): from a seed inside the spinodal region (10 000 mol/m³, where
     /// (∂p/∂ρ)_T < 0) the solve restarts from the branch's far end, the model's largest density for the compressed
@@ -368,6 +490,13 @@ mod tests {
         assert!(quadratically_done(1e-9, 1e-4));
         assert!(!quadratically_done(1e-6, 1e-3) && !quadratically_done(1e-9, f64::INFINITY));
         assert!(!quadratically_done(2e-6, 1.0) && !quadratically_done(1e-15, 2e-15));
+    }
+
+    /// User decision EM18: a stalled p solve's residual is signed and relative to the input, exactly: (1.5 − 2) / 2.
+    #[test]
+    fn a_relative_residual_is_signed_and_scaled_by_the_input() {
+        assert_eq!(relative_residual(1.5, 2.0), -0.25);
+        assert_eq!(relative_residual(3e6, 2e6), 0.5);
     }
 
     /// The residual's scale, exactly: |3 − 1| / (2·5·(1 + |−0.5|)) = 2/15.

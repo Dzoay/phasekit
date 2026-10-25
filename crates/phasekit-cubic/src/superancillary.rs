@@ -150,7 +150,7 @@ fn bracketed_root(mut f: impl FnMut(f64) -> Result<f64, Error>, (lo, hi): (f64, 
         let c = bracket.trial();
         bracket.update(c, f(c)?);
     }
-    Err(Error::NoConvergence { strategy: Strategy::Superancillary, iterations: 200 })
+    Err(Error::no_convergence(Strategy::Superancillary, 200))
 }
 
 /// [`bracketed_root`]'s state: the ends with their values, and which end moved last (−1 b, 1 a, 0 neither).
