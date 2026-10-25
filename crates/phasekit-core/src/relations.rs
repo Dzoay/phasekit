@@ -446,4 +446,23 @@ mod tests {
             }
         }
     }
+
+    /// PLAN.md M29.5: the Gibbs seam refuses g_p ≤ 0 as `GibbsVolume` and, with g_p > 0, g_pp ≥ 0 as
+    /// `GibbsCompressibility`, each at its bound; g_p > 0 with g_pp < 0 is a state.
+    #[test]
+    fn the_gibbs_seam_names_the_instability() {
+        let at = |g_p, g_pp| {
+            let g = GibbsDerivs { g: -1e3, g_t: -10.0, g_p, g_tt: -0.1, g_tp: 1e-8, g_pp };
+            match bundle_from_gibbs(8.314462618, 300.0, 1e5, &g) {
+                Ok(_) => None,
+                Err(Error::Domain(DomainError::MechanicallyUnstable { condition })) => Some(condition),
+                Err(other) => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(at(1.8e-5, -1e-14), None);
+        for g_pp in [-1e-14, 0.0, 1e-14] {
+            assert_eq!([at(0.0, g_pp), at(-1.8e-5, g_pp)], [Some(Instability::GibbsVolume); 2], "{g_pp}");
+        }
+        assert_eq!([at(1.8e-5, 0.0), at(1.8e-5, 1e-14)], [Some(Instability::GibbsCompressibility); 2]);
+    }
 }
