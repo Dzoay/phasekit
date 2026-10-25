@@ -657,6 +657,18 @@ fn the_names_nearest_a_typo() {
     assert_eq!(pk_registry_free(registry), PK_OK);
 }
 
+/// A refusal's record names the end its value lies beyond by the values the header gives: `PK_LIMIT_MIN` −1,
+/// `PK_LIMIT_MAX` 1, `PK_LIMIT_NONE` 0 for a refusal beyond no end and for a clean point.
+#[test]
+fn a_refusal_record_names_its_end() {
+    use phasekit_core::{DomainError, Strategy};
+    let limit = |error: Error| pk_refusal::of(Some(&error)).limit;
+    assert_eq!(limit(DomainError::BelowMinTemperature { t: 200.0, t_min: 273.16 }.into()), -1);
+    assert_eq!(limit(DomainError::AboveMaxTemperature { t: 3000.0, t_max: 2000.0 }.into()), 1);
+    assert_eq!(limit(Error::no_convergence(Strategy::Vle, 3)), 0);
+    assert_eq!(pk_refusal::of(None).limit, 0);
+}
+
 /// User decision EM17: `pk_batch_detailed` writes `pk_batch`'s cells and statuses and each point's refusal as a record
 /// (a clean point's code empty); refusals of another length than the points refuse the call.
 #[test]

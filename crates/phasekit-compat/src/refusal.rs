@@ -132,6 +132,15 @@ mod tests {
             (Error::InvalidInput { quantity: Quantity::PRESSURE, value: -1.0 }, "not_positive", None, vec![-1.0]),
             (unreachable, "", Some(Limit::Max), vec![1e7, 2e6, 300.0]),
             (
+                DomainError::BelowMinTemperature { t: 200.0, t_min: 273.0 }.into(),
+                "",
+                Some(Limit::Min),
+                vec![200.0, 273.0],
+            ),
+            (DomainError::AboveMaxTemperature { t: 3e3, t_max: 2e3 }.into(), "", Some(Limit::Max), vec![3e3, 2e3]),
+            (DomainError::BelowMinPressure { p: 1.0, p_min: 6e2 }.into(), "", Some(Limit::Min), vec![1.0, 6e2]),
+            (DomainError::AboveMaxPressure { p: 2e9, p_max: 1e9 }.into(), "", Some(Limit::Max), vec![2e9, 1e9]),
+            (
                 DomainError::BelowMeltingLine { t: 250.0, t_melt: 251.0, p: 2e8 }.into(),
                 "",
                 Some(Limit::Min),
