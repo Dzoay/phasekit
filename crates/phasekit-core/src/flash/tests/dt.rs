@@ -309,7 +309,10 @@ fn acceptance_gate_skips_only_the_critical_point() {
     let top = Top { t: 600.0, p: imposed(rho_600, 600.0).p(), rho: rho_600, rho_l: 40_000.0, rho_v: 1_000.0 };
     let fluid = water_under(top);
     assert_eq!(fluid.state(dt(rho_600, 600.0)).map(|s| s.phase()), Ok(Phase::CriticalPoint));
-    assert_eq!(fluid.state(dt(rho_610, 610.0)), Err(DomainError::MechanicallyUnstable.into()));
+    assert_eq!(
+        fluid.state(dt(rho_610, 610.0)),
+        Err(DomainError::MechanicallyUnstable { condition: Instability::DpDrhoAtT }.into())
+    );
 }
 
 /// The pressure that splits supercritical from supercritical gas, and liquid from supercritical liquid, is the
@@ -329,16 +332,19 @@ fn a_state_at_the_critical_pressure_is_not_above_it() {
     assert_eq!(fluid.state(dt(1.001 * rho, t)).map(|s| s.phase()), Ok(Phase::SupercriticalLiquid));
 }
 
-/// The acceptance gate (D6): a single-phase state needs (∂p/∂ρ)_T > 0 and cv > 0; an infinite cv passes.
+/// The acceptance gate (D6): a single-phase state needs (∂p/∂ρ)_T > 0 and cv > 0, and its refusal names the one that
+/// fails (PLAN.md M29.5); an infinite cv passes.
 #[test]
 fn acceptance_gate_needs_mechanical_stability() {
     let stable = Bundle { a00: 0.0, a10: 1.5, a01: 1.0, a20: -1.5, a11: 0.0, a02: -1.0 };
     let r = 8.314_462_618;
     assert_eq!(accept(r, 300.0, &stable), Ok(()));
     assert_eq!(accept(r, 300.0, &Bundle { a20: f64::NEG_INFINITY, ..stable }), Ok(()));
-    let unstable = Err(DomainError::MechanicallyUnstable.into());
-    assert_eq!(accept(r, 300.0, &Bundle { a02: -2.0, ..stable }), unstable); // (∂p/∂ρ)_T = 0
-    assert_eq!(accept(r, 300.0, &Bundle { a20: 0.0, ..stable }), unstable); // cv = 0
+    let unstable = |condition| Err(DomainError::MechanicallyUnstable { condition }.into());
+    let (dp_drho, cv) = (unstable(Instability::DpDrhoAtT), unstable(Instability::Cv));
+    assert_eq!(accept(r, 300.0, &Bundle { a02: -2.0, ..stable }), dp_drho); // (∂p/∂ρ)_T = 0
+    assert_eq!(accept(r, 300.0, &Bundle { a20: 0.0, ..stable }), cv);
+    assert_eq!(accept(r, 300.0, &Bundle { a20: 0.0, a02: -2.0, ..stable }), dp_drho); // both: the first named
 }
 
 /// The density bands (user decision PP3; `HelmholtzEOSMixtureBackend.cpp:2340-2380`) on a synthetic pair, ρ′ 1000

@@ -329,7 +329,7 @@ fn check(fluid: &Fluid, case: &Case) -> Option<String> {
         }),
         (Err(Error::Ambiguous { .. }), _) => false,
         (Err(_), Want::Refused) => true,
-        (Err(Error::Domain(DomainError::BelowMeltingLine { t, t_melt })), Want::Solid) => t < t_melt,
+        (Err(Error::Domain(DomainError::BelowMeltingLine { t, t_melt, .. })), Want::Solid) => t < t_melt,
         _ => false,
     };
     if holds { None } else { Some(format!("{result:?}")) }

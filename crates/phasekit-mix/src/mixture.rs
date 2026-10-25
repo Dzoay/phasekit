@@ -30,7 +30,7 @@ use crate::critical::{CriticalState, Criticality, critical_points};
 use crate::equilibrium::{self, Stability};
 use crate::illinois::{End, illinois};
 use crate::multifluid::not_a_number;
-use crate::quantities::{MOLE_FRACTION_SUM, VAPOUR_FRACTION};
+use crate::quantities::{MOLE_FRACTION_SUM, NON_ZERO_FRACTIONS, VAPOUR_FRACTION};
 use crate::saturation::{self, Coexisting, Given, Saturation, Side};
 use crate::{Composition, MixtureModel, MultiFluid, Var, gerg};
 
@@ -89,7 +89,7 @@ impl Mixture {
     pub fn new(fluid: MultiFluid, z: &[f64]) -> Result<Mixture, Error> {
         validated(z)?;
         if z.len() != fluid.len() || z.contains(&0.0) {
-            return Err(Error::InvalidArgument { argument: "number of non-zero mole fractions", value: Some(z.len()) });
+            return Err(Error::InvalidArgument { argument: NON_ZERO_FRACTIONS, value: Some(z.len()) });
         }
         let fluids: Vec<&Fluid> = fluid.fluids().collect();
         let model = |f: &Fluid| f.model().helmholtz().map(|m| m.gas_constant()).unwrap_or(f64::NAN);

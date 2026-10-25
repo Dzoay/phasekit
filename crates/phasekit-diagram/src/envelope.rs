@@ -3,7 +3,10 @@
 //! the model puts it (`Fluid::constant`, which `Props1SI` reads). The trace reaches the crate as data, so that it
 //! depends on core alone (user decision DG3). It adds no numerics: every vertex is the trace's.
 
-use phasekit_core::{Constant, Error, Fluid, Pair};
+use phasekit_core::{Argument, Constant, Error, Fluid, Pair};
+
+/// The points a phase envelope is drawn from.
+const ENVELOPE_POINTS: &Argument = &Argument::new("number of envelope points", "at least one");
 
 use crate::batch::{Inputs, Vertex};
 use crate::diagram::{Diagram, Dome};
@@ -53,13 +56,10 @@ fn drawn(trace: &Trace, plane: Plane, critical: Option<[f64; 3]>) -> Result<Diag
     }
     let n = trace.t.len();
     if let Some(found) = [trace.p.len(), trace.rho.len(), trace.q.len()].into_iter().find(|&len| len != n) {
-        return Err(Error::Shape { expected: n, found });
+        return Err(Error::Shape { buffer: "trace", expected: n, found });
     }
     if n == 0 {
-        return Err(trace
-            .end
-            .clone()
-            .unwrap_or(Error::InvalidArgument { argument: "envelope points", value: Some(0) }));
+        return Err(trace.end.clone().unwrap_or(Error::InvalidArgument { argument: ENVELOPE_POINTS, value: Some(0) }));
     }
     let at = |[t, p, rho]: [f64; 3]| if plane == Plane::Pt { (t, p) } else { (rho, t) };
     let points = trace.t.iter().zip(&trace.p).zip(&trace.rho).zip(&trace.q);
@@ -181,7 +181,7 @@ mod tests {
         assert_eq!(drawn(&empty, Plane::Pt, Some(CRITICAL)), Err(failed));
         assert!(matches!(drawn(&Trace::default(), Plane::Pt, None), Err(Error::InvalidArgument { .. })));
         let short = Trace { rho: Vec::new(), ..traced(&[[0.0, 216.0, 7e6, 1100.0]], None) };
-        assert_eq!(drawn(&short, Plane::TRho, None), Err(Error::Shape { expected: 1, found: 0 }));
+        assert_eq!(drawn(&short, Plane::TRho, None), Err(Error::Shape { buffer: "trace", expected: 1, found: 0 }));
         let one = traced(&[[0.0, 216.0, 7e6, 1100.0]], None);
         let pairs = [(Plane::Ph, Pair::HP), (Plane::Ts, Pair::ST), (Plane::Hs, Pair::HS)];
         for (plane, pair) in pairs {

@@ -104,7 +104,7 @@ fn column_length(inputs: &[&[f64]], outputs: &[&mut [f64]]) -> Result<usize, Err
     let mut lengths = inputs.iter().map(|c| c.len()).chain(outputs.iter().map(|c| c.len()));
     let expected = lengths.next().unwrap_or(0);
     match lengths.find(|found| *found != expected) {
-        Some(found) => Err(Error::Shape { expected, found }),
+        Some(found) => Err(Error::Shape { buffer: "column", expected, found }),
         None => Ok(expected),
     }
 }
@@ -305,9 +305,9 @@ pub(crate) fn points<O: Send>(
 /// Whether a batch of `x`, `y` and `out` (its length) has points to run: `Ok(false)` when it is empty (E12: no
 /// zero-sized chunks), [`Error::Shape`] when the lengths differ.
 fn shape(x: &[f64], y: &[f64], out: usize) -> Result<bool, Error> {
-    for (expected, found) in [(x.len(), y.len()), (x.len(), out)] {
+    for (buffer, expected, found) in [("second input", x.len(), y.len()), ("output", x.len(), out)] {
         if found != expected {
-            return Err(Error::Shape { expected, found });
+            return Err(Error::Shape { buffer, expected, found });
         }
     }
     Ok(!x.is_empty())

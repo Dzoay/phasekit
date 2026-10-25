@@ -92,7 +92,7 @@ impl DomainError {
             DomainError::BelowMinPressure { .. } => "below_min_pressure",
             DomainError::AboveMaxPressure { .. } => "above_max_pressure",
             DomainError::BelowMeltingLine { .. } => "below_melting_line",
-            DomainError::MechanicallyUnstable => "mechanically_unstable",
+            DomainError::MechanicallyUnstable { .. } => "mechanically_unstable",
         }
     }
 }

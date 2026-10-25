@@ -22,6 +22,7 @@ pub(crate) use pure::Pure;
 pub(crate) use tables::{BINARIES, COMPONENTS, DEPARTURES};
 
 use crate::data::{DepartureData, Term};
+use crate::quantities::GERG_COMPONENT;
 
 /// GERG-2008's molar gas constant, J/(mol·K) (Kunz and Wagner 2012; user decision MX3).
 pub const R_GERG: f64 = 8.314_472;
@@ -96,7 +97,7 @@ pub(crate) fn component(registry: &Registry, name: &str) -> Result<(usize, Fluid
 /// GERG component `i`'s pure fluid, named after `fluid`, the registry's of the same substance, which also gives its
 /// aliases, triple point and density bound.
 pub(crate) fn pure_fluid(i: usize, fluid: &Fluid) -> Result<PureFluid, Error> {
-    let c = COMPONENTS.get(i).ok_or(Error::InvalidArgument { argument: "GERG-2008 component", value: Some(i) })?;
+    let c = COMPONENTS.get(i).ok_or(Error::InvalidArgument { argument: GERG_COMPONENT, value: Some(i) })?;
     let eos = Pure::new(c, fluid.clone());
     let source = fluid.info();
     let name = format!("{PREFIX}{}", source.name());

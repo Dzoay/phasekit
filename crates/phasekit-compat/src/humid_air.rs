@@ -259,7 +259,7 @@ pub fn ha_props_si_vec_in(
     let lengths = [values1.len(), values2.len(), values3.len()];
     let n = lengths.into_iter().max().unwrap_or(0);
     if let Some(&found) = lengths.iter().find(|&&len| len != 1 && len != n) {
-        return Err(Error::Shape { expected: n, found }.into());
+        return Err(Error::Shape { buffer: "values", expected: n, found }.into());
     }
     let (mut out, mut first) = (Vec::with_capacity(n), None);
     for i in 0..n {

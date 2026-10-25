@@ -92,7 +92,7 @@ impl AtTp {
         let rt = mixture.model().gas_constant() * t;
         let mut c = mixture.compositions(t, &phases, order)?.into_iter();
         let [liquid, vapour] = phases.map(|(rho, _)| c.next().map(|c| AtTp { rho, c, p, rt }));
-        let missing = || Error::Shape { expected: 2, found: 0 };
+        let missing = || Error::Shape { buffer: "phases", expected: 2, found: 0 };
         Ok((liquid.ok_or_else(missing)?, vapour.ok_or_else(missing)?))
     }
 

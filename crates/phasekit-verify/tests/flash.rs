@@ -100,7 +100,7 @@ fn pt_round_trips_on_a_40x40_log_p_t_grid() {
     }
     assert_eq!(check.report(20), None);
     let two_phase = Error::Undefined { prop: Prop::Q, phase: Phase::TwoPhase };
-    let unstable = Error::Domain(DomainError::MechanicallyUnstable);
+    let unstable = Error::Domain(DomainError::MechanicallyUnstable { condition: phasekit_core::Instability::Cv });
     let melting = |e: &Error| matches!(e, Error::Domain(DomainError::BelowMeltingLine { .. }));
     let (solid, other): (Vec<_>, Vec<_>) = refused.into_iter().partition(|(_, _, e)| melting(e));
     assert_eq!(other, [("Air", (170_541.0, 84.003), two_phase), ("Methanol", (619_157_820.0, 181.165), unstable)]);
@@ -108,7 +108,7 @@ fn pt_round_trips_on_a_40x40_log_p_t_grid() {
         let t_melt = registry.get(name).unwrap().model().melting_temperature(*p).unwrap();
         let at = |x: f64, y: f64| (x - y).abs() < 1e-3;
         assert!(
-            matches!(e, Error::Domain(DomainError::BelowMeltingLine { t: tt, t_melt: tm }) if at(*tt, *t) && at(*tm, t_melt))
+            matches!(e, Error::Domain(DomainError::BelowMeltingLine { t: tt, t_melt: tm, .. }) if at(*tt, *t) && at(*tm, t_melt))
         );
     }
     let per_fluid = solid.iter().fold(BTreeMap::new(), |mut n, (name, ..)| {

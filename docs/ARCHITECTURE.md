@@ -488,7 +488,9 @@ the text (EM11); `Error::remedies()` names what the caller can do as stable `Rem
 its own API's terms, and `Registry::nearest` the names nearest an unknown one (EM15). A value no state reaches is
 `Error::Unreachable`, with the extreme of it the solver reached, the side and the pair's other input, in the caller's
 basis and gauge (EM16); a `NoConvergence` names where its solver stopped (`Iterate`), and `batch::evaluate_detailed`
-keeps each refused point's `Error` (EM17-EM19). No panics on input, enforced by lints (`todo`, `unimplemented`, `panic`,
+keeps each refused point's `Error` (EM17-EM19); an `InvalidArgument` names what is expected (`Argument`), a `Shape` its
+buffer, a `MechanicallyUnstable` the condition that failed (`Instability`), and `Message::of` whose limit a domain error
+is (PLAN.md M29.5). No panics on input, enforced by lints (`todo`, `unimplemented`, `panic`,
 `unwrap_used`, `expect_used` denied; `indexing_slicing` denied in `batch` and `flash`) and by property tests (E12,
 S-06). NaN is never a typed result. One `math` choke point for every `f64` transcendental, an own `powi` chain, no FMA
 but under the `fast` feature (§9). `libm` stays an opt-in feature: M9.5 applied user decision 12's rule, which makes it the default only if its

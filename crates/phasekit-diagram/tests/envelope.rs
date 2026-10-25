@@ -7,7 +7,7 @@
 use std::any::Any;
 use std::sync::LazyLock;
 
-use phasekit_core::{Basis, Constant, DataSet, Error, Fluid, Input, Pair, Prop, Registry};
+use phasekit_core::{Argument, Basis, Constant, DataSet, Error, Fluid, Input, Pair, Prop, Registry};
 use phasekit_diagram::{Inputs, Plane, Trace, Vertex, envelope};
 use phasekit_mix::{EnvelopeEnd, EnvelopeOptions, Mixture, Side, with_mixtures};
 use phasekit_verify::tolerance::{ToleranceClass, Window};
@@ -19,7 +19,8 @@ static MIXTURES: LazyLock<Result<Registry, Error>> =
 /// The mixture's trace from its bubble point at 1 bar, as the crate takes it: the feed's molar density times its molar
 /// mass, Q 0 at a bubble point and 1 at a dew point, and the error that ended it where it did not close.
 fn trace(fluid: &Fluid) -> Result<Trace, Error> {
-    let not_a_mixture = Error::InvalidArgument { argument: "mixture", value: None };
+    const MIXTURE: &Argument = &Argument::new("fluid", "a mixture");
+    let not_a_mixture = Error::InvalidArgument { argument: MIXTURE, value: None };
     let mixture: &Mixture = (fluid.model() as &dyn Any).downcast_ref().ok_or(not_a_mixture)?;
     let e = mixture.envelope(&EnvelopeOptions::new())?;
     let end = match e.end {

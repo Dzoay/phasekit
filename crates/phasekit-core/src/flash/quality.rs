@@ -397,7 +397,7 @@ fn sat_points(
     (x, y): (&[f64], &[f64]),
     opts: &FlashOptions,
 ) -> [Result<(SatPair, Quality), Error>; GROUP] {
-    let unset = || Err(Error::Shape { expected: GROUP, found: x.len() });
+    let unset = || Err(Error::Shape { buffer: "lane", expected: GROUP, found: x.len() });
     let mut sats: [Result<SatPair, Error>; GROUP] = core::array::from_fn(|_| unset());
     let (q, at) = if by == SatBy::T { (x, y) } else { (y, x) };
     let called = match sats.get_mut(..at.len()) {
@@ -408,7 +408,7 @@ fn sat_points(
     let mut sats = sats.into_iter().zip(at);
     core::array::from_fn(|k| {
         let quality = Quality::new(q.get(k).copied().unwrap_or(f64::NAN))?;
-        let (sat, at) = sats.next().ok_or(Error::Shape { expected: GROUP, found: k })?;
+        let (sat, at) = sats.next().ok_or(Error::Shape { buffer: "lane", expected: GROUP, found: k })?;
         called.clone()?;
         let sat = if by == SatBy::T { sat } else { nearest_at_p(curve, *at, sat, opts) };
         Ok((sat?, quality))
@@ -421,7 +421,7 @@ fn phase_bundles(
     fluid: &PureFluid,
     points: &[Result<(SatPair, Quality), Error>; GROUP],
 ) -> [[Result<Bundle, Error>; 2]; GROUP] {
-    let unset = || Err(Error::Shape { expected: GROUP, found: 0 });
+    let unset = || Err(Error::Shape { buffer: "lane", expected: GROUP, found: 0 });
     let mut bundles = core::array::from_fn(|_| [unset(), unset()]);
     let mut parts = ([Derivs::zero(Order::Two); GROUP], [Derivs::zero(Order::Two); GROUP]);
     for order in [Order::One, Order::Two] {

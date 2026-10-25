@@ -27,7 +27,7 @@ use quality::{QVar, SatBy, pq, qt, qx, sat_lanes};
 use search::choose;
 
 use crate::derivs::{Bundle, Derivs, Order};
-use crate::error::{DomainError, Error};
+use crate::error::{DomainError, Error, Instability};
 use crate::exec::ExecPolicy;
 use crate::fluid::PureFluid;
 use crate::input::{NativeInput, Pair, Var};
@@ -178,7 +178,7 @@ fn above_melting_line(fluid: &PureFluid, state: State, opts: &FlashOptions) -> R
     match curve.and_then(|c| c.below(state.t(), state.p())).filter(|t_melt| state.t() < t_melt * (1.0 - AT_BOUND)) {
         None => Ok(state),
         Some(t_melt) if opts.domain() == DomainPolicy::Enforce => {
-            Err(DomainError::BelowMeltingLine { t: state.t(), t_melt }.into())
+            Err(DomainError::BelowMeltingLine { t: state.t(), t_melt, p: state.p() }.into())
         }
         Some(_) => Ok(state.mark_extrapolated()),
     }
@@ -573,8 +573,12 @@ const DIRECT: SolvePath = SolvePath { strategy: Strategy::Direct, iterations: 0 
 /// The acceptance gate for a single-phase state the flash chose: (∂p/∂ρ)_T > 0 and cv > 0 (D6); an infinite cv (a
 /// non-analytic critical point) passes.
 fn accept(r: f64, t: f64, b: &Bundle) -> Result<(), Error> {
-    let stable = relations::dp_drho_t(r, t, b) > 0.0 && relations::cv(r, b) > 0.0;
-    if stable { Ok(()) } else { Err(DomainError::MechanicallyUnstable.into()) }
+    let failed = if relations::dp_drho_t(r, t, b) > 0.0 {
+        (relations::cv(r, b) > 0.0).then_some(()).ok_or(Instability::Cv)
+    } else {
+        Err(Instability::DpDrhoAtT)
+    };
+    failed.map_err(|condition| DomainError::MechanicallyUnstable { condition }.into())
 }
 
 /// The refusal of a quality where there is none to give: (p, T), or an imposed `TwoPhase` where there is no dome (D6).

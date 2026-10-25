@@ -173,7 +173,7 @@ fn domain_values(error: &DomainError) -> Vec<f64> {
         DomainError::AboveMaxTemperature { t, t_max } => vec![t, t_max],
         DomainError::BelowMinPressure { p, p_min } => vec![p, p_min],
         DomainError::AboveMaxPressure { p, p_max } => vec![p, p_max],
-        DomainError::BelowMeltingLine { t, t_melt } => vec![t, t_melt],
+        DomainError::BelowMeltingLine { t, t_melt, .. } => vec![t, t_melt],
         _ => Vec::new(),
     }
 }

@@ -6,10 +6,13 @@
 
 use std::sync::LazyLock;
 
-use phasekit_core::{Basis, DataSet, Error, Input, Pair, Registry};
+use phasekit_core::{Argument, Basis, DataSet, Error, Input, Pair, Registry};
 use phasekit_diagram::{Phases, RESOLUTION, Split, Ternary, TernaryBatch, ternary};
 use phasekit_mix::{Equilibrium, Mixture, MultiFluid};
 use phasekit_verify::tolerance::ToleranceClass;
+
+/// What a test equilibrium that is not one refuses.
+const EQUILIBRIUM: &Argument = &Argument::new("equilibrium", "a phase split");
 
 /// R407C's components, in its order.
 const NAMES: [&str; 3] = ["R32", "R125", "R134a"];
@@ -53,7 +56,7 @@ impl Components {
             Equilibrium::Split { beta, x, y, .. } => {
                 Ok(Phases::Split(Split { beta, liquid: whole(&x), vapour: whole(&y) }))
             }
-            _ => Err(Error::InvalidArgument { argument: "equilibrium", value: None }),
+            _ => Err(Error::InvalidArgument { argument: EQUILIBRIUM, value: None }),
         }
     }
 }

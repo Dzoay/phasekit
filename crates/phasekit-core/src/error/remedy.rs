@@ -46,7 +46,7 @@ impl Error {
         match self {
             Error::Unreachable { .. } => &[Remedy::OtherPair],
             Error::Unsupported { .. } => &[Remedy::DeclaredPair],
-            Error::Domain(DomainError::MechanicallyUnstable) => &[],
+            Error::Domain(DomainError::MechanicallyUnstable { .. }) => &[],
             Error::Domain(_) => &[Remedy::Extrapolate],
             // Only a solve that takes the guess is warm-started by it (user decision EM19).
             Error::NoConvergence { last: Some(_), takes_guess: true, .. } => &[Remedy::WarmStart, Remedy::OtherPair],

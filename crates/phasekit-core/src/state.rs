@@ -3,7 +3,7 @@
 //! family through [`State::from_total`] (one phase) and [`State::from_split`] (two coexisting phases).
 
 use crate::derivs::{Bundle, Derivs};
-use crate::error::{DomainError, Error};
+use crate::error::{DomainError, Error, Instability};
 use crate::fluid::Gauge;
 use crate::math;
 use crate::model::{ModelKey, Reducing};
@@ -337,20 +337,26 @@ impl State {
 
     /// Isochoric heat capacity; a saturated phase's at Q = 0 and 1, undefined strictly inside the dome and where it diverges.
     pub fn cv(&self, basis: Basis) -> Result<f64, Error> {
-        let pt = self.saturated_point(Prop::Cvmolar)?;
-        self.defined(Prop::Cvmolar, relations::cv(self.r, &pt.b) * self.per(basis))
+        let prop = if basis == Basis::Mass { Prop::Cvmass } else { Prop::Cvmolar };
+        let pt = self.saturated_point(prop)?;
+        self.defined(prop, relations::cv(self.r, &pt.b) * self.per(basis))
     }
     /// Isobaric heat capacity; a saturated phase's at Q = 0 and 1, undefined strictly inside the dome and where it diverges.
     pub fn cp(&self, basis: Basis) -> Result<f64, Error> {
-        let pt = self.saturated_point(Prop::Cpmolar)?;
-        self.defined(Prop::Cpmolar, relations::cp(self.r, &pt.b) * self.per(basis))
+        let prop = if basis == Basis::Mass { Prop::Cpmass } else { Prop::Cpmolar };
+        let pt = self.saturated_point(prop)?;
+        self.defined(prop, relations::cp(self.r, &pt.b) * self.per(basis))
     }
     /// Speed of sound, m/s; a saturated phase's at Q = 0 and 1, undefined strictly inside the dome and where it diverges.
     pub fn speed_of_sound(&self) -> Result<f64, Error> {
         let pt = self.saturated_point(Prop::SpeedOfSound)?;
         let w2 =
             self.defined(Prop::SpeedOfSound, relations::speed_of_sound_squared(self.r, pt.t, self.molar_mass, &pt.b))?;
-        if w2 > 0.0 { Ok(math::sqrt(w2)) } else { Err(DomainError::MechanicallyUnstable.into()) }
+        if w2 > 0.0 {
+            Ok(math::sqrt(w2))
+        } else {
+            Err(DomainError::MechanicallyUnstable { condition: Instability::DpDrhoAtS }.into())
+        }
     }
     /// A first partial derivative from the stored order-2 bundle: every family, no model call (E1); a saturated phase's
     /// at Q = 0 and 1, undefined strictly inside the dome. One of c_v, c_p and w needs the model's order-3 bundle, and one
@@ -450,7 +456,7 @@ impl State {
             let curvature = relations::second_partial((p, rho, s), (rho, s), &at, total).ok_or_else(undefined)?;
             Ok(1.0 + pt.rho * curvature / (2.0 * w2))
         } else {
-            Err(DomainError::MechanicallyUnstable.into())
+            Err(DomainError::MechanicallyUnstable { condition: Instability::DpDrhoAtS }.into())
         }
     }
 
@@ -499,8 +505,14 @@ mod tests {
             _ => 0.0,
         });
         let s = State::from_total(KEY, 300.0, 1_000.0, R, 0.018, Phase::Gas, &total.bundle().unwrap()).unwrap();
-        assert_eq!(s.fundamental_derivative(&total), Err(DomainError::MechanicallyUnstable.into()));
-        assert_eq!(s.speed_of_sound(), Err(DomainError::MechanicallyUnstable.into()));
+        assert_eq!(
+            s.fundamental_derivative(&total),
+            Err(DomainError::MechanicallyUnstable { condition: Instability::DpDrhoAtS }.into())
+        );
+        assert_eq!(
+            s.speed_of_sound(),
+            Err(DomainError::MechanicallyUnstable { condition: Instability::DpDrhoAtS }.into())
+        );
     }
 
     /// E17: at a non-analytic critical point A20 (cv) diverges. p, h and s survive; cv, cp and w are
@@ -561,7 +573,9 @@ mod tests {
         let s = State::from_split(liquid, gas, Quality::new(0.5).unwrap(), 300.0, gas.p()).unwrap();
         let undefined = |prop| Err(Error::Undefined { prop, phase: Phase::TwoPhase });
         assert_eq!(s.cv(Basis::Molar), undefined(Prop::Cvmolar));
-        assert_eq!(s.cp(Basis::Mass), undefined(Prop::Cpmolar));
+        assert_eq!(s.cp(Basis::Mass), undefined(Prop::Cpmass));
+        assert_eq!(s.cv(Basis::Mass), undefined(Prop::Cvmass));
+        assert_eq!(s.cp(Basis::Molar), undefined(Prop::Cpmolar));
         assert_eq!(s.speed_of_sound(), undefined(Prop::SpeedOfSound));
         let partial =
             Partial { of: crate::prop::DerivVar::Hmolar, wrt: crate::prop::DerivVar::T, at: crate::prop::DerivVar::P };
@@ -585,7 +599,7 @@ mod tests {
         assert_eq!(caloric(&split(0.0)), caloric(&liquid));
         assert_eq!(caloric(&split(1.0)), caloric(&gas));
         let undefined = |prop| Err(Error::Undefined { prop, phase: Phase::TwoPhase });
-        let refused = (undefined(Prop::Cpmolar), undefined(Prop::Cvmolar), undefined(Prop::SpeedOfSound));
+        let refused = (undefined(Prop::Cpmass), undefined(Prop::Cvmolar), undefined(Prop::SpeedOfSound));
         assert_eq!((caloric(&split(1e-300)), caloric(&split(0.5))), (refused.clone(), refused));
     }
 

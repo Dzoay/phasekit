@@ -167,7 +167,11 @@ fn pt_near_a_double_root_is_finite() {
         }
         match fluid.flash(molar(Pair::PT, c.p, c.t), &FlashOptions::default()) {
             Ok(state) => assert!(state.rho(Basis::Molar).is_finite(), "{name}: {state:?}"),
-            Err(e) => assert_eq!(e, Error::Domain(DomainError::MechanicallyUnstable), "{name} at the critical point"),
+            Err(e) => assert_eq!(
+                e,
+                Error::Domain(DomainError::MechanicallyUnstable { condition: phasekit_core::Instability::DpDrhoAtT }),
+                "{name} at the critical point"
+            ),
         }
     }
 }

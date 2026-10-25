@@ -400,7 +400,7 @@ fn enforce_refuses_below_the_melting_line() {
     // At the state's own p, its EOS's at (T, ρ), 1e-13 K from T_melt(7.38 MPa).
     let below = co2.state(pt(7.38e6, t_melt - 1e-3));
     let refused = |t: f64, at: f64| t == t_melt - 1e-3 && (at - t_melt).abs() < 1e-9;
-    assert!(matches!(below, Err(Error::Domain(DomainError::BelowMeltingLine { t, t_melt: at })) if refused(t, at)));
+    assert!(matches!(below, Err(Error::Domain(DomainError::BelowMeltingLine { t, t_melt: at, .. })) if refused(t, at)));
 }
 
 /// Whether `Enforce` refuses `input`, read off `truth` below the melting line where T_melt is `t_melt`: each of its
@@ -419,7 +419,9 @@ fn below_the_line_refused(fluid: &Fluid, input: Input, (truth, t_melt): (&State,
         result => vec![result],
     };
     let refusal = |r: &Result<State, Error>| match *r {
-        Err(Error::Domain(DomainError::BelowMeltingLine { t, t_melt: at })) => Some((t, at)).filter(|(t, at)| t < at),
+        Err(Error::Domain(DomainError::BelowMeltingLine { t, t_melt: at, .. })) => {
+            Some((t, at)).filter(|(t, at)| t < at)
+        }
         _ => None,
     };
     let above = |r: &Result<State, Error>| r.as_ref().is_ok_and(|s| reproduces(s, input) && !s.is_extrapolated());

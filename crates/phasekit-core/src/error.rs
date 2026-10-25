@@ -45,8 +45,8 @@ pub enum Error {
     },
     /// An argument that is not a physical value was refused: a count, an index, a plane, a mixture (user decision EM3).
     InvalidArgument {
-        /// What was refused, as a sentence names it ("number of mole fractions").
-        argument: &'static str,
+        /// What was refused, and what is expected (PLAN.md M29.5).
+        argument: &'static Argument,
         /// The refused count or index, if it has one.
         value: Option<usize>,
     },
@@ -101,11 +101,39 @@ pub enum Error {
     Load(LoadError),
     /// Batch buffers have inconsistent lengths.
     Shape {
+        /// Which buffer, as a sentence names it ("status").
+        buffer: &'static str,
         /// Required length.
         expected: usize,
         /// Supplied length.
         found: usize,
     },
+}
+
+/// An argument that is not a physical value, as a refusal names it: what it is and what is expected (PLAN.md M29.5).
+/// Held by an error as `&'static Argument`, as a [`Quantity`] is.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Argument {
+    name: &'static str,
+    expected: &'static str,
+}
+
+impl Argument {
+    /// An argument named as a sentence names it ("number of mole fractions"), and what is expected of it ("one for
+    /// each component").
+    pub const fn new(name: &'static str, expected: &'static str) -> Self {
+        Self { name, expected }
+    }
+
+    /// What it is.
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// What is expected of it.
+    pub const fn expected(&self) -> &'static str {
+        self.expected
+    }
 }
 
 /// Where a solver stopped (user decision EM18): its last iterate's (T, ρ_molar), which a retry can pass to
@@ -168,9 +196,30 @@ pub enum DomainError {
         t: f64,
         /// The melting curve's temperature at the state's pressure, K.
         t_melt: f64,
+        /// The state's pressure, Pa.
+        p: f64,
     },
-    /// dp/dρ ≤ 0 or cv ≤ 0 where a stable state was required.
-    MechanicallyUnstable,
+    /// A stability condition failed where a stable state was required: which one (PLAN.md M29.5).
+    MechanicallyUnstable {
+        /// The condition that failed.
+        condition: Instability,
+    },
+}
+
+/// The stability condition a state fails ([`DomainError::MechanicallyUnstable`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Instability {
+    /// (∂p/∂ρ)_T ≤ 0: the flash's acceptance gate.
+    DpDrhoAtT,
+    /// c_v ≤ 0: the flash's acceptance gate.
+    Cv,
+    /// (∂p/∂ρ)_s ≤ 0: no speed of sound, nor fundamental derivative.
+    DpDrhoAtS,
+    /// A Gibbs model's g_p ≤ 0: no positive volume.
+    GibbsVolume,
+    /// A Gibbs model's g_pp ≥ 0: no positive compressibility.
+    GibbsCompressibility,
 }
 
 /// Loading failures. A failed decode is cached by the registry (data are immutable, so no retry storms);

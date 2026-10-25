@@ -22,9 +22,9 @@ const BLOCK: usize = 64;
 /// Whether a batch of `t`, `rho` and `out` (its length) has points to run: `Ok(false)` when it is empty, and
 /// [`Error::Shape`] when the lengths differ, as core's batch hooks report them.
 fn shape(t: &[f64], rho: &[f64], out: usize) -> Result<bool, Error> {
-    for (expected, found) in [(t.len(), rho.len()), (t.len(), out)] {
+    for (buffer, expected, found) in [("second input", t.len(), rho.len()), ("output", t.len(), out)] {
         if found != expected {
-            return Err(Error::Shape { expected, found });
+            return Err(Error::Shape { buffer, expected, found });
         }
     }
     Ok(!t.is_empty())
