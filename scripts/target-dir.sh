@@ -14,7 +14,8 @@
 #
 # It also cleans up, so that no machine needs a timer for it. Once a day it removes every `phasekit-target-*` directory
 # with nothing in it changed for 7 days, and empties the directory it hands out if that has grown past
-# $PHASEKIT_TARGET_MAX_GB (default 20; `du`), as cargo never removes what an old toolchain or dependency built.
+# $PHASEKIT_TARGET_MAX_GB (default 20; `du`) and no command has used it for an hour, as cargo never removes what an old
+# toolchain or dependency built.
 # Linux: flock, GNU find and stat.
 set -euo pipefail
 shopt -s nullglob
@@ -44,7 +45,9 @@ for i in $(seq "${PHASEKIT_TARGET_SLOTS:-3}"); do dirs+=("$cache/phasekit-target
 owner() { cat "$1/.owner" 2>/dev/null || true; }
 
 serve() {
-  if ! recent "$1/.sized"; then
+  # Only a directory no command has used for an hour, which no other command in this checkout can still be building
+  # in; a busy one is checked on a later call.
+  if ! recent "$1/.sized" && [ $(($(date +%s) - $(stat -c %Y "$1/.owner"))) -ge 3600 ]; then
     if [ "$(du -sk "$1" | cut -f1)" -gt $((${PHASEKIT_TARGET_MAX_GB:-20} * 1024 * 1024)) ]; then
       find "$1" -mindepth 1 -maxdepth 1 ! -name .owner -exec rm -rf {} +
       echo "target-dir.sh: emptied $1, past ${PHASEKIT_TARGET_MAX_GB:-20} GB; everything rebuilds" >&2
