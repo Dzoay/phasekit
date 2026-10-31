@@ -3,7 +3,9 @@
 phasekit is a from-scratch, idiomatic Rust successor to CoolProp (thermophysical properties of fluids, later
 materials). It is **not** a binding. Work proceeds test-first, one plan step per pull request.
 
-**Where the work is:** read it from git, never from a doc. `git tag` lists the closed milestones (`m0` …);
+**Where the work is:** read it from git, never from a doc. The work happens on more than one machine (user decision
+MM1), so before starting anything run `git fetch origin --prune`, fast-forward `main` to `origin/main` and branch from
+it; rebase a branch you resume onto it. `git tag` lists the closed milestones (`m0` …);
 `phasekit_verify::MILESTONE` is the first open one; the next step is the first in [docs/PLAN.md](docs/PLAN.md) §3
 with no `Plan-Step:` commit on `main` (`git log --oneline --grep '^Plan-Step:'`).
 
@@ -37,8 +39,10 @@ a way the plan did not foresee, stop and re-plan ([PLAN.md §0.4](docs/PLAN.md#0
 Do not start the next step in the same PR. `scripts/check-toolchain.sh` checks that the tools the gates need are
 installed. After editing `.github/workflows/`, run `actionlint` (no gate does) and fix what it reports.
 
-Gates are defined once in [PLAN.md §2.4](docs/PLAN.md#24-standard-gates) (G1-G9). Agents always set
-`CARGO_TARGET_DIR` to a scratch directory outside the repository.
+Gates are defined once in [PLAN.md §2.4](docs/PLAN.md#24-standard-gates) (G1-G9). Every shell command that runs
+cargo starts with `export CARGO_TARGET_DIR=$(scripts/target-dir.sh)`, which hands out one of a few target directories
+outside the repository that all sessions on the machine share (user decision SP4; the script says why it runs each
+time). Never make a target directory of your own.
 
 ## Git and GitHub
 
@@ -87,6 +91,6 @@ The rules are defined in [CONTRIBUTING.md](CONTRIBUTING.md). The ones agents get
 | Path | What |
 |---|---|
 | `docs/` | brief, decisions, architecture, plan, verification, rot register, dependencies, migration; `coolprop-map/` and `research/` (frozen evidence); `history/` (frozen, with the type sketch) |
-| `scripts/` | `fetch-coolprop.sh`, `fetch-aga8.sh`, `fetch-optimized-routines.sh`, `check-toolchain.sh`, `oracle/gen.py` (the fixture generator), `oracle/teqp.py` (GERG-2008's), `math/reference.py` (the maths reference values), `baseline/` (the C++ CoolProp baseline), `release/` (the release artefacts) |
+| `scripts/` | `fetch-coolprop.sh`, `fetch-aga8.sh`, `fetch-optimized-routines.sh`, `check-toolchain.sh`, `target-dir.sh` (the shared target directories), `oracle/gen.py` (the fixture generator), `oracle/teqp.py` (GERG-2008's), `math/reference.py` (the maths reference values), `baseline/` (the C++ CoolProp baseline), `release/` (the release artefacts) |
 | `crates/phasekit-*` | the workspace: core, data, verify, xtask, compat, capi, wasm; py later |
 | `reference/` | gitignored: the CoolProp and AGA8 checkouts and local papers |
