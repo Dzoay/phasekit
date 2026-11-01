@@ -146,9 +146,9 @@ wasm32-wasip2 phasekit-diagram::refine 3
 x86_64-unknown-linux-gnu phasekit-diagram::regions 11
 wasm32-wasip2 phasekit-diagram::regions 11
 x86_64-unknown-linux-gnu phasekit-iapws::lib 10
-x86_64-unknown-linux-gnu phasekit-verify::iapws 16
+x86_64-unknown-linux-gnu phasekit-verify::iapws 25
 wasm32-wasip2 phasekit-iapws::lib 10
-wasm32-wasip2 phasekit-verify::iapws 15
+wasm32-wasip2 phasekit-verify::iapws 24
 x86_64-unknown-linux-gnu phasekit-humidair::lib 27
 x86_64-unknown-linux-gnu phasekit-verify::humidair 24
 wasm32-wasip2 phasekit-humidair::lib 27
