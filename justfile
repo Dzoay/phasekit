@@ -88,7 +88,7 @@ test *args:
 test-doc *args:
     cargo test --doc "$@"
 
-# The site's Vitest tests, after `just site`; `just test-site route`: the files matching "route"
+# The site's Vitest tests, after `just site`; `just test-site units`: the files matching "units"
 [group('test')]
 test-site *args:
     cd site && npx vitest run "$@"
