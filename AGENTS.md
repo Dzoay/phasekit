@@ -37,12 +37,13 @@ arbiter, show it red, implement, make all gates green, collapse the step to its 
 PR. If a step fails its gate in
 a way the plan did not foresee, stop and re-plan ([PLAN.md §0.4](docs/PLAN.md#04-when-a-step-fails-its-gate-stop-and-re-plan)).
 Do not start the next step in the same PR. `scripts/check-toolchain.sh` checks that the tools the gates need are
-installed. After editing `.github/workflows/`, run `actionlint` (no gate does) and fix what it reports.
+installed. `just` lists the `justfile`'s recipes for the gates, tests and tools (user decision JR1). After editing
+`.github/workflows/`, run `actionlint` (`just workflows`; no gate does) and fix what it reports.
 
 Gates are defined once in [PLAN.md §2.4](docs/PLAN.md#24-standard-gates) (G1-G9). Every shell command that runs
 cargo starts with `export CARGO_TARGET_DIR=$(scripts/target-dir.sh)`, which hands out one of a few target directories
 outside the repository that all sessions on the machine share (user decision SP4; the script says why it runs each
-time). Never make a target directory of your own.
+time); the `justfile`'s recipes do it themselves. Never make a target directory of your own.
 
 ## Git and GitHub
 
@@ -92,5 +93,6 @@ The rules are defined in [CONTRIBUTING.md](CONTRIBUTING.md). The ones agents get
 |---|---|
 | `docs/` | brief, decisions, architecture, plan, verification, rot register, dependencies, migration; `coolprop-map/` and `research/` (frozen evidence); `history/` (frozen, with the type sketch) |
 | `scripts/` | `fetch-coolprop.sh`, `fetch-aga8.sh`, `fetch-optimized-routines.sh`, `check-toolchain.sh`, `target-dir.sh` (the shared target directories), `oracle/gen.py` (the fixture generator), `oracle/teqp.py` (GERG-2008's), `math/reference.py` (the maths reference values), `baseline/` (the C++ CoolProp baseline), `release/` (the release artefacts) |
+| `justfile` | the recipes `just` lists: setup, builds, the gates one by one, tests, mutants, benches and tools |
 | `crates/phasekit-*` | the workspace: core, data, verify, xtask, compat, capi, wasm; py later |
 | `reference/` | gitignored: the CoolProp and AGA8 checkouts and local papers |

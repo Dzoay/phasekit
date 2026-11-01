@@ -8,7 +8,8 @@ here. A plan step follows the step loop of [PLAN.md §0.1](docs/PLAN.md#01-the-s
 1. Pick the next step in [docs/PLAN.md](docs/PLAN.md) (or an issue).
 2. Branch from an up-to-date `main`: `m3.2-power-oracle` for a plan step, `<type>/<slug>` otherwise.
 3. Write the failing test first, commit it, then make it pass ([PLAN.md §0.1](docs/PLAN.md#01-the-step-loop)).
-4. Run the standard gates locally ([PLAN.md §2.4](docs/PLAN.md#24-standard-gates)).
+4. Run the standard gates locally ([PLAN.md §2.4](docs/PLAN.md#24-standard-gates)): `just gates`, `just mutants` and
+   `just perf` (`just` lists the other recipes).
 5. Open a PR whose **title is a Conventional Commit**. It is squash-merged when CI is green.
 
 ## History: linear, one commit per PR

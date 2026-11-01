@@ -127,6 +127,13 @@ for bin in cmake g++; do
   fi
 done
 
+# The justfile's recipes (user decision JR1). CI calls the commands directly, so warn only.
+if command -v just >/dev/null 2>&1; then
+  ok "$(just --version)"
+else
+  warn "just: not found (runs the justfile's recipes; https://just.systems or the system package manager)"
+fi
+
 # Lints .github/workflows after an edit; no gate runs it, so warn only. actionlint runs shellcheck on each workflow's
 # `run:` scripts when shellcheck is on PATH, and skips them silently when it is not.
 if command -v actionlint >/dev/null 2>&1; then
