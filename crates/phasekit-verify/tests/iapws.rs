@@ -156,6 +156,124 @@ fn region_2_is_table_15() {
     assert_eq!(missed, Vec::<String>::new());
 }
 
+/// Arbiter: IAPWS R7-97(2012) §4, the T-p point the B23-equation must meet, (623.15 K, 16.5291643 MPa), both ways:
+/// Eq. (5)'s pressure at its T and Eq. (6)'s temperature at its p (PLAN.md M27.1).
+#[test]
+fn the_b23_line_meets_its_check_point() {
+    let table = table(fixture!("paper/Water/IAPWS-R7-97-2012.1.csv"));
+    let (t, p) = (table.value(0, "T").unwrap(), table.value(0, "p").unwrap() * 1e6);
+    let pressure = if97::b23_pressure(t).map_or(f64::NAN, |p| p / 1e6);
+    let temperature = if97::b23_temperature(p).unwrap_or(f64::NAN);
+    assert_eq!(misses(&table, 0, &[("p", pressure), ("T", temperature)]), Vec::<String>::new());
+}
+
+/// The B23 line is defined from 623.15 to 863.15 K, 16.5292 to 100 MPa (R7-97(2012) §4): outside, each way refuses.
+#[test]
+fn the_b23_line_refuses_outside_its_range() {
+    for t in [623.0, 863.2] {
+        assert!(matches!(if97::b23_pressure(t), Err(Error::Domain(_))), "{t} K");
+    }
+    for p in [16.5e6, 100.1e6] {
+        assert!(matches!(if97::b23_temperature(p), Err(Error::Domain(_))), "{p} Pa");
+    }
+    // Both ends belong to the line, and each equation inverts the other there as far as Table 1's 14 digits let them:
+    // in 40 digits, 1.6e-10 K at 623.15 K and 2.3e-13 of p at 100 MPa (`mpmath`, the session that wrote this test).
+    let p_min = if97::b23_pressure(623.15).unwrap();
+    assert!((if97::b23_temperature(p_min).unwrap() - 623.15).abs() < 1e-9);
+    assert!((if97::b23_pressure(if97::b23_temperature(100e6).unwrap()).unwrap() / 100e6 - 1.0).abs() < 1e-12);
+}
+
+/// Arbiter: IAPWS R7-97(2012) Table 42, region 5's v, h, u, s, c_p and w at (1500 K, 0.5 MPa), (1500 K, 30 MPa) and
+/// (2000 K, 30 MPa) (PLAN.md M27.1).
+#[test]
+fn region_5_is_table_42() {
+    let table = table(fixture!("paper/Water/IAPWS-R7-97-2012.42.csv"));
+    let mut missed = Vec::new();
+    for row in 0..table.rows().len() {
+        let (t, p) = (table.value(row, "T").unwrap(), table.value(row, "p").unwrap() * 1e6);
+        match if97::region5(t, p) {
+            Ok(state) => missed.extend(misses(&table, row, &printed_properties(&state))),
+            Err(e) => missed.push(format!("row {row}: {e}")),
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+}
+
+/// Region 5 is defined for any p > 0 (R7-97(2012) §9), which v8.0.0 refuses below 611.213 Pa (ROT-242). At 1 and
+/// 100 Pa its v, h, u, s, c_p and w are Eq. (32)'s, evaluated in 50 digits by `scripts/math/if97.py` (PLAN.md M27.1),
+/// within `Prop`.
+#[test]
+fn region_5_goes_below_611_pa() {
+    // v (m³/kg), h, u (J/kg), s, c_p (J/(kg K)), w (m/s), as the script prints them.
+    let reference: [(f64, f64, [f64; 6]); 2] = [
+        (
+            1500.0,
+            1.0,
+            [
+                692_288.999_972_511_4,
+                5_220_674.572_773_722,
+                4_528_385.572_801_21,
+                15_710.995_549_471_028,
+                2_614.216_653_171_444,
+                916.903_628_965_799_4,
+            ],
+        ),
+        (
+            2000.0,
+            100.0,
+            [
+                9_230.520_354_293_878,
+                6_588_466.694_012_86,
+                5_665_414.658_583_472_5,
+                14_371.009_386_344_016,
+                2_840.351_763_452_987_6,
+                1_049.827_287_132_459_8,
+            ],
+        ),
+    ];
+    let mut missed = Vec::new();
+    for (t, p, want) in reference {
+        let state = if97::region5(t, p).unwrap();
+        let got = [
+            1.0 / state.rho(Basis::Mass),
+            state.h(Basis::Mass),
+            state.u(Basis::Mass),
+            state.s(Basis::Mass),
+            state.cp(Basis::Mass).unwrap(),
+            state.speed_of_sound().unwrap(),
+        ];
+        for ((name, got), want) in ["v", "h", "u", "s", "cp", "w"].into_iter().zip(got).zip(want) {
+            let bound = ToleranceClass::Prop.bound(want.abs()).unwrap();
+            if (got - want).abs() > bound {
+                missed.push(format!("{t} K, {p} Pa, {name}: {got} against {want}"));
+            }
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+}
+
+/// Region 5's bounds (R7-97(2012) §9): 1073.15 ≤ T ≤ 2273.15 K and 0 < p ≤ 50 MPa; outside, `region5` refuses with
+/// the bound it crosses.
+#[test]
+fn region_5_refuses_outside_its_range() {
+    let refused = [(1073.0, 1e6), (2273.2, 1e6), (1500.0, 50.1e6), (1500.0, 0.0), (1500.0, f64::NAN)];
+    for (t, p) in refused {
+        assert!(if97::region5(t, p).is_err(), "{t} K, {p} Pa");
+    }
+    assert!(if97::region5(1073.15, 50e6).is_ok() && if97::region5(2273.15, 1e-3).is_ok());
+}
+
+/// Every region-5 state is above the critical temperature: supercritical above the critical pressure, 22.064 MPa,
+/// and a supercritical gas at or below it.
+#[test]
+fn region_5_states_are_supercritical() {
+    let phase = |p: f64| if97::region5(1500.0, p).unwrap().phase();
+    assert_eq!(
+        [phase(0.5e6), phase(22.064e6), phase(30e6)],
+        [Phase::SupercriticalGas, Phase::SupercriticalGas, Phase::Supercritical]
+    );
+}
+
 /// IF97 water's `Fluid` (PLAN.md M14.3; user decision HA4).
 fn water() -> Fluid {
     if97::water().unwrap()

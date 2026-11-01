@@ -1,0 +1,10 @@
+# fixture: paper/v1
+# source: iapws:R7-97(2012)/1
+# citation: report=IAPWS-R7-97(2012) table=1 page=6 erratum-checked=2026-11-01 pdf_sha256=c92f887e989cbf074af1fa982083dc54195d57691eab4fbc950ef6098d4cf1f4
+# kind: Rows
+# constants: p*=1 MPa T*=1 K; the T-p point printed below Table 1 that Eqs. (5) and (6), the B23-equation, must meet
+# transcribed: Claude session A; checked: Claude session B (separate agent)
+# columns: T,p
+# units: K,MPa
+# tol: paper,paper
+0.623150000e3,0.165291643e2

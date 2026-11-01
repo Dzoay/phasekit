@@ -1012,12 +1012,10 @@ public `Bundle` from φ's derivatives, and its transport through `ThermoModel`'s
 The oracle is v8.0.0's `IF97::Water` through `PropsSI`, the `if97` kind extended, under `Parity`. `Corrected` is held
 to the tables, and its differences from the oracle are bounded by register entries.
 
-- **M27.1 Region 5 and the B23 line.** `ci/core-frozen.txt` names `m27-start`. `if97::b23_pressure(t)` and
-  `b23_temperature(p)` (Eqs. (5) and (6), Table 1), 623.15 to 863.15 K and 16.5292 to 100 MPa. `if97::region5(t, p)`
-  (Eq. (32), Tables 37 and 38), one pass over its 6 + 6 terms (ROT-243), through `bundle_from_gibbs`, 1073.15 to
-  2273.15 K and 0 < p ≤ 50 MPa. v8.0.0 refuses below 611.213 Pa; phasekit does not (ROT-242's region-5 half).
-  *Red:* the B23 check point both ways and Table 42's 18 values within their printed digits; region 5 at 1 and 100 Pa
-  against `scripts/math/if97.py`, which gains region 5, in 50 digits.
+| Step | Landed |
+|---|---|
+| M27.1 | `if97::region5(t, p)` (Eq. (32), Tables 37 and 38), 1073.15 to 2273.15 K and 0 < p ≤ 50 MPa, a supercritical gas at or below p_c and supercritical above, below v8.0.0's 611.213 Pa as well; it shares `steam::Steam`, the γ⁰ + γ^r form evaluated in one pass over each part's terms (ROT-243), with region 2, whose values do not change. `if97::b23_pressure(t)` and `b23_temperature(p)` (Eqs. (5) and (6), Table 1), 623.15 to 863.15 K and 16.5292 to 100 MPa. Table 42 and the B23 check point double-entered (`paper/Water/IAPWS-R7-97-2012.{42,1}.csv`) and held within their printed digits; the two B23 equations invert each other to 1.6e-10 K at 623.15 K and 2.3e-13 of p at 100 MPa, as far as Table 1's digits allow. `scripts/math/if97.py` evaluates Eq. (32) in 50 digits from `region5.rs`'s coefficients, reproducing Table 42's 18 values, and region 5 at 1 and 100 Pa is within `Prop` of it |
+
 - **M27.2 Region 3's basic equation.** `if97::region3(rho, t)`: Eq. (28) with Table 30's 40 terms, φ and its δ- and
   τ-derivatives to order 2 in one pass, filling core's `Bundle` with IF97's R and ρ_c = 322 kg/m³, through
   `State::from_total`; T is checked against 623.15 K and the pressure is left to the `Fluid` (M27.4).
@@ -1089,7 +1087,7 @@ to the tables, and its differences from the oracle are bounded by register entri
 **Exit gate.** G1-G8 at every step; `gates core-frozen` since `m27-start`; every IAPWS table above within its printed
 digits under `Corrected`; the `if97` oracle under `Parity` within `Prop` (transport within `TransportDirect`), each
 difference a register entry; the conformance kit on IF97 water in both data sets; humid air's fixtures unchanged.
-**ROT rows.** M27.1: ROT-242 (region 5). M27.3: ROT-241. M27.5: ROT-240, ROT-244. M27.7: ROT-245. M27.9: ROT-275 (its
+**ROT rows.** M27.3: ROT-241. M27.4: ROT-242 (region 5). M27.5: ROT-240, ROT-244. M27.7: ROT-245. M27.9: ROT-275 (its
 IF97 part). **User decisions implemented.** SW1, SW2, HA5's names.
 
 ### M28 Error messages
