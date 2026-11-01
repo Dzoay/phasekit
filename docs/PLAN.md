@@ -207,7 +207,7 @@ Where things live, and the section that defines each. VERIFICATION.md uses the s
 
 ### 2.4 Standard gates
 
-This table is the one definition of G1-G9.
+This table is the one definition of G1-G9. The `justfile` runs each (`just g1` … `just g9`) and changes with it.
 
 | Gate | Command | Where it runs | From |
 |---|---|---|---|
