@@ -469,7 +469,7 @@ conformance kit (VERIFICATION.md §10) and, where marked, a **zero-line core dif
 v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
       ├─ M13 mixtures ────── M19 diagram geometry ── M26 more diagrams
       ├─ M14 ice, IF97 water ─ M18 humid air (its chart drawn at M21.11; M28 error messages before M18.11); M27 the
-      │    rest of IF97 on demand; M29 error remedies after M18
+      │    rest of IF97 (SW1); M29 error remedies after M18
       ├─ M21 site: M21.1-M21.10 landed; M21.11 and M21.12 after M18
       └─ M12 SIMD spike, M16 Python, M17 INCOMP; on demand: Tier B shim, WIT, network service, materials
 ```
@@ -492,7 +492,7 @@ v0.1 ─┬─ M11 cubic ───────── M15 PC-SAFT
 | M24 | compat, capi, wasm, mix, core | The user's word, 2026-10-18, before `v0.1.0` (user decision PH1) | Panics at the facades (issue #219): fault injection along every C export's path, the browser package's panic hook, and clippy's `indexing_slicing` and `arithmetic_side_effects` denied in the crates it reaches: [M24 Panics at the facades](#m24-panics-at-the-facades) | The fault-injection tests; clippy clean with both lints; `gates perf` |
 | M25 | xtask, `.gitattributes`, docs | The user's word, 2026-10-18, beside M24; its mutants step after `m24` (user decision LM6) | Lists that merge, kept as text (LM1): `ci/test-counts.txt` by a merge driver, ROT ids unique and the register merged by union, one file per decision section, mutant exclusions as markers in the code: [M25 Lists that merge](#m25-lists-that-merge) | Each step's red tests; G1-G8; `actionlint` clean |
 | M26 | `phasekit-diagram`, `phasekit-wasm`, `site/` | `m19` and M21.6 landed (the site draws from `phasekit-diagram`); the user's word (user decision DG6) | Three sets of diagrams beyond M19's planes, each computed by the library and drawn by the site: a fluid's p–v–T and u–s–v surfaces in three dimensions, drawn with three.js (user decisions DG7, DG8), characteristic curves and property maps on the planes, and three-component mixtures' ternary diagrams, the surfaces first (DG9): [M26 More diagrams](#m26-more-diagrams) | Every vertex a state the library computed; each set's arbiter; the browser package's and the page's budgets hold; tag `m26` |
-| M27 | `phasekit-iapws` | A steam use case (user decision HA1) | The rest of IF97: region 2 above 623.15 K with the B23 boundary, region 3 (SR3-03's backward v(T, p) refined by Newton, ROT-241) and region 5, the backward equations for HP, PS and HS, IF97's transport (R12-08, R15-11), and `IF97::Water` by name in compat, C and the browser package (HA5); map 07 §9's `if97-*` units | Zero-line core diff; R7-97(2012)'s other tables and SR3-03 Table 5; the `if97` oracle kind over all five regions |
+| M27 | `phasekit-iapws` | The user's word, 2026-11-01 (user decision SW1) | Everything v8.0.0's `IF97::Water` computes (SW2): region 2 above 623.15 K with the B23 boundary, region 3 (SR5-05's backward v(T, p), refined by Newton under `Corrected`, ROT-241) and region 5, the backward equations for HP, PS and HS (SR2-01, SR3-03, SR4-04), IF97's transport (R12-08, R15-11) and surface tension (R1-76), and `IF97::Water` by name in compat, C and the browser package (HA5); map 07 §9's `if97-*` units; nine steps: [M27 The rest of IF97](#m27-the-rest-of-if97) | Zero-line core diff; R7-97(2012)'s other tables and the supplementary releases' check tables; the `if97` oracle kind over all five regions and six pairs |
 | M28 | core, every crate that builds an `Error`, `phasekit-wasm`, `phasekit-compat`, `phasekit-capi`, `site/` | The user's word, 2026-10-21; M28.1 after M18.10 lands, before M18.11 (user decision EM5) | Issue #191: error messages in the caller's units and in two styles, a long one in words and a short one stating the relation the value breaks; each number tagged with its quantity, six significant figures, `InvalidInput` split from structural arguments, properties in words beside their keys, each error's stable code in core and the facades (user decisions EM1-EM4, EM6-EM13), three steps: [M28 Error messages](#m28-error-messages) | Every message pinned in both styles; a caller's units reach the browser package's messages; `m18-start` tagged at M28.1's merge; G1-G9 |
 | M29 | core, every crate that builds an `Error`, `phasekit-compat`, `phasekit-capi`, `phasekit-wasm`, `site/` | The user's word, 2026-10-23 (user decision EM14); its core steps after `m18` | Issue #290: the remedy for each refusal as stable codes and the nearest names to an unknown one (EM15), a value no state reaches named as unreachable with its bound, side and the pair's other input (EM16), the stalled solver's last iterate and residual (EM18, EM19), each refused point's error kept by a batch (EM17), and the wording fixes; seven steps: [M29 Error remedies](#m29-error-remedies) | Every new field pinned and in both styles where it is written; each bound a value the library reaches; a batch's errors the scalar flash's; G1-G9 |
 | — | Tier B shim | A host needs `AbstractState_*` | ~25 exports, generational handles (map 11 U11) | v8.0.0 signatures; fuzzed |
@@ -962,6 +962,135 @@ R407C's components.
 **Exit gate.** G1-G9 at every step; every vertex a state the library computed at its inputs (`Exact`), and each set's
 arbiter as its step states it; `gates deps` holds `phasekit-diagram` to core; the browser package's budgets and the
 page's hold. **ROT rows.** None. **User decisions implemented.** DG5-DG11.
+
+### M27 The rest of IF97
+
+**Goal.** Everything v8.0.0's `IF97::Water` computes, as the floor (user decisions SW1, SW2), in `phasekit-iapws` on
+core's public seams (D3, D10; ARCHITECTURE.md §11):
+- region 2 to 1073.15 K, bounded by the B23 line;
+- region 3's Helmholtz equation;
+- region 5, to 2273.15 K and 50 MPa;
+- the saturation line to the critical point;
+- the backward equations, so HP, PS and HS join PT, QT and PQ;
+- the industrial viscosity, thermal conductivity and surface tension;
+- the names `IF97::Water` and `IF97::H2O` in compat, C and the browser package, HA5's condition met.
+
+Each state comes through `State::from_total`: the Gibbs regions by `bundle_from_gibbs`, region 3 by filling core's
+public `Bundle` from φ's derivatives, and its transport through `ThermoModel`'s own methods. The core is not touched.
+
+**Data sets.** `if97::water(data_set)`; today's `water()` takes none, and humid air passes its own.
+- `Corrected` is exact to the basic equations. Region 3's density and every backward flash are closed by Newton on the
+  forward equation (ROT-241), and region 3's saturated sides are found from Eq. (28) at Eq. (30)'s pressure, as
+  R7-97(2012) §10.2 computes them.
+- `Parity` keeps v8.0.0's choices (user decision 2). Region 3's density comes from SR5-05's v(T, p) as is
+  (`REGION3_ITERATE` unset, about 1e-6; map 07 §3.1). The HP, PS and HS flashes take the backward T and p alone,
+  clipped 1 µK to their side of T_s (map 07 §3.1: h is 2.54 J/kg off its input at 500 K and 1 MPa).
+- Regions 1, 2 and 4 below 623.15 K stay as M14 built them in both data sets, so humid air's values do not move.
+
+**Entry.** The user's word, 2026-11-01 (SW1). The steps merge in order when green, in seven PRs, a commit and a
+`Plan-Step:` footer each: M27.1 and M27.2; M27.3; M27.4; M27.5; M27.6; M27.7; M27.8 and M27.9.
+
+**Prerequisites.** `m27-start` is tagged on this plan's merge commit with the user's approval. M27.1 names it in
+`ci/core-frozen.txt`, which has named no tag since M18.12. M27 does not move `MILESTONE`.
+
+**Arbiters.** All are free from IAPWS, so the crate's NOTICE carries their attribution. They are in
+`reference/papers/` and transcribed double-entered under `paper/Water/`, as M14's are:
+- R7-97(2012): Eqs. (5) and (6)'s check point (623.15 K, 16.5291643 MPa); Tables 7 and 9 (region 1's T(p, h) and
+  T(p, s)); Tables 24 and 29 (region 2a-2c's, with the B2bc check); Table 33 (region 3 at three (T, ρ)); Table 42
+  (region 5 at three (T, p)).
+- SR5-05(2016), region 3's v(T, p): Tables 3 and 11 (the subregions' dividing lines), Table 5 (subregions 3a-3t) and
+  Table 13 (the auxiliary 3u-3z near the critical point).
+- SR3-03(2014), region 3 from (p, h) and (p, s): Tables 5, 8, 12 and 15 (T and v of 3a and 3b), Tables 18 and 20
+  (p_3sat(h) and p_3sat(s)).
+- SR2-01(2014), p(h, s) for regions 1 and 2: Tables 3 and 9, and h_2ab(s).
+- SR4-04(2014): Table 5 (p(h, s) of 3a and 3b), Tables 11, 18 and 24 (the boundary equations h′₁(s), h′₃ₐ(s),
+  h″₂ₐᵦ(s), h″₂c₃ᵦ(s) and h_B13(s)), Table 26 (T_B23(h, s)) and Table 29 (T_sat(h, s)).
+- R12-08 Table 4: μ at 11 (T, ρ) with μ̄₂ = 1, the industrial form of its §3.
+- R15-11 Tables 7-9: the industrial λ in regions 1, 2 and 3 (§3.4).
+- R1-76(2014) Table 1's column 4: σ from its equation.
+
+The oracle is v8.0.0's `IF97::Water` through `PropsSI`, the `if97` kind extended, under `Parity`. `Corrected` is held
+to the tables, and its differences from the oracle are bounded by register entries.
+
+- **M27.1 Region 5 and the B23 line.** `ci/core-frozen.txt` names `m27-start`. `if97::b23_pressure(t)` and
+  `b23_temperature(p)` (Eqs. (5) and (6), Table 1), 623.15 to 863.15 K and 16.5292 to 100 MPa. `if97::region5(t, p)`
+  (Eq. (32), Tables 37 and 38), one pass over its 6 + 6 terms (ROT-243), through `bundle_from_gibbs`, 1073.15 to
+  2273.15 K and 0 < p ≤ 50 MPa. v8.0.0 refuses below 611.213 Pa; phasekit does not (ROT-242's region-5 half).
+  *Red:* the B23 check point both ways and Table 42's 18 values within their printed digits; region 5 at 1 and 100 Pa
+  against `scripts/math/if97.py`, which gains region 5, in 50 digits.
+- **M27.2 Region 3's basic equation.** `if97::region3(rho, t)`: Eq. (28) with Table 30's 40 terms, φ and its δ- and
+  τ-derivatives to order 2 in one pass, filling core's `Bundle` with IF97's R and ρ_c = 322 kg/m³, through
+  `State::from_total`; T is checked against 623.15 K and the pressure is left to the `Fluid` (M27.4).
+  *Red:* Table 33's 18 values (p, h, u, s, c_p and w at three (T, ρ)) within their printed digits;
+  `scripts/math/if97.py` gains region 3, and the function matches it to rounding at 20 states across the region.
+- **M27.3 Region 3's density from (T, p).** SR5-05(2016)'s v(T, p): its dividing lines (Tables 1 and 9), subregions
+  3a-3t and the auxiliary 3u-3z (Tables 4 and 12, the coefficients in its Appendix A1), each (T, p) classified once.
+  `if97::region3_pt(t, p, data_set)`: under `Parity` the backward volume as is; under `Corrected` the volume refined by
+  Newton on Eq. (28)'s p(ρ, T), starting from it (ROT-241).
+  *Red:*
+  - SR5-05 Tables 3, 5, 11 and 13 within their printed digits;
+  - `Corrected`'s p(ρ, T) gives back its input within 4 ulp at those states, and Table 33's states come back from
+    their own (T, p);
+  - `Corrected` lies within SR5-05's permitted inconsistency of `Parity`;
+  - `Parity`'s ρ is v8.0.0's at 25 region-3 states (oracle, `Prop`).
+- **M27.4 IF97 water over all five regions.** `if97::water(data_set)`, its callers (humid air, the facades) passing
+  theirs. PT's region is classified once: Eq. (30), B23 and the 1073.15 K line; region 5 above 50 MPa is refused as
+  `AboveMaxPressure`. QT and PQ reach the critical point, region 3's saturated sides as the data set says. The
+  `Limits` are T 273.15 to 2273.15 K and p to 100 MPa. Only PT, QT and PQ are declared until M27.5.
+  *Red:*
+  - the `if97` kind over all five regions (regenerated, its config's grid extended across region 3, region 5 and the
+    saturation line to 647.09 K) within `Prop` under `Parity`, each refusal v8.0.0's or a register entry;
+  - `Corrected` against Tables 15, 33 and 42 through the `Fluid`;
+  - the conformance kit (`identities`, `policy_equivalence`, `gauge_invariance`) on IF97 water in both data sets;
+  - region 5 below 611.213 Pa through the `Fluid` (ROT-242 ticked).
+- **M27.5 HP and PS.** R7-97's T(p, h) and T(p, s) for region 1 and subregions 2a-2c (B2bc, Eqs. (20) and (21)), and
+  SR3-03's T and v of 3a and 3b, split by h_3ab(p) and s_c, as backward functions. The HP and PS flashes classify the
+  region once from p and h or s against the saturated sides' h and s at T_s(p). Two-phase states come by the lever
+  rule. Each point is classified once (ROT-244). Above p_c region 3 is reached as everywhere else; v8.0.0 refuses it
+  (ROT-240). The data sets close the state as above.
+  *Red:*
+  - Tables 7, 9, 24 and 29, and SR3-03 Tables 5, 8, 12 and 15, within their printed digits;
+  - `Corrected`: h or s of the state is its input within 4 ulp, at 200 states across the five regions;
+  - `Parity`: the `if97` kind gains HP and PS rows, v8.0.0's within `Prop`;
+  - the region-3 states above p_c that v8.0.0 refuses are SR3-03 Table 5's (ROT-240 ticked).
+- **M27.6 HS.** SR2-01's p(h, s) for region 1 and 2a-2c (h_2ab(s), Tables 2 and 5-8), SR4-04's p(h, s) of 3a and 3b
+  (Tables 3 and 4) and its boundary equations, with SR4-04 Table 2's criteria finding the region from (h, s). The
+  two-phase states for s ≥ s″(623.15 K) take T_sat(h, s) (Eq. (9)). Below it, where v8.0.0 refuses
+  (`Entropy out of range`), both data sets solve the lever rule in T, as below the 611.213 Pa line (ROT-242's rule).
+  *Red:*
+  - SR2-01 Tables 3 and 9, and SR4-04 Tables 5, 11, 18, 24, 26 and 29, within their printed digits;
+  - `Corrected`: h and s of the state are its inputs within 4 ulp;
+  - `Parity`: HS rows in the `if97` kind;
+  - the molar pair through compat (map 07 R1; ROT-007's guard) is the mass pair's state.
+- **M27.7 Transport and surface tension.** One module for every region (ROT-245), as IF97 water's `ThermoModel`
+  `viscosity`, `conductivity` and `surface_tension`:
+  - μ: R12-08 with μ̄₂ = 1 at the state's own density;
+  - λ: R15-11's industrial form, Eq. (25)'s ζ(T_R, ρ) from Table 6 and the critical term from the state's c_p, c_v and
+    (∂ρ/∂p)_T;
+  - σ: R1-76(2014);
+  - the two-phase states' μ, λ and Pr refused, as v8.0.0 does.
+
+  *Red:* R12-08 Table 4, R15-11 Tables 7-9 and R1-76 Table 1's column 4 within their printed digits; the `if97` kind
+  gains V, L, I and Prandtl, v8.0.0's within `TransportDirect` (ROT-245 ticked).
+- **M27.8 `IF97::Water` by name.** `phasekit_iapws::with_if97(registry, data_set)`: a resolver, as phasekit-mix's
+  names are, for `IF97::Water` and `IF97::H2O` (ASCII case-insensitive, as v8.0.0's factory). It is wired into compat's
+  `PropsSI` and `Props1SI` (the trivial outputs), the `pk_*` registries and the shim's `PropsSI` (C), and the browser
+  package's registry. v8.0.0's Tmax of 1073.15 K, where region 5 reaches 2273.15 K, is a register entry.
+  *Red:*
+  - the `if97` kind's rows through each facade's strings are the direct API's bit for bit;
+  - the trivial outputs against the oracle;
+  - the C smoke test and Node on both builds reach `IF97::Water`;
+  - MIGRATION.md's IF97 section.
+- **M27.9 M27 closed.** Every M27 proof due and present. ROT-240 to ROT-245 and ROT-275's IF97 part ticked. The core
+  unchanged since `m27-start`, and `ci/core-frozen.txt` naming no tag. ARCHITECTURE.md's crate table and §11 and the
+  README name the five regions. `benches/iapws.rs` gains region 3, region 5 and HP, recorded beside map 07's v8.0.0
+  costs (PT + h 1.19 µs). Tag `m27` with the user's approval.
+
+**Exit gate.** G1-G8 at every step; `gates core-frozen` since `m27-start`; every IAPWS table above within its printed
+digits under `Corrected`; the `if97` oracle under `Parity` within `Prop` (transport within `TransportDirect`), each
+difference a register entry; the conformance kit on IF97 water in both data sets; humid air's fixtures unchanged.
+**ROT rows.** M27.1: ROT-242 (region 5). M27.3: ROT-241. M27.5: ROT-240, ROT-244. M27.7: ROT-245. M27.9: ROT-275 (its
+IF97 part). **User decisions implemented.** SW1, SW2, HA5's names.
 
 ### M28 Error messages
 
