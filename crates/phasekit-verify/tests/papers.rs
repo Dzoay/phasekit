@@ -125,6 +125,7 @@ const PAPERS: &[(Text, Text)] = &[
     ),
     (fixture!("paper/Water/IAPWS-R7-97-2012.15.csv"), fixture!("paper/Water/IAPWS-R7-97-2012.15.check.csv")),
     (fixture!("paper/Water/IAPWS-R7-97-2012.1.csv"), fixture!("paper/Water/IAPWS-R7-97-2012.1.check.csv")),
+    (fixture!("paper/Water/IAPWS-R7-97-2012.33.csv"), fixture!("paper/Water/IAPWS-R7-97-2012.33.check.csv")),
     (fixture!("paper/Water/IAPWS-R7-97-2012.42.csv"), fixture!("paper/Water/IAPWS-R7-97-2012.42.check.csv")),
     (fixture!("paper/Water/IAPWS-R7-97-2012.35.csv"), fixture!("paper/Water/IAPWS-R7-97-2012.35.check.csv")),
     (fixture!("paper/Water/IAPWS-R7-97-2012.36.csv"), fixture!("paper/Water/IAPWS-R7-97-2012.36.check.csv")),

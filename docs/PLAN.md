@@ -1015,12 +1015,8 @@ to the tables, and its differences from the oracle are bounded by register entri
 | Step | Landed |
 |---|---|
 | M27.1 | `if97::region5(t, p)` (Eq. (32), Tables 37 and 38), 1073.15 to 2273.15 K and 0 < p ≤ 50 MPa, a supercritical gas at or below p_c and supercritical above, below v8.0.0's 611.213 Pa as well; it shares `steam::Steam`, the γ⁰ + γ^r form evaluated in one pass over each part's terms (ROT-243), with region 2, whose values do not change. `if97::b23_pressure(t)` and `b23_temperature(p)` (Eqs. (5) and (6), Table 1), 623.15 to 863.15 K and 16.5292 to 100 MPa. Table 42 and the B23 check point double-entered (`paper/Water/IAPWS-R7-97-2012.{42,1}.csv`) and held within their printed digits; the two B23 equations invert each other to 1.6e-10 K at 623.15 K and 2.3e-13 of p at 100 MPa, as far as Table 1's digits allow. `scripts/math/if97.py` evaluates Eq. (32) in 50 digits from `region5.rs`'s coefficients, reproducing Table 42's 18 values, and region 5 at 1 and 100 Pa is within `Prop` of it |
+| M27.2 | `if97::region3(rho, t)` (Eq. (28), Table 30's 40 terms), φ's derivatives accumulated straight into core's scaled `Bundle` in one pass (n₁ ln δ adds A00 and ±n₁ to A01 and A02), through `State::from_total` with IF97's R and ρ_c = 322 kg/m³; 623.15 to 863.15 K, the pressure left to the `Fluid`; the phase by T and p against the critical point, and below both by ρ against ρ_c. Table 33 double-entered (`paper/Water/IAPWS-R7-97-2012.33.csv`) and held within its printed digits. `scripts/math/if97.py` gains Eq. (28) in 50 digits, reproducing Table 33's 18 values, and checks that 20 states lie inside region 3 (B23 to 100 MPa, a single phase below T_c); the function is within `Prop` of them, c_p on the critical isotherm at 300 and 350 kg/m³ (1.4e-11 and 1.4e-12 off) within its near-critical window |
 
-- **M27.2 Region 3's basic equation.** `if97::region3(rho, t)`: Eq. (28) with Table 30's 40 terms, φ and its δ- and
-  τ-derivatives to order 2 in one pass, filling core's `Bundle` with IF97's R and ρ_c = 322 kg/m³, through
-  `State::from_total`; T is checked against 623.15 K and the pressure is left to the `Fluid` (M27.4).
-  *Red:* Table 33's 18 values (p, h, u, s, c_p and w at three (T, ρ)) within their printed digits;
-  `scripts/math/if97.py` gains region 3, and the function matches it to rounding at 20 states across the region.
 - **M27.3 Region 3's density from (T, p).** SR5-05(2016)'s v(T, p): its dividing lines (Tables 1 and 9), subregions
   3a-3t and the auxiliary 3u-3z (Tables 4 and 12, the coefficients in its Appendix A1), each (T, p) classified once.
   `if97::region3_pt(t, p, data_set)`: under `Parity` the backward volume as is; under `Corrected` the volume refined by

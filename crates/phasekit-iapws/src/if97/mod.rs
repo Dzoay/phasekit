@@ -1,11 +1,13 @@
 //! IAPWS-IF97, the industrial formulation for water and steam (IAPWS R7-97(2012)): region 1 (the liquid), region 2
-//! (the vapour), region 4 (the saturation line), region 5 (the high-temperature steam) and the B23 line between
-//! regions 2 and 3, and IF97 water as a `Fluid` below 623.15 K (PLAN.md M14.2, M14.3, M27.1).
+//! (the vapour), region 3 (near the critical point), region 4 (the saturation line), region 5 (the high-temperature
+//! steam) and the B23 line between regions 2 and 3, and IF97 water as a `Fluid` below 623.15 K (PLAN.md M14.2, M14.3,
+//! M27.1, M27.2).
 
-use phasekit_core::{DomainError, Error, ModelKey, Phase, Quantity, State, bundle_from_gibbs, math};
+use phasekit_core::{Basis, DomainError, Error, ModelKey, Phase, Quantity, State, bundle_from_gibbs, math};
 
 mod region1;
 mod region2;
+mod region3;
 mod region4;
 mod region5;
 mod steam;
@@ -22,9 +24,10 @@ pub const MOLAR_MASS: f64 = 0.018_015_268;
 /// The key of every IF97 state (`State::key`).
 pub const KEY: ModelKey = ModelKey::from_content(b"IAPWS-IF97 R7-97(2012) water, regions 1, 2 and 4");
 
-/// The critical point IF97 states, K and Pa (Eqs. (2) and (3)).
+/// The critical point IF97 states, K, Pa and kg/m³ (Eqs. (2) to (4)).
 const T_C: f64 = 647.096;
 const P_C: f64 = 22.064e6;
+const RHO_C: f64 = 322.0;
 
 /// Region 1's bounds: 273.15 K ≤ T ≤ 623.15 K, p ≤ 100 MPa (§5's range of validity).
 const T_MIN: f64 = 273.15;
@@ -83,6 +86,25 @@ pub fn region2(t: f64, p: f64) -> Result<State, Error> {
         (true, true) => Phase::Supercritical,
     };
     State::from_total(KEY, t, rho, r, MOLAR_MASS, phase, &bundle)
+}
+
+/// The state of region 3 at density `rho` (kg/m³) and `t` (K), from Eq. (28): φ's bundle, through
+/// `State::from_total`. Its temperatures are region 3's, 623.15 K to 863.15 K, where the B23 line meets 100 MPa; its
+/// pressure, between the B23 line and 100 MPa (§7), is the `Fluid`'s to check, since a density alone does not know it.
+/// The phase is labelled by T and p against the critical point, and below both by ρ against ρ_c.
+pub fn region3(rho: f64, t: f64) -> Result<State, Error> {
+    let (rho, t) = (positive(Quantity::density(Basis::Mass), rho)?, positive(Quantity::TEMPERATURE, t)?);
+    within_t(t, T_MAX_1, B23_T_MAX)?;
+    let bundle = region3::evaluate(rho, t);
+    let p = rho * R * t * bundle.a01;
+    let phase = match (t > T_C, p > P_C) {
+        (true, true) => Phase::Supercritical,
+        (true, false) => Phase::SupercriticalGas,
+        (false, true) => Phase::SupercriticalLiquid,
+        (false, false) if rho > RHO_C => Phase::Liquid,
+        (false, false) => Phase::Gas,
+    };
+    State::from_total(KEY, t, rho / MOLAR_MASS, R * MOLAR_MASS, MOLAR_MASS, phase, &bundle)
 }
 
 /// The state of region 5, the high-temperature steam, at `t` (K) and `p` (Pa), from Eq. (32) through core's

@@ -14,7 +14,7 @@ use phasekit_core::{
 use phasekit_iapws::if97;
 use phasekit_verify::conformance::{Outcome, capability_matrix, gauge_invariance, identities, policy_equivalence};
 use phasekit_verify::register::{RowKey, exempt_row};
-use phasekit_verify::{Cell, DIVERGENCES, Fixture, Kind, ToleranceClass, fixture};
+use phasekit_verify::{Cell, DIVERGENCES, Fixture, Kind, ToleranceClass, Window, fixture};
 
 /// The table at `path`, parsed.
 fn table((path, text): (&'static str, &'static str)) -> Fixture<'static> {
@@ -272,6 +272,317 @@ fn region_5_states_are_supercritical() {
         [phase(0.5e6), phase(22.064e6), phase(30e6)],
         [Phase::SupercriticalGas, Phase::SupercriticalGas, Phase::Supercritical]
     );
+}
+
+/// Arbiter: IAPWS R7-97(2012) Table 33, region 3's p, h, u, s, c_p and w at (650 K, 500 kg/m³), (650 K, 200 kg/m³)
+/// and (750 K, 500 kg/m³), from Eq. (28)'s bundle through `State::from_total` (PLAN.md M27.2).
+#[test]
+fn region_3_is_table_33() {
+    let table = table(fixture!("paper/Water/IAPWS-R7-97-2012.33.csv"));
+    let mut missed = Vec::new();
+    for row in 0..table.rows().len() {
+        let (t, rho) = (table.value(row, "T").unwrap(), table.value(row, "rho").unwrap());
+        match if97::region3(rho, t) {
+            Ok(state) => {
+                let mut values = printed_properties(&state);
+                values[0] = ("p", state.p() / 1e6);
+                missed.extend(misses(&table, row, &values));
+            }
+            Err(e) => missed.push(format!("row {row}: {e}")),
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+}
+
+/// `scripts/math/if97.py`'s region-3 states (T in K, ρ in kg/m³) and their p (Pa), h, u (J/kg), s, c_p (J/(kg K)) and
+/// w (m/s), as it prints them (PLAN.md M27.2).
+const REGION_3_IN_50_DIGITS: [(f64, f64, [f64; 6]); 20] = [
+    (
+        623.15,
+        600.0,
+        [
+            19_891_144.217_076_052,
+            1_646_568.909_422_533_1,
+            1_613_417.002_394_073_2,
+            3_730.124_010_736_243_7,
+            8_149.264_062_299_549,
+            662.245_536_137_369_6,
+        ],
+    ),
+    (
+        623.15,
+        650.0,
+        [
+            31_907_233.571_489_602,
+            1_604_149.013_249_826,
+            1_555_060.961_601_380_5,
+            3_631.320_002_051_432,
+            6_224.265_107_563_121,
+            829.527_324_532_063_1,
+        ],
+    ),
+    (
+        630.0,
+        600.0,
+        [
+            24_694_130.045_995_723,
+            1_675_354.972_923_423_9,
+            1_634_198.089_513_430_8,
+            3_763.290_876_389_496_6,
+            7_740.797_708_660_933,
+            688.714_106_393_375_7,
+        ],
+    ),
+    (
+        630.0,
+        700.0,
+        [
+            60_592_337.176_677_13,
+            1_602_304.290_039_218_7,
+            1_515_743.808_358_251_4,
+            3_560.726_383_613_217,
+            5_200.914_259_880_592,
+            1_020.727_130_291_262_1,
+        ],
+    ),
+    (
+        640.0,
+        150.0,
+        [
+            19_750_722.501_476_873,
+            2_491_057.050_515_988,
+            2_359_385.567_172_809,
+            5_056.960_268_655_095,
+            23_681.816_716_703_885,
+            409.192_278_840_570_4,
+        ],
+    ),
+    (
+        640.0,
+        170.0,
+        [
+            20_166_514.781_295_92,
+            2_419_449.902_848_415_5,
+            2_300_823.345_311_380_5,
+            4_940.984_180_109_268,
+            41_072.505_425_003_86,
+            387.693_795_965_315_5,
+        ],
+    ),
+    (
+        647.096,
+        300.0,
+        [
+            22_063_313.626_575_503,
+            2_126_150.505_276_826,
+            2_052_606.126_521_574_6,
+            4_471.681_729_943_823,
+            4_931_815.188_569_455,
+            319.548_367_862_814_8,
+        ],
+    ),
+    (
+        647.096,
+        350.0,
+        [
+            22_065_722.395_693_168,
+            2_043_137.535_277_524_3,
+            1_980_092.614_146_972_3,
+            4_343.385_101_008_246,
+            2_140_800.665_291_94,
+            313.921_056_946_756_55,
+        ],
+    ),
+    (
+        647.096,
+        400.0,
+        [
+            22_129_968.315_376_66,
+            1_973_184.533_615_765_4,
+            1_917_859.612_827_323_8,
+            4_235.023_786_860_205,
+            133_931.730_632_313_96,
+            335.165_758_892_197_3,
+        ],
+    ),
+    (
+        647.096,
+        500.0,
+        [
+            24_173_740.162_788_01,
+            1_851_287.040_157_812_9,
+            1_802_939.559_832_236_7,
+            4_039.897_106_073_956_4,
+            14_846.365_773_405_376,
+            488.589_772_706_318_3,
+        ],
+    ),
+    (
+        647.096,
+        600.0,
+        [
+            36_935_919.715_554_27,
+            1_746_613.615_585_349,
+            1_685_053.749_392_758_6,
+            3_842.942_908_745_865,
+            6_989.868_636_026_705,
+            743.926_591_879_638_9,
+        ],
+    ),
+    (
+        660.0,
+        250.0,
+        [
+            24_903_935.465_578_057,
+            2_295_409.599_895_67,
+            2_195_793.858_033_357_7,
+            4_714.874_983_886_921,
+            47_948.471_276_016_57,
+            379.397_569_247_890_4,
+        ],
+    ),
+    (
+        660.0,
+        450.0,
+        [
+            27_786_405.176_455_15,
+            1_965_742.078_818_864,
+            1_903_994.511_760_074_9,
+            4_203.372_120_686_825,
+            18_496.791_539_732_716,
+            456.169_735_808_746_9,
+        ],
+    ),
+    (
+        700.0,
+        300.0,
+        [
+            35_865_421.467_688_02,
+            2_363_803.951_608_028_3,
+            2_244_252.546_715_735,
+            4_757.076_227_896_314,
+            15_263.476_914_446_024,
+            466.280_298_685_919_1,
+        ],
+    ),
+    (
+        700.0,
+        400.0,
+        [
+            41_063_748.089_095_555,
+            2_197_168.462_703_736,
+            2_094_509.092_480_997,
+            4_497.871_815_659_144,
+            12_223.957_701_608_342,
+            519.301_219_078_149_6,
+        ],
+    ),
+    (
+        700.0,
+        500.0,
+        [
+            51_299_552.105_968_12,
+            2_064_960.747_565_701,
+            1_962_361.643_353_764_7,
+            4_276.877_705_201_055,
+            8_024.093_982_096_447,
+            653.902_433_058_547_4,
+        ],
+    ),
+    (
+        700.0,
+        600.0,
+        [
+            76_083_465.672_208_7,
+            1_962_677.146_415_185,
+            1_835_871.370_294_837,
+            4_067.056_429_500_978_5,
+            5_744.593_351_298_259,
+            876.211_309_248_404_4,
+        ],
+    ),
+    (
+        800.0,
+        400.0,
+        [
+            79_372_866.105_196_07,
+            2_572_225.356_097_83,
+            2_373_793.190_834_84,
+            4_871.390_134_752_187,
+            6_288.556_405_823_818,
+            700.435_944_795_085_3,
+        ],
+    ),
+    (
+        850.0,
+        400.0,
+        [
+            98_709_923.128_462_21,
+            2_749_220.339_278_856_3,
+            2_502_445.531_457_700_8,
+            5_027.406_163_197_728,
+            5_394.701_781_923_866,
+            766.141_995_116_98,
+        ],
+    ),
+    (
+        860.0,
+        390.0,
+        [
+            99_711_360.300_089_75,
+            2_797_742.935_843_928,
+            2_542_072.781_228_313,
+            5_081.193_740_663_229,
+            5_296.056_520_661_786,
+            766.442_371_903_215,
+        ],
+    ),
+];
+
+/// Region 3's p, h, u, s, c_p and w at 20 states inside it (between the B23 line and 100 MPa, and below T_c a single
+/// phase), Eq. (28) evaluated in 50 digits by `scripts/math/if97.py` from `region3.rs`'s coefficients, within `Prop`
+/// with §5's floors (R·T for an energy, R for an entropy or a heat capacity) and its near-critical window, where c_p's
+/// denominator cancels: on the critical isotherm at 300 and 350 kg/m³ it is 1.4e-11 and 1.4e-12 off (PLAN.md M27.2).
+#[test]
+fn region_3_is_eq_28_in_50_digits() {
+    let mut missed = Vec::new();
+    for (t, rho, want) in REGION_3_IN_50_DIGITS {
+        let state = if97::region3(rho, t).unwrap();
+        let got = [
+            state.p(),
+            state.h(Basis::Mass),
+            state.u(Basis::Mass),
+            state.s(Basis::Mass),
+            state.cp(Basis::Mass).unwrap(),
+            state.speed_of_sound().unwrap(),
+        ];
+        let floors = [0.0, if97::R * t, if97::R * t, if97::R, if97::R, 0.0];
+        let window = Window::at(t, rho, 647.096, 322.0);
+        for (((name, got), want), floor) in ["p", "h", "u", "s", "cp", "w"].into_iter().zip(got).zip(want).zip(floors) {
+            let bound = ToleranceClass::Prop.bound_in(want.abs().max(floor), window).unwrap();
+            if (got - want).abs() > bound {
+                missed.push(format!("{t} K, {rho} kg/m³, {name}: {got} against {want}"));
+            }
+        }
+    }
+    assert_eq!(missed, Vec::<String>::new());
+}
+
+/// Region 3's temperatures (R7-97(2012) §7): 623.15 K to 863.15 K, where the B23 line meets 100 MPa; outside, or at
+/// a density that is not positive, `region3` refuses. Its phase is labelled by T and p against the critical point,
+/// and below both by ρ against ρ_c.
+#[test]
+fn region_3_refuses_outside_its_temperatures_and_labels_phases() {
+    for (rho, t) in [(500.0, 623.0), (500.0, 863.2), (0.0, 650.0), (f64::NAN, 650.0)] {
+        assert!(if97::region3(rho, t).is_err(), "{rho} kg/m³, {t} K");
+    }
+    assert!(if97::region3(600.0, 623.15).is_ok() && if97::region3(390.0, 863.15).is_ok());
+    let phase = |rho: f64, t: f64| if97::region3(rho, t).unwrap().phase();
+    assert_eq!(
+        [phase(500.0, 750.0), phase(80.0, 680.0), phase(650.0, 640.0), phase(600.0, 623.15)],
+        [Phase::Supercritical, Phase::SupercriticalGas, Phase::SupercriticalLiquid, Phase::Liquid,]
+    );
+    assert_eq!(phase(150.0, 640.0), Phase::Gas);
 }
 
 /// IF97 water's `Fluid` (PLAN.md M14.3; user decision HA4).
