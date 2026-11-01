@@ -1,14 +1,8 @@
 //! Region 2, the vapour: γ(π, τ) = γ⁰ + γ^r with γ⁰ = ln π + Σ n⁰ᵢ τ^J⁰ᵢ (IAPWS R7-97(2012) Eq. (16), Table 10) and
 //! γ^r = Σ nᵢ π^Iᵢ (τ − 0.5)^Jᵢ (Eq. (17), Table 11), π = p/p* and τ = T*/T, and their derivatives to order 2
-//! (Tables 13 and 14) from one pass over each part's terms (ROT-243).
+//! (Tables 13 and 14), evaluated in the form region 5 shares (`steam`).
 
-use phasekit_core::{GibbsDerivs, math};
-
-use super::{MOLAR_MASS, R};
-
-/// p*, Pa, and T*, K (Eqs. (16) and (17)).
-const P_STAR: f64 = 1e6;
-const T_STAR: f64 = 540.0;
+use super::steam::Steam;
 
 /// Table 10: (J⁰ᵢ, n⁰ᵢ), with n⁰₁ and n⁰₂ the values for Eq. (16) itself, not those of the metastable-vapour
 /// Eq. (18).
@@ -71,46 +65,5 @@ const RESIDUAL: [(i32, i32, f64); 43] = [
     (24, 58, -0.943_697_072_412_10e-6),
 ];
 
-/// γ and γ_π, γ_ππ, γ_τ, γ_ττ, γ_πτ at (π, τ): γ⁰'s (Table 13), whose π-part is ln π alone, plus γ^r's (Table 14),
-/// each residual term n π^I y^J (y = τ − 0.5 > 0 in the region) entering them divided by π and y as its exponents ask.
-fn gamma(pi: f64, tau: f64) -> [f64; 6] {
-    let mut out = [math::ln(pi), 1.0 / pi, -1.0 / (pi * pi), 0.0, 0.0, 0.0];
-    for &(j, n) in &IDEAL {
-        let (term, fj) = (n * math::powi(tau, j), f64::from(j));
-        out[0] += term;
-        out[3] += fj * term / tau;
-        out[4] += fj * (fj - 1.0) * term / (tau * tau);
-    }
-    let y = tau - 0.5;
-    for &(i, j, n) in &RESIDUAL {
-        let term = n * math::powi(pi, i) * math::powi(y, j);
-        let (fi, fj) = (f64::from(i), f64::from(j));
-        let parts = [
-            term,
-            fi * term / pi,
-            fi * (fi - 1.0) * term / (pi * pi),
-            fj * term / y,
-            fj * (fj - 1.0) * term / (y * y),
-            fi * fj * term / (pi * y),
-        ];
-        for (sum, part) in out.iter_mut().zip(parts) {
-            *sum += part;
-        }
-    }
-    out
-}
-
-/// The molar Gibbs energy at `t` (K) and `p` (Pa) and its five derivatives, as region 1's (`region1::evaluate`).
-pub(super) fn evaluate(t: f64, p: f64) -> GibbsDerivs {
-    let (pi, tau) = (p / P_STAR, T_STAR / t);
-    let [g, g_pi, g_pipi, g_tau, g_tautau, g_pitau] = gamma(pi, tau);
-    let r = R * MOLAR_MASS;
-    GibbsDerivs {
-        g: r * t * g,
-        g_t: r * (g - tau * g_tau),
-        g_p: r * t * g_pi / P_STAR,
-        g_tt: r * tau * tau * g_tautau / t,
-        g_tp: r * (g_pi - tau * g_pitau) / P_STAR,
-        g_pp: r * t * g_pipi / (P_STAR * P_STAR),
-    }
-}
+/// Region 2: p* = 1 MPa, T* = 540 K and τ₀ = 0.5 (Eqs. (16) and (17)).
+pub(super) const REGION2: Steam = Steam { p_star: 1e6, t_star: 540.0, tau_0: 0.5, ideal: &IDEAL, residual: &RESIDUAL };
